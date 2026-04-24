@@ -1,0 +1,20 @@
+[Unit]
+Description=resmon research-monitor headless daemon
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory={{WORKDIR}}
+Environment=PYTHONPATH={{WORKDIR}}
+# Augment PATH so subprocess lookups (notably xelatex/pdflatex for
+# routine-fired execution PDF bundles) can find binaries that systemd's
+# default minimal PATH does not include.
+Environment=PATH=/usr/local/texlive/2024/bin/x86_64-linux:/usr/local/texlive/2023/bin/x86_64-linux:/usr/local/bin:/usr/bin:/bin
+ExecStart={{PYTHON}} -m implementation_scripts.daemon {{PORT}}
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:{{LOG_DIR}}/resmon-daemon.out.log
+StandardError=append:{{LOG_DIR}}/resmon-daemon.err.log
+
+[Install]
+WantedBy=default.target

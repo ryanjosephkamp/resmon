@@ -1,0 +1,39 @@
+# Reference fly.io deployment manifest for resmon-cloud.
+# This file is intentionally minimal — it is the deployment target of record
+# per ADQ-9 / §7.1 of resmon_routines_and_accounts.md. Real secrets are
+# supplied via `fly secrets set` and never committed here.
+
+app = "resmon-cloud"
+primary_region = "iad"
+
+[build]
+  dockerfile = "resmon_scripts/cloud_deploy/Dockerfile"
+
+[env]
+  LOG_LEVEL = "INFO"
+  # DATABASE_URL, JWT_ISSUER, JWT_AUDIENCE, JWKS_URL, OBJECT_STORE_ENDPOINT,
+  # OBJECT_STORE_BUCKET, KMS_KEY_ID, ALLOWED_ORIGINS, REDIS_URL
+  # are set via `fly secrets set` at deploy time.
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/api/v2/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

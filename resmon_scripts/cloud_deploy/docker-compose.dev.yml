@@ -1,0 +1,65 @@
+# Development compose file for resmon-cloud.
+# Brings up Postgres 15 + MinIO + the FastAPI service so that
+# `curl http://localhost:8080/api/v2/health` returns 200 (V-B1).
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: resmon
+      POSTGRES_USER: resmon
+      POSTGRES_PASSWORD: resmon_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - resmon_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U resmon -d resmon"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: resmon_dev
+      MINIO_ROOT_PASSWORD: resmon_dev_secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - resmon_miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  service:
+    build:
+      context: ../..
+      dockerfile: resmon_scripts/cloud_deploy/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql+psycopg://resmon:resmon_dev@db:5432/resmon"
+      OBJECT_STORE_ENDPOINT: "http://minio:9000"
+      OBJECT_STORE_BUCKET: "resmon-artifacts"
+      # Placeholder values for the skeleton stage — real values are injected
+      # by IMPL-29 (auth) and IMPL-31 (crypto).
+      JWT_ISSUER: "https://example.clerk.accounts.dev"
+      JWT_AUDIENCE: "resmon-cloud"
+      JWKS_URL: "https://example.clerk.accounts.dev/.well-known/jwks.json"
+      KMS_KEY_ID: "local-dev-kek"
+      ALLOWED_ORIGINS: "http://localhost:5173,app://resmon"
+      LOG_LEVEL: "INFO"
+    ports:
+      - "8080:8080"
+
+volumes:
+  resmon_pgdata:
+  resmon_miniodata:

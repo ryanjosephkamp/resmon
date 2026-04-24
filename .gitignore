@@ -1,0 +1,169 @@
+# =============================================================================
+# resmon — .gitignore
+# =============================================================================
+# Note: Image files are intentionally NOT excluded. The project contains a
+# small number of figures/screenshots that should be committed to the repo.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Python artifacts
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Packaging / build
+build/
+dist/
+sdist/
+wheels/
+*.manifest
+*.spec
+
+# Test / coverage artifacts
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# -----------------------------------------------------------------------------
+# Node / Electron artifacts
+# -----------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.yarn/
+.npm/
+.parcel-cache/
+.next/
+.nuxt/
+.cache/
+.turbo/
+out/
+
+# Electron build outputs
+release/
+app/dist/
+*.dmg
+*.exe
+*.AppImage
+*.deb
+*.rpm
+*.snap
+*.msi
+*.pkg
+
+# -----------------------------------------------------------------------------
+# Databases
+# -----------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# -----------------------------------------------------------------------------
+# Logs
+# -----------------------------------------------------------------------------
+*.log
+logs/
+*.log.*
+
+# -----------------------------------------------------------------------------
+# Credentials and secrets
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+client_secret*.json
+token.json
+token.pickle
+*.secret
+
+# -----------------------------------------------------------------------------
+# IDE / editor files
+# -----------------------------------------------------------------------------
+.idea/
+*.swp
+*.swo
+*.swn
+*~
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.sublime-project
+*.sublime-workspace
+
+# -----------------------------------------------------------------------------
+# OS files
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# -----------------------------------------------------------------------------
+# resmon project-specific
+# -----------------------------------------------------------------------------
+# Internal planning artifacts (not for public repository)
+.ai/
+.ai:/
+.resmon_background/
+
+# Runtime / generated output directories
+resmon_printouts/
+resmon_experiments/
+resmon_reports/logs/
+resmon_reports/pdfs/
+resmon_reports/markdowns/
+
+# macOS application bundle build artifact
+resmon.app/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Local configuration / state overrides
+*.local.json
+*.local.yaml
+local_settings.py
