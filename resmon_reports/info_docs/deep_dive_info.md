@@ -55,6 +55,7 @@ Imported and used directly by `DeepDivePage`:
 - `PageHelp` (`storageKey="deep-dive"`) — collapsible help block with two sections, *When to use this page* and *How to use it*.
 - `ConfigLoader` — loads saved `manual_dive` configurations and calls `applyConfig(parameters)` on selection. `refreshKey={configRefresh}` forces it to re-fetch after a successful save.
 - `RepositorySelector` (`mode="single"`) — renders the repository dropdown.
+- `KeywordCombinationBanner` — mounted under the selector when a repository is chosen; surfaces the upstream API's keyword-combination semantics (e.g. "Implicit AND", "Relevance-ranked") for the selected repository, with a tooltip pointing to the consolidated glossary on the Repositories & API Keys page.
 - `RepoKeyStatus` (`variant="dive"`) — conditionally rendered when `repository && bySlug[repository]`; surfaces a present/missing badge and an ephemeral-key input.
 - `DateRangePicker` — two date inputs bound to `dateFrom` / `dateTo`.
 - `KeywordInput` — chip-style keyword entry bound to the `keywords` array.

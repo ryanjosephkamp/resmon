@@ -20,6 +20,10 @@ export interface RepoCatalogEntry {
   upstream_policy?: string;
   parallel_safe?: string;
   notes?: string;
+  /** Short label for how the upstream API combines space-separated keywords (e.g. "Implicit AND", "Explicit OR", "Relevance-ranked"). */
+  keyword_combination?: string;
+  /** One-sentence detail describing the upstream's keyword-combination semantics. */
+  keyword_combination_notes?: string;
 }
 
 export type CredentialPresenceMap = Record<string, { present: boolean }>;

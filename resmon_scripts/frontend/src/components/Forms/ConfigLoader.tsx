@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../api/client';
+import { useConfigurationsVersion } from '../../lib/configurationsBus';
 
 export interface SavedConfig {
   id: number;
@@ -21,6 +22,11 @@ interface Props {
 const ConfigLoader: React.FC<Props> = ({ configType, onLoad, refreshKey, label }) => {
   const [configs, setConfigs] = useState<SavedConfig[]>([]);
   const [value, setValue] = useState('');
+  // Subscribe to the global configurations-changed bus so that any mutation
+  // anywhere in the app (delete on the Configurations page, save on a sibling
+  // page, import) forces every mounted loader to refetch — closing the gap
+  // where a deleted config could otherwise linger in this dropdown.
+  const configsVersion = useConfigurationsVersion();
 
   useEffect(() => {
     apiClient
@@ -32,7 +38,7 @@ const ConfigLoader: React.FC<Props> = ({ configType, onLoad, refreshKey, label }
         setValue((prev) => (prev && items.some((i) => String(i.id) === prev) ? prev : ''));
       })
       .catch(() => setConfigs([]));
-  }, [configType, refreshKey]);
+  }, [configType, refreshKey, configsVersion]);
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const raw = e.target.value;

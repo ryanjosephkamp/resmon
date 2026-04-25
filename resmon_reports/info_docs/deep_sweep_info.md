@@ -96,6 +96,11 @@ Child components rendered inside the form card:
   configurations; a `refreshKey` prop triggers a reload after a save.
 - `RepositorySelector` (`mode="multi"`) — multi-select over the repository
   catalog.
+- `KeywordCombinationBanner` — mounted under the selector when at least one
+  repository is chosen; lists the upstream keyword-combination semantics
+  for each selected repository (e.g. "Implicit AND", "Relevance-ranked"),
+  with a tooltip pointing to the consolidated glossary on the
+  Repositories & API Keys page.
 - `RepoKeyStatus` (`variant="sweep"`) — rendered once per selected
   repository; shows whether the credential is stored, absent, or accepted
   as an ephemeral value, and offers inline entry for ephemeral keys.

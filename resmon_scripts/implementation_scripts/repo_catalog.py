@@ -32,6 +32,8 @@ class RepoCatalogEntry:
     upstream_policy: str
     parallel_safe: str
     notes: str
+    keyword_combination: str
+    keyword_combination_notes: str
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -64,6 +66,8 @@ def _entry(
     upstream_policy: str = "",
     parallel_safe: str = "",
     notes: str = "",
+    keyword_combination: str = "",
+    keyword_combination_notes: str = "",
 ) -> RepoCatalogEntry:
     return RepoCatalogEntry(
         slug=slug,
@@ -82,6 +86,8 @@ def _entry(
         upstream_policy=upstream_policy,
         parallel_safe=parallel_safe,
         notes=notes,
+        keyword_combination=keyword_combination,
+        keyword_combination_notes=keyword_combination_notes,
     )
 
 
@@ -108,6 +114,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="\u22653 s between calls; bulk access via OAI-PMH",
         parallel_safe="Yes",
         notes="Conservative by design. Do not drop the delay.",
+        keyword_combination="Implicit AND",
+        keyword_combination_notes="arXiv treats space-separated terms in the all: field as implicit AND across title, abstract, and author.",
     ),
     _entry(
         slug="biorxiv",
@@ -125,6 +133,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="No published rate; /details/ endpoint has had upstream outages",
         parallel_safe="Yes",
         notes="Outages are upstream (not caused by resmon). Errors surface as failed executions.",
+        keyword_combination="Explicit OR",
+        keyword_combination_notes="bioRxiv/medRxiv have no upstream keyword search; resmon filters client-side and a paper matches if any space-separated term appears in its title or abstract.",
     ),
     _entry(
         slug="core",
@@ -142,6 +152,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="Registered key ~10 req/s; ~10k/day. Respect Retry-After on 429",
         parallel_safe="Yes",
         notes="Must register for an API key before use.",
+        keyword_combination="Relevance-ranked (Lucene OR default)",
+        keyword_combination_notes="CORE's Solr/Lucene backend defaults to OR between terms; documents matching more terms rank higher but single-term matches still appear.",
     ),
     _entry(
         slug="crossref",
@@ -159,6 +171,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="Polite pool when User-Agent contains mailto:; shared pool otherwise (~50 req/s soft cap)",
         parallel_safe="Yes",
         notes="Set a contact email in the UA for priority.",
+        keyword_combination="Relevance-ranked",
+        keyword_combination_notes="CrossRef ranks by relevance, not strict boolean; documents containing more of the words rank higher but single-term matches can still surface.",
     ),
     _entry(
         slug="dblp",
@@ -176,6 +190,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="No published rate; keep request volume low",
         parallel_safe="Yes",
         notes="",
+        keyword_combination="Relevance-ranked (upstream-default, unverified)",
+        keyword_combination_notes="DBLP forwards the space-separated query string verbatim; the upstream search box's exact combination semantics are not authoritatively documented.",
     ),
     _entry(
         slug="doaj",
@@ -193,6 +209,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="No strict rate; courtesy use expected",
         parallel_safe="Yes",
         notes="",
+        keyword_combination="Relevance-ranked (Lucene OR default)",
+        keyword_combination_notes="DOAJ uses a Lucene-style URL path whose default operator is OR; results are returned in relevance-scored order.",
     ),
     _entry(
         slug="europepmc",
@@ -210,6 +228,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="No hard published rate; 'reasonable use' \u2014 5/s is polite",
         parallel_safe="Yes",
         notes="",
+        keyword_combination="Relevance-ranked (Lucene OR default)",
+        keyword_combination_notes="EuropePMC's Lucene backend defaults to OR between terms; you can place explicit AND/OR/quoted phrases inside a single keyword chip and they will be forwarded verbatim.",
     ),
     _entry(
         slug="hal",
@@ -227,6 +247,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="No published rate; courtesy use expected",
         parallel_safe="Yes",
         notes="",
+        keyword_combination="Relevance-ranked (Solr OR default)",
+        keyword_combination_notes="HAL's Solr endpoint defaults to OR between terms unless the query parses as a phrase; results are returned in relevance-scored order.",
     ),
     _entry(
         slug="ieee",
@@ -244,6 +266,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="200 calls/day free tier",
         parallel_safe="Yes",
         notes="Very low daily quota \u2014 parallel sweeps exhaust it quickly.",
+        keyword_combination="Relevance-ranked (upstream-default, unverified)",
+        keyword_combination_notes="IEEE Xplore's querytext field is forwarded verbatim; the upstream API's exact combination semantics are not authoritatively documented.",
     ),
     _entry(
         slug="nasa_ads",
@@ -261,6 +285,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="5000 calls/day per token; no strict req/s",
         parallel_safe="Yes",
         notes="Daily quota (not per-second) is the binding limit.",
+        keyword_combination="Relevance-ranked (Solr OR default)",
+        keyword_combination_notes="NASA ADS uses Solr-style q parsing; the default operator is OR and results are returned in relevance-scored order.",
     ),
     _entry(
         slug="openalex",
@@ -278,6 +304,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="10 req/s; 100k/day. Polite pool via mailto= query param or UA",
         parallel_safe="Yes",
         notes="Set mailto for stable performance.",
+        keyword_combination="Relevance-ranked",
+        keyword_combination_notes="OpenAlex's search ranks by relevance across title/abstract/fulltext; not a strict boolean.",
     ),
     _entry(
         slug="plos",
@@ -295,6 +323,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="10 req/min soft guidance (resmon is faster)",
         parallel_safe="Yes",
         notes="If you see 429s lower the limiter to 0.2 req/s.",
+        keyword_combination="Relevance-ranked (upstream-default, unverified)",
+        keyword_combination_notes="PLOS uses a Solr backend; the default operator is typically OR with relevance scoring, but the upstream's exact configuration is not authoritatively documented.",
     ),
     _entry(
         slug="pubmed",
@@ -312,6 +342,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="3 req/s keyless; 10 req/s with NCBI API key",
         parallel_safe="Yes",
         notes="Add an API key to raise the ceiling.",
+        keyword_combination="Implicit AND",
+        keyword_combination_notes="NCBI E-utilities default operator is AND; space-separated terms are joined with AND before submission to PubMed's search index.",
     ),
     _entry(
         slug="semantic_scholar",
@@ -329,6 +361,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="Unauthenticated: 1 req/s shared, heavily throttled. Partner API key \u2192 1 req/s guaranteed",
         parallel_safe="Yes",
         notes="Expect 429s without a key in bursts.",
+        keyword_combination="Relevance-ranked",
+        keyword_combination_notes="Semantic Scholar's paper search ranks by relevance across multiple fields; not a strict boolean.",
     ),
     _entry(
         slug="springer",
@@ -346,6 +380,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="5000 calls/day free tier",
         parallel_safe="Yes",
         notes="Daily quota is the binding limit.",
+        keyword_combination="Relevance-ranked (Solr OR default)",
+        keyword_combination_notes="Springer Nature's Meta API ranks by relevance with an OR-based default; documents matching more terms rank higher.",
     ),
 ]
 

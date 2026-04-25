@@ -5,7 +5,9 @@ import RepositorySelector from '../components/Forms/RepositorySelector';
 import DateRangePicker from '../components/Forms/DateRangePicker';
 import KeywordInput from '../components/Forms/KeywordInput';
 import ConfigLoader from '../components/Forms/ConfigLoader';
+import { notifyConfigurationsChanged } from '../lib/configurationsBus';
 import RepoKeyStatus from '../components/Repositories/RepoKeyStatus';
+import KeywordCombinationBanner from '../components/Forms/KeywordCombinationBanner';
 import { useRepoCatalog } from '../hooks/useRepoCatalog';
 import PageHelp from '../components/Help/PageHelp';
 import InfoTooltip from '../components/Help/InfoTooltip';
@@ -102,6 +104,8 @@ const DeepSweepPage: React.FC = () => {
       setSaveModalOpen(false);
       setConfigName('');
       setConfigRefresh((n) => n + 1);
+      // Notify ConfigLoader instances on other pages that a new config exists.
+      notifyConfigurationsChanged();
       setTimeout(() => setSaveStatus(''), 3000);
     } catch (err: any) {
       setSaveStatus(`Error: ${err.message}`);
@@ -158,6 +162,11 @@ const DeepSweepPage: React.FC = () => {
       <form className="form-card" onSubmit={(e) => { e.preventDefault(); handleRun(); }}>
         <ConfigLoader configType="manual_sweep" onLoad={applyConfig} refreshKey={configRefresh} />
         <RepositorySelector mode="multi" value={repositories} onChange={(v) => setRepositories(v as string[])} />
+        {repositories.length > 0 && (
+          <KeywordCombinationBanner
+            entries={repositories.map((slug) => bySlug[slug]).filter(Boolean)}
+          />
+        )}
         {repositories.length > 0 && (
           <div className="form-field">
             <label className="form-label">Key Status</label>

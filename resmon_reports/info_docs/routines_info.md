@@ -53,6 +53,10 @@ Outputs:
 Child components:
 
 - `RepositorySelector` (multi-select repository picker).
+- `KeywordCombinationBanner` — mounted in the create/edit modal under the
+  selector; lists the upstream keyword-combination semantics for each
+  selected repository, with a tooltip pointing to the consolidated
+  glossary on the Repositories & API Keys page.
 - `DateRangePicker`, `KeywordInput`, `ScheduleConfigurator` (cron builder).
 - `ConfigLoader` with `configType="routine"` — populates everything except the date range, which is re-picked per run.
 - `RepoKeyStatus` with `variant="routine"` — one row per selected repository, showing credential presence.

@@ -83,6 +83,20 @@ const RepoDetailsPanel: React.FC<Props> = ({ entry }) => {
             <dd>{entry.notes}</dd>
           </>
         )}
+
+        {entry.keyword_combination && (
+          <>
+            <dt>Effective Default Keyword Combination</dt>
+            <dd>{entry.keyword_combination}</dd>
+          </>
+        )}
+
+        {entry.keyword_combination_notes && (
+          <>
+            <dt>Keyword Combination Notes</dt>
+            <dd>{entry.keyword_combination_notes}</dd>
+          </>
+        )}
       </dl>
     </div>
   );

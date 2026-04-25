@@ -87,9 +87,17 @@ def test_catalog_as_dicts_shape():
         "query_method", "rate_limit", "client_module", "api_key_requirement",
         "credential_name", "website", "registration_url", "placeholder",
         "upstream_policy", "parallel_safe", "notes",
+        "keyword_combination", "keyword_combination_notes",
     }
     for d in dicts:
         assert set(d.keys()) == expected_keys
+
+
+def test_keyword_combination_populated_for_every_active_repo():
+    """Every active catalog entry has a non-empty keyword_combination label and notes."""
+    for e in REPOSITORY_CATALOG:
+        assert e.keyword_combination, e.slug
+        assert e.keyword_combination_notes, e.slug
 
 
 def test_website_urls_are_http():

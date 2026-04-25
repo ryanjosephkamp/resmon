@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import RepoCatalogTable from '../components/Repositories/RepoCatalogTable';
+import KeywordSemanticsGlossary from '../components/Repositories/KeywordSemanticsGlossary';
 import {
   repositoriesApi,
   RepoCatalogEntry,
@@ -177,6 +178,8 @@ const RepositoriesPage: React.FC = () => {
       )}
 
       {error && <div className="form-error">{error}</div>}
+
+      <KeywordSemanticsGlossary />
 
       <div className="card">
         <RepoCatalogTable

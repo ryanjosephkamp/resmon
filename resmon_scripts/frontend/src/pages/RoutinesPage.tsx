@@ -9,6 +9,7 @@ import KeywordInput from '../components/Forms/KeywordInput';
 import ScheduleConfigurator from '../components/Forms/ScheduleConfigurator';
 import ConfigLoader from '../components/Forms/ConfigLoader';
 import RepoKeyStatus from '../components/Repositories/RepoKeyStatus';
+import KeywordCombinationBanner from '../components/Forms/KeywordCombinationBanner';
 import { useRepoCatalog } from '../hooks/useRepoCatalog';
 import PageHelp from '../components/Help/PageHelp';
 import InfoTooltip from '../components/Help/InfoTooltip';
@@ -627,6 +628,11 @@ const RoutinesPage: React.FC = () => {
             </div>
             <ScheduleConfigurator cron={formCron} onChange={setFormCron} />
             <RepositorySelector mode="multi" value={formRepos} onChange={(v) => setFormRepos(v as string[])} />
+            {formRepos.length > 0 && (
+              <KeywordCombinationBanner
+                entries={formRepos.map((slug) => bySlug[slug]).filter(Boolean)}
+              />
+            )}
             {formRepos.length > 0 && (
               <div className="form-field">
                 <label className="form-label">Key Status</label>

@@ -41,9 +41,10 @@ The Repositories & API Keys page is the single surface for inspecting every scho
 ### Child Components and Hooks
 
 - `PageHelp` — collapsible help card with sections "What this page does", "Scope selector", and "Key-less repositories".
+- `KeywordSemanticsGlossary` (`components/Repositories/KeywordSemanticsGlossary.tsx`) — collapsible card-grid glossary mounted above the catalog table; defines every keyword-combination term surfaced elsewhere in the app ("Implicit AND", "Explicit AND", "Implicit OR", "Explicit OR", "Relevance-ranked", the "upstream-default, unverified" confidence label, "Lucene", "Solr"), grouped into "Boolean combination", "Ranking & confidence", and "Underlying search platforms" sections with color-accented badges.
 - `RepoCatalogTable` (`components/Repositories/RepoCatalogTable.tsx`) — renders Expand All / Collapse All controls and the three-column table (Repo / Subject Coverage / API Key); manages per-row expansion, inline key values, and inline error state.
 - `ApiKeyField` (`components/Repositories/ApiKeyField.tsx`) — the single-line input that displays the 12-character mask when a key is present, submits on Enter, clears on Escape, and exposes a Clear button when a stored key exists.
-- `RepoDetailsPanel` (`components/Repositories/RepoDetailsPanel.tsx`) — rendered inside the expanded row; shows description, endpoint, query method, rate limit, upstream policy, parallel-safety, notes, credential name, website, and registration URL for the repository.
+- `RepoDetailsPanel` (`components/Repositories/RepoDetailsPanel.tsx`) — rendered inside the expanded row; shows description, endpoint, query method, rate limit, upstream policy, parallel-safety, notes, credential name, website, registration URL, and the effective default keyword combination (with notes) for the repository.
 - `repositoriesApi` (`api/repositories.ts`) — wraps `apiClient` for the local scope and `cloudClient` for the cloud scope (`/api/v2/credentials` with JWT).
 - `useAuth()` — used to read `isSignedIn`, which gates the cloud scope.
 - React hooks: `useState`, `useEffect`, `useCallback`.

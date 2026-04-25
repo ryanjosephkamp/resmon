@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '../api/client';
 import PageHelp from '../components/Help/PageHelp';
+import { notifyConfigurationsChanged } from '../lib/configurationsBus';
 
 interface Config {
   id: number;
@@ -135,6 +136,9 @@ const ConfigurationsPage: React.FC = () => {
       const data = await resp.json();
       setStatus(`Imported ${data.imported} configuration(s).`);
       fetchConfigs();
+      // Tell every mounted ConfigLoader (Deep Dive, Deep Sweep, Routines)
+      // to refetch so newly imported rows appear immediately.
+      notifyConfigurationsChanged();
     } catch (err: any) {
       setError(`Import failed: ${err.message}`);
     }
@@ -149,6 +153,9 @@ const ConfigurationsPage: React.FC = () => {
     setSelected(new Set());
     setConfirmDelete(false);
     fetchConfigs();
+    // Tell every mounted ConfigLoader (Deep Dive, Deep Sweep, Routines)
+    // to refetch so deleted rows disappear from their dropdowns immediately.
+    notifyConfigurationsChanged();
   };
 
   if (loading) return <div className="page-content"><p className="text-muted">Loading configurations…</p></div>;
