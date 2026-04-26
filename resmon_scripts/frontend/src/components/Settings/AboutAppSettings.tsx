@@ -111,8 +111,30 @@ const AboutAppSettings: React.FC = () => {
       <div className="about-grid">
         <section className="about-card">
           <h3>Version</h3>
-          <p><strong>resmon</strong> version <strong>{backendVersion || '1.0.0'}</strong></p>
-          <p className="text-muted">Current release line: 1.0.x</p>
+          <p><strong>resmon</strong> version <strong>{backendVersion || '1.1.0'}</strong></p>
+          <p className="text-muted">Current release line: 1.1.x</p>
+        </section>
+
+        <section className="about-card">
+          <h3>Recent Update</h3>
+          <p>
+            <strong>Update 2</strong> — Calendar Readability, Cross-Platform Desktop Notifications,
+            Multi-Provider AI Keys, Per-Execution AI Override Parity, and Configurations Lockstep.
+          </p>
+          <p className="text-muted">
+            Calendar week and day views now render events using a status-colored dot plus type-colored
+            text so titles stay readable; routine and manual completions raise a native desktop
+            notification on macOS, Linux, and Windows (including from the headless daemon); the AI
+            panel stores a separate API key per provider and the Stored API Keys table lets you switch
+            providers, clear keys, and clear per-provider default models in place; every per-execution
+            AI override on Deep Dive, Deep Sweep, and Routines now exposes the full Settings → AI
+            control set (Provider, Model, Length, Tone, Temperature, Extraction Goals) with per-field
+            merge semantics, plus inline missing-key entry and a Save-as-default-model action; and the
+            Configurations page gains a per-row Edit action with three modal variants, a stale-link
+            404 fallback, and an import path that auto-materializes a deactivated routine for every
+            imported routine config so the Routines list stays in lockstep with the routine-configs
+            list.
+          </p>
         </section>
 
         <section className="about-card">

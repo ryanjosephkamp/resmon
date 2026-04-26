@@ -6,6 +6,7 @@ import MainContent from './components/Layout/MainContent';
 import FloatingWidget from './components/Monitor/FloatingWidget';
 import { ExecutionProvider } from './context/ExecutionContext';
 import { AuthProvider } from './context/AuthContext';
+import { apiClient } from './api/client';
 import DashboardPage from './pages/DashboardPage';
 import DeepDivePage from './pages/DeepDivePage';
 import DeepSweepPage from './pages/DeepSweepPage';
@@ -17,7 +18,35 @@ import MonitorPage from './pages/MonitorPage';
 import RepositoriesPage from './pages/RepositoriesPage';
 import SettingsPage from './pages/SettingsPage';
 
+/**
+ * Tells the backend the renderer is alive so its desktop-notification
+ * dispatcher can suppress itself and let the renderer's own
+ * ``new Notification(...)`` handle completion alerts. Without this,
+ * macOS surfaces a duplicate notification attributed to ``Script
+ * Editor`` (the AppleScript host used by the backend's ``osascript``
+ * fallback). The backend's TTL is 15 s; pinging every 5 s leaves
+ * comfortable headroom.
+ */
+const useRendererHeartbeat = (): void => {
+  React.useEffect(() => {
+    let cancelled = false;
+    const ping = () => {
+      if (cancelled) return;
+      apiClient.post('/api/renderer/heartbeat', {}).catch(() => {
+        /* backend not ready or transient — retry next tick */
+      });
+    };
+    ping();
+    const id = window.setInterval(ping, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+};
+
 const App: React.FC = () => {
+  useRendererHeartbeat();
   return (
     <HashRouter>
       <AuthProvider>

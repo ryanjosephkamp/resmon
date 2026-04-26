@@ -17,6 +17,7 @@ Routines may be pinned to either of two execution locations: **Local** (fired by
 5. **Migrate between locations.** **Move to Cloud** and **Move to Local** trigger a confirmation modal, then perform a two-step destination-first create / source-delete migration.
 6. **Cancel a live run.** When a routine is currently firing, a **Cancel Run** button appears on its row and calls through `ExecutionContext.cancelExecution`.
 7. **Delete a routine.** Delete removes the DB row (local) or the cloud record; historical execution rows produced by that routine are retained.
+8. **Materialized via Configurations import.** Importing a routine config on the Configurations page automatically materializes a matching local routine row on this page (`is_active=False` by default, so the imported routine is deactivated until the user explicitly activates it). The page subscribes to the configurations bus (`useConfigurationsVersion()`) so newly-imported routines surface here without a manual reload. This keeps the Routines list and the routine-configs list in lockstep — every routine config has a real routine, and vice-versa.
 
 ### Inputs and Outputs
 

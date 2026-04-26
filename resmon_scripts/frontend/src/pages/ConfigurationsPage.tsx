@@ -2,6 +2,21 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '../api/client';
 import PageHelp from '../components/Help/PageHelp';
 import { notifyConfigurationsChanged } from '../lib/configurationsBus';
+import RepositorySelector from '../components/Forms/RepositorySelector';
+import DateRangePicker from '../components/Forms/DateRangePicker';
+import KeywordInput from '../components/Forms/KeywordInput';
+import ScheduleConfigurator from '../components/Forms/ScheduleConfigurator';
+import KeywordCombinationBanner from '../components/Forms/KeywordCombinationBanner';
+import RepoKeyStatus from '../components/Repositories/RepoKeyStatus';
+import { useRepoCatalog } from '../hooks/useRepoCatalog';
+import { useAuth } from '../context/AuthContext';
+import InfoTooltip from '../components/Help/InfoTooltip';
+import AIOverridePanel, {
+  AIOverrideValue,
+  EMPTY_AI_OVERRIDE,
+  buildAIOverridePayload,
+} from '../components/Forms/AIOverridePanel';
+import AIDefaultsInfo from '../components/Forms/AIDefaultsInfo';
 
 interface Config {
   id: number;
@@ -44,6 +59,37 @@ const ConfigurationsPage: React.FC = () => {
   const [exportPath, setExportPath] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ---- Edit modal state (Update 2) ---------------------------------------
+  // The Edit button on each row opens a config-aware modal:
+  //   - routine        → full Routines-style editor (cron + multi repos +
+  //                      all toggles + execution location + AI override)
+  //   - manual_sweep   → same form minus the cron section
+  //   - manual_dive    → same form minus cron, with a single-repo dropdown
+  // Saving a routine config dispatches to ``PUT /api/routines/{linked_routine_id}``
+  // when the parameters JSON carries a ``linked_routine_id``; otherwise
+  // (e.g. an imported routine config with no linked routine yet) we fall
+  // back to ``PUT /api/configurations/{id}`` and persist the routine
+  // payload back into the configuration row directly.
+  const { bySlug, presence, refreshPresence } = useRepoCatalog();
+  const { isSignedIn } = useAuth();
+  const cloudSyncEnabled = isSignedIn;
+  const [editConfig, setEditConfig] = useState<Config | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editCron, setEditCron] = useState('0 8 * * *');
+  const [editRepos, setEditRepos] = useState<string[]>([]);
+  const [editRepo, setEditRepo] = useState('');
+  const [editDateFrom, setEditDateFrom] = useState('');
+  const [editDateTo, setEditDateTo] = useState('');
+  const [editKeywords, setEditKeywords] = useState<string[]>([]);
+  const [editMaxResults, setEditMaxResults] = useState(100);
+  const [editAi, setEditAi] = useState(false);
+  const [editEmail, setEditEmail] = useState(false);
+  const [editEmailAi, setEditEmailAi] = useState(false);
+  const [editNotify, setEditNotify] = useState(false);
+  const [editLocation, setEditLocation] = useState<'local' | 'cloud'>('local');
+  const [editAiOverride, setEditAiOverride] = useState<AIOverrideValue>(EMPTY_AI_OVERRIDE);
+  const [editError, setEditError] = useState('');
 
   const fetchConfigs = useCallback(async () => {
     try {
@@ -158,6 +204,189 @@ const ConfigurationsPage: React.FC = () => {
     notifyConfigurationsChanged();
   };
 
+  // ---- Edit helpers ------------------------------------------------------
+
+  const parseParams = (raw: Record<string, any> | string): Record<string, any> => {
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw) || {}; } catch { return {}; }
+    }
+    return raw || {};
+  };
+
+  const hydrateAiOverride = (raw: any): AIOverrideValue => {
+    let overlay: Record<string, any> = {};
+    if (raw) {
+      try {
+        overlay = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch { overlay = {}; }
+    }
+    return {
+      provider: typeof overlay.provider === 'string' ? overlay.provider : '',
+      model: typeof overlay.model === 'string' ? overlay.model : '',
+      length: typeof overlay.length === 'string' ? overlay.length : '',
+      tone: typeof overlay.tone === 'string' ? overlay.tone : '',
+      temperature: overlay.temperature !== undefined && overlay.temperature !== null
+        ? String(overlay.temperature) : '',
+      extraction_goals: typeof overlay.extraction_goals === 'string'
+        ? overlay.extraction_goals : '',
+    };
+  };
+
+  const openEdit = (c: Config) => {
+    setEditError('');
+    setEditConfig(c);
+    setEditName(c.name);
+    const params = parseParams(c.parameters);
+
+    if (c.config_type === 'routine') {
+      // Routine config parameters layout (see _serialize_routine_for_config):
+      //   { linked_routine_id, schedule_cron, parameters: {...}, is_active,
+      //     email_enabled, email_ai_summary_enabled, ai_enabled,
+      //     notify_on_complete, execution_location, ai_settings? }
+      const inner = (params.parameters && typeof params.parameters === 'object')
+        ? params.parameters : {};
+      setEditCron(typeof params.schedule_cron === 'string' ? params.schedule_cron : '0 8 * * *');
+      setEditRepos(Array.isArray(inner.repositories) ? inner.repositories : []);
+      setEditRepo('');
+      setEditDateFrom(typeof inner.date_from === 'string' ? inner.date_from : '');
+      setEditDateTo(typeof inner.date_to === 'string' ? inner.date_to : '');
+      setEditKeywords(Array.isArray(inner.keywords) ? inner.keywords : []);
+      setEditMaxResults(typeof inner.max_results === 'number' ? inner.max_results : 100);
+      setEditAi(!!params.ai_enabled);
+      setEditEmail(!!params.email_enabled);
+      setEditEmailAi(!!params.email_ai_summary_enabled);
+      setEditNotify(!!params.notify_on_complete);
+      setEditLocation((params.execution_location === 'cloud') ? 'cloud' : 'local');
+      setEditAiOverride(hydrateAiOverride(params.ai_settings));
+    } else {
+      // Manual configs (manual_dive / manual_sweep) — flat parameters JSON:
+      //   { repository | repositories, date_from, date_to, keywords,
+      //     max_results, ai_enabled, ai_settings? }
+      setEditCron('0 8 * * *');
+      setEditRepos(Array.isArray(params.repositories) ? params.repositories : []);
+      setEditRepo(typeof params.repository === 'string' ? params.repository : '');
+      setEditDateFrom(typeof params.date_from === 'string' ? params.date_from : '');
+      setEditDateTo(typeof params.date_to === 'string' ? params.date_to : '');
+      setEditKeywords(Array.isArray(params.keywords) ? params.keywords : []);
+      setEditMaxResults(typeof params.max_results === 'number' ? params.max_results : 100);
+      setEditAi(!!params.ai_enabled);
+      setEditEmail(false);
+      setEditEmailAi(false);
+      setEditNotify(false);
+      setEditLocation('local');
+      setEditAiOverride(hydrateAiOverride(params.ai_settings));
+    }
+  };
+
+  const closeEdit = () => { setEditConfig(null); setEditError(''); };
+
+  const handleEditSave = async () => {
+    if (!editConfig) return;
+    if (!editName.trim()) { setEditError('Name is required.'); return; }
+    setEditError('');
+    const overrides = buildAIOverridePayload(editAiOverride);
+    const aiSettings = Object.keys(overrides).length > 0 ? overrides : null;
+
+    try {
+      if (editConfig.config_type === 'routine') {
+        const params = parseParams(editConfig.parameters);
+        const linkedId =
+          typeof params.linked_routine_id === 'number' ? params.linked_routine_id : null;
+        const innerParams = {
+          repositories: editRepos,
+          date_from: editDateFrom,
+          date_to: editDateTo,
+          keywords: editKeywords,
+          query: editKeywords.join(' '),
+          max_results: editMaxResults,
+        };
+        const routinePayload = {
+          linked_routine_id: linkedId,
+          schedule_cron: editCron,
+          parameters: innerParams,
+          is_active: !!params.is_active,
+          email_enabled: editEmail,
+          email_ai_summary_enabled: editEmailAi,
+          ai_enabled: editAi,
+          ai_settings: aiSettings,
+          notify_on_complete: editNotify,
+          execution_location: editLocation,
+        };
+        // When a linked routine row exists, drive it directly so APScheduler
+        // and the saved_configurations mirror stay in sync via the
+        // backend's ``_sync_routine_config`` hook. If the linked routine is
+        // missing (stale ``linked_routine_id`` from an orphaned/imported
+        // config), fall back to updating the configuration row directly.
+        let savedViaRoutine = false;
+        if (linkedId !== null) {
+          try {
+            await apiClient.put(`/api/routines/${linkedId}`, {
+              name: editName.trim(),
+              schedule_cron: editCron,
+              parameters: innerParams,
+              is_active: !!params.is_active,
+              email_enabled: editEmail,
+              email_ai_summary_enabled: editEmailAi,
+              ai_enabled: editAi,
+              ai_settings: aiSettings,
+              notify_on_complete: editNotify,
+              execution_location: editLocation,
+            });
+            savedViaRoutine = true;
+          } catch (err: any) {
+            const msg = String(err?.message || '');
+            if (!msg.startsWith('404')) throw err;
+            // 404 → linked routine no longer exists; fall through to the
+            // configuration-row update path with linked_routine_id cleared.
+            routinePayload.linked_routine_id = null;
+          }
+        }
+        if (!savedViaRoutine) {
+          await apiClient.put(`/api/configurations/${editConfig.id}`, {
+            name: editName.trim(),
+            parameters: routinePayload,
+          });
+        }
+      } else if (editConfig.config_type === 'manual_sweep') {
+        await apiClient.put(`/api/configurations/${editConfig.id}`, {
+          name: editName.trim(),
+          parameters: {
+            repositories: editRepos,
+            date_from: editDateFrom,
+            date_to: editDateTo,
+            keywords: editKeywords,
+            max_results: editMaxResults,
+            ai_enabled: editAi,
+            ...(aiSettings ? { ai_settings: aiSettings } : {}),
+          },
+        });
+      } else if (editConfig.config_type === 'manual_dive') {
+        await apiClient.put(`/api/configurations/${editConfig.id}`, {
+          name: editName.trim(),
+          parameters: {
+            repository: editRepo,
+            date_from: editDateFrom,
+            date_to: editDateTo,
+            keywords: editKeywords,
+            max_results: editMaxResults,
+            ai_enabled: editAi,
+            ...(aiSettings ? { ai_settings: aiSettings } : {}),
+          },
+        });
+      }
+      closeEdit();
+      fetchConfigs();
+      notifyConfigurationsChanged();
+    } catch (err: any) {
+      setEditError(err.message || 'Failed to save configuration.');
+    }
+  };
+
+  const editReposForKeyStatus =
+    editConfig?.config_type === 'manual_dive'
+      ? (editRepo ? [editRepo] : [])
+      : editRepos;
+
   if (loading) return <div className="page-content"><p className="text-muted">Loading configurations…</p></div>;
 
   return (
@@ -256,13 +485,186 @@ const ConfigurationsPage: React.FC = () => {
                 <td><span className={`badge ${configTypeBadgeClass(c.config_type)}`}>{c.config_type}</span></td>
                 <td>{c.created_at?.slice(0, 16)?.replace('T', ' ') || '—'}</td>
                 <td>
-                  <button className="btn btn-sm btn-danger" onClick={() => { setSelected(new Set([c.id])); setConfirmDelete(true); }}>Delete</button>
+                  <div className="action-btns">
+                    <button className="btn btn-sm" onClick={() => openEdit(c)}>Edit</button>
+                    <button className="btn btn-sm btn-danger" onClick={() => { setSelected(new Set([c.id])); setConfirmDelete(true); }}>Delete</button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {editConfig && (() => {
+        const isRoutine = editConfig.config_type === 'routine';
+        const isDive = editConfig.config_type === 'manual_dive';
+        const titleSuffix = isRoutine
+          ? 'Routine Configuration'
+          : isDive
+            ? 'Deep Dive Configuration'
+            : 'Deep Sweep Configuration';
+        return (
+          <div className="modal-overlay" onClick={closeEdit}>
+            <div className="modal-content modal-lg" onClick={(e) => e.stopPropagation()}>
+              <h3>Edit {titleSuffix}</h3>
+              {editError && <div className="form-error">{editError}</div>}
+              <div className="form-field">
+                <label className="form-label">Configuration Name</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              {isRoutine && (
+                <ScheduleConfigurator cron={editCron} onChange={setEditCron} />
+              )}
+              {isDive ? (
+                <RepositorySelector
+                  mode="single"
+                  value={editRepo}
+                  onChange={(v) => setEditRepo(v as string)}
+                />
+              ) : (
+                <RepositorySelector
+                  mode="multi"
+                  value={editRepos}
+                  onChange={(v) => setEditRepos(v as string[])}
+                />
+              )}
+              {editReposForKeyStatus.length > 0 && (
+                <KeywordCombinationBanner
+                  entries={editReposForKeyStatus.map((slug) => bySlug[slug]).filter(Boolean)}
+                />
+              )}
+              {editReposForKeyStatus.length > 0 && (
+                <div className="form-field">
+                  <label className="form-label">Key Status</label>
+                  <div className="repo-key-status-stack">
+                    {editReposForKeyStatus.map((slug) => {
+                      const entry = bySlug[slug];
+                      if (!entry) return null;
+                      const credName = entry.credential_name;
+                      return (
+                        <RepoKeyStatus
+                          key={slug}
+                          entry={entry}
+                          present={!!(credName && presence[credName]?.present)}
+                          onPresenceChange={() => { void refreshPresence(); }}
+                          variant={isRoutine ? 'routine' : isDive ? 'dive' : 'sweep'}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <DateRangePicker
+                dateFrom={editDateFrom}
+                dateTo={editDateTo}
+                onDateFromChange={setEditDateFrom}
+                onDateToChange={setEditDateTo}
+              />
+              <KeywordInput keywords={editKeywords} onChange={setEditKeywords} />
+              <div className="form-field">
+                <label className="form-label">Max Results{isDive ? '' : ' (per repository)'}</label>
+                <div className="range-row">
+                  <input
+                    type="range"
+                    min={10}
+                    max={500}
+                    step={10}
+                    value={editMaxResults}
+                    onChange={(e) => setEditMaxResults(Number(e.target.value))}
+                  />
+                  <span className="range-value">{editMaxResults}</span>
+                </div>
+              </div>
+              <div className="form-field toggles-row">
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={editAi} onChange={(e) => setEditAi(e.target.checked)} />
+                  <span>AI Summarization</span>
+                  <InfoTooltip text="Attach LLM summaries to each report. Requires a configured provider and key in Settings → AI." />
+                </label>
+                {isRoutine && (
+                  <>
+                    <label className="checkbox-label">
+                      <input type="checkbox" checked={editEmail} onChange={(e) => setEditEmail(e.target.checked)} />
+                      <span>Email Notifications</span>
+                      <InfoTooltip text="Send a report email via the SMTP server configured in Settings → Email when this routine completes a run." />
+                    </label>
+                    <label className="checkbox-label">
+                      <input type="checkbox" checked={editEmailAi} onChange={(e) => setEditEmailAi(e.target.checked)} />
+                      <span>Results in Email</span>
+                      <InfoTooltip text="Include the AI summary in the body of the routine email. Requires both Email Notifications and AI Summarization to be on." />
+                    </label>
+                    <label className="checkbox-label">
+                      <input type="checkbox" checked={editNotify} onChange={(e) => setEditNotify(e.target.checked)} />
+                      <span>Notify on Completion</span>
+                      <InfoTooltip text="Send a desktop notification when this routine finishes. Only effective when Settings → Notifications → Automatic routines is set to 'selected'." />
+                    </label>
+                  </>
+                )}
+              </div>
+              {editAi && <AIDefaultsInfo />}
+              {editAi && (
+                <details className="form-field">
+                  <summary>Override AI settings for this {isRoutine ? 'routine' : 'configuration'}</summary>
+                  <AIOverridePanel value={editAiOverride} onChange={setEditAiOverride} />
+                </details>
+              )}
+              {isRoutine && (
+                <div
+                  className="form-field"
+                  role="radiogroup"
+                  aria-label="Execution location"
+                >
+                  <label className="form-label">
+                    Execution location
+                    <InfoTooltip text="Where this routine runs. 'Local' uses the resmon daemon on this device. 'Cloud' runs on the resmon-cloud scheduler and does not require this machine to be online." />
+                  </label>
+                  <div className="toggles-row">
+                    <label className="checkbox-label">
+                      <input
+                        type="radio"
+                        name="edit_execution_location"
+                        value="local"
+                        checked={editLocation === 'local'}
+                        onChange={() => setEditLocation('local')}
+                      />
+                      <span>Local (this device)</span>
+                    </label>
+                    <label
+                      className="checkbox-label"
+                      title={
+                        cloudSyncEnabled
+                          ? 'Run this routine in the resmon-cloud scheduler'
+                          : 'Sign in and enable Cloud sync to run routines in the cloud'
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="edit_execution_location"
+                        value="cloud"
+                        disabled={!cloudSyncEnabled}
+                        checked={editLocation === 'cloud'}
+                        onChange={() => setEditLocation('cloud')}
+                      />
+                      <span>Cloud{!cloudSyncEnabled ? ' (sign in to enable)' : ''}</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+              <div className="form-actions">
+                <button className="btn btn-primary" onClick={handleEditSave}>Save</button>
+                <button className="btn btn-secondary" onClick={closeEdit}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {confirmDelete && (() => {
         const selectedRows = configs.filter((c) => selected.has(c.id));

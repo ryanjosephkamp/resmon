@@ -527,6 +527,34 @@ export const ExecutionProvider: React.FC<{ children: React.ReactNode }> = ({
         if (completionBroadcastRef.current.has(id)) continue;
         setIsWidgetPulsing(true);
         broadcastCompletion(id, { source: 'active-dropout' });
+        // Bug-B (Update 2 / Batch 2): also fire the in-renderer
+        // notification when completion is detected via dropout (e.g.
+        // background-attached routine runs whose progress poller never
+        // saw a terminal event). Backend ``_dispatch_desktop_notification``
+        // covers the headless-daemon case; this covers the
+        // app-is-open-but-progress-poller-missed-terminal-event case.
+        // Errors are swallowed inside ``maybeNotifyCompletion``.
+        (async () => {
+          try {
+            const ex = await apiClient.get<any>(`/api/executions/${id}`);
+            const snapshot: ActiveExecution = {
+              executionId: id,
+              executionType: ex.execution_type,
+              repositories: [],
+              startTime: ex.start_time,
+              events: [],
+              status: ex.status,
+              resultCount: ex.total_results || 0,
+              newCount: ex.new_results || 0,
+              repoStatuses: {},
+              elapsedSeconds: 0,
+              routine_id: ex.routine_id ?? null,
+            };
+            void maybeNotifyCompletion(snapshot);
+          } catch {
+            /* never block the dropout path on a notification fetch */
+          }
+        })();
       }
     };
 

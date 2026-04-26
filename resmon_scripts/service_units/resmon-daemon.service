@@ -10,6 +10,10 @@ Environment=PYTHONPATH={{WORKDIR}}
 # routine-fired execution PDF bundles) can find binaries that systemd's
 # default minimal PATH does not include.
 Environment=PATH=/usr/local/texlive/2024/bin/x86_64-linux:/usr/local/texlive/2023/bin/x86_64-linux:/usr/local/bin:/usr/bin:/bin
+# Make the user's session DBus reachable so libnotify (notify-send) can
+# post desktop notifications when routines fire under systemd --user
+# without an active Electron renderer attached.
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus
 ExecStart={{PYTHON}} -m implementation_scripts.daemon {{PORT}}
 Restart=on-failure
 RestartSec=5

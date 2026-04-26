@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
+import InfoTooltip from '../Help/InfoTooltip';
 
 const PROVIDERS: { value: string; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic' },
@@ -71,6 +72,11 @@ interface AISettingsState {
   ai_extraction_goals: string;
   ai_custom_base_url: string;
   ai_custom_header_prefix: string;
+  // Update 2 — Feature 1 extension: JSON-encoded ``{provider: model_id}``
+  // map persisted alongside the rest of the AI settings group. Each Save
+  // updates the entry for the currently selected provider so switching
+  // providers later restores their last-saved model automatically.
+  ai_default_models: string;
 }
 
 const DEFAULT_STATE: AISettingsState = {
@@ -83,6 +89,27 @@ const DEFAULT_STATE: AISettingsState = {
   ai_extraction_goals: '',
   ai_custom_base_url: '',
   ai_custom_header_prefix: 'Bearer',
+  ai_default_models: '',
+};
+
+// Parse the JSON-encoded default-model map. Returns an empty object on
+// any parse error or non-object payload so a corrupt entry never breaks
+// the panel render.
+const parseDefaultModels = (raw: string): Record<string, string> => {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const out: Record<string, string> = {};
+      Object.entries(parsed as Record<string, unknown>).forEach(([k, v]) => {
+        if (typeof v === 'string' && v) out[k] = v;
+      });
+      return out;
+    }
+  } catch {
+    /* fall through */
+  }
+  return {};
 };
 
 const AISettings: React.FC = () => {
@@ -95,28 +122,61 @@ const AISettings: React.FC = () => {
   const [models, setModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState('');
+  // Update 2 — Feature 1: per-provider stored-key presence map. Keyed
+  // by credential name (e.g. ``openai_api_key``). Refreshed after every
+  // save / clear so the panel always reflects the current keyring state.
+  const [keyPresence, setKeyPresence] = useState<Record<string, boolean>>({});
+
+  const refreshKeyPresence = React.useCallback(async () => {
+    try {
+      const resp = await apiClient.get<Record<string, { present: boolean }>>('/api/credentials');
+      const next: Record<string, boolean> = {};
+      Object.entries(resp || {}).forEach(([name, info]) => {
+        next[name] = !!(info && info.present);
+      });
+      setKeyPresence(next);
+    } catch {
+      /* presence panel renders empty on error */
+    }
+  }, []);
+
+  const refreshSettings = React.useCallback(async () => {
+    try {
+      const data = await apiClient.get<Partial<AISettingsState>>('/api/settings/ai');
+      const merged: AISettingsState = { ...DEFAULT_STATE, ...(data || {}) };
+      // IMPL-AI11 one-shot migration: if `ai_local_model` is empty and
+      // `ai_tone` looks like an ollama model id on the local branch,
+      // move it over and reset `ai_tone` to the documented default.
+      if (
+        merged.ai_provider === 'local'
+        && !merged.ai_local_model
+        && looksLikeModelId(merged.ai_tone)
+      ) {
+        merged.ai_local_model = merged.ai_tone;
+        merged.ai_tone = 'technical';
+      }
+      if (!merged.ai_temperature) merged.ai_temperature = '0.2';
+      if (!merged.ai_custom_header_prefix) merged.ai_custom_header_prefix = 'Bearer';
+      setSettings(merged);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    apiClient.get<Partial<AISettingsState>>('/api/settings/ai')
-      .then((data) => {
-        const merged: AISettingsState = { ...DEFAULT_STATE, ...(data || {}) };
-        // IMPL-AI11 one-shot migration: if `ai_local_model` is empty and
-        // `ai_tone` looks like an ollama model id on the local branch,
-        // move it over and reset `ai_tone` to the documented default.
-        if (
-          merged.ai_provider === 'local'
-          && !merged.ai_local_model
-          && looksLikeModelId(merged.ai_tone)
-        ) {
-          merged.ai_local_model = merged.ai_tone;
-          merged.ai_tone = 'technical';
-        }
-        if (!merged.ai_temperature) merged.ai_temperature = '0.2';
-        if (!merged.ai_custom_header_prefix) merged.ai_custom_header_prefix = 'Bearer';
-        setSettings(merged);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    refreshSettings();
+    refreshKeyPresence();
+    // Re-fetch whenever any other surface (the AIOverridePanel "Save as
+    // default model" / "Save key" buttons, the table-row click below)
+    // dispatches ``ai-settings-changed``. Keeps the table column 3 and
+    // the "Default" row highlight in sync without a page reload.
+    const handler = () => {
+      refreshSettings();
+      refreshKeyPresence();
+    };
+    window.addEventListener('ai-settings-changed', handler);
+    return () => window.removeEventListener('ai-settings-changed', handler);
+  }, [refreshSettings, refreshKeyPresence]);
 
   const credentialNameForProvider = (provider: string): string | null => {
     if (provider === 'local' || provider === '') return null;
@@ -124,19 +184,174 @@ const AISettings: React.FC = () => {
     return `${provider}_api_key`;
   };
 
+  // Update 2 — Feature 1: stored-keys management. The list of provider
+  // slots displayed in the "Stored API Keys" section, in the same order
+  // as the Provider dropdown. ``local`` is excluded because it has no
+  // remote API key.
+  const STORED_KEY_SLOTS: { provider: string; label: string; credName: string }[] =
+    PROVIDERS
+      .filter((p) => p.value !== 'local')
+      .map((p) => ({
+        provider: p.value,
+        label: p.label,
+        credName: p.value === 'custom' ? 'custom_llm_api_key' : `${p.value}_api_key`,
+      }));
+
+  const handleClearStoredKey = async (credName: string, label: string) => {
+    if (!window.confirm(`Clear the stored ${label} API key from the OS keychain?`)) return;
+    try {
+      await apiClient.delete(`/api/credentials/${credName}`);
+      setStatus(`${label} key cleared.`);
+      await refreshKeyPresence();
+      window.dispatchEvent(new CustomEvent('ai-settings-changed'));
+    } catch (err: any) {
+      setStatus(`Error: ${err?.message || 'Failed to clear key.'}`);
+    }
+    setTimeout(() => setStatus(''), 3000);
+  };
+
+  // Remove the saved default-model entry for ``provider`` from the
+  // per-provider ``ai_default_models`` map. Sources the map from a
+  // fresh GET so a stale React state cannot reintroduce other
+  // providers' entries on the merged write. If ``provider`` is the
+  // current app-default provider, also clears the live ``ai_model`` /
+  // ``ai_local_model`` field so the table's fallback path doesn't keep
+  // displaying the now-cleared value.
+  const handleClearDefaultModel = async (provider: string, label: string) => {
+    if (!window.confirm(`Clear the saved default model for ${label}?`)) return;
+    try {
+      const fresh = await apiClient.get<Partial<AISettingsState>>('/api/settings/ai');
+      const freshMap = parseDefaultModels((fresh && fresh.ai_default_models) || '');
+      const hadEntry = provider in freshMap;
+      if (hadEntry) delete freshMap[provider];
+      const payload: Record<string, string> = {
+        ai_default_models: JSON.stringify(freshMap),
+      };
+      const isActive = (fresh && fresh.ai_provider) === provider;
+      if (isActive) {
+        if (provider === 'local') payload.ai_local_model = '';
+        else payload.ai_model = '';
+      }
+      await apiClient.put('/api/settings/ai', { settings: payload });
+      setSettings((prev) => ({
+        ...prev,
+        ai_default_models: payload.ai_default_models,
+        ...(payload.ai_model !== undefined ? { ai_model: '' } : {}),
+        ...(payload.ai_local_model !== undefined ? { ai_local_model: '' } : {}),
+      }));
+      setStatus(
+        hadEntry
+          ? `${label} default model cleared.`
+          : `${label} had no saved default model.`,
+      );
+      window.dispatchEvent(new CustomEvent('ai-settings-changed'));
+    } catch (err: any) {
+      setStatus(`Error: ${err?.message || 'Failed to clear default model.'}`);
+    }
+    setTimeout(() => setStatus(''), 3000);
+  };
+
+  // Update 2 follow-up: clicking a provider row makes it the app
+  // default provider. The previously-saved default model for that
+  // provider (if any) is auto-applied to the matching model field so
+  // the rest of the panel updates consistently. Persists immediately
+  // and dispatches ``ai-settings-changed`` so AIDefaultsInfo on the
+  // Dive/Sweep/Routines pages refreshes too.
+  const handleSetDefaultProvider = async (provider: string) => {
+    setModels([]);
+    setModelsError('');
+    try {
+      // Re-fetch the live settings group immediately before writing so
+      // the per-provider ``ai_default_models`` map is sourced from the
+      // backend (the source of truth) instead of from possibly-stale
+      // React state. This prevents a save on this surface from
+      // overwriting an entry that was just added by another writer
+      // (e.g. ``AIOverridePanel.handleSaveDefaultModel``).
+      const fresh = await apiClient.get<Partial<AISettingsState>>('/api/settings/ai');
+      const freshMap = parseDefaultModels((fresh && fresh.ai_default_models) || '');
+      const savedModel = freshMap[provider] || '';
+      // Send a NARROW payload — no ``ai_default_models`` key at all.
+      // The backend's ``_set_settings_group`` only writes keys present
+      // in the payload, so the existing map is left untouched.
+      const payload: Record<string, string> = {
+        ai_provider: provider,
+        ai_model: provider === 'local' ? (fresh?.ai_model || '') : savedModel,
+        ai_local_model: provider === 'local' ? savedModel : (fresh?.ai_local_model || ''),
+      };
+      await apiClient.put('/api/settings/ai', { settings: payload });
+      // Reflect the just-written values plus the freshly-fetched map
+      // back into local state so the table re-renders consistently.
+      setSettings({
+        ...DEFAULT_STATE,
+        ...(fresh || {}),
+        ai_provider: payload.ai_provider,
+        ai_model: payload.ai_model,
+        ai_local_model: payload.ai_local_model,
+      });
+      setStatus(`${PROVIDERS.find((p) => p.value === provider)?.label || provider} set as default provider.`);
+      window.dispatchEvent(new CustomEvent('ai-settings-changed'));
+    } catch (err: any) {
+      setStatus(`Error: ${err?.message || 'Failed to set default provider.'}`);
+    }
+    setTimeout(() => setStatus(''), 3000);
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setStatus('');
     try {
-      await apiClient.put('/api/settings/ai', { settings });
+      // Update 2 — Feature 1 extension: persist the chosen Model as the
+      // "default model" for the currently selected provider so future
+      // provider switches can auto-fill the Model dropdown.
+      //
+      // Source the per-provider map from the BACKEND (source of truth)
+      // immediately before the write, not from React state, so a stale
+      // local copy can't clobber an entry that another writer (e.g. the
+      // ``AIOverridePanel`` Save-as-default-model button) just added.
+      const provider = settings.ai_provider;
+      const chosenModel =
+        provider === 'local' ? settings.ai_local_model : settings.ai_model;
+      // Build the payload from the user's current form state but EXCLUDE
+      // ``ai_default_models`` by default — backend preserves keys not in
+      // the payload. Only include it when this Save needs to update the
+      // map for the currently chosen provider.
+      const payload: Record<string, string> = {
+        ai_provider: settings.ai_provider,
+        ai_model: settings.ai_model,
+        ai_local_model: settings.ai_local_model,
+        ai_summary_length: settings.ai_summary_length,
+        ai_tone: settings.ai_tone,
+        ai_temperature: settings.ai_temperature,
+        ai_extraction_goals: settings.ai_extraction_goals,
+        ai_custom_base_url: settings.ai_custom_base_url,
+        ai_custom_header_prefix: settings.ai_custom_header_prefix,
+      };
+      let mergedMap: Record<string, string> | null = null;
+      if (provider && provider !== '' && chosenModel) {
+        const fresh = await apiClient.get<Partial<AISettingsState>>('/api/settings/ai');
+        const freshMap = parseDefaultModels((fresh && fresh.ai_default_models) || '');
+        if (freshMap[provider] !== chosenModel) {
+          freshMap[provider] = chosenModel;
+          payload.ai_default_models = JSON.stringify(freshMap);
+          mergedMap = freshMap;
+        }
+      }
+      await apiClient.put('/api/settings/ai', { settings: payload });
+      if (mergedMap) {
+        setSettings({ ...settings, ai_default_models: JSON.stringify(mergedMap) });
+      }
       if (apiKey) {
         const keyName = credentialNameForProvider(settings.ai_provider);
         if (keyName) {
           await apiClient.put(`/api/credentials/${keyName}`, { value: apiKey });
         }
         setApiKey('');
+        await refreshKeyPresence();
       }
       setStatus('AI settings saved.');
+      // Notify other surfaces (AIDefaultsInfo on Dive/Sweep/Routines)
+      // that the persisted defaults have changed.
+      window.dispatchEvent(new CustomEvent('ai-settings-changed'));
     } catch (err: any) {
       setStatus(`Error: ${err.message}`);
     } finally {
@@ -201,9 +416,24 @@ const AISettings: React.FC = () => {
   };
 
   // Reset the fetched model list whenever the provider changes so stale
-  // entries from another provider cannot be selected by mistake.
+  // entries from another provider cannot be selected by mistake. Update
+  // 2 — Feature 1 extension: also auto-fill the Model dropdown with the
+  // previously saved default model for ``next`` (if any), or clear it
+  // otherwise so the dropdown returns to its "Select a model" state.
   const handleProviderChange = (next: string) => {
-    setSettings({ ...settings, ai_provider: next });
+    const map = parseDefaultModels(settings.ai_default_models);
+    const savedModel = map[next] || '';
+    setSettings({
+      ...settings,
+      ai_provider: next,
+      // For remote providers the saved default lives in ``ai_model``; for
+      // ``local`` it lives in ``ai_local_model`` (the Ollama-endpoint
+      // input occupies ``ai_model`` on that branch). Clearing the
+      // sibling field prevents a stale value from another provider from
+      // leaking onto the new branch.
+      ai_model: next === 'local' ? settings.ai_model : savedModel,
+      ai_local_model: next === 'local' ? savedModel : settings.ai_local_model,
+    });
     setModels([]);
     setModelsError('');
   };
@@ -261,6 +491,162 @@ const AISettings: React.FC = () => {
           },
         ]}
       />
+      {/*
+        The Stored API Keys table is intentionally rendered OUTSIDE the
+        ``.settings-form`` block below: that block has ``max-width:
+        480px`` (see ``global.css``) which is appropriate for the
+        single-column form fields but too narrow for a four-column
+        provider table. Giving the table its own wider container keeps
+        the rest of the panel's form fields at their original width.
+      */}
+      <div
+        className="form-field"
+        style={{ width: 'min(960px, 100%)', marginBottom: 14 }}
+      >
+        <label className="form-label">Stored API Keys</label>
+        <div className="text-muted" style={{ fontSize: '0.85em', marginBottom: 6 }}>
+          Each provider has its own permanent key slot in the OS
+          keychain. Switching providers below adds or replaces the
+          key for that provider only — keys for other providers are
+          preserved. <strong>Click the provider name</strong> in the
+          first column to make that provider the app default.
+        </div>
+        <table
+          className="data-table"
+          style={{
+            marginBottom: 4,
+            width: '100%',
+            borderCollapse: 'separate',
+            borderSpacing: '12px 6px',
+          }}
+        >
+          <thead>
+            <tr>
+              <th style={{ width: '15%' }}>Provider</th>
+              <th style={{ width: '20%' }}>Status</th>
+              <th style={{ width: '25%' }}>Default Model</th>
+              <th style={{ width: '40%' }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {STORED_KEY_SLOTS.map((slot) => {
+              const present = !!keyPresence[slot.credName];
+              const defaultModelMap = parseDefaultModels(settings.ai_default_models);
+              // Resolve the displayed default model with the same
+              // precedence used by ``AIDefaultsInfo`` on Dive/Sweep/
+              // Routines so the two surfaces never disagree:
+              //   1. per-provider entry in ``ai_default_models``
+              //   2. for the current app-default provider only,
+              //      fall back to the live ``ai_model`` /
+              //      ``ai_local_model`` field (this catches the case
+              //      where the user saved via Settings → AI's main
+              //      Save button before the per-provider map existed).
+              const isDefault = settings.ai_provider === slot.provider;
+              let defaultModel = defaultModelMap[slot.provider] || '';
+              if (!defaultModel && isDefault) {
+                defaultModel =
+                  slot.provider === 'local'
+                    ? (settings.ai_local_model || '').trim()
+                    : (settings.ai_model || '').trim();
+              }
+              const hasMapEntry = !!defaultModelMap[slot.provider];
+              const canClearDefaultModel = hasMapEntry || (isDefault && !!defaultModel);
+              return (
+                <tr
+                  key={slot.credName}
+                  style={{
+                    background: isDefault ? 'var(--surface-2, rgba(0, 100, 200, 0.08))' : undefined,
+                    fontWeight: isDefault ? 600 : undefined,
+                  }}
+                >
+                  <td>
+                    <span
+                      onClick={() => handleSetDefaultProvider(slot.provider)}
+                      style={{
+                        cursor: 'pointer',
+                        textDecoration: isDefault ? 'none' : 'underline',
+                      }}
+                      title={
+                        isDefault
+                          ? 'This provider is the current app default.'
+                          : `Click to set ${slot.label} as the app default provider.`
+                      }
+                    >
+                      {slot.label}
+                    </span>
+                  </td>
+                  <td>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      {present ? (
+                        <span className="badge badge-success">Stored</span>
+                      ) : (
+                        <span className="text-muted">Not set</span>
+                      )}
+                      {isDefault && (
+                        <span className="badge badge-success">Default</span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    {defaultModel ? (
+                      <span className="badge badge-default-model">{defaultModel}</span>
+                    ) : (
+                      <span className="text-muted">Not set</span>
+                    )}
+                  </td>
+                  <td>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexWrap: 'nowrap',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        disabled={!canClearDefaultModel}
+                        onClick={() => handleClearDefaultModel(slot.provider, slot.label)}
+                        style={{ whiteSpace: 'nowrap' }}
+                        title={
+                          canClearDefaultModel
+                            ? `Clear the saved default model for ${slot.label}.`
+                            : `${slot.label} has no saved default model.`
+                        }
+                      >
+                        Clear default model
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        disabled={!present}
+                        onClick={() => handleClearStoredKey(slot.credName, slot.label)}
+                        style={{ whiteSpace: 'nowrap' }}
+                        title={
+                          present
+                            ? `Clear the stored ${slot.label} API key.`
+                            : `${slot.label} has no stored API key.`
+                        }
+                      >
+                        Clear API key
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       <div className="settings-form">
         <div className="form-field">
           <label className="form-label">Provider</label>
@@ -386,7 +772,10 @@ const AISettings: React.FC = () => {
         {providerSelected && (
           <>
             <div className="form-field">
-              <label className="form-label">Summary Length</label>
+              <label className="form-label">
+                Summary Length
+                <InfoTooltip text="Target length band for each AI summary. 'Brief' aims for a tight one-paragraph synopsis, 'Standard' a typical multi-paragraph summary, and 'Detailed' a longer summary that retains more methodological and quantitative detail." />
+              </label>
               <select className="form-select" value={settings.ai_summary_length} onChange={(e) => setSettings({ ...settings, ai_summary_length: e.target.value })}>
                 <option value="">Default</option>
                 <option value="brief">Brief</option>
@@ -396,7 +785,10 @@ const AISettings: React.FC = () => {
             </div>
 
             <div className="form-field">
-              <label className="form-label">Tone</label>
+              <label className="form-label">
+                Tone
+                <InfoTooltip text="Writing style for each AI summary. 'Technical' preserves domain-specific terminology and is the safest default for research literature; 'Neutral' aims for plain, even prose; 'Accessible' rephrases jargon for a general audience." />
+              </label>
               <select className="form-select" value={settings.ai_tone} onChange={(e) => setSettings({ ...settings, ai_tone: e.target.value })}>
                 <option value="">Default</option>
                 <option value="technical">Technical</option>
@@ -406,7 +798,10 @@ const AISettings: React.FC = () => {
             </div>
 
             <div className="form-field">
-              <label className="form-label">Temperature</label>
+              <label className="form-label">
+                Temperature
+                <InfoTooltip text="Sampling temperature passed to the LLM (0–1). Lower values produce more deterministic, conservative summaries; higher values let the model take more creative liberties with phrasing. The default is 0.2, which is appropriate for factual scientific summarization." />
+              </label>
               <input
                 className="form-input"
                 type="number"
@@ -419,7 +814,10 @@ const AISettings: React.FC = () => {
             </div>
 
             <div className="form-field">
-              <label className="form-label">Extraction Goals</label>
+              <label className="form-label">
+                Extraction Goals
+                <InfoTooltip text="Optional, comma-separated list of facets the summary should explicitly try to extract from each abstract — e.g. 'key findings, methodology, contributions, limitations'. Leave blank for the model's default summarization behavior." />
+              </label>
               <input
                 className="form-input"
                 value={settings.ai_extraction_goals}

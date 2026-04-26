@@ -226,6 +226,11 @@ html, body, #root {
    from the orange badge-type-routine used for routine-fired executions
    on the Dashboard/Results/Calendar pages. */
 .badge-type-config-routine { background: rgba(250,204,21,0.15); color: #facc15; } /* amber */
+/* Update 2 — Feature 1 extension: per-provider default-model badge on the
+   Settings → AI tab's stored-keys table. Pink/rose palette is unused by
+   any other badge so the column stands apart from status, type, and
+   config-type colorings elsewhere in the app. */
+.badge-default-model { background: rgba(236,72,153,0.15); color: #f472b6; } /* pink */
 
 /* Page content */
 .page-content {
@@ -726,6 +731,36 @@ html, body, #root {
 .calendar-wrapper .fc .fc-event.calendar-type-routine .fc-event-title,
 .calendar-wrapper .fc .fc-event.calendar-type-routine .fc-event-time {
   color: #fb923c;
+}
+
+/* Week and day views (``timeGridWeek`` / ``timeGridDay``) default to a
+   solid colored block whose background is the per-event status color,
+   which clashes with the type-colored text. Strip the block fill and
+   replace the visual status indicator with a 3px left border whose
+   color is sourced from the ``--event-color`` CSS custom property
+   that ``CalendarPage.eventDidMount`` writes onto each event element
+   from the event's ``backgroundColor``. FullCalendar's default
+   ``.fc-event-main`` time + title layout is preserved so events
+   continue to stack vertically in their proper time slots and wrap
+   text within their assigned column width even when many events
+   overlap. */
+.calendar-wrapper .fc .fc-timegrid-event {
+  background: transparent !important;
+  border: none !important;
+  border-left: 3px solid var(--event-color, #6b7280) !important;
+  box-shadow: none !important;
+  padding: 1px 4px;
+}
+.calendar-wrapper .fc .fc-timegrid-event .fc-event-main,
+.calendar-wrapper .fc .fc-timegrid-event .fc-event-main-frame {
+  background: transparent !important;
+  color: inherit;
+}
+.calendar-wrapper .fc .fc-timegrid-event .fc-event-time,
+.calendar-wrapper .fc .fc-timegrid-event .fc-event-title {
+  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Compact multi-select dropdown used for the Calendar's "Routines" filter. */

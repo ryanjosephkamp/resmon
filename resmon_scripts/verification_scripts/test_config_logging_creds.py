@@ -17,7 +17,7 @@ def test_config_crud():
     """Save, load, and delete a configuration."""
     conn = sqlite3.connect(":memory:")
     init_db(conn=conn)
-    cid = save_config(conn, "Test Config", "manual_dive", {"keywords": ["test"], "repositories": ["arxiv"]})
+    cid = save_config(conn, "Test Config", "manual_dive", {"keywords": ["test"], "repository": "arxiv"})
     loaded = load_config(conn, cid)
     assert loaded is not None
     assert loaded["name"] == "Test Config"

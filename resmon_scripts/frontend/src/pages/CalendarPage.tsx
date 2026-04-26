@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
-import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { apiClient } from '../api/client';
 import { useExecution } from '../context/ExecutionContext';
@@ -256,12 +255,16 @@ const CalendarPage: React.FC = () => {
       <div className="calendar-wrapper">
         <FullCalendar
           ref={calendarRef}
-          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          plugins={[dayGridPlugin, interactionPlugin]}
           initialView="dayGridMonth"
           headerToolbar={{
             left: 'prev,next today',
             center: 'title',
-            right: 'dayGridMonth,timeGridWeek,timeGridDay',
+            right: 'dayGridMonth,dayGridWeek,dayGridDay',
+          }}
+          views={{
+            dayGridWeek: { dayMaxEvents: false, displayEventTime: true, displayEventEnd: false },
+            dayGridDay: { dayMaxEvents: false, displayEventTime: true, displayEventEnd: false },
           }}
           events={filteredEvents.map((e) => {
             const bucket = bucketOf(e);
@@ -288,6 +291,18 @@ const CalendarPage: React.FC = () => {
             };
           })}
           eventClick={handleEventClick}
+          eventDidMount={(arg) => {
+            // Expose the event's status color (set by FullCalendar as
+            // ``backgroundColor``) as a CSS custom property so the
+            // CSS overrides for ``.fc-timegrid-event`` can paint a
+            // type-neutral left-border accent without inline-styling
+            // the element from this callback. Using a CSS variable
+            // also keeps the original inline ``background-color`` in
+            // place for the month-view default renderer (which uses
+            // it for the leading dot).
+            const color = arg.event.backgroundColor || '#6b7280';
+            (arg.el as HTMLElement).style.setProperty('--event-color', color);
+          }}
           height="auto"
           editable={false}
           selectable={false}

@@ -114,3 +114,87 @@ def test_google_validation_uses_query_param_key():
     assert captured["url"] == "https://generativelanguage.googleapis.com/v1beta/models"
     assert captured["params"] == {"key": "goog-test"}
     assert "Authorization" not in (captured["headers"] or {})
+
+
+# ---------------------------------------------------------------------------
+# Update 2 — Feature 1: legacy global-AI-key migration
+# ---------------------------------------------------------------------------
+
+def _install_fake_keyring(monkeypatch, initial=None):
+    """Install a fake keyring backend backed by an in-memory dict.
+
+    Returns the dict so tests can inspect / pre-seed slots.
+    """
+    store: dict[tuple[str, str], str] = dict(initial or {})
+
+    def fake_set(service, name, value):
+        store[(service, name)] = value
+
+    def fake_get(service, name):
+        return store.get((service, name))
+
+    def fake_delete(service, name):
+        if (service, name) not in store:
+            raise cm.keyring.errors.PasswordDeleteError("not found")
+        store.pop((service, name), None)
+
+    monkeypatch.setattr(cm.keyring, "set_password", fake_set)
+    monkeypatch.setattr(cm.keyring, "get_password", fake_get)
+    monkeypatch.setattr(cm.keyring, "delete_password", fake_delete)
+    return store
+
+
+def test_migrate_legacy_key_noop_when_absent(monkeypatch):
+    store = _install_fake_keyring(monkeypatch)
+    assert cm.migrate_legacy_global_ai_key("openai") is False
+    assert store == {}
+
+
+def test_migrate_legacy_key_moves_to_provider_slot(monkeypatch):
+    svc = cm._SERVICE
+    store = _install_fake_keyring(monkeypatch, {(svc, "ai_api_key"): "sk-legacy"})
+    assert cm.migrate_legacy_global_ai_key("openai") is True
+    # Legacy slot cleared, target slot populated.
+    assert (svc, "ai_api_key") not in store
+    assert store[(svc, "openai_api_key")] == "sk-legacy"
+
+
+def test_migrate_legacy_key_uses_custom_slot_for_custom_provider(monkeypatch):
+    svc = cm._SERVICE
+    store = _install_fake_keyring(monkeypatch, {(svc, "ai_api_key"): "sk-legacy"})
+    assert cm.migrate_legacy_global_ai_key("custom") is True
+    assert store[(svc, "custom_llm_api_key")] == "sk-legacy"
+    assert (svc, "ai_api_key") not in store
+
+
+def test_migrate_legacy_key_no_provider_leaves_slot(monkeypatch):
+    svc = cm._SERVICE
+    store = _install_fake_keyring(monkeypatch, {(svc, "ai_api_key"): "sk-legacy"})
+    # Provider not yet chosen — migration must not silently lose the key.
+    assert cm.migrate_legacy_global_ai_key("") is False
+    assert cm.migrate_legacy_global_ai_key(None) is False
+    assert cm.migrate_legacy_global_ai_key("local") is False
+    assert store[(svc, "ai_api_key")] == "sk-legacy"
+
+
+def test_migrate_legacy_key_idempotent(monkeypatch):
+    svc = cm._SERVICE
+    store = _install_fake_keyring(monkeypatch, {(svc, "ai_api_key"): "sk-legacy"})
+    assert cm.migrate_legacy_global_ai_key("anthropic") is True
+    # Second call is a no-op once the legacy slot is gone.
+    assert cm.migrate_legacy_global_ai_key("anthropic") is False
+    assert store[(svc, "anthropic_api_key")] == "sk-legacy"
+
+
+def test_migrate_legacy_key_preserves_existing_target(monkeypatch):
+    """If target slot already has a value, the legacy slot is cleared but
+    the existing per-provider key is preserved (no clobber)."""
+    svc = cm._SERVICE
+    store = _install_fake_keyring(monkeypatch, {
+        (svc, "ai_api_key"): "sk-legacy",
+        (svc, "openai_api_key"): "sk-existing",
+    })
+    assert cm.migrate_legacy_global_ai_key("openai") is False
+    assert store[(svc, "openai_api_key")] == "sk-existing"
+    # Legacy slot cleared so we don't keep migrating on every startup.
+    assert (svc, "ai_api_key") not in store

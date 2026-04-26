@@ -523,7 +523,7 @@ def default_sweep_runner(
     db_path = tmp_dir / "run.sqlite"
     conn = sqlite3.connect(str(db_path))
     try:
-        init_db(conn)
+        init_db(conn=conn)
         engine = SweepEngine(conn, dict(routine_parameters))
         repositories = list(
             routine_parameters.get("repositories")

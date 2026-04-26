@@ -13,6 +13,13 @@ import KeywordCombinationBanner from '../components/Forms/KeywordCombinationBann
 import { useRepoCatalog } from '../hooks/useRepoCatalog';
 import PageHelp from '../components/Help/PageHelp';
 import InfoTooltip from '../components/Help/InfoTooltip';
+import AIOverridePanel, {
+  AIOverrideValue,
+  EMPTY_AI_OVERRIDE,
+  buildAIOverridePayload,
+} from '../components/Forms/AIOverridePanel';
+import AIDefaultsInfo from '../components/Forms/AIDefaultsInfo';
+import { useConfigurationsVersion } from '../lib/configurationsBus';
 
 interface Routine {
   id: number;
@@ -24,6 +31,7 @@ interface Routine {
   ai_enabled: number | boolean;
   notify_on_complete?: number | boolean;
   parameters: string | Record<string, any>;
+  ai_settings?: string | Record<string, any> | null;
   last_execution?: string;
   last_status?: string;
   execution_location?: 'local' | 'cloud';
@@ -77,6 +85,10 @@ const RoutinesPage: React.FC = () => {
   const cloudSyncEnabled = isSignedIn;
   const [pendingMigration, setPendingMigration] = useState<PendingMigration>(null);
   const [migrating, setMigrating] = useState(false);
+  // Refetch the routines list whenever a Configurations-page mutation
+  // fires (e.g. importing a routine config materializes a new routine
+  // row server-side; we need to surface it here without a manual reload).
+  const configsVersion = useConfigurationsVersion();
 
   /* ---- form state ---- */
   const [formOpen, setFormOpen] = useState(false);
@@ -93,6 +105,10 @@ const RoutinesPage: React.FC = () => {
   const [formEmailAi, setFormEmailAi] = useState(false);
   const [formNotify, setFormNotify] = useState(false);
   const [formLocation, setFormLocation] = useState<'local' | 'cloud'>('local');
+  // Update 2 — Feature 2: per-routine AI override (full Settings → AI
+  // parity). Persisted into ``routines.ai_settings`` and threaded into
+  // the engine config when the routine fires.
+  const [formAiOverride, setFormAiOverride] = useState<AIOverrideValue>(EMPTY_AI_OVERRIDE);
 
   const fetchRoutines = useCallback(async () => {
     try {
@@ -120,7 +136,7 @@ const RoutinesPage: React.FC = () => {
     }
   }, [cloudSyncEnabled]);
 
-  useEffect(() => { fetchRoutines(); }, [fetchRoutines, completionCounter]);
+  useEffect(() => { fetchRoutines(); }, [fetchRoutines, completionCounter, configsVersion]);
   useEffect(() => { fetchCloudRoutines(); }, [fetchCloudRoutines, completionCounter]);
 
   const resetForm = () => {
@@ -137,6 +153,7 @@ const RoutinesPage: React.FC = () => {
     setFormEmailAi(false);
     setFormNotify(false);
     setFormLocation('local');
+    setFormAiOverride(EMPTY_AI_OVERRIDE);
   };
 
   const openCreate = () => { resetForm(); setFormOpen(true); };
@@ -156,6 +173,28 @@ const RoutinesPage: React.FC = () => {
     setFormEmailAi(!!r.email_ai_summary_enabled);
     setFormNotify(!!r.notify_on_complete);
     setFormLocation((r.execution_location as 'local' | 'cloud') || 'local');
+    // Update 2 — Feature 2: hydrate the override panel from the saved
+    // ``ai_settings`` JSON (short keys, may be partial).
+    let overlay: Record<string, any> = {};
+    if (r.ai_settings) {
+      try {
+        overlay = typeof r.ai_settings === 'string'
+          ? JSON.parse(r.ai_settings)
+          : r.ai_settings;
+      } catch { overlay = {}; }
+    }
+    setFormAiOverride({
+      provider: typeof overlay.provider === 'string' ? overlay.provider : '',
+      model: typeof overlay.model === 'string' ? overlay.model : '',
+      length: typeof overlay.length === 'string' ? overlay.length : '',
+      tone: typeof overlay.tone === 'string' ? overlay.tone : '',
+      temperature: overlay.temperature !== undefined && overlay.temperature !== null
+        ? String(overlay.temperature)
+        : '',
+      extraction_goals: typeof overlay.extraction_goals === 'string'
+        ? overlay.extraction_goals
+        : '',
+    });
     setFormOpen(true);
   };
 
@@ -169,6 +208,11 @@ const RoutinesPage: React.FC = () => {
       query: formKeywords.join(' '),
       max_results: formMaxResults,
     };
+    // Update 2 — Feature 2: build the ai_settings overlay from the
+    // override panel. Empty fields are dropped so a partial override
+    // surgically replaces only the populated knobs.
+    const overrides = buildAIOverridePayload(formAiOverride);
+    const aiSettings = Object.keys(overrides).length > 0 ? overrides : null;
     // When creating a cloud routine, we POST to the cloud service
     // directly; local flags (email / notify) do not apply until IMPL-38's
     // cloud notification story lands.
@@ -183,6 +227,7 @@ const RoutinesPage: React.FC = () => {
           email_enabled: formEmail,
           email_ai_summary_enabled: formEmailAi,
           ai_enabled: formAi,
+          ai_settings: aiSettings,
           notify_on_complete: formNotify,
           execution_location: formLocation,
         };
@@ -203,6 +248,7 @@ const RoutinesPage: React.FC = () => {
           email_enabled: formEmail,
           email_ai_summary_enabled: formEmailAi,
           ai_enabled: formAi,
+          ai_settings: aiSettings,
           notify_on_complete: formNotify,
           execution_location: 'local',
         };
@@ -669,6 +715,13 @@ const RoutinesPage: React.FC = () => {
               <label className="checkbox-label"><input type="checkbox" checked={formEmailAi} onChange={(e) => setFormEmailAi(e.target.checked)} /><span>Results in Email</span><InfoTooltip text="Include the AI summary in the body of the routine email (instead of just a link / attachment). Requires both Email Notifications and AI Summarization to be on." /></label>
               <label className="checkbox-label"><input type="checkbox" checked={formNotify} onChange={(e) => setFormNotify(e.target.checked)} /><span>Notify on Completion</span><InfoTooltip text="Send a desktop notification when this routine finishes. Only effective when Settings → Notifications → Automatic routines is set to 'selected'." /></label>
             </div>
+            {formAi && <AIDefaultsInfo />}
+            {formAi && (
+              <details className="form-field">
+                <summary>Override AI settings for this routine</summary>
+                <AIOverridePanel value={formAiOverride} onChange={setFormAiOverride} />
+              </details>
+            )}
             <div
               className="form-field"
               role="radiogroup"

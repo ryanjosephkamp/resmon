@@ -72,6 +72,7 @@ from implementation_scripts.credential_manager import (
     pop_ephemeral,
     AI_CREDENTIAL_NAMES,
     SMTP_CREDENTIAL_NAMES,
+    migrate_legacy_global_ai_key,
 )
 from implementation_scripts.llm_factory import build_llm_client_from_settings
 from implementation_scripts.ai_models import (
@@ -339,17 +340,24 @@ _AI_SETTING_KEYS: tuple[str, ...] = (
     "ai_custom_base_url",
     "ai_summary_length",
     "ai_tone",
+    "ai_temperature",
     "ai_extraction_goals",
     "ai_show_audit_prefix",
 )
 
-# IMPL-AI13: per-execution override dicts sent through the request body use
-# short keys (``length``, ``tone``, ``model``). Translate them onto the
+# IMPL-AI13 / Update 2 — Feature 2: per-execution override dicts sent
+# through the request body use short keys. Translate them onto the
 # canonical ``ai_*`` names before merging so the override actually wins.
+# Update 2 — Feature 2 expands parity with Settings → AI by adding
+# ``provider``, ``temperature``, ``extraction_goals``, and ``local_model``.
 _AI_OVERRIDE_KEY_MAP: dict[str, str] = {
+    "provider": "ai_provider",
+    "model": "ai_model",
+    "local_model": "ai_local_model",
     "length": "ai_summary_length",
     "tone": "ai_tone",
-    "model": "ai_model",
+    "temperature": "ai_temperature",
+    "extraction_goals": "ai_extraction_goals",
 }
 
 
@@ -394,6 +402,15 @@ def _build_prompt_params(merged: dict) -> dict:
     params: dict = {"length": length, "tone": tone}
     if goals:
         params["extraction_goals"] = str(goals)
+    # Update 2 — Feature 2: surface ``ai_temperature`` so it reaches
+    # ``RemoteLLMClient.generate`` (which reads ``params['temperature']``).
+    # Empty / unparseable values fall back to the client default.
+    raw_temp = str(merged.get("ai_temperature") or "").strip()
+    if raw_temp:
+        try:
+            params["temperature"] = float(raw_temp)
+        except (TypeError, ValueError):
+            pass
     # Audit-prefix controls. Default is enabled; only an explicit "false"
     # (case-insensitive) disables the prefix.
     raw_flag = str(merged.get("ai_show_audit_prefix") or "").strip().lower()
@@ -472,6 +489,138 @@ def _apply_ai_settings_to_engine(
         return
 
     engine.llm_client = client
+
+
+# ---------------------------------------------------------------------------
+# Renderer-presence heartbeat (Bug B follow-up — duplicate-notification fix)
+# ---------------------------------------------------------------------------
+#
+# The Electron renderer fires its own ``new Notification(...)`` on
+# completion. When the renderer is running, the headless-daemon-side
+# ``desktop_notifier.notify`` call (which on macOS goes through
+# ``osascript`` and is therefore attributed to Script Editor) duplicates
+# that notification under an unfamiliar app name. To avoid the dupe
+# while still preserving the headless-daemon path (app fully closed),
+# the renderer posts a lightweight heartbeat to the backend; when the
+# heartbeat is fresh, the backend suppresses its own dispatch and lets
+# the renderer alone show the notification.
+
+_RENDERER_HEARTBEAT_TTL_SEC = 15.0
+_renderer_last_heartbeat_ts: float = 0.0
+
+
+def _renderer_is_attached() -> bool:
+    """Return True if the renderer pinged us recently enough to handle
+    its own desktop notifications."""
+    if _renderer_last_heartbeat_ts <= 0:
+        return False
+    return (time.time() - _renderer_last_heartbeat_ts) <= _RENDERER_HEARTBEAT_TTL_SEC
+
+
+def _should_dispatch_desktop_notification(
+    *,
+    execution_type: str,
+    notify_manual: bool,
+    notify_automatic_mode: str,
+    routine_notify_on_complete: bool,
+) -> bool:
+    """Decide whether a completed execution warrants a desktop notification.
+
+    Mirrors the in-renderer logic in
+    ``ExecutionContext.maybeNotifyCompletion``:
+
+    * Manual runs (``deep_dive`` / ``deep_sweep``) honor ``notify_manual``.
+    * Automated runs (``automated_sweep``) honor the per-routine
+      ``notify_on_complete`` flag first; otherwise fall back to the
+      global ``notify_automatic_mode`` (``all`` fires for every routine,
+      ``none`` and ``selected`` suppress when the per-routine flag is
+      false).
+    """
+    if execution_type in ("deep_dive", "deep_sweep"):
+        return bool(notify_manual)
+    if execution_type == "automated_sweep":
+        if routine_notify_on_complete:
+            return True
+        return notify_automatic_mode == "all"
+    return False
+
+
+def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
+    """Best-effort OS-level desktop notification for a completed execution.
+
+    Reads the same settings keys consumed by the in-renderer notifier
+    plus the per-routine ``notify_on_complete`` flag, then dispatches via
+    :mod:`implementation_scripts.desktop_notifier`. Any failure is
+    logged at debug level and never raises.
+    """
+    try:
+        from implementation_scripts import desktop_notifier
+    except Exception:
+        return
+
+    # If the Electron renderer is attached, it will fire its own
+    # ``new Notification(...)``. Suppress the backend dispatch to avoid
+    # the duplicate (which on macOS arrives attributed to Script Editor
+    # because it's posted via ``osascript``).
+    if _renderer_is_attached():
+        return
+
+    execution_type = str(execution_row.get("execution_type") or "").strip()
+    if execution_type not in ("deep_dive", "deep_sweep", "automated_sweep"):
+        return
+
+    raw = _get_settings_group(conn, "notifications")
+    manual_raw = str(raw.get("notify_manual", "")).strip().lower()
+    if raw.get("notify_manual", "") == "":
+        notify_manual = True  # default-on for first-load parity with GET endpoint
+    else:
+        notify_manual = manual_raw in ("1", "true", "yes", "on")
+    mode = str(raw.get("notify_automatic_mode", "")).strip().lower()
+    if mode not in ("all", "selected", "none"):
+        mode = "none"
+
+    routine_notify_on_complete = False
+    routine_id = execution_row.get("routine_id")
+    if routine_id:
+        try:
+            routine = get_routine_by_id(conn, int(routine_id))
+            if routine:
+                routine_notify_on_complete = bool(routine.get("notify_on_complete"))
+        except Exception:
+            pass
+
+    if not _should_dispatch_desktop_notification(
+        execution_type=execution_type,
+        notify_manual=notify_manual,
+        notify_automatic_mode=mode,
+        routine_notify_on_complete=routine_notify_on_complete,
+    ):
+        return
+
+    status = str(execution_row.get("status") or "").strip().lower()
+    type_label = {
+        "deep_dive": "Deep Dive",
+        "deep_sweep": "Deep Sweep",
+        "automated_sweep": "Automated Sweep",
+    }.get(execution_type, "Execution")
+    title = (
+        "resmon: Execution Completed"
+        if status == "completed"
+        else f"resmon: Execution {status or 'finished'}"
+    )
+    if status == "completed":
+        total = execution_row.get("total_results") or 0
+        new = execution_row.get("new_results") or 0
+        body = f"{type_label} finished — {total} results ({new} new)."
+    else:
+        body = f"{type_label} ended with status: {status or 'unknown'}."
+
+    try:
+        desktop_notifier.notify(title, body)
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "desktop_notifier.notify raised", exc_info=True,
+        )
 
 
 def _launch_execution(
@@ -563,6 +712,20 @@ def _launch_execution(
             except Exception:
                 logging.getLogger(__name__).exception(
                     "Routine completion email hook raised for exec_id=%s", exec_id,
+                )
+            # Bug-B (Update 2 / Batch 2): desktop notification dispatch.
+            # Fires from the backend so notifications work even under the
+            # headless-daemon path where the renderer is not running.
+            # Reads the same settings keys consumed by the in-renderer
+            # notifier (``notify_manual``, ``notify_automatic_mode``) plus
+            # the per-routine ``notify_on_complete`` flag.
+            try:
+                row = get_execution_by_id(conn, exec_id)
+                if row:
+                    _dispatch_desktop_notification(conn, row)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Desktop notification hook raised for exec_id=%s", exec_id,
                 )
             events = progress_store.get_events(exec_id)
             save_progress_events(conn, exec_id, events)
@@ -762,6 +925,24 @@ def _sched_remove_routine(routine_id: int) -> None:
         )
 
 
+@app.post("/api/renderer/heartbeat")
+def renderer_heartbeat():
+    """Renderer-presence ping.
+
+    The Electron renderer posts here every few seconds while it is
+    running. The backend uses the most recent ping to decide whether
+    to suppress its own desktop-notification dispatch (which would
+    otherwise duplicate the in-renderer ``new Notification(...)`` and,
+    on macOS, surface under ``Script Editor`` because it's invoked via
+    ``osascript``). When the heartbeat is stale (renderer closed), the
+    backend resumes dispatching so the headless-daemon path still
+    works.
+    """
+    global _renderer_last_heartbeat_ts
+    _renderer_last_heartbeat_ts = time.time()
+    return {"ok": True, "ttl_sec": _RENDERER_HEARTBEAT_TTL_SEC}
+
+
 @app.get("/api/routines")
 def list_routines():
     conn = _get_db()
@@ -790,6 +971,38 @@ def list_routines():
                     last_status = None
             r["last_status"] = last_status
         return routines
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/routines/{routine_id}")
+def get_routine(routine_id: int):
+    """Fetch a single routine by ID.
+
+    The renderer's notification path needs the per-routine
+    ``notify_on_complete`` flag to decide whether to fire a desktop
+    notification under ``notify_automatic_mode == 'selected'``. Without
+    this endpoint the renderer's fetch silently 404s and the per-routine
+    opt-in is treated as ``false``, which suppresses notifications even
+    when the user enabled the per-row toggle.
+    """
+    conn = _get_db()
+    try:
+        routine = get_routine_by_id(conn, routine_id)
+        if not routine:
+            raise HTTPException(404, "Routine not found")
+        # Coerce the same boolean-ish columns the list endpoint exposes
+        # so the renderer doesn't have to re-coerce ``0/1`` integers.
+        for col in (
+            "is_active",
+            "email_enabled",
+            "email_ai_summary_enabled",
+            "ai_enabled",
+            "notify_on_complete",
+        ):
+            if col in routine:
+                routine[col] = bool(routine[col])
+        return routine
     finally:
         _close_db(conn)
 
@@ -1480,7 +1693,64 @@ async def import_configurations(files: list[UploadFile] = File(...)):
             tmp.close()
             tmp_paths.append(Path(tmp.name))
         ids = import_configs(conn, tmp_paths)
-        return {"imported": len(ids), "errors": []}
+
+        # Update 2 — Configurations/Routines lockstep:
+        # Every imported routine-config must be mirrored as a real routine
+        # row so the Routines page lists it. The freshly-created routine
+        # is *deactivated by default* per the user requirement: bulk
+        # imports never auto-activate. We then rewrite the imported
+        # config row's parameters JSON so ``linked_routine_id`` points at
+        # the new routine, keeping the lockstep invariant the rest of
+        # the app already enforces (delete cascade, edit dispatch, etc.).
+        routines_created = 0
+        for cid in ids:
+            row = conn.execute(
+                "SELECT * FROM saved_configurations WHERE id = ?", (cid,)
+            ).fetchone()
+            if not row:
+                continue
+            row = dict(row)
+            if row.get("config_type") != "routine":
+                continue
+            raw = row.get("parameters") or "{}"
+            try:
+                payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            inner_params = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
+            ai_settings = payload.get("ai_settings")
+            routine_dict = {
+                "name": row.get("name") or "Imported Routine",
+                "schedule_cron": payload.get("schedule_cron") or "0 8 * * *",
+                "parameters": json.dumps(inner_params),
+                "is_active": 0,  # deactivated by default on import
+                "email_enabled": int(bool(payload.get("email_enabled"))),
+                "email_ai_summary_enabled": int(bool(payload.get("email_ai_summary_enabled"))),
+                "ai_enabled": int(bool(payload.get("ai_enabled"))),
+                "ai_settings": json.dumps(ai_settings) if isinstance(ai_settings, dict) else None,
+                "storage_settings": None,
+                "notify_on_complete": int(bool(payload.get("notify_on_complete"))),
+                "execution_location": payload.get("execution_location") if payload.get("execution_location") in ("local", "cloud") else "local",
+            }
+            try:
+                rid = insert_routine(conn, routine_dict)
+            except Exception as exc:
+                logger.error("Failed to create routine for imported config %s: %s", cid, exc)
+                continue
+            # Rewrite the imported config row's parameters so it links to
+            # the new routine and reflects the deactivated state. We do
+            # NOT call ``_sync_routine_config`` here, because that helper
+            # would insert a *second* mirror row when none with the new
+            # ``linked_routine_id`` is found — instead, we update the
+            # already-imported row in place.
+            payload["linked_routine_id"] = rid
+            payload["is_active"] = False
+            update_configuration(conn, cid, {"parameters": json.dumps(payload)})
+            routines_created += 1
+
+        return {"imported": len(ids), "routines_created": routines_created, "errors": []}
     finally:
         _close_db(conn)
 
@@ -1629,6 +1899,11 @@ _SETTINGS_GROUPS = {
         "ai_show_audit_prefix",
         "ai_custom_base_url",
         "ai_custom_header_prefix",
+        # Update 2 — Feature 1 extension: per-provider default-model map,
+        # stored as a JSON-encoded ``{provider: model_id}`` dict so the
+        # AI tab can restore the user's previously chosen model when they
+        # switch providers without re-loading the model list.
+        "ai_default_models",
     ],
     "cloud": ["cloud_provider", "cloud_auto_backup"],
     "storage": ["pdf_policy", "txt_policy", "archive_after_days", "export_directory"],
@@ -1865,6 +2140,24 @@ def _hydrate_admission_from_db() -> None:
 @app.on_event("startup")
 def _init_admission_on_startup() -> None:
     _hydrate_admission_from_db()
+
+
+@app.on_event("startup")
+def _migrate_legacy_ai_key_on_startup() -> None:
+    """Update 2 — Feature 1: one-shot transparent migration of any
+    legacy global ``ai_api_key`` keyring slot into the per-provider
+    ``{provider}_api_key`` slot. Idempotent — calling it on every
+    startup is safe and a no-op when no legacy slot exists.
+    """
+    try:
+        conn = _get_db()
+        try:
+            provider = get_setting(conn, "ai_provider")
+        finally:
+            _close_db(conn)
+        migrate_legacy_global_ai_key(provider)
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("Legacy AI-key migration failed")
 
 
 # ---------------------------------------------------------------------------

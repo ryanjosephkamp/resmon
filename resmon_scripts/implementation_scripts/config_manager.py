@@ -21,11 +21,23 @@ logger = logging.getLogger(__name__)
 # JSON Schema (Appendix C)
 # ---------------------------------------------------------------------------
 
+# The base schema applies to every config_type. Type-specific required
+# fields are layered on top in ``validate_config`` because the three stored
+# shapes differ:
+#   * ``manual_sweep`` — top-level ``repositories`` (array) + ``keywords``.
+#   * ``manual_dive``  — top-level singular ``repository`` (string) +
+#     ``keywords``; the Deep Dive page intentionally stores a single repo
+#     slug rather than a one-element array.
+#   * ``routine``      — wrapper payload with ``linked_routine_id``,
+#     ``schedule_cron``, and a nested ``parameters`` object that holds the
+#     sweep payload. The wrapper is produced by ``_serialize_routine_for_config``
+#     in ``resmon.py`` and is not a sweep payload itself.
 CONFIG_SCHEMA = {
-    "required": ["config_type", "name", "repositories", "keywords"],
+    "required": ["config_type", "name"],
     "properties": {
         "config_type": {"type": "string", "enum": ["manual_dive", "manual_sweep", "routine"]},
         "name": {"type": "string", "min_length": 1},
+        "repository": {"type": "string", "min_length": 1},
         "repositories": {"type": "array", "min_items": 1},
         "keywords": {"type": "array", "min_items": 1},
         "categories": {"type": "object"},
@@ -65,8 +77,28 @@ def validate_config(config_dict: dict) -> None:
     """
     errors: list[str] = []
 
-    # Check required fields
+    # Check base required fields (config_type, name) for every type.
     for field in CONFIG_SCHEMA["required"]:
+        if field not in config_dict:
+            errors.append(f"Missing required field: '{field}'")
+        elif config_dict[field] is None:
+            errors.append(f"Required field '{field}' is null")
+
+    # Layer in config_type-specific required fields. The three stored
+    # shapes diverge (singular ``repository`` for dive, plural
+    # ``repositories`` for sweep, wrapper payload for routine), so a single
+    # flat required list cannot cover them all without rejecting valid
+    # exports on import.
+    config_type = config_dict.get("config_type")
+    if config_type == "manual_sweep":
+        type_required = ["repositories", "keywords"]
+    elif config_type == "manual_dive":
+        type_required = ["repository", "keywords"]
+    elif config_type == "routine":
+        type_required = ["parameters"]
+    else:
+        type_required = []
+    for field in type_required:
         if field not in config_dict:
             errors.append(f"Missing required field: '{field}'")
         elif config_dict[field] is None:

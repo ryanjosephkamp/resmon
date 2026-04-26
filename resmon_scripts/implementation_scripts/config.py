@@ -14,7 +14,7 @@ DEFAULT_DB_PATH = PROJECT_ROOT / "resmon.db"
 
 # Application metadata
 APP_NAME = "resmon"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 # API Client defaults
 DEFAULT_REQUEST_TIMEOUT = 30  # seconds

@@ -73,6 +73,73 @@ def delete_credential(key_name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Legacy-key migration (Update 2 — Feature 1)
+# ---------------------------------------------------------------------------
+#
+# Earlier pre-release builds may have stored the AI summarization API key
+# under a single global ``ai_api_key`` slot rather than the per-provider
+# ``{provider}_api_key`` scheme used today. This helper performs a one-shot
+# transparent migration on startup: if the legacy slot exists and the
+# user has already chosen a provider, the value is re-keyed under the
+# matching per-provider slot and the legacy slot is cleared. Idempotent
+# and safe to call on every startup; returns ``True`` only when an actual
+# migration was performed.
+
+_LEGACY_GLOBAL_AI_KEY = "ai_api_key"
+
+
+def _per_provider_slot_for(provider: str) -> str | None:
+    """Return the per-provider keyring slot for ``provider`` or ``None``.
+
+    ``local`` and unknown providers have no remote API key slot.
+    """
+    p = (provider or "").strip().lower()
+    if not p or p == "local":
+        return None
+    if p == "custom":
+        return "custom_llm_api_key"
+    name = f"{p}_api_key"
+    return name if name in AI_CREDENTIAL_NAMES else None
+
+
+def migrate_legacy_global_ai_key(provider: str | None) -> bool:
+    """Re-key any legacy global ``ai_api_key`` into ``{provider}_api_key``.
+
+    Returns ``True`` if a value was migrated, ``False`` otherwise. The
+    legacy slot is cleared only after a successful write to the target
+    slot. If ``provider`` is empty / ``local`` / unknown, the legacy
+    slot is left in place so the user can reattempt after selecting a
+    provider. Raw credential values are never logged.
+    """
+    legacy = get_credential(_LEGACY_GLOBAL_AI_KEY)
+    if not legacy:
+        return False
+    target = _per_provider_slot_for(provider or "")
+    if target is None:
+        logger.info(
+            "Legacy global AI key present but no eligible provider slot "
+            "(provider=%r); leaving legacy slot in place.",
+            provider,
+        )
+        return False
+    # Don't clobber a key already stored under the target slot.
+    if get_credential(target):
+        logger.info(
+            "Legacy global AI key present but target slot %s already has a "
+            "value; clearing legacy slot.",
+            target,
+        )
+        delete_credential(_LEGACY_GLOBAL_AI_KEY)
+        return False
+    store_credential(target, legacy)
+    delete_credential(_LEGACY_GLOBAL_AI_KEY)
+    logger.info(
+        "Migrated legacy global AI key into per-provider slot %s.", target,
+    )
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Ephemeral (per-execution) credentials
 # ---------------------------------------------------------------------------
 #

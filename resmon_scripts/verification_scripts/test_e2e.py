@@ -400,13 +400,22 @@ def test_e2e_config_export_import(client):
 
     Covers CFG-1, CFG-2, CFG-3, CFG-4, CFG-5, CFG-6, CFG-7.
     """
-    # ---- create two configs (routine + manual) ----
+    # ---- create two configs (routine + manual_dive) ----
+    # The routine config_type is the wrapper payload produced by
+    # ``_serialize_routine_for_config`` (linked_routine_id + nested
+    # ``parameters``); manual_dive stores a singular ``repository`` per
+    # the Deep Dive page contract. The schema validates these per-type
+    # shapes on import, so the test fixtures must match them.
     r1 = client.post("/api/configurations", json={
         "name": "E2E Routine Config",
         "config_type": "routine",
         "parameters": {
-            "keywords": ["machine learning"],
-            "repositories": ["arxiv", "semantic_scholar"],
+            "linked_routine_id": 999,
+            "schedule_cron": "0 8 * * *",
+            "parameters": {
+                "keywords": ["machine learning"],
+                "repositories": ["arxiv", "semantic_scholar"],
+            },
         },
     })
     assert r1.status_code in (200, 201)
@@ -417,7 +426,7 @@ def test_e2e_config_export_import(client):
         "config_type": "manual_dive",
         "parameters": {
             "keywords": ["quantum computing"],
-            "repositories": ["arxiv"],
+            "repository": "arxiv",
         },
     })
     assert r2.status_code in (200, 201)
@@ -439,8 +448,16 @@ def test_e2e_config_export_import(client):
             content = json.loads(zf.read(n))
             assert "config_type" in content
             assert "name" in content
-            assert "keywords" in content
-            assert "repositories" in content
+            # The two stored shapes diverge: manual_dive carries
+            # ``keywords`` + singular ``repository``; routine carries the
+            # wrapper payload with ``linked_routine_id`` and nested
+            # ``parameters``. Verify config-type-specific keys.
+            if content["config_type"] == "manual_dive":
+                assert "keywords" in content
+                assert "repository" in content
+            elif content["config_type"] == "routine":
+                assert "linked_routine_id" in content
+                assert "parameters" in content
 
     # ---- delete originals ----
     client.delete(f"/api/configurations/{id1}")

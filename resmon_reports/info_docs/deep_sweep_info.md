@@ -40,9 +40,9 @@ Inputs (form state):
 - `dateFrom` / `dateTo` — optional ISO date strings; sent as `null` when empty.
 - `maxResults` — integer 10–500 (step 10, default 100), **per repository**.
 - `aiEnabled` — boolean toggle.
-- `aiOverrideLength` / `aiOverrideTone` / `aiOverrideModel` (IMPL-AI13) —
-  optional per-execution overrides; only non-empty values are included in
-  the request body.
+- `aiOverrideProvider` / `aiOverrideModel` / `aiOverrideLength` / `aiOverrideTone` / `aiOverrideTemperature` / `aiOverrideExtractionGoals` (IMPL-AI13, full-parity) —
+  optional per-execution overrides surfaced through the shared `AIOverridePanel`; only non-empty values are included in
+  the request body (per-field merge — empty values never clobber persisted defaults). The `Model` control is a provider-aware dropdown populated by `Load models`; if the chosen provider has no stored API key the panel renders an inline key input that POSTs to `/api/credentials/{name}`, and a `Save as default model` button persists the selection into `ai_default_models[provider]` without leaving the page.
 - `ephemeralKeys` — in-memory map of `{credential_name: key_value}` for
   keyed repositories whose key is not stored in the keyring.
 

@@ -11,6 +11,12 @@ import KeywordCombinationBanner from '../components/Forms/KeywordCombinationBann
 import { useRepoCatalog } from '../hooks/useRepoCatalog';
 import PageHelp from '../components/Help/PageHelp';
 import InfoTooltip from '../components/Help/InfoTooltip';
+import AIOverridePanel, {
+  AIOverrideValue,
+  EMPTY_AI_OVERRIDE,
+  buildAIOverridePayload,
+} from '../components/Forms/AIOverridePanel';
+import AIDefaultsInfo from '../components/Forms/AIDefaultsInfo';
 
 const DeepSweepPage: React.FC = () => {
   const { activeExecutions, startExecution } = useExecution();
@@ -30,10 +36,8 @@ const DeepSweepPage: React.FC = () => {
   const [keywords, setKeywords] = useState<string[]>([]);
   const [maxResults, setMaxResults] = useState(100);
   const [aiEnabled, setAiEnabled] = useState(false);
-  // IMPL-AI13: per-execution overrides. Only non-empty values are sent.
-  const [aiOverrideLength, setAiOverrideLength] = useState('');
-  const [aiOverrideTone, setAiOverrideTone] = useState('');
-  const [aiOverrideModel, setAiOverrideModel] = useState('');
+  // Update 2 — Feature 2: full per-execution AI override.
+  const [aiOverride, setAiOverride] = useState<AIOverrideValue>(EMPTY_AI_OVERRIDE);
   const [error, setError] = useState('');
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [configName, setConfigName] = useState('');
@@ -59,11 +63,8 @@ const DeepSweepPage: React.FC = () => {
     if (keywords.length === 0) { setError('Please enter at least one keyword.'); return; }
     setError('');
     try {
-      // IMPL-AI13: optional per-execution overrides.
-      const overrides: Record<string, string> = {};
-      if (aiOverrideLength) overrides.length = aiOverrideLength;
-      if (aiOverrideTone) overrides.tone = aiOverrideTone;
-      if (aiOverrideModel.trim()) overrides.model = aiOverrideModel.trim();
+      // IMPL-AI13 / Update 2 Feature 2: optional per-execution overrides.
+      const overrides = buildAIOverridePayload(aiOverride);
       const body: Record<string, any> = {
         repositories,
         query: buildQuery(),
@@ -222,36 +223,12 @@ const DeepSweepPage: React.FC = () => {
           </label>
         </div>
 
+        {aiEnabled && <AIDefaultsInfo />}
+
         {aiEnabled && (
           <details className="form-field">
             <summary>Override AI settings for this run</summary>
-            <div className="form-field">
-              <label className="form-label">Length</label>
-              <select className="form-select" value={aiOverrideLength} onChange={(e) => setAiOverrideLength(e.target.value)}>
-                <option value="">Use app default</option>
-                <option value="brief">Brief</option>
-                <option value="standard">Standard</option>
-                <option value="detailed">Detailed</option>
-              </select>
-            </div>
-            <div className="form-field">
-              <label className="form-label">Tone</label>
-              <select className="form-select" value={aiOverrideTone} onChange={(e) => setAiOverrideTone(e.target.value)}>
-                <option value="">Use app default</option>
-                <option value="technical">Technical</option>
-                <option value="neutral">Neutral</option>
-                <option value="accessible">Accessible</option>
-              </select>
-            </div>
-            <div className="form-field">
-              <label className="form-label">Model</label>
-              <input
-                className="form-input"
-                value={aiOverrideModel}
-                onChange={(e) => setAiOverrideModel(e.target.value)}
-                placeholder="Model ID (optional)"
-              />
-            </div>
+            <AIOverridePanel value={aiOverride} onChange={setAiOverride} />
           </details>
         )}
 
@@ -293,6 +270,12 @@ const DeepSweepPage: React.FC = () => {
                 className="form-input"
                 value={configName}
                 onChange={(e) => setConfigName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && configName.trim()) {
+                    e.preventDefault();
+                    handleSaveConfig();
+                  }
+                }}
                 autoFocus
               />
             </div>
