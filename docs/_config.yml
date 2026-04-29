@@ -1,0 +1,33 @@
+title: resmon
+description: Updates, release notes, and announcements for the resmon research-monitoring app.
+url: "https://ryanjosephkamp.github.io"
+baseurl: "/resmon"
+
+# Use the GitHub Pages default theme so this site builds without any
+# additional configuration. The theme can be swapped at any time without
+# affecting the in-app Blog tab, which only depends on /feed.xml.
+theme: minima
+
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+# jekyll-feed defaults: writes /feed.xml at build time. The in-app Blog tab
+# fetches and parses this file on every tab open.
+feed:
+  path: feed.xml
+
+# Author block surfaced in the feed and on post pages.
+author:
+  name: Ryan Kamp
+
+# Permalinks: keep them short and stable so the in-app reader's "Open in
+# browser" button always lands on a canonical URL.
+permalink: /:year/:month/:day/:title/
+
+# Exclude assets that are not part of the published blog.
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor/
+  - .bundle/
