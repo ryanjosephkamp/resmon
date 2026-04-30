@@ -4,12 +4,12 @@
 
 ### Purpose
 
-The Settings page is the central configuration surface for `resmon`. It groups all user-configurable behavior into eight sub-tabs — Email, Cloud Account, Cloud Storage, AI, Storage, Notifications, Advanced, and About App — each handling a self-contained slice of backend configuration, secret management, or diagnostics.
+The Settings page is the central configuration surface for `resmon`. It groups all user-configurable behavior into seven sub-tabs — Email, Cloud Account, Cloud Storage, AI, Storage, Notifications, and Advanced — each handling a self-contained slice of backend configuration, secret management, or diagnostics. (The previous **About App** sub-tab was relocated to the new top-level [About resmon](about_resmon_info.md) page in Update 3.)
 
 ### Primary User Flows
 
 1. Open **Settings** from the sidebar. The page renders a tab strip and a panel area; the route defaults to the Email panel.
-2. Click a tab to navigate to its panel (`/settings/email`, `/settings/account`, `/settings/cloud`, `/settings/ai`, `/settings/storage`, `/settings/notifications`, `/settings/advanced`, `/settings/about`).
+2. Click a tab to navigate to its panel (`/settings/email`, `/settings/account`, `/settings/cloud`, `/settings/ai`, `/settings/storage`, `/settings/notifications`, `/settings/advanced`).
 3. Within a panel, edit fields and press **Save** (or the panel-specific action button) to persist the change through the corresponding `PUT /api/settings/*` endpoint (or a credential / service endpoint, depending on the tab).
 4. Test actions (send test email, test API key, list models, link Google Drive, install service, refresh scheduler jobs) call their backend endpoints directly and surface an inline status line.
 
@@ -35,8 +35,9 @@ The Settings page is the central configuration surface for `resmon`. It groups a
 
 ### Child Components and Hooks
 
-- Panel components (all under `resmon_scripts/frontend/src/components/Settings/`): `EmailSettings`, `CloudAccountSettings`, `CloudSettings`, `AISettings`, `StorageSettings`, `NotificationSettings`, `AdvancedSettings`, `AboutAppSettings`.
-- Shared help component: `PageHelp` (each panel wires its own `storageKey`, e.g. `settings-email`, `settings-ai`, `settings-advanced`, `settings-about-app`).
+- Panel components (all under `resmon_scripts/frontend/src/components/Settings/`): `EmailSettings`, `CloudAccountSettings`, `CloudSettings`, `AISettings`, `StorageSettings`, `NotificationSettings`, `AdvancedSettings`. (The previous `AboutAppSettings` was relocated to `components/AboutResmon/AboutAppTab.tsx` and is now mounted on the About resmon page.)
+- Per-page tutorial deep-link: a `TutorialLinkButton` (`anchor="settings"`) is rendered in `<div className="page-header">` next to the `<h1>Settings</h1>` title, and each panel header renders its own `TutorialLinkButton` (`settings-email`, `settings-account`, `settings-cloud`, `settings-ai`, `settings-storage`, `settings-notifications`, `settings-advanced`) so users can jump from any sub-tab to the matching tutorial section. See [about_resmon_info.md](about_resmon_info.md).
+- Shared help component: `PageHelp` (each panel wires its own `storageKey`, e.g. `settings-email`, `settings-ai`, `settings-advanced`).
 - Hooks: `useState`, `useEffect`, `useCallback` for panel-local state; `NavLink` / `Navigate` / `Routes` from `react-router-dom` for tab routing; `apiClient` wrapper for REST calls.
 
 ### UI State Model
@@ -115,12 +116,18 @@ The Settings page is the central configuration surface for `resmon`. It groups a
 - **Background daemon** — `GET /api/service/status` returns `{ installed, unit_path, platform }`; `POST /api/service/install` and `POST /api/service/uninstall` toggle the OS service unit (IMPL-26). Health polling of `/api/health` at a 5-second interval surfaces `{ status, pid, started_at, version }`.
 - **Concurrent executions (IMPL-R12)** — `GET /api/settings/execution` returns `{ max_concurrent_executions, routine_fire_queue_limit }`; the panel persists edits through `PUT /api/settings/execution`. Limits flow into `admission` (IMPL-R1 / R2) and into the scheduler's routine-fire queue (IMPL-R3 / R6).
 - **Scheduler diagnostics** — `GET /api/scheduler/jobs` returns `{ id, name, next_run_time, trigger }` entries from the APScheduler job store. A Refresh action re-fetches the list.
-
-### Panel: About App
-
-- Component: `AboutAppSettings` ([resmon_scripts/frontend/src/components/Settings/AboutAppSettings.tsx](resmon_scripts/frontend/src/components/Settings/AboutAppSettings.tsx)).
-- Displays app name / version (seeded to `1.0.0` and refreshed from `GET /api/health.version`, which is sourced from `implementation_scripts.config.APP_VERSION`), license and privacy summaries, and a set of author social links (GitHub, LinkedIn, X, website, email).
-- Renders a copyright footer note. No mutations occur from this panel.
+- **Danger Zone (Update 3 / `4_27_26`)** — appended at the bottom of the Advanced panel. Two columns are rendered side by side: `Local device` (active) and `Cloud account` (scaffolding, all buttons rendered disabled with a "Coming soon — requires cloud sign-in" tooltip). Each column exposes the same eight destructive actions:
+  1. **Erase all AI API keys** — `POST /api/admin/erase-ai-keys`. Deletes every credential in `AI_CREDENTIAL_NAMES` from the OS keyring. Simple green `Confirm` / red `Cancel` modal; no typed gate.
+  2. **Erase all repo API keys** — `POST /api/admin/erase-repo-keys`. Deletes every credential in `catalog_credential_names()` from the OS keyring. Simple confirm modal; no typed gate.
+  3. **Erase all configs** — `POST /api/admin/erase-configs`. Deletes every row in `saved_configurations`; cascades to any routine linked through `linked_routine_id`. Typed-`CONFIRM` gate (case-sensitive, all caps).
+  4. **Erase execution history** — `POST /api/admin/erase-executions`. Deletes every row in `executions` (and child rows: progress events, logs links) and resets the `sqlite_sequence` row for `executions` so the next run starts at `Execution #1`. Typed-`CONFIRM` gate.
+  5. **Erase all execution data** — `POST /api/admin/erase-execution-data`. Composite of (3) + (4). Typed-`CONFIRM` gate.
+  6. **Erase all app data** — `POST /api/admin/erase-app-data`. Composite of (1) + (2) + (5); non-AI Settings tabs (Email, Cloud Storage, Storage, Notifications, Advanced) are preserved. Typed-`CONFIRM` gate.
+  7. **Reset all settings** — `POST /api/admin/reset-settings`. Resets every Settings tab to defaults, deletes every API key (AI + repo + SMTP password), and clears the cached cloud-account email; configs and executions are preserved. Typed-`CONFIRM` gate.
+  8. **Factory reset** — `POST /api/admin/factory-reset`. Composite of (6) + (7). Typed-`CONFIRM` gate.
+- The two confirmation modals are rendered locally inside `AdvancedSettings.tsx`. The simple variant (buttons 1–2) shows a green Confirm + red Cancel pair. The typed variant (buttons 3–8) renders the action's irreversibility warning, an `<input>` whose value must equal the literal string `CONFIRM` exactly (case-sensitive, no surrounding whitespace), and a red Confirm button that stays `disabled` until the input matches. Both modals close on backdrop click only when the action is not in flight.
+- On success, the panel broadcasts on `configurationsBus` and `routinesBus`, and dispatches a synthetic `resmon:execution-completed` window event so the Dashboard, Configurations, Routines, Calendar, and Results & Logs surfaces refetch immediately.
+- Cloud-column buttons share the same `LOCAL_DANGER_ACTIONS` definition with the endpoint string rewritten to the `/api/admin/cloud/...` mirror; until the cloud-account feature lands, the column is rendered disabled at the UI layer.
 
 ## Backend
 
@@ -128,7 +135,7 @@ The Settings page is the central configuration surface for `resmon`. It groups a
 
 | Method | Path | Purpose | Panel |
 |---|---|---|---|
-| GET | `/api/health` | Daemon status `{ status, pid, started_at, version }` | About App, Advanced |
+| GET | `/api/health` | Daemon status `{ status, pid, started_at, version }` | Advanced |
 | GET | `/api/credentials` | Presence map for allowed credential names (no values) | Email, AI |
 | PUT | `/api/credentials/{key_name}` | Store a secret via OS keyring | Email, AI |
 | DELETE | `/api/credentials/{key_name}` | Remove a stored secret | Email, AI |
@@ -149,6 +156,15 @@ The Settings page is the central configuration surface for `resmon`. It groups a
 | POST | `/api/service/uninstall` | Remove platform-specific service unit | Advanced |
 | GET / PUT | `/api/settings/execution` | `max_concurrent_executions`, `routine_fire_queue_limit` | Advanced |
 | GET | `/api/scheduler/jobs` | APScheduler job listing | Advanced |
+| POST | `/api/admin/erase-ai-keys` | Erase every saved AI provider API key from the OS keyring (Danger Zone) | Advanced |
+| POST | `/api/admin/erase-repo-keys` | Erase every saved research-repository API key from the OS keyring (Danger Zone) | Advanced |
+| POST | `/api/admin/erase-configs` | Delete every saved configuration and cascade to linked routines (Danger Zone) | Advanced |
+| POST | `/api/admin/erase-executions` | Delete every execution row and reset the `Execution #N` counter (Danger Zone) | Advanced |
+| POST | `/api/admin/erase-execution-data` | Composite: erase configs + erase executions (Danger Zone) | Advanced |
+| POST | `/api/admin/erase-app-data` | Composite: erase AI keys + repo keys + execution data; non-AI settings preserved (Danger Zone) | Advanced |
+| POST | `/api/admin/reset-settings` | Reset every Settings tab + erase AI / repo / SMTP keys; configs and executions preserved (Danger Zone) | Advanced |
+| POST | `/api/admin/factory-reset` | Composite: erase app data + reset settings (Danger Zone) | Advanced |
+| POST | `/api/admin/cloud/{erase-*,reset-settings,factory-reset}` | Cloud-account mirrors of the eight Danger Zone actions; scaffolding only — disabled in the UI until cloud sign-in lands (Danger Zone) | Advanced |
 | POST / GET / DELETE / PUT | `/api/cloud-auth/session`, `/api/cloud-auth/status`, `/api/cloud-auth/refresh`, `/api/cloud-auth/sync` | Cloud account session plumbing (dormant UI in this build) | Cloud Account |
 
 ### Request / Response Patterns
@@ -217,10 +233,18 @@ The Settings page is the central configuration surface for `resmon`. It groups a
 - `GET /api/settings/execution` / `PUT /api/settings/execution` — `{ max_concurrent_executions, routine_fire_queue_limit }` used by `admission` (IMPL-R1) and the scheduler's routine-fire queue (IMPL-R3 / R6).
 - `GET /api/scheduler/jobs` — APScheduler job listing for diagnostics.
 - `GET /api/health` — polled every 5 s to display PID, uptime, and version.
+- **Danger Zone (Update 3 / `4_27_26`):**
+  - `POST /api/admin/erase-ai-keys` — iterates `AI_CREDENTIAL_NAMES` and calls `credential_manager.delete_credential` for each.
+  - `POST /api/admin/erase-repo-keys` — iterates `catalog_credential_names()` (the union of `requires_credential` repos in `repo_catalog.REPOSITORY_CATALOG`) and calls `delete_credential` for each.
+  - `POST /api/admin/erase-configs` — `DELETE FROM saved_configurations`; cascades to routines via `linked_routine_id`; resets `sqlite_sequence` for the affected tables.
+  - `POST /api/admin/erase-executions` — `DELETE FROM executions` (plus child progress / log rows) and `DELETE FROM sqlite_sequence WHERE name='executions'` so the auto-incremented `Execution #N` counter restarts at 1.
+  - `POST /api/admin/erase-execution-data` — composite of `erase-configs` + `erase-executions`.
+  - `POST /api/admin/erase-app-data` — composite of `erase-ai-keys` + `erase-repo-keys` + `erase-execution-data`. Non-AI Settings tabs (Email, Cloud Storage, Storage, Notifications, Advanced) are left alone.
+  - `POST /api/admin/reset-settings` — wipes every row in the `settings` table back to defaults, deletes every AI / repo / SMTP credential, and clears the cached cloud-account email. Configs and executions are kept.
+  - `POST /api/admin/factory-reset` — composite of `erase-app-data` + `reset-settings`; the resulting state is equivalent to a fresh install on this device.
+  - `POST /api/admin/cloud/{erase-ai-keys,erase-repo-keys,erase-configs,erase-executions,erase-execution-data,erase-app-data,reset-settings,factory-reset}` — eight cloud-account mirrors that share the same handler shape as their local counterparts. They are scaffolding for the upcoming cloud-account feature; the UI renders the cloud column disabled until cloud sign-in lands.
+  - All eight local endpoints (and their cloud mirrors) accept an empty body for the API-key wipes and `{ "confirm": "CONFIRM" }` for the six destructive data/settings actions; on success the frontend broadcasts on `configurationsBus`, `routinesBus`, and the `resmon:execution-completed` window event so every other page refetches.
 
-### Endpoints: About App Panel
-
-- `GET /api/health` — supplies the `version` field displayed on the panel. The daemon populates this from `implementation_scripts.config.APP_VERSION`; `APP_NAME` is the same constant used as the keyring service name.
 # Settings Page Info
 
 ## Page Overview
@@ -259,8 +283,6 @@ The Settings page is the central configuration surface for `resmon`. It groups a
 
 ### Panel: Advanced
 
-### Panel: About App
-
 ## Backend
 
 ### API Endpoints
@@ -284,5 +306,3 @@ The Settings page is the central configuration surface for `resmon`. It groups a
 ### Endpoints: Notifications Panel
 
 ### Endpoints: Advanced Panel
-
-### Endpoints: About App Panel

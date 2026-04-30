@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { useNavigate } from 'react-router-dom';
 import { useExecution, ActiveExecution } from '../context/ExecutionContext';
 import { apiClient } from '../api/client';
@@ -105,6 +106,10 @@ const MonitorPage: React.FC = () => {
   if (executionOrder.length === 0) {
     return (
       <div className="mon-page">
+        <div className="page-header">
+          <h1>Monitor</h1>
+          <TutorialLinkButton anchor="monitor" />
+        </div>
         <PageHelp
           storageKey="monitor"
           title="Monitor"
@@ -143,6 +148,10 @@ const MonitorPage: React.FC = () => {
 
   return (
     <div className="mon-page">
+      <div className="page-header">
+        <h1>Monitor</h1>
+        <TutorialLinkButton anchor="monitor" />
+      </div>
       <PageHelp
         storageKey="monitor"
         title="Monitor"

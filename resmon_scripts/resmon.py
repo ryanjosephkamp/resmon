@@ -11,7 +11,7 @@ import threading
 import time
 import zipfile
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -39,6 +39,7 @@ from implementation_scripts.database import (
     get_executions,
     get_execution_by_id,
     update_execution_status,
+    set_execution_saved_configuration,
     get_configurations,
     insert_configuration,
     update_configuration,
@@ -190,6 +191,10 @@ class DiveRequest(BaseModel):
     ai_enabled: bool = False
     ai_settings: Optional[dict] = None
     ephemeral_credentials: Optional[dict[str, str]] = None
+    # Update 3 / 4_27_26: when the user launches the dive from a saved
+    # configuration via ConfigLoader, the frontend echoes that config's
+    # id so the new execution row can be linked back to it.
+    saved_configuration_id: Optional[int] = None
 
 class SweepRequest(BaseModel):
     repositories: list[str]
@@ -201,6 +206,8 @@ class SweepRequest(BaseModel):
     ai_enabled: bool = False
     ai_settings: Optional[dict] = None
     ephemeral_credentials: Optional[dict[str, str]] = None
+    # Update 3 / 4_27_26: see DiveRequest.saved_configuration_id.
+    saved_configuration_id: Optional[int] = None
 
 class RoutineCreate(BaseModel):
     name: str
@@ -232,6 +239,13 @@ class ConfigCreate(BaseModel):
     name: str
     config_type: str
     parameters: dict
+    # Update 3 / 4_27_26: when the SaveConfigButton on Calendar /
+    # Dashboard / Results & Logs creates a config from an existing
+    # manual execution, the frontend includes the execution id so the
+    # backend can stamp ``executions.saved_configuration_id`` in the
+    # same request — "last save wins" if the user saves the same
+    # execution multiple times.
+    link_to_execution_id: Optional[int] = None
 
 class ConfigUpdate(BaseModel):
     name: Optional[str] = None
@@ -766,6 +780,10 @@ def search_dive(body: DiveRequest):
         "max_results": body.max_results,
     }
     exec_id = engine.prepare_execution("deep_dive", [body.repository], query_params)
+    # Update 3 / 4_27_26: link the new execution back to the saved
+    # configuration the user picked in ConfigLoader (if any).
+    if body.saved_configuration_id is not None:
+        set_execution_saved_configuration(conn, exec_id, body.saved_configuration_id)
     progress_store.register(exec_id)
     _launch_execution(engine, exec_id, conn, ephemeral_credentials=body.ephemeral_credentials)
     return {"execution_id": exec_id}
@@ -787,6 +805,10 @@ def search_sweep(body: SweepRequest):
         "max_results": body.max_results,
     }
     exec_id = engine.prepare_execution("deep_sweep", body.repositories, query_params)
+    # Update 3 / 4_27_26: link the new execution back to the saved
+    # configuration the user picked in ConfigLoader (if any).
+    if body.saved_configuration_id is not None:
+        set_execution_saved_configuration(conn, exec_id, body.saved_configuration_id)
     progress_store.register(exec_id)
     _launch_execution(engine, exec_id, conn, ephemeral_credentials=body.ephemeral_credentials)
     return {"execution_id": exec_id}
@@ -1605,6 +1627,20 @@ def create_configuration(body: ConfigCreate):
             "config_type": body.config_type,
             "parameters": json.dumps(body.parameters),
         })
+        # Update 3 / 4_27_26: when the SaveConfigButton creates a config
+        # from an existing manual execution, stamp the new config's id
+        # back onto that execution row so the UI can surface a "Saved as"
+        # indicator. "Last save wins" — a second save from the same
+        # execution simply overwrites the column, exactly as the
+        # recommendation document specified.
+        if body.link_to_execution_id is not None:
+            try:
+                set_execution_saved_configuration(conn, body.link_to_execution_id, cid)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Failed to stamp saved_configuration_id=%s on execution %s",
+                    cid, body.link_to_execution_id,
+                )
         return {"id": cid, "name": body.name, "config_type": body.config_type}
     finally:
         _close_db(conn)
@@ -1785,14 +1821,31 @@ def calendar_events(
             query = ex.get("query")
             type_label = ex.get("execution_type", "execution")
             title_suffix = f": {query}" if query else ""
+            # Compute a non-zero-duration end so FullCalendar never falls
+            # back to its ``defaultTimedEventDuration`` (1 h) for an event
+            # whose persisted end equals start (e.g. an in-flight or
+            # null-end-time row); a 1-h default starting at, say, 11:30 PM
+            # would spill into the next calendar cell and render as a
+            # multi-day bar in dayGrid views (see Bug 2).
+            start_iso = ex["start_time"]
+            end_iso = ex.get("end_time") or start_iso
+            if end_iso == start_iso:
+                try:
+                    _start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+                    end_iso = (_start_dt + timedelta(minutes=1)).isoformat()
+                except (ValueError, AttributeError):
+                    pass
             events.append({
                 "id": ex["id"],
                 "title": f"{type_label} #{ex['id']}{title_suffix}",
-                "start": ex["start_time"],
-                "end": ex.get("end_time") or ex["start_time"],
+                "start": start_iso,
+                "end": end_iso,
+                "allDay": False,
                 "color": status_color.get(status, "#6b7280"),
                 "execution_id": ex["id"],
                 "routine_id": ex.get("routine_id"),
+                "saved_configuration_id": ex.get("saved_configuration_id"),
+                "saved_configuration_name": ex.get("saved_configuration_name"),
                 "type": type_label,
                 "status": status,
                 "query": query,
@@ -1806,36 +1859,46 @@ def calendar_events(
         # which we already depend on (ADQ-3).
         try:
             from apscheduler.triggers.cron import CronTrigger  # type: ignore
-            from datetime import timedelta
+            try:
+                from tzlocal import get_localzone  # type: ignore
+                _local_tz = get_localzone()
+            except Exception:
+                _local_tz = None  # fall through to APScheduler default
 
             # Window: caller-supplied ``start``/``end`` (FullCalendar sends
-            # ISO-8601 strings), otherwise today → +90 days.
+            # ISO-8601 strings), otherwise today → +12 months. The 12-month
+            # ceiling matches the user-facing horizon notice rendered on
+            # the Calendar page when the user navigates past it.
             now = datetime.now(timezone.utc)
+            CALENDAR_HORIZON_DAYS = 366
             try:
                 window_start = datetime.fromisoformat(start.replace("Z", "+00:00")) if start else now
             except (ValueError, AttributeError):
                 window_start = now
             try:
-                window_end = datetime.fromisoformat(end.replace("Z", "+00:00")) if end else now + timedelta(days=90)
+                window_end = datetime.fromisoformat(end.replace("Z", "+00:00")) if end else now + timedelta(days=CALENDAR_HORIZON_DAYS)
             except (ValueError, AttributeError):
-                window_end = now + timedelta(days=90)
+                window_end = now + timedelta(days=CALENDAR_HORIZON_DAYS)
             # Never expand past fires; real executions already cover history.
             if window_start < now:
                 window_start = now
+            # Clamp the upper end to the 12-month horizon regardless of
+            # what FullCalendar requests, so a year-view query cannot
+            # explode the per-routine fire count for high-frequency cadences.
+            _hard_horizon = now + timedelta(days=CALENDAR_HORIZON_DAYS)
+            if window_end > _hard_horizon:
+                window_end = _hard_horizon
 
             # Hard cap per-routine so a pathological cron (e.g. ``* * * * *``)
-            # can't produce tens of thousands of events per request.
-            MAX_PER_ROUTINE = 200
+            # can't produce tens of thousands of events per request. Raised
+            # alongside the 90-day → 12-month window extension so that
+            # daily / weekly / monthly cadences fully populate the year and
+            # sub-hourly cadences still render a meaningful prefix.
+            MAX_PER_ROUTINE = 2000
 
+            from implementation_scripts.scheduler import _build_trigger as _sched_build_trigger  # type: ignore
             for r in get_routines(conn):
                 if not r.get("is_active"):
-                    continue
-                cron_expr = (r.get("schedule_cron") or "").strip()
-                if not cron_expr:
-                    continue
-                try:
-                    trigger = CronTrigger.from_crontab(cron_expr, timezone=timezone.utc)
-                except (ValueError, TypeError):
                     continue
                 params = r.get("parameters")
                 if isinstance(params, str):
@@ -1845,6 +1908,21 @@ def calendar_events(
                         params = {}
                 elif not isinstance(params, dict):
                     params = {}
+                # Build the same trigger the live scheduler would use:
+                # structured ``_schedule`` block (IntervalTrigger or the
+                # custom monthly/yearly trigger) when present, otherwise
+                # the legacy 5-field cron string.
+                cron_expr = (r.get("schedule_cron") or "").strip()
+                if not cron_expr and not (isinstance(params, dict) and params.get("_schedule")):
+                    continue
+                try:
+                    trigger, _desc = _sched_build_trigger({
+                        "id": r["id"],
+                        "schedule_cron": cron_expr or "0 0 * * *",
+                        "parameters": params,
+                    })
+                except (ValueError, TypeError):
+                    continue
                 kw_list = params.get("keywords") if isinstance(params, dict) else None
                 query_hint = ", ".join(kw_list) if isinstance(kw_list, list) and kw_list else ""
 
@@ -1856,11 +1934,17 @@ def calendar_events(
                     nxt = trigger.get_next_fire_time(prev, cursor)
                     if nxt is None or nxt > window_end:
                         break
+                    # Emit a tiny non-zero duration so FullCalendar never
+                    # falls back to ``defaultTimedEventDuration`` (1 h) for
+                    # late-night fires that would otherwise spill into the
+                    # next day's cell as a multi-day bar (see Bug 2).
+                    nxt_end = nxt + timedelta(minutes=1)
                     events.append({
                         "id": f"routine-{r['id']}-{nxt.isoformat()}",
                         "title": f"routine #{r['id']}: {r.get('name') or ''}".strip(),
                         "start": nxt.isoformat(),
-                        "end": nxt.isoformat(),
+                        "end": nxt_end.isoformat(),
+                        "allDay": False,
                         "color": status_color["scheduled"],
                         "execution_id": None,
                         "routine_id": r["id"],
@@ -2815,6 +2899,272 @@ def flush_running_executions(reason: str = "daemon_restart") -> int:
             error_message=f"Execution flushed on {reason}",
         )
     return len(rows)
+
+
+# ---------------------------------------------------------------------------
+# Settings → Advanced → Danger Zone (Update 3 / 4_27_26)
+# ---------------------------------------------------------------------------
+#
+# Bulk irreversible erase / reset endpoints exposed in the Advanced tab.
+# The renderer guards each destructive call with a typed-CONFIRM modal, but
+# the backend re-validates the literal ``"CONFIRM"`` string on the wire so
+# stray client code can't accidentally wipe data.
+#
+# Cloud-scope counterparts are intentionally stubbed at 501 until the cloud-
+# account feature lands; the renderer renders disabled buttons next to the
+# local ones so the UI surface is already in place.
+
+
+class AdminConfirmBody(BaseModel):
+    confirm: str = ""
+
+
+def _require_confirm(body: AdminConfirmBody) -> None:
+    if body.confirm != "CONFIRM":
+        raise HTTPException(
+            status_code=400,
+            detail="This action is irreversible. Type CONFIRM exactly to proceed.",
+        )
+
+
+def _erase_ai_keys() -> int:
+    for name in AI_CREDENTIAL_NAMES:
+        delete_credential(name)
+    # Legacy single global slot from pre-update_2 builds, if present.
+    delete_credential("ai_api_key")
+    return len(AI_CREDENTIAL_NAMES)
+
+
+def _erase_repo_keys() -> int:
+    names = sorted(catalog_credential_names())
+    for name in names:
+        delete_credential(name)
+    return len(names)
+
+
+def _erase_configs(conn) -> int:
+    """Delete every saved configuration plus any linked routines."""
+    rows = conn.execute(
+        "SELECT id, parameters, config_type FROM saved_configurations"
+    ).fetchall()
+    for row in rows:
+        if row["config_type"] != "routine":
+            continue
+        raw = row["parameters"] or "{}"
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+        rid = payload.get("linked_routine_id") if isinstance(payload, dict) else None
+        if isinstance(rid, int) and get_routine_by_id(conn, rid):
+            delete_routine(conn, rid)
+    count = conn.execute("SELECT COUNT(*) FROM saved_configurations").fetchone()[0]
+    conn.execute("DELETE FROM saved_configurations")
+    conn.execute("DELETE FROM sqlite_sequence WHERE name='saved_configurations'")
+    return int(count)
+
+
+def _erase_executions(conn) -> int:
+    """Delete every execution row and reset the AUTOINCREMENT counter."""
+    count = conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0]
+    # execution_documents has ON DELETE CASCADE on executions(id); explicit
+    # DELETE here is belt-and-braces against pragma drift.
+    conn.execute("DELETE FROM execution_documents")
+    conn.execute("DELETE FROM executions")
+    conn.execute("DELETE FROM sqlite_sequence WHERE name='executions'")
+    return int(count)
+
+
+def _reset_settings(conn) -> int:
+    """Clear every row in app_settings except the schema-version marker."""
+    # Preserve only the schema-version marker so the next daemon start
+    # doesn't re-run migrations.
+    count = conn.execute(
+        "SELECT COUNT(*) FROM app_settings WHERE key != 'schema_version'"
+    ).fetchone()[0]
+    conn.execute("DELETE FROM app_settings WHERE key != 'schema_version'")
+    return int(count)
+
+
+@app.post("/api/admin/erase-ai-keys")
+def admin_erase_ai_keys():
+    n = _erase_ai_keys()
+    return {"success": True, "ai_keys_removed": n}
+
+
+@app.post("/api/admin/erase-repo-keys")
+def admin_erase_repo_keys():
+    n = _erase_repo_keys()
+    return {"success": True, "repo_keys_removed": n}
+
+
+@app.post("/api/admin/erase-configs")
+def admin_erase_configs(body: AdminConfirmBody):
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        n = _erase_configs(conn)
+        conn.commit()
+        return {"success": True, "configs_removed": n}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/admin/erase-executions")
+def admin_erase_executions(body: AdminConfirmBody):
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        n = _erase_executions(conn)
+        conn.commit()
+        return {"success": True, "executions_removed": n}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/admin/erase-execution-data")
+def admin_erase_execution_data(body: AdminConfirmBody):
+    """Erase all configs + all executions. Settings and API keys untouched."""
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        c = _erase_configs(conn)
+        e = _erase_executions(conn)
+        conn.commit()
+        return {"success": True, "configs_removed": c, "executions_removed": e}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/admin/erase-app-data")
+def admin_erase_app_data(body: AdminConfirmBody):
+    """Erase configs + executions + every API key. Non-AI settings preserved."""
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        c = _erase_configs(conn)
+        e = _erase_executions(conn)
+        conn.commit()
+    finally:
+        _close_db(conn)
+    a = _erase_ai_keys()
+    r = _erase_repo_keys()
+    return {
+        "success": True,
+        "configs_removed": c,
+        "executions_removed": e,
+        "ai_keys_removed": a,
+        "repo_keys_removed": r,
+    }
+
+
+@app.post("/api/admin/reset-settings")
+def admin_reset_settings(body: AdminConfirmBody):
+    """Reset every setting plus erase every API key. Configs/executions kept."""
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        n = _reset_settings(conn)
+        conn.commit()
+    finally:
+        _close_db(conn)
+    a = _erase_ai_keys()
+    r = _erase_repo_keys()
+    # Also clear the SMTP password stored under SMTP_CREDENTIAL_NAMES so a
+    # settings reset truly removes every secret tied to settings.
+    for name in SMTP_CREDENTIAL_NAMES:
+        delete_credential(name)
+    return {
+        "success": True,
+        "settings_cleared": n,
+        "ai_keys_removed": a,
+        "repo_keys_removed": r,
+    }
+
+
+@app.post("/api/admin/factory-reset")
+def admin_factory_reset(body: AdminConfirmBody):
+    """Erase every secret, every config, every execution, and every setting."""
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        c = _erase_configs(conn)
+        e = _erase_executions(conn)
+        s = _reset_settings(conn)
+        conn.commit()
+    finally:
+        _close_db(conn)
+    a = _erase_ai_keys()
+    r = _erase_repo_keys()
+    for name in SMTP_CREDENTIAL_NAMES:
+        delete_credential(name)
+    # Cloud refresh token is wiped too so a factory-reset device is fully
+    # signed out of the cloud account.
+    delete_credential(_CLOUD_REFRESH_KEY)
+    return {
+        "success": True,
+        "configs_removed": c,
+        "executions_removed": e,
+        "settings_cleared": s,
+        "ai_keys_removed": a,
+        "repo_keys_removed": r,
+    }
+
+
+# Cloud-scope counterparts. The cloud account feature has not shipped, so
+# every endpoint replies 501 with a uniform "not yet available" message.
+# The frontend renders these buttons disabled with the same explanation,
+# but having the endpoints in place keeps the public surface stable for
+# when the cloud account work lands.
+
+def _cloud_not_implemented() -> None:
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "Cloud-scope erase operations are not yet available. They will "
+            "ship with the cloud account feature."
+        ),
+    )
+
+
+@app.post("/api/admin/cloud/erase-ai-keys")
+def admin_cloud_erase_ai_keys():
+    _cloud_not_implemented()
+
+
+@app.post("/api/admin/cloud/erase-repo-keys")
+def admin_cloud_erase_repo_keys():
+    _cloud_not_implemented()
+
+
+@app.post("/api/admin/cloud/erase-configs")
+def admin_cloud_erase_configs(body: AdminConfirmBody):
+    _cloud_not_implemented()
+
+
+@app.post("/api/admin/cloud/erase-executions")
+def admin_cloud_erase_executions(body: AdminConfirmBody):
+    _cloud_not_implemented()
+
+
+@app.post("/api/admin/cloud/erase-execution-data")
+def admin_cloud_erase_execution_data(body: AdminConfirmBody):
+    _cloud_not_implemented()
+
+
+@app.post("/api/admin/cloud/erase-app-data")
+def admin_cloud_erase_app_data(body: AdminConfirmBody):
+    _cloud_not_implemented()
+
+
+@app.post("/api/admin/cloud/reset-settings")
+def admin_cloud_reset_settings(body: AdminConfirmBody):
+    _cloud_not_implemented()
+
+
+@app.post("/api/admin/cloud/factory-reset")
+def admin_cloud_factory_reset(body: AdminConfirmBody):
+    _cloud_not_implemented()
 
 
 def close_db() -> None:

@@ -14,6 +14,7 @@ The Repositories & API Keys page is the single surface for inspecting every scho
 - Click Clear on a row with a saved key to delete that key from the active scope.
 - Toggle the scope selector between **This device (keyring)** and **Cloud account** to choose which credential store read/write operations target.
 - Sign in to the cloud account (via the global header) to enable the cloud scope; signing out while viewing the cloud scope snaps the selector back to local.
+- Click the **Looking for AI API key settings?** deep-link button to jump to `/settings/ai`. Update 3 added this button between the page intro paragraph and the scope selector to make it clear that AI provider keys (OpenAI, Anthropic, Gemini, Together AI, etc.) are managed on the Settings → AI panel and not on this page, even though the AI keys themselves use the same OS-keychain / cloud-credential storage backends.
 
 ### Inputs and Outputs
 

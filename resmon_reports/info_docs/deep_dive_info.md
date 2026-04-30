@@ -26,7 +26,7 @@ A post-run **Execution #N** result card is rendered inline (outside the form) on
 
 **Outputs:**
 
-- `POST /api/search/dive` with body `{ repository, query, keywords, date_from, date_to, max_results, ai_enabled, ephemeral_credentials, ai_settings? }`. Returns `{ execution_id }`.
+- `POST /api/search/dive` with body `{ repository, query, keywords, date_from, date_to, max_results, ai_enabled, ephemeral_credentials, ai_settings?, saved_configuration_id? }`. Returns `{ execution_id }`. The optional `saved_configuration_id` is set from the page's `loadedConfigIdRef` whenever the user launched the run from a `ConfigLoader`-restored saved config; the backend persists it on the resulting `executions` row so the Recent Activity / Results & Logs / Calendar surfaces can render the matching saved-config name.
 - `POST /api/configurations` with `{ name, config_type: "manual_dive", parameters: { ... } }` when saving.
 - `ExecutionContext.startExecution(id, 'deep_dive', [repository])` — attaches the new execution's SSE stream to the global context.
 
@@ -140,6 +140,7 @@ max_results: int = 100
 ai_enabled: bool = False
 ai_settings: Optional[dict] = None
 ephemeral_credentials: Optional[dict[str, str]] = None
+saved_configuration_id: Optional[int] = None
 ```
 
 Handler flow (`search_dive`):
@@ -155,7 +156,7 @@ Handler flow (`search_dive`):
 
 ### Persistence Touchpoints
 
-- **`executions` table.** `engine.prepare_execution("deep_dive", ...)` inserts a row tagged with `execution_type="deep_dive"`, the repository list, and the `query_params` JSON; the background thread updates `status`, counts, and timestamps through `SweepEngine.run_prepared`.
+- **`executions` table.** `engine.prepare_execution("deep_dive", ...)` inserts a row tagged with `execution_type="deep_dive"`, the repository list, and the `query_params` JSON; the background thread updates `status`, counts, and timestamps through `SweepEngine.run_prepared`. The `saved_configuration_id` from the request body is forwarded to `prepare_execution` and persisted on the `executions` row, which is what powers the `Saved as <name>` badges and the Name column on the Dashboard, Results & Logs, and Calendar popover surfaces.
 - **`saved_configurations` table.** `POST /api/configurations` writes a `manual_dive` row that the inline `ConfigLoader` later surfaces.
 - **`app_settings` table.** Read-only from this path: `_load_ai_settings_from_db(conn)` pulls every `ai_*` key in `_AI_SETTING_KEYS`. The per-execution `ai_settings` override wins via `merged = {**persisted, **override}` in `_apply_ai_settings_to_engine`.
 - **OS keyring.** Stored repository credentials are resolved by the API clients via `get_credential(name)`. No dive endpoint writes to the keyring.

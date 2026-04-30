@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient } from '../api/client';
 import PageHelp from '../components/Help/PageHelp';
 import { notifyConfigurationsChanged } from '../lib/configurationsBus';
@@ -58,6 +59,10 @@ const ConfigurationsPage: React.FC = () => {
   const [status, setStatus] = useState('');
   const [exportPath, setExportPath] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Update 3 / 4_27_26 follow-up: read-only "View JSON" modal that surfaces
+  // the saved configuration row exactly as it would be exported, so the user
+  // can audit the parameter payload before deciding to export.
+  const [viewConfig, setViewConfig] = useState<Config | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ---- Edit modal state (Update 2) ---------------------------------------
@@ -393,6 +398,7 @@ const ConfigurationsPage: React.FC = () => {
     <div className="page-content">
       <div className="page-header">
         <h1>Configurations</h1>
+        <TutorialLinkButton anchor="configurations" />
         <div className="form-actions">
           <button className="btn btn-secondary" onClick={handleExport} disabled={selected.size === 0}>
             Export Selected ({selected.size})
@@ -443,6 +449,18 @@ const ConfigurationsPage: React.FC = () => {
               </p>
             ),
           },
+          {
+            heading: 'View JSON',
+            body: (
+              <p>
+                Each row exposes a <strong>View JSON</strong> button that opens a
+                read-only modal with the full saved payload (parameters plus any
+                linked routine id). Use the <strong>Copy JSON</strong> button inside
+                the modal to copy the payload to the clipboard for inspection,
+                debugging, or sharing.
+              </p>
+            ),
+          },
         ]}
       />
 
@@ -487,6 +505,7 @@ const ConfigurationsPage: React.FC = () => {
                 <td>
                   <div className="action-btns">
                     <button className="btn btn-sm" onClick={() => openEdit(c)}>Edit</button>
+                    <button className="btn btn-sm" onClick={() => setViewConfig(c)}>View JSON</button>
                     <button className="btn btn-sm btn-danger" onClick={() => { setSelected(new Set([c.id])); setConfirmDelete(true); }}>Delete</button>
                   </div>
                 </td>
@@ -660,6 +679,78 @@ const ConfigurationsPage: React.FC = () => {
               <div className="form-actions">
                 <button className="btn btn-primary" onClick={handleEditSave}>Save</button>
                 <button className="btn btn-secondary" onClick={closeEdit}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {viewConfig && (() => {
+        // Pretty-print the saved row exactly as it sits in the database
+        // (parameters JSON-decoded so nested keys are not double-escaped).
+        // Read-only: no inputs, no Save button.
+        const params = parseParams(viewConfig.parameters);
+        const json = JSON.stringify(
+          {
+            id: viewConfig.id,
+            name: viewConfig.name,
+            config_type: viewConfig.config_type,
+            created_at: viewConfig.created_at,
+            parameters: params,
+          },
+          null,
+          2,
+        );
+        return (
+          <div className="modal-overlay" onClick={() => setViewConfig(null)}>
+            <div
+              className="modal-content"
+              onClick={(e) => e.stopPropagation()}
+              style={{ maxWidth: 720, width: '90%' }}
+            >
+              <div className="page-header" style={{ marginBottom: 8 }}>
+                <h3 style={{ margin: 0 }}>View JSON — {viewConfig.name}</h3>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setViewConfig(null)}
+                >
+                  Close
+                </button>
+              </div>
+              <p className="text-muted" style={{ fontSize: 12, marginTop: 0 }}>
+                Read-only view of the saved configuration. Use the Edit button
+                on the row to change any field; this view is for inspection
+                before exporting.
+              </p>
+              <pre
+                style={{
+                  maxHeight: '60vh',
+                  overflow: 'auto',
+                  background: 'var(--color-bg-elevated, #1e1e1e)',
+                  color: 'var(--color-text, inherit)',
+                  padding: 12,
+                  borderRadius: 4,
+                  fontSize: 12,
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  whiteSpace: 'pre',
+                  userSelect: 'text',
+                }}
+              >
+                {json}
+              </pre>
+              <div className="form-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    if (navigator.clipboard?.writeText) {
+                      navigator.clipboard.writeText(json).catch(() => { /* ignore */ });
+                    }
+                  }}
+                >
+                  Copy to Clipboard
+                </button>
               </div>
             </div>
           </div>

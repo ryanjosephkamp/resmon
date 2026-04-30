@@ -70,6 +70,7 @@ Local state in `ResultsPage`:
 - **Deep link**: on mount, `window.location.hash` is parsed with `/exec=(\d+)/` to seed `viewId`, and `/tab=(report|log|meta|progress)/` to seed `viewTab`.
 - **Auto-refresh on completion**: a `useEffect` keyed on `completionCounter` calls `refresh()` so locally-dispatched executions appear as soon as `ExecutionContext` marks them complete.
 - **Cloud-sync refresh**: `useExecutionsMerged` subscribes to the `resmon:cloud-sync-applied` window event and refetches whenever `useCloudSync` signals that a new page of cloud rows was ingested.
+- **Name column.** The table renders a `Name` column whose cell prefers the row's `saved_configuration_name` (joined in by `_enrich_execution_row` from `saved_configurations` via the `executions.saved_configuration_id` foreign key), falling back to the `routine_name` for routine-fired rows, and finally to `Execution #{e.id}` when neither is available. Manual executions launched from a loaded saved config (Deep Dive / Deep Sweep `ConfigLoader`) and "Save as new config" actions both populate `saved_configuration_id`, so the configured name surfaces here without an extra fetch.
 
 Inside `ReportViewer`:
 

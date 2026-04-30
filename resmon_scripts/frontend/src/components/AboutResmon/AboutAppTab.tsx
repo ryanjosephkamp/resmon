@@ -71,7 +71,7 @@ const socialLinks: SocialLink[] = [
   },
 ];
 
-const AboutAppSettings: React.FC = () => {
+const AboutAppTab: React.FC = () => {
   const [backendVersion, setBackendVersion] = useState<string>('1.0.0');
 
   useEffect(() => {
@@ -92,7 +92,7 @@ const AboutAppSettings: React.FC = () => {
       <h2>About App</h2>
 
       <PageHelp
-        storageKey="settings-about-app"
+        storageKey="about-resmon-about-app"
         title="About App"
         summary="Version, license, privacy, and author information for this resmon build."
         sections={[
@@ -111,29 +111,37 @@ const AboutAppSettings: React.FC = () => {
       <div className="about-grid">
         <section className="about-card">
           <h3>Version</h3>
-          <p><strong>resmon</strong> version <strong>{backendVersion || '1.1.0'}</strong></p>
-          <p className="text-muted">Current release line: 1.1.x</p>
+          <p><strong>resmon</strong> version <strong>{backendVersion || '1.2.0'}</strong></p>
+          <p className="text-muted">Current release line: 1.2.x</p>
         </section>
 
         <section className="about-card">
           <h3>Recent Update</h3>
           <p>
-            <strong>Update 2</strong> — Calendar Readability, Cross-Platform Desktop Notifications,
-            Multi-Provider AI Keys, Per-Execution AI Override Parity, and Configurations Lockstep.
+            <strong>Update 3</strong> — Calendar Bug Cluster, AI-Key Deep-Link, and the New About
+            resmon Page (Tutorials, Issues, Blog, About App).
           </p>
           <p className="text-muted">
-            Calendar week and day views now render events using a status-colored dot plus type-colored
-            text so titles stay readable; routine and manual completions raise a native desktop
-            notification on macOS, Linux, and Windows (including from the headless daemon); the AI
-            panel stores a separate API key per provider and the Stored API Keys table lets you switch
-            providers, clear keys, and clear per-provider default models in place; every per-execution
-            AI override on Deep Dive, Deep Sweep, and Routines now exposes the full Settings → AI
-            control set (Provider, Model, Length, Tone, Temperature, Extraction Goals) with per-field
-            merge semantics, plus inline missing-key entry and a Save-as-default-model action; and the
-            Configurations page gains a per-row Edit action with three modal variants, a stale-link
-            404 fallback, and an import path that auto-materializes a deactivated routine for every
-            imported routine config so the Routines list stays in lockstep with the routine-configs
-            list.
+            The Calendar's scheduled-routine times no longer drift by ~4 hours and Custom-cadence
+            first-fire / interval anomalies (every-N-months, every-5-hours, every-5-days,
+            every-3-weeks, every-1-year) all expand correctly; the 30-minute "orange-bar" cosmetic
+            bug is fixed; and the expansion window now extends a full 12 months with a user-facing
+            notice past the horizon. The Repositories &amp; API Keys page gains a "Looking for AI
+            API key settings?" deep-link button to <em>Settings → AI</em>. A new top-level <em>About
+            resmon</em> page hosts four tabs — <strong>Tutorials</strong> (eighteen embedded
+            walk-throughs covering the full app, every page, and every Settings sub-tab),
+            <strong> Issues</strong> (a credentials-free <code>mailto:</code> + GitHub-issue-deep-link
+            form), <strong>Blog</strong> (an in-app reader fed by the new GitHub Pages site), and
+            <strong> About App</strong> (relocated out of Settings) — and a shared Tutorial button is
+            rendered next to every page header and every Settings sub-panel header so any user can
+            deep-link straight into the matching tutorial section. Plus eleven out-of-band additions:
+            an active-only Routines dropdown on Calendar, Name / Cron Schedule popover lines and an
+            Edit Routine button on the Calendar popover (via a new shared RoutineEditModal with
+            cross-page sync), a Saved-as-name badge and Name column wired across Dashboard / Results
+            &amp; Logs / Calendar via a new <code>saved_configuration_id</code> linkage, a per-row
+            View JSON read-only modal on the Configurations page, and a Settings → Advanced
+            <strong> Danger Zone</strong> with sixteen destructive actions behind a two-tier
+            confirmation gate (the cloud column is disabled until Cloud Account lands).
           </p>
         </section>
 
@@ -193,4 +201,4 @@ const AboutAppSettings: React.FC = () => {
   );
 };
 
-export default AboutAppSettings;
+export default AboutAppTab;

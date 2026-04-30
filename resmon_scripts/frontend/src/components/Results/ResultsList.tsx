@@ -158,6 +158,7 @@ const ResultsList: React.FC<Props> = ({
           <tr>
             <th><input type="checkbox" checked={allSelected} onChange={onToggleAll} /></th>
             <th>Date</th>
+            <th>Name</th>
             <th>Type</th>
             <th>Source</th>
             <th>Repos</th>
@@ -169,7 +170,7 @@ const ResultsList: React.FC<Props> = ({
         </thead>
         <tbody>
           {filtered.length === 0 && (
-            <tr><td colSpan={9} className="text-muted text-center">No executions found.</td></tr>
+            <tr><td colSpan={10} className="text-muted text-center">No executions found.</td></tr>
           )}
           {filtered.map((e) => {
             const loc = e.execution_location ?? 'local';
@@ -189,6 +190,7 @@ const ResultsList: React.FC<Props> = ({
                   )}
                 </td>
                 <td>{e.start_time?.slice(0, 16)?.replace('T', ' ') || '—'}</td>
+                <td>Execution #{e.id}</td>
                 <td><span className={`badge ${typeBadgeClass(e.execution_type)}`}>{e.execution_type}</span></td>
                 <td>
                   <span

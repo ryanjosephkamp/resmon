@@ -56,6 +56,38 @@ The SQLite database file itself lives at `DEFAULT_DB_PATH = PROJECT_ROOT / "resm
 
 The desktop surface is an Electron shell hosting a React 18 + TypeScript single-page application bootstrapped from `frontend/src/index.tsx` and rooted at `App.tsx`. The Electron main process exposes a narrow API surface to the renderer through a contextBridge-injected `window.resmonAPI` object (typed in `api/client.ts`) whose members include `getBackendPort`, `platform`, `versions`, `chooseDirectory`, `openPath`, `revealPath`, and the `cloudAuth` bridge used by `AuthContext`. The renderer never invokes Python directly — it always goes through the REST client.
 
+#### Webview Embed Hardening (Update 3)
+
+The About resmon → Blog tab embeds the resmon GitHub Pages blog inside an Electron `<webview>` element. To support this safely:
+
+- The renderer's `webPreferences` enables `webviewTag: true` (off by default since Electron 5). Every other security flag is held at its safe default: `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true` for the renderer, and a per-window CSP (see below).
+- The main process registers a `will-attach-webview` handler that mutates `webPreferences` on every `<webview>` instance before attachment. The handler **deletes** `nodeIntegration`, `nodeIntegrationInWorker`, `nodeIntegrationInSubFrames`, and `preload`, sets `contextIsolation: true` and `sandbox: true`, and rejects any `params.src` whose scheme is not `https:` or whose origin is not `https://ryanjosephkamp.github.io`. This guarantees an attached `<webview>` can never reach the host's IPC bridge or load arbitrary remote origins, even if the renderer-side React component is tampered with.
+- The renderer's CSP `<meta>` tag in `frontend/public/index.html` is widened to allow the GitHub Pages origin and the YouTube embed origins: `connect-src 'self' http://127.0.0.1:8742 https://ryanjosephkamp.github.io;` (used by the Atom-feed fetch) and `frame-src https://ryanjosephkamp.github.io https://www.youtube-nocookie.com https://www.youtube.com; child-src https://ryanjosephkamp.github.io https://www.youtube-nocookie.com https://www.youtube.com;` (used by the embedded blog webview and by the About resmon → Tutorials tab's per-section YouTube `<iframe>` embeds). All other CSP directives remain unchanged. No additional origins are allowlisted.
+- The Blog component's `<webview>` wires `new-window` and `will-navigate` events to `window.resmonAPI.openPath`, which routes off-origin URLs to the user's default browser via `shell.openExternal` rather than navigating the embed. This keeps the embed origin-locked even when a blog post links to an external site.
+
+#### Public Blog Source (`docs/`, GitHub Pages, Update 3)
+
+The blog rendered inside the About resmon → Blog tab is served from the repository's `docs/` folder via GitHub Pages (Settings → Pages → Source: `main` / `docs`). Topology:
+
+- `docs/_config.yml` — Jekyll site config: `title: "resmon Blog"`, `baseurl: /resmon`, `url: https://ryanjosephkamp.github.io`, `theme: minima`, and `plugins: [jekyll-feed]` to auto-generate `feed.xml`.
+- `docs/Gemfile` — Jekyll + theme + plugin pins so the feed can be reproduced locally.
+- `docs/index.md` — landing page; lists posts via `site.posts`.
+- `docs/_posts/YYYY-MM-DD-<slug>.md` — one Markdown file per blog post; the front matter includes `layout: post`, `title:`, and `date:`.
+- `docs/README.md` — operator notes for adding a post.
+
+The Atom feed lives at `https://ryanjosephkamp.github.io/resmon/feed.xml` (auto-emitted by `jekyll-feed`) and is the URL `BlogTab` fetches and parses on mount.
+
+#### GitHub Issue-Form Templates (`.github/ISSUE_TEMPLATE/`, Update 3)
+
+The About resmon → Issues tab's "File on GitHub" submit path opens a deep link to a typed GitHub issue form so the user does not need to write Markdown by hand. The matching templates live at the repository root under `.github/ISSUE_TEMPLATE/`:
+
+- `bug.yml` — `Bug report` form (fields: `description`, `steps_to_reproduce`, `expected`, `actual`, `version`, `os`).
+- `feature.yml` — `Feature request` form (fields: `problem`, `proposed_solution`, `alternatives`).
+- `question.yml` — `Question` form (fields: `question`, `context`).
+- `config.yml` — disables blank issues; adds `contact_links` for general inquiries (`mailto:`) and the resmon Discussions tab.
+
+The Issues tab encodes the user's form contents into the GitHub `issues/new?template=<file>.yml&title=<title>&description=<body>...` query string so the GitHub form auto-selects and pre-fills on the user's behalf.
+
 ### HashRouter and Route Map
 
 Routing is centralized in `App.tsx` via `react-router-dom` `HashRouter`. The route map is:
@@ -72,6 +104,7 @@ Routing is centralized in `App.tsx` via `react-router-dom` `HashRouter`. The rou
 | `/monitor` | `MonitorPage` | [monitor_info.md](monitor_info.md) |
 | `/repositories` | `RepositoriesPage` | [repos_and_api_keys_info.md](repos_and_api_keys_info.md) |
 | `/settings/*` | `SettingsPage` (nested router) | [settings_info.md](settings_info.md) |
+| `/about` | `AboutResmonPage` (Tutorials / Issues / Blog / About App tabs) | [about_resmon_info.md](about_resmon_info.md) |
 
 `HashRouter` is used rather than `BrowserRouter` because the renderer is loaded from `file://` in the packaged Electron app, where push-state history is unreliable. The `Sidebar`, `Header`, and `MainContent` layout components wrap every route; the `FloatingWidget` monitor overlay sits outside `MainContent` so it survives route transitions.
 
@@ -123,6 +156,14 @@ Cross-page flows that do not belong to a single info doc:
 - Completing an execution on `/dive`, `/sweep`, or the Routines "Run Now" action auto-navigates (or offers navigation) to `/results?execution_id=…` once the SSE stream closes (see `deep_dive_info.md`, `deep_sweep_info.md`, `routines_info.md`).
 - The `/calendar` page derives its events from the same `/api/executions/merged` stream that feeds `/results`, keyed by `start_time` (`calendar_info.md`).
 - The **credential presence map** exposed by `/api/credentials` is consumed by the Settings → Email/AI panels, the Repositories page, and the inline "Use a key just for this run" affordance on the Dive/Sweep/Routines forms.
+
+### In-Renderer Pub/Sub Buses
+
+Several pages share state that is owned by a single source-of-truth page but consumed elsewhere. To keep cross-page edits propagated without forcing manual reloads, the renderer ships small in-process pub/sub buses under `resmon_scripts/frontend/src/lib/`:
+
+- `configurationsBus.ts` — exports `notifyConfigurationsChanged()` and `useConfigurationsVersion()`. Bumped whenever a saved configuration (Dive query template, Sweep query template, or Routine) is created, edited, deleted, or migrated. Subscribers: `ConfigurationsPage`, `ConfigLoader` instances on Dive / Sweep / Routines, and any future surface that reads `/api/configurations`.
+- `routinesBus.ts` — exports `notifyRoutinesChanged()` and `useRoutinesVersion()`. Mirrors the configurations bus pattern but is scoped to routine-shaped state. Bumped whenever a routine is created, edited, deleted, activated, deactivated, or migrated. Subscribers: `RoutinesPage` (its local + cloud fetch effects) and `CalendarPage` (its `fetchData` effect, so the cron-expanded fire times update in place after a save from the popover).
+- **Dual-broadcast contract:** the shared `RoutineEditModal` (used by both `RoutinesPage` and the `CalendarPage` event popover's `Edit Routine` button) fires BOTH buses on save, because a routine save also invalidates routine-typed configuration views.
 
 ---
 

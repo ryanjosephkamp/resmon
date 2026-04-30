@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient } from '../api/client';
 import { useExecution } from '../context/ExecutionContext';
 import RepositorySelector from '../components/Forms/RepositorySelector';
@@ -48,15 +49,33 @@ const DeepDivePage: React.FC = () => {
   const [configName, setConfigName] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
   const [configRefresh, setConfigRefresh] = useState(0);
+  // Update 3 / 4_27_26: track the saved-config the user picked in
+  // ConfigLoader so the launch payload can carry ``saved_configuration_id``
+  // back to the backend. Cleared when any form field is dirtied so the
+  // link does not follow stale parameters.
+  const loadedConfigIdRef = React.useRef<number | null>(null);
+  const skipDirtyRef = React.useRef(false);
 
   // Populate form fields from a saved manual_dive configuration. The date
   // range is intentionally skipped — users must choose it fresh per run.
-  const applyConfig = (p: Record<string, any>) => {
+  const applyConfig = (p: Record<string, any>, c?: { id: number }) => {
+    skipDirtyRef.current = true;
+    loadedConfigIdRef.current = c?.id ?? null;
     if (typeof p.repository === 'string') setRepository(p.repository);
     if (Array.isArray(p.keywords)) setKeywords(p.keywords);
     if (typeof p.max_results === 'number') setMaxResults(p.max_results);
     if (typeof p.ai_enabled === 'boolean') setAiEnabled(p.ai_enabled);
   };
+
+  // Any user edit to a config-bound field clears the linked-config id so
+  // we do not stamp a stale link onto the next execution.
+  React.useEffect(() => {
+    if (skipDirtyRef.current) {
+      skipDirtyRef.current = false;
+      return;
+    }
+    loadedConfigIdRef.current = null;
+  }, [repository, keywords, maxResults, aiEnabled, dateFrom, dateTo]);
 
   const running =
     pageExecIdRef.current !== null &&
@@ -84,6 +103,9 @@ const DeepDivePage: React.FC = () => {
         ),
       };
       if (Object.keys(overrides).length > 0) body.ai_settings = overrides;
+      if (loadedConfigIdRef.current !== null) {
+        body.saved_configuration_id = loadedConfigIdRef.current;
+      }
       const resp = await apiClient.post<{ execution_id: number }>('/api/search/dive', body);
       pageExecIdRef.current = resp.execution_id;
       startExecution(resp.execution_id, 'deep_dive', [repository]);
@@ -123,6 +145,7 @@ const DeepDivePage: React.FC = () => {
     <div className="page-content">
       <div className="page-header">
         <h1>Deep Dive</h1>
+        <TutorialLinkButton anchor="deep-dive" />
         <p className="text-muted">Targeted single-repository query</p>
       </div>
 
@@ -153,6 +176,20 @@ const DeepDivePage: React.FC = () => {
                 <li>Click <strong>Run Deep Dive</strong>. Progress streams to the Monitor page and the floating widget.</li>
                 <li>Click <strong>Save Configuration</strong> to reuse the same parameters later (the date range is intentionally not saved — set it fresh per run).</li>
               </ol>
+            ),
+          },
+          {
+            heading: 'Saved-configuration linkage',
+            body: (
+              <p>
+                If you load a saved manual configuration via the loader at the
+                top of the form and run it without modification, the resulting
+                execution is automatically linked back to that configuration —
+                a <strong>Saved as &lt;name&gt;</strong> badge then appears for the run on
+                the Dashboard, Results &amp; Logs, and Calendar surfaces. Editing
+                any field after loading clears the link so a divergent run does
+                not carry the original name.
+              </p>
             ),
           },
         ]}

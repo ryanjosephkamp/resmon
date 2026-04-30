@@ -31,6 +31,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 - **Cloud backup and hybrid execution** — optional sign-in to a resmon cloud account for envelope-encrypted credential storage, report synchronization, and a merged local/cloud executions view.
 - **Configuration export and import** — serialize any Deep Dive, Deep Sweep, or routine configuration to JSON and re-import it on the same or another device for reproducible surveillance setups.
 - **Local-first storage and logging** — SQLite-backed state, per-execution log files, and a configurable export directory for report and artifact bundles; no credentials or data leave the machine unless the user opts in to cloud sync.
+- **In-app About resmon page** — a dedicated top-level page hosting four self-contained tabs: **Tutorials** (eighteen embedded YouTube walk-throughs covering the full app, every page, and every Settings sub-tab, with a shared Tutorial deep-link button rendered next to every page header and every Settings sub-panel header), **Issues** (a credentials-free form that builds either a `mailto:` link to the maintainer or a pre-populated GitHub issue deep link — the app never posts the report itself), **Blog** (an in-app reader for the public resmon blog at `https://ryanjosephkamp.github.io/resmon/`, fed by the GitHub Pages source under `docs/_posts/` and rendered through an origin-locked Electron `<webview>`), and **About App** (build version, recent-update notes, license, privacy notice, author links — relocated out of Settings).
 
 ## Supported Repositories
 
@@ -131,6 +132,7 @@ The renderer uses a `HashRouter` (the packaged app is loaded from `file://`, whe
 | `#/monitor` | Monitor |
 | `#/repositories` | Repositories & API Keys |
 | `#/settings/*` | Settings (nested router) |
+| `#/about-resmon/*` | About resmon (Tutorials / Issues / Blog / About App) |
 
 A `Sidebar` + `Header` + `MainContent` layout wraps every route, and a `FloatingWidget` monitor overlay sits outside `MainContent` so it survives route transitions and continues to pulse while any execution is running.
 
@@ -602,7 +604,7 @@ Contributions are welcome. resmon is a single-maintainer project, so the workflo
 
 ### Reporting Issues
 
-Open a GitHub issue with:
+The fastest path is the in-app **About resmon → Issues** tab, which builds either a pre-populated `mailto:` link to the maintainer or a pre-populated GitHub issue deep link from a single form (no credentials are stored or transmitted by the app — the user reviews and sends in their own email client or on GitHub). Alternatively, open a GitHub issue directly at [`https://github.com/ryanjosephkamp/resmon/issues/new`](https://github.com/ryanjosephkamp/resmon/issues/new) with:
 
 1. A short, specific title.
 2. The resmon version (git commit hash or packaged build number), host OS, Python version (`python3 --version`), and Node.js version (`node --version`).
@@ -611,6 +613,14 @@ Open a GitHub issue with:
 5. A screenshot of the UI state when the bug is visual.
 
 Security-sensitive reports (credential handling, SQL injection, OAuth flow, cloud sync, keyring access) should not be filed as public issues. Email the maintainer directly instead.
+
+### Blog
+
+Per-update release notes are republished verbatim to the public resmon blog at [`https://ryanjosephkamp.github.io/resmon/`](https://ryanjosephkamp.github.io/resmon/) (source under `docs/_posts/`, served by GitHub Pages). The same posts are also readable inside the app from the **About resmon → Blog** tab, which fetches the Atom feed and renders each post in an origin-locked Electron `<webview>`.
+
+### Maintenance / Danger Zone
+
+The **Settings → Advanced → Danger Zone** section centralizes every destructive maintenance action behind a two-tier confirmation gate: the two API-key wipes (repository keys, AI provider keys) use a simple OK / Cancel modal because they are recoverable by re-entering the keys, while the six data / settings destructions (delete all executions, delete all saved configurations, delete all routines, reset all settings, full reset, factory reset) require typing the literal word `CONFIRM` into a text input before the destructive button enables. The cloud-mirror column is rendered disabled (`Coming soon`) until the Cloud Account feature lands.
 
 ### Submitting Pull Requests
 

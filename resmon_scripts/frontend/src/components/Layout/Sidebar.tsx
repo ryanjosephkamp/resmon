@@ -19,6 +19,7 @@ const navItems: NavItem[] = [
   { to: '/monitor', label: 'Monitor', icon: '◎' },
   { to: '/repositories', label: 'Repositories & API Keys', icon: '◈' },
   { to: '/settings', label: 'Settings', icon: '☰' },
+  { to: '/about-resmon', label: 'About resmon', icon: 'ℹ' },
 ];
 
 const Sidebar: React.FC = () => {

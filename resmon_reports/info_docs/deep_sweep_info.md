@@ -223,7 +223,10 @@ class SweepRequest(BaseModel):
     ai_enabled: bool = False
     ai_settings: Optional[dict] = None
     ephemeral_credentials: Optional[dict[str, str]] = None
+    saved_configuration_id: Optional[int] = None
 ```
+
+The optional `saved_configuration_id` is set by the page when the user launched the run from a `ConfigLoader`-restored saved config (tracked in `loadedConfigIdRef`). The handler forwards it to `engine.prepare_execution` so the resulting `executions` row links back to the originating saved config; downstream surfaces (Recent Activity, Results & Logs, Calendar popover) render the matching saved-config name without an extra fetch.
 
 The handler:
 
@@ -250,7 +253,9 @@ progress events and the execution record.
 
 - **`executions` table.** `SweepEngine.prepare_execution` inserts a row with
   `execution_type = "deep_sweep"`, a JSON-serialised `parameters` dict
-  (which includes `repositories`), and `start_time`. The row is later
+  (which includes `repositories`), `start_time`, and — when the request
+  carried a `saved_configuration_id` — the foreign key linking the
+  execution to its originating saved config. The row is later
   updated by `update_execution_status` with `end_time`, `result_count`,
   `new_result_count`, `log_path`, `result_path`, and (on full failure) an
   `error_message`.

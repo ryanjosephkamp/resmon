@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
 
@@ -113,7 +114,10 @@ const EmailSettings: React.FC = () => {
 
   return (
     <div className="settings-section">
-      <h2>Email Notifications</h2>
+      <div className="settings-panel-header">
+        <h2>Email Notifications</h2>
+        <TutorialLinkButton anchor="settings-email" />
+      </div>
       <PageHelp
         storageKey="settings-email"
         title="Email Notifications"

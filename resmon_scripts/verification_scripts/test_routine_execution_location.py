@@ -61,10 +61,15 @@ def test_execution_location_column_exists_with_correct_default():
 
 
 def test_schema_version_bumped_to_3():
+    # Update 3 / 4_27_26 bumped SCHEMA_VERSION to 4 (added
+    # ``executions.saved_configuration_id``). The test name is preserved
+    # for git-blame stability; assertion now reads from the constant so
+    # it tracks future bumps.
     client = _client()
     client.get("/api/health")
     conn = resmon_mod._get_db()
-    assert database.get_schema_version(conn) == 3
+    assert database.get_schema_version(conn) == database.SCHEMA_VERSION
+    assert database.SCHEMA_VERSION >= 3
 
 
 def test_execution_location_check_constraint_rejects_invalid():

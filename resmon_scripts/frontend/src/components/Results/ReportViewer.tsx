@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getBaseUrl, apiClient } from '../../api/client';
 import { useExecution, ProgressEvent } from '../../context/ExecutionContext';
+import SaveConfigButton from '../SaveConfig/SaveConfigButton';
+import EditRoutineButton from '../Routines/EditRoutineButton';
+import { useConfigurationsVersion } from '../../lib/configurationsBus';
 
 /* ------------------------------------------------------------------ */
 /* Progress helpers                                                    */
@@ -137,6 +140,10 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
   const [exporting, setExporting] = useState(false);
 
   const { activeExecution } = useExecution();
+  // Update 3 / 4_27_26 follow-up: refetch the execution meta when any
+  // SaveConfigButton broadcasts on the configurations bus so the
+  // "Saved as <name>" badge updates without a manual refresh.
+  const configurationsVersion = useConfigurationsVersion();
   const isLive =
     activeExecution?.executionId === executionId &&
     activeExecution?.status === 'running';
@@ -150,16 +157,25 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
     setProgressEvents([]);
     setError('');
 
+    /* Guard against stale responses: when the user rapid-clicks rows, a
+       previous execution's fetch may resolve *after* a newer one. Without
+       this flag, a stale `.then` could stomp the latest data, or a stale
+       `.catch` could clobber freshly-loaded text back to null (causing the
+       persistent "No report available." / "No log available." glitch). */
+    let cancelled = false;
+
     apiClient.get(`/api/executions/${executionId}`)
-      .then(setMeta)
-      .catch(() => setMeta(null));
+      .then((r) => { if (!cancelled) setMeta(r); })
+      .catch(() => { if (!cancelled) setMeta(null); });
     apiClient.get<{ report_text: string }>(`/api/executions/${executionId}/report`)
-      .then((r) => setReport(r.report_text))
-      .catch(() => setReport(null));
+      .then((r) => { if (!cancelled) setReport(r.report_text); })
+      .catch(() => { if (!cancelled) setReport(null); });
     apiClient.get<{ log_text: string }>(`/api/executions/${executionId}/log`)
-      .then((r) => setLog(r.log_text))
-      .catch(() => setLog(null));
-  }, [executionId]);
+      .then((r) => { if (!cancelled) setLog(r.log_text); })
+      .catch(() => { if (!cancelled) setLog(null); });
+
+    return () => { cancelled = true; };
+  }, [executionId, configurationsVersion]);
 
   /* Progress: historical fetch or live SSE */
   useEffect(() => {
@@ -167,13 +183,16 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
       /* Live: mirror events from context */
       return;
     }
-    /* Historical: fetch persisted events */
+    /* Historical: fetch persisted events — guard against stale responses
+       from a previous executionId, same rationale as the core-data effect. */
+    let cancelled = false;
     apiClient
       .get<ProgressEvent[]>(
         `/api/executions/${executionId}/progress/events`,
       )
-      .then((r) => setProgressEvents(Array.isArray(r) ? r : []))
-      .catch(() => setProgressEvents([]));
+      .then((r) => { if (!cancelled) setProgressEvents(Array.isArray(r) ? r : []); })
+      .catch(() => { if (!cancelled) setProgressEvents([]); });
+    return () => { cancelled = true; };
   }, [executionId, isLive]);
 
   /* Derive events source: live from context or historical */
@@ -213,6 +232,30 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
       <div className="report-viewer-header">
         <h3>Execution #{executionId}</h3>
         <div className="form-actions">
+          {meta && (meta.execution_type === 'automated_sweep'
+            || meta.execution_type === 'automated_dive'
+            || meta.execution_type === 'routine'
+            || meta.routine_id != null) && (
+            <EditRoutineButton
+              routineId={meta.routine_id != null ? Number(meta.routine_id) : null}
+              buttonClassName="btn btn-sm btn-secondary"
+            />
+          )}
+          {meta && (meta.execution_type === 'deep_dive'
+            || meta.execution_type === 'dive'
+            || meta.execution_type === 'deep_sweep'
+            || meta.execution_type === 'sweep') && (
+            <SaveConfigButton
+              execution={{
+                id: executionId,
+                execution_type: String(meta.execution_type),
+                parameters: meta.parameters,
+                saved_configuration_id: meta.saved_configuration_id,
+                saved_configuration_name: meta.saved_configuration_name,
+              }}
+              buttonClassName="btn btn-sm btn-secondary"
+            />
+          )}
           <button className="btn btn-sm btn-secondary" onClick={handleExport} disabled={exporting}>
             {exporting ? 'Exporting…' : 'Export'}
           </button>

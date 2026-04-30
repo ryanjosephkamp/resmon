@@ -53,6 +53,7 @@ Outputs:
 
 Child components:
 
+- `RoutineEditModal` (from `components/Routines/RoutineEditModal.tsx`) — the create/edit modal has been extracted into a reusable component shared with the Calendar page (whose event popover exposes an `Edit Routine` button). On save it broadcasts BOTH `notifyRoutinesChanged()` (via `lib/routinesBus.ts`) and `notifyConfigurationsChanged()` (via `lib/configurationsBus.ts`) so every routine-aware surface refetches without a manual reload. The host pages own only `editTarget: Routine | null` and an `editOpen` flag; all form state, validation, and the inner editor children below live inside the modal.
 - `RepositorySelector` (multi-select repository picker).
 - `KeywordCombinationBanner` — mounted in the create/edit modal under the
   selector; lists the upstream keyword-combination semantics for each
@@ -68,6 +69,7 @@ Hooks:
 - `useAuth()` — source of `isSignedIn`, gating cloud rows and the Cloud execution-location radio.
 - `useExecution()` — supplies `activeExecutions`, `cancelExecution`, and `completionCounter`. `completionCounter` is a dependency of both fetchers so the table refreshes when an execution finishes.
 - `useRepoCatalog()` — `bySlug` / `presence` / `refreshPresence` back the per-row `RepoKeyStatus` entries.
+- `useRoutinesVersion()` (from `lib/routinesBus.ts`) — dependency of the local and cloud fetch effects so saves originating from the Calendar page's `Edit Routine` modal (or any other future surface) refresh the table here.
 
 API clients:
 

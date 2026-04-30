@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest a new capability or improvement for resmon.
+title: "[resmon] [Feature request] "
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user-facing problem or limitation are you running into today?
+      placeholder: I cannot easily do X because …
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the change or new capability you would like to see.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you considered, including any current workarounds.
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Screenshots, examples, or any other detail that helps explain the request.

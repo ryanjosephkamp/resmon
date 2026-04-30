@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
+import { useNavigate } from 'react-router-dom';
 import RepoCatalogTable from '../components/Repositories/RepoCatalogTable';
 import KeywordSemanticsGlossary from '../components/Repositories/KeywordSemanticsGlossary';
 import {
@@ -12,6 +14,7 @@ import PageHelp from '../components/Help/PageHelp';
 
 const RepositoriesPage: React.FC = () => {
   const { isSignedIn } = useAuth();
+  const navigate = useNavigate();
   const [catalog, setCatalog] = useState<RepoCatalogEntry[]>([]);
   const [localPresence, setLocalPresence] = useState<CredentialPresenceMap>({});
   const [cloudPresence, setCloudPresence] = useState<CredentialPresenceMap>({});
@@ -92,6 +95,7 @@ const RepositoriesPage: React.FC = () => {
     <div className="page-content">
       <div className="page-header">
         <h1>Repositories &amp; API Keys</h1>
+        <TutorialLinkButton anchor="repositories" />
       </div>
 
       <PageHelp
@@ -130,6 +134,19 @@ const RepositoriesPage: React.FC = () => {
               </p>
             ),
           },
+          {
+            heading: 'Looking for AI API keys?',
+            body: (
+              <p>
+                This page only manages keys for <strong>scholarly repositories</strong> (CORE,
+                IEEE Xplore, NASA ADS, etc.). Keys for AI providers (OpenAI,
+                Anthropic, Gemini, Together AI, &hellip;) live on
+                {' '}<strong>Settings → AI</strong>. Use the
+                {' '}<strong>Looking for AI API key settings?</strong> button at the top of the
+                page to jump there directly.
+              </p>
+            ),
+          },
         ]}
       />
 
@@ -141,6 +158,18 @@ const RepositoriesPage: React.FC = () => {
         are never logged or echoed back to the UI. A saved key is displayed as
         a fixed 12-character mask.
       </p>
+
+      <div style={{ marginBottom: 12 }}>
+        <button
+          type="button"
+          className="btn btn-sm btn-secondary"
+          onClick={() => navigate('/settings/ai')}
+          data-testid="ai-key-settings-link"
+          aria-label="Looking for AI API key settings? Go to Settings, AI panel."
+        >
+          Looking for AI API key settings?
+        </button>
+      </div>
 
       <div
         role="tablist"

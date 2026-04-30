@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
 
@@ -109,7 +110,10 @@ const CloudSettings: React.FC = () => {
 
   return (
     <div className="settings-section">
-      <h2>Cloud Storage</h2>
+      <div className="settings-panel-header">
+        <h2>Cloud Storage</h2>
+        <TutorialLinkButton anchor="settings-cloud" />
+      </div>
       <PageHelp
         storageKey="settings-cloud-storage"
         title="Cloud Storage"

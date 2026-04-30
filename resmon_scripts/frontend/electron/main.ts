@@ -9,6 +9,8 @@ import * as path from 'path';
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
 let backendPort: number = 8742;
+let rendererServer: http.Server | null = null;
+let rendererPort: number | null = null;
 /** True when we attached to an already-running daemon and must not kill it on quit. */
 let attachedToDaemon: boolean = false;
 
@@ -139,7 +141,74 @@ function waitForBackend(port: number, retries = 30, delay = 500): Promise<void> 
   });
 }
 
+function contentTypeFor(filePath: string): string {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.html': return 'text/html; charset=utf-8';
+    case '.js': return 'text/javascript; charset=utf-8';
+    case '.css': return 'text/css; charset=utf-8';
+    case '.json': return 'application/json; charset=utf-8';
+    case '.map': return 'application/json; charset=utf-8';
+    case '.png': return 'image/png';
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg';
+    case '.svg': return 'image/svg+xml; charset=utf-8';
+    case '.ico': return 'image/x-icon';
+    default: return 'application/octet-stream';
+  }
+}
+
+function startRendererServer(rendererRoot: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      try {
+        const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');
+        const requestedPath = decodeURIComponent(requestUrl.pathname === '/' ? '/index.html' : requestUrl.pathname);
+        const filePath = path.normalize(path.join(rendererRoot, requestedPath));
+        const relative = path.relative(rendererRoot, filePath);
+        if (relative.startsWith('..') || path.isAbsolute(relative)) {
+          res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Forbidden');
+          return;
+        }
+
+        fs.stat(filePath, (statErr, stat) => {
+          if (statErr || !stat.isFile()) {
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Not found');
+            return;
+          }
+          res.writeHead(200, {
+            'Content-Type': contentTypeFor(filePath),
+            'Cache-Control': 'no-store',
+          });
+          fs.createReadStream(filePath).pipe(res);
+        });
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Bad request');
+      }
+    });
+
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (!addr || typeof addr !== 'object') {
+        server.close();
+        reject(new Error('Could not bind renderer server'));
+        return;
+      }
+      rendererServer = server;
+      rendererPort = addr.port;
+      console.log(`[main] Serving renderer on http://127.0.0.1:${rendererPort}`);
+      resolve(addr.port);
+    });
+  });
+}
+
 function createWindow(): void {
+  if (rendererPort === null) {
+    throw new Error('Renderer server has not been started');
+  }
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -152,12 +221,29 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: false,
+      // Enable the <webview> tag so the About resmon → Blog tab can embed
+      // the public GitHub Pages blog at https://ryanjosephkamp.github.io/resmon/
+      // in a sandboxed sub-frame. The rendered <webview> is constrained to
+      // that origin in the React component (see ``BlogTab.tsx``); navigations
+      // to any other origin open in the user's default browser via
+      // ``shell.openExternal`` rather than inside the embed.
+      webviewTag: true,
       additionalArguments: [`--backend-port=${backendPort}`],
     },
   });
 
-  const rendererPath = path.join(__dirname, '..', 'renderer', 'index.html');
-  mainWindow.loadFile(rendererPath);
+  // Defense-in-depth: when a <webview> attaches, scrub away node integration
+  // and the preload script so the embedded blog page cannot reach the host
+  // app's IPC bridge or filesystem. Also force ``contextIsolation`` on. The
+  // origin allow-list is enforced one layer up (in BlogTab.tsx) by setting
+  // ``webview.src`` only to the GitHub Pages blog URL.
+  mainWindow.webContents.on('will-attach-webview', (_event, webPreferences, _params) => {
+    delete (webPreferences as { preload?: string }).preload;
+    (webPreferences as { nodeIntegration?: boolean }).nodeIntegration = false;
+    (webPreferences as { contextIsolation?: boolean }).contextIsolation = true;
+  });
+
+  mainWindow.loadURL(`http://127.0.0.1:${rendererPort}/index.html`);
 
   // Open maximized by default (not full-screen) for a more spacious default
   // layout. Users can still un-maximize, resize, or close normally.
@@ -433,6 +519,8 @@ app.whenReady().then(async () => {
       },
     );
 
+    const rendererRoot = path.join(__dirname, '..', 'renderer');
+    await startRendererServer(rendererRoot);
     createWindow();
   } catch (err) {
     console.error('[main] Failed to start:', err);

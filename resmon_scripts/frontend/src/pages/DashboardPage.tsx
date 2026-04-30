@@ -1,9 +1,13 @@
 import React, { useEffect, useState } from 'react';
+import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
+import SaveConfigButton from '../components/SaveConfig/SaveConfigButton';
+import EditRoutineButton from '../components/Routines/EditRoutineButton';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { useExecution } from '../context/ExecutionContext';
 import CloudSyncCard from '../components/Cloud/CloudSyncCard';
 import PageHelp from '../components/Help/PageHelp';
+import { useConfigurationsVersion } from '../lib/configurationsBus';
 
 interface Routine {
   id: number;
@@ -26,6 +30,12 @@ interface Execution {
   total_results?: number;
   new_results?: number;
   execution_location?: 'local' | 'cloud';
+  routine_id?: number | null;
+  // Update 3 / 4_27_26: backend LEFT JOINs saved_configurations on
+  // executions.saved_configuration_id. When set, the row is rendered
+  // with a "Saved as <name>" badge next to the Save Config button.
+  saved_configuration_id?: number | null;
+  saved_configuration_name?: string | null;
 }
 
 // Mirror the badge helpers in components/Results/ResultsList.tsx so the
@@ -84,6 +94,10 @@ const DashboardPage: React.FC = () => {
   const [exportPath, setExportPath] = useState('');
   const [exportError, setExportError] = useState('');
   const { activeExecution, cancelExecution, completionCounter } = useExecution();
+  // Update 3 / 4_27_26 follow-up: refetch executions when any
+  // SaveConfigButton broadcasts on the configurations bus, so the
+  // "Saved as <name>" badge updates without a manual refresh.
+  const configurationsVersion = useConfigurationsVersion();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -93,7 +107,7 @@ const DashboardPage: React.FC = () => {
     apiClient.get<Execution[]>('/api/executions?limit=10')
       .then(setExecutions)
       .catch(() => {});
-  }, [completionCounter]);
+  }, [completionCounter, configurationsVersion]);
 
   const activeRoutines = routines.filter((r) => r.is_active);
 
@@ -128,7 +142,10 @@ const DashboardPage: React.FC = () => {
 
   return (
     <div className="page-stub">
-      <h1>Welcome to resmon</h1>
+      <div className="page-header">
+        <h1>Welcome to resmon</h1>
+        <TutorialLinkButton anchor="dashboard" />
+      </div>
 
       <div className="about-resmon">
         <h2>What is resmon?</h2>
@@ -179,7 +196,7 @@ const DashboardPage: React.FC = () => {
             body: (
               <ul>
                 <li><strong>Active Routines</strong> — every enabled scheduled sweep and its next/last fire.</li>
-                <li><strong>Recent Activity</strong> — the 10 most recent executions (local and cloud), with Type, Source, Status, keywords, repositories, and result counts.</li>
+                <li><strong>Recent Activity</strong> — the 10 most recent executions (local and cloud), with Type, Source, Status, keywords, repositories, and result counts. The <strong>Name</strong> column resolves to the saved-configuration name when the run was launched from (or saved into) one, otherwise to the routine name for routine-fired runs, otherwise to <code>Execution #&lt;id&gt;</code>.</li>
                 <li><strong>Cloud Sync</strong> — status of your resmon-cloud account, if signed in.</li>
               </ul>
             ),
@@ -258,6 +275,7 @@ const DashboardPage: React.FC = () => {
             <thead>
               <tr>
                 <th>Date</th>
+                <th>Name</th>
                 <th>Type</th>
                 <th>Source</th>
                 <th>Repos</th>
@@ -281,6 +299,7 @@ const DashboardPage: React.FC = () => {
                 return (
                   <tr key={e.id}>
                     <td>{e.start_time?.slice(0, 16)?.replace('T', ' ') || '—'}</td>
+                    <td>Execution #{e.id}</td>
                     <td>
                       <span className={`badge ${typeBadgeClass(e.execution_type)}`}>
                         {e.execution_type}
@@ -321,6 +340,23 @@ const DashboardPage: React.FC = () => {
                           >
                             View Report
                           </button>
+                          {(e.execution_type === 'automated_sweep' ||
+                            e.execution_type === 'automated_dive' ||
+                            e.execution_type === 'routine' ||
+                            e.routine_id != null) && (
+                            <EditRoutineButton routineId={e.routine_id} />
+                          )}
+                          {(e.execution_type === 'deep_dive' ||
+                            e.execution_type === 'dive' ||
+                            e.execution_type === 'deep_sweep' ||
+                            e.execution_type === 'sweep') && (
+                            <SaveConfigButton execution={{
+                              id: e.id,
+                              execution_type: e.execution_type,
+                              saved_configuration_id: e.saved_configuration_id,
+                              saved_configuration_name: e.saved_configuration_name,
+                            }} />
+                          )}
                           <button
                             className="btn btn-sm btn-secondary"
                             onClick={() => handleExportOne(e.id)}

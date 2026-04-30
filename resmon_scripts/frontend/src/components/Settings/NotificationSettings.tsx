@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
 
@@ -50,7 +51,10 @@ const NotificationSettings: React.FC = () => {
 
   return (
     <div className="settings-section">
-      <h2>Notifications</h2>
+      <div className="settings-panel-header">
+        <h2>Notifications</h2>
+        <TutorialLinkButton anchor="settings-notifications" />
+      </div>
       <PageHelp
         storageKey="settings-notifications"
         title="Notifications"

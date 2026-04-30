@@ -1,4 +1,5 @@
 import React from 'react';
+import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import PageHelp from '../Help/PageHelp';
 
 /**
@@ -13,7 +14,10 @@ import PageHelp from '../Help/PageHelp';
 const CloudAccountSettings: React.FC = () => {
   return (
     <div className="settings-section">
-      <h2>Cloud Account</h2>
+      <div className="settings-panel-header">
+        <h2>Cloud Account</h2>
+        <TutorialLinkButton anchor="settings-account" />
+      </div>
       <PageHelp
         storageKey="settings-cloud-account"
         title="Cloud Account"

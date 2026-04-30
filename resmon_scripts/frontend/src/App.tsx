@@ -17,6 +17,7 @@ import ConfigurationsPage from './pages/ConfigurationsPage';
 import MonitorPage from './pages/MonitorPage';
 import RepositoriesPage from './pages/RepositoriesPage';
 import SettingsPage from './pages/SettingsPage';
+import AboutResmonPage from './pages/AboutResmonPage';
 
 /**
  * Tells the backend the renderer is alive so its desktop-notification
@@ -67,6 +68,7 @@ const App: React.FC = () => {
                   <Route path="/monitor" element={<MonitorPage />} />
                   <Route path="/repositories" element={<RepositoriesPage />} />
                   <Route path="/settings/*" element={<SettingsPage />} />
+                  <Route path="/about-resmon/*" element={<AboutResmonPage />} />
                 </Routes>
               </MainContent>
             </div>

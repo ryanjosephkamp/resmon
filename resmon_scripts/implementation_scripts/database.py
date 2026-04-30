@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS executions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_type TEXT NOT NULL CHECK(execution_type IN ('deep_dive', 'deep_sweep', 'automated_sweep')),
     routine_id INTEGER,
+    saved_configuration_id INTEGER,
     parameters TEXT NOT NULL,
     start_time TEXT NOT NULL,
     end_time TEXT,
@@ -43,7 +44,8 @@ CREATE TABLE IF NOT EXISTS executions (
     error_message TEXT,
     progress_events TEXT,
     current_stage TEXT,
-    FOREIGN KEY (routine_id) REFERENCES routines(id) ON DELETE SET NULL
+    FOREIGN KEY (routine_id) REFERENCES routines(id) ON DELETE SET NULL,
+    FOREIGN KEY (saved_configuration_id) REFERENCES saved_configurations(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS execution_documents (
@@ -142,8 +144,11 @@ CREATE TABLE IF NOT EXISTS sync_state (
 );
 """
 
-# Schema version constants. Bumped by IMPL-36 (→2) and IMPL-37 (→3).
-SCHEMA_VERSION = 3
+# Schema version constants. Bumped by IMPL-36 (→2), IMPL-37 (→3), and
+# Update 3 / 4_27_26 (→4) which adds ``executions.saved_configuration_id``
+# linking each manual execution back to the saved configuration it was
+# launched from (or saved as).
+SCHEMA_VERSION = 4
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -182,7 +187,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
 
 
 def _migrate_executions_columns(conn: sqlite3.Connection) -> None:
-    """Add progress_events, current_stage, cancel_reason columns if they do not exist."""
+    """Add progress_events, current_stage, cancel_reason, saved_configuration_id columns if missing."""
     cursor = conn.execute("PRAGMA table_info(executions)")
     existing = {row[1] for row in cursor.fetchall()}
     if "progress_events" not in existing:
@@ -191,6 +196,19 @@ def _migrate_executions_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE executions ADD COLUMN current_stage TEXT")
     if "cancel_reason" not in existing:
         conn.execute("ALTER TABLE executions ADD COLUMN cancel_reason TEXT")
+    # Update 3 / 4_27_26: link each manual execution back to the saved
+    # configuration it was launched from (ConfigLoader-initiated runs)
+    # or saved as later (Save Config button on Calendar/Dashboard/
+    # Results & Logs). Nullable; ON DELETE SET NULL is enforced by the
+    # CREATE TABLE statement for new databases. ALTER TABLE in SQLite
+    # cannot add a FOREIGN KEY clause to an existing column, but the
+    # behaviour we need (graceful nulling on config delete) is enforced
+    # at the application layer in delete_configuration_endpoint and is
+    # also a no-op when the column is NULL.
+    if "saved_configuration_id" not in existing:
+        conn.execute(
+            "ALTER TABLE executions ADD COLUMN saved_configuration_id INTEGER"
+        )
     conn.commit()
 
 
@@ -293,15 +311,23 @@ def find_duplicates_by_hash(conn: sqlite3.Connection, metadata_hash: str) -> lis
 
 
 def insert_execution(conn: sqlite3.Connection, exec_dict: dict) -> int:
-    """Create a new execution record. Returns its ID."""
+    """Create a new execution record. Returns its ID.
+
+    ``saved_configuration_id`` (Update 3 / 4_27_26) is optional and links
+    the new execution back to the ``saved_configurations`` row it was
+    launched from when the user picked a config in the ConfigLoader on
+    the Deep Dive / Deep Sweep pages. ``None`` is the default for
+    ad-hoc runs and routine fires.
+    """
     sql = """\
         INSERT INTO executions
-            (execution_type, routine_id, parameters, start_time, status)
-        VALUES (?, ?, ?, ?, ?)
+            (execution_type, routine_id, saved_configuration_id, parameters, start_time, status)
+        VALUES (?, ?, ?, ?, ?, ?)
     """
     cursor = conn.execute(sql, (
         exec_dict["execution_type"],
         exec_dict.get("routine_id"),
+        exec_dict.get("saved_configuration_id"),
         exec_dict["parameters"],
         exec_dict["start_time"],
         exec_dict.get("status", "running"),
@@ -364,24 +390,57 @@ def get_executions(
     offset: int = 0,
     execution_type: str | None = None,
 ) -> list[dict]:
-    """Paginated execution history, optionally filtered by type."""
+    """Paginated execution history, optionally filtered by type.
+
+    LEFT JOINs ``saved_configurations`` so each row carries a denormalized
+    ``saved_configuration_name`` field (NULL when the execution is not
+    linked to a saved config). The JOIN happens at read time so renames
+    of the underlying config row are reflected without any backfill.
+    """
+    base = (
+        "SELECT executions.*, saved_configurations.name AS saved_configuration_name "
+        "FROM executions "
+        "LEFT JOIN saved_configurations "
+        "  ON saved_configurations.id = executions.saved_configuration_id "
+    )
     if execution_type:
         rows = conn.execute(
-            "SELECT * FROM executions WHERE execution_type = ? ORDER BY start_time DESC LIMIT ? OFFSET ?",
+            base
+            + "WHERE executions.execution_type = ? "
+            "ORDER BY executions.start_time DESC LIMIT ? OFFSET ?",
             (execution_type, limit, offset),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM executions ORDER BY start_time DESC LIMIT ? OFFSET ?",
+            base
+            + "ORDER BY executions.start_time DESC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_execution_by_id(conn: sqlite3.Connection, exec_id: int) -> dict | None:
-    """Fetch a single execution by ID."""
-    row = conn.execute("SELECT * FROM executions WHERE id = ?", (exec_id,)).fetchone()
+    """Fetch a single execution by ID, with the joined saved_configuration_name."""
+    row = conn.execute(
+        "SELECT executions.*, saved_configurations.name AS saved_configuration_name "
+        "FROM executions "
+        "LEFT JOIN saved_configurations "
+        "  ON saved_configurations.id = executions.saved_configuration_id "
+        "WHERE executions.id = ?",
+        (exec_id,),
+    ).fetchone()
     return dict(row) if row else None
+
+
+def set_execution_saved_configuration(
+    conn: sqlite3.Connection, exec_id: int, saved_configuration_id: int | None
+) -> None:
+    """Stamp / clear the saved_configuration_id link on an execution row (Update 3)."""
+    conn.execute(
+        "UPDATE executions SET saved_configuration_id = ? WHERE id = ?",
+        (saved_configuration_id, exec_id),
+    )
+    conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +578,20 @@ def update_configuration(conn: sqlite3.Connection, config_id: int, updates: dict
 
 
 def delete_configuration(conn: sqlite3.Connection, config_id: int) -> None:
-    """Delete a saved configuration by ID."""
+    """Delete a saved configuration by ID.
+
+    Update 3 / 4_27_26: also null out ``executions.saved_configuration_id``
+    for any execution that linked back to this config so the "Saved as"
+    badge stops referencing a now-orphaned row. The ``CREATE TABLE``
+    FK clause already does this for fresh databases, but databases
+    migrated from older schemas have the column without a FK declaration
+    (SQLite ``ALTER TABLE`` cannot add FK constraints), so we do it
+    explicitly for parity.
+    """
+    conn.execute(
+        "UPDATE executions SET saved_configuration_id = NULL WHERE saved_configuration_id = ?",
+        (config_id,),
+    )
     conn.execute("DELETE FROM saved_configurations WHERE id = ?", (config_id,))
     conn.commit()
 

@@ -1,9 +1,19 @@
 import React, { useMemo, useState } from 'react';
 import InfoTooltip from '../Help/InfoTooltip';
 
+export type StructuredSchedule = {
+  type: 'interval';
+  unit: 'minutes' | 'hours' | 'days' | 'weeks' | 'months' | 'years';
+  every: number;
+  hour: number;
+  minute: number;
+} | null;
+
 interface Props {
   cron: string;
   onChange: (cron: string) => void;
+  schedule?: StructuredSchedule;
+  onScheduleChange?: (schedule: StructuredSchedule) => void;
 }
 
 const PRESETS: { label: string; cron: string }[] = [
@@ -89,7 +99,7 @@ function buildCustomCron(n: number, unit: CustomUnit): string {
   }
 }
 
-const ScheduleConfigurator: React.FC<Props> = ({ cron, onChange }) => {
+const ScheduleConfigurator: React.FC<Props> = ({ cron, onChange, schedule, onScheduleChange }) => {
   const parts = cron.split(/\s+/);
   while (parts.length < 5) parts.push('*');
 
@@ -98,12 +108,19 @@ const ScheduleConfigurator: React.FC<Props> = ({ cron, onChange }) => {
     [cron],
   );
 
-  // Derive the initial Custom N/unit from the incoming cron so that
-  // editing a routine with a Custom schedule preserves the saved
-  // choices instead of reverting to the default "1 Hour(s)".
-  const initialCustom = useMemo(() => parseCustomCron(cron), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Derive the initial Custom N/unit from either a stored structured
+  // schedule (preferred — survives cadences cron cannot express) or, as
+  // a fallback, the cron string.
+  const initialCustom = useMemo(() => {
+    if (schedule && schedule.type === 'interval') {
+      return { n: schedule.every, unit: schedule.unit as CustomUnit };
+    }
+    return parseCustomCron(cron);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [showCustom, setShowCustom] = useState<boolean>(!matchingPreset);
+  const [showCustom, setShowCustom] = useState<boolean>(
+    !!schedule || !matchingPreset,
+  );
   const [customN, setCustomN] = useState<number>(initialCustom?.n ?? 1);
   // Separate text state so the user can transiently clear the input
   // while typing. The numeric ``customN`` is what drives the cron.
@@ -114,6 +131,9 @@ const ScheduleConfigurator: React.FC<Props> = ({ cron, onChange }) => {
     const next = [...parts];
     next[idx] = val || '*';
     onChange(next.join(' '));
+    // Manual cron edits clear the structured schedule so the backend
+    // falls back to the cron expression.
+    if (onScheduleChange) onScheduleChange(null);
   };
 
   const applyCustom = (n: number, unit: CustomUnit) => {
@@ -121,6 +141,18 @@ const ScheduleConfigurator: React.FC<Props> = ({ cron, onChange }) => {
     setCustomNText(String(n));
     setCustomUnit(unit);
     onChange(buildCustomCron(n, unit));
+    // Emit a structured schedule for every Custom-mode selection so the
+    // backend uses IntervalTrigger (and the calendar expands by true
+    // intervals) instead of cron's boundary-restarting ``*/N``.
+    if (onScheduleChange) {
+      onScheduleChange({
+        type: 'interval',
+        unit,
+        every: Math.max(1, Math.floor(n || 1)),
+        hour: 0,
+        minute: 0,
+      });
+    }
   };
 
   // Highlight the Custom button whenever the user is in Custom mode,
@@ -144,6 +176,7 @@ const ScheduleConfigurator: React.FC<Props> = ({ cron, onChange }) => {
             onClick={() => {
               setShowCustom(false);
               onChange(p.cron);
+              if (onScheduleChange) onScheduleChange(null);
             }}
           >
             {p.label}
@@ -156,7 +189,7 @@ const ScheduleConfigurator: React.FC<Props> = ({ cron, onChange }) => {
             setShowCustom(true);
             // Seed the cron with the current N/unit so the preview
             // immediately reflects the Custom mode.
-            onChange(buildCustomCron(customN, customUnit));
+            applyCustom(customN, customUnit);
           }}
         >
           Custom

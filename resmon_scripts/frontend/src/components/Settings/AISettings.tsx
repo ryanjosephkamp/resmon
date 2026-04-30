@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
 import InfoTooltip from '../Help/InfoTooltip';
@@ -448,7 +449,10 @@ const AISettings: React.FC = () => {
 
   return (
     <div className="settings-section">
-      <h2>AI Configuration</h2>
+      <div className="settings-panel-header">
+        <h2>AI Configuration</h2>
+        <TutorialLinkButton anchor="settings-ai" />
+      </div>
       <PageHelp
         storageKey="settings-ai"
         title="AI Configuration"

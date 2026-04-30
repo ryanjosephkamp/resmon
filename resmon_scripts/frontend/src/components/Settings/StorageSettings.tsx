@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
 
@@ -39,7 +40,10 @@ const StorageSettings: React.FC = () => {
 
   return (
     <div className="settings-section">
-      <h2>Storage Management</h2>
+      <div className="settings-panel-header">
+        <h2>Storage Management</h2>
+        <TutorialLinkButton anchor="settings-storage" />
+      </div>
       <PageHelp
         storageKey="settings-storage"
         title="Storage Management"

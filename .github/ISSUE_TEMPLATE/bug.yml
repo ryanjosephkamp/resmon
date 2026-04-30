@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a defect or unexpected behavior in resmon.
+title: "[resmon] [Bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report a bug. Please fill in as much detail as you can.
+        The "Diagnostics" section at the bottom is auto-populated when the report is filed from
+        within the resmon app (About resmon → Issues → File on GitHub).
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+      placeholder: When I do X, the app does Y instead of Z.
+    validations:
+      required: true
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps so a maintainer can reproduce the issue locally.
+      placeholder: |
+        1. Open Deep Dive.
+        2. Pick repository X.
+        3. Click Run.
+        4. Observe …
+    validations:
+      required: true
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected vs. actual behavior
+      description: What you expected to happen and what happened instead.
+      placeholder: |
+        Expected: …
+        Actual: …
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: resmon version
+      description: Found on the About resmon → About App tab, or in the Diagnostics block when filed from the app.
+      placeholder: "1.1.0"
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other / not sure
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Auto-populated when filed from About resmon → Issues. Otherwise, paste any relevant logs here.
+      render: text

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient } from '../api/client';
 import { useExecution } from '../context/ExecutionContext';
 import { useAuth } from '../context/AuthContext';
@@ -136,6 +137,7 @@ const ResultsPage: React.FC = () => {
     <div className="page-content">
       <div className="page-header">
         <h1>Results &amp; Logs</h1>
+        <TutorialLinkButton anchor="results" />
         <div className="form-actions">
           <button className="btn btn-secondary" onClick={handleExport} disabled={selected.size === 0}>
             Export Selected ({selected.size})
@@ -156,6 +158,7 @@ const ResultsPage: React.FC = () => {
             body: (
               <ul>
                 <li>Each row is one execution (manual dive, manual sweep, or routine-fired sweep).</li>
+                <li>The <strong>Name</strong> column resolves to the saved-configuration name when the run was launched from (or saved into) one, otherwise to the routine name for routine-fired runs, otherwise to <code>Execution #&lt;id&gt;</code>.</li>
                 <li><strong>Type</strong> and <strong>Status</strong> badges match the color palette used across the app.</li>
                 <li>The <strong>Source</strong> column distinguishes <em>Local</em> runs (this device) from <em>Cloud</em> runs (your resmon-cloud account).</li>
                 <li>Use the Type / Status filters and the Local / Cloud / All selector to narrow the view.</li>
