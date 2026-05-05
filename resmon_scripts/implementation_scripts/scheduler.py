@@ -315,7 +315,14 @@ class ResmonScheduler:
             kwargs={"routine_id": int(routine_dict["id"]), "parameters": params},
             replace_existing=True,
             coalesce=True,
-            misfire_grace_time=60,
+            # Update 4 / Fix B: a 1-hour grace window prevents missed
+            # fires when the daemon briefly restarts (launchd respawn,
+            # OS sleep/wake) or when a renderer-spawned scheduler dies
+            # without a clean shutdown. The APScheduler default of 1
+            # second silently drops any fire whose nominal time is more
+            # than a second in the past, which manifested as routines
+            # appearing to never fire after the app closed.
+            misfire_grace_time=3600,
         )
         logger.info("Routine added: id=%s, name=%s, schedule=%s",
                      routine_id, routine_dict.get("name"), description)
@@ -338,6 +345,40 @@ class ResmonScheduler:
         self.remove_routine(routine_id)
         routine_dict.setdefault("id", routine_id)
         return self.add_routine(routine_dict)
+
+    def reconcile_jobstore(self, active_routine_ids: set[str]) -> list[str]:
+        """Drop persisted jobs whose id is not in ``active_routine_ids``.
+
+        APScheduler's SQLAlchemy jobstore persists jobs in the
+        ``apscheduler_jobs`` table. If a routine row was deleted while
+        no scheduler was attached (e.g., the renderer-spawned backend
+        served the DELETE but did not own the scheduler), the
+        corresponding ``apscheduler_jobs`` row can survive as an
+        orphan. On daemon startup we call this method with the current
+        set of active routine ids (as strings) and any persisted job
+        not in that set is removed. Returns the list of removed job
+        ids (for logging / tests).
+
+        Idempotent: running it twice in a row removes nothing the
+        second time. Tolerant of remove failures (logs and continues).
+        """
+        removed: list[str] = []
+        for job in self._scheduler.get_jobs():
+            if job.id not in active_routine_ids:
+                try:
+                    self._scheduler.remove_job(job.id)
+                    removed.append(job.id)
+                except Exception:
+                    logger.exception(
+                        "reconcile_jobstore: failed to remove orphan job id=%s",
+                        job.id,
+                    )
+        if removed:
+            logger.info(
+                "reconcile_jobstore: removed %d orphan job(s): %s",
+                len(removed), removed,
+            )
+        return removed
 
     def get_active_jobs(self) -> list[dict]:
         """Return a list of dicts describing all active scheduled jobs."""

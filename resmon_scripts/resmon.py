@@ -2341,6 +2341,18 @@ def _dispatch_routine_fire(routine_id: int, parameters: str) -> None:
 @app.on_event("startup")
 def _init_scheduler_on_startup() -> None:
     global scheduler
+    # Update 4 / Fix D — When the Electron main process spawns this
+    # backend as a fallback (because no live daemon was found), it sets
+    # RESMON_DISABLE_SCHEDULER=1 to keep the scheduler off. The launchd
+    # daemon is the sole owner of the APScheduler instance so two
+    # processes never race against the shared SQLite jobstore. Routine
+    # CRUD endpoints already no-op when ``scheduler is None``.
+    if os.environ.get("RESMON_DISABLE_SCHEDULER") == "1":
+        logging.getLogger(__name__).info(
+            "RESMON_DISABLE_SCHEDULER=1 — scheduler not started in this process"
+        )
+        scheduler = None
+        return
     set_dispatcher(_dispatch_routine_fire)
     # When tests override the app DB to ``:memory:``, give the APScheduler
     # jobstore a disposable on-disk SQLite so its SingletonThreadPool can
@@ -2360,6 +2372,19 @@ def _init_scheduler_on_startup() -> None:
         routines = get_routines(conn)
     finally:
         _close_db(conn)
+    # Update 4 / Fix A: drop any orphan apscheduler_jobs rows whose id
+    # is not in the current set of active routines. This catches ghost
+    # jobs that survived a delete in a process that did not own the
+    # scheduler (e.g., a renderer-spawned backend serving the DELETE
+    # while the launchd daemon owned the scheduler), and any pre-patch
+    # ghosts that existed before the cascade in delete_routine.
+    active_ids = {str(r["id"]) for r in routines if r.get("is_active")}
+    try:
+        scheduler.reconcile_jobstore(active_ids)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Scheduler jobstore reconciliation failed on startup",
+        )
     for r in routines:
         if r.get("is_active"):
             try:
@@ -2826,6 +2851,98 @@ def service_status():
         "unit_path": str(_service_manager.unit_path()),
         "platform": sys.platform,
     }
+
+
+@app.get("/api/service/daemon-status")
+def service_daemon_status():
+    """Return ground-truth daemon status read from ``daemon.lock``.
+
+    Update 4 / Fix E. Unlike ``/api/health`` (which always describes the
+    *current* backend), this endpoint reads the on-disk daemon lock file
+    and probes the daemon's actual port. The Advanced tab uses it so that
+    a renderer-spawned fallback backend cannot masquerade as the daemon.
+
+    Response shape::
+
+        {
+          "lock_present": bool,
+          "running": bool,                # true iff lock present AND health probe succeeds
+          "pid": int | None,              # from the live health probe
+          "port": int | None,
+          "version": str | None,
+          "started_at": str | None,
+          "lock_pid": int | None,         # raw lock-file payload (for diagnostics)
+          "lock_port": int | None,
+          "lock_version": str | None,
+          "error": str | None,            # populated when lock_present but probe failed
+        }
+    """
+    from implementation_scripts import daemon as _daemon
+
+    payload = _daemon.read_lock()
+    if not payload:
+        return {
+            "lock_present": False,
+            "running": False,
+            "pid": None,
+            "port": None,
+            "version": None,
+            "started_at": None,
+            "lock_pid": None,
+            "lock_port": None,
+            "lock_version": None,
+            "error": None,
+        }
+
+    lock_pid = payload.get("pid") if isinstance(payload.get("pid"), int) else None
+    lock_port = payload.get("port") if isinstance(payload.get("port"), int) else None
+    lock_version = payload.get("version") if isinstance(payload.get("version"), str) else None
+
+    base = {
+        "lock_present": True,
+        "running": False,
+        "pid": None,
+        "port": None,
+        "version": None,
+        "started_at": None,
+        "lock_pid": lock_pid,
+        "lock_port": lock_port,
+        "lock_version": lock_version,
+        "error": None,
+    }
+
+    if lock_port is None:
+        base["error"] = "lock file missing port"
+        return base
+
+    # Probe the daemon's actual port. Short timeout — this endpoint is
+    # polled from the Advanced tab on a 5 s cadence.
+    try:
+        with httpx.Client(timeout=1.5) as client:
+            resp = client.get(f"http://127.0.0.1:{lock_port}/api/health")
+        if resp.status_code != 200:
+            base["error"] = f"health probe HTTP {resp.status_code}"
+            return base
+        data = resp.json()
+    except Exception as exc:
+        base["error"] = f"health probe failed: {exc.__class__.__name__}"
+        return base
+
+    # If the probe came back from *this* process, the lock points at the
+    # current backend rather than a separate daemon — flag it so the UI
+    # can render the distinction honestly.
+    probed_pid = data.get("pid") if isinstance(data.get("pid"), int) else None
+    base.update(
+        {
+            "running": True,
+            "pid": probed_pid,
+            "port": lock_port,
+            "version": data.get("version") if isinstance(data.get("version"), str) else None,
+            "started_at": data.get("started_at") if isinstance(data.get("started_at"), str) else None,
+            "is_self": probed_pid == os.getpid(),
+        }
+    )
+    return base
 
 
 @app.post("/api/service/install")

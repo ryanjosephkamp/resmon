@@ -53,7 +53,7 @@ function readLockFile(): LockPayload | null {
 }
 
 /** GET /api/health with a hard timeout. Resolves true on 200, false otherwise. */
-function pingHealth(port: number, timeoutMs: number = 500): Promise<boolean> {
+function pingHealth(port: number, timeoutMs: number = 3000): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.get(
       { host: '127.0.0.1', port, path: '/api/health', timeout: timeoutMs },
@@ -66,6 +66,43 @@ function pingHealth(port: number, timeoutMs: number = 500): Promise<boolean> {
     req.on('timeout', () => { req.destroy(); resolve(false); });
     req.on('error', () => resolve(false));
   });
+}
+
+
+/**
+ * Update 4 / Fix C — Attempt to attach to a running resmon-daemon by
+ * reading the lock file and probing its health endpoint, retrying a
+ * bounded number of times before giving up. Returns the daemon's port
+ * on success or ``null`` if no live daemon was found.
+ *
+ * Why this exists: when launchd is mid-bootstrap (e.g., right after a
+ * Danger-Zone reset followed by re-enabling background execution), the
+ * lock file is rewritten before the FastAPI app finishes binding its
+ * port, so a single 500 ms probe times out and the previous code
+ * silently spawned a competing backend. That second backend would
+ * register its own APScheduler against the same SQLite jobstore,
+ * causing every fire to be logged as "missed" by the daemon's grace
+ * window. Retrying with a longer per-attempt timeout closes that race.
+ */
+async function tryAttachToDaemon(
+  attempts: number = 3,
+  perAttemptTimeoutMs: number = 1500,
+  backoffMs: number = 250,
+): Promise<number | null> {
+  for (let i = 0; i < attempts; i++) {
+    const lock = readLockFile();
+    if (lock && (await pingHealth(lock.port, perAttemptTimeoutMs))) {
+      console.log(
+        `[main] Attached to existing resmon-daemon on port ${lock.port} ` +
+        `(pid=${lock.pid}, attempt=${i + 1}/${attempts})`,
+      );
+      return lock.port;
+    }
+    if (i + 1 < attempts) {
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+  }
+  return null;
 }
 
 
@@ -92,9 +129,19 @@ function startBackend(port: number): ChildProcess {
   const resmonScript = path.join(scriptDir, 'resmon.py');
   const pythonPath = process.env.RESMON_PYTHON || 'python3';
 
+  // Update 4 / Fix D — A renderer-spawned fallback backend must NOT own
+  // a ResmonScheduler. The launchd daemon is the sole scheduler owner;
+  // letting both processes register jobs against the same SQLite
+  // jobstore causes the dual-scheduler race that drops fires when the
+  // app closes (the renderer-owned scheduler dies without a clean
+  // shutdown, leaving its in-flight jobs orphaned). The FastAPI startup
+  // hook in resmon.py honors this env var by skipping scheduler
+  // instantiation entirely; CRUD endpoints already no-op when
+  // ``scheduler is None``.
   const child = spawn(pythonPath, [resmonScript, String(port)], {
     cwd: scriptDir,
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, RESMON_DISABLE_SCHEDULER: '1' },
   });
 
   child.stdout?.on('data', (data: Buffer) => {
@@ -260,11 +307,14 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   try {
     // Attach-or-spawn: if the lock file points to a live daemon, attach.
-    const lock = readLockFile();
-    if (lock && (await pingHealth(lock.port, 500))) {
-      backendPort = lock.port;
+    // Update 4 / Fix C — retry with a longer per-attempt timeout so a
+    // launchd-respawn-in-progress (lock file rewritten but FastAPI not
+    // yet bound) does not cause a single-shot 500 ms probe to time out
+    // and trigger a competing-backend spawn.
+    const attachedPort = await tryAttachToDaemon();
+    if (attachedPort !== null) {
+      backendPort = attachedPort;
       attachedToDaemon = true;
-      console.log(`[main] Attached to existing resmon-daemon on port ${backendPort} (pid=${lock.pid})`);
     } else {
       backendPort = await findFreePort();
       console.log(`[main] Starting backend on port ${backendPort}`);

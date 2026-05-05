@@ -5,7 +5,7 @@ Covers:
     (b) add_routine idempotent with replace_existing=True
     (c) remove_routine idempotent (second call does not raise)
     (d) coalesce=True present on the registered job
-    (e) misfire_grace_time=60 present on the registered job
+    (e) misfire_grace_time=3600 present on the registered job (Update 4 / Fix B)
     (f) _routine_callback with no dispatcher installed logs and returns
     (g) dispatcher exception is swallowed and logged
 """
@@ -90,7 +90,7 @@ def test_remove_routine_idempotent(sched):
 
 
 # ---------------------------------------------------------------------------
-# (d) + (e) coalesce=True and misfire_grace_time=60 present on the job
+# (d) + (e) coalesce=True and misfire_grace_time=3600 present on the job
 # ---------------------------------------------------------------------------
 
 def test_coalesce_and_misfire_grace_time_set(sched):
@@ -101,7 +101,7 @@ def test_coalesce_and_misfire_grace_time_set(sched):
     job = sched._scheduler.get_job("5")
     assert job is not None
     assert job.coalesce is True
-    assert job.misfire_grace_time == 60
+    assert job.misfire_grace_time == 3600
 
 
 # ---------------------------------------------------------------------------

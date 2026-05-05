@@ -72,7 +72,7 @@ const socialLinks: SocialLink[] = [
 ];
 
 const AboutAppTab: React.FC = () => {
-  const [backendVersion, setBackendVersion] = useState<string>('1.0.0');
+  const [backendVersion, setBackendVersion] = useState<string>('1.2.1');
 
   useEffect(() => {
     let cancelled = false;
@@ -111,37 +111,33 @@ const AboutAppTab: React.FC = () => {
       <div className="about-grid">
         <section className="about-card">
           <h3>Version</h3>
-          <p><strong>resmon</strong> version <strong>{backendVersion || '1.2.0'}</strong></p>
+          <p><strong>resmon</strong> version <strong>{backendVersion || '1.2.1'}</strong></p>
           <p className="text-muted">Current release line: 1.2.x</p>
         </section>
 
         <section className="about-card">
           <h3>Recent Update</h3>
           <p>
-            <strong>Update 3</strong> — Calendar Bug Cluster, AI-Key Deep-Link, and the New About
-            resmon Page (Tutorials, Issues, Blog, About App).
+            <strong>Update 4</strong> — Background Routine Reliability: Scheduler / Jobstore
+            Lifecycle, Daemon-Attach Race, and Advanced-Tab Honesty.
           </p>
           <p className="text-muted">
-            The Calendar's scheduled-routine times no longer drift by ~4 hours and Custom-cadence
-            first-fire / interval anomalies (every-N-months, every-5-hours, every-5-days,
-            every-3-weeks, every-1-year) all expand correctly; the 30-minute "orange-bar" cosmetic
-            bug is fixed; and the expansion window now extends a full 12 months with a user-facing
-            notice past the horizon. The Repositories &amp; API Keys page gains a "Looking for AI
-            API key settings?" deep-link button to <em>Settings → AI</em>. A new top-level <em>About
-            resmon</em> page hosts four tabs — <strong>Tutorials</strong> (eighteen embedded
-            walk-throughs covering the full app, every page, and every Settings sub-tab),
-            <strong> Issues</strong> (a credentials-free <code>mailto:</code> + GitHub-issue-deep-link
-            form), <strong>Blog</strong> (an in-app reader fed by the new GitHub Pages site), and
-            <strong> About App</strong> (relocated out of Settings) — and a shared Tutorial button is
-            rendered next to every page header and every Settings sub-panel header so any user can
-            deep-link straight into the matching tutorial section. Plus eleven out-of-band additions:
-            an active-only Routines dropdown on Calendar, Name / Cron Schedule popover lines and an
-            Edit Routine button on the Calendar popover (via a new shared RoutineEditModal with
-            cross-page sync), a Saved-as-name badge and Name column wired across Dashboard / Results
-            &amp; Logs / Calendar via a new <code>saved_configuration_id</code> linkage, a per-row
-            View JSON read-only modal on the Configurations page, and a Settings → Advanced
-            <strong> Danger Zone</strong> with sixteen destructive actions behind a two-tier
-            confirmation gate (the cloud column is disabled until Cloud Account lands).
+            A reliability patch for scheduled Routines firing while the app window is closed.
+            <code>delete_routine</code> now removes the matching APScheduler job in the same
+            transaction and the daemon performs a one-shot startup reconciliation that drops any
+            ghost <code>apscheduler_jobs</code> rows whose owning routine is gone or inactive;
+            routine jobs are now registered with a one-hour <code>misfire_grace_time</code> so a
+            fire whose nominal moment briefly passed (daemon restart, scheduler reattach) still
+            runs instead of being silently dropped. The Electron main process raises its
+            <code>/api/health</code> probe timeout, retries the lock-file → health-probe sequence
+            with backoff, and waits for a launchd-bootstrapping daemon rather than spawning a
+            second backend; even when a fallback spawn is legitimate, the spawned backend now
+            honors a <code>RESMON_DISABLE_SCHEDULER</code> env gate so only the daemon ever owns
+            an APScheduler against the shared SQLite jobstore. The <em>Settings → Advanced</em>
+            "Run resmon in the background" status block now reads <code>daemon.lock</code> and
+            probes the daemon's actual port to display pid / version / last-started, so any
+            future dual-backend race surfaces immediately rather than being masked by whichever
+            backend the renderer happens to be attached to.
           </p>
         </section>
 

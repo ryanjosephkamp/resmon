@@ -130,6 +130,25 @@ interface HealthResponse {
   version: string;
 }
 
+// Update 4 / Fix E — ground-truth daemon status read from ``daemon.lock``
+// by the backend, not from the renderer-attached backend's own
+// ``/api/health``. Lets the Advanced tab show the real daemon's
+// pid / version / last_started even when the renderer is talking to a
+// separate fallback backend.
+interface DaemonStatusResponse {
+  lock_present: boolean;
+  running: boolean;
+  pid: number | null;
+  port: number | null;
+  version: string | null;
+  started_at: string | null;
+  lock_pid: number | null;
+  lock_port: number | null;
+  lock_version: string | null;
+  error: string | null;
+  is_self?: boolean;
+}
+
 interface ExecutionSettings {
   max_concurrent_executions: number;
   routine_fire_queue_limit: number;
@@ -145,6 +164,7 @@ interface SchedulerJob {
 const AdvancedSettings: React.FC = () => {
   const [svc, setSvc] = useState<ServiceStatus | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [daemon, setDaemon] = useState<DaemonStatusResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
 
@@ -250,12 +270,14 @@ const AdvancedSettings: React.FC = () => {
 
   const refresh = useCallback(async () => {
     try {
-      const [s, h] = await Promise.all([
+      const [s, h, d] = await Promise.all([
         apiClient.get<ServiceStatus>('/api/service/status'),
         apiClient.get<HealthResponse>('/api/health').catch(() => null),
+        apiClient.get<DaemonStatusResponse>('/api/service/daemon-status').catch(() => null),
       ]);
       setSvc(s);
       setHealth(h);
+      setDaemon(d);
     } catch (err: any) {
       setStatus(`Error: ${err.message ?? err}`);
     }
@@ -386,17 +408,32 @@ const AdvancedSettings: React.FC = () => {
             <span style={{ fontWeight: 600 }}>
               {svc.installed ? 'Installed' : 'Not installed'}
             </span>
-            {health ? (
+            {/* Update 4 / Fix E — daemon status is read from daemon.lock
+                by the backend, not from the renderer-attached /api/health. */}
+            {daemon && daemon.running ? (
               <span style={{ marginLeft: '0.5rem', color: '#2a7' }}>
-                · daemon up (pid {health.pid}, v{health.version})
+                · daemon up (pid {daemon.pid}, v{daemon.version}
+                {daemon.is_self ? ', this process' : ''})
+              </span>
+            ) : daemon && daemon.lock_present ? (
+              <span style={{ marginLeft: '0.5rem', color: '#a62' }}>
+                · daemon lock present (pid {daemon.lock_pid}, port {daemon.lock_port}) but unreachable
+                {daemon.error ? `: ${daemon.error}` : ''}
               </span>
             ) : (
-              <span style={{ marginLeft: '0.5rem', color: '#a62' }}>· daemon not reachable</span>
+              <span style={{ marginLeft: '0.5rem', color: '#a62' }}>· no daemon running</span>
+            )}
+            {/* Renderer-attached backend identity — kept for diagnostics
+                so the user can compare against the ground-truth daemon. */}
+            {health && (
+              <span style={{ marginLeft: '0.5rem', color: '#888' }}>
+                · this window → pid {health.pid}, v{health.version}
+              </span>
             )}
           </div>
-          {health && (
+          {daemon && daemon.running && daemon.started_at && (
             <div>
-              Last started: <code>{health.started_at}</code>
+              Last started: <code>{daemon.started_at}</code>
             </div>
           )}
           <div style={{ color: '#888' }}>

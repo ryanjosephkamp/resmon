@@ -113,7 +113,7 @@ The Settings page is the central configuration surface for `resmon`. It groups a
 ### Panel: Advanced
 
 - Component: `AdvancedSettings` ([resmon_scripts/frontend/src/components/Settings/AdvancedSettings.tsx](resmon_scripts/frontend/src/components/Settings/AdvancedSettings.tsx)).
-- **Background daemon** — `GET /api/service/status` returns `{ installed, unit_path, platform }`; `POST /api/service/install` and `POST /api/service/uninstall` toggle the OS service unit (IMPL-26). Health polling of `/api/health` at a 5-second interval surfaces `{ status, pid, started_at, version }`.
+- **Background daemon** — `GET /api/service/status` returns `{ installed, unit_path, platform }`; `POST /api/service/install` and `POST /api/service/uninstall` toggle the OS service unit (IMPL-26). Health polling of `/api/health` at a 5-second interval surfaces the renderer-attached backend's `{ status, pid, started_at, version }`. **Update 4 (`5_5_26`):** the panel additionally polls `GET /api/service/daemon-status`, a backend route that reads `daemon.lock` and probes the daemon's actual port directly so the displayed pid / version / last-started reflect the *real* daemon rather than whichever backend the renderer happens to be attached to. The status block renders three explicit states ("daemon up" with an `, this process` tag when the lock points at the current backend; "lock present but unreachable" with the diagnostic error; "no daemon running"), and the renderer-attached backend's identity is shown separately as a `· this window → pid …` diagnostic line so any divergence is immediately visible.
 - **Concurrent executions (IMPL-R12)** — `GET /api/settings/execution` returns `{ max_concurrent_executions, routine_fire_queue_limit }`; the panel persists edits through `PUT /api/settings/execution`. Limits flow into `admission` (IMPL-R1 / R2) and into the scheduler's routine-fire queue (IMPL-R3 / R6).
 - **Scheduler diagnostics** — `GET /api/scheduler/jobs` returns `{ id, name, next_run_time, trigger }` entries from the APScheduler job store. A Refresh action re-fetches the list.
 - **Danger Zone (Update 3 / `4_27_26`)** — appended at the bottom of the Advanced panel. Two columns are rendered side by side: `Local device` (active) and `Cloud account` (scaffolding, all buttons rendered disabled with a "Coming soon — requires cloud sign-in" tooltip). Each column exposes the same eight destructive actions:
@@ -152,6 +152,7 @@ The Settings page is the central configuration surface for `resmon`. It groups a
 | GET / PUT | `/api/settings/storage` | PDF / TXT policies, archive retention, export directory | Storage |
 | GET / PUT | `/api/settings/notifications` | `notify_manual`, `notify_automatic_mode` | Notifications |
 | GET | `/api/service/status` | OS service-unit state | Advanced |
+| GET | `/api/service/daemon-status` | Ground-truth daemon status read from `daemon.lock` and a live health probe of its port (Update 4 / Fix E) | Advanced |
 | POST | `/api/service/install` | Install platform-specific service unit | Advanced |
 | POST | `/api/service/uninstall` | Remove platform-specific service unit | Advanced |
 | GET / PUT | `/api/settings/execution` | `max_concurrent_executions`, `routine_fire_queue_limit` | Advanced |

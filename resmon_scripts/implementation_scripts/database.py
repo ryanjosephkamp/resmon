@@ -515,8 +515,25 @@ def update_routine(conn: sqlite3.Connection, routine_id: int, updates: dict) -> 
 
 
 def delete_routine(conn: sqlite3.Connection, routine_id: int) -> None:
-    """Delete a routine by ID."""
+    """Delete a routine by ID.
+
+    Also cascades the matching APScheduler job row in ``apscheduler_jobs``
+    so the persistent jobstore cannot retain a ghost row pointing at a
+    routine that no longer exists. The cascade is tolerant of the
+    jobstore table not existing yet (e.g., when no scheduler has ever
+    been started against this database file, as in many test fixtures).
+    The APScheduler ``id`` column is stored as TEXT and uses the
+    string-form of the routine id, so cast accordingly.
+    """
     conn.execute("DELETE FROM routines WHERE id = ?", (routine_id,))
+    try:
+        conn.execute(
+            "DELETE FROM apscheduler_jobs WHERE id = ?", (str(routine_id),)
+        )
+    except sqlite3.OperationalError:
+        # apscheduler_jobs table not present (no scheduler has touched
+        # this DB file). Nothing to cascade; not an error.
+        pass
     conn.commit()
 
 
