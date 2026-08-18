@@ -24,8 +24,20 @@ class ProgressStore:
     # ------------------------------------------------------------------
 
     def register(self, exec_id: int) -> None:
-        """Register a new execution for progress tracking."""
-        self._events[exec_id]  # initialize defaultdict entry
+        """Register a new execution for progress tracking.
+
+        Establishes a clean slate. This previously only touched the
+        ``defaultdict`` entry, so an id that still had events in the store
+        inherited them: the new execution's progress log began with a previous
+        run's events, and the Monitor page replayed them as if they were live.
+
+        That is reachable. ``cleanup`` is skipped whenever the persist step at
+        the end of an execution raises, and ``POST /api/admin/erase-executions``
+        deletes the ``executions`` row for ``sqlite_sequence``, which restarts
+        AUTOINCREMENT at 1 - so the next execution can be handed an id whose
+        stale events are still in memory.
+        """
+        self._events[exec_id] = []
         self._cancel_flags[exec_id] = threading.Event()
         self._completed[exec_id] = False
 

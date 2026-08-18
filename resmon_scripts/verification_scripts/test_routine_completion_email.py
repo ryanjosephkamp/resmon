@@ -87,7 +87,16 @@ def test_email_sent_when_enabled(mock_send):
 
     assert mock_send.call_count == 1, mock_send.call_args_list
     kwargs = mock_send.call_args.kwargs
-    assert kwargs.get("include_ai_summary") is True
+    # "AI Summary in Email" was redefined as "Results in Email": the routine
+    # flag ``email_ai_summary_enabled`` now attaches the execution results
+    # .zip rather than inlining an AI summary in the body, and resmon.py
+    # passes ``include_ai_summary=False`` accordingly. This assertion still
+    # expected the old behaviour and so failed against correct code.
+    assert kwargs.get("include_ai_summary") is False
+    assert kwargs.get("attachment_path"), (
+        "email_ai_summary_enabled should attach the results bundle"
+    )
+    assert str(kwargs["attachment_path"]).endswith(".zip")
     assert kwargs["routine"]["id"] == rid
     assert int(kwargs["execution"]["routine_id"]) == rid
 

@@ -609,9 +609,21 @@ def test_e2e_cloud_backup(client):
     assert cs["cloud_auto_backup"] == "true"
 
     # ---- link (mocked OAuth) ----
-    with patch("resmon.authorize_google_drive", return_value=True):
-        link_resp = client.post("/api/cloud/link")
-        assert link_resp.status_code == 200
+    # POST /api/cloud/link pre-flights the presence of a Google OAuth client
+    # secrets file at PROJECT_ROOT/credentials.json and returns 400 when it is
+    # absent. That file is user-supplied and never committed, so mocking
+    # authorize_google_drive alone was not enough - the request was rejected
+    # before it got there. Point PROJECT_ROOT at a temp dir holding a stub.
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+    with _tempfile.TemporaryDirectory() as _td:
+        (_Path(_td) / "credentials.json").write_text("{}", encoding="utf-8")
+        with (
+            patch("implementation_scripts.config.PROJECT_ROOT", _Path(_td)),
+            patch("resmon.authorize_google_drive", return_value=True),
+        ):
+            link_resp = client.post("/api/cloud/link")
+            assert link_resp.status_code == 200, link_resp.text
 
     # ---- backup (mocked) ----
     with (

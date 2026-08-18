@@ -38,5 +38,8 @@ python-json-logger==4.2.0
 redis==8.1.0
 
 # --- Testing -----------------------------------------------------------------
+# moto backs test_cloud_artifacts.py, which stands up a local S3 server rather
+# than reaching AWS.
+moto[s3,server]==5.2.2
 pytest==9.0.3
 pytest-timeout==2.4.0

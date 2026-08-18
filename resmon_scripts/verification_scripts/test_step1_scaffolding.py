@@ -9,16 +9,17 @@ def test_directories_exist():
     required_dirs = [
         "resmon_scripts/implementation_scripts",
         "resmon_scripts/verification_scripts",
-        "resmon_scripts/notebooks",
-        "resmon_scripts/given_scripts",
         "resmon_scripts/frontend",
-        "resmon_experiments",
         "resmon_reports/figures",
-        "resmon_reports/latex/figures",
-        "resmon_reports/markdowns",
-        "resmon_reports/pdfs",
-        "resmon_printouts",
     ]
+    # This list previously also asserted ``resmon_scripts/notebooks``,
+    # ``resmon_scripts/given_scripts``, ``resmon_experiments`` and
+    # ``resmon_printouts``. None of them has ever been committed - they are
+    # developer-local scratch space - so a fresh clone could never pass this
+    # test. Only directories that are actually tracked in git are asserted
+    # here; the report subdirectories the backend creates on first launch
+    # (markdowns/, pdfs/, latex/, logs/) are deliberately not, because they do
+    # not exist until the app has run once.
     for rel_path in required_dirs:
         assert (PROJECT_ROOT / rel_path).is_dir(), f"Missing directory: {rel_path}"
 
