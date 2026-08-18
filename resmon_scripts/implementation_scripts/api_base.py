@@ -2,6 +2,7 @@
 """API client framework: NormalizedResult, BaseAPIClient, RateLimiter, retry, safe_request."""
 
 import logging
+import threading
 import time
 import functools
 from abc import ABC, abstractmethod
@@ -107,19 +108,39 @@ class BaseAPIClient(ABC):
 # ---------------------------------------------------------------------------
 
 class RateLimiter:
-    """Token-bucket rate limiter with configurable requests per second."""
+    """Token-bucket rate limiter with configurable requests per second.
+
+    Thread-safe. Each ``api_*`` module holds one module-level limiter shared by
+    every client for that source, so concurrent executions genuinely contend on
+    the same object: resmon admits up to 8 executions at once and each one can
+    be sweeping the same repository.
+
+    The lock is load-bearing. Without it, every waiting thread read the same
+    ``_last_call``, computed the same delay, slept the same amount, and then
+    fired together - so the effective request rate was multiplied by the number
+    of concurrent sweeps. Measured against arXiv's 0.33 req/s setting, four
+    concurrent sweeps issued all four requests within 0.00 s of each other
+    (1.32 req/s, four times the advertised ceiling) instead of spacing them
+    three seconds apart. Providers answer that with 429s and, on repeat, a
+    temporary IP block.
+
+    The sleep is held inside the lock deliberately: the point is to serialise
+    callers, so a thread must not be able to claim a slot while another is
+    still waiting for its own.
+    """
 
     def __init__(self, requests_per_second: float = 1.0):
         self._interval = 1.0 / requests_per_second
         self._last_call: float = 0.0
+        self._lock = threading.Lock()
 
     def acquire(self) -> None:
         """Block until the next request is permitted."""
-        now = time.monotonic()
-        elapsed = now - self._last_call
-        if elapsed < self._interval:
-            time.sleep(self._interval - elapsed)
-        self._last_call = time.monotonic()
+        with self._lock:
+            elapsed = time.monotonic() - self._last_call
+            if elapsed < self._interval:
+                time.sleep(self._interval - elapsed)
+            self._last_call = time.monotonic()
 
 
 # ---------------------------------------------------------------------------

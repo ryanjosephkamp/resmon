@@ -49,7 +49,7 @@ class CloudMetrics:
 
         self.executions_total = Counter(
             "executions_total",
-            "Number of cloud executions fired, labeled by terminal status."
+            "Number of cloud executions fired, labeled by terminal status.",
             labelnames=("status",),
             registry=self.registry,
         )

@@ -2,6 +2,8 @@
 """Secure credential management via OS-native keyring."""
 
 import logging
+import os
+import threading
 
 import keyring
 import httpx
@@ -12,6 +14,67 @@ logger = logging.getLogger(__name__)
 
 # Service name used for all keyring operations
 _SERVICE = APP_NAME  # "resmon"
+
+
+# ---------------------------------------------------------------------------
+# Bounded keyring access
+# ---------------------------------------------------------------------------
+#
+# OS keyring backends can block indefinitely. On macOS ``SecItemCopyMatching``
+# waits on a GUI authorisation prompt; if nobody answers it, the call never
+# returns. Because several request paths read credentials (``GET
+# /api/cloud/status`` is the worst offender, since it runs on every Cloud
+# settings render), an unbounded call there hangs the HTTP request and holds an
+# ASGI worker thread with it. The same block made the verification suite hang
+# forever rather than fail.
+#
+# Every keyring call is therefore run on a short-lived daemon thread and
+# joined with a timeout. A stuck OS call cannot be cancelled, but the caller is
+# released: the orphaned thread finishes in the background once the prompt is
+# answered or the backend gives up.
+#
+# Reads degrade to "credential not present", which is the safe direction — the
+# caller behaves exactly as it would for an unset key. Writes and deletes raise,
+# because silently reporting success for a credential that was never stored
+# would be a lie the user acts on.
+
+_KEYRING_TIMEOUT_SEC = float(os.environ.get("RESMON_KEYRING_TIMEOUT", "5.0"))
+
+
+class KeyringTimeout(RuntimeError):
+    """Raised when an OS keyring write or delete exceeds its time budget."""
+
+
+def _call_keyring(op: str, fn, *args):
+    """Run ``fn(*args)`` on a daemon thread, bounded by the keyring timeout.
+
+    Returns ``(ok, value)``. ``ok`` is False only on timeout. Exceptions raised
+    by the backend propagate to the caller unchanged.
+    """
+    box: dict = {}
+
+    def _target() -> None:
+        try:
+            box["value"] = fn(*args)
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller's thread
+            box["error"] = exc
+
+    worker = threading.Thread(target=_target, daemon=True, name=f"keyring-{op}")
+    worker.start()
+    worker.join(_KEYRING_TIMEOUT_SEC)
+
+    if worker.is_alive():
+        logger.warning(
+            "OS keyring %s exceeded %.1fs and was abandoned (service=%s). "
+            "If a keychain authorisation prompt is open, answering it will "
+            "unblock subsequent calls.",
+            op, _KEYRING_TIMEOUT_SEC, _SERVICE,
+        )
+        return False, None
+
+    if "error" in box:
+        raise box["error"]
+    return True, box.get("value")
 
 
 # ---------------------------------------------------------------------------
@@ -51,13 +114,22 @@ def store_credential(key_name: str, value: str) -> None:
 
     Credentials are never logged or included in error messages.
     """
-    keyring.set_password(_SERVICE, key_name, value)
+    ok, _ = _call_keyring("set_password", keyring.set_password, _SERVICE, key_name, value)
+    if not ok:
+        raise KeyringTimeout(
+            f"Timed out storing credential {key_name!r} in the OS keyring after "
+            f"{_KEYRING_TIMEOUT_SEC:.0f}s. The credential was not saved."
+        )
     logger.info("Credential stored: %s (service=%s)", key_name, _SERVICE)
 
 
 def get_credential(key_name: str) -> str | None:
     """Retrieve a credential from the OS keyring. Returns None if not found."""
-    value = keyring.get_password(_SERVICE, key_name)
+    ok, value = _call_keyring("get_password", keyring.get_password, _SERVICE, key_name)
+    if not ok:
+        # Treated as absent: the caller then behaves exactly as it would for a
+        # key the user has not set, instead of blocking the request forever.
+        return None
     if value is None:
         logger.debug("Credential not found: %s (service=%s)", key_name, _SERVICE)
     return value
@@ -66,7 +138,12 @@ def get_credential(key_name: str) -> str | None:
 def delete_credential(key_name: str) -> None:
     """Remove a credential from the OS keyring."""
     try:
-        keyring.delete_password(_SERVICE, key_name)
+        ok, _ = _call_keyring("delete_password", keyring.delete_password, _SERVICE, key_name)
+        if not ok:
+            raise KeyringTimeout(
+                f"Timed out deleting credential {key_name!r} from the OS keyring "
+                f"after {_KEYRING_TIMEOUT_SEC:.0f}s. It may still be present."
+            )
         logger.info("Credential deleted: %s (service=%s)", key_name, _SERVICE)
     except keyring.errors.PasswordDeleteError:
         logger.debug("Credential already absent: %s (service=%s)", key_name, _SERVICE)

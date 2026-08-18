@@ -158,6 +158,18 @@ _SCHEMA_VERSION_KEY = "schema_version"
 
 def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
     """Return a sqlite3.Connection with WAL mode, foreign keys, and Row factory."""
+    # ``str(db_path)`` used to be applied to whatever was passed. Handing this
+    # function a Connection - easy to do, because ``init_db`` takes both a
+    # ``db_path`` and a ``conn`` - stringified it to
+    # "<sqlite3.Connection object at 0x...>" and created a real database file
+    # under that name instead of raising. The caller then operated on an empty
+    # database and never found out.
+    if db_path is not None and not isinstance(db_path, (str, Path)):
+        raise TypeError(
+            "get_connection() expects a str, Path, or None for db_path, got "
+            f"{type(db_path).__name__}. If you meant to reuse an existing "
+            "connection, pass it as the keyword argument conn=... instead."
+        )
     path = str(db_path) if db_path else str(DEFAULT_DB_PATH)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row

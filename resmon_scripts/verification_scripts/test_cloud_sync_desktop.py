@@ -69,7 +69,7 @@ def test_schema_migration_is_idempotent():
     conn = resmon_mod._get_db()
     before = database.get_schema_version(conn)
     # Re-run init_db on the same connection; the version must not change.
-    database.init_db(conn)
+    database.init_db(conn=conn)
     assert database.get_schema_version(conn) == before
 
 

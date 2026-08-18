@@ -741,10 +741,28 @@ def _launch_execution(
                 logging.getLogger(__name__).exception(
                     "Desktop notification hook raised for exec_id=%s", exec_id,
                 )
-            events = progress_store.get_events(exec_id)
-            save_progress_events(conn, exec_id, events)
-            progress_store.cleanup(exec_id)
-            admission.note_finished(exec_id)
+            # Persisting progress must never be able to strand the
+            # execution's concurrency slot. ``admission.note_finished`` is what
+            # returns that slot; if it is skipped the slot is held for the life
+            # of the process, and after ``max_concurrent`` such failures every
+            # Deep Dive and Deep Sweep is rejected with HTTP 429 while nothing
+            # is actually running. A locked database past the 5 s busy_timeout,
+            # a full disk, or a shutdown race is enough to trigger it.
+            try:
+                events = progress_store.get_events(exec_id)
+                save_progress_events(conn, exec_id, events)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Failed to persist progress events for exec_id=%s", exec_id,
+                )
+            finally:
+                try:
+                    progress_store.cleanup(exec_id)
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "progress_store.cleanup failed for exec_id=%s", exec_id,
+                    )
+                admission.note_finished(exec_id)
 
     t = threading.Thread(target=_run, daemon=True, name=f"exec-{exec_id}")
     t.start()
