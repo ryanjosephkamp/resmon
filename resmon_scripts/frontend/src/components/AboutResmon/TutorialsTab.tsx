@@ -187,6 +187,34 @@ const sections: TutorialSection[] = [
     destination: { path: '/calendar', label: 'Go to Page' },
   },
   {
+    anchor: 'explorer',
+    title: 'Explorer',
+    blurb: 'Search and filter every paper resmon has ever collected, in one place.',
+    mediaCaption: 'Explorer demo.',
+    youtubeId: '',
+    instructions: [
+      'Search titles and abstracts together in the box at the top left. The last word you type is treated as a prefix, so results narrow as you go.',
+      'Tick values under Source, Category, and Author to filter. The number beside each is how many papers carry it.',
+      'Filters combine with AND: a paper must satisfy every filter you set. Ticking two sources widens across both; a source plus a category narrows to papers in both.',
+      'Set a publication date range with the two date fields.',
+      '`BibTeX`, `RIS`, and `CSV` export everything matching your filters — not only the papers currently on screen.',
+      'The address bar always reflects your filters, so a filtered view can be bookmarked, reloaded, or shared, and the Back button works.',
+    ],
+    features: [
+      'Searches your whole corpus across every execution and routine, rather than one execution at a time.',
+      'Free text runs against a full-text index rather than a substring scan, so it stays fast on a large corpus.',
+      'Facet counts update as you filter, and a facet never hides its own alternatives.',
+      'Clicking a source or category on the Analytics page opens the Explorer already filtered to it.',
+    ],
+    tips: [
+      'Coming from Analytics is the intended route: notice something in a chart, click it, read the papers behind it.',
+      'Click a category chip on any result to add it to the filters.',
+      'Result totals above ten thousand are shown as "10,000+". The exact number changes no decision, and counting it exactly is the one query that cannot be bounded.',
+      'Export applies to your filters, not your screen — filter down to a topic first, then export the whole set.',
+    ],
+    destination: { path: '/explorer', label: 'Go to Page' },
+  },
+  {
     anchor: 'analytics',
     title: 'Analytics',
     blurb: 'What your collected papers reveal about your sources and your routines.',
@@ -198,6 +226,7 @@ const sections: TutorialSection[] = [
       '`How quickly each source surfaces a paper` is the median gap between publication and resmon first seeing it. Use it to pick a sensible routine schedule: a source with a two-week median will not deliver sooner because a routine runs hourly.',
       '`Routine health` marks a routine `Quiet` when it has returned nothing new for several runs — usually a sign its keywords are too narrow, or its field has gone still.',
       '`Publication volume over time` can be grouped by source or by subject category; a paper in two categories is counted in both.',
+      'Source names and chart legend entries are links: click one to open the Explorer filtered to it, and read the papers behind the number.',
       'Figures that read `not enough data yet` are being withheld on purpose. Counts are always shown, but averages and percentages wait until there is enough data to mean something, and the sample size is always displayed.',
     ],
     features: [

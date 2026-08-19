@@ -97,7 +97,7 @@ from implementation_scripts.config_manager import (
 )
 from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
-from implementation_scripts import analytics, reference_export
+from implementation_scripts import analytics, explorer, reference_export
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import admission
 from implementation_scripts.scheduler import ResmonScheduler, set_dispatcher
@@ -1965,6 +1965,79 @@ def export_selected_references(body: ReferenceExportBody):
     try:
         documents = get_documents_by_ids(conn, body.document_ids)
         return _reference_response(documents, body.format, "resmon-selection")
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Explorer (Phase 2b)
+# ---------------------------------------------------------------------------
+
+
+class ExplorerFilters(BaseModel):
+    query: Optional[str] = None
+    sources: list[str] = []
+    authors: list[str] = []
+    categories: list[str] = []
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+
+
+class ExplorerSearchBody(ExplorerFilters):
+    cursor: Optional[str] = None
+    limit: int = explorer.DEFAULT_PAGE_SIZE
+
+
+class ExplorerExportBody(ExplorerFilters):
+    format: str = "bibtex"
+
+
+def _filter_kwargs(body: ExplorerFilters) -> dict:
+    return {
+        "query": body.query,
+        "sources": body.sources or None,
+        "authors": body.authors or None,
+        "categories": body.categories or None,
+        "date_from": body.date_from,
+        "date_to": body.date_to,
+    }
+
+
+@app.post("/api/explorer/search")
+def explorer_search(body: ExplorerSearchBody):
+    """Search the whole corpus. POST because the filter set is a structure."""
+    conn = _get_db()
+    try:
+        return explorer.search(conn, cursor=body.cursor, limit=body.limit,
+                               **_filter_kwargs(body))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/explorer/facets")
+def explorer_facets(body: ExplorerFilters):
+    """Available filter values and their counts, for the current filters."""
+    conn = _get_db()
+    try:
+        return explorer.facets(conn, **_filter_kwargs(body))
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/explorer/export")
+def explorer_export(body: ExplorerExportBody):
+    """Export everything matching the current filters, not just the page shown.
+
+    Reuses the same renderers as the per-execution export; only the way the
+    documents are selected differs.
+    """
+    conn = _get_db()
+    try:
+        ids = explorer.matching_ids(conn, **_filter_kwargs(body))
+        documents = get_documents_by_ids(conn, ids)
+        return _reference_response(documents, body.format, "resmon-explorer")
     finally:
         _close_db(conn)
 

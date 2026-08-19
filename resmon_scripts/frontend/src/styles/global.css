@@ -3132,3 +3132,152 @@ html, body, #root {
   margin-top: 4px;
   padding-left: 0;
 }
+
+/* ---------------------------------------------------------------------------
+   Explorer (Phase 2b)
+   --------------------------------------------------------------------------- */
+
+.explorer-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .explorer-layout { grid-template-columns: 1fr; }
+}
+
+.explorer-filters {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 14px;
+  max-height: calc(100vh - var(--header-height) - 40px);
+  overflow-y: auto;
+}
+
+.explorer-filter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.explorer-filter-head h2 { margin: 0; font-size: 15px; }
+
+.explorer-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.explorer-field > span { opacity: 0.7; }
+.explorer-field input {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  color: var(--color-text);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.explorer-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.explorer-facet h3 {
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin: 0 0 6px;
+}
+
+/* Facet lists are capped by the backend, but a long one still scrolls rather
+   than pushing the rest of the filters off screen. */
+.explorer-facet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 190px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.explorer-facet-list label {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 7px;
+  align-items: center;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.explorer-facet-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explorer-facet-count { opacity: 0.55; font-variant-numeric: tabular-nums; font-size: 11.5px; }
+
+.explorer-results { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.explorer-results-head p { margin: 0; }
+
+.explorer-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.explorer-item {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.explorer-item h3 { margin: 0; font-size: 15px; line-height: 1.35; }
+.explorer-item h3 a { color: var(--color-text); text-decoration: none; }
+.explorer-item h3 a:hover { color: var(--color-accent); text-decoration: underline; }
+
+.explorer-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: 11.5px;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
+.explorer-source { color: var(--color-accent); }
+.explorer-doi { overflow: hidden; text-overflow: ellipsis; }
+
+.explorer-authors { margin: 0; font-size: 12.5px; opacity: 0.8; }
+
+/* Abstracts are long; clamp so a page of results stays scannable. */
+.explorer-abstract {
+  margin: 0;
+  font-size: 12.5px;
+  opacity: 0.72;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.explorer-cats { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 0; }
+
+.explorer-chip {
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+.explorer-chip:hover { color: var(--color-accent); border-color: var(--color-accent); }
+
+/* Analytics values are links into the Explorer. */
+.analytics-bar-link,
+.analytics-legend-link { color: var(--color-text); text-decoration: none; }
+.analytics-bar-link:hover,
+.analytics-legend-link:hover { color: var(--color-accent); text-decoration: underline; }

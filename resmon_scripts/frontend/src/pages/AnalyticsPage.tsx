@@ -339,7 +339,13 @@ const AnalyticsPage: React.FC = () => {
                     );
                     return (
                       <div className="analytics-bar-row" key={s.source}>
-                        <span className="analytics-bar-label" title={s.source}>{s.source}</span>
+                        {/* The handoff: seeing that a source dominates is only
+                            useful if you can go and read those papers. */}
+                        <Link
+                          className="analytics-bar-label analytics-bar-link"
+                          to={`/explorer?source=${encodeURIComponent(s.source)}`}
+                          title={`Show ${s.source} papers in the Explorer`}
+                        >{s.source}</Link>
                         <span className="analytics-bar-track">
                           <span
                             className="analytics-bar-fill"
@@ -518,7 +524,15 @@ const AnalyticsPage: React.FC = () => {
                     <span key={g}>
                       <i className="analytics-swatch"
                          style={{ background: colourFor(g, volume.groups) }} />
-                      {g}
+                      {g === 'other' ? (
+                        g
+                      ) : (
+                        <Link
+                          className="analytics-legend-link"
+                          to={`/explorer?${volumeBy === 'source' ? 'source' : 'category'}=${encodeURIComponent(g)}`}
+                          title={`Show ${g} papers in the Explorer`}
+                        >{g}</Link>
+                      )}
                     </span>
                   ))}
                 </p>

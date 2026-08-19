@@ -26,6 +26,7 @@ resmon is an automated, customizable literature surveillance platform that monit
   - *Automated Deep Sweep (Routine)* — a background-scheduled Deep Sweep that runs on a cron expression, emits progress events, and optionally triggers email notifications and cloud uploads on completion.
 - **AI-powered summarization** — optional dual-path LLM integration covering remote commercial APIs (BYOK) and local/open-weight model inference, with token-aware chunking and customizable summarization prompts applied to abstracts, methodologies, results, and discussions. API keys are stored per provider in the OS keyring (one slot for each of `anthropic`, `openai`, `google`, `xai`, `meta`, `deepseek`, `alibaba`, `local`, and `custom`), and every per-execution AI override panel on Deep Dive, Deep Sweep, and Routines exposes the full Settings → AI control set (Provider, Model, Length, Tone, Temperature, Extraction Goals) with per-field merge semantics so a single override never clobbers persisted defaults.
 - **Corpus analytics** — a dedicated Analytics page computed entirely from papers already stored locally, so it makes no repository requests and costs no API quota. It reports which repositories contribute papers nothing else found (and which only duplicate others), the median **discovery lag** between a paper's publication date and the moment resmon first saw it — a figure no repository publishes about itself — per-routine health with an explicit signal when a routine stops finding anything new, and publication volume over time by source or subject category. Counts are always shown; medians and percentages are withheld until the sample is large enough to mean anything, with the sample size displayed either way.
+- **Corpus-wide Explorer** — search and filter every paper resmon has collected, across all executions and routines, by free text over titles and abstracts, author, source, subject category, and publication date. Filters live in the URL, so a filtered view can be bookmarked, shared, or reached from the Analytics page by clicking a source or category. Built for scale: free text runs against an FTS5 index rather than a substring scan, authors and categories are filtered through normalised indexed tables rather than parsed at query time, and pagination seeks by sort key rather than counting rows — a page at row 90,000 of 100,000 costs 0.30 ms.
 - **Reference-manager exports** — any execution's papers export to **BibTeX**, **RIS**, or **CSV**, alongside the existing Markdown, PDF, and LaTeX report bundle. Entries with a DOI are emitted as journal articles and those without as generic records; cite keys are made unique within a file and BibTeX special characters are escaped.
 - **Cross-platform desktop notifications** — routine and manual completions raise a native OS notification on macOS, Linux, and Windows. The notification dispatcher is invoked both from the foreground app and from the headless `resmon-daemon`, so completions fire even when the Electron UI is closed.
 - **Calendar scheduling** — a calendar view of scheduled routines and historical executions, driven by the scheduler service and the `/api/calendar/events` endpoint.
@@ -276,6 +277,7 @@ resmon/
 │   ├── implementation_scripts/     # Backend modules.
 │   │   ├── admission.py              # Concurrent-execution admission controller.
 │   │   ├── analytics.py              # Corpus analytics queries (thin-corpus policy).
+│   │   ├── explorer.py               # Corpus-wide search, faceting, keyset pagination.
 │   │   ├── ai_models.py              # Provider model-catalog probing.
 │   │   ├── api_*.py                  # Per-repository API clients (15 active sources).
 │   │   ├── api_base.py               # Shared rate limiter + HTTP client base class.
@@ -320,7 +322,7 @@ resmon/
 │   │   │   ├── components/             # Shared components (Sidebar, Header, FloatingWidget, …).
 │   │   │   ├── context/                # AuthContext, ExecutionContext.
 │   │   │   ├── hooks/                  # useExecutionsMerged, useRepoCatalog, useCloudSync.
-│   │   │   ├── pages/                  # One component per route (DashboardPage, AnalyticsPage, …).
+│   │   │   ├── pages/                  # One component per route (DashboardPage, AnalyticsPage, ExplorerPage, …).
 │   │   │   ├── styles/                 # Global stylesheets.
 │   │   │   ├── types/                  # Shared TypeScript types.
 │   │   │   └── __tests__/              # Renderer unit tests.
@@ -456,6 +458,35 @@ explains why. Counts are always reported — a percentage of an empty corpus is 
 in `implementation_scripts/analytics.py` (`MIN_SAMPLE_FOR_LAG`, `MIN_RUNS_FOR_HEALTH`,
 `STALE_RUN_THRESHOLD`) and are deliberately low: they exist to stop a single data point
 being presented as a trend, not to withhold information from a small corpus.
+
+### `/api/explorer`
+
+Corpus-wide search. `POST` rather than `GET` because the filter set is a structure with
+repeated values, not a flat query string.
+
+| Method | Path | Returns |
+|---|---|---|
+| POST | `/api/explorer/search` | One page of matching papers plus `next_cursor`. Body: `query`, `sources[]`, `authors[]`, `categories[]`, `date_from`, `date_to`, `cursor`, `limit`. |
+| POST | `/api/explorer/facets` | Available filter values with counts, for the current filters. A facet excludes its own filter so alternatives stay selectable. |
+| POST | `/api/explorer/export` | Everything matching the filters as `bibtex`, `ris`, or `csv` — not just the current page. |
+
+**Scale contract.** The design target is 100,000 papers, and three choices follow from it,
+each measured rather than assumed:
+
+- **Free text uses FTS5**, declared external-content so abstracts are not stored twice, with
+  triggers keeping it in step. `LIKE '%term%'` has no usable prefix and reads every abstract.
+  Where FTS5 is unavailable the query degrades to `LIKE` and `used_full_text_index` reports it.
+- **Authors and categories are read from `document_authors` and `document_categories`**,
+  indexed copies of the comma-joined strings on `documents`, which remains the source of truth.
+- **Pagination is keyset, on the generated column `pub_sort`.** SQLite will not match a
+  row-value comparison against an *expression* index, so the sort key is a real column. At row
+  90,000 of 100,000: `SEARCH` in 0.30 ms, against 1.66 ms for `LIMIT/OFFSET` at the same depth.
+  `pub_sort` is `COALESCE(publication_date, '')` — against a real `NULL` a row-value comparison
+  yields `NULL`, which would silently drop every undated paper out of pagination.
+
+Totals are capped at `COUNT_CAP` (10,000) and reported as `total_is_capped`; counting an
+unbounded match set is the one query that cannot be bounded, and an exact five-digit number
+changes no decision.
 
 ### `/api/export`
 
