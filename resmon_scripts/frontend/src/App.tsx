@@ -8,6 +8,7 @@ import { ExecutionProvider } from './context/ExecutionContext';
 import { AuthProvider } from './context/AuthContext';
 import { apiClient } from './api/client';
 import AnalyticsPage from './pages/AnalyticsPage';
+import ExplorerPage from './pages/ExplorerPage';
 import DashboardPage from './pages/DashboardPage';
 import DeepDivePage from './pages/DeepDivePage';
 import DeepSweepPage from './pages/DeepSweepPage';
@@ -66,6 +67,7 @@ const App: React.FC = () => {
                   <Route path="/calendar" element={<CalendarPage />} />
                   <Route path="/results" element={<ResultsPage />} />
                   <Route path="/analytics" element={<AnalyticsPage />} />
+                  <Route path="/explorer" element={<ExplorerPage />} />
                   <Route path="/configurations" element={<ConfigurationsPage />} />
                   <Route path="/monitor" element={<MonitorPage />} />
                   <Route path="/repositories" element={<RepositoriesPage />} />
