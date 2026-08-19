@@ -318,7 +318,27 @@ class TestCancelEndpoint:
             return resp.json()["execution_id"]
 
         exec_id = _run()
-        time.sleep(1.0)
+
+        # Wait for the execution to stop being cancellable, rather than
+        # sleeping a fixed interval and hoping. This was time.sleep(1.0); on a
+        # slower CI runner the background execution had not finished yet, so
+        # cancel returned 200 instead of 409 and the test failed intermittently
+        # while passing every time locally.
+        #
+        # Poll the progress store, not the execution row: _fake_run_prepared
+        # stands in for the pipeline and only emits progress events, so the
+        # database status never changes. progress_store.is_active is also
+        # exactly what the cancel endpoint tests before returning 409.
+        from implementation_scripts.progress import progress_store as _ps
+        deadline = time.monotonic() + 30.0
+        while _ps.is_active(exec_id) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert not _ps.is_active(exec_id), (
+            f"execution {exec_id} was still active after 30s"
+        )
 
         cancel_resp = client.post(f"/api/executions/{exec_id}/cancel")
-        assert cancel_resp.status_code == 409
+        assert cancel_resp.status_code == 409, (
+            f"expected 409 for a finished execution, got "
+            f"{cancel_resp.status_code}: {cancel_resp.text}"
+        )
