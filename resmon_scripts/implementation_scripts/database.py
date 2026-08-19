@@ -201,8 +201,12 @@ CREATE INDEX IF NOT EXISTS idx_document_categories_category
 -- in the row.
 CREATE INDEX IF NOT EXISTS idx_documents_source
     ON documents(source_repository);
-CREATE INDEX IF NOT EXISTS idx_documents_pubsort
-    ON documents(pub_sort DESC, id DESC);
+-- idx_documents_pubsort is NOT created here. It references pub_sort, and on a
+-- database that predates that column CREATE TABLE IF NOT EXISTS is a no-op, so
+-- the column does not exist yet when this script runs and the whole script
+-- fails with "no such column: pub_sort" -- taking the backend down with it.
+-- _migrate_pub_sort adds the column and then the index, in that order, for
+-- both fresh and existing databases.
 CREATE INDEX IF NOT EXISTS idx_documents_first_seen
     ON documents(first_seen_at);
 
@@ -252,6 +256,13 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON;")
         own_conn = False
+
+    # pub_sort must exist before _SCHEMA_SQL runs, because an older database
+    # reaching this point already has a documents table without it.
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'"
+    ).fetchone():
+        _migrate_pub_sort(conn)
 
     conn.executescript(_SCHEMA_SQL)
     _migrate_executions_columns(conn)
@@ -346,7 +357,16 @@ def index_document_facets(conn: sqlite3.Connection, document_id: int,
 
 
 def _migrate_pub_sort(conn: sqlite3.Connection) -> None:
-    """Add the explorer's sort column to databases that predate it."""
+    """Add the explorer's sort column and its index.
+
+    Runs for fresh and existing databases alike, and must run *before* anything
+    references ``pub_sort``. The index deliberately lives here rather than in
+    ``_SCHEMA_SQL``: on a database created before this column existed,
+    ``CREATE TABLE IF NOT EXISTS`` is a no-op, so the column is absent when the
+    schema script runs and ``CREATE INDEX ... (pub_sort ...)`` fails the entire
+    script with ``no such column: pub_sort``. That took the backend down on
+    startup for every user upgrading from an earlier version.
+    """
     # table_xinfo, not table_info: the latter omits generated columns entirely,
     # so the check would never see pub_sort and would try to add it on every
     # single startup.
@@ -356,11 +376,11 @@ def _migrate_pub_sort(conn: sqlite3.Connection) -> None:
             "ALTER TABLE documents ADD COLUMN pub_sort TEXT "
             "GENERATED ALWAYS AS (COALESCE(publication_date, '')) VIRTUAL"
         )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_documents_pubsort "
-            "ON documents(pub_sort DESC, id DESC)"
-        )
-        conn.commit()
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_pubsort "
+        "ON documents(pub_sort DESC, id DESC)"
+    )
+    conn.commit()
 
 
 def _migrate_search_index(conn: sqlite3.Connection) -> None:
@@ -380,6 +400,15 @@ def _migrate_search_index(conn: sqlite3.Connection) -> None:
     schema it populates the facet tables and the FTS index from what is already
     there; on a fresh one it is a no-op.
     """
+    # Whether the index existed *before* this call is the only reliable signal
+    # that it needs backfilling. COUNT(*) on an external-content FTS table reads
+    # from the content table, not from the index, so comparing the two counts
+    # always says "equal" and the rebuild never runs -- which left every paper
+    # collected before the upgrade silently unsearchable.
+    fts_existed = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents_fts'"
+    ).fetchone() is not None
+
     try:
         conn.execute(
             """
@@ -420,8 +449,7 @@ def _migrate_search_index(conn: sqlite3.Connection) -> None:
     # restored from a partial backup repairs itself.
     doc_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
     if doc_count:
-        fts_count = conn.execute("SELECT COUNT(*) FROM documents_fts").fetchone()[0]
-        if fts_count < doc_count:
+        if not fts_existed:
             conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
 
         faceted = conn.execute(
