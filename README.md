@@ -1,7 +1,7 @@
 # resmon — Research Monitor
 
 <!-- Badges: CI, license, version, platform — to be added in a later section. -->
-![build](https://img.shields.io/badge/build-pending-lightgrey)
+[![CI](https://github.com/ryanjosephkamp/resmon/actions/workflows/ci.yml/badge.svg)](https://github.com/ryanjosephkamp/resmon/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-see%20LICENSE-blue)
 ![platform](https://img.shields.io/badge/platform-desktop%20(Electron)-informational)
 ![status](https://img.shields.io/badge/status-phase%202-orange)
@@ -19,7 +19,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Key Features
 
-- **Multi-repository ingestion across 16 open-access sources** — unified metadata normalization over arXiv, bioRxiv, medRxiv, CORE, CrossRef, DBLP, DOAJ, EuropePMC, HAL, IEEE Xplore, NASA ADS, OpenAlex, PLOS, PubMed, Semantic Scholar, and Springer Nature. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
+- **Multi-repository ingestion across 15 open-access sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DBLP, DOAJ, EuropePMC, HAL, IEEE Xplore, NASA ADS, OpenAlex, PLOS, PubMed, Semantic Scholar, and Springer Nature. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
 - **Three operational modes:**
   - *Targeted Deep Dive* — a focused, manual query against a single repository within a defined date range, with support for an ephemeral per-execution API key that never persists to disk.
   - *Broad Deep Sweep* — a cross-repository manual query that applies Deep Dive parameters across every selected repository in parallel.
@@ -35,13 +35,12 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Supported Repositories
 
-The table below lists the 16 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
+The table below lists the 15 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
 
 | Repository | API Type | API Key | Rate Limit (resmon) | Discipline Coverage |
 |---|---|---|---|---|
 | arXiv | REST (Atom XML) | Not required | 0.33 req/s (1 per 3 s) | Physics, Math, CS, Quant-bio, Stats, EE, Econ |
 | bioRxiv | REST (JSON) | Not required | 2.0 req/s | Life-sciences preprints |
-| medRxiv | REST (JSON, shared client with bioRxiv) | Not required | 2.0 req/s | Health-sciences preprints |
 | CORE | REST (JSON) | Required (Bearer) | 5.0 req/s | Multi-disciplinary open access |
 | CrossRef | REST (JSON) | Not required | 10.0 req/s (polite pool) | All disciplines (DOI-indexed) |
 | DBLP | REST (JSON) | Not required | 2.0 req/s | Computer science |
@@ -56,6 +55,8 @@ The table below lists the 16 active sources registered in the repository catalog
 | Semantic Scholar | REST (JSON) | Optional (recommended) | 0.33 req/s (1 per 3 s) | All disciplines (strong CS, biomed) |
 | Springer Nature | REST (JSON Meta API) | Required (query-param key) | 5.0 req/s (≈5000/day cap) | STM, Humanities, Social sciences |
 
+medRxiv is served by the same Cold Spring Harbor client as bioRxiv but has no catalog entry of its own, so it cannot be selected as a separate source. Earlier revisions of this table listed it as a sixteenth source, which overstated what the Repositories page actually offers; promoting it to a first-class selectable source is tracked for a future update.
+
 Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in `.ai:/prep/repos.md` and are not queried at runtime.
 
 ## Installation
@@ -64,7 +65,7 @@ Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/I
 
 resmon is a hybrid Python + Electron application, so both runtimes must be available on the host machine before installation.
 
-- **Python 3.10 or newer** — required by the FastAPI backend (`resmon_scripts/resmon.py`) and its dependencies. Verify with `python3 --version`.
+- **Python 3.10, 3.11, or 3.12** — required by the FastAPI backend (`resmon_scripts/resmon.py`) and its dependencies. Verify with `python3 --version`. All three are covered by CI on every push.
 - **Node.js 18 or newer** — required to build the React renderer with Webpack and to run the Electron shell. Verify with `node --version`.
 - **npm 9 or newer** — bundled with recent Node.js releases; used to install frontend dependencies and invoke the build/start scripts. Verify with `npm --version`.
 - **Git** — required to clone the repository.
@@ -86,6 +87,14 @@ source .venv/bin/activate           # macOS / Linux
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
+
+Optionally, install NLTK's sentence-tokenizer data:
+
+```bash
+python -m nltk.downloader punkt_tab
+```
+
+This is only used by AI summarization, to split abstracts into sentences before chunking. resmon attempts the download automatically on first import and falls back to a simpler regex splitter if it is unavailable, so the step is not required — but installing it explicitly gives more accurate chunk boundaries, and is worth doing if the machine will be offline or behind a firewall.
 
 The backend reads its SQLite database from `resmon.db` at the project root on first launch and creates the `resmon_reports/` subtree (`markdowns/`, `pdfs/`, `figures/`, `latex/`, `logs/`, `info_docs/`) automatically.
 
@@ -190,7 +199,7 @@ resmon is a local-first desktop application composed of three cooperating proces
 
 The backend is a single FastAPI application constructed at module load in `resmon_scripts/resmon.py`. A shared `sqlite3.Connection` backs every request, the database path defaults to `resmon.db` at the project root, and the schema is owned by `implementation_scripts/database.py` with a version-tracked migration path on startup. Two ASGI middlewares wrap the app: a custom `PrivateNetworkMiddleware` that injects `Access-Control-Allow-Private-Network: true` so Chromium's Private Network Access policy permits the `file://` renderer to reach loopback, and `CORSMiddleware` with permissive origins (safe because the server binds to `127.0.0.1` only). All SQL is parameterized; all credentials flow through a single `credential_manager.py` module that owns OS-keyring access.
 
-The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), which orchestrates query → normalize → dedup → link → report → summarize → finalize for both manual and routine-fired runs. Per-source API clients (16 repositories) live under `implementation_scripts/api_*.py` and are registered through `api_registry.py`. Results are normalized by `normalizer.py`, deduplicated by DOI and by (title, first author), and rendered by `report_generator.py` into Markdown, with optional PDF and LaTeX exports through `report_exporter.py`.
+The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), which orchestrates query → normalize → dedup → link → report → summarize → finalize for both manual and routine-fired runs. Per-source API clients (15 repositories) live under `implementation_scripts/api_*.py` and are registered through `api_registry.py`. Results are normalized by `normalizer.py`, deduplicated by DOI and by (title, first author), and rendered by `report_generator.py` into Markdown, with optional PDF and LaTeX exports through `report_exporter.py`.
 
 ### Frontend — Electron + React
 
@@ -265,7 +274,7 @@ resmon/
 │   ├── implementation_scripts/     # Backend modules.
 │   │   ├── admission.py              # Concurrent-execution admission controller.
 │   │   ├── ai_models.py              # Provider model-catalog probing.
-│   │   ├── api_*.py                  # Per-repository API clients (16 active sources).
+│   │   ├── api_*.py                  # Per-repository API clients (15 active sources).
 │   │   ├── api_base.py               # Shared rate limiter + HTTP client base class.
 │   │   ├── api_registry.py           # Slug → client dispatch table.
 │   │   ├── citation_graph.py         # Citation and context graphing.
@@ -316,21 +325,15 @@ resmon/
 │   ├── cloud/                      # resmon-cloud microservice sources.
 │   ├── cloud_deploy/               # Cloud deployment manifests.
 │   ├── service_units/              # launchd plists, systemd units, Task Scheduler XML.
-│   ├── given_scripts/              # Reference scripts not part of the runtime.
-│   ├── notebooks/                  # Ad-hoc development notebooks.
 │   └── verification_scripts/       # pytest-based backend verification suite.
 │
-├── resmon_reports/                 # All user-facing outputs (REPORTS_DIR).
-│   ├── markdowns/                    # Per-execution Markdown reports.
-│   ├── pdfs/                         # Exported PDF reports.
-│   ├── latex/                        # Exported LaTeX reports.
-│   ├── figures/                      # Static figures embedded in reports.
-│   ├── logs/                         # resmon.log (5 MB × 3 backups) + per-execution TaskLogger logs.
-│   └── info_docs/                    # 11 implementation-grounded info documents.
-│
-├── resmon_experiments/             # Ad-hoc experimental artifacts outside the report pipeline.
-├── resmon_printouts/               # Ad-hoc printouts / scratch outputs.
-└── resmon.app/                     # Packaged macOS app bundle (electron-builder output).
+└── resmon_reports/                 # All user-facing outputs (REPORTS_DIR).
+    ├── markdowns/                    # Per-execution Markdown reports.
+    ├── pdfs/                         # Exported PDF reports.
+    ├── latex/                        # Exported LaTeX reports.
+    ├── figures/                      # Static figures embedded in reports.
+    ├── logs/                         # resmon.log (5 MB × 3 backups) + per-execution TaskLogger logs.
+    └── info_docs/                    # 11 implementation-grounded info documents.
 ```
 
 OS-scoped state (daemon lock file, service-unit-managed logs) lives outside the repository, under `~/Library/Application Support/resmon` on macOS, `$XDG_STATE_HOME/resmon` on Linux, and `%LOCALAPPDATA%\resmon` on Windows (resolved by `daemon.state_dir()`).
@@ -649,7 +652,7 @@ resmon is built on top of a broad ecosystem of open-access scholarly repositorie
 
 ### Open-Access Repository Providers
 
-The 16 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
+The 15 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
 
 - **arXiv** — Cornell University / arXiv.org, for the Atom XML API and the decades-long commitment to open preprint distribution in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics.
 - **bioRxiv** and **medRxiv** — Cold Spring Harbor Laboratory, for the shared preprint JSON API serving the life- and health-sciences communities.

@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the previous run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor the README advertises. 3.12 is here as the
+        # acceptance test for BUG-020: the backend used to share one
+        # sqlite3.Connection between request threads and execution worker
+        # threads, and 3.12 releases the GIL around sqlite3 far more
+        # aggressively than 3.11, so that race failed reliably there and
+        # intermittently everywhere else. Each thread now opens its own
+        # connection. If this column ever goes red again, suspect connection
+        # sharing first.
+        python-version: ['3.10', '3.11', '3.12']
+
+    env:
+      # No OS keyring exists on a CI runner. Without this, credential reads fall
+      # through to a backend that cannot work and every lookup pays the timeout.
+      PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+      RESMON_KEYRING_TIMEOUT: '2.0'
+      # Deliberately NOT setting RESMON_DISABLE_SCHEDULER: thirteen tests in
+      # test_scheduler_lifecycle.py and test_routine_scheduler_sync.py assert on
+      # a live scheduler and fail when it is disabled.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify every module parses
+        # Catches the class of defect that kept cloud/metrics.py from ever being
+        # importable: a syntax error hidden behind a missing dependency.
+        run: python -m compileall -q resmon_scripts/
+
+      - name: Verify the backend imports from a clean install
+        # requirements.txt shipped without python-dateutil, so a fresh clone
+        # could not start at all. This step fails immediately if that recurs.
+        run: |
+          PYTHONPATH=resmon_scripts python -c "import resmon; print('desktop backend OK')"
+          PYTHONPATH=resmon_scripts python -c "from cloud.app import create_app; print('cloud service OK')"
+
+      - name: Run the hermetic test suite
+        # pytest.ini deselects the live_network marker by default, so this never
+        # touches a third-party API.
+        #
+        # -v rather than -q on purpose: pytest-timeout's dump does not name the
+        # item it killed, so a hang in quiet mode leaves only a row of dots to
+        # count. With -v the last line printed is the last test that finished,
+        # which names the culprit immediately.
+        run: pytest -v
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: resmon_scripts/frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: resmon_scripts/frontend/package-lock.json
+
+      - name: Install dependencies
+        # `npm install`, not `npm ci`. npm omits other platforms' optional
+        # dependencies from the lockfile - the @emnapi/* WASM fallbacks pulled in
+        # through tailwindcss - so a lockfile generated on macOS makes `npm ci`
+        # fail on the Linux runner with "Missing: @emnapi/core from lock file".
+        # The lockfile is still committed and still honoured for everything it
+        # does pin; this only relaxes the strict-equality check that npm itself
+        # cannot satisfy across platforms.
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Renderer tests
+        run: npm test
+
+      - name: Build renderer and Electron main
+        run: npm run build

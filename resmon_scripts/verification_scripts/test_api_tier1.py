@@ -43,6 +43,7 @@ def test_each_client_instantiates():
         assert client.get_name() is not None
 
 
+@pytest.mark.live_network
 def test_openalex_search():
     """OpenAlex client returns results for a simple query."""
     client = get_client("openalex")
@@ -52,6 +53,7 @@ def test_openalex_search():
         assert isinstance(results[0], NormalizedResult)
 
 
+@pytest.mark.live_network
 def test_pubmed_search():
     """PubMed client returns results using two-step esearch/efetch."""
     client = get_client("pubmed")
@@ -62,6 +64,7 @@ def test_pubmed_search():
         assert results[0].source_repository == "pubmed"
 
 
+@pytest.mark.live_network
 def test_biorxiv_search():
     """bioRxiv client returns results for a date-range query."""
     client = get_client("biorxiv")

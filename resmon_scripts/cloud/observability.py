@@ -35,7 +35,13 @@ import re
 import sys
 from typing import Any, Iterable
 
-from pythonjsonlogger import jsonlogger
+# python-json-logger 3.3 moved this module to ``pythonjsonlogger.json`` and
+# emits a DeprecationWarning from the old path. Prefer the new location and
+# fall back so older pins still work.
+try:
+    from pythonjsonlogger import json as jsonlogger  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - python-json-logger < 3.3
+    from pythonjsonlogger import jsonlogger  # type: ignore[no-redef]
 
 
 # Keys whose values must never appear in an emitted log record.

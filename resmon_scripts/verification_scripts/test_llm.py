@@ -1,6 +1,7 @@
 # resmon_scripts/verification_scripts/test_llm.py
 """Step 8 verification: LLM integration — remote and local clients."""
 
+import pytest
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ def test_remote_client_instantiates():
         assert client is not None
 
 
+@pytest.mark.live_network
 def test_remote_client_rejects_invalid_key():
     """summarize() with an invalid key raises an appropriate error without leaking the key."""
     client = RemoteLLMClient(provider="openai", api_key="sk-invalid", model="gpt-4o-mini")

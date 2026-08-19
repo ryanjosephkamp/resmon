@@ -230,8 +230,25 @@ def _deregister_with_os(path: Path) -> None:
     _run(["systemctl", "--user", "daemon-reload"], "systemctl daemon-reload")
 
 
+# ``launchctl``, ``systemctl --user`` and ``schtasks`` are all reachable from
+# the POST /api/service/install and /uninstall endpoints, so an unbounded call
+# here blocks an HTTP request - and the ASGI worker thread serving it - for as
+# long as the OS takes. A wedged systemd user session is enough. The other
+# subprocess sites in this codebase already bound themselves (desktop_notifier
+# at 5 s, report_exporter at 180 s); these two were the exception.
+_SERVICE_CMD_TIMEOUT_SEC = 30.0
+
+
 def _run(cmd: list[str], label: str) -> None:
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=_SERVICE_CMD_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"{label} timed out after {_SERVICE_CMD_TIMEOUT_SEC:.0f}s "
+            f"(command: {' '.join(cmd)})"
+        ) from None
     if result.returncode != 0:
         raise RuntimeError(
             f"{label} failed (exit {result.returncode}): {result.stderr.strip() or result.stdout.strip()}"
@@ -241,7 +258,13 @@ def _run(cmd: list[str], label: str) -> None:
 def _run_first_successful(cmds: list[list[str]], label: str) -> None:
     last_err: Optional[str] = None
     for cmd in cmds:
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=_SERVICE_CMD_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            last_err = f"timed out after {_SERVICE_CMD_TIMEOUT_SEC:.0f}s"
+            continue
         if result.returncode == 0:
             return
         last_err = result.stderr.strip() or result.stdout.strip()

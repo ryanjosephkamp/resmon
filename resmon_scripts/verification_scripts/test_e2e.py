@@ -42,21 +42,18 @@ from fastapi.testclient import TestClient
 def _reset_db():
     """Point the app at a fresh in-memory database.
 
-    Pre-creates the shared connection with ``check_same_thread=False`` so it
-    can be used from both the test thread and the TestClient request thread.
+    This used to pre-create a plain ``:memory:`` connection and assign it to
+    ``resmon._shared_conn``, so that one object could be used from both the test
+    thread and the TestClient's request thread. Since BUG-020 each thread opens
+    its own connection and an in-memory database is addressed through a
+    shared-cache URI, so a privately-created ``:memory:`` connection would be a
+    *different, empty* database from the one the app builds. Let the app own its
+    connections; this just resets and asks for one.
     """
-    import sqlite3 as _sqlite3
-    from implementation_scripts.database import init_db
-
     resmon_mod._db_path = ":memory:"
     resmon_mod._shared_conn = None
     resmon_mod._db_initialized = False
-
-    conn = _sqlite3.connect(":memory:", check_same_thread=False)
-    conn.row_factory = _sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON;")
-    init_db(conn=conn)
-    resmon_mod._shared_conn = conn
+    resmon_mod._get_db()
 
 
 def _make_mock_client(name: str):
@@ -99,12 +96,10 @@ def _fresh_db():
     """Give every test a clean in-memory database."""
     _reset_db()
     yield
-    if resmon_mod._shared_conn is not None:
-        try:
-            resmon_mod._shared_conn.close()
-        except Exception:
-            pass
-    resmon_mod._shared_conn = None
+    # close_db() closes every per-thread connection, not just the anchor. An
+    # in-memory database stays alive while any connection to it is open, so
+    # closing only the anchor would leak state into the next test.
+    resmon_mod.close_db()
 
 
 @pytest.fixture
@@ -609,9 +604,21 @@ def test_e2e_cloud_backup(client):
     assert cs["cloud_auto_backup"] == "true"
 
     # ---- link (mocked OAuth) ----
-    with patch("resmon.authorize_google_drive", return_value=True):
-        link_resp = client.post("/api/cloud/link")
-        assert link_resp.status_code == 200
+    # POST /api/cloud/link pre-flights the presence of a Google OAuth client
+    # secrets file at PROJECT_ROOT/credentials.json and returns 400 when it is
+    # absent. That file is user-supplied and never committed, so mocking
+    # authorize_google_drive alone was not enough - the request was rejected
+    # before it got there. Point PROJECT_ROOT at a temp dir holding a stub.
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+    with _tempfile.TemporaryDirectory() as _td:
+        (_Path(_td) / "credentials.json").write_text("{}", encoding="utf-8")
+        with (
+            patch("implementation_scripts.config.PROJECT_ROOT", _Path(_td)),
+            patch("resmon.authorize_google_drive", return_value=True),
+        ):
+            link_resp = client.post("/api/cloud/link")
+            assert link_resp.status_code == 200, link_resp.text
 
     # ---- backup (mocked) ----
     with (
@@ -668,16 +675,24 @@ def test_e2e_calendar_events(client, tmp_reports):
             "query": "calendar test",
             "max_results": 2,
         })
-    success_id = ok_resp.json()["execution_id"]
+        success_id = ok_resp.json()["execution_id"]
 
-    # Background execution – poll until finished so the execution row
-    # reaches a terminal status before we read the calendar.
-    import time as _time
-    for _ in range(50):
-        exec_resp = client.get(f"/api/executions/{success_id}")
-        if exec_resp.json().get("status") in ("completed", "failed"):
-            break
-        _time.sleep(0.1)
+        # Background execution – poll until finished so the execution row
+        # reaches a terminal status before we read the calendar.
+        #
+        # This loop has to stay INSIDE the patch context. The dive runs on a
+        # background thread, so when the `with` block exited straight after the
+        # POST, the mocked get_client was already restored by the time the
+        # worker called it -- and the execution quietly queried the real arXiv
+        # API instead. It passed locally, where that request succeeds and the
+        # calendar event comes back green; on a CI runner with no network the
+        # execution failed and the event was blue, which is what exposed it.
+        import time as _time
+        for _ in range(50):
+            exec_resp = client.get(f"/api/executions/{success_id}")
+            if exec_resp.json().get("status") in ("completed", "failed"):
+                break
+            _time.sleep(0.1)
 
     # ---- failed execution (inserted directly) → red ----
     conn = resmon_mod._get_db()
@@ -736,10 +751,10 @@ def test_requirement_crosscheck(client):
     # CP-4  Targeted filtering            → E2E-1 (date_from, date_to, query)
     # CP-5  Deduplication via SQLite      → E2E-2 (cross-repo dedup)
     # CP-6  Adaptive scraping             → Tier 2/3 clients (IMPL-7 verified)
-    # CP-7  Many repositories             → 17 clients registered (IMPL-3/4/7)
+    # CP-7  Many repositories             → 15 clients registered (IMPL-3/4/7)
     resp = client.get("/api/search/repositories")
     assert resp.status_code == 200
-    # Endpoint functional; 17 clients verified by prior IMPL tests.
+    # Endpoint functional; 15 clients verified by prior IMPL tests.
 
     # ------------------------------------------------------------------ UI
     # UI-1  Professional dashboard UI     → webpack build (IMPL-12)

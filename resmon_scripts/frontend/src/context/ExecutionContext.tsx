@@ -261,6 +261,11 @@ export const ExecutionProvider: React.FC<{ children: React.ReactNode }> = ({
   // detection can cover both manually-dispatched and
   // background-attached runs.
   const trackedIdsRef = useRef<Set<number>>(new Set());
+  // Mirror executionOrder and focusedExecutionId so clearExecution can compute
+  // the next focus synchronously. See the comment there for why nesting one
+  // state updater inside another did not work.
+  const executionOrderRef = useRef<number[]>([]);
+  const focusedExecutionIdRef = useRef<number | null>(null);
   // Ids we've already broadcast a completion signal for. Guards against
   // double-firing ``completionCounter`` / ``resmon:execution-completed``
   // when both the terminal-event path and the active-dropout path
@@ -295,34 +300,44 @@ export const ExecutionProvider: React.FC<{ children: React.ReactNode }> = ({
     setFocusedExecutionId(id);
   }, []);
 
+  useEffect(() => { executionOrderRef.current = executionOrder; }, [executionOrder]);
+  useEffect(() => { focusedExecutionIdRef.current = focusedExecutionId; }, [focusedExecutionId]);
+
   const clearExecution = useCallback((id?: number) => {
-    setFocusedExecutionId((currentFocus) => {
-      const targetId = id ?? currentFocus;
-      if (targetId === null || targetId === undefined) return currentFocus;
+    // This used to compute the next focus inside a setExecutionOrder updater
+    // nested within a setFocusedExecutionId updater, and return that value from
+    // the outer one. React runs the inner updater after the outer has already
+    // returned, so the assignment was never visible: clearExecution always
+    // returned the id it had just deleted. Closing the focused Monitor tab left
+    // focus pointing at an execution that no longer existed.
+    //
+    // State updaters must also be pure - assigning to a captured variable from
+    // inside one is not, and React is free to call it twice.
+    const currentFocus = focusedExecutionIdRef.current;
+    const targetId = id ?? currentFocus;
+    if (targetId === null || targetId === undefined) return;
 
-      stopPollingFor(targetId);
-      completedIdsRef.current.delete(targetId);
-      delete startMsRef.current[targetId];
-      delete eventCursorRef.current[targetId];
+    stopPollingFor(targetId);
+    completedIdsRef.current.delete(targetId);
+    delete startMsRef.current[targetId];
+    delete eventCursorRef.current[targetId];
 
-      setActiveExecutions((prev) => {
-        if (!(targetId in prev)) return prev;
-        const next = { ...prev };
-        delete next[targetId];
-        return next;
-      });
-
-      let nextFocus: number | null = currentFocus;
-      setExecutionOrder((prev) => {
-        const filtered = prev.filter((x) => x !== targetId);
-        if (currentFocus === targetId) {
-          nextFocus = filtered.length > 0 ? filtered[filtered.length - 1] : null;
-        }
-        return filtered;
-      });
-
-      return nextFocus;
+    setActiveExecutions((prev) => {
+      if (!(targetId in prev)) return prev;
+      const next = { ...prev };
+      delete next[targetId];
+      return next;
     });
+
+    const filtered = executionOrderRef.current.filter((x) => x !== targetId);
+    executionOrderRef.current = filtered;
+    setExecutionOrder(filtered);
+
+    if (currentFocus === targetId) {
+      const nextFocus = filtered.length > 0 ? filtered[filtered.length - 1] : null;
+      focusedExecutionIdRef.current = nextFocus;
+      setFocusedExecutionId(nextFocus);
+    }
     setIsWidgetPulsing(false);
   }, [stopPollingFor]);
 
