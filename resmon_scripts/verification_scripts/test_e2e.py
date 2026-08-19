@@ -748,10 +748,10 @@ def test_requirement_crosscheck(client):
     # CP-4  Targeted filtering            → E2E-1 (date_from, date_to, query)
     # CP-5  Deduplication via SQLite      → E2E-2 (cross-repo dedup)
     # CP-6  Adaptive scraping             → Tier 2/3 clients (IMPL-7 verified)
-    # CP-7  Many repositories             → 17 clients registered (IMPL-3/4/7)
+    # CP-7  Many repositories             → 15 clients registered (IMPL-3/4/7)
     resp = client.get("/api/search/repositories")
     assert resp.status_code == 200
-    # Endpoint functional; 17 clients verified by prior IMPL tests.
+    # Endpoint functional; 15 clients verified by prior IMPL tests.
 
     # ------------------------------------------------------------------ UI
     # UI-1  Professional dashboard UI     → webpack build (IMPL-12)

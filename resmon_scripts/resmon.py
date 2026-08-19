@@ -20,12 +20,13 @@ import httpx
 # Ensure the implementation_scripts package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from implementation_scripts.config import APP_NAME, APP_VERSION, DEFAULT_DB_PATH, REPORTS_DIR
 from implementation_scripts.database import (
@@ -107,7 +108,26 @@ from implementation_scripts.repo_catalog import (
 # App setup
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title=APP_NAME, version=APP_VERSION)
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Startup/shutdown hooks.
+
+    Replaces four deprecated ``@app.on_event`` handlers. Order matters and is
+    preserved exactly as the decorators were registered: admission limits are
+    hydrated first, then the legacy AI-key migration, then the scheduler (which
+    reads routines and therefore needs the database ready). The handlers stay as
+    ordinary module-level functions so tests can still call them directly.
+    """
+    _init_admission_on_startup()
+    _migrate_legacy_ai_key_on_startup()
+    _init_scheduler_on_startup()
+    try:
+        yield
+    finally:
+        _shutdown_scheduler()
+
+
+app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=_lifespan)
 
 
 class PrivateNetworkMiddleware:
@@ -2239,12 +2259,10 @@ def _hydrate_admission_from_db() -> None:
     admission.set_queue_limit(queue_limit)
 
 
-@app.on_event("startup")
 def _init_admission_on_startup() -> None:
     _hydrate_admission_from_db()
 
 
-@app.on_event("startup")
 def _migrate_legacy_ai_key_on_startup() -> None:
     """Update 2 — Feature 1: one-shot transparent migration of any
     legacy global ``ai_api_key`` keyring slot into the per-provider
@@ -2356,7 +2374,6 @@ def _dispatch_routine_fire(routine_id: int, parameters: str) -> None:
         _close_db(conn)
 
 
-@app.on_event("startup")
 def _init_scheduler_on_startup() -> None:
     global scheduler
     # Update 4 / Fix D — When the Electron main process spawns this
@@ -2413,7 +2430,6 @@ def _init_scheduler_on_startup() -> None:
                 )
 
 
-@app.on_event("shutdown")
 def _shutdown_scheduler() -> None:
     global scheduler
     if scheduler is not None:
@@ -2857,7 +2873,16 @@ from implementation_scripts import service_manager as _service_manager
 
 
 class ServiceInstallBody(BaseModel):
-    register: bool = False  # default False so the OS step is explicit
+    # The wire field stays "register" - that is what AdvancedSettings.tsx posts -
+    # but the Python attribute is renamed because "register" shadows an
+    # attribute on pydantic's BaseModel and emitted a UserWarning on every
+    # import of this module.
+    model_config = ConfigDict(populate_by_name=True)
+
+    register_service: bool = Field(
+        default=False,  # default False so the OS step is explicit
+        alias="register",
+    )
     port: Optional[int] = None
 
 
@@ -2971,7 +2996,7 @@ def service_install(body: ServiceInstallBody = ServiceInstallBody()):
     unit at login (launchctl / systemctl / schtasks).
     """
     try:
-        path = _service_manager.install(port=body.port, register=body.register)
+        path = _service_manager.install(port=body.port, register=body.register_service)
     except Exception as exc:  # registration failure
         raise HTTPException(500, f"Service install failed: {exc}")
     return {"installed": True, "unit_path": str(path)}
@@ -2981,7 +3006,7 @@ def service_install(body: ServiceInstallBody = ServiceInstallBody()):
 def service_uninstall(body: ServiceInstallBody = ServiceInstallBody()):
     """Remove the unit file; optionally deregister with the OS first."""
     try:
-        removed = _service_manager.uninstall(deregister=body.register)
+        removed = _service_manager.uninstall(deregister=body.register_service)
     except Exception as exc:
         raise HTTPException(500, f"Service uninstall failed: {exc}")
     return {"installed": False, "unit_path": str(_service_manager.unit_path()), "removed": removed}
