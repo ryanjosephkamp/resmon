@@ -17,10 +17,9 @@ interface DangerAction {
   shortDescription: string;
   longWarning: string;
   needsTyping: boolean;
-  scope: 'local' | 'cloud';
 }
 
-const LOCAL_DANGER_ACTIONS: DangerAction[] = [
+const DANGER_ACTIONS: DangerAction[] = [
   {
     id: 'ai_keys',
     label: 'Erase all AI API keys',
@@ -28,9 +27,8 @@ const LOCAL_DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       "Removes every saved BYOK LLM-provider key (OpenAI, Anthropic, Google, xAI, Meta, DeepSeek, Alibaba, Custom) from this device's OS keyring.",
     longWarning:
-      "Every saved AI provider API key on this device will be deleted from the OS keyring. AI summarization will fall back to whichever provider has no key saved (typically 'local'). You will need to re-enter keys in Settings → AI to use cloud LLM providers again.",
+      "Every saved AI provider API key on this device will be deleted from the OS keyring. AI summarization will fall back to whichever provider has no key saved (typically 'local'). You will need to re-enter keys in Settings → AI to use hosted LLM providers again.",
     needsTyping: false,
-    scope: 'local',
   },
   {
     id: 'repo_keys',
@@ -41,7 +39,6 @@ const LOCAL_DANGER_ACTIONS: DangerAction[] = [
     longWarning:
       'Every saved research-repository API key on this device will be deleted from the OS keyring. Key-gated repositories will report missing credentials until you re-enter their keys on the Repositories & API Keys page.',
     needsTyping: false,
-    scope: 'local',
   },
   {
     id: 'configs',
@@ -52,7 +49,6 @@ const LOCAL_DANGER_ACTIONS: DangerAction[] = [
     longWarning:
       'This will permanently delete every row on the Configurations page (manual dive presets, manual sweep presets, and routine configs). Any scheduled routine linked to a routine config is also deleted, so its future scheduled fires stop firing. Already-completed executions are kept, but they lose the link badge that pointed back to the deleted config.',
     needsTyping: true,
-    scope: 'local',
   },
   {
     id: 'executions',
@@ -63,7 +59,6 @@ const LOCAL_DANGER_ACTIONS: DangerAction[] = [
     longWarning:
       "This will permanently delete every execution on the Results & Logs page — local manual dives, local manual sweeps, and local routine fires — and reset the auto-incremented execution number so the next run is named 'Execution #1'. Reports and logs on disk for those executions are no longer reachable from the app.",
     needsTyping: true,
-    scope: 'local',
   },
   {
     id: 'execution_data',
@@ -74,7 +69,6 @@ const LOCAL_DANGER_ACTIONS: DangerAction[] = [
     longWarning:
       'This will permanently delete every saved configuration AND every execution row, and reset the execution-number counter. API keys and Settings tabs are not affected.',
     needsTyping: true,
-    scope: 'local',
   },
   {
     id: 'app_data',
@@ -85,7 +79,6 @@ const LOCAL_DANGER_ACTIONS: DangerAction[] = [
     longWarning:
       'This will permanently delete every API key (AI + repo), every saved configuration, and every execution. Routines linked to routine configs are deleted too. Non-AI settings (Email, Storage, Notifications, Advanced) are kept; the AI tab will revert to the no-keys state.',
     needsTyping: true,
-    scope: 'local',
   },
   {
     id: 'reset_settings',
@@ -94,9 +87,8 @@ const LOCAL_DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       'Resets every settings tab to defaults and erases every API key (both AI and research-repository keys plus the SMTP password). Configs and execution history are kept.',
     longWarning:
-      'This will reset every Settings tab (Email, Cloud Storage, AI, Storage, Notifications, Advanced) to defaults, erase every saved API key (AI + research-repository + SMTP password), and clear the cached cloud-account email. Saved configurations and execution history are kept.',
+      'This will reset every Settings tab (Email, Cloud Storage, AI, Storage, Notifications, Advanced) to defaults, erase every saved API key (AI + research-repository + SMTP password). Saved configurations and execution history are kept.',
     needsTyping: true,
-    scope: 'local',
   },
   {
     id: 'factory',
@@ -105,17 +97,10 @@ const LOCAL_DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       'Erases every API key, every configuration, every execution, and every setting on this device. The app is restored to its just-installed state.',
     longWarning:
-      "This will permanently wipe every piece of resmon data on this device: every API key, every saved configuration, every execution row, every setting on every Settings tab, and the cached cloud-account email. The app will behave as if freshly installed. This cannot be undone.",
+      "This will permanently wipe every piece of resmon data on this device: every API key, every saved configuration, every execution row, and every setting on every Settings tab. The app will behave as if freshly installed. This cannot be undone.",
     needsTyping: true,
-    scope: 'local',
   },
 ];
-
-const CLOUD_DANGER_ACTIONS: DangerAction[] = LOCAL_DANGER_ACTIONS.map((a) => ({
-  ...a,
-  endpoint: a.endpoint.replace('/api/admin/', '/api/admin/cloud/'),
-  scope: 'cloud',
-}));
 
 interface ServiceStatus {
   installed: boolean;
@@ -374,10 +359,8 @@ const AdvancedSettings: React.FC = () => {
             body: (
               <p>
                 The collapsible <strong>Danger Zone</strong> at the bottom of this
-                panel exposes 8 destructive maintenance actions on the local side
-                (and 8 cloud-side counterparts, currently disabled until the cloud
-                account feature lands). The two API-key wipes (Local / Cloud) use
-                a simple OK/Cancel browser confirmation; the six data-and-settings
+                panel exposes 8 destructive maintenance actions. The two API-key
+                wipes use a simple OK/Cancel browser confirmation; the six data-and-settings
                 destruction actions require typing <code>CONFIRM</code> into a
                 dedicated input before the action button enables. All actions are
                 irreversible — nothing here writes to a trash or undo log.
@@ -573,8 +556,7 @@ const AdvancedSettings: React.FC = () => {
       </section>
 
       {/* Update 3 / 4_27_26 — Danger Zone. Bulk irreversible erase / reset
-          actions. Local actions hit ``/api/admin/...``; cloud counterparts
-          are scaffolded but disabled until the cloud account feature ships. */}
+          actions, all hitting ``/api/admin/...``. */}
       <section
         style={{
           marginTop: '2rem',
@@ -610,15 +592,12 @@ const AdvancedSettings: React.FC = () => {
           </div>
         )}
 
-        <h4 style={{ marginBottom: '0.25rem' }}>This device</h4>
         <p style={{ color: '#888', fontSize: '0.8rem', marginTop: 0 }}>
-          These actions affect data stored on this device only — the local
-          OS keyring, the local SQLite database, and the local app
-          settings. Other devices signed into the same cloud account (when
-          that feature ships) are not touched.
+          These actions affect data stored on this device — the OS keyring,
+          the SQLite database, and the app settings.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxWidth: 720 }}>
-          {LOCAL_DANGER_ACTIONS.map((a) => (
+          {DANGER_ACTIONS.map((a) => (
             <div
               key={a.id}
               style={{
@@ -645,43 +624,6 @@ const AdvancedSettings: React.FC = () => {
           ))}
         </div>
 
-        <h4 style={{ marginTop: '1.25rem', marginBottom: '0.25rem' }}>
-          Cloud account
-        </h4>
-        <p style={{ color: '#888', fontSize: '0.8rem', marginTop: 0 }}>
-          These actions will affect the encrypted copy of your data stored
-          in your resmon-cloud account once the cloud account feature
-          ships. Until then, every cloud-scope button is disabled — the
-          local actions above are the only ones currently wired.
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxWidth: 720 }}>
-          {CLOUD_DANGER_ACTIONS.map((a) => (
-            <div
-              key={a.id}
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '0.75rem',
-                padding: '0.5rem 0',
-                borderBottom: '1px solid #eee',
-                opacity: 0.55,
-              }}
-            >
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                style={{ minWidth: 220, flex: '0 0 auto' }}
-                disabled
-                title="Cloud account feature has not shipped yet."
-              >
-                {a.label}
-              </button>
-              <div style={{ fontSize: '0.85rem', color: '#888' }}>
-                {a.shortDescription} <em>(Coming with the cloud account feature.)</em>
-              </div>
-            </div>
-          ))}
-        </div>
       </section>
 
       {/* Confirmation modal for danger-zone actions. Two variants:

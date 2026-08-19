@@ -15,7 +15,7 @@
 
 ## Overview
 
-resmon is an automated, customizable literature surveillance platform that monitors open-access scholarly repositories, aggregates newly published papers against user-defined criteria, and compiles chronological reading reports. By default it functions as a streamlined metadata and abstract extractor; an optional AI-powered pipeline can generate concise, customized summaries of abstracts, methodologies, results, and discussions. The desktop application surfaces this capability through a dashboard of active routines and recent activity, manual Deep Dive and Deep Sweep runs, scheduled Automated Deep Sweeps, a calendar of upcoming and past executions, and a local-first architecture that optionally synchronizes reports and credentials to a signed-in cloud account.
+resmon is an automated, customizable literature surveillance platform that monitors open-access scholarly repositories, aggregates newly published papers against user-defined criteria, and compiles chronological reading reports. By default it functions as a streamlined metadata and abstract extractor; an optional AI-powered pipeline can generate concise, customized summaries of abstracts, methodologies, results, and discussions. The desktop application surfaces this capability through a dashboard of active routines and recent activity, manual Deep Dive and Deep Sweep runs, scheduled Automated Deep Sweeps, a calendar of upcoming and past executions, and a local-first architecture that keeps every report and credential on the user's own machine.
 
 ## Key Features
 
@@ -23,7 +23,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 - **Three operational modes:**
   - *Targeted Deep Dive* — a focused, manual query against a single repository within a defined date range, with support for an ephemeral per-execution API key that never persists to disk.
   - *Broad Deep Sweep* — a cross-repository manual query that applies Deep Dive parameters across every selected repository in parallel.
-  - *Automated Deep Sweep (Routine)* — a background-scheduled Deep Sweep that runs on a cron expression, emits progress events, and optionally triggers email notifications and cloud uploads on completion.
+  - *Automated Deep Sweep (Routine)* — a background-scheduled Deep Sweep that runs on a cron expression, emits progress events, and optionally triggers email notifications and Google Drive uploads on completion.
 - **AI-powered summarization** — optional dual-path LLM integration covering remote commercial APIs (BYOK) and local/open-weight model inference, with token-aware chunking and customizable summarization prompts applied to abstracts, methodologies, results, and discussions. API keys are stored per provider in the OS keyring (one slot for each of `anthropic`, `openai`, `google`, `xai`, `meta`, `deepseek`, `alibaba`, `local`, and `custom`), and every per-execution AI override panel on Deep Dive, Deep Sweep, and Routines exposes the full Settings → AI control set (Provider, Model, Length, Tone, Temperature, Extraction Goals) with per-field merge semantics so a single override never clobbers persisted defaults.
 - **Corpus analytics** — a dedicated Analytics page computed entirely from papers already stored locally, so it makes no repository requests and costs no API quota. It reports which repositories contribute papers nothing else found (and which only duplicate others), the median **discovery lag** between a paper's publication date and the moment resmon first saw it — a figure no repository publishes about itself — per-routine health with an explicit signal when a routine stops finding anything new, and publication volume over time by source or subject category. Counts are always shown; medians and percentages are withheld until the sample is large enough to mean anything, with the sample size displayed either way.
 - **Corpus-wide Explorer** — search and filter every paper resmon has collected, across all executions and routines, by free text over titles and abstracts, author, source, subject category, and publication date. Filters live in the URL, so a filtered view can be bookmarked, shared, or reached from the Analytics page by clicking a source or category. Built for scale: free text runs against an FTS5 index rather than a substring scan, authors and categories are filtered through normalised indexed tables rather than parsed at query time, and pagination seeks by sort key rather than counting rows — a page at row 90,000 of 100,000 costs 0.30 ms.
@@ -31,9 +31,9 @@ resmon is an automated, customizable literature surveillance platform that monit
 - **Cross-platform desktop notifications** — routine and manual completions raise a native OS notification on macOS, Linux, and Windows. The notification dispatcher is invoked both from the foreground app and from the headless `resmon-daemon`, so completions fire even when the Electron UI is closed.
 - **Calendar scheduling** — a calendar view of scheduled routines and historical executions, driven by the scheduler service and the `/api/calendar/events` endpoint.
 - **Email notifications** — per-routine and global SMTP-based notifications on routine completion, including attachment of the execution bundle produced by the shared export pipeline.
-- **Cloud backup and hybrid execution** — optional sign-in to a resmon cloud account for envelope-encrypted credential storage, report synchronization, and a merged local/cloud executions view.
+- **Google Drive backup** — optional, least-privilege (`drive.file`) backup of the report tree to a user-supplied Drive OAuth client.
 - **Configuration export and import** — serialize any Deep Dive, Deep Sweep, or routine configuration to JSON and re-import it on the same or another device for reproducible surveillance setups.
-- **Local-first storage and logging** — SQLite-backed state, per-execution log files, and a configurable export directory for report and artifact bundles; no credentials or data leave the machine unless the user opts in to cloud sync.
+- **Local-first storage and logging** — SQLite-backed state, per-execution log files, and a configurable export directory for report and artifact bundles; no credentials or data leave the machine unless the user opts in to Google Drive backup.
 - **In-app About resmon page** — a dedicated top-level page hosting four self-contained tabs: **Tutorials** (eighteen embedded YouTube walk-throughs covering the full app, every page, and every Settings sub-tab, with a shared Tutorial deep-link button rendered next to every page header and every Settings sub-panel header), **Issues** (a credentials-free form that builds either a `mailto:` link to the maintainer or a pre-populated GitHub issue deep link — the app never posts the report itself), **Blog** (an in-app reader for the public resmon blog at `https://ryanjosephkamp.github.io/resmon/`, fed by the GitHub Pages source under `docs/_posts/` and rendered through an origin-locked Electron `<webview>`), and **About App** (build version, recent-update notes, license, privacy notice, author links — relocated out of Settings).
 
 ## Supported Repositories
@@ -212,13 +212,12 @@ A Routine is a scheduled Automated Deep Sweep: the same multi-repository pipelin
    - **Email** — email the report on completion (the global SMTP settings must be configured under **Settings → Email**).
    - **Results-in-Email** — include the AI summary inline in the notification email.
    - **Notify-on-Completion** — raise a desktop notification when a fire finishes.
-5. Choose an **Execution location**: **Local** (fired by the APScheduler thread inside the local resmon daemon) or **Cloud** (fired by the `resmon-cloud` scheduler). The Cloud radio is disabled unless cloud sync is enabled and the user is signed in.
-6. Submit the modal. The routine is persisted via `POST /api/routines` (local) or `POST /api/v2/routines` (cloud), and APScheduler registers a job under the routine's id.
-7. Manage the routine from its row in the unified routines table: **Activate/Deactivate** preserves the DB row while adding or removing the APScheduler job; the inline **Email**, **AI**, and **Notify** column toggles patch a single flag each; **Move to Cloud** / **Move to Local** performs a destination-first create followed by a source delete; and if a fire is currently running, a **Cancel Run** button appears on the row and stops the live execution.
+5. Submit the modal. The routine is persisted via `POST /api/routines`, and APScheduler registers a job under the routine's id.
+6. Manage the routine from its row in the routines table: **Activate/Deactivate** preserves the DB row while adding or removing the APScheduler job; the inline **Email**, **AI**, and **Notify** column toggles patch a single flag each; and if a fire is currently running, a **Cancel Run** button appears on the row and stops the live execution.
 
 ## Architecture Overview
 
-resmon is a local-first desktop application composed of three cooperating processes: an Electron main process, a Python FastAPI backend, and an optional resmon-cloud microservice. The Electron main process launches the Python backend as a child process (or attaches to an already-running headless daemon managed by `daemon.py` + `service_manager.py`) and hosts the React renderer window. The renderer never calls Python directly — it talks to the backend exclusively over `fetch`-based JSON on `http://127.0.0.1:<port>` (default `8742`, discovered via `window.resmonAPI.getBackendPort()`) and over Server-Sent Events for live progress.
+resmon is a local-first desktop application composed of two cooperating processes: an Electron main process and a Python FastAPI backend. The Electron main process launches the Python backend as a child process (or attaches to an already-running headless daemon managed by `daemon.py` + `service_manager.py`) and hosts the React renderer window. The renderer never calls Python directly — it talks to the backend exclusively over `fetch`-based JSON on `http://127.0.0.1:<port>` (default `8742`, discovered via `window.resmonAPI.getBackendPort()`) and over Server-Sent Events for live progress.
 
 ### Backend — FastAPI + SQLite
 
@@ -228,7 +227,7 @@ The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), w
 
 ### Frontend — Electron + React
 
-The renderer is a React 18 + TypeScript single-page application bundled with Webpack and served into an Electron window (`electron/main.ts`, `dist/electron/main.js`). Routing uses `react-router-dom` `HashRouter` because the packaged app is loaded from `file://` where push-state history is unreliable. Two React contexts wrap every route: `AuthProvider` for resmon-cloud identity (access tokens held only in a module-scoped `authStore`, refresh tokens in the OS keychain) and `ExecutionProvider` for live multi-execution state. All HTTP access is centralized in four API-client wrappers (`api/client.ts`, `api/cloudClient.ts`, `api/repositories.ts`, `api/authStore.ts`), each of which sets `Cache-Control: no-store` and unwraps FastAPI's `{detail: "..."}` error envelope into a single readable message. A `FloatingWidget` overlay is mounted outside `MainContent` so it survives route transitions and continues to pulse for any running execution.
+The renderer is a React 18 + TypeScript single-page application bundled with Webpack and served into an Electron window (`electron/main.ts`, `dist/electron/main.js`). Routing uses `react-router-dom` `HashRouter` because the packaged app is loaded from `file://` where push-state history is unreliable. `ExecutionProvider` wraps every route to hold live multi-execution state. All HTTP access is centralized in two API-client wrappers (`api/client.ts`, `api/repositories.ts`), each of which sets `Cache-Control: no-store` and unwraps FastAPI's `{detail: "..."}` error envelope into a single readable message. A `FloatingWidget` overlay is mounted outside `MainContent` so it survives route transitions and continues to pulse for any running execution.
 
 ### LLM Integration — BYOK Remote and Local (ollama)
 
@@ -252,12 +251,9 @@ Live progress is streamed through `ProgressStore` (`implementation_scripts/progr
 
 Standard SSE headers are set (`Cache-Control: no-cache`, `Connection: keep-alive`, `X-Accel-Buffering: no`) and `PrivateNetworkMiddleware` does not buffer the stream. After an execution ends, buffered events are persisted into the `execution_progress` table so the Monitor and Results pages can reconstruct the stream after a process restart. Cancellation is cooperative: `POST /api/executions/{id}/cancel` sets the cancel flag, the pipeline's 2-second heartbeat notices, a partial report is flushed, and the execution finalizes as `cancelled`.
 
-### Optional Cloud Sync
+### Optional Google Drive Backup
 
-Two distinct cloud surfaces coexist and must not be conflated:
-
-1. **Google Drive artifact backup** (`implementation_scripts/cloud_storage.py`) — least-privilege `drive.file` OAuth 2.0 scope, token stored in the OS keyring, uploads triggered by `SweepEngine._maybe_auto_backup` when the `cloud_auto_backup` setting is on. Configured under Settings → Cloud Storage.
-2. **resmon-cloud account + multi-device sync** — a separate microservice backing envelope-encrypted per-user credentials (per-user DEK wrapped by a KMS-held KEK), JWKS-verified JWTs, row-level security, signed-URL artifact fetches, and per-user rate limiting. The desktop consumes it through `AuthContext`, `api/cloudClient.ts`, and `useCloudSync`, which polls `GET /api/v2/sync?since=<version>` on a 60-second interval (also on focus-gain), drains `has_more` chains up to `MAX_PAGES_PER_TICK = 50`, and POSTs pages into the local daemon's `/api/cloud-sync/ingest`. Cloud-sync errors never propagate into the render tree — they are surfaced through `state.lastError` only.
+`implementation_scripts/cloud_storage.py` wraps the Drive v3 API with the least-privilege `drive.file` OAuth 2.0 scope. The token is stored in the OS keyring, and uploads are triggered by `SweepEngine._maybe_auto_backup` when the `cloud_auto_backup` setting is on. Configured under Settings → Cloud Storage. It is the only way any report leaves the machine, and it is off by default.
 
 ## Technology Stack
 
@@ -342,16 +338,14 @@ resmon/
 │   │   │   ├── App.tsx                 # HashRouter + layout + providers.
 │   │   │   ├── api/                    # Typed HTTP client wrappers.
 │   │   │   ├── components/             # Shared components (Sidebar, Header, FloatingWidget, …).
-│   │   │   ├── context/                # AuthContext, ExecutionContext.
-│   │   │   ├── hooks/                  # useExecutionsMerged, useRepoCatalog, useCloudSync.
+│   │   │   ├── context/                # ExecutionContext.
+│   │   │   ├── hooks/                  # useExecutions, useRepoCatalog.
 │   │   │   ├── pages/                  # One component per route (DashboardPage, AnalyticsPage, ExplorerPage, …).
 │   │   │   ├── styles/                 # Global stylesheets.
 │   │   │   ├── types/                  # Shared TypeScript types.
 │   │   │   └── __tests__/              # Renderer unit tests.
 │   │   └── dist/                     # Build output (renderer/, electron/).
 │   │
-│   ├── cloud/                      # resmon-cloud microservice sources.
-│   ├── cloud_deploy/               # Cloud deployment manifests.
 │   ├── service_units/              # launchd plists, systemd units, Task Scheduler XML.
 │   └── verification_scripts/       # pytest-based backend verification suite.
 │
@@ -389,7 +383,7 @@ The `parameters` column stores a JSON document whose shape matches the search pa
 
 - **`manual_dive`** — `repository` (single slug), `keywords`, `max_results`, `ai_enabled`, optional `ai_overrides` (`length`, `tone`, `model`).
 - **`manual_sweep`** — `repositories` (array of slugs), `keywords`, `max_results_per_repo`, `ai_enabled`, optional `ai_overrides`.
-- **`routine`** — every `manual_sweep` field plus `cron_expression`, `execution_location` (`local` or `cloud`), `email_enabled`, `results_in_email`, `notify_on_completion`, and a `linked_routine_id` pointing at the row in the `routines` table that APScheduler registers a job under.
+- **`routine`** — every `manual_sweep` field plus `cron_expression`, `email_enabled`, `results_in_email`, `notify_on_completion`, and a `linked_routine_id` pointing at the row in the `routines` table that APScheduler registers a job under.
 
 Deleting a configuration whose `config_type` is `routine` cascades to the linked routine row when the stored parameters contain a valid `linked_routine_id` pointing at an existing routine; the delete-confirmation dialog surfaces the cascade count before the user confirms.
 
@@ -423,20 +417,18 @@ Manual execution dispatch. Each endpoint registers a new execution with the admi
 
 ### `/api/routines`
 
-CRUD, activation, cloud migration, and cancel control for scheduled Automated Deep Sweeps.
+CRUD, activation, and cancel control for scheduled Automated Deep Sweeps.
 
 - `GET /api/routines` — list of local routines; used by the Routines and Calendar pages.
 - `POST /api/routines` — create a local routine; the response includes the row's `id`, which is then stored as `linked_routine_id` inside the matching `routine` configuration row.
 - `PUT /api/routines/{id}` — patch routine fields (including the inline Email / AI / Notify column toggles on the Routines page, which each patch a single flag).
 - `DELETE /api/routines/{id}` — delete a routine; also removes the APScheduler job.
 - `POST /api/routines/{id}/activate` / `POST /api/routines/{id}/deactivate` — register or unregister the APScheduler job without deleting the DB row. Invoked from the Routines table and from the Calendar popover's routine toggle.
-- Cloud migration endpoints perform a destination-first create followed by a source delete so the **Move to Cloud** / **Move to Local** buttons on the routines table are safe to re-run on transient failures.
 
 ### `/api/executions`
 
 History, reporting, log and progress surfaces, export, delete, and cancel control for every execution (Deep Dive, Deep Sweep, Automated Deep Sweep).
 
-- `GET /api/executions/merged?filter=<all|local|cloud>&limit=200` — unified local + cloud execution ledger consumed by the Results & Logs page's `useExecutionsMerged` hook.
 - `GET /api/executions/{id}` — execution metadata row (type, status, query, counts, timestamps, routine id, etc.).
 - `GET /api/executions/{id}/report` — rendered Markdown report.
 - `GET /api/executions/{id}/log` — raw per-execution log text (written by `TaskLogger`).
@@ -445,7 +437,7 @@ History, reporting, log and progress surfaces, export, delete, and cancel contro
 - `GET /api/executions/active` — cheap `{active_ids: [...]}` payload polled every 3 seconds as a safety net that attaches background-initiated runs.
 - `POST /api/executions/export` — body `{ "ids": [...] }`; the backend assembles a zip bundle of the selected executions' reports, logs, and artifacts and returns `{ "path": "<absolute path>" }`. When the Storage tab's `export_directory` is set, the zip lands there; otherwise a temp file is used.
 - `POST /api/executions/{id}/cancel` — cooperative cancel: sets the `ProgressStore` cancel flag, the pipeline's 2-second heartbeat observes it, a partial report is flushed, and the execution finalizes as `cancelled`.
-- `DELETE /api/executions/{id}` — delete a local execution row and its artifacts. Cloud rows are read-only from the Results & Logs page.
+- `DELETE /api/executions/{id}` — delete an execution row and its artifacts.
 
 ### `/api/configurations`
 
@@ -544,15 +536,14 @@ Presence-only surface over the OS keyring through `credential_manager.py`. Secre
 - `POST /api/credentials/validate` — validate a remote LLM key (Test key button on the AI panel).
 - `POST /api/ai/models` — list the per-provider model catalog using either the freshly typed key or the stored credential (Load models button on the AI panel).
 
-### `/api/cloud` and `/api/cloud-auth`
+### `/api/cloud`
 
-Two distinct surfaces — see [Cloud Backup and Cloud Account](#cloud-backup-and-cloud-account) for the distinction.
+Google Drive backup — see [Google Drive Backup](#google-drive-backup).
 
 - `GET /api/cloud/status` — `{ is_linked, api_ok, api_reason }` describing the Google Drive link state.
 - `POST /api/cloud/link` — triggers the Google Drive OAuth installed-app flow; the resulting token is stored in the OS keyring.
 - `POST /api/cloud/unlink` — removes the stored token.
 - `POST /api/cloud/backup` — ad-hoc backup of the report tree to the linked Drive folder; returns `{ uploaded, total_files, folder_name, web_view_link }`.
-- `/api/cloud-auth/*` — resmon-cloud identity routes (sign-in, refresh, sign-out). Currently an "under construction" placeholder in the Cloud Account panel because no hosted identity provider is wired in this build.
 
 ## AI Summarization
 
@@ -648,14 +639,9 @@ When SMTP is configured, a routine emits notifications only when its **Email** t
 
 The execution bundle produced by the shared export pipeline (`/api/executions/export`) is attached to the email when the total size is within the configured limit.
 
-## Cloud Backup and Cloud Account
+## Google Drive Backup
 
-resmon exposes two distinct cloud surfaces that must not be conflated. They live under separate Settings panels and use separate credential stores.
-
-1. **Cloud Storage** — Google Drive artifact backup scoped to the report tree. Least-privilege, user-supplied OAuth client, no hosted microservice.
-2. **Cloud Account** — optional resmon-cloud identity and hybrid execution model. Enables cloud-executed routines and the merged local/cloud executions view on the Results & Logs page.
-
-### Cloud Storage — Linking Google Drive
+resmon has exactly one way to send data off the machine, and it is off until the user turns it on: optional Google Drive backup of the report tree, under **Settings → Cloud Storage**.
 
 This surface is a thin wrapper over the Drive v3 API using the least-privilege `drive.file` OAuth 2.0 scope, meaning resmon can only see files it created itself. The OAuth client secrets are user-supplied and live in `credentials.json` at the project root (gitignored).
 
@@ -667,20 +653,6 @@ This surface is a thin wrapper over the Drive v3 API using the least-privilege `
 6. Click **Unlink** (`POST /api/cloud/unlink`) to revoke the stored token.
 
 Drive API errors are surfaced with targeted hints via `API_REASON_HINTS` for `accessNotConfigured`, `insufficientPermissions`, and `no_token`, so the user can resolve Google Cloud Console / scope-consent issues directly from the panel.
-
-### Cloud Account — resmon-cloud Sign-In and Hybrid Execution
-
-The resmon-cloud surface is a separate microservice (sources under `resmon_scripts/cloud/`) that backs envelope-encrypted per-user credentials (per-user DEK wrapped by a KMS-held KEK), JWKS-verified JWTs, row-level security, signed-URL artifact fetches, and per-user rate limiting. The desktop consumes it through `AuthContext`, `api/cloudClient.ts`, and the `useCloudSync` hook, which polls `GET /api/v2/sync?since=<version>` every 60 seconds (also on focus-gain), drains `has_more` chains up to `MAX_PAGES_PER_TICK = 50`, and POSTs pages into the local daemon's `/api/cloud-sync/ingest`.
-
-**Current build status:** the **Cloud Account** panel (`#/settings/account`) is an "under construction" placeholder. The `/api/cloud-auth/*` routes exist in the backend but no hosted identity provider is wired in this build, so the panel renders a fixed `PageHelp` block describing the intent — cloud routines, cloud-scoped credentials, cloud-executed reports, and the privacy invariant that local executions never depend on cloud sign-in — and no sign-in control is available.
-
-When sign-in is enabled in a future build, three surfaces on the desktop become active:
-
-- The **Routines** page's create/edit modal unlocks the **Cloud** execution-location radio so a routine can fire on the `resmon-cloud` scheduler instead of the local APScheduler thread.
-- The **Results & Logs** page's `useExecutionsMerged('all', 200)` hook exposes the Local / Cloud / All filter chip and renders cloud rows as read-only entries with a cached-artifacts informational card. Cloud artifacts are fetched on demand via signed URLs and cached locally under `~/Library/Application Support/resmon/cloud-cache/`.
-- The **Move to Cloud** / **Move to Local** buttons on the routines table perform a destination-first create followed by a source delete, safe to retry on transient failures.
-
-Until the hosted identity provider is live, all routines run locally on the APScheduler thread and the Results & Logs page shows only local executions. No credentials or data leave the machine unless the user explicitly links Google Drive (Cloud Storage) or signs in to resmon-cloud (Cloud Account).
 
 ## License
 
@@ -702,7 +674,7 @@ The fastest path is the in-app **About resmon → Issues** tab, which builds eit
 4. Relevant log excerpts. Per-execution logs live under `resmon_reports/logs/` and the rotating app log is `resmon_reports/logs/resmon.log`. Redact any API keys or personal data before pasting.
 5. A screenshot of the UI state when the bug is visual.
 
-Security-sensitive reports (credential handling, SQL injection, OAuth flow, cloud sync, keyring access) should not be filed as public issues. Email the maintainer directly instead.
+Security-sensitive reports (credential handling, SQL injection, OAuth flow, keyring access) should not be filed as public issues. Email the maintainer directly instead.
 
 ### Blog
 
@@ -710,7 +682,7 @@ Per-update release notes are republished verbatim to the public resmon blog at [
 
 ### Maintenance / Danger Zone
 
-The **Settings → Advanced → Danger Zone** section centralizes every destructive maintenance action behind a two-tier confirmation gate: the two API-key wipes (repository keys, AI provider keys) use a simple OK / Cancel modal because they are recoverable by re-entering the keys, while the six data / settings destructions (delete all executions, delete all saved configurations, delete all routines, reset all settings, full reset, factory reset) require typing the literal word `CONFIRM` into a text input before the destructive button enables. The cloud-mirror column is rendered disabled (`Coming soon`) until the Cloud Account feature lands.
+The **Settings → Advanced → Danger Zone** section centralizes every destructive maintenance action behind a two-tier confirmation gate: the two API-key wipes (repository keys, AI provider keys) use a simple OK / Cancel modal because they are recoverable by re-entering the keys, while the six data / settings destructions (delete all executions, delete all saved configurations, delete all routines, reset all settings, full reset, factory reset) require typing the literal word `CONFIRM` into a text input before the destructive button enables.
 
 ### Submitting Pull Requests
 

@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient } from '../api/client';
-import { cloudClient } from '../api/cloudClient';
-import { useAuth } from '../context/AuthContext';
 import { useExecution } from '../context/ExecutionContext';
 import RepoKeyStatus from '../components/Repositories/RepoKeyStatus';
 import { useRepoCatalog } from '../hooks/useRepoCatalog';
@@ -25,32 +23,7 @@ interface Routine {
   ai_settings?: string | Record<string, any> | null;
   last_execution?: string;
   last_status?: string;
-  execution_location?: 'local' | 'cloud';
 }
-
-/**
- * Cloud routines are returned by ``GET /api/v2/routines`` and use a
- * different field-name set (`cron` / `enabled` / `routine_id`). We
- * normalize them into a common ``UnifiedRoutine`` shape so the table can
- * render local and cloud rows side-by-side with identical controls.
- */
-interface CloudRoutineRow {
-  routine_id: string;
-  name: string;
-  cron: string;
-  enabled: boolean;
-  parameters: Record<string, any>;
-}
-
-interface UnifiedRoutine extends Routine {
-  execution_location: 'local' | 'cloud';
-  cloud_id?: string; // present for cloud rows only
-}
-
-type PendingMigration =
-  | { kind: 'to-cloud'; routine: UnifiedRoutine }
-  | { kind: 'to-local'; routine: UnifiedRoutine }
-  | null;
 
 // Mirror the status-badge palette used on Dashboard / Results & Logs so
 // the Routines page's Last Status column matches the rest of the app —
@@ -64,18 +37,10 @@ const lastStatusBadgeClass = (s: string): string => {
 
 const RoutinesPage: React.FC = () => {
   const [routines, setRoutines] = useState<Routine[]>([]);
-  const [cloudRoutines, setCloudRoutines] = useState<CloudRoutineRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const { activeExecutions, cancelExecution, completionCounter } = useExecution();
   const { bySlug, presence, refreshPresence } = useRepoCatalog();
-  const { isSignedIn } = useAuth();
-  // IMPL-37: "Cloud sync enabled" gating. There is no stand-alone
-  // cloud-sync toggle yet (Settings → Cloud Account tab arrives with
-  // IMPL-38), so signed-in implies enabled.
-  const cloudSyncEnabled = isSignedIn;
-  const [pendingMigration, setPendingMigration] = useState<PendingMigration>(null);
-  const [migrating, setMigrating] = useState(false);
   // Refetch the routines list whenever a Configurations-page mutation
   // fires (e.g. importing a routine config materializes a new routine
   // row server-side; we need to surface it here without a manual reload).
@@ -100,23 +65,7 @@ const RoutinesPage: React.FC = () => {
     }
   }, []);
 
-  const fetchCloudRoutines = useCallback(async () => {
-    if (!cloudSyncEnabled) {
-      setCloudRoutines([]);
-      return;
-    }
-    try {
-      const rows = await cloudClient.get<CloudRoutineRow[]>('/api/v2/routines');
-      setCloudRoutines(rows ?? []);
-    } catch {
-      // Swallow: cloud list is best-effort; sign-in dialogs and toast
-      // surfaces already inform the user of auth failures.
-      setCloudRoutines([]);
-    }
-  }, [cloudSyncEnabled]);
-
   useEffect(() => { fetchRoutines(); }, [fetchRoutines, completionCounter, configsVersion, routinesVersion]);
-  useEffect(() => { fetchCloudRoutines(); }, [fetchCloudRoutines, completionCounter, routinesVersion]);
 
   const openCreate = () => { setEditTarget(null); setFormOpen(true); };
   const openEdit = (r: Routine) => { setEditTarget(r); setFormOpen(true); };
@@ -127,75 +76,6 @@ const RoutinesPage: React.FC = () => {
       fetchRoutines();
     } catch (err: any) {
       setError(err.message);
-    }
-  };
-
-  const handleDeleteCloud = async (cloudId: string) => {
-    try {
-      await cloudClient.delete(`/api/v2/routines/${cloudId}`);
-      fetchCloudRoutines();
-    } catch (err: any) {
-      setError(err.message);
-    }
-  };
-
-  // ---- Local ⇄ Cloud migration (IMPL-37) ---------------------------------
-  //
-  // The renderer orchestrates atomicity: create on the destination first,
-  // then delete on the source. If the destination POST fails, the source
-  // row is untouched. If the source delete fails after a successful
-  // destination create, we surface the error and leave both rows present
-  // — the user can retry the delete on the second attempt without losing
-  // the destination copy.
-
-  const performMoveToCloud = async (r: UnifiedRoutine) => {
-    setMigrating(true);
-    setError('');
-    try {
-      const params =
-        typeof r.parameters === 'string' ? JSON.parse(r.parameters) : r.parameters;
-      await cloudClient.post('/api/v2/routines', {
-        name: r.name,
-        cron: r.schedule_cron,
-        parameters: params || {},
-        enabled: !!r.is_active,
-      });
-      await apiClient.post(`/api/routines/${r.id}/released-to-cloud`);
-      await Promise.all([fetchRoutines(), fetchCloudRoutines()]);
-      setPendingMigration(null);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setMigrating(false);
-    }
-  };
-
-  const performMoveToLocal = async (r: UnifiedRoutine) => {
-    if (!r.cloud_id) {
-      setError('Missing cloud_id for migration');
-      return;
-    }
-    setMigrating(true);
-    setError('');
-    try {
-      const params =
-        typeof r.parameters === 'string' ? JSON.parse(r.parameters) : r.parameters;
-      await apiClient.post('/api/routines/adopt-from-cloud', {
-        name: r.name,
-        schedule_cron: r.schedule_cron,
-        parameters: params || {},
-        email_enabled: !!r.email_enabled,
-        email_ai_summary_enabled: !!r.email_ai_summary_enabled,
-        ai_enabled: !!r.ai_enabled,
-        notify_on_complete: !!r.notify_on_complete,
-      });
-      await cloudClient.delete(`/api/v2/routines/${r.cloud_id}`);
-      await Promise.all([fetchRoutines(), fetchCloudRoutines()]);
-      setPendingMigration(null);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setMigrating(false);
     }
   };
 
@@ -259,9 +139,8 @@ const RoutinesPage: React.FC = () => {
                 cron schedule. When its time comes, resmon fires an automated
                 sweep across the configured repositories, stores the report,
                 and (optionally) emails and/or sends a desktop notification
-                about the results. Routines can run <strong>locally</strong> (on
-                this device, via the resmon daemon) or in the <strong>cloud</strong> (if
-                you are signed in and cloud sync is enabled).
+                about the results. Routines run on this device, via the resmon
+                daemon.
               </p>
             ),
           },
@@ -273,7 +152,6 @@ const RoutinesPage: React.FC = () => {
                 <li>The <strong>Schedule</strong> column shows the cron expression; the <strong>Status</strong> column shows whether it is active.</li>
                 <li>Per-routine <strong>Email</strong>, <strong>AI</strong>, and <strong>Notify</strong> toggles let you override those features on a single row without opening the editor.</li>
                 <li>Use <strong>Activate / Deactivate</strong> to pause a routine without deleting it.</li>
-                <li>Use <strong>Move to Cloud / Local</strong> to migrate a routine between execution locations (atomic: the destination is created first, then the source is deleted).</li>
                 <li>If a routine is currently firing, a <strong>Cancel Run</strong> button appears on its row.</li>
               </ul>
             ),
@@ -282,7 +160,7 @@ const RoutinesPage: React.FC = () => {
             heading: 'Tips',
             body: (
               <ul>
-                <li>Local routines only fire when the resmon daemon is running (it is launched automatically on login by the background daemon installer).</li>
+                <li>Routines only fire when the resmon daemon is running (it is launched automatically on login by the background daemon installer).</li>
                 <li>The cron field accepts standard 5-field syntax: <code>m h dom mon dow</code>. Example: <code>0 8 * * 1-5</code> = 8:00 AM on weekdays.</li>
                 <li>If you want the date range to slide forward with each fire, leave it blank — routines without a fixed range default to the last 24 hours of the repository's index.</li>
               </ul>
@@ -298,7 +176,6 @@ const RoutinesPage: React.FC = () => {
           <thead>
             <tr>
               <th>Name</th>
-              <th>Source</th>
               <th>Schedule</th>
               <th>Status</th>
               <th>Last Execution</th>
@@ -310,20 +187,12 @@ const RoutinesPage: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {routines.length === 0 && cloudRoutines.length === 0 && (
-              <tr><td colSpan={10} className="text-muted text-center">No routines configured.</td></tr>
+            {routines.length === 0 && (
+              <tr><td colSpan={9} className="text-muted text-center">No routines configured.</td></tr>
             )}
-            {routines.map((r) => {
-              const loc: 'local' | 'cloud' = (r.execution_location as any) || 'local';
-              const unified: UnifiedRoutine = { ...r, execution_location: loc };
-              return (
+            {routines.map((r) => (
               <tr key={`local-${r.id}`}>
                 <td>{r.name}</td>
-                <td>
-                  <span className="badge badge-type-other" data-testid={`routine-source-local-${r.id}`}>
-                    Local
-                  </span>
-                </td>
                 <td><code>{r.schedule_cron}</code></td>
                 <td>
                   <span className={`badge ${r.is_active ? 'badge-success' : 'badge-error'}`}>
@@ -363,15 +232,6 @@ const RoutinesPage: React.FC = () => {
                     <button className="btn btn-sm" onClick={() => handleToggleActive(r)}>
                       {r.is_active ? 'Deactivate' : 'Activate'}
                     </button>
-                    {cloudSyncEnabled && (
-                      <button
-                        className="btn btn-sm"
-                        data-testid={`move-to-cloud-${r.id}`}
-                        onClick={() => setPendingMigration({ kind: 'to-cloud', routine: unified })}
-                      >
-                        Move to Cloud
-                      </button>
-                    )}
                     <button className="btn btn-sm btn-danger" onClick={() => handleDelete(r.id)}>Delete</button>
                     {(() => {
                       const running = Object.values(activeExecutions).find(
@@ -396,116 +256,17 @@ const RoutinesPage: React.FC = () => {
                   </div>
                 </td>
               </tr>
-              );
-            })}
-            {cloudSyncEnabled && cloudRoutines.map((c) => {
-              const unified: UnifiedRoutine = {
-                id: -1,
-                cloud_id: c.routine_id,
-                name: c.name,
-                schedule_cron: c.cron,
-                is_active: c.enabled ? 1 : 0,
-                email_enabled: 0,
-                email_ai_summary_enabled: 0,
-                ai_enabled: 0,
-                notify_on_complete: 0,
-                parameters: c.parameters,
-                execution_location: 'cloud',
-              };
-              return (
-              <tr key={`cloud-${c.routine_id}`}>
-                <td>{c.name}</td>
-                <td>
-                  <span className="badge badge-info" data-testid={`routine-source-cloud-${c.routine_id}`}>
-                    Cloud
-                  </span>
-                </td>
-                <td><code>{c.cron}</code></td>
-                <td>
-                  <span className={`badge ${c.enabled ? 'badge-success' : 'badge-error'}`}>
-                    {c.enabled ? 'Active' : 'Inactive'}
-                  </span>
-                </td>
-                <td className="text-muted">—</td>
-                <td className="text-muted">—</td>
-                <td className="text-muted">—</td>
-                <td className="text-muted">—</td>
-                <td className="text-muted">—</td>
-                <td>
-                  <div className="action-btns">
-                    <button
-                      className="btn btn-sm"
-                      data-testid={`move-to-local-${c.routine_id}`}
-                      onClick={() => setPendingMigration({ kind: 'to-local', routine: unified })}
-                    >
-                      Move to Local
-                    </button>
-                    <button
-                      className="btn btn-sm btn-danger"
-                      onClick={() => handleDeleteCloud(c.routine_id)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              );
-            })}
+            ))}
           </tbody>
         </table>
       </div>
-
-      {pendingMigration && (
-        <div className="modal-overlay" onClick={() => !migrating && setPendingMigration(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>Confirm Migration</h3>
-            <p>
-              {pendingMigration.kind === 'to-cloud' ? (
-                <>
-                  Move routine <strong>{pendingMigration.routine.name}</strong> to the cloud?
-                  The local copy will be deleted after the cloud copy is created. Historical
-                  executions produced locally remain attached to this device.
-                </>
-              ) : (
-                <>
-                  Move routine <strong>{pendingMigration.routine.name}</strong> to local?
-                  A new local routine will be created first; the cloud copy will then be
-                  deleted. Historical executions produced in the cloud stay in the cloud.
-                </>
-              )}
-            </p>
-            <div className="form-actions">
-              <button
-                className="btn btn-primary"
-                disabled={migrating}
-                onClick={() => {
-                  if (pendingMigration.kind === 'to-cloud') {
-                    performMoveToCloud(pendingMigration.routine);
-                  } else {
-                    performMoveToLocal(pendingMigration.routine);
-                  }
-                }}
-              >
-                {migrating ? 'Migrating…' : 'Confirm'}
-              </button>
-              <button
-                className="btn btn-secondary"
-                disabled={migrating}
-                onClick={() => setPendingMigration(null)}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {formOpen && (
         <RoutineEditModal
           open={formOpen}
           target={editTarget}
           onClose={() => setFormOpen(false)}
-          onSaved={() => { fetchRoutines(); fetchCloudRoutines(); }}
+          onSaved={() => { fetchRoutines(); }}
         />
       )}
     </div>

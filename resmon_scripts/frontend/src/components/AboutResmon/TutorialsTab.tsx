@@ -70,7 +70,7 @@ const sections: TutorialSection[] = [
       'Watch live progress on the Monitor page and review past runs on the Results & Logs page.',
     ],
     features: [
-      'Local-first SQLite store, BYOK (bring-your-own-key) AI summarization, optional Google Drive backup, and an optional closed-beta resmon-cloud mirror.',
+      'Local-first SQLite store, BYOK (bring-your-own-key) AI summarization, and optional Google Drive backup.',
       'Persistent APScheduler job store that keeps routines firing across restarts.',
       'A headless `resmon-daemon` that fires routines while the Electron UI is closed.',
     ],
@@ -86,7 +86,7 @@ const sections: TutorialSection[] = [
     mediaCaption: 'Dashboard demo.',
     youtubeId: 'O9v7-8IHZHw',
     instructions: [
-      'Open the Dashboard from the sidebar (route `/`) to see the welcome hero, a feature grid, the cloud sign-in card, and two tables: Active Routines and Recent Activity.',
+      'Open the Dashboard from the sidebar (route `/`) to see the welcome hero, a feature grid, and two tables: Active Routines and Recent Activity.',
       'Click `View Report` on a Recent Activity row to open that execution on the Results & Logs page.',
       'Click `Export` on a Recent Activity row to zip that single execution; use `Reveal in Finder` / `Reveal in File Explorer` from the success banner to open the bundle.',
     ],
@@ -150,17 +150,16 @@ const sections: TutorialSection[] = [
     mediaCaption: 'Routines demo.',
     youtubeId: 'ZcR-eEw--ho',
     instructions: [
-      'Click `Create Routine` to open the editor: pick repositories, keywords, optional date range, max results, flags (AI / Email / Results-in-Email / Notify-on-Completion), a 5-field cron expression, and the execution location (Local or Cloud).',
+      'Click `Create Routine` to open the editor: pick repositories, keywords, optional date range, max results, flags (AI / Email / Results-in-Email / Notify-on-Completion), and a 5-field cron expression.',
       'Use `Edit` on any local row to reopen the editor pre-populated from the existing routine; saving issues `PUT /api/routines/{id}`.',
       'Toggle `Activate` / `Deactivate` to start or stop scheduling without deleting the row.',
     ],
     features: [
       'Per-row quick toggles for Email, AI, and Notify columns patch the matching flag in a single click.',
-      '`Move to Cloud` and `Move to Local` perform a confirmation-gated, destination-first create / source-delete migration.',
       'When a routine is currently firing, a `Cancel Run` button appears on its row and routes through the shared `ExecutionContext`.',
     ],
     tips: [
-      'Local routines fire via APScheduler in the local daemon; cloud routines require sign-in and fire on the resmon-cloud scheduler.',
+      'Routines fire via APScheduler in the local daemon.',
       'Deleting a routine preserves its historical execution rows on Results & Logs.',
     ],
     destination: { path: '/routines', label: 'Go to Page' },
@@ -250,17 +249,15 @@ const sections: TutorialSection[] = [
     mediaCaption: 'Results & Logs demo.',
     youtubeId: 'ckj7MByzhsg',
     instructions: [
-      'Browse executions in reverse-chronological order; filter by Type, Status, and (when signed in) Local / Cloud / All.',
+      'Browse executions in reverse-chronological order; filter by Type and Status.',
       'Click a row to open the viewer and switch between the Report, Log, Metadata, and Progress tabs.',
       'Select rows and click `Export Selected` to write a zip bundle, or `Delete Selected` to remove the selected local rows after a confirmation dialog.',
       'Use `BibTeX`, `RIS`, or `CSV` to export the papers themselves in a format a reference manager reads, rather than the report about them.',
     ],
     features: [
       'Deep-link directly into a row and tab via URL hash, e.g. `#exec=42&tab=report`.',
-      'The Local / Cloud / All filter chip is rendered only when signed in.',
     ],
     tips: [
-      'Cloud rows are read-only on this page; selection skips them and the row click opens an informational cloud card.',
       'Set Settings → Storage → Export directory to pin where exports land; otherwise a temporary file is used.',
     ],
     destination: { path: '/results', label: 'Go to Page' },
@@ -313,22 +310,20 @@ const sections: TutorialSection[] = [
   {
     anchor: 'repositories',
     title: 'Repositories & API Keys',
-    blurb: 'Inspect the catalog and manage per-repository API keys (local or cloud).',
+    blurb: 'Inspect the catalog and manage per-repository API keys.',
     mediaCaption: 'Repositories & API Keys demo.',
     youtubeId: 'QIcgil9JNU8',
     instructions: [
       'Browse the catalog with one row per active repository; click a name (or caret) to expand a details panel showing subject coverage, endpoint, rate limit, and credential requirement.',
       'Use Expand All / Collapse All to reveal or hide every detail panel at once.',
       'For key-gated repositories, type a key into the inline input and press Enter to save it; click `Clear` on a row with a saved key to delete it.',
-      'Toggle the scope selector between `This device (keyring)` and `Cloud account` to choose which credential store reads and writes target.',
     ],
     features: [
       'Saved keys always render as a fixed 12-character mask (`************`); the backend never returns key values.',
       'A `Looking for AI API key settings?` button at the top of the page deep-links to Settings → AI for provider-level keys.',
     ],
     tips: [
-      'The cloud scope requires sign-in; signing out while viewing it snaps the selector back to local automatically.',
-      'Use the local (keyring) scope for personal devices and the cloud scope to share a key set across signed-in devices.',
+      'Keys are stored in your OS keyring and never leave this device.',
     ],
     destination: { path: '/repositories', label: 'Go to Page' },
   },
@@ -340,7 +335,7 @@ const sections: TutorialSection[] = [
     youtubeId: 'Jfvimo4t9bk',
     instructions: [
       'Open Settings from the sidebar; the route defaults to the Email panel.',
-      'Click a tab — Email, Cloud Account, Cloud Storage, AI, Storage, Notifications, or Advanced — to switch panels.',
+      'Click a tab — Email, Cloud Storage, AI, Storage, Notifications, or Advanced — to switch panels.',
       'Within a panel, edit fields and press `Save` (or the panel-specific action button) to persist through `PUT /api/settings/*` (or the corresponding credential / service endpoint).',
     ],
     features: [
@@ -376,25 +371,6 @@ const sections: TutorialSection[] = [
     destination: { path: '/settings/email', label: 'Go to Tab' },
   },
   {
-    anchor: 'settings-account',
-    title: 'Settings → Cloud Account',
-    blurb: 'Sign-in / sign-out for the closed-beta resmon-cloud mirror.',
-    mediaCaption: 'Cloud Account demo.',
-    youtubeId: 'kpT3gL0C4Lo',
-    instructions: [
-      'Read the in-panel `PageHelp` block to understand what cloud sign-in unlocks (cloud routines, cloud-scoped credentials, cloud-executed reports).',
-      'Treat this panel as informational in this build — no sign-in control is rendered because no hosted identity provider is wired yet.',
-    ],
-    features: [
-      'The backend cloud-auth routes (`/api/cloud-auth/session`, `/status`, `/refresh`, `/sync`) already exist and are JWKS-verified per IMPL-29 / 30; they are simply not consumed by this panel today.',
-    ],
-    tips: [
-      'Local executions never depend on cloud sign-in — all on-device features work fully without signing in.',
-      'Watch for future updates that wire a hosted identity provider into this panel.',
-    ],
-    destination: { path: '/settings/account', label: 'Go to Tab' },
-  },
-  {
     anchor: 'settings-cloud',
     title: 'Settings → Cloud Storage',
     blurb: 'Optional Google Drive backup for execution artifacts.',
@@ -411,7 +387,6 @@ const sections: TutorialSection[] = [
     ],
     tips: [
       'The `drive.file` scope limits access to files this app creates — it cannot read your existing Drive contents.',
-      'Cloud Storage (Drive) and Cloud Account (resmon-cloud) are independent — linking one does not affect the other.',
     ],
     destination: { path: '/settings/cloud', label: 'Go to Tab' },
   },
@@ -450,11 +425,10 @@ const sections: TutorialSection[] = [
     ],
     features: [
       'Retention policy prunes reports older than the archive window on daemon startup.',
-      'The on-disk cloud-execution cache (`CLOUD_CACHE_MAX_BYTES_DEFAULT`) is capped independently of these policies.',
     ],
     tips: [
       'PDF and TXT policies are reserved for a future per-paper artifact download feature and have no effect on current Deep Dive / Deep Sweep output.',
-      'Set the export directory to a synced folder (Drive, Dropbox, iCloud) to share exported reports across devices without enabling cloud sync.',
+      'Set the export directory to a synced folder (Drive, Dropbox, iCloud) to share exported reports across devices.',
     ],
     destination: { path: '/settings/storage', label: 'Go to Tab' },
   },
@@ -489,7 +463,7 @@ const sections: TutorialSection[] = [
       'Background daemon section: click `Install service` to install the platform-specific service unit (launchd / systemd / Task Scheduler), or `Uninstall service` to remove it.',
       'Concurrent executions section: edit `max_concurrent_executions` and `routine_fire_queue_limit` and click Save to persist via `PUT /api/settings/execution`.',
       'Scheduler diagnostics section: review APScheduler jobs (id, name, next-run time, trigger); click `Refresh` to re-fetch.',
-      'Danger Zone section (bottom of the tab): two columns — `Local device` (active) and `Cloud account` (scaffolding, disabled until cloud sign-in lands). Each column exposes the same eight destructive actions.',
+      'Danger Zone section (bottom of the tab): eight destructive actions, each affecting data on this device.',
       'Danger Zone — API-key wipes (`Erase all AI API keys`, `Erase all repo API keys`): click the button, then click the green `Confirm` (or red `Cancel`) in the simple confirmation modal. No typed confirmation is required.',
       'Danger Zone — destructive data/settings actions (`Erase all configs`, `Erase execution history`, `Erase all execution data`, `Erase all app data`, `Reset all settings`, `Factory reset`): click the button, read the irreversibility warning, type `CONFIRM` (case-sensitive, all caps) into the input, then click the red `Confirm` button (disabled until the typed value matches exactly).',
     ],
@@ -499,14 +473,13 @@ const sections: TutorialSection[] = [
       'Danger Zone actions call dedicated `POST /api/admin/erase-*`, `POST /api/admin/reset-settings`, and `POST /api/admin/factory-reset` endpoints; on success the page broadcasts on `configurationsBus`, `routinesBus`, and the `resmon:execution-completed` window event so Dashboard, Configurations, Routines, Calendar, and Results & Logs all refresh.',
       '`Erase execution history` also resets the auto-incremented `Execution #N` counter (the executions `sqlite_sequence` row) so the next run starts back at `Execution #1`.',
       'Composite actions are exact supersets: `Erase all execution data` = configs + executions; `Erase all app data` = AI keys + repo keys + execution data (non-AI settings preserved); `Reset all settings` = settings reset + AI keys + repo keys (configs and executions preserved); `Factory reset` = app data + reset settings.',
-      'Cloud-column buttons are scaffolding only — they are rendered disabled with a "Coming soon — requires cloud sign-in" tooltip until the cloud-account feature lands.',
     ],
     tips: [
       'Lower `max_concurrent_executions` to throttle resource bursts when many routines fire at once; the routine-fire queue limit guards APScheduler against backlog runaway.',
       'Installing the OS service unit is what lets routines fire while the Electron UI is closed.',
       'Danger Zone actions are irreversible. Export anything you want to keep first: configurations from the Configurations page, and reports / logs from Results & Logs.',
       'The typed-`CONFIRM` gate is case-sensitive and must be all caps — `confirm`, `Confirm`, and trailing whitespace are rejected. The red `Confirm` button stays disabled until the input matches exactly.',
-      'Local-column actions only affect this device; Cloud-column actions (once enabled) only affect data stored in your resmon-cloud account.',
+      'Every action affects only this device.',
     ],
     destination: { path: '/settings/advanced', label: 'Go to Tab' },
   },

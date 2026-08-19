@@ -7,13 +7,6 @@ declare global {
       chooseDirectory?: (defaultPath?: string) => Promise<string | null>;
       openPath?: (targetPath: string) => Promise<string>;
       revealPath?: (targetPath: string) => Promise<boolean>;
-      cloudAuth?: {
-        signIn: () => Promise<{ access_token: string; email: string; expires_in: number }>;
-        signOut: () => Promise<{ signed_in: false }>;
-        refresh: () => Promise<{ access_token: string; expires_in: number }>;
-        status: () => Promise<{ signed_in: boolean; email: string; sync_state: string }>;
-        setSync: (enabled: boolean) => Promise<{ sync_state: string }>;
-      };
     };
   }
 }

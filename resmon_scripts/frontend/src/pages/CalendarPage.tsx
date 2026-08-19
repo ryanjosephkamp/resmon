@@ -47,7 +47,6 @@ interface Routine {
   notify_on_complete?: number | boolean;
   parameters?: string | Record<string, any>;
   ai_settings?: string | Record<string, any> | null;
-  execution_location?: 'local' | 'cloud';
 }
 
 interface PopoverData {

@@ -10,7 +10,6 @@ import ScheduleConfigurator from '../components/Forms/ScheduleConfigurator';
 import KeywordCombinationBanner from '../components/Forms/KeywordCombinationBanner';
 import RepoKeyStatus from '../components/Repositories/RepoKeyStatus';
 import { useRepoCatalog } from '../hooks/useRepoCatalog';
-import { useAuth } from '../context/AuthContext';
 import InfoTooltip from '../components/Help/InfoTooltip';
 import AIOverridePanel, {
   AIOverrideValue,
@@ -77,8 +76,6 @@ const ConfigurationsPage: React.FC = () => {
   // back to ``PUT /api/configurations/{id}`` and persist the routine
   // payload back into the configuration row directly.
   const { bySlug, presence, refreshPresence } = useRepoCatalog();
-  const { isSignedIn } = useAuth();
-  const cloudSyncEnabled = isSignedIn;
   const [editConfig, setEditConfig] = useState<Config | null>(null);
   const [editName, setEditName] = useState('');
   const [editCron, setEditCron] = useState('0 8 * * *');
@@ -92,7 +89,6 @@ const ConfigurationsPage: React.FC = () => {
   const [editEmail, setEditEmail] = useState(false);
   const [editEmailAi, setEditEmailAi] = useState(false);
   const [editNotify, setEditNotify] = useState(false);
-  const [editLocation, setEditLocation] = useState<'local' | 'cloud'>('local');
   const [editAiOverride, setEditAiOverride] = useState<AIOverrideValue>(EMPTY_AI_OVERRIDE);
   const [editError, setEditError] = useState('');
 
@@ -261,7 +257,6 @@ const ConfigurationsPage: React.FC = () => {
       setEditEmail(!!params.email_enabled);
       setEditEmailAi(!!params.email_ai_summary_enabled);
       setEditNotify(!!params.notify_on_complete);
-      setEditLocation((params.execution_location === 'cloud') ? 'cloud' : 'local');
       setEditAiOverride(hydrateAiOverride(params.ai_settings));
     } else {
       // Manual configs (manual_dive / manual_sweep) — flat parameters JSON:
@@ -278,7 +273,6 @@ const ConfigurationsPage: React.FC = () => {
       setEditEmail(false);
       setEditEmailAi(false);
       setEditNotify(false);
-      setEditLocation('local');
       setEditAiOverride(hydrateAiOverride(params.ai_settings));
     }
   };
@@ -315,7 +309,6 @@ const ConfigurationsPage: React.FC = () => {
           ai_enabled: editAi,
           ai_settings: aiSettings,
           notify_on_complete: editNotify,
-          execution_location: editLocation,
         };
         // When a linked routine row exists, drive it directly so APScheduler
         // and the saved_configurations mirror stay in sync via the
@@ -335,7 +328,6 @@ const ConfigurationsPage: React.FC = () => {
               ai_enabled: editAi,
               ai_settings: aiSettings,
               notify_on_complete: editNotify,
-              execution_location: editLocation,
             });
             savedViaRoutine = true;
           } catch (err: any) {
@@ -633,48 +625,6 @@ const ConfigurationsPage: React.FC = () => {
                   <summary>Override AI settings for this {isRoutine ? 'routine' : 'configuration'}</summary>
                   <AIOverridePanel value={editAiOverride} onChange={setEditAiOverride} />
                 </details>
-              )}
-              {isRoutine && (
-                <div
-                  className="form-field"
-                  role="radiogroup"
-                  aria-label="Execution location"
-                >
-                  <label className="form-label">
-                    Execution location
-                    <InfoTooltip text="Where this routine runs. 'Local' uses the resmon daemon on this device. 'Cloud' runs on the resmon-cloud scheduler and does not require this machine to be online." />
-                  </label>
-                  <div className="toggles-row">
-                    <label className="checkbox-label">
-                      <input
-                        type="radio"
-                        name="edit_execution_location"
-                        value="local"
-                        checked={editLocation === 'local'}
-                        onChange={() => setEditLocation('local')}
-                      />
-                      <span>Local (this device)</span>
-                    </label>
-                    <label
-                      className="checkbox-label"
-                      title={
-                        cloudSyncEnabled
-                          ? 'Run this routine in the resmon-cloud scheduler'
-                          : 'Sign in and enable Cloud sync to run routines in the cloud'
-                      }
-                    >
-                      <input
-                        type="radio"
-                        name="edit_execution_location"
-                        value="cloud"
-                        disabled={!cloudSyncEnabled}
-                        checked={editLocation === 'cloud'}
-                        onChange={() => setEditLocation('cloud')}
-                      />
-                      <span>Cloud{!cloudSyncEnabled ? ' (sign in to enable)' : ''}</span>
-                    </label>
-                  </div>
-                </div>
               )}
               <div className="form-actions">
                 <button className="btn btn-primary" onClick={handleEditSave}>Save</button>

@@ -2,15 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient, getBaseUrl } from '../api/client';
 import { useExecution } from '../context/ExecutionContext';
-import { useAuth } from '../context/AuthContext';
-import { useExecutionsMerged, ExecutionFilter } from '../hooks/useExecutionsMerged';
+import { useExecutions } from '../hooks/useExecutions';
 import ResultsList from '../components/Results/ResultsList';
 import ReportViewer from '../components/Results/ReportViewer';
 import PageHelp from '../components/Help/PageHelp';
 
 interface Execution {
   id: number;
-  execution_id?: string;
   execution_type: string;
   query?: string;
   keywords?: string[] | null;
@@ -20,13 +18,11 @@ interface Execution {
   end_time?: string;
   total_results?: number;
   new_results?: number;
-  execution_location?: 'local' | 'cloud';
 }
 
 const ResultsPage: React.FC = () => {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [viewId, setViewId] = useState<number | null>(null);
-  const [viewCloudId, setViewCloudId] = useState<string | null>(null);
   const [viewTab, setViewTab] = useState<'report' | 'log' | 'meta' | 'progress' | undefined>(undefined);
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -35,26 +31,23 @@ const ResultsPage: React.FC = () => {
   const [exportError, setExportError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { completionCounter } = useExecution();
-  const { isSignedIn } = useAuth();
   const reportRef = useRef<HTMLDivElement | null>(null);
   const {
     executions,
-    filter: locationFilter,
-    setFilter: setLocationFilter,
     loading,
     error: fetchError,
     refresh,
-  } = useExecutionsMerged('all', 200);
+  } = useExecutions(200);
 
   // Scroll the report viewer into view whenever an execution is opened
   useEffect(() => {
-    if ((viewId !== null || viewCloudId !== null) && !loading && reportRef.current) {
+    if (viewId !== null && !loading && reportRef.current) {
       // Defer to next frame so the ReportViewer has mounted before scrolling
       requestAnimationFrame(() => {
         reportRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }
-  }, [viewId, viewCloudId, loading]);
+  }, [viewId, loading]);
 
   // Re-fetch whenever an execution completes in the local daemon so rows
   // that just finished show up without a manual reload.
@@ -81,7 +74,6 @@ const ResultsPage: React.FC = () => {
 
   const handleToggleAll = () => {
     const filtered = executions.filter((e) => {
-      if ((e.execution_location ?? 'local') !== 'local') return false;
       if (typeFilter && e.execution_type !== typeFilter) return false;
       if (statusFilter && e.status !== statusFilter) return false;
       return true;
@@ -215,8 +207,7 @@ const ResultsPage: React.FC = () => {
                 <li>Each row is one execution (manual dive, manual sweep, or routine-fired sweep).</li>
                 <li>The <strong>Name</strong> column resolves to the saved-configuration name when the run was launched from (or saved into) one, otherwise to the routine name for routine-fired runs, otherwise to <code>Execution #&lt;id&gt;</code>.</li>
                 <li><strong>Type</strong> and <strong>Status</strong> badges match the color palette used across the app.</li>
-                <li>The <strong>Source</strong> column distinguishes <em>Local</em> runs (this device) from <em>Cloud</em> runs (your resmon-cloud account).</li>
-                <li>Use the Type / Status filters and the Local / Cloud / All selector to narrow the view.</li>
+                <li>Use the Type and Status filters to narrow the view.</li>
               </ul>
             ),
           },
@@ -233,7 +224,7 @@ const ResultsPage: React.FC = () => {
             heading: 'Exporting a bundle to read',
             body: (
               <p>
-                Select one or more rows and click <strong>Export Selected</strong>. resmon bundles the Markdown report, a LaTeX-compiled PDF (when available), any figures, and the log into a single folder on disk. Cloud rows are read-only and cannot be exported from this table — they are served live from the cloud account.
+                Select one or more rows and click <strong>Export Selected</strong>. resmon bundles the Markdown report, a LaTeX-compiled PDF (when available), any figures, and the log into a single folder on disk.
               </p>
             ),
           },
@@ -286,44 +277,17 @@ const ResultsPage: React.FC = () => {
           selected={selected}
           onToggle={handleToggle}
           onToggleAll={handleToggleAll}
-          onRowClick={(e) => {
-            if ((e.execution_location ?? 'local') === 'cloud') {
-              setViewCloudId(e.execution_id ?? null);
-              setViewId(null);
-            } else {
-              setViewId(e.id);
-              setViewCloudId(null);
-            }
-          }}
+          onRowClick={(e) => setViewId(e.id)}
           typeFilter={typeFilter}
           statusFilter={statusFilter}
           onTypeFilterChange={setTypeFilter}
           onStatusFilterChange={setStatusFilter}
-          locationFilter={locationFilter as ExecutionFilter}
-          onLocationFilterChange={(v) => setLocationFilter(v)}
-          showLocationFilter={isSignedIn}
         />
       </div>
 
       {viewId !== null && (
         <div className="card" ref={reportRef}>
           <ReportViewer executionId={viewId} onClose={() => { setViewId(null); setViewTab(undefined); }} initialTab={viewTab} />
-        </div>
-      )}
-
-      {viewCloudId !== null && (
-        <div className="card" ref={reportRef}>
-          <div className="page-header">
-            <h2>Cloud Execution</h2>
-            <button className="btn btn-secondary" onClick={() => setViewCloudId(null)}>Close</button>
-          </div>
-          <p className="text-muted">
-            This execution was produced by a cloud routine. Its artifacts are fetched on demand
-            and cached locally under <code>~/Library/Application Support/resmon/cloud-cache/</code>.
-          </p>
-          <p className="text-muted" style={{ fontSize: 12 }}>
-            Execution ID: <code>{viewCloudId}</code>
-          </p>
         </div>
       )}
 
