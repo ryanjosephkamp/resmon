@@ -72,7 +72,7 @@ const socialLinks: SocialLink[] = [
 ];
 
 const AboutAppTab: React.FC = () => {
-  const [backendVersion, setBackendVersion] = useState<string>('1.4.0');
+  const [backendVersion, setBackendVersion] = useState<string>('1.5.0');
 
   useEffect(() => {
     let cancelled = false;
@@ -111,38 +111,36 @@ const AboutAppTab: React.FC = () => {
       <div className="about-grid">
         <section className="about-card">
           <h3>Version</h3>
-          <p><strong>resmon</strong> version <strong>{backendVersion || '1.4.0'}</strong></p>
-          <p className="text-muted">Current release line: 1.4.x</p>
+          <p><strong>resmon</strong> version <strong>{backendVersion || '1.5.0'}</strong></p>
+          <p className="text-muted">Current release line: 1.5.x</p>
         </section>
 
         <section className="about-card">
           <h3>Recent Update</h3>
           <p>
-            <strong>Update 6</strong> — Analytics: What Your Corpus Can Tell You About Itself.
+            <strong>Update 7</strong> — Explorer: Every Paper You Have Ever Collected, in One Place.
           </p>
           <p className="text-muted">
-            A new <strong>Analytics</strong> page, computed entirely from papers resmon has
-            already collected on this machine — it makes no repository requests, costs no API
-            quota, and works offline. It shows which repositories deliver papers nothing else
-            found and which merely duplicate others; how many days each source takes to surface
-            a paper after publication, measured from resmon&rsquo;s own record of when it first
-            saw each one; whether each routine is still finding anything new, with an explicit
-            signal when one has gone quiet; and publication volume over time, stacked by source
-            or by subject category.
+            A new <strong>Explorer</strong> page searches your whole corpus rather than one
+            execution at a time. Filter by author, source, subject category and publication
+            date, or search titles and abstracts together; every filter value shows how many
+            papers carry it, and filters combine, so a paper has to satisfy all of them.
+            Your filters live in the address bar, so a filtered view can be bookmarked,
+            reloaded or shared — and clicking a source or a category on the Analytics page
+            opens the Explorer already narrowed to it. That link is the point: noticing
+            something in a chart is only useful if you can go and read the papers behind it.
           </p>
           <p className="text-muted">
-            Counts are always shown, but averages and percentages are held back until there is
-            enough data for them to mean something — a median of three numbers is not a finding,
-            and one quiet run does not tell you a routine is finished. Wherever a figure is
-            withheld, resmon says so and shows how close you are. On an empty corpus the page
-            explains what it will show rather than drawing empty charts.
+            <strong>BibTeX</strong>, <strong>RIS</strong> and <strong>CSV</strong> export
+            everything matching your filters, not just the papers on screen.
           </p>
           <p className="text-muted">
-            Results &amp; Logs also gains <strong>BibTeX</strong>, <strong>RIS</strong> and
-            <strong> CSV</strong> export, so the papers a sweep found can go straight into
-            Zotero, Mendeley, EndNote or a spreadsheet. And the Electron window no longer
-            disables the browser&rsquo;s same-origin policy — a flag left over from when the
-            interface was loaded from a file rather than served locally.
+            Underneath, resmon gained the indexes it never had. Free-text search runs against
+            a full-text index instead of reading every abstract; authors and categories are
+            filtered through indexed tables instead of being parsed out of text at query time;
+            and paging through results seeks by sort key rather than counting rows. Measured
+            on a hundred thousand papers, every query completes in well under a tenth of a
+            second, and a page deep in the results takes a third of a millisecond.
           </p>
         </section>
 
