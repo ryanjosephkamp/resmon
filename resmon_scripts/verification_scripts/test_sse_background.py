@@ -53,6 +53,14 @@ def _fake_run_prepared(self, exec_id):
     progress_store.mark_complete(exec_id)
 
 
+def _wait_until_finished(exec_id: int, timeout: float = 30.0) -> None:
+    """Block until *exec_id* is no longer live in the progress store."""
+    from implementation_scripts.progress import progress_store as _ps
+    deadline = time.monotonic() + timeout
+    while _ps.is_active(exec_id) and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -76,6 +84,18 @@ class TestDiveReturnsImmediately:
         # Should return nearly instantly (background thread does the work)
         assert elapsed < 5.0, f"Endpoint took {elapsed:.2f}s — should be non-blocking"
 
+        # Wait for the background execution to finish while the run_prepared
+        # patch is still in scope. The decorator only holds for the duration of
+        # this method, but the execution runs on a daemon thread that outlives
+        # it -- so returning here left the real SweepEngine to take over
+        # mid-run. With the network blocked that pipeline retries with backoff
+        # for tens of seconds and re-registers this execution id in the
+        # process-wide progress_store. Since every test gets a fresh :memory:
+        # database, ids restart at 1, and the next test's SSE read then saw id 1
+        # as live and streamed heartbeats forever until pytest-timeout killed
+        # the run. That is what made test_sse_streams_events hang on CI.
+        _wait_until_finished(body["execution_id"])
+
     @patch("resmon.SweepEngine.run_prepared", _fake_run_prepared)
     def test_sweep_returns_immediately(self):
         client = _make_client()
@@ -89,6 +109,18 @@ class TestDiveReturnsImmediately:
         body = resp.json()
         assert "execution_id" in body
         assert elapsed < 5.0
+
+        # Wait for the background execution to finish while the run_prepared
+        # patch is still in scope. The decorator only holds for the duration of
+        # this method, but the execution runs on a daemon thread that outlives
+        # it -- so returning here left the real SweepEngine to take over
+        # mid-run. With the network blocked that pipeline retries with backoff
+        # for tens of seconds and re-registers this execution id in the
+        # process-wide progress_store. Since every test gets a fresh :memory:
+        # database, ids restart at 1, and the next test's SSE read then saw id 1
+        # as live and streamed heartbeats forever until pytest-timeout killed
+        # the run. That is what made test_sse_streams_events hang on CI.
+        _wait_until_finished(body["execution_id"])
 
 
 class TestSSEStreamsEvents:
