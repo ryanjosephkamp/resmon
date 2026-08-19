@@ -123,7 +123,7 @@ const AboutAppTab: React.FC = () => {
           </p>
           <p className="text-muted">
             Twenty-five defects found by installing resmon the way the README tells a new user
-            to, then running everything the project ships; twenty-three are fixed. A fresh clone could
+            to, then running everything the project ships; twenty-four are fixed. A fresh clone could
             not start at all, because <code>requirements.txt</code> never listed
             <code>python-dateutil</code>. The cloud service's dependencies were pinned nowhere,
             and behind them <code>cloud/metrics.py</code> turned out never to have parsed.
@@ -145,10 +145,15 @@ const AboutAppTab: React.FC = () => {
             splitter with a warning naming the one command that installs the data.
           </p>
           <p className="text-muted">
-            Two findings are documented rather than fixed: Python 3.12 is not currently supported
-            (one sqlite connection is shared across threads without serialisation, which 3.12
-            surfaces), and the Electron window's <code>webSecurity: false</code> flag was left
-            alone pending a proper runtime check.
+            The deepest fix: resmon kept a single database connection and used it from every web
+            request thread and every background execution thread at once, which is not safe.
+            Python 3.12 exposed it reliably and older versions intermittently. Each thread now
+            opens its own connection, and <strong>Python 3.12 is supported and covered by CI</strong>
+            alongside 3.10 and 3.11.
+          </p>
+          <p className="text-muted">
+            One finding is documented rather than fixed: the Electron window's
+            <code>webSecurity: false</code> flag was left alone pending a proper runtime check.
           </p>
         </section>
 

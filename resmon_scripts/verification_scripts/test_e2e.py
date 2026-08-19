@@ -42,21 +42,18 @@ from fastapi.testclient import TestClient
 def _reset_db():
     """Point the app at a fresh in-memory database.
 
-    Pre-creates the shared connection with ``check_same_thread=False`` so it
-    can be used from both the test thread and the TestClient request thread.
+    This used to pre-create a plain ``:memory:`` connection and assign it to
+    ``resmon._shared_conn``, so that one object could be used from both the test
+    thread and the TestClient's request thread. Since BUG-020 each thread opens
+    its own connection and an in-memory database is addressed through a
+    shared-cache URI, so a privately-created ``:memory:`` connection would be a
+    *different, empty* database from the one the app builds. Let the app own its
+    connections; this just resets and asks for one.
     """
-    import sqlite3 as _sqlite3
-    from implementation_scripts.database import init_db
-
     resmon_mod._db_path = ":memory:"
     resmon_mod._shared_conn = None
     resmon_mod._db_initialized = False
-
-    conn = _sqlite3.connect(":memory:", check_same_thread=False)
-    conn.row_factory = _sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON;")
-    init_db(conn=conn)
-    resmon_mod._shared_conn = conn
+    resmon_mod._get_db()
 
 
 def _make_mock_client(name: str):
@@ -99,12 +96,10 @@ def _fresh_db():
     """Give every test a clean in-memory database."""
     _reset_db()
     yield
-    if resmon_mod._shared_conn is not None:
-        try:
-            resmon_mod._shared_conn.close()
-        except Exception:
-            pass
-    resmon_mod._shared_conn = None
+    # close_db() closes every per-thread connection, not just the anchor. An
+    # in-memory database stays alive while any connection to it is open, so
+    # closing only the anchor would leak state into the next test.
+    resmon_mod.close_db()
 
 
 @pytest.fixture

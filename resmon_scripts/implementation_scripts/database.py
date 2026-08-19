@@ -193,6 +193,12 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_executions_columns(conn)
     _migrate_routines_columns(conn)
     _migrate_schema_version(conn)
+    # Commit before returning. Since BUG-020 each thread holds its own
+    # connection, so schema left inside an open transaction on this one is
+    # invisible to every other -- an in-memory database shared through
+    # cache=shared then answers "no such table: executions" on the next
+    # connection to touch it.
+    conn.commit()
 
     if own_conn:
         conn.close()

@@ -164,36 +164,105 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------------------------------------------------------------------------
+# Database connections (BUG-020)
+# ---------------------------------------------------------------------------
+#
+# There used to be exactly one module-level ``sqlite3.Connection``, opened with
+# ``check_same_thread=False`` and handed to everything: every FastAPI request
+# thread, and every execution worker thread spawned by ``_launch_execution``.
+# Nothing serialised them.
+#
+# sqlite3 connections are not safe to use concurrently from multiple threads.
+# Python 3.10 and 3.11 mostly got away with it because their sqlite3 module
+# holds the GIL across most operations; 3.12 releases it far more aggressively,
+# so the race is lost reliably there and only intermittently on 3.10/3.11. It
+# surfaced as ``InterfaceError: bad parameter or other API misuse``,
+# ``ProgrammingError: Cannot operate on a closed database``, and
+# ``OperationalError: cannot start a transaction within a transaction``.
+#
+# Each thread now gets its own connection. ``_get_db()`` is the single choke
+# point every one of the call sites in this module already goes through, so the
+# fix lands everywhere at once rather than only on the worker path.
+#
+# Two details make this work with the existing test suite:
+#
+#   * ``_shared_conn`` is kept as an *anchor*. An in-memory database lives only
+#     as long as a connection to it is open, so the anchor holds it open while
+#     per-thread connections come and go. Keeping the name also preserves the
+#     ``resmon_mod._shared_conn = None`` reset idiom that a dozen test modules
+#     use directly.
+#   * ``":memory:"`` is translated to a private temp file. A plain ``:memory:``
+#     connection is visible only to itself, so per-thread connections would each
+#     get their own empty database. The obvious alternative, a shared-cache
+#     ``file:...?mode=memory&cache=shared`` URI, is worse than it looks: shared
+#     cache takes *table-level* locks and reports contention as SQLITE_LOCKED,
+#     which ``busy_timeout`` does not retry, so a worker writing while a request
+#     reads raises "database table is locked". Production is always a file with
+#     WAL, where one writer and many readers coexist happily -- so tests get
+#     exactly that, and exercise the same locking behaviour resmon ships.
+
 _db_path: str | None = None  # overridable for testing
-_shared_conn = None  # cached connection (reused for all requests)
+_shared_conn = None  # anchor connection; keeps an in-memory database alive
 _db_initialized = False
+
+_db_generation = 0  # bumped on reset to invalidate per-thread connections
+_db_local = threading.local()
+_db_conns: list[sqlite3.Connection] = []  # every connection handed out
+_db_lock = threading.Lock()
+
+
+_memory_dir: tempfile.TemporaryDirectory | None = None
+
+
+def _ephemeral_db_path(generation: int) -> str:
+    """Return the temp-file path standing in for ``":memory:"``."""
+    global _memory_dir
+    if _memory_dir is None:
+        _memory_dir = tempfile.TemporaryDirectory(prefix="resmon-ephemeral-db-")
+    return str(Path(_memory_dir.name) / f"resmon_{generation}.db")
+
+
+def _open_connection():
+    """Open one connection to the configured database."""
+    path = _db_path or None
+    db_str = (
+        _ephemeral_db_path(_db_generation) if path == ":memory:"
+        else (str(path) if path else str(DEFAULT_DB_PATH))
+    )
+    conn = sqlite3.connect(db_str, check_same_thread=False, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA foreign_keys=ON;")
+    conn.execute("PRAGMA busy_timeout=5000;")
+    with _db_lock:
+        _db_conns.append(conn)
+    return conn
 
 
 def _get_db():
-    """Return a shared, initialized database connection."""
-    global _shared_conn, _db_initialized
-    if _shared_conn is not None:
-        return _shared_conn
-    path = _db_path or None
-    if path == ":memory:":
-        _shared_conn = sqlite3.connect(":memory:", check_same_thread=False)
-        _shared_conn.row_factory = sqlite3.Row
-        _shared_conn.execute("PRAGMA foreign_keys=ON;")
-    else:
-        db_str = str(path) if path else str(DEFAULT_DB_PATH)
-        _shared_conn = sqlite3.connect(db_str, check_same_thread=False, timeout=30)
-        _shared_conn.row_factory = sqlite3.Row
-        _shared_conn.execute("PRAGMA journal_mode=WAL;")
-        _shared_conn.execute("PRAGMA foreign_keys=ON;")
-        _shared_conn.execute("PRAGMA busy_timeout=5000;")
-    if not _db_initialized:
-        init_db(conn=_shared_conn)
-        _db_initialized = True
-    return _shared_conn
+    """Return this thread's initialized database connection."""
+    global _shared_conn, _db_initialized, _db_generation
+
+    if _shared_conn is None:
+        # A reset (or first use): invalidate every per-thread connection by
+        # moving the generation forward, then re-anchor.
+        _db_generation += 1
+        _shared_conn = _open_connection()
+        if not _db_initialized:
+            init_db(conn=_shared_conn)
+            _db_initialized = True
+
+    conn = getattr(_db_local, "conn", None)
+    if conn is None or getattr(_db_local, "generation", None) != _db_generation:
+        conn = _open_connection()
+        _db_local.conn = conn
+        _db_local.generation = _db_generation
+    return conn
 
 
 def _close_db(conn):
-    """No-op — connections are shared and kept open."""
+    """No-op — a thread keeps its connection for its lifetime."""
     pass
 
 
@@ -667,6 +736,14 @@ def _launch_execution(
 
     def _run() -> None:
         admission.note_admitted(exec_id)
+        # Take this thread's own connection rather than reusing the request
+        # thread's (BUG-020). The two run concurrently -- the endpoint returns
+        # as soon as the thread is started -- and sharing one sqlite3.Connection
+        # between them is the race this whole change exists to remove. The
+        # engine is rebound too, since it captured the request's connection when
+        # it was constructed.
+        conn = _get_db()
+        engine.db = conn
         try:
             # Register any per-execution credentials BEFORE the engine runs
             # so that client ``get_credential_for`` lookups see them.  Raw
@@ -3328,15 +3405,26 @@ def admin_cloud_factory_reset(body: AdminConfirmBody):
 
 
 def close_db() -> None:
-    """Close the shared sqlite connection, if open."""
-    global _shared_conn, _db_initialized
-    if _shared_conn is not None:
+    """Close every sqlite connection this process opened.
+
+    Since BUG-020 each thread holds its own connection, so closing only the
+    anchor would leave the rest open -- and an in-memory database stays alive
+    while any connection to it remains, which would leak state between tests.
+    """
+    global _shared_conn, _db_initialized, _db_generation
+    with _db_lock:
+        conns = list(_db_conns)
+        _db_conns.clear()
+    for conn in conns:
         try:
-            _shared_conn.close()
+            conn.close()
         except Exception:
             pass
-        _shared_conn = None
-        _db_initialized = False
+    _shared_conn = None
+    _db_initialized = False
+    # Move the generation on so any thread still holding a reference rebuilds
+    # rather than using a closed connection.
+    _db_generation += 1
 
 
 # ---------------------------------------------------------------------------

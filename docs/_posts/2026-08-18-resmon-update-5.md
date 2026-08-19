@@ -19,7 +19,7 @@ categories: [updates]
 
 Twenty-five defects were found by installing resmon exactly the way the README tells
 a new user to, running everything the project ships, and then reading the parts that
-had never been exercised. Twenty-three are fixed. The two that remain are documented
+had never been exercised. Twenty-four are fixed. The one that remains is documented
 here rather than quietly left in place.
 
 Five of them were found by CI itself, after the first eighteen were already fixed —
@@ -59,6 +59,44 @@ Three of them could only be found by starting from nothing:
 - **Fixed a syntax error in `cloud/metrics.py`**: a missing comma after the
   `executions_total` help string. The cloud microservice had never parsed. The
   missing dependencies had been hiding it, because the import failed earlier.
+
+### Every thread now has its own database connection
+
+The deepest fix in this release, and the one that took the longest to characterise
+honestly.
+
+resmon kept a **single** process-wide `sqlite3.Connection` and used it from every
+FastAPI request thread *and* every execution worker thread, with nothing serialising
+them. sqlite3 connections are not safe for concurrent use. Python 3.10 and 3.11
+largely got away with it because their `sqlite3` module holds the GIL across most
+operations; 3.12 releases it far more aggressively, so the race was lost reliably
+there and intermittently everywhere else. It surfaced as, variously:
+
+```
+sqlite3.InterfaceError:   bad parameter or other API misuse
+sqlite3.ProgrammingError: Cannot operate on a closed database
+sqlite3.OperationalError: cannot start a transaction within a transaction
+```
+
+Each thread now opens its own connection. `_get_db()` is the single point every call
+site already went through, so the change lands everywhere at once rather than only on
+the path that happened to expose it; the execution worker additionally rebinds the
+engine, which had captured the request thread's connection at construction.
+
+Two supporting changes were needed. `init_db` now commits — schema left inside an open
+transaction on one connection is invisible to every other. And the `":memory:"` test
+hook is now backed by a temp file rather than a real in-memory database: an in-memory
+database is private to its own connection, and the obvious workaround, SQLite's
+shared-cache mode, takes coarser table-level locks that `busy_timeout` does not retry.
+Tests now run against exactly the file-plus-WAL configuration resmon actually ships.
+
+**Python 3.12 is supported, and is in CI**, alongside 3.10 and 3.11.
+
+There are six new tests aimed squarely at the concurrency rather than waiting for it to
+surface by luck — including one that hammers the database from twelve threads at once,
+and one that asserts the worker thread does not reuse the request thread's connection.
+All six were checked against the pre-fix code first: three of them fail there, which is
+the only evidence that a regression test is worth having.
 
 ### Concurrency and lifecycle
 
@@ -193,23 +231,15 @@ Measured on a fresh `git clone` into a new virtualenv, not on a working tree:
 | | Before | After |
 |---|---|---|
 | Clean install from `requirements.txt` | backend will not import | imports; cloud service too |
-| Backend suite | hangs indefinitely | 398 passed, 4 skipped, ~31 s |
+| Backend suite | hangs indefinitely | 404 passed, 4 skipped, ~40 s |
 | Test files that can be collected | 44 of 53 | 53 of 53 |
 | Renderer tests | 3 specs, never run | 13 passing |
 | Warnings from resmon's own code | 3 | 0 |
-| CI | none | green on 3.10, 3.11 and the frontend, repeatedly |
+| CI | none | green on 3.10, 3.11, 3.12 and the frontend |
 
 ## Follow-ups
 
-Two findings are **not** fixed, and are worth stating plainly.
-
-- **BUG-020 — Python 3.12.** The backend shares one `sqlite3.Connection` between
-  request threads and execution worker threads without serialising access. Python
-  3.12 releases the GIL around `sqlite3` more aggressively than 3.11, so this
-  surfaces as `InterfaceError: bad parameter or other API misuse`. CI runs 3.10 and
-  3.11; **3.12 is not currently supported**, despite the README's "3.10 or newer".
-  The fix — per-thread connections, or serialising through `database.py` — deserves
-  its own change with tests written for the concurrency itself.
+One finding is **not** fixed, and is worth stating plainly.
 
 - **BUG-016 — `webSecurity: false`.** The Electron main window disables the
   same-origin policy. It may well be unnecessary now that the renderer is served

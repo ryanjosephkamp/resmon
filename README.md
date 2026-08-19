@@ -65,8 +65,7 @@ Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/I
 
 resmon is a hybrid Python + Electron application, so both runtimes must be available on the host machine before installation.
 
-- **Python 3.10 or 3.11** — required by the FastAPI backend (`resmon_scripts/resmon.py`) and its dependencies. Verify with `python3 --version`. Both are covered by CI.
-  **Python 3.12 is not currently supported.** The backend shares a single `sqlite3.Connection` between request threads and execution worker threads, and 3.12 releases the GIL around `sqlite3` more aggressively than 3.11 does, so concurrent use surfaces as `sqlite3.InterfaceError: bad parameter or other API misuse`. Tracked as BUG-020; see the Update 5 post on the blog.
+- **Python 3.10, 3.11, or 3.12** — required by the FastAPI backend (`resmon_scripts/resmon.py`) and its dependencies. Verify with `python3 --version`. All three are covered by CI on every push.
 - **Node.js 18 or newer** — required to build the React renderer with Webpack and to run the Electron shell. Verify with `node --version`.
 - **npm 9 or newer** — bundled with recent Node.js releases; used to install frontend dependencies and invoke the build/start scripts. Verify with `npm --version`.
 - **Git** — required to clone the repository.
