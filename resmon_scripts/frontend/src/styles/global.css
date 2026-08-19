@@ -2982,7 +2982,7 @@ html, body, #root {
   background: rgba(127, 127, 127, 0.12);
 }
 
-.analytics-bar-fill { background: #0e6b58; }
+.analytics-bar-fill { background: var(--color-accent); }
 .analytics-bar-fill-dup { background: rgba(127, 127, 127, 0.38); }
 
 .analytics-bar-num {
@@ -3005,7 +3005,7 @@ html, body, #root {
   width: 11px;
   height: 11px;
   border-radius: 2px;
-  background: #0e6b58;
+  background: var(--color-accent);
   margin-right: 6px;
   vertical-align: -1px;
 }
@@ -3030,8 +3030,8 @@ html, body, #root {
   gap: 6px;
 }
 
-.analytics-routine-healthy { border-left-color: #0e6b58; }
-.analytics-routine-stale { border-left-color: #b5761a; }
+.analytics-routine-healthy { border-left-color: var(--color-success); }
+.analytics-routine-stale { border-left-color: var(--color-warning); }
 .analytics-routine-insufficient_data { border-left-color: rgba(127, 127, 127, 0.5); }
 
 .analytics-routine-head {
@@ -3042,8 +3042,8 @@ html, body, #root {
   flex-wrap: wrap;
 }
 
-.badge-healthy { background: #dcede7; color: #0e6b58; }
-.badge-stale { background: #f7edd8; color: #8a5a0e; }
+.badge-healthy { background: rgba(34, 197, 94, 0.15); color: var(--color-success); }
+.badge-stale { background: rgba(245, 158, 11, 0.15); color: var(--color-warning); }
 .badge-insufficient_data { background: rgba(127, 127, 127, 0.15); }
 
 /* Sparkline of new results per run. */
@@ -3058,7 +3058,7 @@ html, body, #root {
 .analytics-spark-bar {
   flex: 1 1 auto;
   min-width: 3px;
-  background: #0e6b58;
+  background: var(--color-accent);
   border-radius: 1px 1px 0 0;
   opacity: 0.8;
 }
@@ -3083,11 +3083,25 @@ html, body, #root {
   height: 100%;
 }
 
-.analytics-volume-bar {
+/* A stack is a flex column; each segment's flex-grow is its paper count, so
+   segment heights are proportional without any arithmetic in the component.
+   column-reverse puts the first palette slot at the bottom, so the stack builds
+   upward from the baseline in the palette's fixed order. */
+.analytics-volume-stack {
   width: 100%;
-  background: #0e6b58;
-  border-radius: 2px 2px 0 0;
-  opacity: 0.85;
+  display: flex;
+  flex-direction: column-reverse;
+  /* A 2px surface-coloured gap between segments, so adjacent fills read as
+     separate marks rather than one blended band. */
+  gap: 2px;
+  overflow: hidden;
+}
+
+.analytics-volume-seg {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  flex-basis: 0;
 }
 
 .analytics-volume-label {
@@ -3109,3 +3123,12 @@ html, body, #root {
 .analytics-empty { display: flex; flex-direction: column; gap: 10px; }
 
 .scroll-x { overflow-x: auto; }
+
+/* Legend swatches take their colour inline from the validated palette. */
+.analytics-legend span { display: inline-flex; align-items: center; }
+
+.analytics-table-toggle {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding-left: 0;
+}

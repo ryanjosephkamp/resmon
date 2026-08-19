@@ -165,6 +165,29 @@ describe('Analytics page', () => {
     expect(screen.getByText('Finding new work')).toBeInTheDocument();
   });
 
+  test('the volume chart is stacked, with one segment per group', async () => {
+    mockFetch(POPULATED);
+    await renderPage();
+
+    // POPULATED has two months, one group each.
+    const segments = document.querySelectorAll('.analytics-volume-seg');
+    expect(segments.length).toBe(2);
+    // Identity is carried by a legend, never by colour alone.
+    expect(screen.getAllByText('arxiv').length).toBeGreaterThan(0);
+  });
+
+  test('the same figures are available as a table, not colour alone', async () => {
+    mockFetch(POPULATED);
+    await renderPage();
+
+    const toggle = screen.getByRole('button', { name: /show as a table/i });
+    await act(async () => { toggle.click(); });
+
+    expect(screen.getByRole('button', { name: /hide table/i })).toBeInTheDocument();
+    expect(screen.getByText('2026-06')).toBeInTheDocument();
+    expect(screen.getByText('2026-07')).toBeInTheDocument();
+  });
+
   test('a failed load offers a retry rather than a blank page', async () => {
     (global as any).fetch = jest.fn(async () => ({
       ok: false,

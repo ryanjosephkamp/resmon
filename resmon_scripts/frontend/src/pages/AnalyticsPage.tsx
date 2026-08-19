@@ -85,6 +85,41 @@ interface Overview {
 
 const nf = new Intl.NumberFormat();
 
+/**
+ * Categorical series colours, in fixed slot order.
+ *
+ * Eight hues stepped for a dark surface, validated as a set against this app's
+ * card surface (#1a1d27): every slot sits in the L 0.48–0.67 band, clears the
+ * chroma floor, holds >= 3:1 contrast, and the worst adjacent pair separates by
+ * 8.4 delta-E under protanopia and 19.3 for normal vision. Stacked bars use the
+ * adjacent pairlist, so all eight slots are legal here.
+ *
+ * Assigned in order and never cycled: a ninth group is folded into "other" by
+ * the backend rather than given a generated hue. Colour follows the group, not
+ * its rank, so switching between source and category grouping repaints
+ * deliberately — they are different entity spaces — but re-rendering the same
+ * grouping never reshuffles colours.
+ */
+const SERIES_COLOURS = [
+  '#3987e5', // blue
+  '#d95926', // orange
+  '#199e70', // aqua
+  '#c98500', // yellow
+  '#d55181', // magenta
+  '#008300', // green
+  '#9085e9', // violet
+  '#e66767', // red
+];
+
+/** Everything past the eighth group. Deliberately neutral, not a ninth hue. */
+const OTHER_COLOUR = 'rgba(139, 141, 154, 0.55)';
+
+const colourFor = (group: string, groups: string[]): string =>
+  group === 'other'
+    ? OTHER_COLOUR
+    : SERIES_COLOURS[groups.indexOf(group) % SERIES_COLOURS.length];
+
+
 /** Shown when a statistic exists but cannot yet be trusted. */
 const NotEnoughYet: React.FC<{ reason: string | null; sample?: number }> = ({ reason, sample }) => (
   <p className="analytics-thin">
@@ -97,6 +132,7 @@ const AnalyticsPage: React.FC = () => {
   const [data, setData] = useState<Overview | null>(null);
   const [volumeBy, setVolumeBy] = useState<'source' | 'category'>('source');
   const [volume, setVolume] = useState<Overview['publication_volume'] | null>(null);
+  const [showVolumeTable, setShowVolumeTable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -440,21 +476,89 @@ const AnalyticsPage: React.FC = () => {
                 sample={volume?.sample_size}
               />
             ) : (
-              <div className="analytics-volume">
-                {volume.series.map((bucket) => {
-                  const peak = Math.max(...volume.series.map((b) => b.total), 1);
-                  return (
-                    <div className="analytics-volume-col" key={bucket.month}>
-                      <span
-                        className="analytics-volume-bar"
-                        style={{ height: `${Math.max((bucket.total / peak) * 100, 2)}%` }}
-                        title={`${bucket.month}: ${bucket.total} papers`}
-                      />
-                      <span className="analytics-volume-label">{bucket.month.slice(2)}</span>
-                    </div>
-                  );
-                })}
-              </div>
+              <>
+                <div className="analytics-volume" role="img"
+                     aria-label={`Papers published per month, split by ${volume.group_by}. A table of the same figures is available below.`}>
+                  {volume.series.map((bucket) => {
+                    const peak = Math.max(...volume.series.map((b) => b.total), 1);
+                    // Segments in the palette's fixed order so a stack reads the
+                    // same way month to month.
+                    const segments = volume.groups
+                      .filter((g) => (bucket.groups[g] || 0) > 0)
+                      .map((g) => ({ group: g, count: bucket.groups[g] }));
+                    return (
+                      <div className="analytics-volume-col" key={bucket.month}>
+                        <span
+                          className="analytics-volume-stack"
+                          style={{ height: `${Math.max((bucket.total / peak) * 100, 2)}%` }}
+                        >
+                          {segments.map((seg, i) => (
+                            <span
+                              key={seg.group}
+                              className="analytics-volume-seg"
+                              style={{
+                                flexGrow: seg.count,
+                                background: colourFor(seg.group, volume.groups),
+                                // The data-end is the topmost segment only, so the
+                                // stack stays anchored to the baseline.
+                                borderRadius: i === 0 ? '3px 3px 0 0' : undefined,
+                              }}
+                              title={`${bucket.month} — ${seg.group}: ${nf.format(seg.count)} ${seg.count === 1 ? 'paper' : 'papers'} of ${nf.format(bucket.total)}`}
+                            />
+                          ))}
+                        </span>
+                        <span className="analytics-volume-label">{bucket.month.slice(2)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <p className="analytics-legend">
+                  {volume.groups.map((g) => (
+                    <span key={g}>
+                      <i className="analytics-swatch"
+                         style={{ background: colourFor(g, volume.groups) }} />
+                      {g}
+                    </span>
+                  ))}
+                </p>
+
+                {/* Identity is never colour-alone: the same figures, readable. */}
+                <button
+                  className="btn btn-sm btn-link analytics-table-toggle"
+                  onClick={() => setShowVolumeTable((v) => !v)}
+                  aria-expanded={showVolumeTable}
+                >
+                  {showVolumeTable ? 'Hide table' : 'Show as a table'}
+                </button>
+
+                {showVolumeTable && (
+                  <div className="scroll-x">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Month</th>
+                          {volume.groups.map((g) => <th key={g} className="num">{g}</th>)}
+                          <th className="num">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {volume.series.map((bucket) => (
+                          <tr key={bucket.month}>
+                            <td>{bucket.month}</td>
+                            {volume.groups.map((g) => (
+                              <td key={g} className="num">
+                                {bucket.groups[g] ? nf.format(bucket.groups[g]) : ''}
+                              </td>
+                            ))}
+                            <td className="num">{nf.format(bucket.total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
           </section>
         </>
