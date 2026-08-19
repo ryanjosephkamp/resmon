@@ -187,6 +187,34 @@ const sections: TutorialSection[] = [
     destination: { path: '/calendar', label: 'Go to Page' },
   },
   {
+    anchor: 'analytics',
+    title: 'Analytics',
+    blurb: 'What your collected papers reveal about your sources and your routines.',
+    mediaCaption: 'Analytics demo.',
+    youtubeId: '',
+    instructions: [
+      'Everything on this page is computed from papers already stored on this machine — opening it makes no repository requests and costs no API quota.',
+      '`Which sources earn their place` splits each repository into papers nothing else found and papers that also arrived elsewhere. A source with no unique contribution is slowing every sweep without adding anything.',
+      '`How quickly each source surfaces a paper` is the median gap between publication and resmon first seeing it. Use it to pick a sensible routine schedule: a source with a two-week median will not deliver sooner because a routine runs hourly.',
+      '`Routine health` marks a routine `Quiet` when it has returned nothing new for several runs — usually a sign its keywords are too narrow, or its field has gone still.',
+      '`Publication volume over time` can be grouped by source or by subject category; a paper in two categories is counted in both.',
+      'Figures that read `not enough data yet` are being withheld on purpose. Counts are always shown, but averages and percentages wait until there is enough data to mean something, and the sample size is always displayed.',
+    ],
+    features: [
+      'Source contribution and overlap, so you can retire repositories that only duplicate others.',
+      'Discovery lag per source, computed from when resmon itself first saw each paper — a figure no repository publishes about itself.',
+      'Routine health, with an explicit signal when a routine has stopped finding anything new.',
+      'Publication volume over time, grouped by source or by subject category.',
+    ],
+    tips: [
+      'Papers are matched across sources by DOI, falling back to title when no DOI is present, so the same paper arriving from arXiv and OpenAlex counts as unique to neither.',
+      'Discovery lag can be negative when a source dates a paper later than it posts it. Those values are kept rather than discarded, because dropping them would flatter the source.',
+      'Undated papers stay in your corpus counts but are left off the timeline instead of being assigned a guessed date.',
+      'A routine needs three completed runs before resmon will call it healthy or quiet; one empty run is not evidence.',
+    ],
+    destination: { path: '/analytics', label: 'Go to Page' },
+  },
+  {
     anchor: 'results',
     title: 'Results & Logs',
     blurb: 'Browse, filter, view, export, and delete every past execution.',
@@ -196,6 +224,7 @@ const sections: TutorialSection[] = [
       'Browse executions in reverse-chronological order; filter by Type, Status, and (when signed in) Local / Cloud / All.',
       'Click a row to open the viewer and switch between the Report, Log, Metadata, and Progress tabs.',
       'Select rows and click `Export Selected` to write a zip bundle, or `Delete Selected` to remove the selected local rows after a confirmation dialog.',
+      'Use `BibTeX`, `RIS`, or `CSV` to export the papers themselves in a format a reference manager reads, rather than the report about them.',
     ],
     features: [
       'Deep-link directly into a row and tab via URL hash, e.g. `#exec=42&tab=report`.',

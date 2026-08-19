@@ -15,6 +15,7 @@ const navItems: NavItem[] = [
   { to: '/routines', label: 'Routines', icon: '⟳' },
   { to: '/calendar', label: 'Calendar', icon: '▦' },
   { to: '/results', label: 'Results & Logs', icon: '◉' },
+  { to: '/analytics', label: 'Analytics', icon: '▤' },
   { to: '/configurations', label: 'Configurations', icon: '⚙' },
   { to: '/monitor', label: 'Monitor', icon: '◎' },
   { to: '/repositories', label: 'Repositories & API Keys', icon: '◈' },

@@ -2920,3 +2920,192 @@ html, body, #root {
   border: 0;
   display: inline-flex;
 }
+
+/* ---------------------------------------------------------------------------
+   Analytics (Phase 2a)
+   --------------------------------------------------------------------------- */
+
+.analytics-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.analytics-tile {
+  border: 1px solid var(--border, #d7e0db);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.analytics-tile-key {
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.analytics-tile-value {
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.analytics-tile-detail { font-size: 12px; opacity: 0.7; }
+
+/* Horizontal bars: unique contribution against duplicated. */
+.analytics-bars { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+
+.analytics-bar-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 120px;
+  gap: 10px;
+  align-items: center;
+}
+
+.analytics-bar-label {
+  font-size: 13px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analytics-bar-track {
+  display: flex;
+  height: 18px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.12);
+}
+
+.analytics-bar-fill { background: #0e6b58; }
+.analytics-bar-fill-dup { background: rgba(127, 127, 127, 0.38); }
+
+.analytics-bar-num {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.analytics-legend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  opacity: 0.75;
+  margin-top: 10px;
+}
+
+.analytics-swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  background: #0e6b58;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.analytics-swatch-dup { background: rgba(127, 127, 127, 0.38); }
+
+/* Routine health cards, keyed by state. */
+.analytics-routines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.analytics-routine {
+  border: 1px solid var(--border, #d7e0db);
+  border-left-width: 3px;
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.analytics-routine-healthy { border-left-color: #0e6b58; }
+.analytics-routine-stale { border-left-color: #b5761a; }
+.analytics-routine-insufficient_data { border-left-color: rgba(127, 127, 127, 0.5); }
+
+.analytics-routine-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.badge-healthy { background: #dcede7; color: #0e6b58; }
+.badge-stale { background: #f7edd8; color: #8a5a0e; }
+.badge-insufficient_data { background: rgba(127, 127, 127, 0.15); }
+
+/* Sparkline of new results per run. */
+.analytics-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 34px;
+  margin-top: 2px;
+}
+
+.analytics-spark-bar {
+  flex: 1 1 auto;
+  min-width: 3px;
+  background: #0e6b58;
+  border-radius: 1px 1px 0 0;
+  opacity: 0.8;
+}
+
+/* Publication volume columns. */
+.analytics-volume {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 160px;
+  margin-top: 12px;
+  overflow-x: auto;
+}
+
+.analytics-volume-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  flex: 1 0 26px;
+  height: 100%;
+}
+
+.analytics-volume-bar {
+  width: 100%;
+  background: #0e6b58;
+  border-radius: 2px 2px 0 0;
+  opacity: 0.85;
+}
+
+.analytics-volume-label {
+  font-size: 10px;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.analytics-toggle { display: flex; gap: 8px; margin: 8px 0 4px; }
+
+/* Shown wherever a statistic is being withheld for want of data. Deliberately
+   quiet: it is an explanation, not an error. */
+.analytics-thin {
+  opacity: 0.75;
+  font-style: italic;
+  margin-top: 10px;
+}
+
+.analytics-empty { display: flex; flex-direction: column; gap: 10px; }
+
+.scroll-x { overflow-x: auto; }
