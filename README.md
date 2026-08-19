@@ -25,6 +25,8 @@ resmon is an automated, customizable literature surveillance platform that monit
   - *Broad Deep Sweep* — a cross-repository manual query that applies Deep Dive parameters across every selected repository in parallel.
   - *Automated Deep Sweep (Routine)* — a background-scheduled Deep Sweep that runs on a cron expression, emits progress events, and optionally triggers email notifications and cloud uploads on completion.
 - **AI-powered summarization** — optional dual-path LLM integration covering remote commercial APIs (BYOK) and local/open-weight model inference, with token-aware chunking and customizable summarization prompts applied to abstracts, methodologies, results, and discussions. API keys are stored per provider in the OS keyring (one slot for each of `anthropic`, `openai`, `google`, `xai`, `meta`, `deepseek`, `alibaba`, `local`, and `custom`), and every per-execution AI override panel on Deep Dive, Deep Sweep, and Routines exposes the full Settings → AI control set (Provider, Model, Length, Tone, Temperature, Extraction Goals) with per-field merge semantics so a single override never clobbers persisted defaults.
+- **Corpus analytics** — a dedicated Analytics page computed entirely from papers already stored locally, so it makes no repository requests and costs no API quota. It reports which repositories contribute papers nothing else found (and which only duplicate others), the median **discovery lag** between a paper's publication date and the moment resmon first saw it — a figure no repository publishes about itself — per-routine health with an explicit signal when a routine stops finding anything new, and publication volume over time by source or subject category. Counts are always shown; medians and percentages are withheld until the sample is large enough to mean anything, with the sample size displayed either way.
+- **Reference-manager exports** — any execution's papers export to **BibTeX**, **RIS**, or **CSV**, alongside the existing Markdown, PDF, and LaTeX report bundle. Entries with a DOI are emitted as journal articles and those without as generic records; cite keys are made unique within a file and BibTeX special characters are escaped.
 - **Cross-platform desktop notifications** — routine and manual completions raise a native OS notification on macOS, Linux, and Windows. The notification dispatcher is invoked both from the foreground app and from the headless `resmon-daemon`, so completions fire even when the Electron UI is closed.
 - **Calendar scheduling** — a calendar view of scheduled routines and historical executions, driven by the scheduler service and the `/api/calendar/events` endpoint.
 - **Email notifications** — per-routine and global SMTP-based notifications on routine completion, including attachment of the execution bundle produced by the shared export pipeline.
@@ -273,6 +275,7 @@ resmon/
 │   │
 │   ├── implementation_scripts/     # Backend modules.
 │   │   ├── admission.py              # Concurrent-execution admission controller.
+│   │   ├── analytics.py              # Corpus analytics queries (thin-corpus policy).
 │   │   ├── ai_models.py              # Provider model-catalog probing.
 │   │   ├── api_*.py                  # Per-repository API clients (15 active sources).
 │   │   ├── api_base.py               # Shared rate limiter + HTTP client base class.
@@ -295,6 +298,7 @@ resmon/
 │   │   ├── prompt_templates.py       # Summarization prompt scaffolding.
 │   │   ├── repo_catalog.py           # Repository metadata catalog.
 │   │   ├── report_generator.py       # Markdown report composition.
+│   │   ├── reference_export.py       # BibTeX / RIS / CSV reference exports.
 │   │   ├── report_exporter.py        # PDF / LaTeX export pipeline.
 │   │   ├── scheduler.py              # ResmonScheduler (APScheduler wrapper).
 │   │   ├── service_manager.py        # launchd / systemd / Task Scheduler integration.
@@ -316,7 +320,7 @@ resmon/
 │   │   │   ├── components/             # Shared components (Sidebar, Header, FloatingWidget, …).
 │   │   │   ├── context/                # AuthContext, ExecutionContext.
 │   │   │   ├── hooks/                  # useExecutionsMerged, useRepoCatalog, useCloudSync.
-│   │   │   ├── pages/                  # One component per route (DashboardPage, …).
+│   │   │   ├── pages/                  # One component per route (DashboardPage, AnalyticsPage, …).
 │   │   │   ├── styles/                 # Global stylesheets.
 │   │   │   ├── types/                  # Shared TypeScript types.
 │   │   │   └── __tests__/              # Renderer unit tests.
@@ -429,6 +433,36 @@ See [Configuration](#configuration) for the full round-trip workflow.
 - `DELETE /api/configurations/{id}` — delete a configuration; cascades to the linked routine when `config_type == 'routine'` and the parameters carry a valid `linked_routine_id`.
 - `POST /api/configurations/export` — body `{ "ids": [...] }`; writes a ZIP archive of per-config JSON files and returns `{ "path": "<absolute path>" }`.
 - `POST /api/configurations/import` — accepts a multipart `files: list[UploadFile]` of `.json` files; response `{ "imported": <n>, "errors": [...] }`.
+
+### `/api/analytics`
+
+Read-only analysis of the locally stored corpus. Every endpoint reads the `documents`,
+`execution_documents`, `executions`, and `routines` tables — no external requests are made,
+so these work offline and consume no repository quota.
+
+| Method | Path | Returns |
+|---|---|---|
+| GET | `/api/analytics/overview` | All four sections plus the corpus summary, in one round trip. Used by the Analytics page. |
+| GET | `/api/analytics/summary` | Corpus headline counts: papers, distinct papers after de-duplication, distinct authors, sources used, completed executions, DOI coverage. |
+| GET | `/api/analytics/source-contribution` | Per source: total papers, papers unique to that source, and papers that also arrived elsewhere. Identity is DOI, falling back to a normalised title. |
+| GET | `/api/analytics/discovery-lag` | Per source: median, fastest, and slowest days between `publication_date` and `first_seen_at`. |
+| GET | `/api/analytics/routine-health` | Per routine: new results per run, consecutive runs with nothing new, and a `healthy` / `stale` / `insufficient_data` status. |
+| GET | `/api/analytics/publication-volume` | Papers per publication month. `?group_by=source\|category` (default `source`), `?months=N` (default 12). |
+
+**Thin-corpus contract.** Every payload carries `sample_size`. Any derived statistic also
+carries `sufficient`; when it is `false` the value is `null` and `insufficient_reason`
+explains why. Counts are always reported — a percentage of an empty corpus is `null`, not
+`0.0`, because a proportion of nothing is undefined rather than zero. The thresholds live
+in `implementation_scripts/analytics.py` (`MIN_SAMPLE_FOR_LAG`, `MIN_RUNS_FOR_HEALTH`,
+`STALE_RUN_THRESHOLD`) and are deliberately low: they exist to stop a single data point
+being presented as a trend, not to withhold information from a small corpus.
+
+### `/api/export`
+
+| Method | Path | Returns |
+|---|---|---|
+| GET | `/api/executions/{id}/references` | The execution's papers as `?format=bibtex\|ris\|csv`. `?only_new=true` restricts to papers that were new at the time of the run. Responds with a `Content-Disposition` attachment header. |
+| POST | `/api/export/references` | The same formats for an explicit `{"document_ids": [...], "format": "..."}` selection, for a filtered view. |
 
 ### `/api/calendar`
 

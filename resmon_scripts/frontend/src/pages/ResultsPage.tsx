@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
-import { apiClient } from '../api/client';
+import { apiClient, getBaseUrl } from '../api/client';
 import { useExecution } from '../context/ExecutionContext';
 import { useAuth } from '../context/AuthContext';
 import { useExecutionsMerged, ExecutionFilter } from '../hooks/useExecutionsMerged';
@@ -32,6 +32,7 @@ const ResultsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [error, setError] = useState('');
   const [exportPath, setExportPath] = useState('');
+  const [exportError, setExportError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { completionCounter } = useExecution();
   const { isSignedIn } = useAuth();
@@ -131,6 +132,51 @@ const ResultsPage: React.FC = () => {
     refresh();
   };
 
+  /**
+   * Download the selected executions' papers in a reference-manager format.
+   *
+   * These endpoints return plain text with a Content-Disposition header rather
+   * than JSON, so they bypass apiClient. One request per selected execution,
+   * concatenated, so selecting three runs yields one file.
+   */
+  const handleReferenceExport = async (fmt: 'bibtex' | 'ris' | 'csv') => {
+    if (selected.size === 0) return;
+    setExportError('');
+    try {
+      const ids = Array.from(selected);
+      const parts: string[] = [];
+      for (const id of ids) {
+        const resp = await fetch(
+          `${getBaseUrl()}/api/executions/${id}/references?format=${fmt}`,
+          { headers: { 'Cache-Control': 'no-store' } },
+        );
+        if (!resp.ok) {
+          throw new Error(`Export failed for execution ${id} (HTTP ${resp.status})`);
+        }
+        parts.push(await resp.text());
+      }
+      // CSV: keep the first header row only, so the file opens as one table.
+      const text = fmt === 'csv'
+        ? parts
+            .map((part, i) => (i === 0 ? part : part.split('\n').slice(1).join('\n')))
+            .join('')
+        : parts.join('\n');
+
+      const ext = fmt === 'bibtex' ? 'bib' : fmt;
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `resmon-references-${ids.join('-')}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setExportError(err?.message || 'Reference export failed.');
+    }
+  };
+
   if (loading) return <div className="page-content"><p className="text-muted">Loading executions…</p></div>;
 
   return (
@@ -141,6 +187,15 @@ const ResultsPage: React.FC = () => {
         <div className="form-actions">
           <button className="btn btn-secondary" onClick={handleExport} disabled={selected.size === 0}>
             Export Selected ({selected.size})
+          </button>
+          <button className="btn btn-secondary" onClick={() => void handleReferenceExport('bibtex')} disabled={selected.size === 0} title="Export the selected runs' papers as BibTeX">
+            BibTeX
+          </button>
+          <button className="btn btn-secondary" onClick={() => void handleReferenceExport('ris')} disabled={selected.size === 0} title="Export the selected runs' papers as RIS">
+            RIS
+          </button>
+          <button className="btn btn-secondary" onClick={() => void handleReferenceExport('csv')} disabled={selected.size === 0} title="Export the selected runs' papers as CSV">
+            CSV
           </button>
           <button className="btn btn-danger" onClick={() => setConfirmDelete(true)} disabled={selected.size === 0}>
             Delete Selected ({selected.size})
@@ -175,11 +230,34 @@ const ResultsPage: React.FC = () => {
             ),
           },
           {
-            heading: 'Exporting',
+            heading: 'Exporting a bundle to read',
             body: (
               <p>
                 Select one or more rows and click <strong>Export Selected</strong>. resmon bundles the Markdown report, a LaTeX-compiled PDF (when available), any figures, and the log into a single folder on disk. Cloud rows are read-only and cannot be exported from this table — they are served live from the cloud account.
               </p>
+            ),
+          },
+          {
+            heading: 'Exporting references to a reference manager',
+            body: (
+              <>
+                <p>
+                  The <strong>BibTeX</strong>, <strong>RIS</strong> and <strong>CSV</strong>{' '}
+                  buttons export the <em>papers</em> the selected runs found, rather than the
+                  report about them, in the formats reference managers read.
+                </p>
+                <ul>
+                  <li><strong>BibTeX</strong> — LaTeX, Overleaf, JabRef, and Zotero&rsquo;s importer.</li>
+                  <li><strong>RIS</strong> — EndNote, Papers, Mendeley, and most publisher sites.</li>
+                  <li><strong>CSV</strong> — a spreadsheet, or your own scripts.</li>
+                </ul>
+                <p>
+                  Selecting several runs produces one file containing all of them. Papers with a
+                  DOI are exported as journal articles; those without — usually preprints — are
+                  exported as generic entries, because claiming a venue resmon does not know
+                  would be worse than leaving it out.
+                </p>
+              </>
             ),
           },
         ]}
@@ -187,6 +265,10 @@ const ResultsPage: React.FC = () => {
 
       {error && <div className="form-error">{error}</div>}
       {fetchError && !error && <div className="form-error">{fetchError}</div>}
+      {exportError && (
+        <div className="form-error" role="alert">{exportError}</div>
+      )}
+
       {exportPath && (
         <div className="form-success" style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
           <span>Export saved to: {exportPath}</span>

@@ -72,7 +72,7 @@ const socialLinks: SocialLink[] = [
 ];
 
 const AboutAppTab: React.FC = () => {
-  const [backendVersion, setBackendVersion] = useState<string>('1.3.0');
+  const [backendVersion, setBackendVersion] = useState<string>('1.4.0');
 
   useEffect(() => {
     let cancelled = false;
@@ -111,49 +111,38 @@ const AboutAppTab: React.FC = () => {
       <div className="about-grid">
         <section className="about-card">
           <h3>Version</h3>
-          <p><strong>resmon</strong> version <strong>{backendVersion || '1.3.0'}</strong></p>
-          <p className="text-muted">Current release line: 1.3.x</p>
+          <p><strong>resmon</strong> version <strong>{backendVersion || '1.4.0'}</strong></p>
+          <p className="text-muted">Current release line: 1.4.x</p>
         </section>
 
         <section className="about-card">
           <h3>Recent Update</h3>
           <p>
-            <strong>Update 5</strong> — Hardening: A Clean Install That Actually Starts, a
-            Suite That Actually Finishes, and CI to Keep It That Way.
+            <strong>Update 6</strong> — Analytics: What Your Corpus Can Tell You About Itself.
           </p>
           <p className="text-muted">
-            Twenty-five defects found by installing resmon the way the README tells a new user
-            to, then running everything the project ships; twenty-four are fixed. A fresh clone could
-            not start at all, because <code>requirements.txt</code> never listed
-            <code>python-dateutil</code>. The cloud service's dependencies were pinned nowhere,
-            and behind them <code>cloud/metrics.py</code> turned out never to have parsed.
-            Reading the OS keychain had no time limit, so <code>/api/cloud/status</code> could
-            hang forever on a macOS authorisation prompt — and hung the test suite with it;
-            keyring access is now bounded. An execution could permanently strand its concurrency
-            slot when persisting progress failed, after which every Deep Dive and Deep Sweep was
-            refused with HTTP 429 while nothing was running. The shared rate limiter had no lock,
-            so concurrent sweeps issued up to four times a source's advertised request ceiling.
-            Closing the focused Monitor tab left focus on the execution that had just been
-            removed. Three renderer specs that had never had a test runner now run under Jest —
-            and caught that focus bug within minutes. Live-network tests are separated from unit
-            tests so the suite runs offline, and a GitHub Actions workflow now runs the whole
-            thing on every push. That CI then found five more defects on its own, the
-            worst of which made AI summarization unusable on any fresh install without a
-            network path to NLTK's servers: pip does not ship NLTK's corpora, the
-            bootstrap download failed silently, and every summarization attempt then died
-            with a <code>LookupError</code>. Sentence splitting now degrades to a simple
-            splitter with a warning naming the one command that installs the data.
+            A new <strong>Analytics</strong> page, computed entirely from papers resmon has
+            already collected on this machine — it makes no repository requests, costs no API
+            quota, and works offline. It shows which repositories deliver papers nothing else
+            found and which merely duplicate others; how many days each source takes to surface
+            a paper after publication, measured from resmon&rsquo;s own record of when it first
+            saw each one; whether each routine is still finding anything new, with an explicit
+            signal when one has gone quiet; and publication volume over time, stacked by source
+            or by subject category.
           </p>
           <p className="text-muted">
-            The deepest fix: resmon kept a single database connection and used it from every web
-            request thread and every background execution thread at once, which is not safe.
-            Python 3.12 exposed it reliably and older versions intermittently. Each thread now
-            opens its own connection, and <strong>Python 3.12 is supported and covered by CI</strong>
-            alongside 3.10 and 3.11.
+            Counts are always shown, but averages and percentages are held back until there is
+            enough data for them to mean something — a median of three numbers is not a finding,
+            and one quiet run does not tell you a routine is finished. Wherever a figure is
+            withheld, resmon says so and shows how close you are. On an empty corpus the page
+            explains what it will show rather than drawing empty charts.
           </p>
           <p className="text-muted">
-            One finding is documented rather than fixed: the Electron window's
-            <code>webSecurity: false</code> flag was left alone pending a proper runtime check.
+            Results &amp; Logs also gains <strong>BibTeX</strong>, <strong>RIS</strong> and
+            <strong> CSV</strong> export, so the papers a sweep found can go straight into
+            Zotero, Mendeley, EndNote or a spreadsheet. And the Electron window no longer
+            disables the browser&rsquo;s same-origin policy — a flag left over from when the
+            interface was loaded from a file rather than served locally.
           </p>
         </section>
 

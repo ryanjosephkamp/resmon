@@ -267,7 +267,14 @@ function createWindow(): void {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: false,
+      // webSecurity stays ON. It used to be disabled, from a time when the
+      // renderer was loaded over file:// and could not make cross-origin
+      // requests to the backend. The renderer is now served by a local HTTP
+      // server (startRendererServer below), so it has an ordinary
+      // http://127.0.0.1:<port> origin, and the backend answers with
+      // Access-Control-Allow-Origin: * plus Access-Control-Allow-Private-Network
+      // on both simple and preflight requests. Disabling the same-origin policy
+      // for the whole window bought nothing and cost real protection.
       // Enable the <webview> tag so the About resmon → Blog tab can embed
       // the public GitHub Pages blog at https://ryanjosephkamp.github.io/resmon/
       // in a sandboxed sub-frame. The rendered <webview> is constrained to

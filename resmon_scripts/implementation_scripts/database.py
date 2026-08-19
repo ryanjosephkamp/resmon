@@ -391,6 +391,43 @@ def update_execution_status(
     conn.commit()
 
 
+def get_execution_documents(
+    conn: sqlite3.Connection,
+    execution_id: int,
+    only_new: bool = False,
+) -> list[dict]:
+    """Return the documents an execution found, newest publication first.
+
+    ``only_new=True`` restricts the result to papers that were new to this user
+    at the time of the run, which is usually what someone wants to import into a
+    reference manager -- the rest are already in their library.
+    """
+    sql = """
+        SELECT documents.*
+        FROM documents
+        JOIN execution_documents ON execution_documents.document_id = documents.id
+        WHERE execution_documents.execution_id = ?
+    """
+    params: list = [execution_id]
+    if only_new:
+        sql += " AND execution_documents.is_new = 1"
+    sql += " ORDER BY documents.publication_date DESC, documents.id DESC"
+    return [dict(row) for row in conn.execute(sql, params).fetchall()]
+
+
+def get_documents_by_ids(conn: sqlite3.Connection, ids: list[int]) -> list[dict]:
+    """Return documents for an explicit selection of ids."""
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"SELECT * FROM documents WHERE id IN ({placeholders}) "
+        "ORDER BY publication_date DESC, id DESC",
+        [int(i) for i in ids],
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def link_execution_document(
     conn: sqlite3.Connection, exec_id: int, doc_id: int, is_new: bool = True
 ) -> None:
