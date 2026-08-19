@@ -113,6 +113,28 @@ npm run build
 
 `npm run build` chains two steps: `webpack --mode production` compiles the React renderer into `resmon_scripts/frontend/dist/renderer/`, and `tsc --project tsconfig.electron.json` transpiles the Electron main process into `resmon_scripts/frontend/dist/electron/`. Re-run `npm run build` whenever frontend or Electron-main source files change. During active development, `npm run dev:renderer` runs Webpack in watch mode against the renderer sources only.
 
+## Installing the Application
+
+To build an installable macOS app:
+
+```bash
+cd resmon_scripts/frontend
+npm run dist
+```
+
+The result is `resmon_scripts/frontend/release/mac-arm64/resmon.app`. Drag it to
+`/Applications` to install.
+
+The bundle is self-contained: `scripts/prepare-backend.js` stages the Python sources and
+builds a virtual environment inside `Contents/Resources/backend/`, so an installed resmon
+does not depend on which Python the machine has, or on the user ever having run `pip`. It
+also pre-fetches NLTK's `punkt_tab` data, so AI summarization works offline on first run.
+Expect roughly 900 MB and a few minutes for the first build; set `RESMON_REUSE_VENV=1` to
+reuse an already-built environment on subsequent builds.
+
+The build is unsigned (`identity: null`). macOS will refuse to open it on first launch —
+right-click the app, choose **Open**, then **Open** again. macOS remembers thereafter.
+
 ## Launching the Application
 
 The desktop experience is a three-process composition: the Electron main process spawns the Python FastAPI backend as a child process (or attaches to an already-running headless daemon), hosts the renderer window, and bridges OS-level capabilities through a contextBridge-exposed `window.resmonAPI` surface. All communication between the renderer and the backend is `fetch`-over-localhost JSON plus Server-Sent Events for live progress — there is no direct IPC from the renderer to Python.
