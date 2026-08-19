@@ -87,29 +87,36 @@ _EXEC_THREAD_PREFIX = "exec-"
 _JOIN_TIMEOUT_SEC = 10.0
 
 
-@pytest.fixture(autouse=True)
-def _join_execution_threads():
-    """Wait for pipeline worker threads to finish before the next test starts.
+def _join_execution_threads() -> None:
+    """Block until every pipeline worker thread has finished."""
+    for thread in list(threading.enumerate()):
+        if thread.name.startswith(_EXEC_THREAD_PREFIX) and thread.is_alive():
+            thread.join(_JOIN_TIMEOUT_SEC)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item):
+    """Wait for pipeline worker threads before any fixture teardown runs.
 
     ``_launch_execution`` runs each execution on a daemon thread named
-    ``exec-<id>`` that outlives the HTTP request. Test fixtures that close the
-    shared sqlite connection on teardown were therefore closing it out from
-    under a thread still in its ``finally`` block, producing
-    ``ProgrammingError: Cannot operate on a closed database``.
+    ``exec-<id>`` that outlives the HTTP request, and several modules define a
+    ``_fresh_db`` fixture that closes the shared sqlite connection on teardown.
+    Closing it out from under a thread still in its ``finally`` block produced
+    ``ProgrammingError: Cannot operate on a closed database`` on Python 3.10 and
+    3.11, and the blunter ``InterfaceError: bad parameter or other API misuse``
+    on 3.12 - which is how CI caught it while a local 3.11 run stayed green.
 
-    The interference is worse than a stray log line. Every test gets a fresh
-    ``:memory:`` database, so execution ids restart at 1 each time, while
-    ``progress_store`` is a module-level singleton shared across the whole
-    session. A leftover worker from the previous test finishing its cleanup
-    would delete the store entry for id 1 - which by then belongs to the
-    *current* test's execution - and take its live progress events with it.
+    This has to be a hook rather than an autouse fixture. Fixtures finalise in
+    reverse order of setup, and a conftest fixture is set up before a module's
+    own - so it would tear down *after* ``_fresh_db`` had already closed the
+    connection, which is exactly the window being closed here. ``pytest_runtest_call``
+    wraps the test body itself, so the join lands before any teardown at all.
 
-    Joining here makes each test start from a quiet process.
+    The interference is worse than a stray log line: every test gets a fresh
+    ``:memory:`` database so execution ids restart at 1, while ``progress_store``
+    is a process-wide singleton. A leftover worker's cleanup would delete the
+    store entry for id 1 belonging to the *next* test, taking its live progress
+    events with it.
     """
     yield
-    deadline_threads = [
-        t for t in threading.enumerate()
-        if t.name.startswith(_EXEC_THREAD_PREFIX) and t.is_alive()
-    ]
-    for t in deadline_threads:
-        t.join(_JOIN_TIMEOUT_SEC)
+    _join_execution_threads()
