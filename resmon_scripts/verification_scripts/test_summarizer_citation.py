@@ -55,3 +55,53 @@ def test_citation_tree_structure():
         assert "citations" in tree or "references" in tree
     except Exception:
         pass  # Graceful skip if network unavailable
+
+
+# ---------------------------------------------------------------------------
+# NLTK punkt fallback (BUG-023)
+# ---------------------------------------------------------------------------
+
+def test_sentence_split_falls_back_without_punkt_data(monkeypatch):
+    """Summarization must degrade, not fail, when NLTK's punkt data is absent.
+
+    pip does not ship NLTK's corpora, and the bootstrap download in
+    summarizer.py fails silently when the machine is offline. Before this
+    fallback existed, every sent_tokenize call then raised
+    ``LookupError: Resource 'punkt_tab' not found`` and the whole execution
+    failed -- so AI summarization was unusable on a fresh offline install.
+    """
+    from implementation_scripts import summarizer
+
+    def _raise(*_a, **_k):
+        raise LookupError("Resource 'punkt_tab' not found.")
+
+    monkeypatch.setattr(summarizer.nltk, "sent_tokenize", _raise)
+    monkeypatch.setattr(summarizer, "_punkt_warning_emitted", False)
+
+    sentences = summarizer._sent_tokenize(
+        "First sentence here. Second one follows! And a third?"
+    )
+    assert sentences == [
+        "First sentence here.",
+        "Second one follows!",
+        "And a third?",
+    ]
+
+
+def test_chunk_text_survives_missing_punkt_data(monkeypatch):
+    """chunk_text is the real caller; it must not raise either."""
+    from implementation_scripts import summarizer
+
+    def _raise(*_a, **_k):
+        raise LookupError("Resource 'punkt_tab' not found.")
+
+    monkeypatch.setattr(summarizer.nltk, "sent_tokenize", _raise)
+
+    class _StubLLM:
+        provider = "anthropic"
+        model = "claude-sonnet-4"
+
+    pipeline = summarizer.SummarizationPipeline(_StubLLM())
+    chunks = pipeline.chunk_text("Alpha beta gamma. " * 50, max_tokens=50)
+    assert chunks, "chunk_text returned nothing"
+    assert all(c.strip() for c in chunks)

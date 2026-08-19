@@ -89,6 +89,14 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+Optionally, install NLTK's sentence-tokenizer data:
+
+```bash
+python -m nltk.downloader punkt_tab
+```
+
+This is only used by AI summarization, to split abstracts into sentences before chunking. resmon attempts the download automatically on first import and falls back to a simpler regex splitter if it is unavailable, so the step is not required — but installing it explicitly gives more accurate chunk boundaries, and is worth doing if the machine will be offline or behind a firewall.
+
 The backend reads its SQLite database from `resmon.db` at the project root on first launch and creates the `resmon_reports/` subtree (`markdowns/`, `pdfs/`, `figures/`, `latex/`, `logs/`, `info_docs/`) automatically.
 
 ### Frontend Setup
