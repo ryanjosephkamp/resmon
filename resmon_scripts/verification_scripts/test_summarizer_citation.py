@@ -1,6 +1,7 @@
 # resmon_scripts/verification_scripts/test_summarizer_citation.py
 """Step 9 verification: summarization pipeline and citation graphing."""
 
+import pytest
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -44,6 +45,7 @@ def test_empty_input_handled():
     assert result is not None  # should return empty string or a message, not crash
 
 
+@pytest.mark.live_network
 def test_citation_tree_structure():
     """build_citation_tree returns a dict with expected keys (integration test)."""
     # This test requires network access to Semantic Scholar

@@ -120,3 +120,62 @@ def pytest_runtest_call(item):
     """
     yield
     _join_execution_threads()
+
+
+# ---------------------------------------------------------------------------
+# Hermeticity guard
+# ---------------------------------------------------------------------------
+#
+# Marking the live-network tests by hand is not enough on its own: two of them
+# were missed in the first pass and only surfaced when arXiv rate-limited a CI
+# runner and pytest-timeout killed the whole job. Both tests swallow their own
+# network errors, so locally they simply passed and nothing indicated that the
+# "hermetic" suite was reaching the internet.
+#
+# So the property is now checked rather than assumed. Any test without the
+# live_network marker that opens a non-loopback socket fails immediately, and
+# names itself while doing it.
+
+import socket  # noqa: E402
+
+_REAL_CONNECT = socket.socket.connect
+_REAL_CONNECT_EX = socket.socket.connect_ex
+_LOOPBACK = {"127.0.0.1", "::1", "localhost", ""}
+_allow_network = {"value": False}
+
+
+def _host_of(address):
+    return address[0] if isinstance(address, tuple) else str(address)
+
+
+def _blocked(host: str) -> OSError:
+    return OSError(
+        f"Blocked outbound connection to {host}. This test is not marked "
+        "@pytest.mark.live_network, so it must not touch the network. Either "
+        "mock the call, or mark the test live_network so it is excluded from "
+        "the default run."
+    )
+
+
+def _guarded_connect(self, address, *args, **kwargs):
+    host = _host_of(address)
+    if _allow_network["value"] or host in _LOOPBACK:
+        return _REAL_CONNECT(self, address, *args, **kwargs)
+    raise _blocked(host)
+
+
+def _guarded_connect_ex(self, address, *args, **kwargs):
+    host = _host_of(address)
+    if _allow_network["value"] or host in _LOOPBACK:
+        return _REAL_CONNECT_EX(self, address, *args, **kwargs)
+    raise _blocked(host)
+
+
+socket.socket.connect = _guarded_connect
+socket.socket.connect_ex = _guarded_connect_ex
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    """Open the network only for tests that declare they need it."""
+    _allow_network["value"] = item.get_closest_marker("live_network") is not None
