@@ -21,7 +21,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
@@ -39,6 +39,8 @@ from implementation_scripts.database import (
     delete_routine,
     get_executions,
     get_execution_by_id,
+    get_execution_documents,
+    get_documents_by_ids,
     update_execution_status,
     set_execution_saved_configuration,
     get_configurations,
@@ -95,6 +97,7 @@ from implementation_scripts.config_manager import (
 )
 from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
+from implementation_scripts import analytics, reference_export
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import admission
 from implementation_scripts.scheduler import ResmonScheduler, set_dispatcher
@@ -1909,6 +1912,137 @@ async def import_configurations(files: list[UploadFile] = File(...)):
 # ---------------------------------------------------------------------------
 # Calendar
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Reference exports (Phase 2a)
+# ---------------------------------------------------------------------------
+#
+# resmon's existing outputs -- Markdown, PDF, LaTeX -- are for reading. None of
+# them import into Zotero, Mendeley, EndNote or Papers, which is where the
+# papers a sweep found actually need to end up.
+
+
+class ReferenceExportBody(BaseModel):
+    document_ids: list[int]
+    format: str = "bibtex"
+
+
+def _reference_response(documents: list[dict], fmt: str, stem: str) -> Response:
+    try:
+        text, media_type, extension = reference_export.render(documents, fmt)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return Response(
+        content=text,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{stem}.{extension}"',
+            "X-Resmon-Document-Count": str(len(documents)),
+        },
+    )
+
+
+@app.get("/api/executions/{exec_id}/references")
+def export_execution_references(
+    exec_id: int, format: str = "bibtex", only_new: bool = False,
+):
+    """Export one execution's papers as BibTeX, RIS or CSV."""
+    conn = _get_db()
+    try:
+        if get_execution_by_id(conn, exec_id) is None:
+            raise HTTPException(404, "Execution not found")
+        documents = get_execution_documents(conn, exec_id, only_new=only_new)
+        suffix = "-new" if only_new else ""
+        return _reference_response(documents, format, f"resmon-execution-{exec_id}{suffix}")
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/export/references")
+def export_selected_references(body: ReferenceExportBody):
+    """Export an explicit selection of papers, for a filtered view."""
+    conn = _get_db()
+    try:
+        documents = get_documents_by_ids(conn, body.document_ids)
+        return _reference_response(documents, body.format, "resmon-selection")
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Analytics (Phase 2a)
+# ---------------------------------------------------------------------------
+#
+# Every endpoint here reads data already in the database -- the corpus, the
+# per-execution join table, and the routines. No external calls.
+#
+# Payloads always carry ``sample_size``, and any derived statistic carries
+# ``sufficient``. See implementation_scripts/analytics.py for the thin-corpus
+# policy: counts are always reported, medians and rates only once they mean
+# something. The interface uses those flags to say "not enough data yet" rather
+# than drawing a chart from three points.
+
+
+@app.get("/api/analytics/overview")
+def analytics_overview():
+    """Everything the Analytics page needs, in one round trip."""
+    conn = _get_db()
+    try:
+        return analytics.overview(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/summary")
+def analytics_summary():
+    conn = _get_db()
+    try:
+        return analytics.corpus_summary(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/source-contribution")
+def analytics_source_contribution():
+    """Per source: papers delivered, and how many nothing else found."""
+    conn = _get_db()
+    try:
+        return analytics.source_contribution(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/discovery-lag")
+def analytics_discovery_lag():
+    """Median days between publication and resmon first seeing each paper."""
+    conn = _get_db()
+    try:
+        return analytics.discovery_lag(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/routine-health")
+def analytics_routine_health():
+    """Per routine: new results per run, and whether it has gone quiet."""
+    conn = _get_db()
+    try:
+        return analytics.routine_health(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/publication-volume")
+def analytics_publication_volume(group_by: str = "source", months: int = 12):
+    """Papers per publication month, split by source or subject category."""
+    if group_by not in ("source", "category"):
+        raise HTTPException(400, "group_by must be 'source' or 'category'")
+    conn = _get_db()
+    try:
+        return analytics.publication_volume(conn, group_by=group_by, months=months)
+    finally:
+        _close_db(conn)
+
 
 @app.get("/api/calendar/events")
 def calendar_events(
