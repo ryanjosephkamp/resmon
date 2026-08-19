@@ -122,8 +122,8 @@ const AboutAppTab: React.FC = () => {
             Suite That Actually Finishes, and CI to Keep It That Way.
           </p>
           <p className="text-muted">
-            Twenty defects found by installing resmon the way the README tells a new user to,
-            then running everything the project ships; eighteen are fixed. A fresh clone could
+            Twenty-five defects found by installing resmon the way the README tells a new user
+            to, then running everything the project ships; twenty-three are fixed. A fresh clone could
             not start at all, because <code>requirements.txt</code> never listed
             <code>python-dateutil</code>. The cloud service's dependencies were pinned nowhere,
             and behind them <code>cloud/metrics.py</code> turned out never to have parsed.
@@ -137,7 +137,12 @@ const AboutAppTab: React.FC = () => {
             removed. Three renderer specs that had never had a test runner now run under Jest —
             and caught that focus bug within minutes. Live-network tests are separated from unit
             tests so the suite runs offline, and a GitHub Actions workflow now runs the whole
-            thing on every push.
+            thing on every push. That CI then found five more defects on its own, the
+            worst of which made AI summarization unusable on any fresh install without a
+            network path to NLTK's servers: pip does not ship NLTK's corpora, the
+            bootstrap download failed silently, and every summarization attempt then died
+            with a <code>LookupError</code>. Sentence splitting now degrades to a simple
+            splitter with a warning naming the one command that installs the data.
           </p>
           <p className="text-muted">
             Two findings are documented rather than fixed: Python 3.12 is not currently supported

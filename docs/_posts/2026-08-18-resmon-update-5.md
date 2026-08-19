@@ -17,10 +17,13 @@ categories: [updates]
 
 ## Summary
 
-Twenty defects were found by installing resmon exactly the way the README tells a
-new user to, running everything the project ships, and then reading the parts that
-had never been exercised. Eighteen are fixed. The two that remain are documented
+Twenty-five defects were found by installing resmon exactly the way the README tells
+a new user to, running everything the project ships, and then reading the parts that
+had never been exercised. Twenty-three are fixed. The two that remain are documented
 here rather than quietly left in place.
+
+Five of them were found by CI itself, after the first eighteen were already fixed —
+including the one that mattered most to users.
 
 The headline is unglamorous: **a fresh clone could not start**, and **the test
 suite could not finish**. Both are fixed, and there is now CI so neither can come
@@ -84,6 +87,31 @@ Three of them could only be found by starting from nothing:
 - **Service install/uninstall cannot hang.** The `launchctl` / `systemctl` /
   `schtasks` calls behind `POST /api/service/install` had no timeout.
 
+### AI summarization was unusable on a fresh offline install
+
+The most user-facing defect of the set, and it was CI that exposed it.
+
+`summarizer.py` bootstraps NLTK's sentence tokenizer at import, downloading the
+`punkt_tab` data if it is missing. pip does not ship NLTK's corpora, so on a fresh
+install that download is the only thing standing between a user and a working
+summarizer — and `nltk.download(quiet=True)` returns `False` on failure rather than
+raising. On a machine that is offline, behind a firewall, or simply cannot reach
+NLTK's servers, the bootstrap failed **silently**, and every later call raised
+`LookupError: Resource 'punkt_tab' not found`, failing the whole execution.
+
+So: enable AI summarization, run a sweep without a network path to NLTK, and the
+headline feature died with an error naming a Python library the user never asked
+about. The README never mentioned the data either.
+
+Sentence splitting now degrades to a regex splitter with one clear warning naming the
+exact command to install the data properly, and the README documents it as an optional
+step with an honest description of what skipping it costs.
+
+A related fix in the same file: the tiktoken encoder was wrapped in `except KeyError`,
+but tiktoken *downloads* its vocabulary, so for a known model it fails with a network
+error instead — which escaped the constructor entirely. The character-count fallback
+the class documents was unreachable in exactly the case that needed it.
+
 ### The renderer
 
 - **The Monitor page's tab focus works.** Closing the focused execution tab left
@@ -106,6 +134,12 @@ Three of them could only be found by starting from nothing:
 - **Added a `conftest.py`.** The suite raced its own background worker threads and
   reached for the developer's real keychain. It now waits for worker threads before
   any fixture teardown, and installs an in-memory keyring.
+
+- **Hermeticity is now enforced, not assumed.** Marking the live tests by hand was not
+  enough: two stragglers were missed and only surfaced when arXiv rate-limited a CI
+  runner. Both swallowed their own network errors, so locally they simply passed.
+  `conftest.py` now blocks any non-loopback socket from a test that is not marked
+  `live_network`, and the failure message names the host and says what to do.
 
 ### Continuous integration
 
@@ -133,6 +167,25 @@ Three of them could only be found by starting from nothing:
   renamed a Pydantic field that shadowed a base-class attribute. resmon's own code
   now emits no warnings.
 
+### Four flaky tests, one root cause
+
+CI failed repeatedly on the same commit while every local run passed. Each failure
+turned out to be the same pattern: **a test's scope ends at the HTTP response while
+the work continues on a daemon thread.**
+
+- A calendar-colour test's arXiv mock was restored before the background execution
+  used it, so the execution quietly queried the real API.
+- A cancel test slept a fixed second and hoped the execution had finished.
+- Fixtures closed the shared database while a worker was still writing to it.
+- Two "returns immediately" tests let their worker escape the patch scope entirely.
+  With the network blocked it then retried with backoff for longer than the
+  thread-join timeout, survived into the next test, and re-registered its execution
+  id in the process-wide progress store. Because every test gets a fresh in-memory
+  database, ids restart at 1 — so the next test's SSE read saw that id as live and
+  streamed heartbeats until the run was killed.
+
+All four are fixed, and the suite now runs green across repeated CI runs.
+
 ## Verification
 
 Measured on a fresh `git clone` into a new virtualenv, not on a working tree:
@@ -140,11 +193,11 @@ Measured on a fresh `git clone` into a new virtualenv, not on a working tree:
 | | Before | After |
 |---|---|---|
 | Clean install from `requirements.txt` | backend will not import | imports; cloud service too |
-| Backend suite | hangs indefinitely | 398 passed, 4 skipped, 36 s |
+| Backend suite | hangs indefinitely | 398 passed, 4 skipped, ~31 s |
 | Test files that can be collected | 44 of 53 | 53 of 53 |
 | Renderer tests | 3 specs, never run | 13 passing |
 | Warnings from resmon's own code | 3 | 0 |
-| CI | none | green |
+| CI | none | green on 3.10, 3.11 and the frontend, repeatedly |
 
 ## Follow-ups
 
