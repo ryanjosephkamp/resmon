@@ -67,7 +67,12 @@ jobs:
       - name: Run the hermetic test suite
         # pytest.ini deselects the live_network marker by default, so this never
         # touches a third-party API.
-        run: pytest -q
+        #
+        # -v rather than -q on purpose: pytest-timeout's dump does not name the
+        # item it killed, so a hang in quiet mode leaves only a row of dots to
+        # count. With -v the last line printed is the last test that finished,
+        # which names the culprit immediately.
+        run: pytest -v
 
   frontend:
     name: Frontend

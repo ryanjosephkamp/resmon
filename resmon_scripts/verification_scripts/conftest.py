@@ -120,6 +120,30 @@ def pytest_runtest_call(item):
     """
     yield
     _join_execution_threads()
+    _reset_progress_store()
+
+
+def _reset_progress_store() -> None:
+    """Empty the process-wide ProgressStore between tests.
+
+    ``progress_store`` is a module-level singleton, but every test gets a fresh
+    ``:memory:`` database, so execution ids restart at 1 each time. An entry left
+    behind by one test therefore collides with a *different* execution that
+    happens to get the same id in the next one.
+
+    That is not theoretical. It made the SSE tests hang intermittently on CI:
+    ``GET /api/executions/{id}/progress/stream`` streams with heartbeats and
+    never terminates while the store still considers that id live, so a stale
+    registration from an earlier test turned a batch read into an infinite
+    stream and pytest-timeout eventually killed the whole run. The same
+    collision is what BUG-018 fixed inside ``register()``; clearing here removes
+    the rest of the class rather than the one instance.
+    """
+    from implementation_scripts.progress import progress_store as _ps
+    for attr in ("_events", "_locks", "_cancel_flags", "_completed"):
+        container = getattr(_ps, attr, None)
+        if container is not None:
+            container.clear()
 
 
 # ---------------------------------------------------------------------------
