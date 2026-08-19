@@ -47,14 +47,26 @@ class SummarizationPipeline:
         model = getattr(llm_client, "model", None)
         provider = getattr(llm_client, "provider", None)
         if provider == "openai" and model:
+            # ``except Exception``, not ``except KeyError``. tiktoken downloads
+            # its BPE vocabulary on first use, so for a *known* model this call
+            # fails with a network error rather than a KeyError -- and that
+            # propagated straight out of this constructor. A user running resmon
+            # offline, or behind a firewall that blocks tiktoken's CDN, saw the
+            # whole execution fail instead of getting the character-count
+            # fallback this class documents two methods below.
             try:
                 self._tiktoken_enc = tiktoken.encoding_for_model(model)
-            except KeyError:
-                # Unknown model — fall back to cl100k_base (GPT-4 family)
+            except Exception:
+                # Unknown model, or the vocabulary could not be fetched --
+                # fall back to cl100k_base (GPT-4 family), then to the
+                # ~4 chars/token heuristic if that is unavailable too.
                 try:
                     self._tiktoken_enc = tiktoken.get_encoding("cl100k_base")
                 except Exception:
-                    pass
+                    logger.debug(
+                        "tiktoken unavailable for model %s; using the "
+                        "characters-per-token heuristic", model, exc_info=True,
+                    )
 
     # ------------------------------------------------------------------
     # Token estimation
