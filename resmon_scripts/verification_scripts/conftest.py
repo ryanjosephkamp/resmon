@@ -8,9 +8,30 @@ reached for the developer's real OS keychain.
 from __future__ import annotations
 
 import os
+import sys
 import threading
+from pathlib import Path
 
 import pytest
+
+# ---------------------------------------------------------------------------
+# Import paths
+# ---------------------------------------------------------------------------
+#
+# Three test modules import via the full package path (``from
+# resmon_scripts.cloud.rate_limit import ...``), which needs the repository root
+# on sys.path, and most of the rest import ``resmon`` and
+# ``implementation_scripts`` directly, which needs ``resmon_scripts/``.
+#
+# Both used to work only by accident: ``python -m pytest`` puts the working
+# directory on sys.path, the bare ``pytest`` console script does not. The suite
+# therefore passed locally and failed in CI with ``No module named
+# 'resmon_scripts'``. Setting both here makes the suite independent of how it
+# was invoked and from which directory.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+for _path in (_REPO_ROOT, _REPO_ROOT / "resmon_scripts"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 # ---------------------------------------------------------------------------
 # Keyring isolation

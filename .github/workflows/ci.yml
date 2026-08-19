@@ -79,7 +79,14 @@ jobs:
           cache-dependency-path: resmon_scripts/frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        # `npm install`, not `npm ci`. npm omits other platforms' optional
+        # dependencies from the lockfile - the @emnapi/* WASM fallbacks pulled in
+        # through tailwindcss - so a lockfile generated on macOS makes `npm ci`
+        # fail on the Linux runner with "Missing: @emnapi/core from lock file".
+        # The lockfile is still committed and still honoured for everything it
+        # does pin; this only relaxes the strict-equality check that npm itself
+        # cannot satisfy across platforms.
+        run: npm install --no-audit --no-fund
 
       - name: Typecheck
         run: npm run typecheck
