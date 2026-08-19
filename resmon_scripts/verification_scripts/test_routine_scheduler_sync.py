@@ -27,13 +27,12 @@ def _job_ids() -> list[str]:
     return [j["id"] for j in resmon_mod.scheduler.get_active_jobs()]
 
 
-def _routine_body(name: str, *, is_active: bool = True, execution_location: str = "local") -> dict:
+def _routine_body(name: str, *, is_active: bool = True) -> dict:
     return {
         "name": name,
         "schedule_cron": "0 8 * * *",
         "parameters": {"query": "x", "repositories": ["arxiv"]},
         "is_active": is_active,
-        "execution_location": execution_location,
     }
 
 
@@ -48,17 +47,6 @@ def test_create_active_routine_registers_job():
 def test_create_inactive_routine_does_not_register():
     with _fresh_client() as client:
         resp = client.post("/api/routines", json=_routine_body("r-inactive", is_active=False))
-        assert resp.status_code == 201
-        rid = resp.json()["id"]
-        assert str(rid) not in _job_ids()
-
-
-def test_create_cloud_routine_does_not_register_locally():
-    with _fresh_client() as client:
-        resp = client.post(
-            "/api/routines",
-            json=_routine_body("r-cloud", execution_location="cloud"),
-        )
         assert resp.status_code == 201
         rid = resp.json()["id"]
         assert str(rid) not in _job_ids()
@@ -114,29 +102,3 @@ def test_delete_routine_removes_job_before_row():
         resp = client.delete(f"/api/routines/{rid}")
         assert resp.status_code == 200
         assert str(rid) not in _job_ids()
-
-
-def test_released_to_cloud_removes_job():
-    with _fresh_client() as client:
-        rid = client.post("/api/routines", json=_routine_body("r-rel")).json()["id"]
-        assert str(rid) in _job_ids()
-        resp = client.post(f"/api/routines/{rid}/released-to-cloud")
-        assert resp.status_code == 200
-        assert str(rid) not in _job_ids()
-
-
-def test_adopt_from_cloud_registers_job():
-    with _fresh_client() as client:
-        body = {
-            "name": "r-adopt",
-            "schedule_cron": "15 10 * * *",
-            "parameters": {"query": "y"},
-            "email_enabled": False,
-            "email_ai_summary_enabled": False,
-            "ai_enabled": False,
-            "notify_on_complete": False,
-        }
-        resp = client.post("/api/routines/adopt-from-cloud", json=body)
-        assert resp.status_code == 201
-        rid = resp.json()["id"]
-        assert str(rid) in _job_ids()

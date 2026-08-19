@@ -6,9 +6,8 @@ import threading
 import time
 import functools
 from abc import ABC, abstractmethod
-from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 
@@ -18,38 +17,6 @@ logger = logging.getLogger(__name__)
 
 # Transient HTTP status codes eligible for retry
 _TRANSIENT_CODES = {429, 500, 502, 503, 504}
-
-
-# ---------------------------------------------------------------------------
-# Cloud request hook (IMPL-33 / §10.3)
-#
-# When the cloud worker installs a hook via ``cloud.rate_limit.use_cloud_hook``
-# each outbound ``safe_request`` (a) acquires a per-user / per-repo token
-# from the hook's bucket before every attempt and (b) overrides the
-# User-Agent with the polite ``resmon-cloud/...`` string so upstream
-# maintainers can identify abusive users without exposing their email.
-#
-# Default is ``None``; local desktop execution paths are unaffected.
-# ``Any`` avoids a circular import with ``cloud.rate_limit``.
-# ---------------------------------------------------------------------------
-
-_cloud_request_hook: ContextVar[Optional[Any]] = ContextVar(
-    "resmon_cloud_request_hook", default=None
-)
-
-
-def set_cloud_request_hook(hook: Optional[Any]) -> Token:
-    """Install a cloud request hook in the current context; return its token."""
-    return _cloud_request_hook.set(hook)
-
-
-def reset_cloud_request_hook(token: Token) -> None:
-    """Restore the previous hook using the token from :func:`set_cloud_request_hook`."""
-    _cloud_request_hook.reset(token)
-
-
-def get_cloud_request_hook() -> Optional[Any]:
-    return _cloud_request_hook.get()
 
 
 # ---------------------------------------------------------------------------
@@ -236,21 +203,12 @@ def safe_request(
 
     # Ensure a descriptive User-Agent — several scholarly APIs (notably
     # arXiv and CORE) return 5xx or 403 for requests with the default
-    # httpx user agent.  When a cloud request hook is installed the
-    # per-user polite User-Agent (§10.3) takes precedence over any caller-
-    # supplied UA so upstream rate-limit attribution remains stable.
+    # httpx user agent.
     headers = dict(kwargs.pop("headers", {}) or {})
-    hook = _cloud_request_hook.get()
-    if hook is not None and getattr(hook, "user_agent", None):
-        headers["User-Agent"] = hook.user_agent
-    elif not any(k.lower() == "user-agent" for k in headers):
+    if not any(k.lower() == "user-agent" for k in headers):
         headers["User-Agent"] = "resmon/1.0 (+https://github.com/rkamp-research/resmon)"
 
     for attempt in range(max_retries + 1):
-        if hook is not None:
-            # Per-user token bucket, acquired BEFORE the per-client base
-            # limiter so a noisy single user cannot starve another.
-            hook.acquire_for_url(url)
         if rate_limiter is not None:
             rate_limiter.acquire()
         try:

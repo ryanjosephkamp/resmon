@@ -52,8 +52,8 @@ jobs:
           pip install -r requirements.txt
 
       - name: Verify every module parses
-        # Catches the class of defect that kept cloud/metrics.py from ever being
-        # importable: a syntax error hidden behind a missing dependency.
+        # Catches a syntax error hidden behind a missing dependency — a module
+        # nothing imports on the happy path can stay broken indefinitely otherwise.
         run: python -m compileall -q resmon_scripts/
 
       - name: Verify the backend imports from a clean install
@@ -61,7 +61,6 @@ jobs:
         # could not start at all. This step fails immediately if that recurs.
         run: |
           PYTHONPATH=resmon_scripts python -c "import resmon; print('desktop backend OK')"
-          PYTHONPATH=resmon_scripts python -c "from cloud.app import create_app; print('cloud service OK')"
 
       - name: Run the hermetic test suite
         # pytest.ini deselects the live_network marker by default, so this never

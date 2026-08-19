@@ -1,27 +1,29 @@
-"""IMPL-37 verification — Routine ``execution_location`` toggle and migration.
+"""Routine ``execution_location`` after the cloud service was removed.
 
-Covers ``resmon_routines_and_accounts.md`` §§12.1, 14.1 and
-``resmon_implementation_guide.md`` Step 37.
+``execution_location`` used to choose between the local daemon and the
+resmon-cloud scheduler. The cloud service is gone, so ``'local'`` is the only
+value that means anything. The column itself stays: dropping it would mean
+rebuilding ``routines`` on every existing install to remove a field nothing
+reads.
 
-Hermetic FastAPI coverage (no live cloud Postgres). Round-trip verified
-through the local daemon's two new endpoints:
+Two things have to hold, and only one of them is about fresh installs:
 
-* ``POST /api/routines/adopt-from-cloud`` — creates a local routine from a
-  cloud-routine body (name, cron, parameters preserved verbatim).
-* ``POST /api/routines/{id}/released-to-cloud`` — deletes a local routine
-  after the renderer has successfully mirrored it to the cloud.
-
-Together these cover the local-only half of every "Move to Cloud" /
-"Move to Local" flow. The cloud-side POST/DELETE is exercised by
-``test_cloud_routines_worker.py`` and ``test_cloud_skeleton.py``.
+1.  Nothing can create or update a routine to ``'cloud'`` any more. A routine
+    marked that way would show as active in the UI and never fire, because the
+    scheduler that was supposed to run it no longer exists.
+2.  A database that *already* has such a routine is repaired on upgrade. This
+    is the half CI cannot catch on its own -- every other test starts from an
+    empty database -- and it is the same gap that let the 1.5.0 upgrade P0
+    through. See ``test_schema_upgrade.py``.
 """
 
 from __future__ import annotations
 
-import json
+import sqlite3
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -43,8 +45,18 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
+def _routine_body(name: str, **extra) -> dict:
+    body = {
+        "name": name,
+        "schedule_cron": "0 8 * * *",
+        "parameters": {"query": "cardiac regeneration", "repositories": ["arxiv"]},
+    }
+    body.update(extra)
+    return body
+
+
 # ---------------------------------------------------------------------------
-# Migration: execution_location column
+# The column survives; the second value does not
 # ---------------------------------------------------------------------------
 
 
@@ -54,197 +66,201 @@ def test_execution_location_column_exists_with_correct_default():
     conn = resmon_mod._get_db()
     cols = {row[1]: row for row in conn.execute("PRAGMA table_info(routines)").fetchall()}
     assert "execution_location" in cols, "execution_location column missing"
-    # Column 4 is dflt_value, column 3 is notnull.
+    # Column 3 is notnull, column 4 is dflt_value.
     col = cols["execution_location"]
     assert col[3] == 1, "execution_location must be NOT NULL"
     assert "local" in str(col[4]), f"default must be 'local', got {col[4]!r}"
 
 
-def test_schema_version_bumped_to_3():
-    # Update 3 / 4_27_26 bumped SCHEMA_VERSION to 4 (added
-    # ``executions.saved_configuration_id``). The test name is preserved
-    # for git-blame stability; assertion now reads from the constant so
-    # it tracks future bumps.
+def test_schema_version_tracks_the_constant():
     client = _client()
     client.get("/api/health")
     conn = resmon_mod._get_db()
     assert database.get_schema_version(conn) == database.SCHEMA_VERSION
-    assert database.SCHEMA_VERSION >= 3
+    # 5 removed the four cloud-mirror tables.
+    assert database.SCHEMA_VERSION >= 5
 
 
-def test_execution_location_check_constraint_rejects_invalid():
+def test_create_routine_is_local():
+    client = _client()
+    resp = client.post("/api/routines", json=_routine_body("Plain"))
+    assert resp.status_code == 201
+    rid = resp.json()["id"]
+    row = client.get(f"/api/routines/{rid}").json()
+    assert row["execution_location"] == "local"
+
+
+def test_execution_location_is_not_a_request_field():
+    """A stray ``execution_location`` in the body cannot make a routine cloud.
+
+    Pydantic ignores unknown fields by default, so this asserts the outcome
+    rather than a 422: whatever a caller sends, the routine lands local and
+    therefore actually runs.
+    """
+    client = _client()
+    resp = client.post(
+        "/api/routines", json=_routine_body("Sneaky", execution_location="cloud"),
+    )
+    assert resp.status_code == 201
+    rid = resp.json()["id"]
+    assert client.get(f"/api/routines/{rid}").json()["execution_location"] == "local"
+
+    resp = client.put(f"/api/routines/{rid}", json={"execution_location": "cloud"})
+    assert resp.status_code == 200
+    assert client.get(f"/api/routines/{rid}").json()["execution_location"] == "local"
+
+
+def test_database_layer_rejects_cloud_directly():
+    """The guard lives in ``database``, not only in the request model."""
     client = _client()
     client.get("/api/health")
     conn = resmon_mod._get_db()
-    # Insert with a valid value first to confirm the column accepts 'local'.
-    conn.execute(
-        "INSERT INTO routines (name, schedule_cron, parameters, execution_location) "
-        "VALUES (?, ?, ?, ?)",
-        ("ok", "0 8 * * *", "{}", "local"),
+
+    with pytest.raises(ValueError, match="must be 'local'"):
+        database.insert_routine(conn, {
+            "name": "direct", "schedule_cron": "0 8 * * *",
+            "parameters": "{}", "execution_location": "cloud",
+        })
+
+    rid = database.insert_routine(conn, {
+        "name": "ok", "schedule_cron": "0 8 * * *", "parameters": "{}",
+    })
+    with pytest.raises(ValueError, match="must be 'local'"):
+        database.update_routine(conn, rid, {"execution_location": "cloud"})
+
+
+def test_active_local_routine_is_scheduled():
+    """The scheduler used to skip cloud routines. Nothing is skipped now."""
+    client = _client()
+    resp = client.post("/api/routines", json=_routine_body("Runs", is_active=True))
+    rid = resp.json()["id"]
+    if resmon_mod.scheduler is not None:
+        assert str(rid) in [j["id"] for j in resmon_mod.scheduler.get_active_jobs()]
+
+
+# ---------------------------------------------------------------------------
+# Upgrading a database that still has a cloud routine in it
+# ---------------------------------------------------------------------------
+
+# ``routines`` as an install from before this release would have it: the
+# CHECK constraint still admits 'cloud', and a row may be sitting on it.
+LEGACY_ROUTINES_SCHEMA = """
+CREATE TABLE routines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    schedule_cron TEXT NOT NULL,
+    parameters TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    email_enabled INTEGER NOT NULL DEFAULT 0,
+    email_ai_summary_enabled INTEGER NOT NULL DEFAULT 0,
+    ai_enabled INTEGER NOT NULL DEFAULT 0,
+    ai_settings TEXT,
+    storage_settings TEXT,
+    last_executed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    notify_on_complete INTEGER NOT NULL DEFAULT 0,
+    execution_location TEXT NOT NULL DEFAULT 'local'
+        CHECK (execution_location IN ('local', 'cloud'))
+);
+"""
+
+
+@pytest.fixture
+def legacy_conn():
+    c = sqlite3.connect(":memory:")
+    c.row_factory = sqlite3.Row
+    c.executescript(LEGACY_ROUTINES_SCHEMA)
+    c.executemany(
+        "INSERT INTO routines (name, schedule_cron, parameters, is_active, "
+        "execution_location) VALUES (?,?,?,?,?)",
+        [
+            ("stranded-on-cloud", "0 6 * * *", "{}", 1, "cloud"),
+            ("already-local", "0 7 * * *", "{}", 1, "local"),
+            ("inactive-cloud", "0 8 * * *", "{}", 0, "cloud"),
+        ],
     )
-    conn.commit()
-    # Direct SQL with an out-of-domain value must fail the CHECK.
-    import sqlite3 as _sqlite
-    raised = False
-    try:
-        conn.execute(
-            "INSERT INTO routines (name, schedule_cron, parameters, execution_location) "
-            "VALUES (?, ?, ?, ?)",
-            ("bad", "0 8 * * *", "{}", "edge"),
-        )
-        conn.commit()
-    except _sqlite.IntegrityError:
-        raised = True
-    assert raised, "CHECK constraint must reject execution_location='edge'"
+    c.commit()
+    return c
 
 
-# ---------------------------------------------------------------------------
-# /api/routines accepts and returns execution_location
-# ---------------------------------------------------------------------------
-
-
-def test_create_routine_defaults_to_local():
-    client = _client()
-    resp = client.post("/api/routines", json={
-        "name": "Plain",
-        "schedule_cron": "0 8 * * *",
-        "parameters": {"keywords": ["x"]},
-    })
-    assert resp.status_code in (200, 201), resp.text
-    rid = resp.json()["id"]
-    listed = client.get("/api/routines").json()
-    row = next(r for r in listed if r["id"] == rid)
-    assert row["execution_location"] == "local"
-
-
-def test_create_routine_with_explicit_cloud_location():
-    client = _client()
-    resp = client.post("/api/routines", json={
-        "name": "Cloudy",
-        "schedule_cron": "0 9 * * *",
-        "parameters": {"keywords": ["y"]},
-        "execution_location": "cloud",
-    })
-    assert resp.status_code in (200, 201), resp.text
-    rid = resp.json()["id"]
-    row = next(r for r in client.get("/api/routines").json() if r["id"] == rid)
-    assert row["execution_location"] == "cloud"
-
-
-def test_create_routine_rejects_unknown_location():
-    client = _client()
-    resp = client.post("/api/routines", json={
-        "name": "Bad",
-        "schedule_cron": "0 9 * * *",
-        "parameters": {},
-        "execution_location": "edge",
-    })
-    assert resp.status_code == 400
-
-
-def test_update_routine_can_flip_location():
-    client = _client()
-    rid = client.post("/api/routines", json={
-        "name": "Flip",
-        "schedule_cron": "0 7 * * *",
-        "parameters": {},
-    }).json()["id"]
-    resp = client.put(f"/api/routines/{rid}", json={"execution_location": "cloud"})
-    assert resp.status_code == 200, resp.text
-    row = next(r for r in client.get("/api/routines").json() if r["id"] == rid)
-    assert row["execution_location"] == "cloud"
-
-
-# ---------------------------------------------------------------------------
-# Migration endpoints
-# ---------------------------------------------------------------------------
-
-
-def test_released_to_cloud_deletes_local_routine():
-    client = _client()
-    rid = client.post("/api/routines", json={
-        "name": "ToBeReleased",
-        "schedule_cron": "0 8 * * *",
-        "parameters": {"keywords": ["z"]},
-    }).json()["id"]
-    resp = client.post(f"/api/routines/{rid}/released-to-cloud")
-    assert resp.status_code == 200, resp.text
-    assert resp.json() == {"released": True, "id": rid}
-    assert all(r["id"] != rid for r in client.get("/api/routines").json())
-
-
-def test_released_to_cloud_404_for_unknown():
-    client = _client()
-    resp = client.post("/api/routines/9999/released-to-cloud")
-    assert resp.status_code == 404
-
-
-def test_adopt_from_cloud_preserves_name_cron_parameters_exactly():
-    client = _client()
-    cloud_body = {
-        "name": "Cloud routine α",
-        "schedule_cron": "*/15 8-18 * * 1-5",
-        "parameters": {
-            "repositories": ["arxiv", "openalex"],
-            "keywords": ["graph neural network", "diffusion"],
-            "max_results": 250,
-            "date_from": "2026-01-01",
-            "nested": {"k": [1, 2, 3]},
-        },
-        "email_enabled": True,
-        "ai_enabled": True,
-        "notify_on_complete": True,
+def test_upgrade_repoints_cloud_routines_at_the_local_scheduler(legacy_conn):
+    before = {
+        r["name"]: r["execution_location"]
+        for r in legacy_conn.execute(
+            "SELECT name, execution_location FROM routines"
+        ).fetchall()
     }
-    resp = client.post("/api/routines/adopt-from-cloud", json=cloud_body)
-    assert resp.status_code == 201, resp.text
-    rid = resp.json()["id"]
-    assert resp.json()["execution_location"] == "local"
+    assert before["stranded-on-cloud"] == "cloud", "fixture should start dirty"
 
-    row = next(r for r in client.get("/api/routines").json() if r["id"] == rid)
-    assert row["name"] == cloud_body["name"]
-    assert row["schedule_cron"] == cloud_body["schedule_cron"]
-    assert json.loads(row["parameters"]) == cloud_body["parameters"]
-    assert row["execution_location"] == "local"
-    assert row["email_enabled"] == 1
-    assert row["ai_enabled"] == 1
-    assert row["notify_on_complete"] == 1
+    database.init_db(conn=legacy_conn)
 
-
-def test_round_trip_local_to_cloud_to_local_preserves_everything():
-    """Simulate the full round-trip: create local → release-to-cloud →
-    adopt-from-cloud (with cloud-shaped body) → assert lossless preservation
-    of name, cron, parameters."""
-    client = _client()
-    original_params = {
-        "repositories": ["arxiv"],
-        "keywords": ["protein folding"],
-        "max_results": 100,
-        "date_from": "2026-04-01",
-        "date_to": "2026-04-30",
-        "query": "protein folding",
+    after = {
+        r["name"]: r["execution_location"]
+        for r in legacy_conn.execute(
+            "SELECT name, execution_location FROM routines"
+        ).fetchall()
     }
-    original_name = "Round Trip"
-    original_cron = "0 9 * * MON"
-    rid = client.post("/api/routines", json={
-        "name": original_name,
-        "schedule_cron": original_cron,
-        "parameters": original_params,
-    }).json()["id"]
+    assert after == {
+        "stranded-on-cloud": "local",
+        "already-local": "local",
+        "inactive-cloud": "local",
+    }
 
-    # Stage 1: release the local copy (simulates cloud POST having succeeded).
-    client.post(f"/api/routines/{rid}/released-to-cloud")
-    assert all(r["id"] != rid for r in client.get("/api/routines").json())
 
-    # Stage 2: adopt back from a cloud-shaped body.
-    resp = client.post("/api/routines/adopt-from-cloud", json={
-        "name": original_name,
-        "schedule_cron": original_cron,
-        "parameters": original_params,
-    })
-    assert resp.status_code == 201, resp.text
-    new_rid = resp.json()["id"]
-    row = next(r for r in client.get("/api/routines").json() if r["id"] == new_rid)
-    assert row["name"] == original_name
-    assert row["schedule_cron"] == original_cron
-    assert json.loads(row["parameters"]) == original_params
-    assert row["execution_location"] == "local"
+def test_upgrade_preserves_everything_else_about_the_routine(legacy_conn):
+    database.init_db(conn=legacy_conn)
+    row = legacy_conn.execute(
+        "SELECT * FROM routines WHERE name = 'stranded-on-cloud'"
+    ).fetchone()
+    assert row["schedule_cron"] == "0 6 * * *"
+    assert row["is_active"] == 1
+    assert row["parameters"] == "{}"
+
+
+def test_upgrade_is_idempotent(legacy_conn):
+    database.init_db(conn=legacy_conn)
+    database.init_db(conn=legacy_conn)
+    locations = [
+        r["execution_location"]
+        for r in legacy_conn.execute("SELECT execution_location FROM routines").fetchall()
+    ]
+    assert locations == ["local", "local", "local"]
+
+
+def test_upgrade_drops_no_cloud_mirror_data_it_finds(legacy_conn):
+    """Old databases keep their mirror tables; the upgrade just stops using them.
+
+    The cloud service never ran, so these tables are empty everywhere in
+    practice. Leaving them alone is still the right call -- an upgrade should
+    not drop tables it no longer understands.
+    """
+    legacy_conn.executescript(
+        "CREATE TABLE cloud_routines (routine_id TEXT PRIMARY KEY, name TEXT);"
+    )
+    legacy_conn.execute(
+        "INSERT INTO cloud_routines (routine_id, name) VALUES ('abc', 'leftover')"
+    )
+    legacy_conn.commit()
+
+    database.init_db(conn=legacy_conn)
+
+    still_there = legacy_conn.execute(
+        "SELECT name FROM cloud_routines WHERE routine_id = 'abc'"
+    ).fetchone()
+    assert still_there is not None and still_there["name"] == "leftover"
+
+
+def test_fresh_database_has_no_cloud_mirror_tables():
+    client = _client()
+    client.get("/api/health")
+    conn = resmon_mod._get_db()
+    tables = {
+        r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    for gone in ("cloud_executions", "cloud_routines", "cloud_cache_meta", "sync_state"):
+        assert gone not in tables, f"{gone} should not be created any more"
+    # The Google Drive table is a different feature and stays.
+    assert "cloud_sync" in tables
