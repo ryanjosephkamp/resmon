@@ -125,9 +125,23 @@ function findFreePort(): Promise<number> {
 
 /** Spawn the Python backend and return the child process. */
 function startBackend(port: number): ChildProcess {
-  const scriptDir = path.resolve(__dirname, '..', '..', '..');
+  // Where the Python backend lives depends on whether we are running from a
+  // checkout or from an installed .app.
+  //
+  //   development  frontend/dist/electron/  ->  ../../..  ->  resmon_scripts/
+  //   packaged     Contents/Resources/backend/resmon_scripts/
+  //
+  // The packaged copy ships its own virtual environment beside it, so an
+  // installed resmon does not depend on what Python the machine happens to
+  // have, or on the user ever having run pip.
+  const scriptDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'backend', 'resmon_scripts')
+    : path.resolve(__dirname, '..', '..', '..');
   const resmonScript = path.join(scriptDir, 'resmon.py');
-  const pythonPath = process.env.RESMON_PYTHON || 'python3';
+  const bundledPython = path.join(process.resourcesPath, 'backend', 'venv', 'bin', 'python3');
+  const pythonPath =
+    process.env.RESMON_PYTHON ||
+    (app.isPackaged && fs.existsSync(bundledPython) ? bundledPython : 'python3');
 
   // Update 4 / Fix D — A renderer-spawned fallback backend must NOT own
   // a ResmonScheduler. The launchd daemon is the sole scheduler owner;

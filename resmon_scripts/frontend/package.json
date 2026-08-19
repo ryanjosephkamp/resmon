@@ -11,7 +11,9 @@
     "dev:renderer": "webpack --mode development --watch",
     "typecheck": "tsc --noEmit",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "prepare:backend": "node scripts/prepare-backend.js",
+    "dist": "npm run build && electron-builder --mac --publish never"
   },
   "keywords": [],
   "author": "",
@@ -47,5 +49,38 @@
     "webpack": "^5.106.2",
     "webpack-cli": "^7.0.2",
     "webpack-dev-server": "^5.2.3"
+  },
+  "build": {
+    "appId": "com.resmon.app",
+    "productName": "resmon",
+    "copyright": "Ryan Kamp",
+    "directories": {
+      "output": "release",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build-resources/backend",
+        "to": "backend"
+      }
+    ],
+    "beforePack": "scripts/prepare-backend.js",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": null
+    },
+    "asar": true
   }
 }
