@@ -1,4 +1,5 @@
 # resmon_scripts/verification_scripts/test_api_tier2_3.py
+import pytest
 import sys
 from pathlib import Path
 
@@ -45,6 +46,7 @@ def test_each_client_instantiates():
         assert client.get_name() is not None
 
 
+@pytest.mark.live_network
 def test_hal_search():
     """HAL client returns results."""
     client = get_client("hal")
@@ -54,6 +56,7 @@ def test_hal_search():
         assert isinstance(results[0], NormalizedResult)
 
 
+@pytest.mark.live_network
 def test_tier3_graceful_failure():
     """Tier 3 clients return empty list on scraping failure (no crash)."""
     for name in ["ieee"]:

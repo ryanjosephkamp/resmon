@@ -1,4 +1,5 @@
 # resmon_scripts/verification_scripts/test_api_framework.py
+import pytest
 import sys
 from pathlib import Path
 
@@ -44,6 +45,7 @@ def test_base_client_is_abstract():
         BaseAPIClient()
 
 
+@pytest.mark.live_network
 def test_arxiv_client_search():
     """arXiv client returns NormalizedResult objects for a known query."""
     from implementation_scripts.api_arxiv import ArxivClient
@@ -56,6 +58,7 @@ def test_arxiv_client_search():
         assert results[0].source_repository == "arxiv"
 
 
+@pytest.mark.live_network
 def test_crossref_client_search():
     """CrossRef client returns NormalizedResult objects for a known query."""
     from implementation_scripts.api_crossref import CrossrefClient
@@ -68,6 +71,7 @@ def test_crossref_client_search():
         assert results[0].source_repository == "crossref"
 
 
+@pytest.mark.live_network
 def test_semantic_scholar_client_search():
     """Semantic Scholar client returns NormalizedResult objects."""
     from implementation_scripts.api_semantic_scholar import SemanticScholarClient

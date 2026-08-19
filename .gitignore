@@ -167,3 +167,6 @@ resmon.app/
 *.local.json
 *.local.yaml
 local_settings.py
+
+# Jest
+coverage/
