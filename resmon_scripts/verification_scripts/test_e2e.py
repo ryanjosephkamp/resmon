@@ -680,16 +680,24 @@ def test_e2e_calendar_events(client, tmp_reports):
             "query": "calendar test",
             "max_results": 2,
         })
-    success_id = ok_resp.json()["execution_id"]
+        success_id = ok_resp.json()["execution_id"]
 
-    # Background execution – poll until finished so the execution row
-    # reaches a terminal status before we read the calendar.
-    import time as _time
-    for _ in range(50):
-        exec_resp = client.get(f"/api/executions/{success_id}")
-        if exec_resp.json().get("status") in ("completed", "failed"):
-            break
-        _time.sleep(0.1)
+        # Background execution – poll until finished so the execution row
+        # reaches a terminal status before we read the calendar.
+        #
+        # This loop has to stay INSIDE the patch context. The dive runs on a
+        # background thread, so when the `with` block exited straight after the
+        # POST, the mocked get_client was already restored by the time the
+        # worker called it -- and the execution quietly queried the real arXiv
+        # API instead. It passed locally, where that request succeeds and the
+        # calendar event comes back green; on a CI runner with no network the
+        # execution failed and the event was blue, which is what exposed it.
+        import time as _time
+        for _ in range(50):
+            exec_resp = client.get(f"/api/executions/{success_id}")
+            if exec_resp.json().get("status") in ("completed", "failed"):
+                break
+            _time.sleep(0.1)
 
     # ---- failed execution (inserted directly) → red ----
     conn = resmon_mod._get_db()
