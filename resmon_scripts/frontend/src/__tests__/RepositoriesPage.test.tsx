@@ -31,7 +31,10 @@ describe('RepositoriesPage', () => {
   test('renders the catalog with key-requirement status', async () => {
     mockRoutedFetch({
       '/api/repositories/catalog': CATALOG,
-      '/api/credentials': { core_api_key: { present: true } },
+      '/api/credentials': {
+        keyring_responsive: true,
+        credentials: { core_api_key: { present: true, status: 'present' } },
+      },
     });
     await renderWithProviders(<RepositoriesPage />);
 
@@ -42,13 +45,46 @@ describe('RepositoriesPage', () => {
   test('the credential scope selector from the cloud era is gone', async () => {
     mockRoutedFetch({
       '/api/repositories/catalog': CATALOG,
-      '/api/credentials': {},
+      '/api/credentials': { keyring_responsive: true, credentials: {} },
     });
     await renderWithProviders(<RepositoriesPage />);
 
     expect(screen.queryByText('This device (keyring)')).not.toBeInTheDocument();
     expect(screen.queryByText('Cloud account')).not.toBeInTheDocument();
     expect(screen.queryByRole('tablist', { name: 'Credential scope' })).not.toBeInTheDocument();
+  });
+
+  test('an unreadable keychain is reported as such, never as "no key saved"', async () => {
+    // The 1.7 contract: an unsigned macOS build denied access to its own
+    // keychain items must not tell the user their keys are gone.
+    mockRoutedFetch({
+      '/api/repositories/catalog': CATALOG,
+      '/api/credentials': {
+        keyring_responsive: false,
+        credentials: {
+          core_api_key: { present: false, status: 'unreadable' },
+        },
+      },
+    });
+    await renderWithProviders(<RepositoriesPage />);
+
+    expect(screen.getByText(/keychain is not responding/i)).toBeInTheDocument();
+    expect(screen.getByText(/still there/i)).toBeInTheDocument();
+    // Both the banner and the row badge say it; the row badge is the one
+    // that replaces the old, wrong 'no key saved' affordance.
+    expect(screen.getByText(/Unreadable — the keychain did not answer/)).toBeInTheDocument();
+  });
+
+  test('a responsive keychain shows no warning banner', async () => {
+    mockRoutedFetch({
+      '/api/repositories/catalog': CATALOG,
+      '/api/credentials': {
+        keyring_responsive: true,
+        credentials: { core_api_key: { present: true, status: 'present' } },
+      },
+    });
+    await renderWithProviders(<RepositoriesPage />);
+    expect(screen.queryByText(/keychain is not responding/i)).not.toBeInTheDocument();
   });
 
   test('a failed catalog load surfaces an error instead of a blank page', async () => {

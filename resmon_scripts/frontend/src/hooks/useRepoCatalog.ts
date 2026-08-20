@@ -18,13 +18,15 @@ interface RepoCatalogState {
 export function useRepoCatalog(): RepoCatalogState {
   const [catalog, setCatalog] = useState<RepoCatalogEntry[]>([]);
   const [presence, setPresence] = useState<CredentialPresenceMap>({});
+  const [keyringResponsive, setKeyringResponsive] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const refreshPresence = useCallback(async () => {
     try {
-      const p = await repositoriesApi.getCredentialsPresence();
-      setPresence(p);
+      const res = await repositoriesApi.getCredentials();
+      setPresence(res.credentials);
+      setKeyringResponsive(res.keyring_responsive);
     } catch (err: any) {
       setError(err?.message || 'Failed to load credential presence.');
     }
@@ -36,11 +38,12 @@ export function useRepoCatalog(): RepoCatalogState {
       try {
         const [cat, pres] = await Promise.all([
           repositoriesApi.getCatalog(),
-          repositoriesApi.getCredentialsPresence(),
+          repositoriesApi.getCredentials(),
         ]);
         if (cancelled) return;
         setCatalog(cat);
-        setPresence(pres);
+        setPresence(pres.credentials);
+        setKeyringResponsive(pres.keyring_responsive);
       } catch (err: any) {
         if (!cancelled) setError(err?.message || 'Failed to load catalog.');
       } finally {

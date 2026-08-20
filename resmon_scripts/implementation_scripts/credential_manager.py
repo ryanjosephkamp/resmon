@@ -4,6 +4,7 @@
 import logging
 import os
 import threading
+import time
 
 import keyring
 import httpx
@@ -33,24 +34,69 @@ _SERVICE = APP_NAME  # "resmon"
 # released: the orphaned thread finishes in the background once the prompt is
 # answered or the backend gives up.
 #
-# Reads degrade to "credential not present", which is the safe direction — the
-# caller behaves exactly as it would for an unset key. Writes and deletes raise,
-# because silently reporting success for a credential that was never stored
-# would be a lie the user acts on.
+# Reads degrade to "credential not present" for callers that just want a value —
+# the caller behaves exactly as it would for an unset key. Writes and deletes
+# raise, because silently reporting success for a credential that was never
+# stored would be a lie the user acts on.
+#
+# But "absent" and "unreadable" are NOT the same thing, and conflating them is
+# its own lie. On macOS the keychain binds access to an app's code signature,
+# so an unsigned build — which ships a differently-signed interpreter on every
+# release — is denied access to items an earlier build stored, and the denial
+# arrives as a prompt no background process can answer. The user's keys are
+# right there and the app reports "no key set". ``probe_credential`` exists so
+# callers that report status to a human can tell the truth instead.
+#
+# The breaker below exists because the timeout alone is not enough: a presence
+# sweep over fifteen credential names would pay it once per stored key. After a
+# read times out, subsequent READS fail fast for a cooldown window. Writes and
+# deletes always attempt — those are user-initiated, a prompt may well surface
+# for a foreground action, and failing one instantly would be its own lie.
 
 _KEYRING_TIMEOUT_SEC = float(os.environ.get("RESMON_KEYRING_TIMEOUT", "5.0"))
+_KEYRING_COOLDOWN_SEC = float(os.environ.get("RESMON_KEYRING_COOLDOWN", "30.0"))
+
+_breaker_lock = threading.Lock()
+_keyring_blocked_until: float = 0.0
 
 
 class KeyringTimeout(RuntimeError):
     """Raised when an OS keyring write or delete exceeds its time budget."""
 
 
-def _call_keyring(op: str, fn, *args):
+def _breaker_is_open() -> bool:
+    with _breaker_lock:
+        return time.monotonic() < _keyring_blocked_until
+
+
+def _trip_breaker() -> None:
+    global _keyring_blocked_until
+    with _breaker_lock:
+        _keyring_blocked_until = time.monotonic() + _KEYRING_COOLDOWN_SEC
+
+
+def _reset_breaker() -> None:
+    global _keyring_blocked_until
+    with _breaker_lock:
+        _keyring_blocked_until = 0.0
+
+
+def keyring_is_responsive() -> bool:
+    """False while reads are failing fast after a recent timeout."""
+    return not _breaker_is_open()
+
+
+def _call_keyring(op: str, fn, *args, honour_breaker: bool = False):
     """Run ``fn(*args)`` on a daemon thread, bounded by the keyring timeout.
 
     Returns ``(ok, value)``. ``ok`` is False only on timeout. Exceptions raised
-    by the backend propagate to the caller unchanged.
+    by the backend propagate to the caller unchanged. With ``honour_breaker``
+    the call short-circuits while the breaker is open — reads pass True, so a
+    sweep costs one timeout rather than one per stored credential.
     """
+    if honour_breaker and _breaker_is_open():
+        return False, None
+
     box: dict = {}
 
     def _target() -> None:
@@ -70,10 +116,12 @@ def _call_keyring(op: str, fn, *args):
             "unblock subsequent calls.",
             op, _KEYRING_TIMEOUT_SEC, _SERVICE,
         )
+        _trip_breaker()
         return False, None
 
     if "error" in box:
         raise box["error"]
+    _reset_breaker()
     return True, box.get("value")
 
 
@@ -123,12 +171,42 @@ def store_credential(key_name: str, value: str) -> None:
     logger.info("Credential stored: %s (service=%s)", key_name, _SERVICE)
 
 
-def get_credential(key_name: str) -> str | None:
-    """Retrieve a credential from the OS keyring. Returns None if not found."""
-    ok, value = _call_keyring("get_password", keyring.get_password, _SERVICE, key_name)
+# Outcomes of a credential probe. "unreadable" means the keyring did not
+# answer — the credential may well be there.
+PRESENT = "present"
+ABSENT = "absent"
+UNREADABLE = "unreadable"
+
+
+def probe_credential(key_name: str) -> str:
+    """Return PRESENT, ABSENT or UNREADABLE for ``key_name``.
+
+    Unlike :func:`get_credential`, this never collapses "the keyring would not
+    answer" into "the user has not set this". Anything reporting credential
+    status to a human should use it.
+    """
+    ok, value = _call_keyring(
+        "get_password", keyring.get_password, _SERVICE, key_name,
+        honour_breaker=True,
+    )
     if not ok:
-        # Treated as absent: the caller then behaves exactly as it would for a
-        # key the user has not set, instead of blocking the request forever.
+        return UNREADABLE
+    return PRESENT if value is not None else ABSENT
+
+
+def get_credential(key_name: str) -> str | None:
+    """Retrieve a credential from the OS keyring. Returns None if not found.
+
+    A keyring that will not answer is reported as absent here, which is the
+    safe direction for callers that need a *value*: they behave exactly as
+    they would for an unset key instead of blocking. Callers that report
+    status to a human want :func:`probe_credential` instead.
+    """
+    ok, value = _call_keyring(
+        "get_password", keyring.get_password, _SERVICE, key_name,
+        honour_breaker=True,
+    )
+    if not ok:
         return None
     if value is None:
         logger.debug("Credential not found: %s (service=%s)", key_name, _SERVICE)

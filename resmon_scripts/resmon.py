@@ -58,6 +58,9 @@ from implementation_scripts.database import (
 from implementation_scripts.credential_manager import (
     store_credential,
     get_credential,
+    probe_credential,
+    keyring_is_responsive,
+    PRESENT,
     delete_credential,
     validate_api_key,
     push_ephemeral,
@@ -404,16 +407,31 @@ def repositories_catalog():
 
 @app.get("/api/credentials")
 def credentials_presence():
-    """Return {name: {"present": bool}} for every known credential name.
+    """Return per-credential status for every known credential name.
 
     Never returns the raw credential value.
+
+    Each entry carries ``present`` (kept for compatibility) and ``status``,
+    which is ``present``, ``absent`` or ``unreadable``. The last one matters:
+    an unsigned macOS build is denied access to keychain items an earlier
+    build stored, and reporting that as "absent" tells the user their keys
+    are gone when they are simply unreachable. ``keyring_responsive`` is
+    False once a read has timed out, so the interface can say so once at the
+    top rather than fifteen times over.
     """
     names = sorted(
         catalog_credential_names()
         | AI_CREDENTIAL_NAMES
         | SMTP_CREDENTIAL_NAMES
     )
-    return {name: {"present": get_credential(name) is not None} for name in names}
+    statuses = {name: probe_credential(name) for name in names}
+    return {
+        "keyring_responsive": keyring_is_responsive(),
+        "credentials": {
+            name: {"present": status == PRESENT, "status": status}
+            for name, status in statuses.items()
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
