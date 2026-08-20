@@ -25,6 +25,7 @@
     "@fullcalendar/interaction": "^6.1.20",
     "@fullcalendar/react": "^6.1.20",
     "@fullcalendar/timegrid": "^6.1.20",
+    "electron-updater": "^6.8.9",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-router-dom": "^7.14.1",
@@ -117,6 +118,13 @@
       "artifactName": "resmon-${version}-${arch}.${ext}",
       "category": "Science",
       "maintainer": "Ryan Kamp"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ryanjosephkamp",
+        "repo": "resmon"
+      }
+    ]
   }
 }

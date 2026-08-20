@@ -133,6 +133,12 @@ npm run dist
 
 CI builds all three through `.github/workflows/release.yml` on every version tag.
 
+**Auto-update:** Windows and Linux installs check GitHub Releases shortly after launch
+and every six hours, download in the background, and apply on restart (a dialog offers
+restart-now). macOS cannot self-update while builds are unsigned — Gatekeeper's update
+machinery validates signatures — so macOS users install new versions manually until
+code signing lands.
+
 The bundle is self-contained: `scripts/prepare-backend.js` stages the Python sources and
 builds a virtual environment inside `Contents/Resources/backend/`, so an installed resmon
 does not depend on which Python the machine has, or on the user ever having run `pip`. It
