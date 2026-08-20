@@ -175,10 +175,14 @@ function startBackend(port: number): ChildProcess {
     ? path.join(process.resourcesPath, 'backend', 'resmon_scripts')
     : path.resolve(__dirname, '..', '..', '..');
   const resmonScript = path.join(scriptDir, 'resmon.py');
-  const bundledPython = path.join(process.resourcesPath, 'backend', 'venv', 'bin', 'python3');
+  // Windows venvs keep the interpreter in Scripts\python.exe; POSIX in bin/.
+  const bundledPython = process.platform === 'win32'
+    ? path.join(process.resourcesPath, 'backend', 'venv', 'Scripts', 'python.exe')
+    : path.join(process.resourcesPath, 'backend', 'venv', 'bin', 'python3');
+  const systemPython = process.platform === 'win32' ? 'python' : 'python3';
   const pythonPath =
     process.env.RESMON_PYTHON ||
-    (app.isPackaged && fs.existsSync(bundledPython) ? bundledPython : 'python3');
+    (app.isPackaged && fs.existsSync(bundledPython) ? bundledPython : systemPython);
 
   // Update 4 / Fix D — A renderer-spawned fallback backend must NOT own
   // a ResmonScheduler. The launchd daemon is the sole scheduler owner;

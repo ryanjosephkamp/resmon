@@ -122,9 +122,16 @@ cd resmon_scripts/frontend
 npm run dist
 ```
 
-The result is `resmon_scripts/frontend/release/resmon-<version>-arm64.dmg` — a
-compressed disk image around 193 MB. Open it and drag **resmon** to the **Applications**
-shortcut inside.
+`npm run dist` builds for the platform it runs on:
+
+- **macOS** — `release/resmon-<version>-arm64.dmg` (~193 MB). Open it and drag
+  **resmon** to the **Applications** shortcut inside.
+- **Windows** — `release/resmon-<version>-setup-x64.exe`, a standard installer.
+  SmartScreen will warn on an unsigned installer — choose **More info → Run anyway**.
+- **Linux** — `release/resmon-<version>-x86_64.AppImage`. Mark it executable
+  (`chmod +x`) and run it.
+
+CI builds all three through `.github/workflows/release.yml` on every version tag.
 
 The bundle is self-contained: `scripts/prepare-backend.js` stages the Python sources and
 builds a virtual environment inside `Contents/Resources/backend/`, so an installed resmon

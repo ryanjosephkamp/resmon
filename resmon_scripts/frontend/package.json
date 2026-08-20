@@ -13,7 +13,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "prepare:backend": "node scripts/prepare-backend.js",
-    "dist": "npm run build && electron-builder --mac --publish never",
+    "dist": "npm run build && electron-builder --publish never",
     "dist:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist"
   },
   "keywords": [],
@@ -89,6 +89,34 @@
     "dmg": {
       "artifactName": "resmon-${version}-${arch}.${ext}",
       "writeUpdateInfo": false
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "resmon-${version}-setup-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "resmon-${version}-${arch}.${ext}",
+      "category": "Science",
+      "maintainer": "Ryan Kamp"
     }
   }
 }

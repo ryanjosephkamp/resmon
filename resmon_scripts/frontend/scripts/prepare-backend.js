@@ -20,6 +20,19 @@ const FRONTEND = path.resolve(__dirname, '..');
 const REPO = path.resolve(FRONTEND, '..', '..');
 const STAGE = path.join(FRONTEND, 'build-resources', 'backend');
 
+// Windows venvs put executables in Scripts\ with .exe suffixes; POSIX venvs
+// in bin/. Resolve once so every call site stays platform-blind.
+const WIN = process.platform === 'win32';
+const VENV_BIN = (venv, name) => WIN
+  ? path.join(venv, 'Scripts', `${name}.exe`)
+  : path.join(venv, 'bin', name);
+
+/** The Python to build the venv with: explicit override, else py/python3. */
+function basePython() {
+  if (process.env.RESMON_PYTHON) return process.env.RESMON_PYTHON;
+  return WIN ? 'python' : 'python3';
+}
+
 /** Never ship these inside the app. */
 const EXCLUDE = new Set([
   '__pycache__', '.pytest_cache', 'verification_scripts', 'notebooks',
@@ -45,27 +58,31 @@ function prepareBackend() {
   fs.copyFileSync(path.join(REPO, 'requirements.txt'), path.join(STAGE, 'requirements.txt'));
 
   const venv = path.join(STAGE, 'venv');
-  if (process.env.RESMON_REUSE_VENV && fs.existsSync(path.join(venv, 'bin', 'python3'))) {
+  const venvPython = VENV_BIN(venv, WIN ? 'python' : 'python3');
+  if (process.env.RESMON_REUSE_VENV && fs.existsSync(venvPython)) {
     console.log('[prepare-backend] reusing the existing environment');
     return;
   }
   console.log('[prepare-backend] building the bundled environment (a few minutes)...');
   // --copies, not symlinks: a symlinked venv points at a Python outside the
-  // .app, which breaks the moment the bundle is moved or the base Python is
-  // upgraded.
-  execFileSync('python3', ['-m', 'venv', '--copies', venv], { stdio: 'inherit' });
+  // bundle, which breaks the moment the bundle is moved or the base Python is
+  // upgraded. (On Windows, venv copies by default.)
+  execFileSync(basePython(), ['-m', 'venv', '--copies', venv], { stdio: 'inherit' });
 
-  const pip = path.join(venv, 'bin', 'pip');
-  execFileSync(pip, ['install', '--quiet', '--upgrade', 'pip'], { stdio: 'inherit' });
-  execFileSync(pip, ['install', '--quiet', '-r', path.join(STAGE, 'requirements.txt')],
+  // Invoke pip through the venv's interpreter rather than the pip shim:
+  // on Windows the pip.exe shim hard-codes its own absolute path and breaks
+  // when the environment is later moved into the installed app.
+  execFileSync(venvPython, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip'],
                { stdio: 'inherit' });
+  execFileSync(venvPython, ['-m', 'pip', 'install', '--quiet', '-r',
+               path.join(STAGE, 'requirements.txt')], { stdio: 'inherit' });
 
   // NLTK's sentence data is not a pip package. Fetching it at build time means
   // AI summarization works on a fresh install without a network round trip on
   // first use. The app degrades gracefully if this ever fails, so it is not
   // fatal.
   try {
-    execFileSync(path.join(venv, 'bin', 'python3'),
+    execFileSync(venvPython,
                  ['-m', 'nltk.downloader', '-d', path.join(venv, 'nltk_data'), 'punkt_tab'],
                  { stdio: 'inherit' });
   } catch {
