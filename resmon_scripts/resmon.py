@@ -8,6 +8,7 @@ import shutil
 import sys
 import tempfile
 import threading
+from collections import OrderedDict
 import time
 import zipfile
 import logging
@@ -1904,6 +1905,51 @@ def explorer_export(body: ExplorerExportBody):
 # policy: counts are always reported, medians and rates only once they mean
 # something. The interface uses those flags to say "not enough data yet" rather
 # than drawing a chart from three points.
+#
+# Cached since 1.6: recomputing five GROUP-BY passes on every page load was
+# fine at a few hundred papers and is not fine at a hundred thousand. Results
+# are cached against a cheap fingerprint of the tables analytics reads:
+# MAX(id) and COUNT(*) catch inserts and deletions, MAX(end_time) catches an
+# execution completing, routines.updated_at catches renames and toggles. The
+# db path + generation in the key keep separate databases (including the test
+# suite's fresh per-test databases) from ever sharing an entry.
+
+_ANALYTICS_CACHE_MAX = 32
+_analytics_cache: "OrderedDict[tuple, tuple[tuple, object]]" = OrderedDict()
+_analytics_cache_lock = threading.Lock()
+
+
+def _analytics_fingerprint(conn) -> tuple:
+    """A tuple that changes whenever any input to the analytics queries can."""
+    row = conn.execute(
+        "SELECT"
+        " (SELECT COUNT(*) FROM documents),"
+        " (SELECT IFNULL(MAX(id), 0) FROM documents),"
+        " (SELECT COUNT(*) FROM executions),"
+        " (SELECT IFNULL(MAX(id), 0) FROM executions),"
+        " (SELECT IFNULL(MAX(end_time), '') FROM executions),"
+        " (SELECT COUNT(*) FROM execution_documents),"
+        " (SELECT COUNT(*) FROM routines),"
+        " (SELECT IFNULL(MAX(updated_at), '') FROM routines)"
+    ).fetchone()
+    return tuple(row)
+
+
+def _cached_analytics(name: str, params: tuple, conn, compute):
+    key = (str(_db_path or ""), _db_generation, name, params)
+    fingerprint = _analytics_fingerprint(conn)
+    with _analytics_cache_lock:
+        hit = _analytics_cache.get(key)
+        if hit is not None and hit[0] == fingerprint:
+            _analytics_cache.move_to_end(key)
+            return hit[1]
+    result = compute()
+    with _analytics_cache_lock:
+        _analytics_cache[key] = (fingerprint, result)
+        _analytics_cache.move_to_end(key)
+        while len(_analytics_cache) > _ANALYTICS_CACHE_MAX:
+            _analytics_cache.popitem(last=False)
+    return result
 
 
 @app.get("/api/analytics/overview")
@@ -1911,7 +1957,7 @@ def analytics_overview():
     """Everything the Analytics page needs, in one round trip."""
     conn = _get_db()
     try:
-        return analytics.overview(conn)
+        return _cached_analytics("overview", (), conn, lambda: analytics.overview(conn))
     finally:
         _close_db(conn)
 
@@ -1920,7 +1966,8 @@ def analytics_overview():
 def analytics_summary():
     conn = _get_db()
     try:
-        return analytics.corpus_summary(conn)
+        return _cached_analytics(
+            "summary", (), conn, lambda: analytics.corpus_summary(conn))
     finally:
         _close_db(conn)
 
@@ -1930,7 +1977,9 @@ def analytics_source_contribution():
     """Per source: papers delivered, and how many nothing else found."""
     conn = _get_db()
     try:
-        return analytics.source_contribution(conn)
+        return _cached_analytics(
+            "source_contribution", (), conn,
+            lambda: analytics.source_contribution(conn))
     finally:
         _close_db(conn)
 
@@ -1940,7 +1989,8 @@ def analytics_discovery_lag():
     """Median days between publication and resmon first seeing each paper."""
     conn = _get_db()
     try:
-        return analytics.discovery_lag(conn)
+        return _cached_analytics(
+            "discovery_lag", (), conn, lambda: analytics.discovery_lag(conn))
     finally:
         _close_db(conn)
 
@@ -1950,7 +2000,8 @@ def analytics_routine_health():
     """Per routine: new results per run, and whether it has gone quiet."""
     conn = _get_db()
     try:
-        return analytics.routine_health(conn)
+        return _cached_analytics(
+            "routine_health", (), conn, lambda: analytics.routine_health(conn))
     finally:
         _close_db(conn)
 
@@ -1962,7 +2013,9 @@ def analytics_publication_volume(group_by: str = "source", months: int = 12):
         raise HTTPException(400, "group_by must be 'source' or 'category'")
     conn = _get_db()
     try:
-        return analytics.publication_volume(conn, group_by=group_by, months=months)
+        return _cached_analytics(
+            "publication_volume", (group_by, int(months)), conn,
+            lambda: analytics.publication_volume(conn, group_by=group_by, months=months))
     finally:
         _close_db(conn)
 
