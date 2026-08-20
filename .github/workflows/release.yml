@@ -38,15 +38,28 @@ jobs:
           - os: macos-14
             label: macOS DMG (arm64)
             artifact: resmon-dmg-arm64
+            # No update metadata on purpose: an unsigned macOS app cannot
+            # self-update (Squirrel.Mac validates the signature), so shipping
+            # latest-mac.yml would advertise updates the app cannot apply.
             pattern: release/*.dmg
+            verify: '! test -e release/latest-mac.yml'
           - os: windows-latest
             label: Windows installer (x64)
             artifact: resmon-setup-x64
-            pattern: release/*.exe
+            # latest.yml is what installed apps poll; the blockmap enables
+            # differential downloads.
+            pattern: release/*.exe release/*.exe.blockmap release/latest.yml
+            verify: >-
+              test -f release/latest.yml &&
+              ls release/*.exe.blockmap &&
+              test -f release/win-unpacked/resources/app-update.yml
           - os: ubuntu-latest
             label: Linux AppImage (x64)
             artifact: resmon-appimage-x64
-            pattern: release/*.AppImage
+            pattern: release/*.AppImage release/latest-linux.yml
+            verify: >-
+              test -f release/latest-linux.yml &&
+              test -f release/linux-unpacked/resources/app-update.yml
 
     defaults:
       run:
@@ -99,6 +112,14 @@ jobs:
         # `npm run dist` targets the platform it runs on. Each build stages
         # the full Python backend venv (~900 MB) before packing.
         run: npm run dist
+
+      - name: Verify update metadata
+        # Auto-update is only as real as its supply line. This fails the
+        # build if the updater feed files or the embedded app-update.yml
+        # are missing where they must exist — or present where they must
+        # not (unsigned macOS).
+        shell: bash
+        run: ${{ matrix.verify }}
 
       - name: Upload to the release
         if: github.event_name == 'push'

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { ChildProcess, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as http from 'http';
@@ -383,6 +384,62 @@ function createWindow(): void {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Auto-update (Windows and Linux only, Master Plan 1.6).
+//
+// macOS is deliberately excluded: Squirrel.Mac validates the code signature
+// before applying an update, and signing is deferred — an unsigned macOS app
+// cannot self-update, full stop. The platform gate below is what turns back
+// on the day enrolment happens; nothing else needs to change.
+//
+// Update source is the public GitHub Releases feed baked into app-update.yml
+// at build time (build.publish in package.json). Checks run shortly after
+// launch and every six hours; the download happens in the background, and
+// the user chooses restart-now or on-next-quit. Failed checks are logged and
+// never surfaced — a laptop being offline is not an event.
+// ---------------------------------------------------------------------------
+
+function initAutoUpdater(): void {
+  if (!app.isPackaged) return;
+  if (process.platform !== 'win32' && process.platform !== 'linux') return;
+  // A Linux user running the extracted filesystem instead of the AppImage
+  // has nothing the updater can replace; electron-updater errors on the
+  // missing APPIMAGE env var, which the error handler below absorbs.
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('error', (err) => {
+    console.warn('[updater]', err instanceof Error ? err.message : String(err));
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    const version = info?.version ? `resmon ${info.version}` : 'A new version of resmon';
+    void dialog
+      .showMessageBox({
+        type: 'info',
+        title: 'Update ready',
+        message: `${version} has been downloaded.`,
+        detail: 'Restart now to apply it, or keep working — it installs on next quit.',
+        buttons: ['Restart now', 'On next quit'],
+        defaultId: 1,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response === 0) autoUpdater.quitAndInstall();
+      });
+  });
+
+  const check = () => {
+    autoUpdater.checkForUpdates().catch((err: unknown) => {
+      console.warn('[updater] check failed:', err instanceof Error ? err.message : String(err));
+    });
+  };
+  // Let startup finish first; the check is never on the critical path.
+  setTimeout(check, 15_000);
+  setInterval(check, 6 * 60 * 60 * 1000);
+}
+
 app.whenReady().then(async () => {
   try {
     // Attach-or-spawn: if the lock file points to a live daemon, attach.
@@ -437,6 +494,7 @@ app.whenReady().then(async () => {
     const rendererRoot = path.join(__dirname, '..', 'renderer');
     await startRendererServer(rendererRoot);
     createWindow();
+    initAutoUpdater();
   } catch (err) {
     console.error('[main] Failed to start:', err);
     app.quit();
