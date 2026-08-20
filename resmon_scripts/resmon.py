@@ -53,19 +53,6 @@ from implementation_scripts.database import (
     get_progress_events,
     SCHEMA_VERSION,
     get_schema_version,
-    upsert_cloud_routine,
-    upsert_cloud_execution,
-    get_cloud_executions,
-    get_cloud_routines,
-    clear_cloud_mirror,
-    get_last_synced_version,
-    set_last_synced_version,
-    record_cloud_cache_entry,
-    touch_cloud_cache_entry,
-    get_cloud_cache_entry,
-    get_cloud_cache_total_bytes,
-    evict_cloud_cache_if_needed,
-    CLOUD_CACHE_MAX_BYTES_DEFAULT,
 )
 from implementation_scripts.credential_manager import (
     store_credential,
@@ -312,7 +299,6 @@ class RoutineCreate(BaseModel):
     ai_settings: Optional[dict] = None
     storage_settings: Optional[dict] = None
     notify_on_complete: bool = False
-    execution_location: str = "local"
 
 class RoutineUpdate(BaseModel):
     name: Optional[str] = None
@@ -325,7 +311,6 @@ class RoutineUpdate(BaseModel):
     ai_settings: Optional[dict] = None
     storage_settings: Optional[dict] = None
     notify_on_complete: Optional[bool] = None
-    execution_location: Optional[str] = None
 
 class ConfigCreate(BaseModel):
     name: str
@@ -1023,8 +1008,6 @@ def _sched_add_routine(routine_id: int) -> None:
         _close_db(conn)
     if not row or not row.get("is_active"):
         return
-    if row.get("execution_location") == "cloud":
-        return
     try:
         scheduler.add_routine(row)
     except Exception:
@@ -1044,7 +1027,7 @@ def _sched_update_routine(routine_id: int) -> None:
     if not row:
         return
     try:
-        if row.get("is_active") and row.get("execution_location") != "cloud":
+        if row.get("is_active"):
             scheduler.update_routine(routine_id, row)
         else:
             scheduler.remove_routine(routine_id)
@@ -1162,13 +1145,11 @@ def create_routine(body: RoutineCreate):
             "ai_settings": json.dumps(body.ai_settings) if body.ai_settings else None,
             "storage_settings": json.dumps(body.storage_settings) if body.storage_settings else None,
             "notify_on_complete": int(body.notify_on_complete),
-            "execution_location": body.execution_location,
+            "execution_location": "local",
         }
-        if routine_dict["execution_location"] not in ("local", "cloud"):
-            raise HTTPException(400, "execution_location must be 'local' or 'cloud'")
         rid = insert_routine(conn, routine_dict)
         _sync_routine_config(conn, rid)
-        if body.is_active and routine_dict.get("execution_location", "local") == "local":
+        if body.is_active:
             _sched_add_routine(rid)
         return {"id": rid, "name": body.name}
     finally:
@@ -1203,10 +1184,6 @@ def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
             updates["storage_settings"] = json.dumps(body.storage_settings)
         if body.notify_on_complete is not None:
             updates["notify_on_complete"] = int(body.notify_on_complete)
-        if body.execution_location is not None:
-            if body.execution_location not in ("local", "cloud"):
-                raise HTTPException(400, "execution_location must be 'local' or 'cloud'")
-            updates["execution_location"] = body.execution_location
         update_routine(conn, routine_id, updates)
         _sync_routine_config(conn, routine_id)
         _sched_update_routine(routine_id)
@@ -1256,92 +1233,6 @@ def deactivate_routine(routine_id: int):
         _sync_routine_config(conn, routine_id)
         _sched_remove_routine(routine_id)
         return {"id": routine_id, "is_active": False}
-    finally:
-        _close_db(conn)
-
-
-# ---------------------------------------------------------------------------
-# Local ⇄ Cloud migration (IMPL-37, §12.1)
-#
-# The desktop orchestrates cross-scope migration in two steps so that the
-# cloud side can authenticate against its own JWT:
-#
-#   "Move to Cloud": renderer POSTs the local routine body to
-#   ``/api/v2/routines`` (cloud, JWT-gated), then calls
-#   ``POST /api/routines/{id}/released-to-cloud`` here to delete the local
-#   row. Historical executions stay attached to their original routine_id
-#   on whichever side produced them.
-#
-#   "Move to Local": renderer DELETEs the cloud routine, then POSTs the
-#   body to ``/api/routines/adopt-from-cloud`` (this endpoint) which
-#   inserts a local row preserving name, schedule_cron, parameters, and
-#   notification flags verbatim.
-#
-# The endpoints only own the local half of each flow. The cloud half runs
-# under ``cloudClient`` on the renderer so JWT headers are handled by the
-# existing ``IMPL-30`` wrapper.
-# ---------------------------------------------------------------------------
-
-
-class RoutineAdoptFromCloud(BaseModel):
-    name: str
-    schedule_cron: str
-    parameters: dict
-    email_enabled: bool = False
-    email_ai_summary_enabled: bool = False
-    ai_enabled: bool = False
-    notify_on_complete: bool = False
-    ai_settings: Optional[dict] = None
-    storage_settings: Optional[dict] = None
-
-
-@app.post("/api/routines/{routine_id}/released-to-cloud", status_code=200)
-def routine_released_to_cloud(routine_id: int):
-    """Delete a local routine after it has been successfully mirrored to cloud.
-
-    Called by the renderer after a successful ``POST /api/v2/routines`` so
-    the local copy does not keep firing alongside the cloud scheduler.
-    The renderer is responsible for the atomicity of the two-step flow.
-    """
-    conn = _get_db()
-    try:
-        existing = get_routine_by_id(conn, routine_id)
-        if not existing:
-            raise HTTPException(404, "Routine not found")
-        _sched_remove_routine(routine_id)
-        delete_routine(conn, routine_id)
-        return {"released": True, "id": routine_id}
-    finally:
-        _close_db(conn)
-
-
-@app.post("/api/routines/adopt-from-cloud", status_code=201)
-def routine_adopt_from_cloud(body: RoutineAdoptFromCloud):
-    """Create a local routine populated from a cloud routine body.
-
-    Used by "Move to Local" after the renderer has successfully deleted
-    the cloud copy via ``DELETE /api/v2/routines/{cloud_id}``. Preserves
-    name, cron, and parameters exactly so the migration round-trip is
-    lossless.
-    """
-    conn = _get_db()
-    try:
-        routine_dict = {
-            "name": body.name,
-            "schedule_cron": body.schedule_cron,
-            "parameters": json.dumps(body.parameters),
-            "is_active": 1,
-            "email_enabled": int(body.email_enabled),
-            "email_ai_summary_enabled": int(body.email_ai_summary_enabled),
-            "ai_enabled": int(body.ai_enabled),
-            "ai_settings": json.dumps(body.ai_settings) if body.ai_settings else None,
-            "storage_settings": json.dumps(body.storage_settings) if body.storage_settings else None,
-            "notify_on_complete": int(body.notify_on_complete),
-            "execution_location": "local",
-        }
-        rid = insert_routine(conn, routine_dict)
-        _sched_add_routine(rid)
-        return {"id": rid, "name": body.name, "execution_location": "local"}
     finally:
         _close_db(conn)
 
@@ -1417,49 +1308,6 @@ def list_executions(
 @app.get("/api/executions/active")
 def active_executions():
     return {"active_ids": progress_store.get_active_ids()}
-
-
-@app.get("/api/executions/merged")
-def list_executions_merged(
-    limit: int = 200,
-    filter: str = "all",
-):
-    """Return local + cloud executions merged and sorted by start time.
-
-    ``filter`` ∈ {``all``, ``local``, ``cloud``} powers the Results page
-    filter chip. Each row carries an ``execution_location`` field
-    (``"local"`` or ``"cloud"``) so the UI can render the Local / Cloud
-    badge without inspecting the id type. Registered before
-    ``/api/executions/{exec_id}`` so the literal ``merged`` segment wins
-    over the int-typed path parameter.
-    """
-    filter_v = (filter or "all").strip().lower()
-    if filter_v not in {"all", "local", "cloud"}:
-        raise HTTPException(400, "filter must be one of: all, local, cloud")
-    limit = max(1, min(int(limit), 1000))
-    conn = _get_db()
-
-    merged: list[dict] = []
-    if filter_v in ("all", "local"):
-        for row in get_executions(conn, limit=limit):
-            row = dict(row)
-            row["execution_location"] = "local"
-            _enrich_execution_row(row)
-            merged.append(row)
-    if filter_v in ("all", "cloud"):
-        for row in get_cloud_executions(conn, limit=limit):
-            row = dict(row)
-            row["execution_location"] = "cloud"
-            row.setdefault("start_time", row.get("started_at"))
-            row.setdefault("end_time", row.get("finished_at"))
-            row["execution_type"] = "cloud_routine"
-            merged.append(row)
-
-    def _ts(r: dict) -> str:
-        return str(r.get("start_time") or r.get("started_at") or "")
-
-    merged.sort(key=_ts, reverse=True)
-    return merged[:limit]
 
 
 @app.get("/api/executions/{exec_id}")
@@ -1886,7 +1734,9 @@ async def import_configurations(files: list[UploadFile] = File(...)):
                 "ai_settings": json.dumps(ai_settings) if isinstance(ai_settings, dict) else None,
                 "storage_settings": None,
                 "notify_on_complete": int(bool(payload.get("notify_on_complete"))),
-                "execution_location": payload.get("execution_location") if payload.get("execution_location") in ("local", "cloud") else "local",
+                # An export taken before the cloud service was removed may
+                # still say "cloud"; such a routine has nowhere to run.
+                "execution_location": "local",
             }
             try:
                 rid = insert_routine(conn, routine_dict)
@@ -2834,255 +2684,6 @@ def delete_credential_endpoint(key_name: str):
 
 
 # ---------------------------------------------------------------------------
-# Cloud account authentication (IMPL-30)
-# ---------------------------------------------------------------------------
-#
-# Per resmon_routines_and_accounts.md §§8.2–8.3, Electron-main captures the
-# IdP session after the modal sign-in completes. The refresh token is passed
-# here and stored in the OS keyring under service=``resmon``,
-# account=``cloud_refresh_token`` (matching the path expected by
-# ``security find-generic-password -s resmon -a cloud_refresh_token``).
-# Access tokens are NEVER persisted here — they live only in renderer memory.
-
-_CLOUD_REFRESH_KEY = "cloud_refresh_token"
-_CLOUD_EMAIL_SETTING = "cloud_account_email"
-_CLOUD_SYNC_SETTING = "sync_state"
-
-
-class CloudSessionBody(BaseModel):
-    refresh_token: str
-    email: Optional[str] = None
-
-
-class CloudSyncToggleBody(BaseModel):
-    enabled: bool
-
-
-@app.post("/api/cloud-auth/session")
-def cloud_auth_session(body: CloudSessionBody):
-    """Persist the refresh token + account email captured from the IdP modal.
-
-    Electron-main calls this immediately after the ``/auth/callback`` redirect
-    fires. The refresh token lands in the OS keyring (never on disk in plain
-    text); the email is stored in the standard settings table for display.
-    """
-    if not body.refresh_token:
-        raise HTTPException(400, "refresh_token is required")
-    store_credential(_CLOUD_REFRESH_KEY, body.refresh_token)
-    conn = _get_db()
-    set_setting(conn, _CLOUD_EMAIL_SETTING, body.email or "")
-    return {"signed_in": True, "email": body.email or ""}
-
-
-@app.get("/api/cloud-auth/status")
-def cloud_auth_status():
-    """Return presence of a stored refresh token and the cached email."""
-    refresh = get_credential(_CLOUD_REFRESH_KEY)
-    conn = _get_db()
-    email = get_setting(conn, _CLOUD_EMAIL_SETTING) or ""
-    sync_state = get_setting(conn, _CLOUD_SYNC_SETTING) or "off"
-    return {
-        "signed_in": refresh is not None,
-        "email": email,
-        "sync_state": sync_state,
-    }
-
-
-@app.delete("/api/cloud-auth/session")
-def cloud_auth_signout():
-    """Delete the keyring refresh token and clear the cached email."""
-    delete_credential(_CLOUD_REFRESH_KEY)
-    conn = _get_db()
-    set_setting(conn, _CLOUD_EMAIL_SETTING, "")
-    return {"signed_in": False}
-
-
-@app.post("/api/cloud-auth/refresh")
-def cloud_auth_refresh():
-    """Exchange the stored refresh token with the IdP for a fresh access token.
-
-    The IdP refresh endpoint is read from the ``CLOUD_IDP_REFRESH_URL``
-    environment variable (12-factor injection per §7.2). If unset, the
-    endpoint returns 501 so the renderer can surface a clear "cloud not
-    configured on this build" state.
-    """
-    refresh = get_credential(_CLOUD_REFRESH_KEY)
-    if not refresh:
-        raise HTTPException(401, "Not signed in")
-    url = os.environ.get("CLOUD_IDP_REFRESH_URL")
-    if not url:
-        raise HTTPException(501, "Cloud IdP refresh endpoint not configured")
-    try:
-        resp = httpx.post(
-            url,
-            json={"refresh_token": refresh},
-            timeout=10.0,
-        )
-    except httpx.HTTPError as exc:
-        raise HTTPException(502, f"IdP refresh failed: {exc}")
-    if resp.status_code == 401:
-        # Refresh token rejected — force the client to sign in again.
-        delete_credential(_CLOUD_REFRESH_KEY)
-        raise HTTPException(401, "Refresh token rejected; sign in again")
-    if resp.status_code >= 400:
-        raise HTTPException(502, f"IdP refresh failed: {resp.status_code}")
-    payload = resp.json()
-    access = payload.get("access_token")
-    expires_in = int(payload.get("expires_in", 900))
-    if not access:
-        raise HTTPException(502, "IdP response missing access_token")
-    # Rotate the refresh token if the IdP returns a new one (standard OAuth2).
-    new_refresh = payload.get("refresh_token")
-    if new_refresh:
-        store_credential(_CLOUD_REFRESH_KEY, new_refresh)
-    return {"access_token": access, "expires_in": expires_in}
-
-
-@app.put("/api/cloud-auth/sync")
-def cloud_auth_sync_toggle(body: CloudSyncToggleBody):
-    """Toggle the ``sync_state`` setting consumed by the desktop sync hook."""
-    conn = _get_db()
-    set_setting(conn, _CLOUD_SYNC_SETTING, "on" if body.enabled else "off")
-    return {"sync_state": "on" if body.enabled else "off"}
-
-
-# ---------------------------------------------------------------------------
-# Cloud-sync mirror endpoints (IMPL-36, §§12 + 14.1)
-#
-# The frontend `useCloudSync` hook fetches cloud pages from the cloud
-# service directly (JWT-gated) and POSTs the normalized rows here so the
-# daemon can mirror them into the local SQLite `cloud_routines` /
-# `cloud_executions` tables, advance `sync_state.last_synced_version`, and
-# power the merged Results view + Dashboard "Last cloud sync" card without
-# re-querying the cloud on every render.
-# ---------------------------------------------------------------------------
-
-
-class CloudSyncIngestBody(BaseModel):
-    routines: list[dict] = []
-    executions: list[dict] = []
-    next_version: int
-    has_more: bool = False
-
-
-class CloudCacheRecordBody(BaseModel):
-    execution_id: str
-    artifact_name: str
-    local_path: str
-    bytes: int
-    max_bytes: int | None = None
-
-
-@app.get("/api/cloud-sync/state")
-def cloud_sync_state():
-    """Return the last synced cursor and on-disk cache size."""
-    conn = _get_db()
-    return {
-        "last_synced_version": get_last_synced_version(conn),
-        "cache_bytes": get_cloud_cache_total_bytes(conn),
-        "schema_version": get_schema_version(conn),
-    }
-
-
-@app.post("/api/cloud-sync/ingest")
-def cloud_sync_ingest(body: CloudSyncIngestBody):
-    """Upsert a page of cloud rows into the local mirror and advance cursor."""
-    conn = _get_db()
-    for r in body.routines:
-        try:
-            upsert_cloud_routine(conn, r)
-        except Exception as exc:  # pragma: no cover - defensive
-            raise HTTPException(400, f"invalid routine row: {exc}")
-    for e in body.executions:
-        try:
-            upsert_cloud_execution(conn, e)
-        except Exception as exc:  # pragma: no cover - defensive
-            raise HTTPException(400, f"invalid execution row: {exc}")
-    # Only advance the cursor forward.
-    current = get_last_synced_version(conn)
-    new_cursor = max(current, int(body.next_version or 0))
-    if new_cursor > current:
-        set_last_synced_version(conn, new_cursor)
-    return {
-        "last_synced_version": get_last_synced_version(conn),
-        "ingested": {
-            "routines": len(body.routines),
-            "executions": len(body.executions),
-        },
-        "has_more": bool(body.has_more),
-    }
-
-
-@app.post("/api/cloud-sync/clear")
-def cloud_sync_clear():
-    """Wipe the cloud mirror + cache + cursor (V-G3 on sign-out)."""
-    conn = _get_db()
-    clear_cloud_mirror(conn)
-    return {"cleared": True}
-
-
-@app.get("/api/cloud-sync/executions")
-def cloud_sync_executions(limit: int = 500):
-    """Return cloud-mirror executions (newest-first)."""
-    conn = _get_db()
-    limit = max(1, min(int(limit), 2000))
-    return get_cloud_executions(conn, limit=limit)
-
-
-@app.get("/api/cloud-sync/routines")
-def cloud_sync_routines():
-    """Return cloud-mirror routines."""
-    conn = _get_db()
-    return get_cloud_routines(conn)
-
-
-@app.post("/api/cloud-sync/cache/record")
-def cloud_sync_cache_record(body: CloudCacheRecordBody):
-    """Record a freshly downloaded cloud artifact and evict LRU entries."""
-    conn = _get_db()
-    record_cloud_cache_entry(
-        conn,
-        body.execution_id,
-        body.artifact_name,
-        body.local_path,
-        body.bytes,
-    )
-    ceiling = (
-        int(body.max_bytes)
-        if body.max_bytes is not None
-        else CLOUD_CACHE_MAX_BYTES_DEFAULT
-    )
-    evicted = evict_cloud_cache_if_needed(conn, max_bytes=ceiling)
-    return {
-        "recorded": {
-            "execution_id": body.execution_id,
-            "artifact_name": body.artifact_name,
-            "bytes": body.bytes,
-        },
-        "evicted": evicted,
-        "cache_bytes": get_cloud_cache_total_bytes(conn),
-    }
-
-
-@app.post("/api/cloud-sync/cache/touch")
-def cloud_sync_cache_touch(body: CloudCacheRecordBody):
-    """Bump the last-accessed timestamp on a cache entry (keeps it hot in LRU)."""
-    conn = _get_db()
-    touch_cloud_cache_entry(conn, body.execution_id, body.artifact_name)
-    return {"touched": True}
-
-
-@app.get("/api/cloud-sync/cache/{execution_id}/{artifact_name}")
-def cloud_sync_cache_get(execution_id: str, artifact_name: str):
-    """Return cache metadata for a specific (execution_id, artifact_name) pair."""
-    conn = _get_db()
-    entry = get_cloud_cache_entry(conn, execution_id, artifact_name)
-    if entry is None:
-        raise HTTPException(404, "not cached")
-    return entry
-
-
-# ---------------------------------------------------------------------------
 # Cloud (Google Drive storage integration — unrelated to resmon-cloud)
 # ---------------------------------------------------------------------------
 
@@ -3353,10 +2954,6 @@ def flush_running_executions(reason: str = "daemon_restart") -> int:
 # The renderer guards each destructive call with a typed-CONFIRM modal, but
 # the backend re-validates the literal ``"CONFIRM"`` string on the wire so
 # stray client code can't accidentally wipe data.
-#
-# Cloud-scope counterparts are intentionally stubbed at 501 until the cloud-
-# account feature lands; the renderer renders disabled buttons next to the
-# local ones so the UI surface is already in place.
 
 
 class AdminConfirmBody(BaseModel):
@@ -3542,9 +3139,6 @@ def admin_factory_reset(body: AdminConfirmBody):
     r = _erase_repo_keys()
     for name in SMTP_CREDENTIAL_NAMES:
         delete_credential(name)
-    # Cloud refresh token is wiped too so a factory-reset device is fully
-    # signed out of the cloud account.
-    delete_credential(_CLOUD_REFRESH_KEY)
     return {
         "success": True,
         "configs_removed": c,
@@ -3555,60 +3149,6 @@ def admin_factory_reset(body: AdminConfirmBody):
     }
 
 
-# Cloud-scope counterparts. The cloud account feature has not shipped, so
-# every endpoint replies 501 with a uniform "not yet available" message.
-# The frontend renders these buttons disabled with the same explanation,
-# but having the endpoints in place keeps the public surface stable for
-# when the cloud account work lands.
-
-def _cloud_not_implemented() -> None:
-    raise HTTPException(
-        status_code=501,
-        detail=(
-            "Cloud-scope erase operations are not yet available. They will "
-            "ship with the cloud account feature."
-        ),
-    )
-
-
-@app.post("/api/admin/cloud/erase-ai-keys")
-def admin_cloud_erase_ai_keys():
-    _cloud_not_implemented()
-
-
-@app.post("/api/admin/cloud/erase-repo-keys")
-def admin_cloud_erase_repo_keys():
-    _cloud_not_implemented()
-
-
-@app.post("/api/admin/cloud/erase-configs")
-def admin_cloud_erase_configs(body: AdminConfirmBody):
-    _cloud_not_implemented()
-
-
-@app.post("/api/admin/cloud/erase-executions")
-def admin_cloud_erase_executions(body: AdminConfirmBody):
-    _cloud_not_implemented()
-
-
-@app.post("/api/admin/cloud/erase-execution-data")
-def admin_cloud_erase_execution_data(body: AdminConfirmBody):
-    _cloud_not_implemented()
-
-
-@app.post("/api/admin/cloud/erase-app-data")
-def admin_cloud_erase_app_data(body: AdminConfirmBody):
-    _cloud_not_implemented()
-
-
-@app.post("/api/admin/cloud/reset-settings")
-def admin_cloud_reset_settings(body: AdminConfirmBody):
-    _cloud_not_implemented()
-
-
-@app.post("/api/admin/cloud/factory-reset")
-def admin_cloud_factory_reset(body: AdminConfirmBody):
-    _cloud_not_implemented()
 
 
 def close_db() -> None:

@@ -5,19 +5,15 @@ import {
   repositoriesApi,
   RepoCatalogEntry,
   CredentialPresenceMap,
-  CredentialScope,
 } from '../../api/repositories';
 
 interface Props {
   catalog: RepoCatalogEntry[];
   presence: CredentialPresenceMap;
   onPresenceRefresh: () => void;
-  /** Which credential store to read/write — local OS keyring (default) or the
-   *  signed-in cloud account. Defaults to 'local' for backward compatibility. */
-  scope?: CredentialScope;
 }
 
-const RepoCatalogTable: React.FC<Props> = ({ catalog, presence, onPresenceRefresh, scope = 'local' }) => {
+const RepoCatalogTable: React.FC<Props> = ({ catalog, presence, onPresenceRefresh }) => {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [inlineValues, setInlineValues] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -45,11 +41,7 @@ const RepoCatalogTable: React.FC<Props> = ({ catalog, presence, onPresenceRefres
     const value = (inlineValues[entry.slug] || '').trim();
     if (!value) return;
     try {
-      if (scope === 'cloud') {
-        await repositoriesApi.putCloudCredential(entry.credential_name, value);
-      } else {
-        await repositoriesApi.saveCredential(entry.credential_name, value);
-      }
+      await repositoriesApi.saveCredential(entry.credential_name, value);
       setInline(entry.slug, '');
       setError(entry.slug, '');
       onPresenceRefresh();
@@ -61,11 +53,7 @@ const RepoCatalogTable: React.FC<Props> = ({ catalog, presence, onPresenceRefres
   const handleClear = async (entry: RepoCatalogEntry) => {
     if (!entry.credential_name) return;
     try {
-      if (scope === 'cloud') {
-        await repositoriesApi.deleteCloudCredential(entry.credential_name);
-      } else {
-        await repositoriesApi.deleteCredential(entry.credential_name);
-      }
+      await repositoriesApi.deleteCredential(entry.credential_name);
       setError(entry.slug, '');
       onPresenceRefresh();
     } catch (err: any) {

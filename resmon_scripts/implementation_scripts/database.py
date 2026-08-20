@@ -104,48 +104,6 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value TEXT NOT NULL
 );
 
--- IMPL-36: cloud-sync mirror of executions and routines, plus on-disk
--- artifact cache metadata and the cursor-sync state table (§14.1).
-CREATE TABLE IF NOT EXISTS cloud_executions (
-    execution_id      TEXT PRIMARY KEY,          -- cloud UUID
-    routine_id        TEXT,                      -- cloud UUID or NULL
-    status            TEXT NOT NULL,
-    started_at        TEXT NOT NULL,
-    finished_at       TEXT,
-    cancel_reason     TEXT,
-    artifact_uri      TEXT,
-    stats             TEXT,                      -- JSON
-    version           INTEGER NOT NULL DEFAULT 0,
-    synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS cloud_routines (
-    routine_id        TEXT PRIMARY KEY,          -- cloud UUID
-    name              TEXT NOT NULL,
-    cron              TEXT NOT NULL,
-    parameters        TEXT NOT NULL,             -- JSON
-    enabled           INTEGER NOT NULL DEFAULT 1,
-    created_at        TEXT NOT NULL,
-    updated_at        TEXT NOT NULL,
-    version           INTEGER NOT NULL DEFAULT 0,
-    synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS cloud_cache_meta (
-    execution_id      TEXT NOT NULL,             -- cloud UUID
-    artifact_name     TEXT NOT NULL,
-    local_path        TEXT NOT NULL,
-    bytes             INTEGER NOT NULL,
-    downloaded_at     TEXT NOT NULL DEFAULT (datetime('now')),
-    last_accessed_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (execution_id, artifact_name)
-);
-
-CREATE TABLE IF NOT EXISTS sync_state (
-    k                 TEXT PRIMARY KEY,          -- e.g. 'last_synced_version'
-    v                 TEXT NOT NULL,
-    updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
-);
 -- ---------------------------------------------------------------------------
 -- Search and faceting support (Phase 2b)
 -- ---------------------------------------------------------------------------
@@ -216,7 +174,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_first_seen
 # Update 3 / 4_27_26 (→4) which adds ``executions.saved_configuration_id``
 # linking each manual execution back to the saved configuration it was
 # launched from (or saved as).
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -312,8 +270,13 @@ def _migrate_routines_columns(conn: sqlite3.Connection) -> None:
 
     * ``notify_on_complete`` (IMPL-10 ergonomics).
     * ``execution_location`` (IMPL-37, §14.1) — where a routine is
-      scheduled: ``'local'`` for the local daemon (default) or
-      ``'cloud'`` for the resmon-cloud scheduler.
+      scheduled. Only ``'local'`` is meaningful now that the cloud service
+      is gone; the column is kept because dropping it would mean rebuilding
+      the table on every existing install for no functional gain.
+
+    Any routine still marked ``'cloud'`` is flipped back to ``'local'``.
+    Its scheduler was deleted, so it would otherwise sit in the UI looking
+    active while never firing again.
     """
     cursor = conn.execute("PRAGMA table_info(routines)")
     existing = {row[1] for row in cursor.fetchall()}
@@ -326,6 +289,14 @@ def _migrate_routines_columns(conn: sqlite3.Connection) -> None:
             "ALTER TABLE routines ADD COLUMN execution_location "
             "TEXT NOT NULL DEFAULT 'local' "
             "CHECK (execution_location IN ('local', 'cloud'))"
+        )
+    else:
+        # Pre-existing rows only. The CHECK constraint still permits 'cloud'
+        # on databases created before this release; rewriting it would need a
+        # full table rebuild, and nothing writes that value any more.
+        conn.execute(
+            "UPDATE routines SET execution_location = 'local' "
+            "WHERE execution_location != 'local'"
         )
     conn.commit()
 
@@ -466,7 +437,13 @@ def _migrate_search_index(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_schema_version(conn: sqlite3.Connection) -> None:
-    """Record / bump the schema_version in app_settings (IMPL-36)."""
+    """Record / bump the schema_version in app_settings.
+
+    5 dropped the four cloud-mirror tables along with the cloud service.
+    Existing databases keep whatever those tables already held — they are
+    empty on every real install, because the service never ran — but nothing
+    reads or creates them any more.
+    """
     row = conn.execute(
         "SELECT value FROM app_settings WHERE key = ?", (_SCHEMA_VERSION_KEY,)
     ).fetchone()
@@ -731,8 +708,11 @@ def insert_routine(conn: sqlite3.Connection, routine_dict: dict) -> int:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     loc = routine_dict.get("execution_location", "local")
-    if loc not in ("local", "cloud"):
-        raise ValueError(f"execution_location must be 'local' or 'cloud', got {loc!r}")
+    if loc != "local":
+        raise ValueError(
+            f"execution_location must be 'local', got {loc!r}. Cloud-scheduled "
+            f"routines were removed along with the cloud service."
+        )
     cursor = conn.execute(sql, (
         routine_dict["name"],
         routine_dict["schedule_cron"],
@@ -761,13 +741,11 @@ def update_routine(conn: sqlite3.Connection, routine_id: int, updates: dict) -> 
     filtered = {k: v for k, v in updates.items() if k in allowed}
     if not filtered:
         return
-    if "execution_location" in filtered and filtered["execution_location"] not in (
-        "local",
-        "cloud",
-    ):
+    if "execution_location" in filtered and filtered["execution_location"] != "local":
         raise ValueError(
-            f"execution_location must be 'local' or 'cloud', got "
-            f"{filtered['execution_location']!r}"
+            f"execution_location must be 'local', got "
+            f"{filtered['execution_location']!r}. Cloud-scheduled routines were "
+            f"removed along with the cloud service."
         )
     # Always bump updated_at
     filtered["updated_at"] = "datetime('now')"
@@ -955,277 +933,3 @@ def update_current_stage(conn: sqlite3.Connection, exec_id: int, stage: str) -> 
         (stage, exec_id),
     )
     conn.commit()
-
-
-# ---------------------------------------------------------------------------
-# Cloud-Sync Mirror CRUD (IMPL-36, §§12 + 14.1)
-#
-# The cloud-mirror tables (``cloud_executions``, ``cloud_routines``) hold a
-# read-only copy of rows that live authoritatively in the cloud Postgres
-# schema. The desktop uses them to render the merged Results view and the
-# Dashboard "Last cloud sync" card without re-fetching from the cloud on
-# every render. The cursor (``last_synced_version``) is persisted in
-# ``sync_state`` so a restart does not reset the sync window.
-# ---------------------------------------------------------------------------
-
-
-def upsert_cloud_routine(conn: sqlite3.Connection, row: dict) -> None:
-    """Insert-or-replace a cloud routine row (keyed by cloud UUID)."""
-    conn.execute(
-        """
-        INSERT INTO cloud_routines
-            (routine_id, name, cron, parameters, enabled,
-             created_at, updated_at, version, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        ON CONFLICT(routine_id) DO UPDATE SET
-            name        = excluded.name,
-            cron        = excluded.cron,
-            parameters  = excluded.parameters,
-            enabled     = excluded.enabled,
-            created_at  = excluded.created_at,
-            updated_at  = excluded.updated_at,
-            version     = excluded.version,
-            synced_at   = datetime('now')
-        """,
-        (
-            str(row["routine_id"]),
-            row.get("name", ""),
-            row.get("cron", ""),
-            json.dumps(row.get("parameters") or {}),
-            1 if row.get("enabled", True) else 0,
-            row.get("created_at") or "",
-            row.get("updated_at") or "",
-            int(row.get("version") or 0),
-        ),
-    )
-    conn.commit()
-
-
-def upsert_cloud_execution(conn: sqlite3.Connection, row: dict) -> None:
-    """Insert-or-replace a cloud execution row (keyed by cloud UUID)."""
-    stats = row.get("stats")
-    conn.execute(
-        """
-        INSERT INTO cloud_executions
-            (execution_id, routine_id, status, started_at, finished_at,
-             cancel_reason, artifact_uri, stats, version, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        ON CONFLICT(execution_id) DO UPDATE SET
-            routine_id     = excluded.routine_id,
-            status         = excluded.status,
-            started_at     = excluded.started_at,
-            finished_at    = excluded.finished_at,
-            cancel_reason  = excluded.cancel_reason,
-            artifact_uri   = excluded.artifact_uri,
-            stats          = excluded.stats,
-            version        = excluded.version,
-            synced_at      = datetime('now')
-        """,
-        (
-            str(row["execution_id"]),
-            str(row["routine_id"]) if row.get("routine_id") else None,
-            row.get("status", "unknown"),
-            row.get("started_at") or "",
-            row.get("finished_at"),
-            row.get("cancel_reason"),
-            row.get("artifact_uri"),
-            json.dumps(stats) if stats is not None else None,
-            int(row.get("version") or 0),
-        ),
-    )
-    conn.commit()
-
-
-def get_cloud_executions(conn: sqlite3.Connection, limit: int = 500) -> list[dict]:
-    """Return cloud-mirror executions newest-first."""
-    rows = conn.execute(
-        "SELECT execution_id, routine_id, status, started_at, finished_at, "
-        "cancel_reason, artifact_uri, stats, version, synced_at "
-        "FROM cloud_executions ORDER BY started_at DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
-    out: list[dict] = []
-    for r in rows:
-        d = dict(r)
-        if d.get("stats"):
-            try:
-                d["stats"] = json.loads(d["stats"])
-            except Exception:
-                pass
-        out.append(d)
-    return out
-
-
-def get_cloud_routines(conn: sqlite3.Connection) -> list[dict]:
-    """Return cloud-mirror routines (insertion order by created_at DESC)."""
-    rows = conn.execute(
-        "SELECT routine_id, name, cron, parameters, enabled, "
-        "created_at, updated_at, version, synced_at "
-        "FROM cloud_routines ORDER BY created_at DESC"
-    ).fetchall()
-    out: list[dict] = []
-    for r in rows:
-        d = dict(r)
-        if d.get("parameters"):
-            try:
-                d["parameters"] = json.loads(d["parameters"])
-            except Exception:
-                pass
-        d["enabled"] = bool(d["enabled"])
-        out.append(d)
-    return out
-
-
-def clear_cloud_mirror(conn: sqlite3.Connection) -> None:
-    """Wipe every cloud-mirror row (used on sign-out per V-G3)."""
-    conn.execute("DELETE FROM cloud_executions")
-    conn.execute("DELETE FROM cloud_routines")
-    conn.execute("DELETE FROM cloud_cache_meta")
-    conn.execute("DELETE FROM sync_state")
-    conn.commit()
-
-
-# ---------------------------------------------------------------------------
-# Sync cursor state
-# ---------------------------------------------------------------------------
-
-
-def get_sync_state(conn: sqlite3.Connection, key: str) -> str | None:
-    row = conn.execute(
-        "SELECT v FROM sync_state WHERE k = ?", (key,)
-    ).fetchone()
-    return row[0] if row else None
-
-
-def set_sync_state(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute(
-        "INSERT INTO sync_state (k, v, updated_at) "
-        "VALUES (?, ?, datetime('now')) "
-        "ON CONFLICT(k) DO UPDATE SET v = excluded.v, updated_at = datetime('now')",
-        (key, value),
-    )
-    conn.commit()
-
-
-def get_last_synced_version(conn: sqlite3.Connection) -> int:
-    raw = get_sync_state(conn, "last_synced_version")
-    try:
-        return int(raw) if raw else 0
-    except (TypeError, ValueError):
-        return 0
-
-
-def set_last_synced_version(conn: sqlite3.Connection, version: int) -> None:
-    set_sync_state(conn, "last_synced_version", str(int(version)))
-
-
-# ---------------------------------------------------------------------------
-# Cloud artifact cache metadata + LRU eviction
-# ---------------------------------------------------------------------------
-
-
-def record_cloud_cache_entry(
-    conn: sqlite3.Connection,
-    execution_id: str,
-    artifact_name: str,
-    local_path: str,
-    size_bytes: int,
-) -> None:
-    conn.execute(
-        """
-        INSERT INTO cloud_cache_meta
-            (execution_id, artifact_name, local_path, bytes,
-             downloaded_at, last_accessed_at)
-        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
-        ON CONFLICT(execution_id, artifact_name) DO UPDATE SET
-            local_path       = excluded.local_path,
-            bytes            = excluded.bytes,
-            downloaded_at    = excluded.downloaded_at,
-            last_accessed_at = excluded.last_accessed_at
-        """,
-        (str(execution_id), artifact_name, local_path, int(size_bytes)),
-    )
-    conn.commit()
-
-
-def touch_cloud_cache_entry(
-    conn: sqlite3.Connection, execution_id: str, artifact_name: str
-) -> None:
-    conn.execute(
-        "UPDATE cloud_cache_meta SET last_accessed_at = datetime('now') "
-        "WHERE execution_id = ? AND artifact_name = ?",
-        (str(execution_id), artifact_name),
-    )
-    conn.commit()
-
-
-def get_cloud_cache_entry(
-    conn: sqlite3.Connection, execution_id: str, artifact_name: str
-) -> dict | None:
-    row = conn.execute(
-        "SELECT execution_id, artifact_name, local_path, bytes, "
-        "downloaded_at, last_accessed_at FROM cloud_cache_meta "
-        "WHERE execution_id = ? AND artifact_name = ?",
-        (str(execution_id), artifact_name),
-    ).fetchone()
-    return dict(row) if row else None
-
-
-def get_cloud_cache_total_bytes(conn: sqlite3.Connection) -> int:
-    row = conn.execute(
-        "SELECT COALESCE(SUM(bytes), 0) AS total FROM cloud_cache_meta"
-    ).fetchone()
-    return int(row[0]) if row else 0
-
-
-def list_cloud_cache_entries_lru(conn: sqlite3.Connection) -> list[dict]:
-    """Return cache entries ordered oldest-accessed first (LRU tail first)."""
-    rows = conn.execute(
-        "SELECT execution_id, artifact_name, local_path, bytes, "
-        "downloaded_at, last_accessed_at FROM cloud_cache_meta "
-        "ORDER BY last_accessed_at ASC"
-    ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def delete_cloud_cache_entry(
-    conn: sqlite3.Connection, execution_id: str, artifact_name: str
-) -> None:
-    conn.execute(
-        "DELETE FROM cloud_cache_meta WHERE execution_id = ? AND artifact_name = ?",
-        (str(execution_id), artifact_name),
-    )
-    conn.commit()
-
-
-# Default cache ceiling per §11.2 of resmon_routines_and_accounts.md (1 GB).
-CLOUD_CACHE_MAX_BYTES_DEFAULT = 1024 * 1024 * 1024
-
-
-def evict_cloud_cache_if_needed(
-    conn: sqlite3.Connection,
-    *,
-    max_bytes: int = CLOUD_CACHE_MAX_BYTES_DEFAULT,
-    unlink: bool = True,
-) -> list[dict]:
-    """Evict LRU cache entries (optionally removing files) until
-    ``total_bytes <= max_bytes``. Returns the evicted metadata rows.
-    """
-    evicted: list[dict] = []
-    total = get_cloud_cache_total_bytes(conn)
-    if total <= max_bytes:
-        return evicted
-    for entry in list_cloud_cache_entries_lru(conn):
-        if total <= max_bytes:
-            break
-        if unlink:
-            try:
-                Path(entry["local_path"]).unlink(missing_ok=True)
-            except Exception:
-                pass
-        delete_cloud_cache_entry(
-            conn, entry["execution_id"], entry["artifact_name"]
-        )
-        total -= int(entry["bytes"])
-        evicted.append(entry)
-    return evicted

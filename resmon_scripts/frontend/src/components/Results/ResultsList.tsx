@@ -11,11 +11,7 @@ interface Execution {
   end_time?: string;
   total_results?: number;
   new_results?: number;
-  execution_location?: 'local' | 'cloud';
-  execution_id?: string;
 }
-
-export type LocationFilter = 'all' | 'local' | 'cloud';
 
 interface Props {
   executions: Execution[];
@@ -27,9 +23,6 @@ interface Props {
   statusFilter: string;
   onTypeFilterChange: (v: string) => void;
   onStatusFilterChange: (v: string) => void;
-  locationFilter?: LocationFilter;
-  onLocationFilterChange?: (v: LocationFilter) => void;
-  showLocationFilter?: boolean;
 }
 
 // Map execution_type → badge CSS class. Each type gets a distinct palette
@@ -99,9 +92,6 @@ const ResultsList: React.FC<Props> = ({
   statusFilter,
   onTypeFilterChange,
   onStatusFilterChange,
-  locationFilter = 'all',
-  onLocationFilterChange,
-  showLocationFilter = false,
 }) => {
   const filtered = executions.filter((e) => {
     if (typeFilter && e.execution_type !== typeFilter) return false;
@@ -109,36 +99,12 @@ const ResultsList: React.FC<Props> = ({
     return true;
   });
 
-  const selectableFiltered = filtered.filter(
-    (e) => (e.execution_location ?? 'local') === 'local',
-  );
   const allSelected =
-    selectableFiltered.length > 0 &&
-    selectableFiltered.every((e) => selected.has(e.id));
+    filtered.length > 0 && filtered.every((e) => selected.has(e.id));
 
   return (
     <div className="results-list">
       <div className="results-filters">
-        {showLocationFilter && onLocationFilterChange && (
-          <div
-            role="group"
-            aria-label="Execution location"
-            className="filter-chip-group"
-            style={{ display: 'inline-flex', gap: 4 }}
-          >
-            {(['all', 'local', 'cloud'] as LocationFilter[]).map((v) => (
-              <button
-                key={v}
-                type="button"
-                className={`btn btn-sm ${locationFilter === v ? 'btn-primary' : 'btn-secondary'}`}
-                aria-pressed={locationFilter === v}
-                onClick={() => onLocationFilterChange(v)}
-              >
-                {v === 'all' ? 'All' : v === 'local' ? 'Local' : 'Cloud'}
-              </button>
-            ))}
-          </div>
-        )}
         <select className="form-select" value={typeFilter} onChange={(e) => onTypeFilterChange(e.target.value)}>
           <option value="">All Types</option>
           <option value="deep_dive">Deep Dive</option>
@@ -160,7 +126,6 @@ const ResultsList: React.FC<Props> = ({
             <th>Date</th>
             <th>Name</th>
             <th>Type</th>
-            <th>Source</th>
             <th>Repos</th>
             <th>Query</th>
             <th>Status</th>
@@ -170,36 +135,20 @@ const ResultsList: React.FC<Props> = ({
         </thead>
         <tbody>
           {filtered.length === 0 && (
-            <tr><td colSpan={10} className="text-muted text-center">No executions found.</td></tr>
+            <tr><td colSpan={9} className="text-muted text-center">No executions found.</td></tr>
           )}
-          {filtered.map((e) => {
-            const loc = e.execution_location ?? 'local';
-            const isCloud = loc === 'cloud';
-            const rowKey = isCloud ? `cloud:${e.execution_id}` : `local:${e.id}`;
-            return (
+          {filtered.map((e) => (
               <tr
-                key={rowKey}
-                className={`clickable-row ${!isCloud && selected.has(e.id) ? 'row-selected' : ''}`}
+                key={e.id}
+                className={`clickable-row ${selected.has(e.id) ? 'row-selected' : ''}`}
                 onClick={() => onRowClick(e)}
               >
                 <td onClick={(ev) => ev.stopPropagation()}>
-                  {isCloud ? (
-                    <span className="text-muted" title="Cloud executions are read-only here" aria-hidden="true">—</span>
-                  ) : (
-                    <input type="checkbox" checked={selected.has(e.id)} onChange={() => onToggle(e.id)} />
-                  )}
+                  <input type="checkbox" checked={selected.has(e.id)} onChange={() => onToggle(e.id)} />
                 </td>
                 <td>{e.start_time?.slice(0, 16)?.replace('T', ' ') || '—'}</td>
                 <td>Execution #{e.id}</td>
                 <td><span className={`badge ${typeBadgeClass(e.execution_type)}`}>{e.execution_type}</span></td>
-                <td>
-                  <span
-                    className={`badge ${isCloud ? 'badge-info' : 'badge-type-other'}`}
-                    data-testid={`location-badge-${rowKey}`}
-                  >
-                    {isCloud ? 'Cloud' : 'Local'}
-                  </span>
-                </td>
                 <td className="ellipsis-cell" title={formatRepos(e)}>{formatRepos(e)}</td>
                 <td className="ellipsis-cell" title={formatKeywords(e)}>{formatKeywords(e)}</td>
                 <td>
@@ -210,8 +159,7 @@ const ResultsList: React.FC<Props> = ({
                 <td>{e.total_results ?? '—'}</td>
                 <td>{e.new_results ?? '—'}</td>
               </tr>
-            );
-          })}
+          ))}
         </tbody>
       </table>
     </div>

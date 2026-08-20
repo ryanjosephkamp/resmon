@@ -5,7 +5,6 @@ import Header from './components/Layout/Header';
 import MainContent from './components/Layout/MainContent';
 import FloatingWidget from './components/Monitor/FloatingWidget';
 import { ExecutionProvider } from './context/ExecutionContext';
-import { AuthProvider } from './context/AuthContext';
 import { apiClient } from './api/client';
 import AnalyticsPage from './pages/AnalyticsPage';
 import ExplorerPage from './pages/ExplorerPage';
@@ -52,7 +51,6 @@ const App: React.FC = () => {
   useRendererHeartbeat();
   return (
     <HashRouter>
-      <AuthProvider>
         <ExecutionProvider>
           <div className="app-shell">
             <Sidebar />
@@ -79,7 +77,6 @@ const App: React.FC = () => {
             <FloatingWidget />
           </div>
         </ExecutionProvider>
-      </AuthProvider>
     </HashRouter>
   );
 };

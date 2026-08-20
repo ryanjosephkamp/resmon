@@ -5,7 +5,6 @@ import EditRoutineButton from '../components/Routines/EditRoutineButton';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { useExecution } from '../context/ExecutionContext';
-import CloudSyncCard from '../components/Cloud/CloudSyncCard';
 import PageHelp from '../components/Help/PageHelp';
 import { useConfigurationsVersion } from '../lib/configurationsBus';
 
@@ -29,7 +28,6 @@ interface Execution {
   repositories?: string[] | null;
   total_results?: number;
   new_results?: number;
-  execution_location?: 'local' | 'cloud';
   routine_id?: number | null;
   // Update 3 / 4_27_26: backend LEFT JOINs saved_configurations on
   // executions.saved_configuration_id. When set, the row is rendered
@@ -176,8 +174,8 @@ const DashboardPage: React.FC = () => {
             <span>Optional per-execution paper and batch summaries.</span>
           </div>
           <div className="about-resmon-feature">
-            <strong>Email &amp; Cloud</strong>
-            <span>Email delivery, cloud backup, and optional cloud execution.</span>
+            <strong>Email &amp; Backup</strong>
+            <span>Email delivery and Google Drive backup.</span>
           </div>
           <div className="about-resmon-feature">
             <strong>Local-first</strong>
@@ -196,8 +194,7 @@ const DashboardPage: React.FC = () => {
             body: (
               <ul>
                 <li><strong>Active Routines</strong> — every enabled scheduled sweep and its next/last fire.</li>
-                <li><strong>Recent Activity</strong> — the 10 most recent executions (local and cloud), with Type, Source, Status, keywords, repositories, and result counts. The <strong>Name</strong> column resolves to the saved-configuration name when the run was launched from (or saved into) one, otherwise to the routine name for routine-fired runs, otherwise to <code>Execution #&lt;id&gt;</code>.</li>
-                <li><strong>Cloud Sync</strong> — status of your resmon-cloud account, if signed in.</li>
+                <li><strong>Recent Activity</strong> — the 10 most recent executions, with Type, Status, keywords, repositories, and result counts. The <strong>Name</strong> column resolves to the saved-configuration name when the run was launched from (or saved into) one, otherwise to the routine name for routine-fired runs, otherwise to <code>Execution #&lt;id&gt;</code>.</li>
               </ul>
             ),
           },
@@ -213,8 +210,6 @@ const DashboardPage: React.FC = () => {
           },
         ]}
       />
-
-      <CloudSyncCard />
 
       <div className="card">
         <h2>Active Routines</h2>
@@ -277,7 +272,6 @@ const DashboardPage: React.FC = () => {
                 <th>Date</th>
                 <th>Name</th>
                 <th>Type</th>
-                <th>Source</th>
                 <th>Repos</th>
                 <th>Query</th>
                 <th>Status</th>
@@ -294,8 +288,6 @@ const DashboardPage: React.FC = () => {
                   activeExecution?.executionId === e.id &&
                   activeExecution?.status === 'cancelling';
                 const isActive = isRunning || isCancelling;
-                const loc = e.execution_location ?? 'local';
-                const isCloud = loc === 'cloud';
                 return (
                   <tr key={e.id}>
                     <td>{e.start_time?.slice(0, 16)?.replace('T', ' ') || '—'}</td>
@@ -303,11 +295,6 @@ const DashboardPage: React.FC = () => {
                     <td>
                       <span className={`badge ${typeBadgeClass(e.execution_type)}`}>
                         {e.execution_type}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge ${isCloud ? 'badge-info' : 'badge-type-other'}`}>
-                        {isCloud ? 'Cloud' : 'Local'}
                       </span>
                     </td>
                     <td className="ellipsis-cell" title={formatRepos(e)}>{formatRepos(e)}</td>

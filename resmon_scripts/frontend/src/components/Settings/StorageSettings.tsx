@@ -66,8 +66,7 @@ const StorageSettings: React.FC = () => {
               <p>
                 Retention policy controls how long past executions stay on
                 disk. Reports older than the retention window are
-                automatically pruned on daemon startup; the on-disk cache
-                of cloud executions is capped independently.
+                automatically pruned on daemon startup.
               </p>
             ),
           },

@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '../../api/client';
-import { cloudClient } from '../../api/cloudClient';
-import { useAuth } from '../../context/AuthContext';
 import { useExecution } from '../../context/ExecutionContext';
 import RepositorySelector from '../Forms/RepositorySelector';
 import DateRangePicker from '../Forms/DateRangePicker';
@@ -37,7 +35,6 @@ export interface RoutineEditTarget {
   notify_on_complete?: number | boolean;
   parameters?: string | Record<string, any>;
   ai_settings?: string | Record<string, any> | null;
-  execution_location?: 'local' | 'cloud';
 }
 
 interface Props {
@@ -61,8 +58,6 @@ interface Props {
 const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) => {
   const editId = target?.id ?? null;
   const isEdit = editId !== null;
-  const { isSignedIn } = useAuth();
-  const cloudSyncEnabled = isSignedIn;
   const { completionCounter } = useExecution();
   const { bySlug, presence, refreshPresence } = useRepoCatalog();
 
@@ -78,7 +73,6 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
   const [formEmail, setFormEmail] = useState(false);
   const [formEmailAi, setFormEmailAi] = useState(false);
   const [formNotify, setFormNotify] = useState(false);
-  const [formLocation, setFormLocation] = useState<'local' | 'cloud'>('local');
   const [formAiOverride, setFormAiOverride] = useState<AIOverrideValue>(EMPTY_AI_OVERRIDE);
   const [error, setError] = useState('');
 
@@ -95,7 +89,6 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     setFormEmail(false);
     setFormEmailAi(false);
     setFormNotify(false);
-    setFormLocation('local');
     setFormAiOverride(EMPTY_AI_OVERRIDE);
     setError('');
   }, []);
@@ -121,7 +114,6 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     setFormEmail(!!r.email_enabled);
     setFormEmailAi(!!r.email_ai_summary_enabled);
     setFormNotify(!!r.notify_on_complete);
-    setFormLocation((r.execution_location as 'local' | 'cloud') || 'local');
     let overlay: Record<string, any> = {};
     if (r.ai_settings) {
       try {
@@ -168,7 +160,6 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     }
     const overrides = buildAIOverridePayload(formAiOverride);
     const aiSettings = Object.keys(overrides).length > 0 ? overrides : null;
-    const goingCloud = formLocation === 'cloud' && cloudSyncEnabled;
     try {
       if (isEdit) {
         const body = {
@@ -181,16 +172,8 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
           ai_enabled: formAi,
           ai_settings: aiSettings,
           notify_on_complete: formNotify,
-          execution_location: formLocation,
         };
         await apiClient.put(`/api/routines/${editId}`, body);
-      } else if (goingCloud) {
-        await cloudClient.post('/api/v2/routines', {
-          name: formName.trim(),
-          cron: formCron,
-          parameters,
-          enabled: true,
-        });
       } else {
         const body = {
           name: formName.trim(),
@@ -202,7 +185,6 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
           ai_enabled: formAi,
           ai_settings: aiSettings,
           notify_on_complete: formNotify,
-          execution_location: 'local',
         };
         await apiClient.post('/api/routines', body);
       }
@@ -238,9 +220,6 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
               if (typeof p.email_enabled === 'boolean') setFormEmail(p.email_enabled);
               if (typeof p.email_ai_summary_enabled === 'boolean') setFormEmailAi(p.email_ai_summary_enabled);
               if (typeof p.notify_on_complete === 'boolean') setFormNotify(p.notify_on_complete);
-              if (p.execution_location === 'local' || p.execution_location === 'cloud') {
-                setFormLocation(p.execution_location);
-              }
             }}
           />
         )}
@@ -303,47 +282,6 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
             <AIOverridePanel value={formAiOverride} onChange={setFormAiOverride} />
           </details>
         )}
-        <div
-          className="form-field"
-          role="radiogroup"
-          aria-label="Execution location"
-          data-testid="execution-location-radio"
-        >
-          <label className="form-label">
-            Execution location
-            <InfoTooltip text="Where this routine runs. 'Local' uses the resmon daemon on this device (requires the background service for firing while the app is closed). 'Cloud' runs on the resmon-cloud scheduler and does not require this machine to be online." />
-          </label>
-          <div className="toggles-row">
-            <label className="checkbox-label">
-              <input
-                type="radio"
-                name="execution_location"
-                value="local"
-                checked={formLocation === 'local'}
-                onChange={() => setFormLocation('local')}
-              />
-              <span>Local (this device)</span>
-            </label>
-            <label
-              className="checkbox-label"
-              title={
-                cloudSyncEnabled
-                  ? 'Run this routine in the resmon-cloud scheduler'
-                  : 'Sign in and enable Cloud sync to run routines in the cloud'
-              }
-            >
-              <input
-                type="radio"
-                name="execution_location"
-                value="cloud"
-                disabled={!cloudSyncEnabled}
-                checked={formLocation === 'cloud'}
-                onChange={() => setFormLocation('cloud')}
-              />
-              <span>Cloud{!cloudSyncEnabled ? ' (sign in to enable)' : ''}</span>
-            </label>
-          </div>
-        </div>
         {error && <div className="form-error" role="alert">{error}</div>}
         <div className="form-actions">
           <button className="btn btn-primary" onClick={handleSubmit}>{isEdit ? 'Update' : 'Create'}</button>
