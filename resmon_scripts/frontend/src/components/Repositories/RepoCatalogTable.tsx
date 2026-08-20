@@ -64,6 +64,10 @@ const RepoCatalogTable: React.FC<Props> = ({ catalog, presence, onPresenceRefres
   const keyForEntry = (entry: RepoCatalogEntry): boolean =>
     !!(entry.credential_name && presence[entry.credential_name]?.present);
 
+  /** "unreadable" must never be shown as "no key saved" — see the page banner. */
+  const unreadable = (entry: RepoCatalogEntry): boolean =>
+    !!(entry.credential_name && presence[entry.credential_name]?.status === 'unreadable');
+
   return (
     <>
       <div className="form-actions" style={{ marginBottom: 12 }}>
@@ -113,6 +117,11 @@ const RepoCatalogTable: React.FC<Props> = ({ catalog, presence, onPresenceRefres
                   <td>
                     {needsKey ? (
                       <div className="repo-keycell">
+                        {unreadable(entry) && (
+                          <div className="text-muted" style={{ fontSize: 12, marginBottom: 4 }}>
+                            Unreadable — the keychain did not answer
+                          </div>
+                        )}
                         <ApiKeyField
                           present={present}
                           value={inlineValues[entry.slug] || ''}

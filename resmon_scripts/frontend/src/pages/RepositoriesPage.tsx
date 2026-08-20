@@ -14,13 +14,15 @@ const RepositoriesPage: React.FC = () => {
   const navigate = useNavigate();
   const [catalog, setCatalog] = useState<RepoCatalogEntry[]>([]);
   const [presence, setPresence] = useState<CredentialPresenceMap>({});
+  const [keyringResponsive, setKeyringResponsive] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const refreshPresence = useCallback(async () => {
     try {
-      const p = await repositoriesApi.getCredentialsPresence();
-      setPresence(p);
+      const res = await repositoriesApi.getCredentials();
+      setPresence(res.credentials);
+      setKeyringResponsive(res.keyring_responsive);
     } catch (err: any) {
       setError(err?.message || 'Failed to load credential presence.');
     }
@@ -32,11 +34,12 @@ const RepositoriesPage: React.FC = () => {
       try {
         const [cat, pres] = await Promise.all([
           repositoriesApi.getCatalog(),
-          repositoriesApi.getCredentialsPresence(),
+          repositoriesApi.getCredentials(),
         ]);
         if (cancelled) return;
         setCatalog(cat);
-        setPresence(pres);
+        setPresence(pres.credentials);
+        setKeyringResponsive(pres.keyring_responsive);
       } catch (err: any) {
         if (!cancelled) setError(err?.message || 'Failed to load catalog.');
       } finally {
@@ -123,6 +126,17 @@ const RepositoriesPage: React.FC = () => {
           Looking for AI API key settings?
         </button>
       </div>
+
+      {!keyringResponsive && (
+        <div className="form-error" role="status">
+          <strong>Your keychain is not responding.</strong> Saved API keys cannot be
+          read right now, so the statuses below say <em>Unreadable</em> rather than
+          claiming no key is stored — your keys are most likely still there. On macOS
+          this happens when an unsigned build asks for items a previous build saved:
+          the system wants authorisation that no background process can be shown.
+          Re-entering a key here will store it for this build.
+        </div>
+      )}
 
       {error && <div className="form-error">{error}</div>}
 

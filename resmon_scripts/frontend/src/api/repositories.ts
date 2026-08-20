@@ -25,14 +25,23 @@ export interface RepoCatalogEntry {
   keyword_combination_notes?: string;
 }
 
-export type CredentialPresenceMap = Record<string, { present: boolean }>;
+/** present = stored; absent = not set; unreadable = the keyring would not answer. */
+export type CredentialStatus = 'present' | 'absent' | 'unreadable';
+
+export type CredentialPresenceMap = Record<string, { present: boolean; status?: CredentialStatus }>;
+
+export interface CredentialsResponse {
+  /** False once a keyring read has timed out — reads are failing fast. */
+  keyring_responsive: boolean;
+  credentials: CredentialPresenceMap;
+}
 
 export const repositoriesApi = {
   getCatalog: (): Promise<RepoCatalogEntry[]> =>
     apiClient.get<RepoCatalogEntry[]>('/api/repositories/catalog'),
 
-  getCredentialsPresence: (): Promise<CredentialPresenceMap> =>
-    apiClient.get<CredentialPresenceMap>('/api/credentials'),
+  getCredentials: (): Promise<CredentialsResponse> =>
+    apiClient.get<CredentialsResponse>('/api/credentials'),
 
   saveCredential: (name: string, value: string): Promise<unknown> =>
     apiClient.put(`/api/credentials/${encodeURIComponent(name)}`, { value }),

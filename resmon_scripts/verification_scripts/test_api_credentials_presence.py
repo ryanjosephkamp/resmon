@@ -1,5 +1,12 @@
 # resmon_scripts/verification_scripts/test_api_credentials_presence.py
-"""Tests for GET /api/credentials (presence-only; no raw values) — IMPL-23."""
+"""Tests for GET /api/credentials (status-only; no raw values) — IMPL-23.
+
+The response gained a ``status`` per credential and a top-level
+``keyring_responsive`` in 1.7, so that an unreadable keyring is never reported
+as "no key set" (see test_keyring_honesty.py). The contract these tests exist
+to protect is unchanged and is the important one: the endpoint reports
+*whether* a credential exists and never what it is.
+"""
 
 import sys
 from pathlib import Path
@@ -12,7 +19,9 @@ from fastapi.testclient import TestClient
 import resmon as resmon_mod
 from implementation_scripts.repo_catalog import credential_names
 from implementation_scripts.credential_manager import (
+    ABSENT,
     AI_CREDENTIAL_NAMES,
+    PRESENT,
     SMTP_CREDENTIAL_NAMES,
 )
 
@@ -28,35 +37,37 @@ def test_credentials_presence_lists_all_expected_names(monkeypatch):
     _reset_db()
     from resmon import app
 
-    # Stub get_credential so the test never reads the real OS keyring.
-    monkeypatch.setattr(resmon_mod, "get_credential", lambda _name: None)
+    # Stub the probe so the test never reads the real OS keyring.
+    monkeypatch.setattr(resmon_mod, "probe_credential", lambda _name: ABSENT)
 
     client = TestClient(app)
     resp = client.get("/api/credentials")
     assert resp.status_code == 200
     data = resp.json()
     expected = credential_names() | AI_CREDENTIAL_NAMES | SMTP_CREDENTIAL_NAMES
-    assert set(data.keys()) == expected
+    assert set(data["credentials"].keys()) == expected
+    assert data["keyring_responsive"] is True
 
 
-def test_credentials_presence_returns_only_presence_flag(monkeypatch):
-    """Response values are dicts with exactly {'present': bool}, no secrets."""
+def test_credentials_presence_returns_only_status_never_values(monkeypatch):
+    """Entries carry presence and status only — never the credential itself."""
     _reset_db()
     from resmon import app
 
     monkeypatch.setattr(
-        resmon_mod, "get_credential",
-        lambda name: "secret-value" if name == "core_api_key" else None,
+        resmon_mod, "probe_credential",
+        lambda name: PRESENT if name == "core_api_key" else ABSENT,
     )
 
     client = TestClient(app)
     resp = client.get("/api/credentials")
     data = resp.json()
-    for name, entry in data.items():
-        assert set(entry.keys()) == {"present"}
+    for name, entry in data["credentials"].items():
+        assert set(entry.keys()) == {"present", "status"}
         assert isinstance(entry["present"], bool)
+        assert entry["status"] in {"present", "absent", "unreadable"}
 
-    assert data["core_api_key"]["present"] is True
-    assert data["ieee_api_key"]["present"] is False
+    assert data["credentials"]["core_api_key"] == {"present": True, "status": "present"}
+    assert data["credentials"]["ieee_api_key"] == {"present": False, "status": "absent"}
     # No raw value anywhere in the response.
     assert "secret-value" not in resp.text
