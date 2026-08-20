@@ -36,11 +36,21 @@ jobs:
       matrix:
         include:
           - os: macos-14
-            label: macOS DMG (arm64)
+            label: macOS DMG (Apple Silicon)
             artifact: resmon-dmg-arm64
             # No update metadata on purpose: an unsigned macOS app cannot
             # self-update (Squirrel.Mac validates the signature), so shipping
             # latest-mac.yml would advertise updates the app cannot apply.
+            pattern: release/*.dmg
+            upload: resmon_scripts/frontend/release/*.dmg
+            verify: '! test -e release/latest-mac.yml'
+          - os: macos-15-intel
+            label: macOS DMG (Intel)
+            artifact: resmon-dmg-x64
+            # A native Intel runner, not Rosetta: the bundled Python venv's
+            # compiled wheels must match the architecture pip runs on, so
+            # cross-building the backend from an arm64 runner would ship
+            # arm64 extensions inside an "Intel" DMG.
             pattern: release/*.dmg
             upload: resmon_scripts/frontend/release/*.dmg
             verify: '! test -e release/latest-mac.yml'

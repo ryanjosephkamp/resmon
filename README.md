@@ -124,8 +124,10 @@ npm run dist
 
 `npm run dist` builds for the platform it runs on:
 
-- **macOS** — `release/resmon-<version>-arm64.dmg` (~193 MB). Open it and drag
-  **resmon** to the **Applications** shortcut inside.
+- **macOS** — `release/resmon-<version>-arm64.dmg` (Apple Silicon) or
+  `resmon-<version>-x64.dmg` (Intel), ~190 MB. Open it and drag **resmon** to the
+  **Applications** shortcut inside. Local builds produce your machine's architecture;
+  CI builds both.
 - **Windows** — `release/resmon-<version>-setup-x64.exe`, a standard installer.
   SmartScreen will warn on an unsigned installer — choose **More info → Run anyway**.
 - **Linux** — `release/resmon-<version>-x86_64.AppImage`. Mark it executable
