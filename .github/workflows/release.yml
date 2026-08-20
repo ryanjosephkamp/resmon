@@ -1,6 +1,7 @@
 name: Release
 
-# Builds the installable macOS DMG and attaches it to a GitHub Release.
+# Builds the installable artifacts — macOS DMG, Windows NSIS installer,
+# Linux AppImage — and attaches them to a GitHub Release.
 #
 # Triggers on version tags (v1.6.0, v2.0.0, ...) and manually via
 # workflow_dispatch for a dry run that uploads the DMG as a workflow
@@ -25,18 +26,36 @@ permissions:
   contents: write
 
 jobs:
-  macos-dmg:
-    name: macOS DMG (arm64)
-    runs-on: macos-14
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # One platform failing must not cancel the others' artifacts.
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: macOS DMG (arm64)
+            artifact: resmon-dmg-arm64
+            pattern: release/*.dmg
+          - os: windows-latest
+            label: Windows installer (x64)
+            artifact: resmon-setup-x64
+            pattern: release/*.exe
+          - os: ubuntu-latest
+            label: Linux AppImage (x64)
+            artifact: resmon-appimage-x64
+            pattern: release/*.AppImage
 
     defaults:
       run:
         working-directory: resmon_scripts/frontend
 
     env:
-      # Present only after Apple Developer enrolment; harmless when empty.
-      # CSC_LINK is a base64-encoded .p12 export of the Developer ID
-      # Application certificate; CSC_KEY_PASSWORD unlocks it.
+      # Present only after Apple Developer enrolment; harmless when empty and
+      # ignored entirely on Windows/Linux. CSC_LINK is a base64-encoded .p12
+      # export of the Developer ID Application certificate.
       CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -48,7 +67,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          # prepare-backend.js bundles whichever python3 it finds; pin the
+          # prepare-backend.js bundles whichever Python it finds; pin the
           # version the venv is developed against.
           python-version: '3.11'
 
@@ -63,17 +82,18 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Disable signing when no certificate is configured
-        # electron-builder would otherwise probe the (empty) runner keychain.
-        if: env.CSC_LINK == ''
+        # electron-builder would otherwise probe the (empty) macOS keychain.
+        if: runner.os == 'macOS' && env.CSC_LINK == ''
         run: echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
 
-      - name: Build DMG
-        # Builds renderer + electron main, stages the Python backend venv
-        # (~900 MB), and produces release/resmon-<version>-arm64.dmg.
+      - name: Build
+        # `npm run dist` targets the platform it runs on. Each build stages
+        # the full Python backend venv (~900 MB) before packing.
         run: npm run dist
 
-      - name: Upload DMG to the release
+      - name: Upload to the release
         if: github.event_name == 'push'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -81,14 +101,14 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --title "resmon ${GITHUB_REF_NAME}" \
             --generate-notes \
-            release/*.dmg \
+            ${{ matrix.pattern }} \
           || gh release upload "${GITHUB_REF_NAME}" \
-               --repo "${GITHUB_REPOSITORY}" --clobber release/*.dmg
+               --repo "${GITHUB_REPOSITORY}" --clobber ${{ matrix.pattern }}
 
-      - name: Upload DMG as workflow artifact (dry run)
+      - name: Upload as workflow artifact (dry run)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: resmon-dmg-arm64
-          path: resmon_scripts/frontend/release/*.dmg
+          name: ${{ matrix.artifact }}
+          path: resmon_scripts/frontend/${{ matrix.pattern }}
           retention-days: 7
