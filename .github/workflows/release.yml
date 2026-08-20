@@ -1,0 +1,94 @@
+name: Release
+
+# Builds the installable macOS DMG and attaches it to a GitHub Release.
+#
+# Triggers on version tags (v1.6.0, v2.0.0, ...) and manually via
+# workflow_dispatch for a dry run that uploads the DMG as a workflow
+# artifact instead of creating a release.
+#
+# Signing and notarization are environment-gated: when the four APPLE_*
+# / CSC_* secrets exist, electron-builder signs with the Developer ID
+# certificate and notarizes with Apple; when they are absent (as now,
+# before enrolment), the build completes unsigned — same behaviour as a
+# local `npm run dist`. Adding the secrets later upgrades the pipeline
+# to signed without a workflow change.
+#
+# The v1.5-classic tag predates this workflow and is deliberately not a
+# release: it is the Master Plan rule-R1 archive marker.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos-dmg:
+    name: macOS DMG (arm64)
+    runs-on: macos-14
+
+    defaults:
+      run:
+        working-directory: resmon_scripts/frontend
+
+    env:
+      # Present only after Apple Developer enrolment; harmless when empty.
+      # CSC_LINK is a base64-encoded .p12 export of the Developer ID
+      # Application certificate; CSC_KEY_PASSWORD unlocks it.
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # prepare-backend.js bundles whichever python3 it finds; pin the
+          # version the venv is developed against.
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: resmon_scripts/frontend/package-lock.json
+
+      - name: Install dependencies
+        # npm install, not ci — same cross-platform lockfile caveat as ci.yml.
+        run: npm install --no-audit --no-fund
+
+      - name: Disable signing when no certificate is configured
+        # electron-builder would otherwise probe the (empty) runner keychain.
+        if: env.CSC_LINK == ''
+        run: echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+
+      - name: Build DMG
+        # Builds renderer + electron main, stages the Python backend venv
+        # (~900 MB), and produces release/resmon-<version>-arm64.dmg.
+        run: npm run dist
+
+      - name: Upload DMG to the release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "resmon ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            release/*.dmg \
+          || gh release upload "${GITHUB_REF_NAME}" \
+               --repo "${GITHUB_REPOSITORY}" --clobber release/*.dmg
+
+      - name: Upload DMG as workflow artifact (dry run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: resmon-dmg-arm64
+          path: resmon_scripts/frontend/release/*.dmg
+          retention-days: 7

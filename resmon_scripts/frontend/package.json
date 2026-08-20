@@ -1,7 +1,7 @@
 {
   "name": "resmon",
   "version": "1.5.0",
-  "description": "resmon — Research Monitor desktop application",
+  "description": "resmon \u2014 Research Monitor desktop application",
   "main": "dist/electron/main.js",
   "scripts": {
     "build:renderer": "webpack --mode production",
@@ -13,7 +13,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "prepare:backend": "node scripts/prepare-backend.js",
-    "dist": "npm run build && electron-builder --mac --publish never"
+    "dist": "npm run build && electron-builder --mac --publish never",
+    "dist:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist"
   },
   "keywords": [],
   "author": "",
@@ -73,14 +74,21 @@
       "category": "public.app-category.productivity",
       "target": [
         {
-          "target": "dir",
+          "target": "dmg",
           "arch": [
             "arm64"
           ]
         }
       ],
-      "identity": null
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build-resources/entitlements.mac.plist",
+      "entitlementsInherit": "build-resources/entitlements.mac.plist"
     },
-    "asar": true
+    "asar": true,
+    "dmg": {
+      "artifactName": "resmon-${version}-${arch}.${ext}",
+      "writeUpdateInfo": false
+    }
   }
 }
