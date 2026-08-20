@@ -52,16 +52,6 @@ jobs:
       run:
         working-directory: resmon_scripts/frontend
 
-    env:
-      # Present only after Apple Developer enrolment; harmless when empty and
-      # ignored entirely on Windows/Linux. CSC_LINK is a base64-encoded .p12
-      # export of the Developer ID Application certificate.
-      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -81,10 +71,29 @@ jobs:
         # npm install, not ci — same cross-platform lockfile caveat as ci.yml.
         run: npm install --no-audit --no-fund
 
-      - name: Disable signing when no certificate is configured
-        # electron-builder would otherwise probe the (empty) macOS keychain.
-        if: runner.os == 'macOS' && env.CSC_LINK == ''
-        run: echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+      - name: Configure macOS signing
+        # A job-level CSC_LINK mapped from a secret DEFINES the variable even
+        # when the secret does not exist, and electron-builder then attempts
+        # file-based signing against an empty path ("... not a file" — the
+        # first dry run failed exactly this way). So signing env is exported
+        # only when the certificate secret actually has a value; otherwise
+        # signing is disabled outright, matching a local unsigned build.
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.MAC_CSC_LINK }}" ]; then
+            {
+              echo "CSC_LINK=${{ secrets.MAC_CSC_LINK }}"
+              echo "CSC_KEY_PASSWORD=${{ secrets.MAC_CSC_KEY_PASSWORD }}"
+              echo "APPLE_ID=${{ secrets.APPLE_ID }}"
+              echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
+              echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}"
+            } >> "$GITHUB_ENV"
+            echo "Signing configured from secrets."
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "No certificate secret; building unsigned."
+          fi
 
       - name: Build
         # `npm run dist` targets the platform it runs on. Each build stages
