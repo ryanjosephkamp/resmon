@@ -74,12 +74,7 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64"
-          ]
-        }
+        "dmg"
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
