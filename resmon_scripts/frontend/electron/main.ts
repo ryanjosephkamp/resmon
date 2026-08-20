@@ -52,19 +52,36 @@ function readLockFile(): LockPayload | null {
   }
 }
 
-/** GET /api/health with a hard timeout. Resolves true on 200, false otherwise. */
-function pingHealth(port: number, timeoutMs: number = 3000): Promise<boolean> {
+interface HealthPayload {
+  status?: string;
+  version?: string;
+  pid?: number;
+}
+
+/** GET /api/health with a hard timeout. Resolves the parsed payload on 200, null otherwise. */
+function fetchHealth(port: number, timeoutMs: number = 3000): Promise<HealthPayload | null> {
   return new Promise((resolve) => {
     const req = http.get(
       { host: '127.0.0.1', port, path: '/api/health', timeout: timeoutMs },
       (res) => {
-        const ok = res.statusCode === 200;
-        res.resume();
-        resolve(ok);
+        if (res.statusCode !== 200) {
+          res.resume();
+          resolve(null);
+          return;
+        }
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(body) as HealthPayload);
+          } catch {
+            resolve(null);
+          }
+        });
       },
     );
-    req.on('timeout', () => { req.destroy(); resolve(false); });
-    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
   });
 }
 
@@ -83,6 +100,14 @@ function pingHealth(port: number, timeoutMs: number = 3000): Promise<boolean> {
  * register its own APScheduler against the same SQLite jobstore,
  * causing every fire to be logged as "missed" by the daemon's grace
  * window. Retrying with a longer per-attempt timeout closes that race.
+ *
+ * The daemon must also be the SAME VERSION as this app. Attaching across
+ * versions is how the first installed 1.5.0 app ended up talking to a
+ * 1.2.1 daemon: health answered 200, the attach succeeded, and every
+ * page the old backend had never heard of (Analytics, Explorer) rendered
+ * a 404 while the status bar said "Online". A version-mismatched daemon
+ * is treated exactly like no daemon at all — the app spawns its own
+ * bundled backend on a free port and leaves the daemon alone.
  */
 async function tryAttachToDaemon(
   attempts: number = 3,
@@ -91,12 +116,24 @@ async function tryAttachToDaemon(
 ): Promise<number | null> {
   for (let i = 0; i < attempts; i++) {
     const lock = readLockFile();
-    if (lock && (await pingHealth(lock.port, perAttemptTimeoutMs))) {
-      console.log(
-        `[main] Attached to existing resmon-daemon on port ${lock.port} ` +
-        `(pid=${lock.pid}, attempt=${i + 1}/${attempts})`,
-      );
-      return lock.port;
+    if (lock) {
+      const health = await fetchHealth(lock.port, perAttemptTimeoutMs);
+      if (health) {
+        // Trust the live process over the lock file for the version.
+        const daemonVersion = health.version ?? lock.version ?? 'unknown';
+        if (daemonVersion !== app.getVersion()) {
+          console.warn(
+            `[main] Daemon on port ${lock.port} is v${daemonVersion}, this app ` +
+            `is v${app.getVersion()} — not attaching. Spawning the bundled backend instead.`,
+          );
+          return null;
+        }
+        console.log(
+          `[main] Attached to existing resmon-daemon on port ${lock.port} ` +
+          `(pid=${lock.pid}, v${daemonVersion}, attempt=${i + 1}/${attempts})`,
+        );
+        return lock.port;
+      }
     }
     if (i + 1 < attempts) {
       await new Promise((r) => setTimeout(r, backoffMs));
@@ -152,10 +189,27 @@ function startBackend(port: number): ChildProcess {
   // hook in resmon.py honors this env var by skipping scheduler
   // instantiation entirely; CRUD endpoints already no-op when
   // ``scheduler is None``.
+  // A packaged app must not keep state inside its own bundle: the bundle is
+  // replaced wholesale on update, and Gatekeeper's app translocation can run
+  // a quarantined app from a read-only location. Point the backend at the
+  // same per-user state directory the daemon lock file lives in.
+  const backendEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    RESMON_DISABLE_SCHEDULER: '1',
+  };
+  if (app.isPackaged) {
+    const state = stateDir();
+    fs.mkdirSync(state, { recursive: true });
+    backendEnv.RESMON_DB_PATH = backendEnv.RESMON_DB_PATH
+      || path.join(state, 'resmon.db');
+    backendEnv.RESMON_REPORTS_DIR = backendEnv.RESMON_REPORTS_DIR
+      || path.join(state, 'resmon_reports');
+  }
+
   const child = spawn(pythonPath, [resmonScript, String(port)], {
     cwd: scriptDir,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, RESMON_DISABLE_SCHEDULER: '1' },
+    env: backendEnv,
   });
 
   child.stdout?.on('data', (data: Buffer) => {

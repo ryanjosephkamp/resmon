@@ -1,4 +1,5 @@
 # resmon_scripts/implementation_scripts/config.py
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -6,11 +7,16 @@ SCRIPTS_DIR = PROJECT_ROOT / "resmon_scripts"
 IMPL_DIR = SCRIPTS_DIR / "implementation_scripts"
 VERIFY_DIR = SCRIPTS_DIR / "verification_scripts"
 EXPERIMENTS_DIR = PROJECT_ROOT / "resmon_experiments"
-REPORTS_DIR = PROJECT_ROOT / "resmon_reports"
+
+# State locations. Checkout-relative by default, overridable for a packaged
+# app, whose bundle is replaced wholesale on update (and may even run from a
+# read-only translocated path under Gatekeeper) — Electron main points these
+# at ~/Library/Application Support/resmon (or the platform equivalent).
+REPORTS_DIR = Path(os.environ.get("RESMON_REPORTS_DIR") or PROJECT_ROOT / "resmon_reports")
 PRINTOUTS_DIR = PROJECT_ROOT / "resmon_printouts"
 
 # Database
-DEFAULT_DB_PATH = PROJECT_ROOT / "resmon.db"
+DEFAULT_DB_PATH = Path(os.environ.get("RESMON_DB_PATH") or PROJECT_ROOT / "resmon.db")
 
 # Application metadata
 APP_NAME = "resmon"
