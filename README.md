@@ -150,23 +150,21 @@ The staged environment is roughly 900 MB and takes a few minutes on the first bu
 
 ### Opening an unsigned build
 
-Releases are currently **unsigned**, so Gatekeeper blocks the first launch. What to do
-depends on your macOS version — and there is a terminal path if you prefer it:
+Releases are currently **unsigned**, and on modern macOS a downloaded unsigned app is
+blocked with **“resmon.app” is damaged and can’t be opened. You should move it to the
+Trash.** The app is not damaged — this is the standard Gatekeeper refusal for unsigned
+software downloaded from the internet, and for unsigned apps macOS often shows this
+dead-end dialog rather than any “Open Anyway” option.
 
-- **macOS 15 (Sequoia) and later** — the right-click trick no longer exists. Double-click
-  resmon once (it will be blocked), then open **System Settings → Privacy & Security**,
-  scroll to the Security section, click **Open Anyway** next to the resmon message, and
-  confirm. macOS remembers thereafter.
-- **macOS 14 and earlier** — right-click resmon in Applications, choose **Open**, then
-  **Open** again.
-- **Terminal, any version** — remove the quarantine flag once and launch normally:
+The reliable fix is one command after dragging resmon to Applications:
 
-  ```bash
-  xattr -d com.apple.quarantine /Applications/resmon.app
-  ```
+```bash
+xattr -dr com.apple.quarantine /Applications/resmon.app
+```
 
-None of this reflects anything wrong with the app — it is the standard macOS behaviour
-for software distributed without an Apple Developer signature.
+Then open resmon normally; macOS never asks again. (If your macOS version shows a
+“cannot verify the developer” dialog instead, **System Settings → Privacy & Security →
+Open Anyway**, or right-click → **Open** on macOS 14 and earlier, also works.)
 
 ## Launching the Application
 

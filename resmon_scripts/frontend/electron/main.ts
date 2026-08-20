@@ -176,10 +176,11 @@ function startBackend(port: number): ChildProcess {
     ? path.join(process.resourcesPath, 'backend', 'resmon_scripts')
     : path.resolve(__dirname, '..', '..', '..');
   const resmonScript = path.join(scriptDir, 'resmon.py');
-  // Windows venvs keep the interpreter in Scripts\python.exe; POSIX in bin/.
+  // The standalone runtime keeps the interpreter at python/python.exe on
+  // Windows and python/bin/python3 elsewhere.
   const bundledPython = process.platform === 'win32'
-    ? path.join(process.resourcesPath, 'backend', 'venv', 'Scripts', 'python.exe')
-    : path.join(process.resourcesPath, 'backend', 'venv', 'bin', 'python3');
+    ? path.join(process.resourcesPath, 'backend', 'python', 'python.exe')
+    : path.join(process.resourcesPath, 'backend', 'python', 'bin', 'python3');
   const systemPython = process.platform === 'win32' ? 'python' : 'python3';
   const pythonPath =
     process.env.RESMON_PYTHON ||
