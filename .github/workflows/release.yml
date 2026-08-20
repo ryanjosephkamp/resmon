@@ -44,6 +44,7 @@ jobs:
             pattern: release/*.dmg
             upload: resmon_scripts/frontend/release/*.dmg
             verify: '! test -e release/latest-mac.yml'
+            runtime: release/mac-arm64/resmon.app/Contents/Resources/backend/python/bin/python3
           - os: macos-15-intel
             label: macOS DMG (Intel)
             artifact: resmon-dmg-x64
@@ -54,6 +55,7 @@ jobs:
             pattern: release/*.dmg
             upload: resmon_scripts/frontend/release/*.dmg
             verify: '! test -e release/latest-mac.yml'
+            runtime: release/mac/resmon.app/Contents/Resources/backend/python/bin/python3
           - os: windows-latest
             label: Windows installer (x64)
             artifact: resmon-setup-x64
@@ -68,6 +70,7 @@ jobs:
               test -f release/latest.yml &&
               ls release/*.exe.blockmap &&
               test -f release/win-unpacked/resources/app-update.yml
+            runtime: release/win-unpacked/resources/backend/python/python.exe
           - os: ubuntu-latest
             label: Linux AppImage (x64)
             artifact: resmon-appimage-x64
@@ -78,6 +81,7 @@ jobs:
             verify: >-
               test -f release/latest-linux.yml &&
               test -f release/linux-unpacked/resources/app-update.yml
+            runtime: release/linux-unpacked/resources/backend/python/bin/python3
 
     defaults:
       run:
@@ -130,6 +134,28 @@ jobs:
         # `npm run dist` targets the platform it runs on. Each build stages
         # the full Python backend venv (~900 MB) before packing.
         run: npm run dist
+
+      - name: Verify the bundled runtime is genuinely portable
+        # The 1.6.0 lesson: a bundle that "works" on machines that happen to
+        # have the build Python proves nothing. This runs the SHIPPED
+        # interpreter and imports the heavy compiled dependencies — wrong
+        # architecture, missing stdlib, or a broken install all fail here —
+        # and on macOS additionally rejects any absolute framework linkage,
+        # which is exactly how the venv bug reached users.
+        shell: bash
+        run: |
+          PY="${{ matrix.runtime }}"
+          test -x "$PY"
+          "$PY" -c "import sys; print('bundled runtime:', sys.version)"
+          "$PY" -c "import fastapi, uvicorn, lxml, cryptography, tiktoken, nltk, keyring, sqlite3; print('imports OK')"
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            # Anchored: user-level /Library/Frameworks at path start is the
+            # 1.6.0 poison; /System/Library/Frameworks is normal OS linkage.
+            if otool -L "$PY" | grep -Eq '^[[:space:]]+/Library/Frameworks'; then
+              echo 'FATAL: bundled interpreter links a user-level framework path'
+              exit 1
+            fi
+          fi
 
       - name: Verify update metadata
         # Auto-update is only as real as its supply line. This fails the
