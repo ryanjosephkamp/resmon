@@ -9,6 +9,7 @@ const routeTitles: Record<string, string> = {
   '/routines': 'Routines',
   '/calendar': 'Calendar',
   '/results': 'Results & Logs',
+  '/watchdog': 'Watchdog',
   '/configurations': 'Configurations',
   '/settings': 'Settings',
 };

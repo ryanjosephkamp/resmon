@@ -26,6 +26,7 @@ resmon is an automated, customizable literature surveillance platform that monit
   - *Automated Deep Sweep (Routine)* — a background-scheduled Deep Sweep that runs on a cron expression, emits progress events, and optionally triggers email notifications and Google Drive uploads on completion.
 - **AI-powered summarization** — optional dual-path LLM integration covering remote commercial APIs (BYOK) and local/open-weight model inference, with token-aware chunking and customizable summarization prompts applied to abstracts, methodologies, results, and discussions. API keys are stored per provider in the OS keyring (one slot for each of `anthropic`, `openai`, `google`, `xai`, `meta`, `deepseek`, `alibaba`, `local`, and `custom`), and every per-execution AI override panel on Deep Dive, Deep Sweep, and Routines exposes the full Settings → AI control set (Provider, Model, Length, Tone, Temperature, Extraction Goals) with per-field merge semantics so a single override never clobbers persisted defaults.
 - **Corpus analytics** — a dedicated Analytics page computed entirely from papers already stored locally, so it makes no repository requests and costs no API quota. It reports which repositories contribute papers nothing else found (and which only duplicate others), the median **discovery lag** between a paper's publication date and the moment resmon first saw it — a figure no repository publishes about itself — per-routine health with an explicit signal when a routine stops finding anything new, and publication volume over time by source or subject category. Counts are always shown; medians and percentages are withheld until the sample is large enough to mean anything, with the sample size displayed either way.
+- **The watchdog — silent-failure detection** — a literature monitor fails silently: a dead source and a quiet field produce the same empty inbox. resmon compares every source and routine against baselines drawn from its own execution history and reports where reality has departed from them, in two deliberately separate grades. **Broken** is a recorded fact — a source that errored on three consecutive runs, a required API key that is not configured, an active routine overdue against its own observed cadence (which is what catches the background service being down). **Looks unusual** is an inference from the user's own baseline — a source that reliably returned papers returning none for four runs running — and is always worded as a prompt to check, with the innocent explanation stated alongside it. Thresholds are conservative and published in the interface; findings can be muted individually, and a mute is dropped automatically once its condition clears. What cannot yet be judged is listed too, so a watchdog silent for want of data is never mistaken for a clean bill of health. Cadence advice derived from discovery lag rounds it out, carrying the honest caveat that the lag was measured through the user's own polling interval.
 - **Corpus-wide Explorer** — search and filter every paper resmon has collected, across all executions and routines, by free text over titles and abstracts, author, source, subject category, and publication date. Filters live in the URL, so a filtered view can be bookmarked, shared, or reached from the Analytics page by clicking a source or category. Built for scale: free text runs against an FTS5 index rather than a substring scan, authors and categories are filtered through normalised indexed tables rather than parsed at query time, and pagination seeks by sort key rather than counting rows — a page at row 90,000 of 100,000 costs 0.30 ms.
 - **Reference-manager exports** — any execution's papers export to **BibTeX**, **RIS**, or **CSV**, alongside the existing Markdown, PDF, and LaTeX report bundle. Entries with a DOI are emitted as journal articles and those without as generic records; cite keys are made unique within a file and BibTeX special characters are escaped.
 - **Cross-platform desktop notifications** — routine and manual completions raise a native OS notification on macOS, Linux, and Windows. The notification dispatcher is invoked both from the foreground app and from the headless `resmon-daemon`, so completions fire even when the Electron UI is closed.
@@ -356,6 +357,7 @@ resmon/
 │   │   ├── summarizer.py             # Token-aware chunking + provider-agnostic summarization.
 │   │   ├── sweep_engine.py           # End-to-end query → dedup → report → summarize pipeline.
 │   │   ├── utils.py                  # Shared helpers.
+│   │   ├── watchdog.py               # Silent-failure detection over execution history.
 │   │   └── assets/                   # Static backend assets (templates, figures).
 │   │
 │   ├── frontend/                   # Electron + React renderer.
@@ -503,6 +505,34 @@ explains why. Counts are always reported — a percentage of an empty corpus is 
 in `implementation_scripts/analytics.py` (`MIN_SAMPLE_FOR_LAG`, `MIN_RUNS_FOR_HEALTH`,
 `STALE_RUN_THRESHOLD`) and are deliberately low: they exist to stop a single data point
 being presented as a trend, not to withhold information from a small corpus.
+
+### `/api/watchdog`
+
+Silent-failure detection over the same local data. Reads `execution_sources`, `executions`,
+and `routines`; makes no external requests.
+
+| Method | Path | Returns |
+|---|---|---|
+| GET | `/api/watchdog` | `findings`, `counts`, `not_enough_data`, `watching`, and the `thresholds` used. |
+| POST | `/api/watchdog/mute` | Acknowledge one finding by `finding_key`. It stays listed and stops counting. |
+| POST | `/api/watchdog/unmute` | Return a finding to the alarm total. |
+
+Each finding carries a stable `key`, a `severity` of `broken` / `unusual` / `advice`, the
+`scope` it concerns, a `title`, a `detail`, a `what_to_do`, and the `evidence` behind it.
+
+**The severity contract.** `broken` is only ever used for conditions resmon recorded
+happening — never for an inference. `unusual` is a departure from a baseline the user's own
+history established, and its payload always carries that baseline and its sample size.
+`advice` is not an alarm and is excluded from `counts.alarms`. Thresholds live in
+`implementation_scripts/watchdog.py` and are deliberately conservative: an alarm that is
+wrong gets muted, and a muted watchdog misses the failure it was built for.
+
+**Per-source execution record.** The `execution_sources` table stores what each source did
+on each run — `ok`, `error`, `skipped_missing_key`, or `cancelled`, with the raw result
+count and any error text. The sweep engine writes a row as each repository finishes.
+Databases created before this table are backfilled once from the progress events already
+stored on each execution, so the watchdog is useful on an existing install immediately
+rather than after several more runs. Failing to write a health row never fails a sweep.
 
 ### `/api/explorer`
 

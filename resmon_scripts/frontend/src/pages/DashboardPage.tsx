@@ -2,11 +2,16 @@ import React, { useEffect, useState } from 'react';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import SaveConfigButton from '../components/SaveConfig/SaveConfigButton';
 import EditRoutineButton from '../components/Routines/EditRoutineButton';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { useExecution } from '../context/ExecutionContext';
 import PageHelp from '../components/Help/PageHelp';
 import { useConfigurationsVersion } from '../lib/configurationsBus';
+
+interface WatchdogSummary {
+  counts: { broken: number; unusual: number; alarms: number };
+  sufficient: boolean;
+}
 
 interface Routine {
   id: number;
@@ -88,6 +93,7 @@ const formatRepos = (exec: Execution): string => {
 
 const DashboardPage: React.FC = () => {
   const [routines, setRoutines] = useState<Routine[]>([]);
+  const [watchdog, setWatchdog] = useState<WatchdogSummary | null>(null);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [exportPath, setExportPath] = useState('');
   const [exportError, setExportError] = useState('');
@@ -104,6 +110,11 @@ const DashboardPage: React.FC = () => {
       .catch(() => {});
     apiClient.get<Execution[]>('/api/executions?limit=10')
       .then(setExecutions)
+      .catch(() => {});
+    // Silent on failure: the watchdog strip is a bonus on this page, and an
+    // error banner about the health checker would itself be noise.
+    apiClient.get<WatchdogSummary>('/api/watchdog')
+      .then(setWatchdog)
       .catch(() => {});
   }, [completionCounter, configurationsVersion]);
 
@@ -210,6 +221,44 @@ const DashboardPage: React.FC = () => {
           },
         ]}
       />
+
+      {/*
+        Whether to look, not what at. A monitoring tool that only reports
+        health on a page you have to remember to open is not reporting it, so
+        the verdict lives here and the detail lives on the Watchdog page.
+        Rendered only once there is history to judge — "nothing looks wrong"
+        on a fresh install would be a claim resmon has not earned.
+      */}
+      {watchdog?.sufficient && (
+        <div className="card dashboard-watchdog">
+          {watchdog.counts.alarms === 0 ? (
+            <span className="text-muted">
+              Watchdog: nothing looks wrong with your sources or routines.
+            </span>
+          ) : (
+            <div className="dashboard-watchdog-counts">
+              {watchdog.counts.broken > 0 && (
+                <span className="watchdog-chip watchdog-chip-broken">
+                  {watchdog.counts.broken} broken
+                </span>
+              )}
+              {watchdog.counts.unusual > 0 && (
+                <span className="watchdog-chip watchdog-chip-unusual">
+                  {watchdog.counts.unusual} unusual
+                </span>
+              )}
+              <span>
+                {watchdog.counts.broken > 0
+                  ? 'Something has stopped working.'
+                  : 'Something departed from its usual pattern.'}
+              </span>
+            </div>
+          )}
+          <Link className="btn btn-sm btn-secondary" to="/watchdog">
+            Open the Watchdog
+          </Link>
+        </div>
+      )}
 
       <div className="card">
         <h2>Active Routines</h2>
