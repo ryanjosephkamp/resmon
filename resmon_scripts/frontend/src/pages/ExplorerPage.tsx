@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import PageHelp from '../components/Help/PageHelp';
 import WhyThisPaper from '../components/Explain/WhyThisPaper';
+import LifecycleBadge, { LifecycleEvent } from '../components/Explain/LifecycleBadge';
 import { apiClient, getBaseUrl } from '../api/client';
 
 /**
@@ -39,6 +40,11 @@ interface SearchResponse {
   used_full_text_index: boolean;
 }
 
+interface LifecycleMap {
+  events: Record<string, LifecycleEvent[]>;
+  checked: Record<string, { checked_at: string; status: string }>;
+}
+
 interface FacetValue { value: string; count: number; }
 interface FacetResponse {
   sources: FacetValue[];
@@ -71,6 +77,7 @@ const ExplorerPage: React.FC = () => {
   const [query, setQuery] = useState(urlQuery);
 
   const [docs, setDocs] = useState<Doc[]>([]);
+  const [lifecycle, setLifecycle] = useState<LifecycleMap>({ events: {}, checked: {} });
   const [meta, setMeta] = useState<Omit<SearchResponse, 'results'> | null>(null);
   const [facets, setFacets] = useState<FacetResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -112,6 +119,22 @@ const ExplorerPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [filterKey]);
 
+  // One request per page of results, not one per row. Failure is silent: a
+  // retraction badge is valuable, but a red error banner because the badge
+  // lookup failed would be worse than the missing badge.
+  const loadLifecycle = useCallback(async (results: Doc[]) => {
+    if (results.length === 0) return;
+    try {
+      const map = await apiClient.post<LifecycleMap>('/api/lifecycle/for-documents', {
+        document_ids: results.map((d) => d.id),
+      });
+      setLifecycle((prev) => ({
+        events: { ...prev.events, ...(map.events || {}) },
+        checked: { ...prev.checked, ...(map.checked || {}) },
+      }));
+    } catch { /* badges are additive; the list still works without them */ }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -124,12 +147,13 @@ const ExplorerPage: React.FC = () => {
       setDocs(results);
       setMeta(rest);
       setFacets(f);
+      void loadLifecycle(results);
     } catch (err: any) {
       setError(err?.message || 'Search failed.');
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, loadLifecycle]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -143,12 +167,13 @@ const ExplorerPage: React.FC = () => {
       const { results, ...rest } = page;
       setDocs((prev) => [...prev, ...results]);
       setMeta(rest);
+      void loadLifecycle(results);
     } catch (err: any) {
       setError(err?.message || 'Failed to load more.');
     } finally {
       setLoadingMore(false);
     }
-  }, [filters, meta, loadingMore]);
+  }, [filters, meta, loadingMore, loadLifecycle]);
 
   const toggle = (key: string, list: string[], value: string) =>
     setParam(key, list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
@@ -239,6 +264,19 @@ const ExplorerPage: React.FC = () => {
         title="Explorer"
         summary="Search everything resmon has ever collected, not one execution at a time."
         sections={[
+          {
+            heading: 'Retraction and update badges',
+            body: (
+              <p>
+                A paper that has been retracted, had a concern registered against it,
+                been corrected, reached a journal from a preprint server, or gained a
+                newer version carries a badge above its metadata — so you see it before
+                you read the abstract, not after. Every badge links the notice, and the
+                wording is the publisher&rsquo;s own. Run the check from the
+                <strong> Watchdog</strong> page; nothing appears here until you have.
+              </p>
+            ),
+          },
           {
             heading: 'Why am I seeing this?',
             body: (
@@ -396,6 +434,7 @@ const ExplorerPage: React.FC = () => {
                     <a href={d.url} target="_blank" rel="noreferrer noopener">{d.title}</a>
                   ) : d.title}
                 </h3>
+                <LifecycleBadge events={lifecycle.events[String(d.id)] || []} />
                 <p className="explorer-meta">
                   <span className="explorer-source">{d.source_repository}</span>
                   {d.publication_date && <span>{d.publication_date}</span>}

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import PageHelp from '../components/Help/PageHelp';
 import { apiClient } from '../api/client';
+import LifecycleBadge, { LifecycleEvent } from '../components/Explain/LifecycleBadge';
 
 /**
  * The watchdog: what has stopped working, and what merely looks odd.
@@ -57,6 +58,31 @@ interface WatchdogReport {
   watching: { sources: number; routines: number };
   thresholds: Record<string, number>;
   sufficient: boolean;
+}
+
+interface LifecycleFinding extends LifecycleEvent {
+  document_id: number;
+  title: string;
+  document_doi: string | null;
+  source_repository: string;
+  publication_date: string | null;
+}
+
+interface LifecycleReport {
+  findings: LifecycleFinding[];
+  counts: { critical: number; caution: number; informational: number };
+  coverage: {
+    corpus: number;
+    checked: number;
+    no_identifier: number;
+    errored: number;
+    unchecked: number;
+    last_checked_at: string | null;
+    recheck_after_days: number;
+  };
+  sufficient: boolean;
+  run: { running: boolean; started_at: string | null; error: string | null;
+         last: { checked_now: number; remaining: number } | null };
 }
 
 const SEVERITY_LABEL: Record<Severity, string> = {
@@ -182,6 +208,8 @@ const WatchdogPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [life, setLife] = useState<LifecycleReport | null>(null);
+  const [lifeBusy, setLifeBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -195,7 +223,42 @@ const WatchdogPage: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  const loadLifecycle = useCallback(async () => {
+    try {
+      const payload = await apiClient.get<LifecycleReport>('/api/lifecycle');
+      // Shape-checked before it reaches the render. This section is an addition
+      // to the page, and a malformed body must not be able to take the watchdog
+      // findings down with it — those are the reason someone opened the page.
+      if (payload && payload.coverage && Array.isArray(payload.findings)) {
+        setLife(payload);
+      }
+    } catch { /* the watchdog findings above still stand without this */ }
+  }, []);
+
+  useEffect(() => { void load(); void loadLifecycle(); }, [load, loadLifecycle]);
+
+  // The check makes outbound requests, so it runs on the server in the
+  // background and this polls. Two seconds is unhurried — the run takes as long
+  // as the sources take to answer, and hammering our own backend to watch it
+  // would be silly.
+  useEffect(() => {
+    if (!life?.run?.running) return undefined;
+    const timer = setInterval(() => { void loadLifecycle(); }, 2000);
+    return () => clearInterval(timer);
+  }, [life?.run?.running, loadLifecycle]);
+
+  const startLifecycleCheck = useCallback(async () => {
+    setLifeBusy(true);
+    try {
+      await apiClient.post('/api/lifecycle/check', {});
+      await loadLifecycle();
+    } catch (err: any) {
+      setError(err?.message || 'Could not start the lifecycle check.');
+    } finally {
+      setLifeBusy(false);
+    }
+  }, [loadLifecycle]);
+
 
   const toggleMute = useCallback(async (finding: Finding) => {
     setBusyKey(finding.key);
@@ -262,6 +325,25 @@ const WatchdogPage: React.FC = () => {
               key for, a routine you know is quiet. It stays listed but stops counting.
               Mutes are per finding and are dropped automatically once the condition
               clears, so if the same source fails again later you are told again.
+            </p>
+          ),
+        },
+        {
+          heading: 'Papers that changed after you found them',
+          body: (
+            <p>
+              Your corpus is frozen at the moment resmon found each paper. This
+              section unfreezes it: retractions and expressions of concern through
+              Crossref, which has distributed the Retraction Watch database openly
+              since 2023; preprints that have since reached a journal; and newer
+              versions of what you hold. <strong>resmon never asserts any of this
+              on its own authority</strong> — every entry links the notice, and the
+              wording is the publisher&rsquo;s own, never a paraphrase. The check
+              makes outbound requests, so it runs only when you ask, takes the least
+              recently checked papers first, and can be run again to continue.
+              Crossref&rsquo;s coverage of non-retraction notices is less complete
+              than for retractions, so the absence of an expression of concern means
+              less than the absence of a retraction.
             </p>
           ),
         },
@@ -413,6 +495,117 @@ const WatchdogPage: React.FC = () => {
           </div>
         </section>
       )}
+
+      {/*
+        The corpus half of trust. The watchdog above asks whether the monitoring
+        still works; this asks whether the papers it already found still say
+        what they said. Both are "is what resmon is showing me true?".
+
+        Nothing here is asserted on resmon's own authority — every row links the
+        notice, and the wording is the publisher's own.
+      */}
+      <section className="card">
+        <h2>Papers that changed after you found them</h2>
+        <p className="text-muted">
+          Retractions and expressions of concern via Crossref, which has distributed
+          the Retraction Watch database openly since 2023; preprints that have since
+          reached a journal; and newer versions of what you hold. resmon never asserts
+          any of this on its own — every entry links the notice so you can read it and
+          judge for yourself.
+        </p>
+
+        {life?.run?.error && (
+          <div className="alert alert-error" role="alert">{life.run.error}</div>
+        )}
+
+        <div className="lifecycle-controls">
+          <button
+            className="btn btn-sm"
+            onClick={() => void startLifecycleCheck()}
+            disabled={lifeBusy || !!life?.run?.running}
+          >
+            {life?.run?.running ? 'Checking…' : 'Check for retractions and updates'}
+          </button>
+          {life && (
+            <span className="text-muted lifecycle-coverage">
+              {life.coverage.checked === 0 ? (
+                <>Nothing checked yet, of {life.coverage.corpus} papers.</>
+              ) : (
+                <>
+                  {life.coverage.checked} of {life.coverage.corpus} papers checked
+                  {life.coverage.unchecked > 0 && (
+                    <>, {life.coverage.unchecked} still to go</>
+                  )}
+                  {life.coverage.no_identifier > 0 && (
+                    <>
+                      {' '}· {life.coverage.no_identifier} carry no DOI or supported
+                      identifier and cannot be checked
+                    </>
+                  )}
+                  {life.coverage.errored > 0 && (
+                    <> · {life.coverage.errored} errored</>
+                  )}
+                </>
+              )}
+            </span>
+          )}
+        </div>
+
+        {/*
+          This distinction is the whole reason coverage is displayed at all. An
+          empty list on an unchecked corpus is not "nothing has been retracted";
+          it is "nobody has looked". Saying "all clear" there would be exactly
+          the kind of false comfort 1.7 exists to remove.
+        */}
+        {!life || !life.sufficient ? (
+          <p className="analytics-thin">
+            No paper has been checked yet, so nothing here can be read as a clean
+            bill of health. The check makes outbound requests to Crossref and the
+            preprint servers, which is why it does not run on its own.
+          </p>
+        ) : life.findings.length === 0 ? (
+          <p className="analytics-thin">
+            Nothing has changed in the {life.coverage.checked} papers checked so far.
+            {life.coverage.unchecked > 0 && (
+              <> The remaining {life.coverage.unchecked} have not been looked at.</>
+            )}
+          </p>
+        ) : (
+          <>
+            <div className="lifecycle-counts">
+              {life.counts.critical > 0 && (
+                <span className="lifecycle-chip lifecycle-count-critical">
+                  {life.counts.critical} withdrawn
+                </span>
+              )}
+              {life.counts.caution > 0 && (
+                <span className="lifecycle-chip lifecycle-count-caution">
+                  {life.counts.caution} with a registered concern
+                </span>
+              )}
+              {life.counts.informational > 0 && (
+                <span className="lifecycle-chip lifecycle-count-informational">
+                  {life.counts.informational} otherwise changed
+                </span>
+              )}
+            </div>
+            <ul className="lifecycle-list">
+              {life.findings.map((f) => (
+                <li key={`${f.document_id}:${f.kind}:${f.notice_url}`}>
+                  <p className="lifecycle-paper">{f.title}</p>
+                  <LifecycleBadge events={[f]} />
+                </li>
+              ))}
+            </ul>
+            <p className="analytics-thin">
+              Crossref&rsquo;s coverage of non-retraction update types is less
+              complete than for retractions, so the absence of an expression of
+              concern means less than the absence of a retraction. Papers are
+              re-checked after {life.coverage.recheck_after_days} days.
+            </p>
+          </>
+        )}
+      </section>
 
       {/*
         Reported rather than hidden. A watchdog that is silent because it has
