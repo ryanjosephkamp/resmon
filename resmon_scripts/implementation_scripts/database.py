@@ -226,6 +226,68 @@ CREATE TABLE IF NOT EXISTS watchdog_mutes (
     note        TEXT
 );
 
+-- ---------------------------------------------------------------------------
+-- Corpus lifecycle (1.7 — papers change after you find them)
+-- ---------------------------------------------------------------------------
+--
+-- A corpus is frozen at discovery time and silently goes stale. A paper you
+-- built on can be retracted, a preprint can reach a journal, an arXiv entry can
+-- reach v4 — and nothing in resmon would ever say so.
+--
+-- The governing rule for this table: **resmon never asserts a lifecycle event
+-- on its own authority.** Every row must carry ``notice_url``, a resolvable
+-- link to the notice that a reader can open and judge for themselves. A false
+-- retraction flag is defamatory, and "we inferred it" is not a defence. The
+-- insert helper refuses a row without one, so the rule is enforced in code
+-- rather than trusted to the callers.
+--
+-- ``label`` holds the upstream's own wording verbatim, never a paraphrase.
+-- ``provider_source`` records who registered the notice (Crossref distinguishes
+-- ``retraction-watch`` from ``publisher``), because a reader weighing a claim
+-- should know its origin.
+--
+-- ``notice_key`` is the primary-key component rather than ``notice_doi``: not
+-- every event has a DOI (an arXiv version bump does not), and SQLite treats
+-- NULLs as distinct, so a nullable key column would let duplicates accumulate
+-- on every re-check.
+
+CREATE TABLE IF NOT EXISTS document_lifecycle (
+    document_id     INTEGER NOT NULL,
+    kind            TEXT NOT NULL,
+    severity        TEXT NOT NULL
+        CHECK (severity IN ('critical', 'caution', 'informational')),
+    notice_key      TEXT NOT NULL,
+    label           TEXT,
+    notice_doi      TEXT,
+    notice_url      TEXT NOT NULL,
+    notice_date     TEXT,
+    detail          TEXT,
+    provider        TEXT NOT NULL,
+    provider_source TEXT,
+    first_seen_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (document_id, kind, notice_key),
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_lifecycle_severity
+    ON document_lifecycle(severity);
+
+-- What was checked, when, and what happened. Kept separately from the findings
+-- so coverage can be reported honestly: "no retractions found" means nothing
+-- unless the user can also see how much of the corpus was actually looked at,
+-- and which papers could not be checked because they carry no usable
+-- identifier.
+
+CREATE TABLE IF NOT EXISTS document_lifecycle_checks (
+    document_id   INTEGER PRIMARY KEY,
+    checked_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    status        TEXT NOT NULL
+        CHECK (status IN ('ok', 'no_identifier', 'error')),
+    error_message TEXT,
+    providers     TEXT,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
 """
 
 # Schema version constants. Bumped by IMPL-36 (→2), IMPL-37 (→3), and
@@ -233,8 +295,10 @@ CREATE TABLE IF NOT EXISTS watchdog_mutes (
 # linking each manual execution back to the saved configuration it was
 # launched from (or saved as). 5 dropped the cloud-mirror tables with the
 # cloud service; 6 adds ``execution_sources`` and ``watchdog_mutes`` for the
-# 1.7 watchdog, and backfills the former from stored progress events.
-SCHEMA_VERSION = 6
+# 1.7 watchdog, and backfills the former from stored progress events; 7 adds
+# ``document_lifecycle`` and ``document_lifecycle_checks`` for retraction,
+# preprint-to-published and version tracking.
+SCHEMA_VERSION = 7
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -1087,6 +1151,107 @@ def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
         (key, value),
     )
     conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Corpus lifecycle CRUD
+# ---------------------------------------------------------------------------
+
+
+class MissingNoticeError(ValueError):
+    """Raised when a lifecycle finding arrives without a link to its notice.
+
+    Deliberately an exception rather than a silent skip. A caller that builds a
+    retraction finding and forgets the notice has a bug, and the failure mode of
+    swallowing it is that resmon tells a user their paper was retracted with
+    nothing to check. That must be loud.
+    """
+
+
+def record_lifecycle_finding(
+    conn: sqlite3.Connection,
+    document_id: int,
+    *,
+    kind: str,
+    severity: str,
+    notice_key: str,
+    notice_url: str,
+    label: str | None = None,
+    notice_doi: str | None = None,
+    notice_date: str | None = None,
+    detail: str | None = None,
+    provider: str,
+    provider_source: str | None = None,
+) -> None:
+    """Record one lifecycle event, refusing anything the user cannot verify.
+
+    ``INSERT OR IGNORE``: re-checking a paper must not reset ``first_seen_at``,
+    because "resmon told me about this three weeks ago" is a different fact from
+    "resmon told me just now" and the interface distinguishes them.
+    """
+    if not (notice_url or "").strip():
+        raise MissingNoticeError(
+            f"Lifecycle finding {kind!r} for document {document_id} has no "
+            "notice URL. resmon does not assert a lifecycle event without a "
+            "link to the notice behind it."
+        )
+    if not (notice_key or "").strip():
+        raise MissingNoticeError(
+            f"Lifecycle finding {kind!r} for document {document_id} has no "
+            "stable key, so re-checking would duplicate it."
+        )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO document_lifecycle
+            (document_id, kind, severity, notice_key, label, notice_doi,
+             notice_url, notice_date, detail, provider, provider_source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (int(document_id), kind, severity, notice_key, label, notice_doi,
+         notice_url, notice_date, detail, provider, provider_source),
+    )
+    conn.commit()
+
+
+def record_lifecycle_check(
+    conn: sqlite3.Connection,
+    document_id: int,
+    *,
+    status: str,
+    providers: list[str] | None = None,
+    error_message: str | None = None,
+) -> None:
+    """Record that a paper was looked at, whatever the outcome."""
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO document_lifecycle_checks
+            (document_id, checked_at, status, error_message, providers)
+        VALUES (?, datetime('now'), ?, ?, ?)
+        """,
+        (int(document_id), status, error_message,
+         json.dumps(providers or [])),
+    )
+    conn.commit()
+
+
+def get_lifecycle_for_document(
+    conn: sqlite3.Connection, document_id: int,
+) -> list[dict]:
+    """Lifecycle events recorded against one paper, most serious first."""
+    rows = conn.execute(
+        """
+        SELECT * FROM document_lifecycle
+        WHERE document_id = ?
+        ORDER BY CASE severity
+                     WHEN 'critical' THEN 0
+                     WHEN 'caution' THEN 1
+                     ELSE 2
+                 END,
+                 notice_date DESC
+        """,
+        (int(document_id),),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------

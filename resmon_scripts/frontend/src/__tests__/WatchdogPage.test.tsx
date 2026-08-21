@@ -98,14 +98,29 @@ const WITH_FINDINGS = {
   sufficient: true,
 };
 
-function mockFetch(payload: unknown) {
-  const mock = jest.fn(async (_input?: RequestInfo | URL, _init?: RequestInit) => ({
-    ok: true,
-    status: 200,
-    headers: { get: () => 'application/json' },
-    json: async () => payload,
-    text: async () => JSON.stringify(payload),
-  }));
+/** No paper checked yet — the state a fresh install is in. */
+const LIFECYCLE_EMPTY = {
+  findings: [],
+  counts: { critical: 0, caution: 0, informational: 0 },
+  coverage: {
+    corpus: 0, checked: 0, no_identifier: 0, errored: 0, unchecked: 0,
+    last_checked_at: null, recheck_after_days: 30,
+  },
+  sufficient: false,
+  run: { running: false, started_at: null, error: null, last: null },
+};
+
+function mockFetch(payload: unknown, lifecycle: unknown = LIFECYCLE_EMPTY) {
+  const mock = jest.fn(async (input?: RequestInfo | URL, _init?: RequestInit) => {
+    const body = String(input).includes('/api/lifecycle') ? lifecycle : payload;
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    };
+  });
   (global as any).fetch = mock;
   return mock;
 }
@@ -242,5 +257,102 @@ describe('Watchdog page', () => {
 
     expect(screen.getByText('Not enough history to judge yet')).toBeInTheDocument();
     expect(screen.getByText('2 runs on record; a baseline needs 5.')).toBeInTheDocument();
+  });
+
+  // --- Papers that changed after you found them ---------------------------
+  //
+  // The distinction that matters here is the same one the watchdog rests on: an
+  // empty list on an unchecked corpus is "nobody looked", not "all clear".
+
+  test('an unchecked corpus is never presented as free of retractions', async () => {
+    mockFetch(ALL_CLEAR, LIFECYCLE_EMPTY);
+    await renderPage();
+
+    expect(screen.getByText(/No paper has been checked yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing has changed/)).not.toBeInTheDocument();
+  });
+
+  test('a checked corpus with nothing found says how much was checked', async () => {
+    mockFetch(ALL_CLEAR, {
+      ...LIFECYCLE_EMPTY,
+      coverage: { ...LIFECYCLE_EMPTY.coverage, corpus: 100, checked: 60, unchecked: 40 },
+      sufficient: true,
+    });
+    await renderPage();
+
+    expect(screen.getByText(/Nothing has changed in the 60 papers checked/))
+      .toBeInTheDocument();
+    // And it does not let the unchecked remainder pass unmentioned.
+    expect(screen.getByText(/remaining 40 have not been looked at/))
+      .toBeInTheDocument();
+  });
+
+  test('a retraction is listed with its notice as a link', async () => {
+    mockFetch(ALL_CLEAR, {
+      ...LIFECYCLE_EMPTY,
+      sufficient: true,
+      counts: { critical: 1, caution: 0, informational: 0 },
+      coverage: { ...LIFECYCLE_EMPTY.coverage, corpus: 10, checked: 10 },
+      findings: [{
+        document_id: 4,
+        title: 'Ileal-lymphoid-nodular hyperplasia',
+        document_doi: '10.1016/s0140-6736(97)11096-0',
+        source_repository: 'crossref',
+        publication_date: '1998-02-28',
+        kind: 'retraction',
+        severity: 'critical',
+        label: 'Retraction',
+        notice_doi: '10.1016/s0140-6736(10)60175-4',
+        notice_url: 'https://doi.org/10.1016/s0140-6736(10)60175-4',
+        notice_date: '2010-02-06',
+        detail: null,
+        provider: 'crossref',
+        provider_source: 'retraction-watch',
+      }],
+    });
+    await renderPage();
+
+    expect(screen.getByText('Ileal-lymphoid-nodular hyperplasia')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Retraction' }))
+      .toHaveAttribute('href', 'https://doi.org/10.1016/s0140-6736(10)60175-4');
+    expect(screen.getByText('1 withdrawn')).toBeInTheDocument();
+  });
+
+  test('the weaker coverage of non-retraction notices is stated', async () => {
+    mockFetch(ALL_CLEAR, {
+      ...LIFECYCLE_EMPTY,
+      sufficient: true,
+      counts: { critical: 0, caution: 1, informational: 0 },
+      coverage: { ...LIFECYCLE_EMPTY.coverage, corpus: 10, checked: 10 },
+      findings: [{
+        document_id: 4, title: 'A paper', document_doi: '10.1/a',
+        source_repository: 'crossref', publication_date: '2020-01-01',
+        kind: 'expression_of_concern', severity: 'caution',
+        label: 'Expression of concern', notice_doi: '10.1/eoc',
+        notice_url: 'https://doi.org/10.1/eoc', notice_date: '2024-01-01',
+        detail: null, provider: 'crossref', provider_source: 'publisher',
+      }],
+    });
+    await renderPage();
+
+    // Scoped to the section: the same caveat also appears in the page help,
+    // which is deliberate — it should be readable both before and after running
+    // the check.
+    const section = screen
+      .getByRole('heading', {
+        level: 2, name: 'Papers that changed after you found them',
+      })
+      .closest('section')!;
+    expect(section).toHaveTextContent(/less complete than for retractions/);
+  });
+
+  test('a malformed lifecycle response does not take the page down', async () => {
+    // The section is an addition; the watchdog findings are why someone opened
+    // the page, and they must survive a bad body from the other endpoint.
+    mockFetch(WITH_FINDINGS, { unexpected: true });
+    await renderPage();
+
+    expect(screen.getByText('arxiv has failed on its last 3 runs')).toBeInTheDocument();
+    expect(screen.getByText(/No paper has been checked yet/)).toBeInTheDocument();
   });
 });

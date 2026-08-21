@@ -30,6 +30,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 - **Corpus-wide Explorer** — search and filter every paper resmon has collected, across all executions and routines, by free text over titles and abstracts, author, source, subject category, and publication date. Filters live in the URL, so a filtered view can be bookmarked, shared, or reached from the Analytics page by clicking a source or category. Built for scale: free text runs against an FTS5 index rather than a substring scan, authors and categories are filtered through normalised indexed tables rather than parsed at query time, and pagination seeks by sort key rather than counting rows — a page at row 90,000 of 100,000 costs 0.30 ms.
 - **Match transparency — "why am I seeing this?"** — every result in the Explorer can say which of the keywords from the runs that found it actually appear in it, and in which field: title, abstract, subject categories, or author list. Matching is on whole words, so `AI` does not match `said`, and a quoted phrase must appear as a phrase. The same arithmetic run corpus-wide gives **per-keyword marginal contribution** on the Analytics page: how many papers each keyword found that no other keyword of yours did, so a term that only duplicates another becomes visible and can be retired. The feature is defined as much by what it refuses to claim: resmon stores no full text, and most sources are relevance-ranked rather than literal keyword filters, so a paper containing none of your keywords is expected rather than a fault. Every explanation carries those limits alongside the evidence rather than behind a tooltip, and names the source's own documented keyword semantics. There is exactly one source resmon speaks about with certainty — bioRxiv/medRxiv has no upstream keyword search, so resmon does the filtering itself and knows precisely why a paper is in the set.
 - **Reference-manager exports** — any execution's papers export to **BibTeX**, **RIS**, or **CSV**, alongside the existing Markdown, PDF, and LaTeX report bundle. Entries with a DOI are emitted as journal articles and those without as generic records; cite keys are made unique within a file and BibTeX special characters are escaped.
+- **Corpus lifecycle — papers change after you find them** — a monitor's corpus is frozen at discovery time and silently goes stale. resmon unfreezes it: **retractions** and **expressions of concern** through Crossref, which has distributed the Retraction Watch database openly since 2023; **preprints that have since reached a journal**, via the bioRxiv API's link to the published DOI; and **newer versions** of what you hold, on both bioRxiv and arXiv. Discovering after submission that a paper you built on was retracted is a career-grade problem, and no other literature monitor checks for any of it. The governing rule is enforced in code, not left to callers: **resmon never asserts a lifecycle event on its own authority** — every finding carries a resolvable link to the notice behind it, and one that cannot produce a link is refused at the database layer rather than recorded. The publisher's own wording is stored and displayed verbatim, an expression of concern is graded below a retraction and said to be weaker, and a correction is treated as the routine scholarly upkeep it is rather than coloured like an alarm. The check makes outbound requests, so it runs only when asked, bounded and resumable, and coverage is always reported alongside the findings — "no retractions found" means nothing if only a fifth of the corpus has been looked at, and papers with no usable identifier are counted separately rather than silently treated as clean.
 - **Cross-platform desktop notifications** — routine and manual completions raise a native OS notification on macOS, Linux, and Windows. The notification dispatcher is invoked both from the foreground app and from the headless `resmon-daemon`, so completions fire even when the Electron UI is closed.
 - **Calendar scheduling** — a calendar view of scheduled routines and historical executions, driven by the scheduler service and the `/api/calendar/events` endpoint.
 - **Email notifications** — per-routine and global SMTP-based notifications on routine completion, including attachment of the execution bundle produced by the shared export pipeline.
@@ -342,6 +343,7 @@ resmon/
 │   │   ├── database.py               # Schema, migrations, parameterized queries.
 │   │   ├── email_notifier.py         # Email templating and dispatch.
 │   │   ├── email_sender.py           # SMTP transport.
+│   │   ├── lifecycle.py              # Retractions, preprint→published, version tracking.
 │   │   ├── llm_factory.py            # Provider whitelist + client construction.
 │   │   ├── llm_local.py              # ollama REST client.
 │   │   ├── llm_remote.py             # Remote-BYOK client (OpenAI, Anthropic, etc.).
@@ -540,6 +542,45 @@ tolerant of terms that end in punctuation (`C++`, `cs.LG`). Keywords containing 
 `OR` / `NOT` are **flagged, not parsed** — several upstreams forward operators verbatim,
 and implementing a boolean engine whose semantics differed from the upstream's would be
 another way of over-claiming.
+
+### `/api/lifecycle`
+
+What has happened to papers since resmon found them. The **only** part of resmon that
+makes outbound requests without the user starting a search, which is why the check is
+explicit rather than automatic.
+
+| Method | Path | Returns |
+|---|---|---|
+| GET | `/api/lifecycle` | Recorded events, severity counts, **coverage**, and the state of any running check. |
+| POST | `/api/lifecycle/check` | Starts a bounded background check over the least recently checked papers. `{"limit": N}`, default 200. `409` if one is already running. |
+| POST | `/api/lifecycle/for-documents` | Events for up to 500 document ids in one round trip — what the Explorer uses to badge a page of results. |
+| GET | `/api/documents/{id}/lifecycle` | Events for one paper, plus whether it has ever been checked. |
+
+**Never assert alone.** `record_lifecycle_finding` raises `MissingNoticeError` when a
+finding arrives without a resolvable `notice_url`, so a lifecycle event that a reader
+cannot open cannot be stored, let alone displayed. A false retraction flag is defamatory
+and "we inferred it from the metadata" is not a defence. The upstream `label` is kept
+verbatim — resmon does not translate "Correction" into "Retraction" or soften
+"Retraction" into "Update", because the wording *is* the claim — and `provider_source`
+records whether Crossref got the notice from Retraction Watch or from the publisher.
+
+| Severity | Used for |
+|---|---|
+| `critical` | retraction, withdrawal, removal, partial retraction — the paper was withdrawn from the record |
+| `caution` | expression of concern — explicitly **not** a retraction |
+| `informational` | correction, erratum, new version, preprint reaching a journal |
+
+An unrecognised Crossref update type is recorded as `informational` with its label intact,
+never promoted to a retraction.
+
+**Coverage is part of the answer.** The payload reports how many papers were checked, how
+many carry no DOI or supported identifier and therefore *cannot* be checked, how many
+errored, and how many remain — because an empty findings list over an unchecked corpus is
+"nobody looked", not "nothing has been retracted", and the interface must be able to tell
+the two apart. Papers whose Crossref batch failed are left unchecked rather than stamped
+clean; a DOI Crossref simply has no record of is a real answer and *is* marked checked, so
+one unknown DOI cannot stall the walk through the corpus. Papers are re-checked after 30
+days.
 
 ### `/api/watchdog`
 

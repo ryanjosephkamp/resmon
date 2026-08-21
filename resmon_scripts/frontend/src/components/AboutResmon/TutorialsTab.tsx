@@ -199,6 +199,7 @@ const sections: TutorialSection[] = [
       '`BibTeX`, `RIS`, and `CSV` export everything matching your filters — not only the papers currently on screen.',
       'The address bar always reflects your filters, so a filtered view can be bookmarked, reloaded, or shared, and the Back button works.',
       '`Why am I seeing this?` on any result shows which of the keywords from the runs that found it actually appear in the paper, and where — title, abstract, categories, or author list.',
+      'Papers that have been retracted, corrected, published from a preprint, or superseded by a newer version carry a badge above their metadata, linking the notice. Run the check from the Watchdog page first; badges appear once a paper has been checked.',
     ],
     features: [
       'Searches your whole corpus across every execution and routine, rather than one execution at a time.',
@@ -264,6 +265,8 @@ const sections: TutorialSection[] = [
       '`Show the evidence` on any finding opens the numbers behind it — how many runs, the actual error text, when the source last answered.',
       '`Mute` acknowledges a finding you already know about. It stays listed but stops counting, and the mute is dropped automatically once the condition clears, so a recurrence is reported again.',
       '`Not enough history to judge yet` lists the sources and routines being watched that do not yet have enough runs on record. A watchdog silent because all is well and one silent because it has three data points are different things, and this section keeps them apart.',
+      '`Papers that changed after you found them` unfreezes your corpus: retractions and expressions of concern via Crossref, preprints that have since reached a journal, and newer versions of what you hold. Press `Check for retractions and updates` to run it — it is the only part of resmon that makes outbound requests without you starting a search, so it never runs on its own.',
+      'The check is bounded and resumable: it takes the least recently checked papers first and reports how many remain. Run it again to continue through a large corpus.',
     ],
     features: [
       'Per-source health from every run resmon has made, including runs recorded before this feature existed — the history is backfilled on first launch, so the watchdog is useful immediately rather than in three weeks.',
@@ -272,6 +275,8 @@ const sections: TutorialSection[] = [
       'Cadence advice derived from discovery lag, with the caveat that lag is measured through your own polling interval stated in the finding itself.',
       'Per-finding muting that expires when the condition resolves.',
       'A one-line verdict on the Dashboard, so the health of your monitoring is visible without remembering to open this page.',
+      'Retraction, expression-of-concern, correction, preprint-to-published and new-version tracking over the papers you have already collected — something no other literature monitor does.',
+      'Every lifecycle entry links the notice behind it, and shows who registered it (Retraction Watch or the publisher). resmon never asserts a retraction on its own authority.',
     ],
     tips: [
       'The thresholds are printed at the bottom of the page. They are deliberately conservative — a watchdog that cries wolf gets muted, and then the real failure is missed too.',
@@ -279,6 +284,9 @@ const sections: TutorialSection[] = [
       'Runs you cancelled are not held against a source: stopping a sweep says nothing about whether the source was answering.',
       'A missing API key outranks the error it causes. If a source needs a key you have not set, the finding names the key rather than the HTTP 401 underneath it.',
       'Cadence advice never means anything is broken. A daily routine against a slow source still works — it just spends requests without finding anything sooner.',
+      'A correction is not a retraction, and is not coloured like one. Grading normal scholarly upkeep as an alarm would teach you to ignore the colour, and then the real retraction goes unread too.',
+      'An empty lifecycle list on an unchecked corpus is not a clean bill of health, and the page says so rather than implying otherwise. The coverage line tells you how many papers have actually been looked at.',
+      'Papers with no DOI and no supported identifier cannot be checked at all. They are counted separately rather than silently treated as clean.',
     ],
     destination: { path: '/watchdog', label: 'Go to Page' },
   },

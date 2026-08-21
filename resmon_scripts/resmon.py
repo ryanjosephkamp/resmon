@@ -52,6 +52,7 @@ from implementation_scripts.database import (
     set_setting,
     save_progress_events,
     get_progress_events,
+    get_lifecycle_for_document,
     SCHEMA_VERSION,
     get_schema_version,
 )
@@ -89,7 +90,7 @@ from implementation_scripts.config_manager import (
 from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
 from implementation_scripts import (
-    analytics, explorer, match_explain, reference_export, watchdog,
+    analytics, explorer, lifecycle, match_explain, reference_export, watchdog,
 )
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import admission
@@ -2043,6 +2044,170 @@ def analytics_publication_volume(group_by: str = "source", months: int = 12):
         return _cached_analytics(
             "publication_volume", (group_by, int(months)), conn,
             lambda: analytics.publication_volume(conn, group_by=group_by, months=months))
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Corpus lifecycle (1.7 — papers change after you find them)
+#
+# The only feature in 1.7 that talks to the network, which is why the check is
+# explicit rather than automatic: quietly asking a third party about every paper
+# a user has ever collected is not something to do on their behalf unasked.
+#
+# It runs on a background thread because it is bounded by outbound requests, not
+# by CPU, and a corpus of a few thousand papers would hold a request open for
+# minutes. One run at a time; the page polls GET /api/lifecycle for progress.
+# ---------------------------------------------------------------------------
+
+_lifecycle_lock = threading.Lock()
+_lifecycle_run: dict = {"running": False, "started_at": None, "last": None,
+                        "error": None}
+
+
+class LifecycleCheckRequest(BaseModel):
+    limit: int = Field(default=lifecycle.DEFAULT_LIMIT, ge=1, le=2000)
+
+
+def _run_lifecycle_check(limit: int) -> None:
+    """Body of the background check. Owns its own connection."""
+    conn = _get_db()
+    try:
+        summary = lifecycle.check_corpus(conn, limit=limit)
+        with _lifecycle_lock:
+            _lifecycle_run["last"] = {
+                "checked_now": summary["checked_now"],
+                "remaining": summary["remaining"],
+                "errors": summary["errors"],
+                "checked_at": summary["checked_at"],
+            }
+            _lifecycle_run["error"] = None
+    except Exception as exc:
+        logging.getLogger(__name__).exception("Lifecycle check failed")
+        with _lifecycle_lock:
+            _lifecycle_run["error"] = str(exc)
+    finally:
+        with _lifecycle_lock:
+            _lifecycle_run["running"] = False
+        _close_db(conn)
+
+
+@app.post("/api/lifecycle/check")
+def lifecycle_check(request: LifecycleCheckRequest):
+    """Start a bounded lifecycle check over the least recently checked papers.
+
+    Returns immediately. Poll ``GET /api/lifecycle`` for progress and results.
+    """
+    with _lifecycle_lock:
+        if _lifecycle_run["running"]:
+            raise HTTPException(
+                409, "A lifecycle check is already running.",
+            )
+        _lifecycle_run["running"] = True
+        _lifecycle_run["started_at"] = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+        _lifecycle_run["error"] = None
+
+    thread = threading.Thread(
+        target=_run_lifecycle_check, args=(request.limit,),
+        daemon=True, name="lifecycle-check",
+    )
+    thread.start()
+    return {"status": "started", "limit": request.limit}
+
+
+@app.get("/api/lifecycle")
+def lifecycle_report():
+    """Recorded lifecycle events, and how much of the corpus they cover."""
+    conn = _get_db()
+    try:
+        payload = lifecycle.report(conn)
+        with _lifecycle_lock:
+            payload["run"] = dict(_lifecycle_run)
+        return payload
+    finally:
+        _close_db(conn)
+
+
+class LifecycleForDocumentsRequest(BaseModel):
+    document_ids: list[int] = Field(default_factory=list, max_length=500)
+
+
+@app.post("/api/lifecycle/for-documents")
+def lifecycle_for_documents(request: LifecycleForDocumentsRequest):
+    """Lifecycle events for a page of results, in one round trip.
+
+    The Explorer renders fifty papers at a time and needs to badge each one.
+    Asking per row would be fifty requests to paint one screen; this is one.
+    Ids with no events are simply absent from the map.
+    """
+    ids = [int(i) for i in request.document_ids][:500]
+    if not ids:
+        return {"events": {}, "checked": {}}
+
+    placeholders = ",".join("?" for _ in ids)
+    conn = _get_db()
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM document_lifecycle
+            WHERE document_id IN ({placeholders})
+            ORDER BY CASE severity
+                         WHEN 'critical' THEN 0
+                         WHEN 'caution' THEN 1
+                         ELSE 2
+                     END,
+                     notice_date DESC
+            """,
+            ids,
+        ).fetchall()
+        events: dict[str, list] = {}
+        for row in rows:
+            events.setdefault(str(row["document_id"]), []).append(dict(row))
+
+        # Whether each paper has been looked at travels with the events, so the
+        # interface can tell "nothing has happened to this paper" apart from
+        # "nobody has checked this paper" — which look identical otherwise.
+        checked_rows = conn.execute(
+            f"""
+            SELECT document_id, checked_at, status
+            FROM document_lifecycle_checks
+            WHERE document_id IN ({placeholders})
+            """,
+            ids,
+        ).fetchall()
+        checked = {
+            str(r["document_id"]): {"checked_at": r["checked_at"],
+                                    "status": r["status"]}
+            for r in checked_rows
+        }
+        return {"events": events, "checked": checked}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/documents/{doc_id}/lifecycle")
+def document_lifecycle(doc_id: int):
+    """Lifecycle events recorded against one paper."""
+    conn = _get_db()
+    try:
+        row = conn.execute(
+            "SELECT id FROM documents WHERE id = ?", (int(doc_id),)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, f"No document with id {doc_id}")
+        checked = conn.execute(
+            "SELECT checked_at, status FROM document_lifecycle_checks "
+            "WHERE document_id = ?", (int(doc_id),),
+        ).fetchone()
+        return {
+            "document_id": int(doc_id),
+            "events": get_lifecycle_for_document(conn, doc_id),
+            # Without this an empty list is ambiguous: it could mean nothing has
+            # happened to the paper, or that nobody has ever looked.
+            "checked_at": checked["checked_at"] if checked else None,
+            "check_status": checked["status"] if checked else None,
+        }
     finally:
         _close_db(conn)
 

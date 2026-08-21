@@ -3600,3 +3600,135 @@ html, body, #root {
 .why-limits li { padding: 2px 0; }
 
 .why-error { color: var(--color-error); font-size: 12px; }
+
+/* ---------------------------------------------------------------------------
+   Corpus lifecycle (1.7)
+
+   Only `critical` is alarming. A correction is normal scholarly upkeep, and
+   colouring it like a retraction would train users to ignore the colour — after
+   which the retraction goes unread too, which is the failure this whole feature
+   exists to prevent.
+
+   The notice link is always visible and always the publisher's own wording.
+   --------------------------------------------------------------------------- */
+
+.lifecycle-events { list-style: none; margin: 6px 0; }
+
+.lifecycle-event {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  border-radius: 5px;
+  border-left: 3px solid var(--color-border);
+  background: var(--color-bg);
+  font-size: 12.5px;
+}
+
+.lifecycle-critical {
+  border-left-color: var(--color-error);
+  background: rgba(239, 68, 68, 0.07);
+}
+
+.lifecycle-caution {
+  border-left-color: var(--color-warning);
+  background: rgba(245, 158, 11, 0.07);
+}
+
+.lifecycle-informational { border-left-color: var(--color-accent); }
+
+.lifecycle-chip {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.lifecycle-critical .lifecycle-chip {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f8a1a1;
+}
+
+.lifecycle-caution .lifecycle-chip {
+  background: rgba(245, 158, 11, 0.18);
+  color: #f3c268;
+}
+
+/* The link is mandatory — the backend refuses to store an event without one —
+   so it is styled as the primary element of the row, not as a footnote. */
+.lifecycle-notice {
+  color: var(--color-accent-hover);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lifecycle-date,
+.lifecycle-source {
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+}
+
+.lifecycle-detail {
+  color: var(--color-text-muted);
+  flex-basis: 100%;
+  font-size: 12px;
+}
+
+.lifecycle-unchecked {
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-style: italic;
+  margin: 4px 0;
+}
+
+.lifecycle-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.lifecycle-coverage { font-size: 12.5px; }
+
+.lifecycle-counts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
+
+.lifecycle-count-critical {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f8a1a1;
+}
+
+.lifecycle-count-caution {
+  background: rgba(245, 158, 11, 0.18);
+  color: #f3c268;
+}
+
+.lifecycle-count-informational {
+  background: rgba(99, 102, 241, 0.18);
+  color: #a5a8f5;
+}
+
+.lifecycle-list { list-style: none; margin-top: 10px; }
+
+.lifecycle-list > li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.lifecycle-list > li:last-child { border-bottom: none; }
+
+.lifecycle-paper { font-size: 13px; font-weight: 600; }
