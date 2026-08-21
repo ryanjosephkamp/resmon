@@ -90,7 +90,8 @@ from implementation_scripts.config_manager import (
 from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
 from implementation_scripts import (
-    analytics, explorer, lifecycle, match_explain, reference_export, watchdog,
+    analytics, explorer, lifecycle, match_explain, reference_export,
+    search_record, watchdog,
 )
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import admission
@@ -2046,6 +2047,46 @@ def analytics_publication_volume(group_by: str = "source", months: int = 12):
             lambda: analytics.publication_volume(conn, group_by=group_by, months=months))
     finally:
         _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# The reproducible search record (1.7 — PRISMA-shaped export)
+#
+# Every systematic review's methods section needs the same account, and it is
+# assembled by hand in spreadsheets essentially everywhere. resmon already
+# records all of it. See implementation_scripts/search_record.py for why the
+# figures are labelled with the PRISMA box they belong in — and, where there is
+# no honest match, labelled as having none.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/executions/{exec_id}/search-record")
+def execution_search_record(exec_id: int, format: str = "json"):
+    """The complete, dated account of one search.
+
+    ``?format=markdown`` returns a methods-section-shaped document as
+    ``text/markdown`` rather than JSON.
+    """
+    if format not in ("json", "markdown"):
+        raise HTTPException(400, "format must be 'json' or 'markdown'")
+    conn = _get_db()
+    try:
+        record = search_record.build(conn, exec_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    finally:
+        _close_db(conn)
+
+    if format == "markdown":
+        return Response(
+            content=search_record.to_markdown(record),
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="resmon-search-record-{exec_id}.md"',
+            },
+        )
+    return record
 
 
 # ---------------------------------------------------------------------------

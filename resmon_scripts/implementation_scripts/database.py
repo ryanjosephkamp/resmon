@@ -297,8 +297,10 @@ CREATE TABLE IF NOT EXISTS document_lifecycle_checks (
 # cloud service; 6 adds ``execution_sources`` and ``watchdog_mutes`` for the
 # 1.7 watchdog, and backfills the former from stored progress events; 7 adds
 # ``document_lifecycle`` and ``document_lifecycle_checks`` for retraction,
-# preprint-to-published and version tracking.
-SCHEMA_VERSION = 7
+# preprint-to-published and version tracking; 8 promotes the per-run
+# deduplication figures out of the progress-events blob into columns, for the
+# reproducible search record.
+SCHEMA_VERSION = 8
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -352,6 +354,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_pub_sort(conn)
     _migrate_search_index(conn)
     _migrate_execution_sources(conn)
+    _migrate_dedup_columns(conn)
     _migrate_schema_version(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
@@ -387,6 +390,21 @@ def _migrate_executions_columns(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE executions ADD COLUMN saved_configuration_id INTEGER"
         )
+    # 1.7 / reproducible search record. The deduplication figures a systematic
+    # reviewer has to report were computed on every run and then thrown away
+    # into the progress-events blob. They are first-class columns now, because
+    # a PRISMA flow diagram is assembled from exactly these numbers and reading
+    # them back out of JSON per execution is not a report format.
+    #
+    # ``dedup_cross_source`` is the one PRISMA actually means by "duplicate
+    # records removed": the same paper arriving from two different databases.
+    # It is NULL rather than 0 on runs that predate this column, because
+    # "we did not measure it" and "there were none" are different claims and
+    # the record must not make the second one on the first one's behalf.
+    for column in ("dedup_total", "dedup_new", "dedup_duplicates",
+                   "dedup_invalid", "dedup_cross_source"):
+        if column not in existing:
+            conn.execute(f"ALTER TABLE executions ADD COLUMN {column} INTEGER")
     conn.commit()
 
 
@@ -684,6 +702,63 @@ def _migrate_execution_sources(conn: sqlite3.Connection) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')",
         (_SOURCES_BACKFILL_KEY,),
+    )
+    conn.commit()
+
+
+_DEDUP_BACKFILL_KEY = "dedup_columns_backfilled"
+
+
+def _migrate_dedup_columns(conn: sqlite3.Connection) -> None:
+    """Backfill the deduplication columns from stored progress events.
+
+    Every completed run emitted a ``dedup_stats`` event, so the four figures it
+    carried can be recovered for history. ``cross_source`` was computed but
+    never emitted, so it stays NULL on old runs -- the search record reports it
+    as not recorded rather than as zero, because a reviewer reading "0 duplicate
+    records removed" would take that as a measurement.
+    """
+    row = conn.execute(
+        "SELECT value FROM app_settings WHERE key = ?", (_DEDUP_BACKFILL_KEY,)
+    ).fetchone()
+    if row and row[0] == "1":
+        return
+
+    executions = conn.execute(
+        """
+        SELECT id, progress_events FROM executions
+        WHERE progress_events IS NOT NULL AND dedup_total IS NULL
+        """
+    ).fetchall()
+
+    for execution in executions:
+        try:
+            events = json.loads(execution["progress_events"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(events, list):
+            continue
+        stats = next(
+            (e for e in reversed(events)
+             if isinstance(e, dict) and e.get("type") == "dedup_stats"),
+            None,
+        )
+        if not stats:
+            continue
+        conn.execute(
+            """
+            UPDATE executions
+            SET dedup_total = ?, dedup_new = ?, dedup_duplicates = ?,
+                dedup_invalid = ?
+            WHERE id = ?
+            """,
+            (stats.get("total"), stats.get("new"), stats.get("duplicates"),
+             stats.get("invalid"), execution["id"]),
+        )
+
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')",
+        (_DEDUP_BACKFILL_KEY,),
     )
     conn.commit()
 

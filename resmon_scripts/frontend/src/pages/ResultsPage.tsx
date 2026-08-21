@@ -201,6 +201,24 @@ const ResultsPage: React.FC = () => {
         summary="Browse every execution, read its report, and export or delete selected runs."
         sections={[
           {
+            heading: 'The search record',
+            body: (
+              <p>
+                Every execution has a <strong>Search record</strong> tab: the complete,
+                dated account of that search — exact terms, publication window,
+                per-database record counts, deduplication figures, and the resmon
+                version that ran it — in the shape a PRISMA flow diagram needs, with a
+                Markdown download for a methods section. Each figure names the PRISMA
+                box it belongs in, and where resmon&rsquo;s number has no honest
+                equivalent the record says so rather than filing it under a heading it
+                does not fit. resmon <em>flags</em> cross-source duplicates and keeps
+                both copies, so the record reports duplicates found, never duplicates
+                removed; and a figure it never measured reads <em>not recorded</em>,
+                never 0.
+              </p>
+            ),
+          },
+          {
             heading: 'The table',
             body: (
               <ul>
