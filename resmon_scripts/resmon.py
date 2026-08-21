@@ -88,7 +88,9 @@ from implementation_scripts.config_manager import (
 )
 from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
-from implementation_scripts import analytics, explorer, reference_export, watchdog
+from implementation_scripts import (
+    analytics, explorer, match_explain, reference_export, watchdog,
+)
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import admission
 from implementation_scripts.scheduler import ResmonScheduler, set_dispatcher
@@ -2041,6 +2043,55 @@ def analytics_publication_volume(group_by: str = "source", months: int = 12):
         return _cached_analytics(
             "publication_volume", (group_by, int(months)), conn,
             lambda: analytics.publication_volume(conn, group_by=group_by, months=months))
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Why am I seeing this? (1.7 — match transparency)
+#
+# Two directions on the same question. Per paper: which keywords are locally
+# verifiable in it, and — stated every time — what resmon cannot see. Per
+# keyword: how many papers it brought in that no other keyword did.
+#
+# The load-bearing constraint is in implementation_scripts/match_explain.py:
+# resmon does not know why a relevance-ranked source returned something, and
+# never claims to.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/documents/{doc_id}/why")
+def document_why(doc_id: int, execution_id: Optional[int] = None):
+    """What is locally verifiable about why this paper is in the corpus."""
+    conn = _get_db()
+    try:
+        return match_explain.explain_document(
+            conn, doc_id, execution_id=execution_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/analytics/keyword-contribution")
+def analytics_keyword_contribution(execution_id: Optional[int] = None):
+    """Per keyword: papers it found that no other keyword did.
+
+    Scoped to one execution with ``?execution_id=``, otherwise to every keyword
+    ever searched against the whole corpus. Cached like the other analytics —
+    it reads every candidate document once, which is not free on a large corpus.
+    """
+    conn = _get_db()
+    try:
+        return _cached_analytics(
+            "keyword_contribution", (execution_id,), conn,
+            lambda: match_explain.keyword_contribution(
+                conn, execution_id=execution_id,
+            ),
+        )
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
     finally:
         _close_db(conn)
 

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import PageHelp from '../components/Help/PageHelp';
+import WhyThisPaper from '../components/Explain/WhyThisPaper';
 import { apiClient, getBaseUrl } from '../api/client';
 
 /**
@@ -239,6 +240,22 @@ const ExplorerPage: React.FC = () => {
         summary="Search everything resmon has ever collected, not one execution at a time."
         sections={[
           {
+            heading: 'Why am I seeing this?',
+            body: (
+              <p>
+                Every result carries a <strong>Why am I seeing this?</strong> link. It
+                shows which of the keywords from the runs that found the paper actually
+                appear in it, and where — title, abstract, categories or author list —
+                matching whole words, so <em>AI</em> does not match <em>said</em>. It
+                also states what resmon <em>cannot</em> see: it does not store full
+                text, and most sources rank by relevance rather than filtering on
+                literal terms, so they can return a paper that contains none of your
+                keywords. That is normal, not a fault, and resmon will not pretend to
+                know the upstream&rsquo;s reasoning.
+              </p>
+            ),
+          },
+          {
             heading: 'What this searches',
             body: (
               <p>
@@ -396,6 +413,7 @@ const ExplorerPage: React.FC = () => {
                     ))}
                   </p>
                 )}
+                <WhyThisPaper documentId={d.id} />
               </li>
             ))}
           </ul>
