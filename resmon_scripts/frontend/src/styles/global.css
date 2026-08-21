@@ -3281,3 +3281,193 @@ html, body, #root {
 .analytics-legend-link { color: var(--color-text); text-decoration: none; }
 .analytics-bar-link:hover,
 .analytics-legend-link:hover { color: var(--color-accent); text-decoration: underline; }
+
+/* ---------------------------------------------------------------------------
+   Watchdog (1.7)
+
+   The severity colours are the feature, not decoration. "Broken" and "looks
+   unusual" are different claims about certainty, and a user scanning the page
+   has to be able to tell them apart before reading a word. Red is reserved for
+   recorded facts; amber for inferences from the user's own history; the accent
+   blue for advice, which is not an alarm at all and must never read as one.
+
+   Each is carried by a left border, a tinted chip and a wording gloss, so the
+   distinction survives for anyone who cannot separate the two hues.
+   --------------------------------------------------------------------------- */
+
+.watchdog-verdict h2 {
+  margin-bottom: 6px;
+}
+
+.watchdog-verdict-clear h2 { color: var(--color-success); }
+.watchdog-verdict-alarm h2 { color: var(--color-error); }
+.watchdog-verdict-unknown h2 { color: var(--color-text-muted); }
+
+.watchdog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.watchdog-finding {
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: 6px;
+  padding: 14px 16px;
+  background: var(--color-bg);
+}
+
+.watchdog-finding h3 {
+  font-size: 15px;
+  margin: 8px 0 2px;
+}
+
+.watchdog-finding p {
+  margin: 6px 0;
+}
+
+.watchdog-broken  { border-left-color: var(--color-error); }
+.watchdog-unusual { border-left-color: var(--color-warning); }
+.watchdog-advice  { border-left-color: var(--color-accent); }
+
+.watchdog-finding.watchdog-muted {
+  opacity: 0.62;
+  border-left-color: var(--color-text-muted);
+}
+
+.watchdog-finding-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.watchdog-chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-right: 8px;
+}
+
+.watchdog-chip-broken {
+  background: rgba(239, 68, 68, 0.16);
+  color: #f8a1a1;
+}
+
+.watchdog-chip-unusual {
+  background: rgba(245, 158, 11, 0.16);
+  color: #f3c268;
+}
+
+.watchdog-chip-advice {
+  background: rgba(99, 102, 241, 0.18);
+  color: #a5a8f5;
+}
+
+.watchdog-chip-muted {
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
+  margin-left: 8px;
+  margin-right: 0;
+}
+
+.watchdog-scope {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* The gloss spelling out what this severity claims. Small, but never hidden —
+   it is what stops "looks unusual" being read as "is broken". */
+.watchdog-gloss {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.watchdog-todo {
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+  margin-top: 10px !important;
+}
+
+.watchdog-evidence-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-accent-hover);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.watchdog-evidence {
+  margin-top: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+}
+
+.watchdog-evidence-row {
+  display: flex;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.watchdog-evidence-row dt {
+  color: var(--color-text-muted);
+  min-width: 200px;
+  flex-shrink: 0;
+}
+
+.watchdog-evidence-row dd {
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.watchdog-unjudged {
+  list-style: none;
+  margin-top: 10px;
+}
+
+.watchdog-unjudged li {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+}
+
+.watchdog-unjudged li:last-child { border-bottom: none; }
+
+.watchdog-unjudged .watchdog-scope { min-width: 220px; }
+
+.watchdog-thresholds ul {
+  margin: 10px 0 12px 18px;
+  font-size: 13px;
+}
+
+.watchdog-thresholds li { padding: 2px 0; }
+
+/* Dashboard summary strip. Compact by design: the Dashboard says whether to
+   look, the Watchdog page says what at. */
+.dashboard-watchdog {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.dashboard-watchdog-counts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}

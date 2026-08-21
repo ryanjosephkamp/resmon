@@ -7,6 +7,7 @@ import FloatingWidget from './components/Monitor/FloatingWidget';
 import { ExecutionProvider } from './context/ExecutionContext';
 import { apiClient } from './api/client';
 import AnalyticsPage from './pages/AnalyticsPage';
+import WatchdogPage from './pages/WatchdogPage';
 import ExplorerPage from './pages/ExplorerPage';
 import DashboardPage from './pages/DashboardPage';
 import DeepDivePage from './pages/DeepDivePage';
@@ -65,6 +66,7 @@ const App: React.FC = () => {
                   <Route path="/calendar" element={<CalendarPage />} />
                   <Route path="/results" element={<ResultsPage />} />
                   <Route path="/analytics" element={<AnalyticsPage />} />
+                  <Route path="/watchdog" element={<WatchdogPage />} />
                   <Route path="/explorer" element={<ExplorerPage />} />
                   <Route path="/configurations" element={<ConfigurationsPage />} />
                   <Route path="/monitor" element={<MonitorPage />} />

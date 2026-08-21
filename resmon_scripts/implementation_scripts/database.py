@@ -168,13 +168,73 @@ CREATE INDEX IF NOT EXISTS idx_documents_source
 CREATE INDEX IF NOT EXISTS idx_documents_first_seen
     ON documents(first_seen_at);
 
+-- ---------------------------------------------------------------------------
+-- Per-source execution record (1.7 — the watchdog)
+-- ---------------------------------------------------------------------------
+--
+-- What each source did on each run has always been observable -- the sweep
+-- engine emits ``repo_done`` / ``repo_error`` / ``repo_skipped_missing_key``
+-- progress events, and those are persisted. But they land in a single JSON
+-- blob per execution (``executions.progress_events``), which means the only
+-- way to ask "has arXiv errored on its last three runs?" is to read and parse
+-- every execution in the database.
+--
+-- The watchdog asks exactly that kind of question, and the reproducible search
+-- record needs per-source retrieval counts as a first-class field. So the same
+-- facts are written here as rows at the moment they happen. ``progress_events``
+-- remains the live feed for the Monitor page; this is the queryable record.
+--
+-- ``status`` vocabulary, one row per (execution, source):
+--   ok                   the source was queried and answered
+--   error                the query raised; ``error_message`` holds the reason
+--   skipped_missing_key  the source needs a credential that is not configured,
+--                        so it was always going to return nothing
+--   cancelled            the user cancelled while this source was in flight
+--
+-- ``result_count`` is the raw count the source returned, before dedup. It is
+-- deliberately not the number of new papers: a source returning its usual 40
+-- results of which 0 are new is healthy, and conflating the two would make the
+-- watchdog alarm on a quiet field.
+
+CREATE TABLE IF NOT EXISTS execution_sources (
+    execution_id    INTEGER NOT NULL,
+    source          TEXT NOT NULL,
+    status          TEXT NOT NULL
+        CHECK (status IN ('ok', 'error', 'skipped_missing_key', 'cancelled')),
+    result_count    INTEGER NOT NULL DEFAULT 0,
+    error_message   TEXT,
+    credential_name TEXT,
+    recorded_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (execution_id, source),
+    FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_sources_source
+    ON execution_sources(source);
+
+-- Findings the user has explicitly acknowledged. A watchdog with no off switch
+-- is a watchdog that gets ignored wholesale the first time it is wrong about
+-- something the user already knows -- a source they never configured a key for,
+-- a routine they know is quiet. Muting one finding is what keeps the rest
+-- credible. Keyed by the finding's stable key so the same condition stays
+-- muted across recomputations, and cleared automatically when the condition
+-- resolves (see watchdog.py).
+
+CREATE TABLE IF NOT EXISTS watchdog_mutes (
+    finding_key TEXT PRIMARY KEY,
+    muted_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    note        TEXT
+);
+
 """
 
 # Schema version constants. Bumped by IMPL-36 (→2), IMPL-37 (→3), and
 # Update 3 / 4_27_26 (→4) which adds ``executions.saved_configuration_id``
 # linking each manual execution back to the saved configuration it was
-# launched from (or saved as).
-SCHEMA_VERSION = 5
+# launched from (or saved as). 5 dropped the cloud-mirror tables with the
+# cloud service; 6 adds ``execution_sources`` and ``watchdog_mutes`` for the
+# 1.7 watchdog, and backfills the former from stored progress events.
+SCHEMA_VERSION = 6
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -227,6 +287,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_routines_columns(conn)
     _migrate_pub_sort(conn)
     _migrate_search_index(conn)
+    _migrate_execution_sources(conn)
     _migrate_schema_version(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
@@ -433,6 +494,133 @@ def _migrate_search_index(conn: sqlite3.Connection) -> None:
                 index_document_facets(conn, row["id"] if hasattr(row, "keys") else row[0],
                                       row["authors"] if hasattr(row, "keys") else row[1],
                                       row["categories"] if hasattr(row, "keys") else row[2])
+    conn.commit()
+
+
+# Backfill guard. The backfill reads every stored progress-events blob once;
+# without a flag it would re-scan the whole executions table on every startup
+# for executions that legitimately have no per-source rows (a run that failed
+# before querying anything, for instance).
+_SOURCES_BACKFILL_KEY = "execution_sources_backfilled"
+
+
+def sources_from_progress_events(events: list[dict]) -> list[dict]:
+    """Derive one per-source record from an execution's progress events.
+
+    This is the reader for history recorded before ``execution_sources``
+    existed, and the definition of how the event stream maps onto the table.
+
+    A repository can appear in several events in one run. The missing-key
+    warning is emitted and the repository is then queried anyway, so a source
+    with no key typically has both ``repo_skipped_missing_key`` and either
+    ``repo_done`` with zero results or ``repo_error`` with an auth failure.
+    Precedence resolves that to the most informative single answer:
+
+        cancelled > skipped_missing_key > error > ok
+
+    ``skipped_missing_key`` outranks ``error`` deliberately. When the key is
+    absent, "no API key configured" is the cause and the 401 underneath it is
+    the symptom; reporting the symptom would send the user to look for a
+    problem that is not there.
+    """
+    _RANK = {"ok": 0, "error": 1, "skipped_missing_key": 2, "cancelled": 3}
+    by_source: dict[str, dict] = {}
+
+    def _promote(source: str, status: str, **fields) -> None:
+        if not source:
+            return
+        current = by_source.get(source)
+        if current is None:
+            by_source[source] = {
+                "source": source,
+                "status": status,
+                "result_count": 0,
+                "error_message": None,
+                "credential_name": None,
+            }
+            current = by_source[source]
+        elif _RANK[status] >= _RANK[current["status"]]:
+            current["status"] = status
+        # Fields are merged regardless of rank: a result count from repo_done
+        # is still the truth about what came back even when the row is later
+        # promoted to skipped_missing_key.
+        for key, value in fields.items():
+            if value is not None:
+                current[key] = value
+
+    for event in events or []:
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type")
+        source = event.get("repository") or ""
+        if kind == "repo_done":
+            _promote(source, "ok", result_count=event.get("result_count") or 0)
+        elif kind == "repo_skipped_missing_key":
+            _promote(
+                source, "skipped_missing_key",
+                credential_name=event.get("credential_name"),
+            )
+        elif kind == "repo_error":
+            error = str(event.get("error") or "")
+            if error == "cancelled by user":
+                _promote(source, "cancelled", error_message=error)
+            else:
+                _promote(source, "error", error_message=error or "unknown error")
+
+    return sorted(by_source.values(), key=lambda r: r["source"])
+
+
+def _migrate_execution_sources(conn: sqlite3.Connection) -> None:
+    """Backfill ``execution_sources`` from progress events already on disk.
+
+    The watchdog compares a source's recent runs against its own history, so on
+    a database with two years of executions it would otherwise report "not
+    enough data" until three more runs happened. The facts are already stored;
+    this reshapes them into rows. Runs from before progress events were
+    persisted at all simply have nothing to backfill, which is honest -- they
+    are absent rather than counted as zero.
+    """
+    row = conn.execute(
+        "SELECT value FROM app_settings WHERE key = ?", (_SOURCES_BACKFILL_KEY,)
+    ).fetchone()
+    if row and row[0] == "1":
+        return
+
+    executions = conn.execute(
+        """
+        SELECT id, progress_events
+        FROM executions
+        WHERE progress_events IS NOT NULL
+          AND id NOT IN (SELECT DISTINCT execution_id FROM execution_sources)
+        """
+    ).fetchall()
+
+    for execution in executions:
+        try:
+            events = json.loads(execution["progress_events"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(events, list):
+            continue
+        for record in sources_from_progress_events(events):
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO execution_sources
+                    (execution_id, source, status, result_count,
+                     error_message, credential_name)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    execution["id"], record["source"], record["status"],
+                    record["result_count"], record["error_message"],
+                    record["credential_name"],
+                ),
+            )
+
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')",
+        (_SOURCES_BACKFILL_KEY,),
+    )
     conn.commit()
 
 
@@ -899,6 +1087,57 @@ def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
         (key, value),
     )
     conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Per-source execution record CRUD
+# ---------------------------------------------------------------------------
+
+
+def record_execution_source(
+    conn: sqlite3.Connection,
+    exec_id: int,
+    source: str,
+    status: str,
+    *,
+    result_count: int = 0,
+    error_message: str | None = None,
+    credential_name: str | None = None,
+) -> None:
+    """Record what one source did on one execution.
+
+    Written as each repository finishes rather than in one batch at the end, so
+    a crash mid-run still leaves an accurate record of the sources that did
+    complete. ``INSERT OR REPLACE`` because a source can be recorded twice in
+    one run -- the missing-key warning fires before the query is attempted --
+    and the later, more specific record is the one to keep.
+    """
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO execution_sources
+            (execution_id, source, status, result_count,
+             error_message, credential_name)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (int(exec_id), source, status, int(result_count or 0),
+         error_message, credential_name),
+    )
+    conn.commit()
+
+
+def get_execution_sources(conn: sqlite3.Connection, exec_id: int) -> list[dict]:
+    """Per-source records for one execution, ordered by source name."""
+    rows = conn.execute(
+        """
+        SELECT source, status, result_count, error_message,
+               credential_name, recorded_at
+        FROM execution_sources
+        WHERE execution_id = ?
+        ORDER BY source
+        """,
+        (int(exec_id),),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------

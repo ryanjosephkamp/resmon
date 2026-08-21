@@ -88,7 +88,7 @@ from implementation_scripts.config_manager import (
 )
 from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
-from implementation_scripts import analytics, explorer, reference_export
+from implementation_scripts import analytics, explorer, reference_export, watchdog
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import admission
 from implementation_scripts.scheduler import ResmonScheduler, set_dispatcher
@@ -1948,7 +1948,14 @@ def _analytics_fingerprint(conn) -> tuple:
         " (SELECT IFNULL(MAX(end_time), '') FROM executions),"
         " (SELECT COUNT(*) FROM execution_documents),"
         " (SELECT COUNT(*) FROM routines),"
-        " (SELECT IFNULL(MAX(updated_at), '') FROM routines)"
+        " (SELECT IFNULL(MAX(updated_at), '') FROM routines),"
+        # The watchdog rides the same cache, so its inputs belong in the same
+        # fingerprint. Without these two a source that started erroring, or a
+        # finding the user just muted, would keep serving the previous answer.
+        " (SELECT COUNT(*) FROM execution_sources),"
+        " (SELECT IFNULL(MAX(recorded_at), '') FROM execution_sources),"
+        " (SELECT COUNT(*) FROM watchdog_mutes),"
+        " (SELECT IFNULL(MAX(muted_at), '') FROM watchdog_mutes)"
     ).fetchone()
     return tuple(row)
 
@@ -2034,6 +2041,62 @@ def analytics_publication_volume(group_by: str = "source", months: int = 12):
         return _cached_analytics(
             "publication_volume", (group_by, int(months)), conn,
             lambda: analytics.publication_volume(conn, group_by=group_by, months=months))
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Watchdog (1.7 — "it tells you the truth")
+#
+# Silence from a literature monitor is ambiguous: it means either "nothing was
+# published" or "this stopped working", and the user cannot tell which. These
+# endpoints serve the difference. See implementation_scripts/watchdog.py for
+# the rules and the reasoning behind each threshold.
+# ---------------------------------------------------------------------------
+
+
+class WatchdogMuteRequest(BaseModel):
+    finding_key: str = Field(min_length=1, max_length=200)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+@app.get("/api/watchdog")
+def watchdog_report():
+    """Findings, what could not be judged yet, and the thresholds used."""
+    conn = _get_db()
+    try:
+        # The watchdog writes when it prunes mutes whose condition resolved, so
+        # it cannot be served from a pure-read cache without that prune being
+        # skipped on every hit. The prune is cheap and the compute is a handful
+        # of indexed queries; correctness wins over the cache here.
+        return watchdog.report(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/watchdog/mute")
+def watchdog_mute(request: WatchdogMuteRequest):
+    """Acknowledge one finding so it stops counting toward the alarm total.
+
+    Muting is per finding, never per source or per routine: the mute is dropped
+    automatically once the condition clears, so the same source failing again
+    later is reported again.
+    """
+    conn = _get_db()
+    try:
+        watchdog.mute(conn, request.finding_key, request.note)
+        return {"status": "muted", "finding_key": request.finding_key}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/watchdog/unmute")
+def watchdog_unmute(request: WatchdogMuteRequest):
+    """Un-acknowledge a finding, returning it to the alarm total."""
+    conn = _get_db()
+    try:
+        watchdog.unmute(conn, request.finding_key)
+        return {"status": "unmuted", "finding_key": request.finding_key}
     finally:
         _close_db(conn)
 

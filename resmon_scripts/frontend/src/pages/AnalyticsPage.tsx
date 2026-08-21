@@ -233,7 +233,7 @@ const AnalyticsPage: React.FC = () => {
       <div className="page">
         <div className="page-header">
           <h1>Analytics</h1>
-          <TutorialLinkButton anchor="#tutorial-analytics" />
+          <TutorialLinkButton anchor="analytics" />
         </div>
         {help}
         <p className="text-muted">Loading analytics…</p>
@@ -246,7 +246,7 @@ const AnalyticsPage: React.FC = () => {
       <div className="page">
         <div className="page-header">
           <h1>Analytics</h1>
-          <TutorialLinkButton anchor="#tutorial-analytics" />
+          <TutorialLinkButton anchor="analytics" />
         </div>
         {help}
         <div className="alert alert-error" role="alert">{error}</div>
@@ -262,7 +262,7 @@ const AnalyticsPage: React.FC = () => {
     <div className="page">
       <div className="page-header">
         <h1>Analytics</h1>
-        <TutorialLinkButton anchor="#tutorial-analytics" />
+        <TutorialLinkButton anchor="analytics" />
       </div>
 
       {help}

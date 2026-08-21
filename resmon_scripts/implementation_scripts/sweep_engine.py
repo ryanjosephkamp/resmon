@@ -21,6 +21,7 @@ from .database import (
     get_document_by_source,
     get_execution_by_id,
     get_setting,
+    record_execution_source,
 )
 from .logger import TaskLogger
 from .normalizer import normalize_result, validate_result, deduplicate_batch
@@ -255,6 +256,10 @@ class SweepEngine:
                         "total_repos": len(repositories),
                         "timestamp": now_iso(),
                     })
+                    self._record_source(
+                        exec_id, repo_name, "skipped_missing_key",
+                        credential_name=cred_name,
+                    )
                 try:
                     client = get_client(repo_name)
                     # Thread the exec_id onto the client so that any
@@ -297,6 +302,15 @@ class SweepEngine:
                         "result_count": len(results),
                         "timestamp": now_iso(),
                     })
+                    # A source that was flagged for a missing key keeps that
+                    # status -- it explains the zero better than "ok" does --
+                    # but the count it actually returned is still recorded.
+                    self._record_source(
+                        exec_id, repo_name,
+                        "skipped_missing_key" if repo_name in missing_key_repos else "ok",
+                        result_count=len(results),
+                        credential_name=_REQUIRED_CREDENTIALS.get(repo_name),
+                    )
                 except _ExecutionCancelled:
                     # Mark the in-flight repo as errored for UI clarity, then
                     # short-circuit to the cancellation handler.
@@ -308,12 +322,22 @@ class SweepEngine:
                         "error": "cancelled by user",
                         "timestamp": now_iso(),
                     })
+                    self._record_source(
+                        exec_id, repo_name, "cancelled",
+                        error_message="cancelled by user",
+                    )
                     task_log.log(f"  {repo_name}: CANCELLED by user")
                     return self._handle_cancellation(exec_id, task_log, all_results, wall_start)
                 except Exception as exc:
                     task_log.log(f"  {repo_name}: ERROR - {exc}")
                     logger.warning("Query failed for %s: %s", repo_name, exc)
                     repo_errors.append({"repository": repo_name, "error": str(exc)})
+                    self._record_source(
+                        exec_id, repo_name,
+                        "skipped_missing_key" if repo_name in missing_key_repos else "error",
+                        error_message=str(exc),
+                        credential_name=_REQUIRED_CREDENTIALS.get(repo_name),
+                    )
                     store.emit(exec_id, {
                         "type": "repo_error",
                         "repository": repo_name,
@@ -672,6 +696,38 @@ class SweepEngine:
     # ------------------------------------------------------------------
     # Cancellation
     # ------------------------------------------------------------------
+
+    def _record_source(
+        self,
+        exec_id: int,
+        repo_name: str,
+        status: str,
+        *,
+        result_count: int = 0,
+        error_message: Optional[str] = None,
+        credential_name: Optional[str] = None,
+    ) -> None:
+        """Persist one per-source outcome, and never let it break a sweep.
+
+        The watchdog reads these rows, but a sweep that returned papers has
+        already done its job -- a locked database or a full disk while writing
+        the health record must not turn that into a failed execution. The
+        failure is logged and the run continues; the missing row shows up as a
+        gap in the record rather than as a false alarm, because the watchdog
+        counts only the runs it can see (see watchdog.py).
+        """
+        try:
+            record_execution_source(
+                self.db, exec_id, repo_name, status,
+                result_count=result_count,
+                error_message=error_message,
+                credential_name=credential_name,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "Failed to record source health for exec_id=%s repo=%s: %s",
+                exec_id, repo_name, exc,
+            )
 
     def _search_with_heartbeat(
         self,
