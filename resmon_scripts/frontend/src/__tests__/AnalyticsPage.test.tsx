@@ -200,4 +200,72 @@ describe('Analytics page', () => {
 
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
   });
+
+  // --- Which keywords earn their place ------------------------------------
+  //
+  // This section reads every paper in the corpus to evaluate every keyword
+  // against it, which is why it is button-gated rather than loaded with the
+  // rest of the page. The other thing it must get right is the framing: a paper
+  // matching none of the user's keywords is normal on a relevance-ranked
+  // source, and someone about to delete a term needs to know that first.
+
+  test('keyword contribution is not measured until asked for', async () => {
+    const mock = jest.fn(async (_i?: RequestInfo | URL, _n?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => POPULATED,
+      text: async () => JSON.stringify(POPULATED),
+    }));
+    (global as any).fetch = mock;
+    await renderPage();
+
+    const asked = mock.mock.calls.filter(
+      ([url]: any) => String(url).includes('keyword-contribution'),
+    );
+    expect(asked).toHaveLength(0);
+    expect(screen.getByRole('button', { name: /measure keyword contribution/i }))
+      .toBeInTheDocument();
+  });
+
+  test('measuring shows unique against shared, and explains the remainder', async () => {
+    const KEYWORDS = {
+      keywords: [
+        { keyword: 'cardiac', matched: 340, unique: 300, shared: 40,
+          unique_share: 0.88, contains_operators: false },
+        { keyword: 'transformer', matched: 1208, unique: 8, shared: 1200,
+          unique_share: 0.007, contains_operators: false },
+      ],
+      documents_considered: 1600,
+      documents_matched: 1548,
+      documents_unexplained: 52,
+      minimum_sample_for_share: 10,
+      sufficient: true,
+      insufficient_reason: null,
+    };
+    (global as any).fetch = jest.fn(async (input?: RequestInfo | URL) => {
+      const payload = String(input).includes('keyword-contribution')
+        ? KEYWORDS : POPULATED;
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => payload,
+        text: async () => JSON.stringify(payload),
+      };
+    });
+    await renderPage();
+
+    await act(async () => {
+      screen.getByRole('button', { name: /measure keyword contribution/i }).click();
+    });
+
+    expect(screen.getByText('cardiac')).toBeInTheDocument();
+    expect(screen.getByText('300 / 340')).toBeInTheDocument();
+    // The actionable finding: 'transformer' brings in almost nothing of its own.
+    expect(screen.getByText('8 / 1,208')).toBeInTheDocument();
+    // And the papers no keyword accounts for are explained, not just counted.
+    expect(screen.getByText(/rank by relevance rather than filtering on literal terms/))
+      .toBeInTheDocument();
+  });
 });

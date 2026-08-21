@@ -54,6 +54,25 @@ interface RoutineRow {
   series: { start_time: string; new_results: number }[];
 }
 
+interface KeywordRow {
+  keyword: string;
+  matched: number;
+  unique: number;
+  shared: number;
+  unique_share: number | null;
+  contains_operators: boolean;
+}
+
+interface KeywordContribution {
+  keywords: KeywordRow[];
+  documents_considered: number;
+  documents_matched: number;
+  documents_unexplained: number;
+  minimum_sample_for_share: number;
+  sufficient: boolean;
+  insufficient_reason: string | null;
+}
+
 interface VolumeBucket {
   month: string;
   total: number;
@@ -133,6 +152,8 @@ const AnalyticsPage: React.FC = () => {
   const [volumeBy, setVolumeBy] = useState<'source' | 'category'>('source');
   const [volume, setVolume] = useState<Overview['publication_volume'] | null>(null);
   const [showVolumeTable, setShowVolumeTable] = useState(false);
+  const [keywords, setKeywords] = useState<KeywordContribution | null>(null);
+  const [keywordsLoading, setKeywordsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -151,6 +172,22 @@ const AnalyticsPage: React.FC = () => {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Deliberately not part of /overview. This one reads every paper in the
+  // corpus to evaluate every keyword against it, and the rest of the page
+  // should not wait on that. Loaded on request, then cached by the backend.
+  const loadKeywords = useCallback(async () => {
+    setKeywordsLoading(true);
+    try {
+      setKeywords(
+        await apiClient.get<KeywordContribution>('/api/analytics/keyword-contribution'),
+      );
+    } catch (err: any) {
+      setError(err?.message || 'Failed to measure keyword contribution.');
+    } finally {
+      setKeywordsLoading(false);
+    }
+  }, []);
 
   const changeGrouping = useCallback(async (next: 'source' | 'category') => {
     setVolumeBy(next);
@@ -199,6 +236,20 @@ const AnalyticsPage: React.FC = () => {
               saw it. This is a property of the source, not of your settings: a repository
               with a two-week median will not surface anything sooner just because a
               routine runs hourly. Use it to choose a sensible schedule.
+            </p>
+          ),
+        },
+        {
+          heading: 'Which keywords earn their place',
+          body: (
+            <p>
+              For each keyword you have searched, how many papers it found that no other
+              keyword of yours did. resmon checks the title, abstract, categories and
+              author list it has stored — matching whole words, so <em>AI</em> does not
+              match <em>said</em>. It cannot check full text, and it cannot know why a
+              relevance-ranked source returned something, so a paper matching none of
+              your keywords is normal rather than a fault. Use the numbers to retire a
+              term that duplicates another, not to judge whether a paper belongs.
             </p>
           ),
         },
@@ -366,6 +417,85 @@ const AnalyticsPage: React.FC = () => {
                 <p className="analytics-legend">
                   <span><i className="analytics-swatch" /> unique to this source</span>
                   <span><i className="analytics-swatch analytics-swatch-dup" /> also found elsewhere</span>
+                </p>
+              </>
+            )}
+          </section>
+
+          <section className="card">
+            <h2>Which keywords earn their place</h2>
+            <p className="text-muted">
+              Papers a keyword found that no other keyword of yours did. A term whose
+              every paper another term also finds is costing a slot in every query and
+              buying nothing.
+            </p>
+
+            {!keywords ? (
+              <p>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => void loadKeywords()}
+                  disabled={keywordsLoading}
+                >
+                  {keywordsLoading ? 'Measuring…' : 'Measure keyword contribution'}
+                </button>
+                {' '}
+                <span className="text-muted analytics-thin">
+                  Reads every paper in your corpus once, so it is not run automatically.
+                </span>
+              </p>
+            ) : !keywords.sufficient ? (
+              <NotEnoughYet reason={keywords.insufficient_reason} />
+            ) : (
+              <>
+                <div className="analytics-bars">
+                  {keywords.keywords.map((k) => {
+                    const max = Math.max(...keywords.keywords.map((x) => x.matched), 1);
+                    return (
+                      <div className="analytics-bar-row" key={k.keyword}>
+                        <span className="analytics-bar-label" title={k.keyword}>
+                          {k.keyword}
+                        </span>
+                        <span className="analytics-bar-track">
+                          <span
+                            className="analytics-bar-fill"
+                            style={{ width: `${(k.unique / max) * 100}%` }}
+                          />
+                          <span
+                            className="analytics-bar-fill analytics-bar-fill-dup"
+                            style={{ width: `${(k.shared / max) * 100}%` }}
+                          />
+                        </span>
+                        <span className="analytics-bar-num">
+                          {nf.format(k.unique)} / {nf.format(k.matched)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="analytics-legend">
+                  <span><i className="analytics-swatch" /> only this keyword found it</span>
+                  <span><i className="analytics-swatch analytics-swatch-dup" /> another keyword found it too</span>
+                </p>
+                {/*
+                  Said plainly rather than buried. On a relevance-ranked source a
+                  paper matching no keyword literally is normal behaviour, not a
+                  fault, and a user reading this number needs to know that before
+                  they start deleting terms.
+                */}
+                <p className="analytics-thin">
+                  {nf.format(keywords.documents_matched)} of{' '}
+                  {nf.format(keywords.documents_considered)} papers contain at least one
+                  of your keywords in their title, abstract, categories or authors.
+                  {keywords.documents_unexplained > 0 && (
+                    <>
+                      {' '}The other {nf.format(keywords.documents_unexplained)} do not —
+                      which is expected: most sources rank by relevance rather than
+                      filtering on literal terms, and resmon does not store full text.
+                    </>
+                  )}
+                  {' '}A unique share is only shown once a keyword has matched at least{' '}
+                  {keywords.minimum_sample_for_share} papers.
                 </p>
               </>
             )}

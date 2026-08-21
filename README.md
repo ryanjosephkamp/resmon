@@ -28,6 +28,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 - **Corpus analytics** — a dedicated Analytics page computed entirely from papers already stored locally, so it makes no repository requests and costs no API quota. It reports which repositories contribute papers nothing else found (and which only duplicate others), the median **discovery lag** between a paper's publication date and the moment resmon first saw it — a figure no repository publishes about itself — per-routine health with an explicit signal when a routine stops finding anything new, and publication volume over time by source or subject category. Counts are always shown; medians and percentages are withheld until the sample is large enough to mean anything, with the sample size displayed either way.
 - **The watchdog — silent-failure detection** — a literature monitor fails silently: a dead source and a quiet field produce the same empty inbox. resmon compares every source and routine against baselines drawn from its own execution history and reports where reality has departed from them, in two deliberately separate grades. **Broken** is a recorded fact — a source that errored on three consecutive runs, a required API key that is not configured, an active routine overdue against its own observed cadence (which is what catches the background service being down). **Looks unusual** is an inference from the user's own baseline — a source that reliably returned papers returning none for four runs running — and is always worded as a prompt to check, with the innocent explanation stated alongside it. Thresholds are conservative and published in the interface; findings can be muted individually, and a mute is dropped automatically once its condition clears. What cannot yet be judged is listed too, so a watchdog silent for want of data is never mistaken for a clean bill of health. Cadence advice derived from discovery lag rounds it out, carrying the honest caveat that the lag was measured through the user's own polling interval.
 - **Corpus-wide Explorer** — search and filter every paper resmon has collected, across all executions and routines, by free text over titles and abstracts, author, source, subject category, and publication date. Filters live in the URL, so a filtered view can be bookmarked, shared, or reached from the Analytics page by clicking a source or category. Built for scale: free text runs against an FTS5 index rather than a substring scan, authors and categories are filtered through normalised indexed tables rather than parsed at query time, and pagination seeks by sort key rather than counting rows — a page at row 90,000 of 100,000 costs 0.30 ms.
+- **Match transparency — "why am I seeing this?"** — every result in the Explorer can say which of the keywords from the runs that found it actually appear in it, and in which field: title, abstract, subject categories, or author list. Matching is on whole words, so `AI` does not match `said`, and a quoted phrase must appear as a phrase. The same arithmetic run corpus-wide gives **per-keyword marginal contribution** on the Analytics page: how many papers each keyword found that no other keyword of yours did, so a term that only duplicates another becomes visible and can be retired. The feature is defined as much by what it refuses to claim: resmon stores no full text, and most sources are relevance-ranked rather than literal keyword filters, so a paper containing none of your keywords is expected rather than a fault. Every explanation carries those limits alongside the evidence rather than behind a tooltip, and names the source's own documented keyword semantics. There is exactly one source resmon speaks about with certainty — bioRxiv/medRxiv has no upstream keyword search, so resmon does the filtering itself and knows precisely why a paper is in the set.
 - **Reference-manager exports** — any execution's papers export to **BibTeX**, **RIS**, or **CSV**, alongside the existing Markdown, PDF, and LaTeX report bundle. Entries with a DOI are emitted as journal articles and those without as generic records; cite keys are made unique within a file and BibTeX special characters are escaped.
 - **Cross-platform desktop notifications** — routine and manual completions raise a native OS notification on macOS, Linux, and Windows. The notification dispatcher is invoked both from the foreground app and from the headless `resmon-daemon`, so completions fire even when the Electron UI is closed.
 - **Calendar scheduling** — a calendar view of scheduled routines and historical executions, driven by the scheduler service and the `/api/calendar/events` endpoint.
@@ -345,6 +346,7 @@ resmon/
 │   │   ├── llm_local.py              # ollama REST client.
 │   │   ├── llm_remote.py             # Remote-BYOK client (OpenAI, Anthropic, etc.).
 │   │   ├── logger.py                 # Rotating app logger + per-execution TaskLogger.
+│   │   ├── match_explain.py          # Keyword match transparency + per-keyword contribution.
 │   │   ├── normalizer.py             # Cross-source metadata normalization + dedup.
 │   │   ├── progress.py               # ProgressStore (SSE/poll event bus + cancel flag).
 │   │   ├── prompt_templates.py       # Summarization prompt scaffolding.
@@ -497,6 +499,7 @@ so these work offline and consume no repository quota.
 | GET | `/api/analytics/discovery-lag` | Per source: median, fastest, and slowest days between `publication_date` and `first_seen_at`. |
 | GET | `/api/analytics/routine-health` | Per routine: new results per run, consecutive runs with nothing new, and a `healthy` / `stale` / `insufficient_data` status. |
 | GET | `/api/analytics/publication-volume` | Papers per publication month. `?group_by=source\|category` (default `source`), `?months=N` (default 12). |
+| GET | `/api/analytics/keyword-contribution` | Per keyword: papers matched, papers **no other keyword** matched, and papers no keyword accounts for. `?execution_id=N` scopes to one run; omitted, it pools every keyword ever searched against the whole corpus. Reads every candidate document once, so it is cached and is not part of `/overview`. |
 
 **Thin-corpus contract.** Every payload carries `sample_size`. Any derived statistic also
 carries `sufficient`; when it is `false` the value is `null` and `insufficient_reason`
@@ -505,6 +508,38 @@ explains why. Counts are always reported — a percentage of an empty corpus is 
 in `implementation_scripts/analytics.py` (`MIN_SAMPLE_FOR_LAG`, `MIN_RUNS_FOR_HEALTH`,
 `STALE_RUN_THRESHOLD`) and are deliberately low: they exist to stop a single data point
 being presented as a trend, not to withhold information from a small corpus.
+
+### `/api/documents/{id}/why`
+
+Match transparency for one paper. Reads only stored metadata; makes no external requests.
+
+| Method | Path | Returns |
+|---|---|---|
+| GET | `/api/documents/{id}/why` | Per keyword: whether it appears, and in which of title / abstract / categories / authors. Plus a `verdict`, a `headline`, the source's documented keyword semantics, and `what_resmon_cannot_see`. `?execution_id=N` scopes to one run's keywords; omitted, the union across every run that returned the paper is explained. |
+
+**What it will not claim.** resmon cannot know why an upstream source returned a paper.
+Most of the fifteen sources are relevance-ranked — they score documents against the whole
+query and return the best matches, so a paper can legitimately come back containing none
+of the terms literally. resmon also stores only title, abstract, authors and categories,
+never full text, so a match may exist somewhere it cannot see. Both limits ship in
+`what_resmon_cannot_see` on **every** response, including ones where every keyword matched:
+a title match makes a paper *plausible*, which is not the same as knowing the upstream's
+reasoning, and the difference matters to anyone defending a search strategy.
+
+The `verdict` grades the explanation, never the paper:
+
+| Verdict | Meaning |
+|---|---|
+| `resmon_filtered` | bioRxiv/medRxiv has no upstream keyword search, so resmon did the matching. The only case where the explanation is complete. |
+| `local_evidence` | At least one keyword is verifiably present. The paper is a plausible match. |
+| `no_local_evidence` | Nothing matched in what resmon stores. Normal on a relevance-ranked source. |
+| `no_keywords_recorded` | The run stored no keywords, so there is nothing to check against. |
+
+Matching is word-boundary and case-insensitive, phrase-aware for quoted keywords, and
+tolerant of terms that end in punctuation (`C++`, `cs.LG`). Keywords containing `AND` /
+`OR` / `NOT` are **flagged, not parsed** — several upstreams forward operators verbatim,
+and implementing a boolean engine whose semantics differed from the upstream's would be
+another way of over-claiming.
 
 ### `/api/watchdog`
 
