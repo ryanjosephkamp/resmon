@@ -35,6 +35,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 - **Calendar scheduling** — a calendar view of scheduled routines and historical executions, driven by the scheduler service and the `/api/calendar/events` endpoint.
 - **Email notifications** — per-routine and global SMTP-based notifications on routine completion, including attachment of the execution bundle produced by the shared export pipeline.
 - **Google Drive backup** — optional, least-privilege (`drive.file`) backup of the report tree to a user-supplied Drive OAuth client.
+- **The reproducible search record** — every systematic review's methods section requires the same account of a search: exact terms, sources queried, per-database retrieval counts, deduplication figures, date executed, and software version. It is assembled by hand in spreadsheets essentially everywhere. resmon has recorded all of it since the beginning, and any execution now exports it as JSON or as a Markdown document ready for a methods section, in the shape a **PRISMA 2020** flow diagram needs. The design work is in the labelling, not the layout: resmon's counters do **not** map cleanly onto PRISMA's boxes, and a record that printed them under PRISMA headings would publish a claim resmon cannot support. So each figure names the box it belongs in — or says it has none. resmon *flags* cross-source duplicates and keeps both rows, so the record reports duplicates **found**, never duplicates **removed**. "Already held from an earlier run" is an artefact of monitoring over time with no PRISMA equivalent, and is labelled as such. A figure that was never measured reads *not recorded*, never `0`, because a reviewer reads `0` as a measurement. Sources that were selected but contributed nothing — a missing key, a failing endpoint — stay in the record, because a strategy listing them as searched would overstate its coverage. This ships the search log and deliberately does not chase Covidence: screening is a different product, and the search-and-document half is the part nobody does.
 - **Configuration export and import** — serialize any Deep Dive, Deep Sweep, or routine configuration to JSON and re-import it on the same or another device for reproducible surveillance setups.
 - **Local-first storage and logging** — SQLite-backed state, per-execution log files, and a configurable export directory for report and artifact bundles; no credentials or data leave the machine unless the user opts in to Google Drive backup.
 - **In-app About resmon page** — a dedicated top-level page hosting four self-contained tabs: **Tutorials** (eighteen embedded YouTube walk-throughs covering the full app, every page, and every Settings sub-tab, with a shared Tutorial deep-link button rendered next to every page header and every Settings sub-panel header), **Issues** (a credentials-free form that builds either a `mailto:` link to the maintainer or a pre-populated GitHub issue deep link — the app never posts the report itself), **Blog** (an in-app reader for the public resmon blog at `https://ryanjosephkamp.github.io/resmon/`, fed by the GitHub Pages source under `docs/_posts/` and rendered through an origin-locked Electron `<webview>`), and **About App** (build version, recent-update notes, license, privacy notice, author links — relocated out of Settings).
@@ -357,6 +358,7 @@ resmon/
 │   │   ├── reference_export.py       # BibTeX / RIS / CSV reference exports.
 │   │   ├── report_exporter.py        # PDF / LaTeX export pipeline.
 │   │   ├── scheduler.py              # ResmonScheduler (APScheduler wrapper).
+│   │   ├── search_record.py          # PRISMA-shaped reproducible search record.
 │   │   ├── service_manager.py        # launchd / systemd / Task Scheduler integration.
 │   │   ├── summarizer.py             # Token-aware chunking + provider-agnostic summarization.
 │   │   ├── sweep_engine.py           # End-to-end query → dedup → report → summarize pipeline.
@@ -510,6 +512,31 @@ explains why. Counts are always reported — a percentage of an empty corpus is 
 in `implementation_scripts/analytics.py` (`MIN_SAMPLE_FOR_LAG`, `MIN_RUNS_FOR_HEALTH`,
 `STALE_RUN_THRESHOLD`) and are deliberately low: they exist to stop a single data point
 being presented as a trend, not to withhold information from a small corpus.
+
+### `/api/executions/{id}/search-record`
+
+The complete, dated account of one search. Reads only what the run already recorded.
+
+| Method | Path | Returns |
+|---|---|---|
+| GET | `/api/executions/{id}/search-record` | JSON: search parameters, per-source identification counts, deduplication figures with their PRISMA mapping, and the caveats. |
+| GET | `/api/executions/{id}/search-record?format=markdown` | The same as a `text/markdown` download, shaped for a methods section. |
+
+**Why each figure carries a `prisma` field.**
+
+| resmon figure | PRISMA 2020 box | Note |
+|---|---|---|
+| Per-source `records_identified` | Records identified from databases | Maps cleanly. |
+| `cross_source_duplicates` | Duplicate records removed before screening | **resmon does not remove them.** It flags the overlap and keeps both rows. Reported as duplicates *found*. |
+| `discarded_unusable` | Records marked as ineligible by automation tools | A data-quality discard (no title, no identifier) — not a relevance judgement. |
+| `records_added` | Records screened | Records newly added to the corpus and therefore available for screening. |
+| `already_held` | **none** | Records a repeating search re-encountered. PRISMA describes a single search; this has no box, and the record says so. |
+
+`cross_source` was computed on every run since the beginning but never stored. Runs
+predating schema 8 report it as `null` — *not recorded* — rather than `0`, because "we did
+not measure this" and "there were none" are different claims and a methods section must not
+make the second on the first's behalf. Schema 8 promotes all five deduplication figures out
+of the progress-events blob into columns and backfills the four that history can supply.
 
 ### `/api/documents/{id}/why`
 

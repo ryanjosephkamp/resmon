@@ -297,15 +297,22 @@ const sections: TutorialSection[] = [
     mediaCaption: 'Results & Logs demo.',
     youtubeId: 'ckj7MByzhsg',
     instructions: [
+      'The `Search record` tab on any execution builds the complete, dated account of that search — exact terms, publication window, per-database record counts, deduplication figures, date and software version — in the shape a PRISMA flow diagram needs. `Download as Markdown` saves it for a methods section.',
       'Browse executions in reverse-chronological order; filter by Type and Status.',
       'Click a row to open the viewer and switch between the Report, Log, Metadata, and Progress tabs.',
       'Select rows and click `Export Selected` to write a zip bundle, or `Delete Selected` to remove the selected local rows after a confirmation dialog.',
       'Use `BibTeX`, `RIS`, or `CSV` to export the papers themselves in a format a reference manager reads, rather than the report about them.',
     ],
     features: [
+      'A reproducible search record per execution, mapped onto PRISMA 2020 identification-stage boxes — and explicitly labelled where resmon\u2019s figures have no honest PRISMA equivalent.',
       'Deep-link directly into a row and tab via URL hash, e.g. `#exec=42&tab=report`.',
     ],
     tips: [
+      'resmon flags cross-source duplicates and keeps both copies rather than deleting either, so the record reports duplicates *found*, never duplicates *removed*. Saying otherwise would describe an operation that never happened.',
+      '`Already held from an earlier run` has no PRISMA box. It is a consequence of monitoring the literature over time rather than running a single search, and the record says so instead of filing it under a heading it does not belong in.',
+      'A figure that was never measured shows as `not recorded`, never as 0 — a reviewer reads 0 as a measurement.',
+      'The record covers one execution. A review that searched on several dates needs the record from each.',
+      'resmon records no screening decisions. Nothing in the record should be presented as an include/exclude outcome.',
       'Set Settings → Storage → Export directory to pin where exports land; otherwise a temporary file is used.',
     ],
     destination: { path: '/results', label: 'Go to Page' },

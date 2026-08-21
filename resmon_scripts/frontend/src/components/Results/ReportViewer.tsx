@@ -4,6 +4,7 @@ import { useExecution, ProgressEvent } from '../../context/ExecutionContext';
 import SaveConfigButton from '../SaveConfig/SaveConfigButton';
 import EditRoutineButton from '../Routines/EditRoutineButton';
 import { useConfigurationsVersion } from '../../lib/configurationsBus';
+import SearchRecord from './SearchRecord';
 
 /* ------------------------------------------------------------------ */
 /* Progress helpers                                                    */
@@ -125,11 +126,11 @@ const ProgressTimeline: React.FC<{ events: ProgressEvent[] }> = ({ events }) => 
 interface Props {
   executionId: number;
   onClose: () => void;
-  initialTab?: 'report' | 'log' | 'meta' | 'progress';
+  initialTab?: 'report' | 'log' | 'meta' | 'progress' | 'record';
 }
 
 const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => {
-  const [tab, setTab] = useState<'report' | 'log' | 'meta' | 'progress'>(initialTab ?? 'report');
+  const [tab, setTab] = useState<'report' | 'log' | 'meta' | 'progress' | 'record'>(initialTab ?? 'report');
   const [report, setReport] = useState<string | null>(null);
   const [log, setLog] = useState<string | null>(null);
   const [meta, setMeta] = useState<Record<string, any> | null>(null);
@@ -280,6 +281,7 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
         <button className={`tab-btn ${tab === 'progress' ? 'tab-active' : ''}`} onClick={() => setTab('progress')}>
           Progress{isLive && <span className="sidebar-pulse" style={{ marginLeft: 6 }} />}
         </button>
+        <button className={`tab-btn ${tab === 'record' ? 'tab-active' : ''}`} onClick={() => setTab('record')}>Search record</button>
       </div>
       <div className="report-viewer-body">
         {tab === 'report' && (
@@ -304,6 +306,9 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
         )}
         {tab === 'progress' && (
           <ProgressTimeline events={displayEvents} />
+        )}
+        {tab === 'record' && (
+          <SearchRecord executionId={executionId} />
         )}
         {error && <div className="form-error">{error}</div>}
       </div>

@@ -380,8 +380,13 @@ class SweepEngine:
                 "new": dedup_stats["new"],
                 "duplicates": dedup_stats["duplicates"],
                 "invalid": dedup_stats["invalid"],
+                # Computed since the beginning and never reported. It is the
+                # figure a systematic reviewer needs: the same paper arriving
+                # from two different databases.
+                "cross_source": dedup_stats.get("cross_source", 0),
                 "timestamp": now_iso(),
             })
+            self._record_dedup(exec_id, dedup_stats)
 
             # 5. Link documents to execution
             store.emit(exec_id, {
@@ -696,6 +701,30 @@ class SweepEngine:
     # ------------------------------------------------------------------
     # Cancellation
     # ------------------------------------------------------------------
+
+    def _record_dedup(self, exec_id: int, stats: dict) -> None:
+        """Persist the deduplication figures, and never let it break a sweep.
+
+        Same reasoning as ``_record_source``: a run that returned papers has
+        done its job, and a locked database while writing the reporting figures
+        must not turn that into a failed execution.
+        """
+        try:
+            self.db.execute(
+                """
+                UPDATE executions
+                SET dedup_total = ?, dedup_new = ?, dedup_duplicates = ?,
+                    dedup_invalid = ?, dedup_cross_source = ?
+                WHERE id = ?
+                """,
+                (stats.get("total"), stats.get("new"), stats.get("duplicates"),
+                 stats.get("invalid"), stats.get("cross_source"), int(exec_id)),
+            )
+            self.db.commit()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "Failed to record dedup figures for exec_id=%s: %s", exec_id, exc,
+            )
 
     def _record_source(
         self,
