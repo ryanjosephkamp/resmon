@@ -143,11 +143,19 @@ class BiorxivClient(BaseAPIClient):
         )
 
 
+class MedrxivClient(BiorxivClient):
+    """medRxiv client using the shared bioRxiv /details implementation."""
+
+    def __init__(self):
+        super().__init__(server="medrxiv")
+
+
 # ---------------------------------------------------------------------------
-# Registry auto-registration — register as "biorxiv" (default server)
+# Registry auto-registration — each selectable source maps to a class.
 # ---------------------------------------------------------------------------
 def _register():
     from .api_registry import register_client
     register_client("biorxiv", BiorxivClient)
+    register_client("medrxiv", MedrxivClient)
 
 _register()

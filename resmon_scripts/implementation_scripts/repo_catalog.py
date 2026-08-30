@@ -92,7 +92,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 15 active repositories.
+# Catalog — 16 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -119,22 +119,22 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
     ),
     _entry(
         slug="biorxiv",
-        name="bioRxiv / medRxiv",
-        description="Life-sciences (bioRxiv) and health-sciences (medRxiv) preprint servers operated by Cold Spring Harbor Laboratory; same client handles both via the `server` argument",
-        subject_coverage="Life sciences / Health sciences preprints",
-        endpoint="https://api.biorxiv.org/details/{server}/{from}/{to}/{cursor}",
-        query_method="GET date-range JSON; keywords filtered client-side (no native search)",
-        rate_limit="2.0 req/s",
+        name="bioRxiv",
+        description="Preprints across the life sciences",
+        subject_coverage="Life sciences preprints",
+        endpoint="https://api.biorxiv.org/details/biorxiv/{from}/{to}/{cursor}",
+        query_method="GET date-range JSON; keywords filtered client-side by resmon",
+        rate_limit="2.0 req/s (conservative; no published API limit)",
         client_module="api_biorxiv.py",
         requirement="none",
         credential_name=None,
         website="https://www.biorxiv.org",
         registration_url=None,
-        upstream_policy="No published rate; /details/ endpoint has had upstream outages",
+        upstream_policy="No published API rate limit; resmon uses a conservative ceiling",
         parallel_safe="Yes",
-        notes="Outages are upstream (not caused by resmon). Errors surface as failed executions.",
+        notes="The /details endpoint has reported upstream outages; resmon surfaces those failures.",
         keyword_combination="Explicit OR",
-        keyword_combination_notes="bioRxiv/medRxiv have no upstream keyword search; resmon filters client-side and a paper matches if any space-separated term appears in its title or abstract.",
+        keyword_combination_notes="The documented /details API retrieves by date range or DOI rather than keyword; resmon filters the returned records and matches when any space-separated term appears in the title or abstract.",
     ),
     _entry(
         slug="core",
@@ -268,6 +268,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Very low daily quota \u2014 parallel sweeps exhaust it quickly.",
         keyword_combination="Relevance-ranked (upstream-default, unverified)",
         keyword_combination_notes="IEEE Xplore's querytext field is forwarded verbatim; the upstream API's exact combination semantics are not authoritatively documented.",
+    ),
+    _entry(
+        slug="medrxiv",
+        name="medRxiv",
+        description="Preprints across medicine, clinical research, and related health sciences",
+        subject_coverage="Medicine / Clinical research / Health sciences preprints",
+        endpoint="https://api.biorxiv.org/details/medrxiv/{from}/{to}/{cursor}",
+        query_method="GET date-range JSON; keywords filtered client-side by resmon",
+        rate_limit="2.0 req/s (conservative; no published API limit)",
+        client_module="api_biorxiv.py",
+        requirement="none",
+        credential_name=None,
+        website="https://www.medrxiv.org",
+        registration_url=None,
+        upstream_policy="No published API rate limit; resmon uses a conservative ceiling",
+        parallel_safe="Yes",
+        notes="Shares the /details client implementation with bioRxiv while remaining a distinct selectable source.",
+        keyword_combination="Explicit OR",
+        keyword_combination_notes="The documented /details API retrieves by date range or DOI rather than keyword; resmon filters the returned records and matches when any space-separated term appears in the title or abstract.",
     ),
     _entry(
         slug="nasa_ads",

@@ -17,8 +17,8 @@ from implementation_scripts.repo_catalog import (
 
 EXPECTED_SLUGS = {
     "arxiv", "biorxiv", "core", "crossref", "dblp", "doaj",
-    "europepmc", "hal", "ieee", "nasa_ads", "openalex", "plos", "pubmed",
-    "semantic_scholar", "springer",
+    "europepmc", "hal", "ieee", "medrxiv", "nasa_ads", "openalex", "plos",
+    "pubmed", "semantic_scholar", "springer",
 }
 
 EXPECTED_CREDENTIAL_NAMES = {
@@ -27,10 +27,10 @@ EXPECTED_CREDENTIAL_NAMES = {
 }
 
 
-def test_catalog_has_fifteen_entries():
-    """The active catalog should contain exactly 15 entries."""
+def test_catalog_has_sixteen_entries():
+    """The active catalog should contain exactly 16 entries."""
     # RePEc/SSRN are excluded by policy and must not appear.
-    assert len(REPOSITORY_CATALOG) == 15
+    assert len(REPOSITORY_CATALOG) == 16
 
 
 def test_catalog_slugs_match_expected():
@@ -81,7 +81,7 @@ def test_required_credential_for():
 def test_catalog_as_dicts_shape():
     """catalog_as_dicts returns JSON-serializable dicts with expected keys."""
     dicts = catalog_as_dicts()
-    assert len(dicts) == 15
+    assert len(dicts) == 16
     expected_keys = {
         "slug", "name", "description", "subject_coverage", "endpoint",
         "query_method", "rate_limit", "client_module", "api_key_requirement",
