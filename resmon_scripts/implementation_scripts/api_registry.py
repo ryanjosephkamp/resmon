@@ -52,6 +52,7 @@ def _ensure_loaded():
         "api_pubmed",
         "api_semantic_scholar",
         "api_springer",
+        "api_zenodo",
         # NOTE: api_repec and api_ssrn are intentionally excluded from the active
         # registry. Both sources block programmatic access (SSRN via Cloudflare
         # bot-challenge 403s; RePEc/IDEAS htsearch CGI is no longer publicly

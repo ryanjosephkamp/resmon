@@ -92,7 +92,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 16 active repositories.
+# Catalog — 17 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -401,6 +401,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Daily quota is the binding limit.",
         keyword_combination="Relevance-ranked (Solr OR default)",
         keyword_combination_notes="Springer Nature's Meta API ranks by relevance with an OR-based default; documents matching more terms rank higher.",
+    ),
+    _entry(
+        slug="zenodo",
+        name="Zenodo",
+        description="General-purpose open repository for published research outputs",
+        subject_coverage="Multi-disciplinary publications / Data / Software / Other outputs",
+        endpoint="https://zenodo.org/api/records",
+        query_method="GET with Elasticsearch query-string q, best-match sort, and page/size pagination",
+        rate_limit="0.5 req/s (30 search requests/min)",
+        client_module="api_zenodo.py",
+        requirement="none",
+        credential_name=None,
+        website="https://zenodo.org",
+        registration_url=None,
+        upstream_policy="Search REST API: 30 req/min; anonymous pages contain at most 25 records",
+        parallel_safe="Yes",
+        notes="Date bounds are expressed as a publication_date range inside the q query.",
+        keyword_combination="Relevance-ranked (implicit OR)",
+        keyword_combination_notes="Zenodo's search guide says space-separated terms match with OR by default and results are ranked against the query; explicit AND requires both terms.",
     ),
 ]
 

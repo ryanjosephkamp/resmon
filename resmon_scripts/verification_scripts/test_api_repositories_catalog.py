@@ -18,7 +18,7 @@ def _reset_db():
     resmon_mod._db_initialized = False
 
 
-def test_catalog_endpoint_returns_sixteen_entries():
+def test_catalog_endpoint_returns_seventeen_entries():
     _reset_db()
     from resmon import app
     client = TestClient(app)
@@ -27,10 +27,10 @@ def test_catalog_endpoint_returns_sixteen_entries():
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
-    assert len(data) == 16
+    assert len(data) == 17
 
 
-def test_repository_endpoints_include_medrxiv():
+def test_repository_endpoints_include_new_sources():
     _reset_db()
     from resmon import app
     client = TestClient(app)
@@ -40,8 +40,8 @@ def test_repository_endpoints_include_medrxiv():
     }
     search_slugs = set(client.get("/api/search/repositories").json())
 
-    assert "medrxiv" in catalog_slugs
-    assert "medrxiv" in search_slugs
+    assert {"medrxiv", "zenodo"} <= catalog_slugs
+    assert {"medrxiv", "zenodo"} <= search_slugs
 
 
 def test_catalog_entries_have_expected_keys():

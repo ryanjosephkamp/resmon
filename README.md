@@ -19,7 +19,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Key Features
 
-- **Multi-repository ingestion across 16 open-access sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DBLP, DOAJ, EuropePMC, HAL, IEEE Xplore, medRxiv, NASA ADS, OpenAlex, PLOS, PubMed, Semantic Scholar, and Springer Nature. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
+- **Multi-repository ingestion across 17 open-access sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DBLP, DOAJ, EuropePMC, HAL, IEEE Xplore, medRxiv, NASA ADS, OpenAlex, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
 - **Three operational modes:**
   - *Targeted Deep Dive* — a focused, manual query against a single repository within a defined date range, with support for an ephemeral per-execution API key that never persists to disk.
   - *Broad Deep Sweep* — a cross-repository manual query that applies Deep Dive parameters across every selected repository in parallel.
@@ -43,7 +43,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Supported Repositories
 
-The table below lists the 16 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
+The table below lists the 17 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
 
 | Repository | API Type | API Key | Rate Limit (resmon) | Discipline Coverage |
 |---|---|---|---|---|
@@ -63,6 +63,7 @@ The table below lists the 16 active sources registered in the repository catalog
 | PubMed / NCBI E-utilities | REST (XML) | Optional (raises limit) | 3.0 req/s keyless, 10.0 req/s with key | Biomedicine |
 | Semantic Scholar | REST (JSON) | Optional (recommended) | 0.33 req/s (1 per 3 s) | All disciplines (strong CS, biomed) |
 | Springer Nature | REST (JSON Meta API) | Required (query-param key) | 5.0 req/s (≈5000/day cap) | STM, Humanities, Social sciences |
+| Zenodo | REST (JSON) | Not required | 0.5 req/s (30/min) | Multi-disciplinary publications, data, software, and other outputs |
 
 Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in `.ai:/prep/repos.md` and are not queried at runtime.
 
@@ -258,7 +259,7 @@ resmon is a local-first desktop application composed of two cooperating processe
 
 The backend is a single FastAPI application constructed at module load in `resmon_scripts/resmon.py`. A shared `sqlite3.Connection` backs every request, the database path defaults to `resmon.db` at the project root, and the schema is owned by `implementation_scripts/database.py` with a version-tracked migration path on startup. Two ASGI middlewares wrap the app: a custom `PrivateNetworkMiddleware` that injects `Access-Control-Allow-Private-Network: true` so Chromium's Private Network Access policy permits the `file://` renderer to reach loopback, and `CORSMiddleware` with permissive origins (safe because the server binds to `127.0.0.1` only). All SQL is parameterized; all credentials flow through a single `credential_manager.py` module that owns OS-keyring access.
 
-The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), which orchestrates query → normalize → dedup → link → report → summarize → finalize for both manual and routine-fired runs. Per-source API clients (16 repositories) live under `implementation_scripts/api_*.py` and are registered through `api_registry.py`. Results are normalized by `normalizer.py`, deduplicated by DOI and by (title, first author), and rendered by `report_generator.py` into Markdown, with optional PDF and LaTeX exports through `report_exporter.py`.
+The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), which orchestrates query → normalize → dedup → link → report → summarize → finalize for both manual and routine-fired runs. Per-source API clients (17 repositories) live under `implementation_scripts/api_*.py` and are registered through `api_registry.py`. Results are normalized by `normalizer.py`, deduplicated by DOI and by (title, first author), and rendered by `report_generator.py` into Markdown, with optional PDF and LaTeX exports through `report_exporter.py`.
 
 ### Frontend — Electron + React
 
@@ -332,7 +333,7 @@ resmon/
 │   │   ├── analytics.py              # Corpus analytics queries (thin-corpus policy).
 │   │   ├── explorer.py               # Corpus-wide search, faceting, keyset pagination.
 │   │   ├── ai_models.py              # Provider model-catalog probing.
-│   │   ├── api_*.py                  # Per-repository API clients (16 active sources).
+│   │   ├── api_*.py                  # Per-repository API clients (17 active sources).
 │   │   ├── api_base.py               # Shared rate limiter + HTTP client base class.
 │   │   ├── api_registry.py           # Slug → client dispatch table.
 │   │   ├── citation_graph.py         # Citation and context graphing.
@@ -881,7 +882,7 @@ resmon is built on top of a broad ecosystem of open-access scholarly repositorie
 
 ### Open-Access Repository Providers
 
-The 16 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
+The 17 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
 
 - **arXiv** — Cornell University / arXiv.org, for the Atom XML API and the decades-long commitment to open preprint distribution in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics.
 - **bioRxiv** and **medRxiv** — openRxiv, for the date-range JSON API serving the life- and health-sciences communities.
@@ -898,6 +899,7 @@ The 16 scholarly sources registered in the repository catalog, whose public APIs
 - **PubMed / NCBI E-utilities** — U.S. National Library of Medicine / National Center for Biotechnology Information, for the E-utilities suite that underpins biomedical literature retrieval.
 - **Semantic Scholar** — Allen Institute for AI (AI2), for the cross-disciplinary scholarly-graph REST API.
 - **Springer Nature** — Springer Nature, for the Meta API covering STM, humanities, and social-sciences content.
+- **Zenodo** — CERN and OpenAIRE, for the multi-disciplinary research-output records API.
 
 ### Open-Source Foundations
 
