@@ -87,7 +87,7 @@ const DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       'Combines "Erase all AI API keys", "Erase all repo API keys", "Erase all execution data", and "Erase the paper corpus". Settings (other than the AI tab, which depends on AI keys) are kept.',
     longWarning:
-      'This will permanently delete every API key (AI + repo), every saved configuration, every execution, AND every paper resmon has collected. Routines linked to routine configs are deleted too. Non-AI settings (Email, Storage, Notifications, Advanced) are kept; the AI tab will revert to the no-keys state. Before 1.7.1 this action left the entire corpus in place despite its name; it no longer does.',
+      'This will permanently delete every API key (AI + repo), every saved configuration, every execution, AND every paper resmon has collected. Routines linked to routine configs are deleted too. Non-AI settings (Email, Storage, Notifications, Advanced) are kept; the AI tab will revert to the no-keys state. Before 1.7.0 this action left the entire corpus in place despite its name; it no longer does.',
     needsTyping: true,
   },
   {
@@ -107,7 +107,7 @@ const DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       'Erases every API key, every configuration, every execution, every collected paper, and every setting on this device. The app is restored to its just-installed state.',
     longWarning:
-      "This will permanently wipe every piece of resmon data on this device: every API key, every saved configuration, every execution row, every paper in your corpus, and every setting on every Settings tab. The app will behave as if freshly installed. This cannot be undone. Before 1.7.1 this left the entire corpus in place — a factory reset that was not one; it now does what its name says.",
+      "This will permanently wipe every piece of resmon data on this device: every API key, every saved configuration, every execution row, every paper in your corpus, and every setting on every Settings tab. The app will behave as if freshly installed. This cannot be undone. Before 1.7.0 this left the entire corpus in place — a factory reset that was not one; it now does what its name says.",
     needsTyping: true,
   },
 ];

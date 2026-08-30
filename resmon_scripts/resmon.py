@@ -3442,7 +3442,7 @@ def _erase_executions(conn) -> int:
 def _erase_corpus(conn) -> int:
     """Delete every paper resmon has collected.
 
-    Until 1.7.1 nothing in the Danger Zone did this. "Erase all app data" and
+    Until 1.7.0 nothing in the Danger Zone did this. "Erase all app data" and
     even "Factory reset" removed executions, configurations and keys while
     leaving the entire corpus in place -- on a real install that meant tens of
     thousands of papers surviving a reset that said it erased everything. The
@@ -3530,7 +3530,7 @@ def admin_erase_execution_data(body: AdminConfirmBody):
 def admin_erase_app_data(body: AdminConfirmBody):
     """Erase the corpus + configs + executions + every API key.
 
-    The corpus is included as of 1.7.1. "All app data" that left every collected
+    The corpus is included as of 1.7.0. "All app data" that left every collected
     paper behind was not a description of what this did.
     """
     _require_confirm(body)
@@ -3595,7 +3595,7 @@ def admin_reset_settings(body: AdminConfirmBody):
 def admin_factory_reset(body: AdminConfirmBody):
     """Erase every secret, config, execution, setting, and collected paper.
 
-    The corpus is included as of 1.7.1 — a "factory reset" that left tens of
+    The corpus is included as of 1.7.0 — a "factory reset" that left tens of
     thousands of papers on disk was the single most misleading label in the app.
     """
     _require_confirm(body)
