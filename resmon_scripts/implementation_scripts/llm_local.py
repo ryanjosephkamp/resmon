@@ -5,6 +5,7 @@ import logging
 
 import httpx
 
+from .ai_errors import classify_exception
 from .prompt_templates import SUMMARIZE_ABSTRACT, length_band
 
 logger = logging.getLogger(__name__)
@@ -48,13 +49,26 @@ class LocalLLMClient:
 
         prompt = SUMMARIZE_ABSTRACT.format(**params)
 
-        with httpx.Client(timeout=120) as client:
-            response = client.post(
-                f"{self.endpoint}/api/generate",
-                json={"model": self.model, "prompt": prompt, "stream": False},
+        # Classified rather than raw. An ollama server that is not running
+        # raises ConnectError on every single document; without the
+        # NETWORK classification the caller cannot tell that from one paper
+        # the model choked on, and would retry a dead endpoint per paper for
+        # the length of the run.
+        try:
+            with httpx.Client(timeout=120) as client:
+                response = client.post(
+                    f"{self.endpoint}/api/generate",
+                    json={"model": self.model, "prompt": prompt, "stream": False},
+                )
+                response.raise_for_status()
+                return response.json().get("response", "")
+        except Exception as exc:
+            error = classify_exception(exc, provider="local", model=self.model)
+            logger.error(
+                "Local summarization failed (model=%s, kind=%s): %s",
+                self.model, error.kind.value, error.message,
             )
-            response.raise_for_status()
-            return response.json().get("response", "")
+            raise error from None
 
     # ------------------------------------------------------------------
     # List models

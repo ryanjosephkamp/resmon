@@ -22,8 +22,11 @@ from .database import (
     get_execution_by_id,
     get_setting,
     record_execution_source,
+    start_ai_lane,
+    finish_ai_lane,
 )
 from .logger import TaskLogger
+from .ai_errors import classify_exception
 from .normalizer import normalize_result, validate_result, deduplicate_batch
 from .progress import progress_store
 from .report_generator import generate_report, save_report
@@ -453,6 +456,29 @@ class SweepEngine:
                     "timestamp": now_iso(),
                 })
 
+                # Open the execution_ai row before the first call (1.8a).
+                # Written up front on the same reasoning as
+                # ``record_execution_source``: a crash mid-run should still
+                # leave evidence the lane was attempted. A row left at
+                # 'running' is itself a finding.
+                ai_lane = getattr(self, "ai_lane", None)
+                ai_recorded = False
+                if ai_lane is not None:
+                    try:
+                        start_ai_lane(
+                            self.db, exec_id, 0,
+                            lane_label=ai_lane.label,
+                            lane_kind=ai_lane.kind,
+                            provider=ai_lane.provider,
+                            model=ai_lane.model,
+                            credential_alias=ai_lane.credential_alias,
+                        )
+                        ai_recorded = True
+                    except Exception:
+                        # Bookkeeping must never take down a run that is
+                        # otherwise producing summaries.
+                        logger.exception("Could not open execution_ai row")
+
                 try:
                     task_log.log("Running AI summarization...")
                     from .summarizer import SummarizationPipeline
@@ -491,6 +517,9 @@ class SweepEngine:
                     total_chars = 0
                     cancelled_mid_summary = False
                     total_docs = len(doc_texts)
+                    last_ai_error = None
+                    ai_docs_attempted = 0
+                    ai_docs_succeeded = 0
                     for idx, (doc, text) in enumerate(zip(report_docs, doc_texts)):
                         if store.should_cancel(exec_id):
                             cancelled_mid_summary = True
@@ -499,12 +528,27 @@ class SweepEngine:
                                 f"{idx}/{total_docs} documents."
                             )
                             break
+                        ai_docs_attempted += 1
                         try:
                             summary = pipeline.summarize_document(text)
                         except Exception as per_doc_exc:
                             # Failing one paper should not abort the whole
                             # batch; the user still wants summaries for the
                             # others. Log and continue.
+                            #
+                            # The last failure is kept classified (1.8a) so the
+                            # execution_ai row can say *why* rather than just
+                            # how many. Last rather than first: when a lane
+                            # dies partway through, the death is what the user
+                            # needs to see, not an earlier one-off.
+                            last_ai_error = classify_exception(
+                                per_doc_exc,
+                                lane_label=getattr(ai_lane, "label", "") or "",
+                                provider=getattr(ai_lane, "provider", "") or "",
+                                model=getattr(ai_lane, "model", "") or "",
+                                credential_alias=getattr(
+                                    ai_lane, "credential_alias", None),
+                            )
                             task_log.log(
                                 f"AI summary failed for document "
                                 f"{idx + 1}/{total_docs} "
@@ -519,6 +563,7 @@ class SweepEngine:
                         if isinstance(summary, str) and summary.strip():
                             doc["ai_summary"] = summary.strip()
                             total_chars += len(summary)
+                            ai_docs_succeeded += 1
 
                         completed = idx + 1
                         # Log-level progress every doc so the user can
@@ -538,6 +583,28 @@ class SweepEngine:
                             "total": total_docs,
                             "timestamp": now_iso(),
                         })
+
+                    # Close the execution_ai row with what the lane actually
+                    # achieved (1.8a). 'partial' and 'failed' are held apart
+                    # deliberately: partial is a normal day with one awkward
+                    # abstract, failed is a lane that did not work at all.
+                    if ai_recorded:
+                        if ai_docs_succeeded == ai_docs_attempted:
+                            ai_outcome = "ok"
+                        elif ai_docs_succeeded > 0:
+                            ai_outcome = "partial"
+                        else:
+                            ai_outcome = "failed"
+                        try:
+                            finish_ai_lane(
+                                self.db, exec_id, 0,
+                                outcome=ai_outcome,
+                                docs_attempted=ai_docs_attempted,
+                                docs_succeeded=ai_docs_succeeded,
+                                **(last_ai_error.to_record() if last_ai_error else {}),
+                            )
+                        except Exception:
+                            logger.exception("Could not close execution_ai row")
 
                     if cancelled_mid_summary:
                         return self._handle_cancellation(

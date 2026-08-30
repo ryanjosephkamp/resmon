@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 import anthropic
 
+from .ai_errors import AIError, classify_exception
 from .prompt_templates import SUMMARIZE_ABSTRACT, SYSTEM_PREAMBLE, length_band
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,21 @@ _PROVIDER_SPECS: dict[str, ProviderSpec] = {
     "meta":     ProviderSpec("https://api.together.xyz/v1",                            "meta-llama/Llama-3.3-70B-Instruct-Turbo",  "bearer"),
     "deepseek": ProviderSpec("https://api.deepseek.com/v1",                            "deepseek-chat",                            "bearer"),
     "alibaba":  ProviderSpec("https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen-plus",                                "bearer"),
+}
+
+
+# Which keyring slot each provider reads. Names only -- this maps a provider to
+# a credential's *alias* so an error report can say which key was used without
+# anything ever touching the value.
+_ALIAS_FOR: dict[str, str] = {
+    "openai": "openai_api_key",
+    "anthropic": "anthropic_api_key",
+    "google": "google_api_key",
+    "xai": "xai_api_key",
+    "meta": "meta_api_key",
+    "deepseek": "deepseek_api_key",
+    "alibaba": "alibaba_api_key",
+    "custom": "custom_llm_api_key",
 }
 
 
@@ -201,15 +217,11 @@ class RemoteLLMClient:
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 400 and _is_context_error(exc):
                 return self._retry_halved(text, params, _render)
-            safe = self._sanitize_error(exc)
-            logger.error("Summarization failed (provider=%s): %s", self.provider, safe)
-            raise RuntimeError(safe) from None
+            raise self._as_ai_error(exc) from None
         except Exception as exc:
             if _is_context_error(exc):
                 return self._retry_halved(text, params, _render)
-            safe = self._sanitize_error(exc)
-            logger.error("Summarization failed (provider=%s): %s", self.provider, safe)
-            raise RuntimeError(safe) from None
+            raise self._as_ai_error(exc) from None
 
     def _retry_halved(self, text: str, params: dict[str, Any], render) -> str:
         halved = text[: max(1, len(text) // 2)]
@@ -220,9 +232,7 @@ class RemoteLLMClient:
         try:
             return self._dispatch(render(halved), params)
         except Exception as retry_exc:
-            safe = self._sanitize_error(retry_exc)
-            logger.error("Retry failed (provider=%s): %s", self.provider, safe)
-            raise RuntimeError(safe) from None
+            raise self._as_ai_error(retry_exc) from None
 
     def _dispatch(self, user_prompt: str, params: dict[str, Any]) -> str:
         system_text = str(SYSTEM_PREAMBLE)
@@ -268,6 +278,28 @@ class RemoteLLMClient:
             messages=[{"role": "user", "content": prompt}],
         )
         return response.content[0].text
+
+    def _as_ai_error(self, exc: Exception) -> AIError:
+        """Classify *exc* and log it, with the key stripped out either way.
+
+        Logging happens here so every raise path reports identically and no
+        future branch can forget. The message is sanitized twice over -- once
+        against this client's own key, then against the generic key shapes --
+        because the second catches a key echoed back by an upstream that this
+        client never sent.
+        """
+        error = classify_exception(
+            exc,
+            provider=self.provider,
+            model=self.model,
+            credential_alias=_ALIAS_FOR.get(self.provider),
+            secret=self._api_key,
+        )
+        logger.error(
+            "Summarization failed (provider=%s, kind=%s): %s",
+            self.provider, error.kind.value, error.message,
+        )
+        return error
 
     def _sanitize_error(self, exc: Exception) -> str:
         msg = str(exc)

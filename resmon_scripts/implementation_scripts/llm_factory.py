@@ -22,6 +22,7 @@ import logging
 from typing import Optional, Union
 from urllib.parse import urlparse
 
+from .ai_lanes import AILane, resolve_chain
 from .credential_manager import AI_CREDENTIAL_NAMES, get_credential
 from .llm_local import LocalLLMClient
 from .llm_remote import RemoteLLMClient
@@ -155,3 +156,77 @@ def build_llm_client_from_settings(
         # Re-raise provider-validation errors from RemoteLLMClient unchanged;
         # they contain no credential material.
         raise
+
+
+# ---------------------------------------------------------------------------
+# Lane-aware construction (1.8a)
+# ---------------------------------------------------------------------------
+#
+# ``build_llm_client_from_settings`` above is kept as-is: it is the pre-1.8
+# entry point, it is what ``resmon.py`` calls today, and a pile of tests pin
+# its exact behaviour including which failures return None and which raise.
+# The functions below are the lane-shaped view of the same machinery. 1.8b
+# moves the caller onto them; until then both exist and agree, because the
+# one-lane chain a legacy configuration resolves to produces exactly the
+# client the old path produced.
+
+
+def build_client_for_lane(
+    lane: AILane,
+    ephemeral: Optional[dict] = None,
+) -> Optional[Union[RemoteLLMClient, LocalLLMClient]]:
+    """Construct the client for one lane, or ``None`` if it cannot be built.
+
+    Returns ``None`` rather than raising for the ordinary "not configured"
+    cases -- no model, no key -- because an unusable lane is a lane to skip,
+    not a run to abort. The single exception is an insecure custom base URL,
+    which raises ``ValueError``: sending a user's API key over plain HTTP to a
+    non-loopback host is a mistake worth stopping for rather than silently
+    routing around.
+    """
+    if lane.kind == "local":
+        if not lane.model:
+            logger.info("Lane %s has no model configured; skipping.", lane.label)
+            return None
+        if lane.endpoint:
+            return LocalLLMClient(model=lane.model, endpoint=lane.endpoint)
+        return LocalLLMClient(model=lane.model)
+
+    if lane.kind == "subscription":
+        # The client that drives an installed agent CLI arrives in 1.8c. Until
+        # then a subscription lane resolves and records but cannot run, which
+        # is reported honestly rather than pretended around.
+        logger.info(
+            "Lane %s is a subscription lane; no client implementation yet (1.8c).",
+            lane.label,
+        )
+        return None
+
+    # api_key
+    custom_base_url: Optional[str] = None
+    if lane.provider == "custom":
+        custom_base_url = _validate_custom_base_url(lane.base_url or "")
+
+    key = _lookup_key(lane.provider, ephemeral)
+    if not key:
+        logger.info("Lane %s has no API key available; skipping.", lane.label)
+        return None
+    if not lane.model:
+        logger.info("Lane %s has no model configured; skipping.", lane.label)
+        return None
+
+    return RemoteLLMClient(
+        provider=lane.provider,
+        api_key=key,
+        model=lane.model,
+        custom_base_url=custom_base_url,
+    )
+
+
+def build_chain_from_settings(settings: dict) -> list[AILane]:
+    """Resolve *settings* into the ordered lanes to try.
+
+    A thin re-export so callers have one import for "how do I get the lanes",
+    and so the resolution rules stay in :mod:`ai_lanes` where they are tested.
+    """
+    return resolve_chain(settings)
