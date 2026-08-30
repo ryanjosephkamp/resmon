@@ -79,11 +79,18 @@ _BIORXIV_LIMITER = RateLimiter(requests_per_second=2.0)
 # limit and one failure costs little.
 CROSSREF_BATCH = 40
 
-# Default ceiling on one run of the check. The corpus can be large and each
-# paper costs an outbound request, so the check is bounded and resumable rather
-# than open-ended: it takes the least recently checked papers first and reports
-# how many remain.
-DEFAULT_LIMIT = 200
+# arXiv accepts a comma-separated ``id_list``, so version checks batch exactly
+# like Crossref DOIs do. Without this a corpus of five thousand arXiv papers was
+# five thousand separate requests, which is what made a full pass impractical
+# rather than merely slow.
+ARXIV_BATCH = 50
+
+# Default ceiling on one run of the check. Raised from 200 in 1.7.1: at 200 a
+# 15,000-paper corpus needed seventy-nine presses of the button, which is not a
+# bounded operation, it is an unusable one. With Crossref and arXiv both batching
+# a thousand papers is a handful of requests, and ``run_until_done`` exists for
+# users who simply want the whole corpus covered.
+DEFAULT_LIMIT = 1000
 
 # How long a check stays fresh. Retractions are not urgent to the minute, and
 # re-asking Crossref about the same paper daily is discourteous.
@@ -390,14 +397,28 @@ class BiorxivLifecycleProvider:
 
 
 class ArxivLifecycleProvider:
-    """Fetches the current version arXiv serves for an id."""
+    """Fetches the current version arXiv serves, for one id or many."""
 
     name = "arxiv"
 
     def fetch(self, base_id: str) -> str:
+        return self.fetch_many([base_id])
+
+    def fetch_many(self, base_ids: list[str]) -> str:
+        """One request for up to ``ARXIV_BATCH`` ids.
+
+        The Atom feed comes back with one ``<entry>`` per id, and
+        ``findings_from_arxiv`` already matches entries against the id it was
+        asked about, so the batched response is parsed exactly like a single one.
+        """
+        if not base_ids:
+            return ""
         response = safe_request(
             "GET", "https://export.arxiv.org/api/query",
-            params={"id_list": base_id, "max_results": 1},
+            params={
+                "id_list": ",".join(base_ids),
+                "max_results": len(base_ids),
+            },
         )
         return response.text
 
@@ -435,8 +456,8 @@ def documents_due(
 def _outcome_for(
     document: dict,
     crossref_works: dict[str, dict],
+    arxiv_feeds: dict[str, str],
     biorxiv: BiorxivLifecycleProvider | None,
-    arxiv: ArxivLifecycleProvider | None,
 ) -> CheckOutcome:
     document_id = document["id"]
     doi = (document.get("doi") or "").strip()
@@ -463,18 +484,14 @@ def _outcome_for(
         except Exception as exc:
             return CheckOutcome(document_id, "error", providers, findings, str(exc))
 
-    if source == "arxiv" and external_id and arxiv is not None:
+    if source == "arxiv" and external_id:
         base_id, stored_version = arxiv_version(external_id)
-        if stored_version is not None:
+        if stored_version is not None and base_id in arxiv_feeds:
             providers.append("arxiv")
-            try:
-                atom = arxiv.fetch(base_id)
-                findings.extend(findings_from_arxiv(
-                    atom, base_id=base_id, stored_version=stored_version,
-                ))
-            except Exception as exc:
-                return CheckOutcome(
-                    document_id, "error", providers, findings, str(exc))
+            findings.extend(findings_from_arxiv(
+                arxiv_feeds[base_id], base_id=base_id,
+                stored_version=stored_version,
+            ))
 
     if not providers:
         # Honest rather than optimistic: a paper with no DOI and no supported
@@ -497,8 +514,14 @@ def check_corpus(
     crossref: CrossrefLifecycleProvider | None = None,
     biorxiv: BiorxivLifecycleProvider | None = None,
     arxiv: ArxivLifecycleProvider | None = None,
+    run_until_done: bool = False,
+    should_stop=None,
 ) -> dict:
-    """Check a bounded slice of the corpus and record what came back.
+    """Check the corpus and record what came back.
+
+    With ``run_until_done`` the bounded slice repeats until the corpus is
+    covered, ``should_stop`` returns true, or a pass makes no progress. Without
+    it a single slice runs, exactly as before.
 
     Providers are injectable so the suite can exercise the whole path against
     recorded payloads without touching the network. In production the defaults
@@ -508,9 +531,38 @@ def check_corpus(
     biorxiv = biorxiv or BiorxivLifecycleProvider()
     arxiv = arxiv or ArxivLifecycleProvider()
 
+    total_checked = 0
+    errors: list[dict] = []
+    while True:
+        checked, batch_errors = _check_one_pass(
+            conn, limit, crossref, biorxiv, arxiv,
+        )
+        total_checked += checked
+        errors.extend(batch_errors)
+        # Stop when asked to do one pass, when the corpus is covered, or when a
+        # pass made no progress at all -- the last guard is what stops a run
+        # spinning forever on papers that cannot be advanced.
+        if not run_until_done or checked == 0 or _remaining(conn) == 0:
+            break
+        if should_stop is not None and should_stop():
+            break
+
+    return _summary(
+        conn, checked=total_checked, remaining=_remaining(conn), errors=errors,
+    )
+
+
+def _check_one_pass(
+    conn: sqlite3.Connection,
+    limit: int,
+    crossref,
+    biorxiv,
+    arxiv,
+) -> tuple[int, list[dict]]:
+    """One bounded slice: select, fetch in batches, record."""
     documents = documents_due(conn, limit=limit)
     if not documents:
-        return _summary(conn, checked=0, remaining=_remaining(conn), errors=[])
+        return 0, []
 
     # One Crossref round trip per batch of DOIs rather than one per paper.
     crossref_works: dict[str, dict] = {}
@@ -532,6 +584,27 @@ def check_corpus(
             logger.warning("Crossref lifecycle batch failed: %s", exc)
             unanswered.update(doi.lower() for doi in batch)
 
+    # arXiv batches too. One request per fifty ids rather than one per paper is
+    # the difference between a full pass being minutes and being hours.
+    arxiv_feeds: dict[str, str] = {}
+    arxiv_ids: list[str] = []
+    for d in documents:
+        if (d.get("source_repository") or "") != "arxiv":
+            continue
+        base_id, version = arxiv_version((d.get("external_id") or "").strip())
+        if version is not None and base_id:
+            arxiv_ids.append(base_id)
+    for start in range(0, len(arxiv_ids), ARXIV_BATCH):
+        batch = arxiv_ids[start:start + ARXIV_BATCH]
+        try:
+            atom = arxiv.fetch_many(batch)
+        except Exception as exc:
+            # Same rule as a failed Crossref batch: learn nothing, claim nothing.
+            logger.warning("arXiv lifecycle batch failed: %s", exc)
+            continue
+        for base_id in batch:
+            arxiv_feeds[base_id] = atom
+
     checked = 0
     errors: list[dict] = []
     for document in documents:
@@ -540,7 +613,7 @@ def check_corpus(
             # Nothing was learned about this paper. Not cleared — skipped.
             continue
 
-        outcome = _outcome_for(document, crossref_works, biorxiv, arxiv)
+        outcome = _outcome_for(document, crossref_works, arxiv_feeds, biorxiv)
         for finding in outcome.findings:
             try:
                 record_lifecycle_finding(
@@ -576,7 +649,7 @@ def check_corpus(
                 "error": outcome.error_message,
             })
 
-    return _summary(conn, checked=checked, remaining=_remaining(conn), errors=errors)
+    return checked, errors
 
 
 def _other_provider(document: dict) -> bool:

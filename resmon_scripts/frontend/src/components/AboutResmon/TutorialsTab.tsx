@@ -266,7 +266,7 @@ const sections: TutorialSection[] = [
       '`Mute` acknowledges a finding you already know about. It stays listed but stops counting, and the mute is dropped automatically once the condition clears, so a recurrence is reported again.',
       '`Not enough history to judge yet` lists the sources and routines being watched that do not yet have enough runs on record. A watchdog silent because all is well and one silent because it has three data points are different things, and this section keeps them apart.',
       '`Papers that changed after you found them` unfreezes your corpus: retractions and expressions of concern via Crossref, preprints that have since reached a journal, and newer versions of what you hold. Press `Check for retractions and updates` to run it — it is the only part of resmon that makes outbound requests without you starting a search, so it never runs on its own.',
-      'The check is bounded and resumable: it takes the least recently checked papers first and reports how many remain. Run it again to continue through a large corpus.',
+      'The check is bounded and resumable: it takes the least recently checked papers first and reports how many remain. `Check everything` keeps going until the whole corpus is covered, and `Stop` ends it after the current batch — whatever was checked keeps its results.',
     ],
     features: [
       'Per-source health from every run resmon has made, including runs recorded before this feature existed — the history is backfilled on first launch, so the watchdog is useful immediately rather than in three weeks.',

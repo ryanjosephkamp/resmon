@@ -476,6 +476,103 @@ def test_a_provider_failure_on_one_paper_is_recorded_not_swallowed(conn):
 
 
 # ---------------------------------------------------------------------------
+# Running to completion (1.7.1)
+# ---------------------------------------------------------------------------
+
+
+class _CountingArxiv:
+    """Records how many requests the batched provider actually makes."""
+
+    def __init__(self):
+        self.calls: list[list[str]] = []
+
+    def fetch_many(self, base_ids):
+        self.calls.append(list(base_ids))
+        return ARXIV_ATOM_V3
+
+    def fetch(self, base_id):
+        return self.fetch_many([base_id])
+
+
+def test_arxiv_version_checks_are_batched_not_one_per_paper(conn):
+    """At one request per paper a 5,000-paper arXiv corpus was 5,000 requests,
+    which is what made covering a real corpus impractical."""
+    for i in range(120):
+        _doc(conn, source="arxiv", ext=f"2301.{i:05d}v1", doi=None)
+    arxiv = _CountingArxiv()
+
+    lifecycle.check_corpus(conn, crossref=_FakeCrossref({}),
+                           biorxiv=_NoProvider(), arxiv=arxiv)
+
+    assert len(arxiv.calls) == 3  # 50 + 50 + 20
+    assert all(len(c) <= lifecycle.ARXIV_BATCH for c in arxiv.calls)
+
+
+def test_run_until_done_covers_the_whole_corpus_in_one_call(conn):
+    """The fix for the real defect: at the old default a 15,000-paper corpus
+    needed seventy-nine presses of the button."""
+    for i in range(25):
+        _doc(conn, ext=str(i), doi=f"10.1/{i}")
+
+    summary = lifecycle.check_corpus(
+        conn, limit=5, run_until_done=True, crossref=_FakeCrossref({}),
+        biorxiv=_NoProvider(), arxiv=_NoProvider())
+
+    assert summary["checked_now"] == 25
+    assert summary["remaining"] == 0
+
+
+def test_a_single_pass_is_still_the_default(conn):
+    for i in range(25):
+        _doc(conn, ext=str(i), doi=f"10.1/{i}")
+
+    summary = lifecycle.check_corpus(
+        conn, limit=5, crossref=_FakeCrossref({}),
+        biorxiv=_NoProvider(), arxiv=_NoProvider())
+
+    assert summary["checked_now"] == 5
+    assert summary["remaining"] == 20
+
+
+def test_a_run_can_be_stopped_and_keeps_what_it_checked(conn):
+    """Cooperative: papers already checked keep their results, and the rest stay
+    unchecked rather than being recorded as clean."""
+    for i in range(40):
+        _doc(conn, ext=str(i), doi=f"10.1/{i}")
+    passes = {"n": 0}
+
+    def should_stop():
+        passes["n"] += 1
+        return passes["n"] >= 2
+
+    summary = lifecycle.check_corpus(
+        conn, limit=5, run_until_done=True, should_stop=should_stop,
+        crossref=_FakeCrossref({}), biorxiv=_NoProvider(), arxiv=_NoProvider())
+
+    assert 0 < summary["checked_now"] < 40
+    assert summary["remaining"] > 0
+    assert summary["coverage"]["checked"] == summary["checked_now"]
+
+
+def test_run_until_done_stops_rather_than_spinning_on_papers_it_cannot_advance(conn):
+    """A pass that checks nothing must end the run. Without this guard a corpus
+    whose remaining papers all fail would loop forever."""
+    _doc(conn, ext="1", doi="10.1/a")
+    summary = lifecycle.check_corpus(
+        conn, limit=5, run_until_done=True,
+        crossref=_FakeCrossref({}, fail=True),
+        biorxiv=_NoProvider(), arxiv=_NoProvider())
+
+    assert summary["checked_now"] == 0
+    assert summary["remaining"] == 1
+
+
+def test_the_default_limit_is_workable_on_a_real_corpus(conn):
+    """15,645 papers at the old default of 200 was 79 presses."""
+    assert lifecycle.DEFAULT_LIMIT >= 1000
+
+
+# ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
 
