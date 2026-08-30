@@ -9,8 +9,8 @@ So the assertions here fall into two groups. One group checks the arithmetic:
 word-boundary matching that does not fire on "AI" inside "said", per-keyword
 unique contribution, quoted phrases. The other checks the *language*: that every
 explanation carries what resmon cannot see, that a match is described as making
-a paper "plausible" rather than as the reason it was returned, and that the one
-source resmon filters itself is the only one it speaks about with certainty.
+a paper "plausible" rather than as the reason it was returned, and that resmon
+speaks with certainty only for sources whose results it filters itself.
 """
 
 from __future__ import annotations
@@ -253,11 +253,10 @@ def test_a_match_is_called_plausible_not_the_reason(conn):
     assert "which resmon cannot see" in result["headline"]
 
 
-def test_the_one_source_resmon_filters_itself_is_answered_with_certainty(conn):
-    """bioRxiv has no upstream keyword search, so resmon did the matching and
-    knows exactly why the paper is in the set. That is the only case where it
-    may say so."""
-    doc_id = _doc(conn, source="biorxiv", title="Cardiac organoids")
+@pytest.mark.parametrize("source", ["biorxiv", "medrxiv"])
+def test_locally_filtered_sources_are_answered_with_certainty(conn, source):
+    """The /details clients are filtered locally, so their explanation is complete."""
+    doc_id = _doc(conn, source=source, title="Cardiac organoids")
     exec_id = _run(conn, keywords=["cardiac"], doc_ids=[doc_id])
 
     result = match_explain.explain_document(conn, doc_id, execution_id=exec_id)

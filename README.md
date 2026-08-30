@@ -19,7 +19,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Key Features
 
-- **Multi-repository ingestion across 15 open-access sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DBLP, DOAJ, EuropePMC, HAL, IEEE Xplore, NASA ADS, OpenAlex, PLOS, PubMed, Semantic Scholar, and Springer Nature. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
+- **Multi-repository ingestion across 19 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DBLP, DOAJ, EuropePMC, HAL, IEEE Xplore, INSPIRE-HEP, medRxiv, NASA ADS, OpenAIRE, OpenAlex, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
 - **Three operational modes:**
   - *Targeted Deep Dive* — a focused, manual query against a single repository within a defined date range, with support for an ephemeral per-execution API key that never persists to disk.
   - *Broad Deep Sweep* — a cross-repository manual query that applies Deep Dive parameters across every selected repository in parallel.
@@ -28,7 +28,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 - **Corpus analytics** — a dedicated Analytics page computed entirely from papers already stored locally, so it makes no repository requests and costs no API quota. It reports which repositories contribute papers nothing else found (and which only duplicate others), the median **discovery lag** between a paper's publication date and the moment resmon first saw it — a figure no repository publishes about itself — per-routine health with an explicit signal when a routine stops finding anything new, and publication volume over time by source or subject category. Counts are always shown; medians and percentages are withheld until the sample is large enough to mean anything, with the sample size displayed either way.
 - **The watchdog — silent-failure detection** — a literature monitor fails silently: a dead source and a quiet field produce the same empty inbox. resmon compares every source and routine against baselines drawn from its own execution history and reports where reality has departed from them, in two deliberately separate grades. **Broken** is a recorded fact — a source that errored on three consecutive runs, a required API key that is not configured, an active routine overdue against its own observed cadence (which is what catches the background service being down). **Looks unusual** is an inference from the user's own baseline — a source that reliably returned papers returning none for four runs running — and is always worded as a prompt to check, with the innocent explanation stated alongside it. Thresholds are conservative and published in the interface; findings can be muted individually, and a mute is dropped automatically once its condition clears. What cannot yet be judged is listed too, so a watchdog silent for want of data is never mistaken for a clean bill of health. Cadence advice derived from discovery lag rounds it out, carrying the honest caveat that the lag was measured through the user's own polling interval.
 - **Corpus-wide Explorer** — search and filter every paper resmon has collected, across all executions and routines, by free text over titles and abstracts, author, source, subject category, and publication date. Filters live in the URL, so a filtered view can be bookmarked, shared, or reached from the Analytics page by clicking a source or category. Built for scale: free text runs against an FTS5 index rather than a substring scan, authors and categories are filtered through normalised indexed tables rather than parsed at query time, and pagination seeks by sort key rather than counting rows — a page at row 90,000 of 100,000 costs 0.30 ms.
-- **Match transparency — "why am I seeing this?"** — every result in the Explorer can say which of the keywords from the runs that found it actually appear in it, and in which field: title, abstract, subject categories, or author list. Matching is on whole words, so `AI` does not match `said`, and a quoted phrase must appear as a phrase. The same arithmetic run corpus-wide gives **per-keyword marginal contribution** on the Analytics page: how many papers each keyword found that no other keyword of yours did, so a term that only duplicates another becomes visible and can be retired. The feature is defined as much by what it refuses to claim: resmon stores no full text, and most sources are relevance-ranked rather than literal keyword filters, so a paper containing none of your keywords is expected rather than a fault. Every explanation carries those limits alongside the evidence rather than behind a tooltip, and names the source's own documented keyword semantics. There is exactly one source resmon speaks about with certainty — bioRxiv/medRxiv has no upstream keyword search, so resmon does the filtering itself and knows precisely why a paper is in the set.
+- **Match transparency — "why am I seeing this?"** — every result in the Explorer can say which of the keywords from the runs that found it actually appear in it, and in which field: title, abstract, subject categories, or author list. Matching is on whole words, so `AI` does not match `said`, and a quoted phrase must appear as a phrase. The same arithmetic run corpus-wide gives **per-keyword marginal contribution** on the Analytics page: how many papers each keyword found that no other keyword of yours did, so a term that only duplicates another becomes visible and can be retired. The feature is defined as much by what it refuses to claim: resmon stores no full text, and most sources are relevance-ranked rather than literal keyword filters, so a paper containing none of your keywords is expected rather than a fault. Every explanation carries those limits alongside the evidence rather than behind a tooltip, and names the source's own documented keyword semantics. bioRxiv and medRxiv are the two exceptions at the API boundary: resmon retrieves date-range records and applies its own keyword filter instead of relying on an opaque upstream ranking.
 - **Reference-manager exports** — any execution's papers export to **BibTeX**, **RIS**, or **CSV**, alongside the existing Markdown, PDF, and LaTeX report bundle. Entries with a DOI are emitted as journal articles and those without as generic records; cite keys are made unique within a file and BibTeX special characters are escaped.
 - **A Danger Zone that tells the truth** — every destructive action states exactly what it does and does not remove, including whether your collected papers are affected. A dedicated **Erase the paper corpus** action removes every paper resmon has collected along with its lifecycle records; **Erase all app data** and **Factory reset** now include the corpus too. Before 1.7.0 *nothing* in the Danger Zone deleted a single paper — a "factory reset" left the entire corpus in place, which on a real install meant tens of thousands of papers surviving a reset that claimed to erase everything.
 - **Corpus lifecycle — papers change after you find them** — a monitor's corpus is frozen at discovery time and silently goes stale. resmon unfreezes it: **retractions** and **expressions of concern** through Crossref, which has distributed the Retraction Watch database openly since 2023; **preprints that have since reached a journal**, via the bioRxiv API's link to the published DOI; and **newer versions** of what you hold, on both bioRxiv and arXiv. Discovering after submission that a paper you built on was retracted is a career-grade problem, and no other literature monitor checks for any of it. The governing rule is enforced in code, not left to callers: **resmon never asserts a lifecycle event on its own authority** — every finding carries a resolvable link to the notice behind it, and one that cannot produce a link is refused at the database layer rather than recorded. The publisher's own wording is stored and displayed verbatim, an expression of concern is graded below a retraction and said to be weaker, and a correction is treated as the routine scholarly upkeep it is rather than coloured like an alarm. The check makes outbound requests, so it runs only when asked, bounded and resumable, and coverage is always reported alongside the findings — "no retractions found" means nothing if only a fifth of the corpus has been looked at, and papers with no usable identifier are counted separately rather than silently treated as clean.
@@ -43,7 +43,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Supported Repositories
 
-The table below lists the 15 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
+The table below lists the 19 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
 
 | Repository | API Type | API Key | Rate Limit (resmon) | Discipline Coverage |
 |---|---|---|---|---|
@@ -56,14 +56,16 @@ The table below lists the 15 active sources registered in the repository catalog
 | EuropePMC | REST (JSON) | Not required | 5.0 req/s | Biomedicine, Life sciences |
 | HAL | REST (Solr JSON) | Not required | 2.0 req/s | All disciplines (French-leaning) |
 | IEEE Xplore | REST (JSON) | Required (API key) | 0.2 req/s (1 per 5 s) | Electrical engineering, CS, Electronics |
+| INSPIRE-HEP | REST (JSON) | Not required | 2.0 req/s | High-energy physics, Accelerators, Astroparticle physics |
+| medRxiv | REST (JSON) | Not required | 2.0 req/s | Medicine, Clinical research, Health sciences preprints |
 | NASA ADS | REST (Solr JSON) | Required (Bearer) | 1.0 req/s (≈5000/day cap) | Astronomy, Astrophysics, Planetary science |
+| OpenAIRE | REST (XML-derived JSON) | Not required | 0.0167 req/s (60/hour) | Multi-disciplinary publications, Research outputs |
 | OpenAlex | REST (JSON) | Not required | 10.0 req/s (polite pool via mailto) | All disciplines |
 | PLOS | REST (Solr JSON) | Not required | 5.0 req/s | Biology, Medicine, Natural sciences (PLOS journals) |
 | PubMed / NCBI E-utilities | REST (XML) | Optional (raises limit) | 3.0 req/s keyless, 10.0 req/s with key | Biomedicine |
 | Semantic Scholar | REST (JSON) | Optional (recommended) | 0.33 req/s (1 per 3 s) | All disciplines (strong CS, biomed) |
 | Springer Nature | REST (JSON Meta API) | Required (query-param key) | 5.0 req/s (≈5000/day cap) | STM, Humanities, Social sciences |
-
-medRxiv is served by the same Cold Spring Harbor client as bioRxiv but has no catalog entry of its own, so it cannot be selected as a separate source. Earlier revisions of this table listed it as a sixteenth source, which overstated what the Repositories page actually offers; promoting it to a first-class selectable source is tracked for a future update.
+| Zenodo | REST (JSON) | Not required | 0.5 req/s (30/min) | Multi-disciplinary publications, data, software, and other outputs |
 
 Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in `.ai:/prep/repos.md` and are not queried at runtime.
 
@@ -259,7 +261,7 @@ resmon is a local-first desktop application composed of two cooperating processe
 
 The backend is a single FastAPI application constructed at module load in `resmon_scripts/resmon.py`. A shared `sqlite3.Connection` backs every request, the database path defaults to `resmon.db` at the project root, and the schema is owned by `implementation_scripts/database.py` with a version-tracked migration path on startup. Two ASGI middlewares wrap the app: a custom `PrivateNetworkMiddleware` that injects `Access-Control-Allow-Private-Network: true` so Chromium's Private Network Access policy permits the `file://` renderer to reach loopback, and `CORSMiddleware` with permissive origins (safe because the server binds to `127.0.0.1` only). All SQL is parameterized; all credentials flow through a single `credential_manager.py` module that owns OS-keyring access.
 
-The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), which orchestrates query → normalize → dedup → link → report → summarize → finalize for both manual and routine-fired runs. Per-source API clients (15 repositories) live under `implementation_scripts/api_*.py` and are registered through `api_registry.py`. Results are normalized by `normalizer.py`, deduplicated by DOI and by (title, first author), and rendered by `report_generator.py` into Markdown, with optional PDF and LaTeX exports through `report_exporter.py`.
+The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), which orchestrates query → normalize → dedup → link → report → summarize → finalize for both manual and routine-fired runs. Per-source API clients (19 repositories) live under `implementation_scripts/api_*.py` and are registered through `api_registry.py`. Results are normalized by `normalizer.py`, deduplicated by DOI and by (title, first author), and rendered by `report_generator.py` into Markdown, with optional PDF and LaTeX exports through `report_exporter.py`.
 
 ### Frontend — Electron + React
 
@@ -333,7 +335,7 @@ resmon/
 │   │   ├── analytics.py              # Corpus analytics queries (thin-corpus policy).
 │   │   ├── explorer.py               # Corpus-wide search, faceting, keyset pagination.
 │   │   ├── ai_models.py              # Provider model-catalog probing.
-│   │   ├── api_*.py                  # Per-repository API clients (15 active sources).
+│   │   ├── api_*.py                  # Per-repository API clients (19 active sources).
 │   │   ├── api_base.py               # Shared rate limiter + HTTP client base class.
 │   │   ├── api_registry.py           # Slug → client dispatch table.
 │   │   ├── citation_graph.py         # Citation and context graphing.
@@ -548,7 +550,7 @@ Match transparency for one paper. Reads only stored metadata; makes no external 
 | GET | `/api/documents/{id}/why` | Per keyword: whether it appears, and in which of title / abstract / categories / authors. Plus a `verdict`, a `headline`, the source's documented keyword semantics, and `what_resmon_cannot_see`. `?execution_id=N` scopes to one run's keywords; omitted, the union across every run that returned the paper is explained. |
 
 **What it will not claim.** resmon cannot know why an upstream source returned a paper.
-Most of the fifteen sources are relevance-ranked — they score documents against the whole
+Most sources are relevance-ranked — they score documents against the whole
 query and return the best matches, so a paper can legitimately come back containing none
 of the terms literally. resmon also stores only title, abstract, authors and categories,
 never full text, so a match may exist somewhere it cannot see. Both limits ship in
@@ -560,7 +562,7 @@ The `verdict` grades the explanation, never the paper:
 
 | Verdict | Meaning |
 |---|---|
-| `resmon_filtered` | bioRxiv/medRxiv has no upstream keyword search, so resmon did the matching. The only case where the explanation is complete. |
+| `resmon_filtered` | For bioRxiv and medRxiv, resmon filtered date-range API records locally instead of relying on an upstream result ranking. |
 | `local_evidence` | At least one keyword is verifiably present. The paper is a plausible match. |
 | `no_local_evidence` | Nothing matched in what resmon stores. Normal on a relevance-ranked source. |
 | `no_keywords_recorded` | The run stored no keywords, so there is nothing to check against. |
@@ -882,10 +884,10 @@ resmon is built on top of a broad ecosystem of open-access scholarly repositorie
 
 ### Open-Access Repository Providers
 
-The 15 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
+The 19 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
 
 - **arXiv** — Cornell University / arXiv.org, for the Atom XML API and the decades-long commitment to open preprint distribution in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics.
-- **bioRxiv** and **medRxiv** — Cold Spring Harbor Laboratory, for the shared preprint JSON API serving the life- and health-sciences communities.
+- **bioRxiv** and **medRxiv** — openRxiv, for the date-range JSON API serving the life- and health-sciences communities.
 - **CORE** — The Open University / Jisc, for the aggregated open-access JSON API spanning tens of thousands of repositories worldwide.
 - **CrossRef** — Crossref, for the DOI-indexed REST API and the "polite pool" that rewards well-behaved clients with priority rate limits.
 - **DBLP** — Schloss Dagstuhl / University of Trier, for the computer-science bibliography REST API.
@@ -893,12 +895,15 @@ The 15 scholarly sources registered in the repository catalog, whose public APIs
 - **EuropePMC** — EMBL-EBI on behalf of the Europe PMC Consortium, for the biomedical and life-sciences REST API.
 - **HAL** — CCSD / CNRS, for the Solr-backed multi-disciplinary JSON API.
 - **IEEE Xplore** — IEEE, for the Xplore REST API serving electrical engineering, computer science, and electronics literature.
+- **INSPIRE-HEP** — CERN and the INSPIRE collaboration, for the curated high-energy-physics literature API.
 - **NASA ADS** — Smithsonian Astrophysical Observatory / NASA Astrophysics Data System, for the Solr-backed astronomy, astrophysics, and planetary-science API.
+- **OpenAIRE** — the OpenAIRE partnership, for the multi-disciplinary scholarly-graph Search API.
 - **OpenAlex** — OurResearch, for the free, comprehensive scholarly-works REST API and the mailto-based polite-pool rate tier.
 - **PLOS** — Public Library of Science, for the Solr-backed JSON API over the PLOS journal family.
 - **PubMed / NCBI E-utilities** — U.S. National Library of Medicine / National Center for Biotechnology Information, for the E-utilities suite that underpins biomedical literature retrieval.
 - **Semantic Scholar** — Allen Institute for AI (AI2), for the cross-disciplinary scholarly-graph REST API.
 - **Springer Nature** — Springer Nature, for the Meta API covering STM, humanities, and social-sciences content.
+- **Zenodo** — CERN and OpenAIRE, for the multi-disciplinary research-output records API.
 
 ### Open-Source Foundations
 
@@ -907,4 +912,3 @@ resmon depends on and is grateful for the following open-source projects (non-ex
 ### Standards and Identifiers
 
 resmon relies on the **DOI** system administered by the International DOI Foundation and the **ORCID** identifier system — both of which underpin the deduplication and citation-graphing pipeline.
-
