@@ -2103,18 +2103,30 @@ def execution_search_record(exec_id: int, format: str = "json"):
 
 _lifecycle_lock = threading.Lock()
 _lifecycle_run: dict = {"running": False, "started_at": None, "last": None,
-                        "error": None}
+                        "error": None, "stop_requested": False}
 
 
 class LifecycleCheckRequest(BaseModel):
-    limit: int = Field(default=lifecycle.DEFAULT_LIMIT, ge=1, le=2000)
+    limit: int = Field(default=lifecycle.DEFAULT_LIMIT, ge=1, le=5000)
+    # Repeat the bounded slice until the corpus is covered. At the old default a
+    # 15,000-paper corpus needed seventy-nine presses of the button; this is the
+    # option that makes "check everything" a single action.
+    run_until_done: bool = False
 
 
-def _run_lifecycle_check(limit: int) -> None:
+def _lifecycle_should_stop() -> bool:
+    with _lifecycle_lock:
+        return bool(_lifecycle_run.get("stop_requested"))
+
+
+def _run_lifecycle_check(limit: int, run_until_done: bool) -> None:
     """Body of the background check. Owns its own connection."""
     conn = _get_db()
     try:
-        summary = lifecycle.check_corpus(conn, limit=limit)
+        summary = lifecycle.check_corpus(
+            conn, limit=limit, run_until_done=run_until_done,
+            should_stop=_lifecycle_should_stop,
+        )
         with _lifecycle_lock:
             _lifecycle_run["last"] = {
                 "checked_now": summary["checked_now"],
@@ -2148,13 +2160,33 @@ def lifecycle_check(request: LifecycleCheckRequest):
         _lifecycle_run["started_at"] = datetime.now(timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ")
         _lifecycle_run["error"] = None
+        _lifecycle_run["stop_requested"] = False
 
     thread = threading.Thread(
-        target=_run_lifecycle_check, args=(request.limit,),
+        target=_run_lifecycle_check,
+        args=(request.limit, request.run_until_done),
         daemon=True, name="lifecycle-check",
     )
     thread.start()
-    return {"status": "started", "limit": request.limit}
+    return {
+        "status": "started",
+        "limit": request.limit,
+        "run_until_done": request.run_until_done,
+    }
+
+
+@app.post("/api/lifecycle/stop")
+def lifecycle_stop():
+    """Ask a running check to stop after its current slice.
+
+    Cooperative rather than abrupt: the papers already checked keep their
+    results, and the rest stay unchecked rather than being recorded as clean.
+    """
+    with _lifecycle_lock:
+        if not _lifecycle_run["running"]:
+            return {"status": "idle"}
+        _lifecycle_run["stop_requested"] = True
+    return {"status": "stopping"}
 
 
 @app.get("/api/lifecycle")
@@ -3407,6 +3439,32 @@ def _erase_executions(conn) -> int:
     return int(count)
 
 
+def _erase_corpus(conn) -> int:
+    """Delete every paper resmon has collected.
+
+    Until 1.7.1 nothing in the Danger Zone did this. "Erase all app data" and
+    even "Factory reset" removed executions, configurations and keys while
+    leaving the entire corpus in place -- on a real install that meant tens of
+    thousands of papers surviving a reset that said it erased everything. The
+    labels were not merely incomplete; "Factory reset" promised a clean slate it
+    did not deliver, which is precisely the kind of thing 1.7 exists to stop.
+
+    ``documents`` is the root: authors, categories, the execution join table and
+    both lifecycle tables all cascade from it, and an AFTER DELETE trigger keeps
+    the full-text index in step. The index is rebuilt afterwards anyway, because
+    a stale FTS row would surface a paper that no longer exists.
+    """
+    count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+    conn.execute("DELETE FROM documents")
+    conn.execute("DELETE FROM sqlite_sequence WHERE name='documents'")
+    try:
+        conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
+    except sqlite3.Error:
+        # An install predating the search index has no FTS table to rebuild.
+        pass
+    return int(count)
+
+
 def _reset_settings(conn) -> int:
     """Clear every row in app_settings except the schema-version marker."""
     # Preserve only the schema-version marker so the next daemon start
@@ -3470,12 +3528,17 @@ def admin_erase_execution_data(body: AdminConfirmBody):
 
 @app.post("/api/admin/erase-app-data")
 def admin_erase_app_data(body: AdminConfirmBody):
-    """Erase configs + executions + every API key. Non-AI settings preserved."""
+    """Erase the corpus + configs + executions + every API key.
+
+    The corpus is included as of 1.7.1. "All app data" that left every collected
+    paper behind was not a description of what this did.
+    """
     _require_confirm(body)
     conn = _get_db()
     try:
         c = _erase_configs(conn)
         e = _erase_executions(conn)
+        d = _erase_corpus(conn)
         conn.commit()
     finally:
         _close_db(conn)
@@ -3485,9 +3548,23 @@ def admin_erase_app_data(body: AdminConfirmBody):
         "success": True,
         "configs_removed": c,
         "executions_removed": e,
+        "documents_removed": d,
         "ai_keys_removed": a,
         "repo_keys_removed": r,
     }
+
+
+@app.post("/api/admin/erase-corpus")
+def admin_erase_corpus(body: AdminConfirmBody):
+    """Erase every collected paper. Executions, configs and keys are kept."""
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        n = _erase_corpus(conn)
+        conn.commit()
+        return {"success": True, "documents_removed": n}
+    finally:
+        _close_db(conn)
 
 
 @app.post("/api/admin/reset-settings")
@@ -3516,12 +3593,17 @@ def admin_reset_settings(body: AdminConfirmBody):
 
 @app.post("/api/admin/factory-reset")
 def admin_factory_reset(body: AdminConfirmBody):
-    """Erase every secret, every config, every execution, and every setting."""
+    """Erase every secret, config, execution, setting, and collected paper.
+
+    The corpus is included as of 1.7.1 — a "factory reset" that left tens of
+    thousands of papers on disk was the single most misleading label in the app.
+    """
     _require_confirm(body)
     conn = _get_db()
     try:
         c = _erase_configs(conn)
         e = _erase_executions(conn)
+        d = _erase_corpus(conn)
         s = _reset_settings(conn)
         conn.commit()
     finally:
@@ -3534,6 +3616,7 @@ def admin_factory_reset(body: AdminConfirmBody):
         "success": True,
         "configs_removed": c,
         "executions_removed": e,
+        "documents_removed": d,
         "settings_cleared": s,
         "ai_keys_removed": a,
         "repo_keys_removed": r,

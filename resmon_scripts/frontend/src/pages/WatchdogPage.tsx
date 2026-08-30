@@ -247,16 +247,27 @@ const WatchdogPage: React.FC = () => {
     return () => clearInterval(timer);
   }, [life?.run?.running, loadLifecycle]);
 
-  const startLifecycleCheck = useCallback(async () => {
+  const startLifecycleCheck = useCallback(async (runUntilDone: boolean) => {
     setLifeBusy(true);
     try {
-      await apiClient.post('/api/lifecycle/check', {});
+      await apiClient.post('/api/lifecycle/check', {
+        run_until_done: runUntilDone,
+      });
       await loadLifecycle();
     } catch (err: any) {
       setError(err?.message || 'Could not start the lifecycle check.');
     } finally {
       setLifeBusy(false);
     }
+  }, [loadLifecycle]);
+
+  // Cooperative, not abrupt: whatever has been checked keeps its results and
+  // the rest stays unchecked rather than being recorded as clean.
+  const stopLifecycleCheck = useCallback(async () => {
+    try {
+      await apiClient.post('/api/lifecycle/stop', {});
+      await loadLifecycle();
+    } catch { /* the run ends on its own soon enough */ }
   }, [loadLifecycle]);
 
 
@@ -521,11 +532,32 @@ const WatchdogPage: React.FC = () => {
         <div className="lifecycle-controls">
           <button
             className="btn btn-sm"
-            onClick={() => void startLifecycleCheck()}
+            onClick={() => void startLifecycleCheck(false)}
             disabled={lifeBusy || !!life?.run?.running}
           >
             {life?.run?.running ? 'Checking…' : 'Check for retractions and updates'}
           </button>
+          {/*
+            The corpus can be tens of thousands of papers. Checking a slice at a
+            time is bounded on purpose, but it should not be the only option —
+            asking someone to press a button seventy-nine times is not a design.
+          */}
+          {!life?.run?.running && (life?.coverage?.unchecked ?? 0) > 0 && (
+            <button
+              className="btn btn-sm btn-secondary"
+              onClick={() => void startLifecycleCheck(true)}
+              disabled={lifeBusy}
+              title="Keep going until every paper has been checked"
+            >
+              Check everything ({life?.coverage.unchecked} left)
+            </button>
+          )}
+          {life?.run?.running && (
+            <button className="btn btn-sm btn-secondary"
+                    onClick={() => void stopLifecycleCheck()}>
+              Stop
+            </button>
+          )}
           {life && (
             <span className="text-muted lifecycle-coverage">
               {life.coverage.checked === 0 ? (

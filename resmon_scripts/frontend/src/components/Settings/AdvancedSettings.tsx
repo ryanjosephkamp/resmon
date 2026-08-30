@@ -55,9 +55,19 @@ const DANGER_ACTIONS: DangerAction[] = [
     label: 'Erase execution history',
     endpoint: '/api/admin/erase-executions',
     shortDescription:
-      'Deletes every execution row (manual dives, manual sweeps, routine fires) and resets the default "Execution #N" counter back to 1.',
+      'Deletes every execution row (manual dives, manual sweeps, routine fires) and resets the default "Execution #N" counter back to 1. The papers themselves are kept.',
     longWarning:
-      "This will permanently delete every execution on the Results & Logs page — local manual dives, local manual sweeps, and local routine fires — and reset the auto-incremented execution number so the next run is named 'Execution #1'. Reports and logs on disk for those executions are no longer reachable from the app.",
+      "This will permanently delete every execution on the Results & Logs page — local manual dives, local manual sweeps, and local routine fires — and reset the auto-incremented execution number so the next run is named 'Execution #1'. Reports and logs on disk for those executions are no longer reachable from the app. Your collected papers are NOT deleted — they stay in the Explorer. Use 'Erase the paper corpus' for those.",
+    needsTyping: true,
+  },
+  {
+    id: 'corpus',
+    label: 'Erase the paper corpus',
+    endpoint: '/api/admin/erase-corpus',
+    shortDescription:
+      'Deletes every paper resmon has collected — the whole Explorer corpus — along with its retraction and lifecycle records. Executions, configs, settings and API keys are kept.',
+    longWarning:
+      'This will permanently delete every paper in your local corpus: everything the Explorer searches, everything Analytics measures, and every retraction or lifecycle notice recorded against them. Execution rows survive but will show no papers. Nothing here is recoverable from within resmon — re-running your searches would re-collect current results, but papers that have since been removed upstream would not come back, and every "first seen" date restarts.',
     needsTyping: true,
   },
   {
@@ -65,9 +75,9 @@ const DANGER_ACTIONS: DangerAction[] = [
     label: 'Erase all execution data',
     endpoint: '/api/admin/erase-execution-data',
     shortDescription:
-      'Combines "Erase all configs" and "Erase execution history". API keys and settings are untouched.',
+      'Combines "Erase all configs" and "Erase execution history". API keys, settings, and your collected papers are untouched.',
     longWarning:
-      'This will permanently delete every saved configuration AND every execution row, and reset the execution-number counter. API keys and Settings tabs are not affected.',
+      'This will permanently delete every saved configuration AND every execution row, and reset the execution-number counter. API keys and Settings tabs are not affected, and your collected papers are kept.',
     needsTyping: true,
   },
   {
@@ -75,9 +85,9 @@ const DANGER_ACTIONS: DangerAction[] = [
     label: 'Erase all app data',
     endpoint: '/api/admin/erase-app-data',
     shortDescription:
-      'Combines "Erase all AI API keys", "Erase all repo API keys", and "Erase all execution data". Settings (other than the AI tab, which depends on AI keys) are kept.',
+      'Combines "Erase all AI API keys", "Erase all repo API keys", "Erase all execution data", and "Erase the paper corpus". Settings (other than the AI tab, which depends on AI keys) are kept.',
     longWarning:
-      'This will permanently delete every API key (AI + repo), every saved configuration, and every execution. Routines linked to routine configs are deleted too. Non-AI settings (Email, Storage, Notifications, Advanced) are kept; the AI tab will revert to the no-keys state.',
+      'This will permanently delete every API key (AI + repo), every saved configuration, every execution, AND every paper resmon has collected. Routines linked to routine configs are deleted too. Non-AI settings (Email, Storage, Notifications, Advanced) are kept; the AI tab will revert to the no-keys state. Before 1.7.1 this action left the entire corpus in place despite its name; it no longer does.',
     needsTyping: true,
   },
   {
@@ -95,9 +105,9 @@ const DANGER_ACTIONS: DangerAction[] = [
     label: 'Factory reset',
     endpoint: '/api/admin/factory-reset',
     shortDescription:
-      'Erases every API key, every configuration, every execution, and every setting on this device. The app is restored to its just-installed state.',
+      'Erases every API key, every configuration, every execution, every collected paper, and every setting on this device. The app is restored to its just-installed state.',
     longWarning:
-      "This will permanently wipe every piece of resmon data on this device: every API key, every saved configuration, every execution row, and every setting on every Settings tab. The app will behave as if freshly installed. This cannot be undone.",
+      "This will permanently wipe every piece of resmon data on this device: every API key, every saved configuration, every execution row, every paper in your corpus, and every setting on every Settings tab. The app will behave as if freshly installed. This cannot be undone. Before 1.7.1 this left the entire corpus in place — a factory reset that was not one; it now does what its name says.",
     needsTyping: true,
   },
 ];

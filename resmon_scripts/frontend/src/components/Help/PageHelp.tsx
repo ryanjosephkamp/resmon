@@ -35,15 +35,17 @@ const LS_PREFIX = 'resmon:pagehelp:';
 const PageHelp: React.FC<PageHelpProps> = ({ storageKey, title, summary, sections, children }) => {
   const key = LS_PREFIX + storageKey;
 
-  // Default: expanded on first visit, collapsed afterwards. We persist the
-  // user's explicit choice so "open" vs "closed" is sticky.
+  // Default: collapsed. It was expanded on first visit, which meant every page
+  // greeted the user with a panel to scroll past or dismiss once per page —
+  // help that interrupts the thing it is helping with. The explicit choice is
+  // still persisted, so opening it once keeps it open for that page.
   const [open, setOpen] = useState<boolean>(() => {
     try {
       const stored = window.localStorage.getItem(key);
       if (stored === 'open') return true;
       if (stored === 'closed') return false;
     } catch { /* localStorage unavailable — fall through */ }
-    return true;
+    return false;
   });
 
   useEffect(() => {
