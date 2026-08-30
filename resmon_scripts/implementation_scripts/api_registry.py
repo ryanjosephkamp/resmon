@@ -46,6 +46,7 @@ def _ensure_loaded():
         "api_europepmc",
         "api_hal",
         "api_ieee",
+        "api_inspire_hep",
         "api_nasa_ads",
         "api_openalex",
         "api_plos",

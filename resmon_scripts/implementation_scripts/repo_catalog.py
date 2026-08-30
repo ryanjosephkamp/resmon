@@ -92,7 +92,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 17 active repositories.
+# Catalog — 18 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -268,6 +268,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Very low daily quota \u2014 parallel sweeps exhaust it quickly.",
         keyword_combination="Relevance-ranked (upstream-default, unverified)",
         keyword_combination_notes="IEEE Xplore's querytext field is forwarded verbatim; the upstream API's exact combination semantics are not authoritatively documented.",
+    ),
+    _entry(
+        slug="inspire_hep",
+        name="INSPIRE-HEP",
+        description="Curated literature database for high-energy physics and related fields",
+        subject_coverage="High-energy physics / Accelerators / Astroparticle physics",
+        endpoint="https://inspirehep.net/api/literature",
+        query_method="GET with INSPIRE q syntax, mostrecent sort, projected fields, and page/size pagination",
+        rate_limit="2.0 req/s (below the 15 requests/5 s anonymous ceiling)",
+        client_module="api_inspire_hep.py",
+        requirement="none",
+        credential_name=None,
+        website="https://inspirehep.net",
+        registration_url=None,
+        upstream_policy="Anonymous per-IP limit: 15 requests per 5-second window",
+        parallel_safe="Yes",
+        notes="Author names remain in the upstream Surname, Given form.",
+        keyword_combination="Implicit AND",
+        keyword_combination_notes="Adjacent free-form terms currently return the same total as explicit AND in the live API; explicit OR broadens the result set. INSPIRE's help page documents the operators but not this default.",
     ),
     _entry(
         slug="medrxiv",

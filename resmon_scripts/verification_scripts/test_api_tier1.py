@@ -2,6 +2,7 @@
 import sys
 from pathlib import Path
 
+import httpx
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -18,6 +19,7 @@ import implementation_scripts.api_openalex       # noqa: F401
 import implementation_scripts.api_pubmed         # noqa: F401
 import implementation_scripts.api_europepmc      # noqa: F401
 from implementation_scripts import api_biorxiv
+from implementation_scripts import api_inspire_hep
 from implementation_scripts import api_zenodo
 import implementation_scripts.api_core           # noqa: F401
 import implementation_scripts.api_doaj           # noqa: F401
@@ -26,13 +28,13 @@ import implementation_scripts.api_nasa_ads       # noqa: F401
 
 TIER_1_REPOS = [
     "arxiv", "crossref", "semantic_scholar", "openalex", "pubmed",
-    "europepmc", "biorxiv", "core", "doaj", "dblp", "medrxiv", "nasa_ads",
-    "zenodo",
+    "europepmc", "biorxiv", "core", "doaj", "dblp", "inspire_hep",
+    "medrxiv", "nasa_ads", "zenodo",
 ]
 
 
 def test_all_tier1_registered():
-    """All 13 Tier 1 repositories are registered in the client registry."""
+    """All 14 Tier 1 repositories are registered in the client registry."""
     repos = list_repositories()
     for name in TIER_1_REPOS:
         assert name in repos, f"Missing Tier 1 client: {name}"
@@ -292,6 +294,217 @@ def test_zenodo_search_returns_empty_on_timeout(monkeypatch):
     assert get_client("zenodo").search(query="climate") == []
 
 
+def _inspire_record(
+    control_number=301,
+    *,
+    title="Quantum gravity amplitudes",
+    include_optional=True,
+):
+    metadata = {
+        "control_number": control_number,
+        "titles": [{"title": title}],
+        "authors": [
+            {"full_name": "Einstein, Albert"},
+            {"full_name": "Noether, Emmy"},
+        ],
+        "earliest_date": "2024-04-15",
+        "arxiv_eprints": [{"value": "2404.01234"}],
+        "inspire_categories": [
+            {"term": "Theory-HEP"},
+            {"term": "Gravitation and Cosmology"},
+        ],
+    }
+    if include_optional:
+        metadata["dois"] = [{"value": "10.1000/inspire.301"}]
+        metadata["abstracts"] = [{"value": "An upstream abstract."}]
+    return {"metadata": metadata}
+
+
+def test_inspire_search_builds_projected_date_query_and_normalizes(monkeypatch):
+    calls = []
+
+    def _request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return _FakeResponse(payload={
+            "hits": {"total": 1, "hits": [_inspire_record()]},
+        })
+
+    monkeypatch.setattr(api_inspire_hep, "safe_request", _request)
+
+    results = get_client("inspire_hep").search(
+        query="quantum gravity",
+        date_from="2024-04-01",
+        date_to="2024-04-30",
+        max_results=5,
+    )
+
+    assert calls[0][0:2] == (
+        "GET",
+        "https://inspirehep.net/api/literature",
+    )
+    assert calls[0][2]["params"] == {
+        "q": "(quantum gravity) and de>2024-04-01 and de<2024-04-30",
+        "size": 5,
+        "page": 1,
+        "sort": "mostrecent",
+        "fields": (
+            "titles,dois,authors,abstracts,earliest_date,control_number,"
+            "arxiv_eprints,inspire_categories"
+        ),
+    }
+    assert calls[0][2]["rate_limiter"] is api_inspire_hep._RATE_LIMITER
+    assert calls[0][2]["max_retries"] == 0
+    assert results == [NormalizedResult(
+        source_repository="inspire_hep",
+        external_id="301",
+        doi="10.1000/inspire.301",
+        title="Quantum gravity amplitudes",
+        authors=["Einstein, Albert", "Noether, Emmy"],
+        abstract="An upstream abstract.",
+        publication_date="2024-04-15",
+        url="https://inspirehep.net/literature/301",
+        categories=["Theory-HEP", "Gravitation and Cosmology"],
+    )]
+
+
+def test_inspire_search_keeps_page_size_constant(monkeypatch):
+    requested = []
+    records = [_inspire_record(control_number=index) for index in range(1, 151)]
+
+    def _request(method, url, **kwargs):
+        params = kwargs["params"]
+        requested.append((params["page"], params["size"]))
+        start = (params["page"] - 1) * params["size"]
+        page_records = records[start:start + params["size"]]
+        return _FakeResponse(payload={
+            "hits": {"total": len(records), "hits": page_records},
+        })
+
+    monkeypatch.setattr(api_inspire_hep, "safe_request", _request)
+
+    results = get_client("inspire_hep").search(query="quantum", max_results=125)
+
+    assert requested == [(1, 100), (2, 100)]
+    assert [result.external_id for result in results] == [
+        str(index) for index in range(1, 126)
+    ]
+
+
+def test_inspire_search_skips_malformed_and_allows_optional_fields(monkeypatch):
+    valid = _inspire_record(
+        control_number=302,
+        title="Field theory",
+        include_optional=False,
+    )
+    payload = {
+        "hits": {
+            "total": 2,
+            "hits": [{"metadata": {"control_number": 999}}, valid],
+        },
+    }
+    monkeypatch.setattr(
+        api_inspire_hep,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=payload),
+    )
+
+    results = get_client("inspire_hep").search(query="theory", max_results=5)
+
+    assert [result.external_id for result in results] == ["302"]
+    assert results[0].doi is None
+    assert results[0].abstract is None
+
+
+def test_inspire_search_returns_empty_when_upstream_has_no_hits(monkeypatch):
+    monkeypatch.setattr(
+        api_inspire_hep,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload={"hits": {"total": 0, "hits": []}},
+        ),
+    )
+
+    assert get_client("inspire_hep").search(query="no-such-result") == []
+
+
+def test_inspire_search_returns_empty_on_non_200(monkeypatch):
+    calls = []
+    waits = []
+
+    def _unavailable(*args, **kwargs):
+        calls.append(kwargs)
+        return _FakeResponse(status_code=503)
+
+    monkeypatch.setattr(
+        api_inspire_hep,
+        "safe_request",
+        _unavailable,
+    )
+    monkeypatch.setattr(api_inspire_hep.time, "sleep", waits.append)
+
+    assert get_client("inspire_hep").search(query="quantum") == []
+    assert len(calls) == 4
+    assert waits == [1, 2, 4]
+
+
+def test_inspire_search_does_not_retry_rate_limit_response(monkeypatch):
+    calls = []
+    waits = []
+
+    def _rate_limited(*args, **kwargs):
+        calls.append(kwargs)
+        return _FakeResponse(status_code=429)
+
+    monkeypatch.setattr(api_inspire_hep, "safe_request", _rate_limited)
+    monkeypatch.setattr(api_inspire_hep.time, "sleep", waits.append)
+    monkeypatch.setattr(api_inspire_hep, "_cooldown_until", 0.0, raising=False)
+
+    assert get_client("inspire_hep").search(query="quantum") == []
+    assert len(calls) == 1
+    assert waits == []
+
+
+def test_inspire_rate_limit_cooldown_is_shared_between_clients(monkeypatch):
+    responses = iter([
+        _FakeResponse(status_code=429),
+        _FakeResponse(payload={"hits": {"total": 0, "hits": []}}),
+    ])
+    now = [100.0]
+    waits = []
+
+    def _request(*args, **kwargs):
+        return next(responses)
+
+    def _sleep(seconds):
+        waits.append(seconds)
+        now[0] += seconds
+
+    monkeypatch.setattr(api_inspire_hep, "safe_request", _request)
+    monkeypatch.setattr(api_inspire_hep.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(api_inspire_hep.time, "sleep", _sleep)
+    monkeypatch.setattr(api_inspire_hep, "_cooldown_until", 0.0, raising=False)
+
+    assert get_client("inspire_hep").search(query="first") == []
+    assert get_client("inspire_hep").search(query="second") == []
+    assert waits == [5.0]
+
+
+def test_inspire_search_returns_empty_on_timeout(monkeypatch):
+    calls = []
+    waits = []
+
+    def _timeout(*args, **kwargs):
+        calls.append(kwargs)
+        raise httpx.ReadTimeout("upstream timed out")
+
+    monkeypatch.setattr(api_inspire_hep, "safe_request", _timeout)
+    monkeypatch.setattr(api_inspire_hep.time, "sleep", waits.append)
+
+    assert get_client("inspire_hep").search(query="quantum") == []
+    assert len(calls) == 4
+    assert waits == [1, 2, 4]
+
+
 @pytest.mark.live_network
 def test_openalex_search():
     """OpenAlex client returns results for a simple query."""
@@ -369,6 +582,28 @@ def test_zenodo_search_respects_date_window():
     assert results
     assert all(isinstance(result, NormalizedResult) for result in results)
     assert all(result.source_repository == "zenodo" for result in results)
+    assert all(
+        result.publication_date is not None
+        and date_from <= result.publication_date <= date_to
+        for result in results
+    )
+
+
+@pytest.mark.live_network
+def test_inspire_search_respects_date_window():
+    """INSPIRE returns normalized records inside the requested date range."""
+    date_from = "2024-01-01"
+    date_to = "2024-01-31"
+    results = get_client("inspire_hep").search(
+        query="quantum",
+        max_results=3,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+    assert results
+    assert all(isinstance(result, NormalizedResult) for result in results)
+    assert all(result.source_repository == "inspire_hep" for result in results)
     assert all(
         result.publication_date is not None
         and date_from <= result.publication_date <= date_to
