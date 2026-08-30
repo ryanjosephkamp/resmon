@@ -48,6 +48,7 @@ def _ensure_loaded():
         "api_ieee",
         "api_inspire_hep",
         "api_nasa_ads",
+        "api_openaire",
         "api_openalex",
         "api_plos",
         "api_pubmed",

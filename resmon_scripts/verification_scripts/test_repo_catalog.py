@@ -18,7 +18,8 @@ from implementation_scripts.repo_catalog import (
 EXPECTED_SLUGS = {
     "arxiv", "biorxiv", "core", "crossref", "dblp", "doaj",
     "europepmc", "hal", "ieee", "inspire_hep", "medrxiv", "nasa_ads",
-    "openalex", "plos", "pubmed", "semantic_scholar", "springer", "zenodo",
+    "openaire", "openalex", "plos", "pubmed", "semantic_scholar", "springer",
+    "zenodo",
 }
 
 EXPECTED_CREDENTIAL_NAMES = {
@@ -27,10 +28,10 @@ EXPECTED_CREDENTIAL_NAMES = {
 }
 
 
-def test_catalog_has_eighteen_entries():
-    """The active catalog should contain exactly 18 entries."""
+def test_catalog_has_nineteen_entries():
+    """The active catalog should contain exactly 19 entries."""
     # RePEc/SSRN are excluded by policy and must not appear.
-    assert len(REPOSITORY_CATALOG) == 18
+    assert len(REPOSITORY_CATALOG) == 19
 
 
 def test_catalog_slugs_match_expected():
@@ -81,7 +82,7 @@ def test_required_credential_for():
 def test_catalog_as_dicts_shape():
     """catalog_as_dicts returns JSON-serializable dicts with expected keys."""
     dicts = catalog_as_dicts()
-    assert len(dicts) == 18
+    assert len(dicts) == 19
     expected_keys = {
         "slug", "name", "description", "subject_coverage", "endpoint",
         "query_method", "rate_limit", "client_module", "api_key_requirement",
@@ -111,3 +112,11 @@ def test_required_repos_have_credential_names():
     for e in REPOSITORY_CATALOG:
         if e.api_key_requirement == "required":
             assert e.credential_name, e.slug
+
+
+def test_openaire_catalog_does_not_overclaim_upstream_behavior():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "openaire")
+
+    assert entry.rate_limit == "0.0167 req/s (60/hour unauthenticated)"
+    assert entry.keyword_combination == "Combination semantics undocumented"
+    assert "discontinued" in entry.notes.lower()

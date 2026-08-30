@@ -20,6 +20,7 @@ import implementation_scripts.api_pubmed         # noqa: F401
 import implementation_scripts.api_europepmc      # noqa: F401
 from implementation_scripts import api_biorxiv
 from implementation_scripts import api_inspire_hep
+from implementation_scripts import api_openaire
 from implementation_scripts import api_zenodo
 import implementation_scripts.api_core           # noqa: F401
 import implementation_scripts.api_doaj           # noqa: F401
@@ -29,12 +30,12 @@ import implementation_scripts.api_nasa_ads       # noqa: F401
 TIER_1_REPOS = [
     "arxiv", "crossref", "semantic_scholar", "openalex", "pubmed",
     "europepmc", "biorxiv", "core", "doaj", "dblp", "inspire_hep",
-    "medrxiv", "nasa_ads", "zenodo",
+    "medrxiv", "nasa_ads", "openaire", "zenodo",
 ]
 
 
 def test_all_tier1_registered():
-    """All 14 Tier 1 repositories are registered in the client registry."""
+    """All 15 Tier 1 repositories are registered in the client registry."""
     repos = list_repositories()
     for name in TIER_1_REPOS:
         assert name in repos, f"Missing Tier 1 client: {name}"
@@ -505,6 +506,235 @@ def test_inspire_search_returns_empty_on_timeout(monkeypatch):
     assert waits == [1, 2, 4]
 
 
+def _openaire_record(
+    external_id="openaire::record-1",
+    *,
+    doi="10.1000/openaire.1",
+    title="Open science infrastructures",
+    authors=None,
+    categories=None,
+    list_fields=False,
+):
+    pid_nodes = [{"@classid": "handle", "$": "12345/example"}]
+    if doi is not None:
+        pid_nodes.append({"@classid": "doi", "$": doi})
+
+    title_nodes = []
+    if list_fields:
+        title_nodes.append({"@classid": "subtitle", "$": "A subtitle"})
+    title_nodes.append({"@classid": "main title", "$": title})
+
+    if authors is None:
+        creator_node = None
+    else:
+        creator_nodes = [{"$": author} for author in authors]
+        creator_node = creator_nodes if list_fields else creator_nodes[0]
+
+    subject_nodes = [{"$": category} for category in (categories or [])]
+    subject_node = (
+        subject_nodes
+        if list_fields or len(subject_nodes) != 1
+        else subject_nodes[0]
+    )
+
+    result = {
+        "pid": pid_nodes if list_fields else pid_nodes[-1],
+        "title": title_nodes if list_fields else title_nodes[0],
+        "creator": creator_node,
+        "description": {"$": "An OpenAIRE abstract."},
+        "dateofacceptance": {"$": "2024-02-15"},
+        "subject": subject_node or None,
+    }
+    return {
+        "header": {"dri:objIdentifier": {"$": external_id}},
+        "metadata": {"oaf:entity": {"oaf:result": result}},
+    }
+
+
+def _openaire_payload(records, *, total=None):
+    if total is None:
+        total = len(records) if isinstance(records, list) else 1
+    return {
+        "response": {
+            "header": {"total": {"$": total}},
+            "results": {"result": records},
+        },
+    }
+
+
+def test_openaire_as_list_normalizes_cardinality():
+    node = {"$": "value"}
+    nodes = [node]
+
+    assert api_openaire._as_list(None) == []
+    assert api_openaire._as_list(node) == [node]
+    assert api_openaire._as_list(nodes) is nodes
+
+
+def test_openaire_search_builds_date_query_and_normalizes_singletons(monkeypatch):
+    calls = []
+    record = _openaire_record(
+        external_id="50|record/1",
+        authors=None,
+        categories=[f"subject-{index}" for index in range(12)],
+    )
+
+    def _request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return _FakeResponse(payload=_openaire_payload(record))
+
+    monkeypatch.setattr(api_openaire, "safe_request", _request)
+
+    results = get_client("openaire").search(
+        query="open science",
+        date_from="2024-02-01",
+        date_to="2024-02-29",
+        max_results=5,
+    )
+
+    assert calls == [(
+        "GET",
+        "https://api.openaire.eu/search/publications",
+        {
+            "params": {
+                "keywords": "open science",
+                "size": 5,
+                "page": 1,
+                "format": "json",
+                "fromDateAccepted": "2024-02-01",
+                "toDateAccepted": "2024-02-29",
+            },
+            "rate_limiter": api_openaire._RATE_LIMITER,
+        },
+    )]
+    assert api_openaire._RATE_LIMITER._interval == pytest.approx(60.0)
+    assert results == [NormalizedResult(
+        source_repository="openaire",
+        external_id="50|record/1",
+        doi="10.1000/openaire.1",
+        title="Open science infrastructures",
+        authors=[],
+        abstract="An OpenAIRE abstract.",
+        publication_date="2024-02-15",
+        url="https://doi.org/10.1000/openaire.1",
+        categories=[f"subject-{index}" for index in range(10)],
+    )]
+
+
+def test_openaire_search_handles_list_fields_and_doi_fallback(monkeypatch):
+    record = _openaire_record(
+        external_id="openaire::record/2",
+        doi=None,
+        title="Cardinality-safe parsing",
+        authors=["Curie, Marie", "Meitner, Lise"],
+        categories=["Open science"],
+        list_fields=True,
+    )
+    monkeypatch.setattr(
+        api_openaire,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload=_openaire_payload([record]),
+        ),
+    )
+
+    results = get_client("openaire").search(query="cardinality", max_results=5)
+
+    assert results == [NormalizedResult(
+        source_repository="openaire",
+        external_id="openaire::record/2",
+        doi=None,
+        title="Cardinality-safe parsing",
+        authors=["Curie, Marie", "Meitner, Lise"],
+        abstract="An OpenAIRE abstract.",
+        publication_date="2024-02-15",
+        url=(
+            "https://explore.openaire.eu/search/publication?articleId="
+            "openaire%3A%3Arecord%2F2"
+        ),
+        categories=["Open science"],
+    )]
+
+
+def test_openaire_search_keeps_page_size_constant(monkeypatch):
+    requested = []
+    records = [
+        _openaire_record(
+            external_id=f"openaire::record-{index}",
+            doi=f"10.1000/openaire.{index}",
+        )
+        for index in range(1, 151)
+    ]
+
+    def _request(method, url, **kwargs):
+        params = kwargs["params"]
+        requested.append((params["page"], params["size"]))
+        start = (params["page"] - 1) * params["size"]
+        page_records = records[start:start + params["size"]]
+        return _FakeResponse(
+            payload=_openaire_payload(page_records, total=len(records)),
+        )
+
+    monkeypatch.setattr(api_openaire, "safe_request", _request)
+
+    results = get_client("openaire").search(query="science", max_results=125)
+
+    assert requested == [(1, 100), (2, 100)]
+    assert [result.external_id for result in results] == [
+        f"openaire::record-{index}" for index in range(1, 126)
+    ]
+
+
+def test_openaire_search_skips_malformed_records(monkeypatch):
+    valid = _openaire_record(external_id="openaire::valid")
+    malformed = {
+        "header": {"dri:objIdentifier": {"$": "openaire::bad"}},
+        "metadata": {"oaf:entity": {"oaf:result": {"title": None}}},
+    }
+    monkeypatch.setattr(
+        api_openaire,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload=_openaire_payload([malformed, valid]),
+        ),
+    )
+
+    results = get_client("openaire").search(query="science", max_results=5)
+
+    assert [result.external_id for result in results] == ["openaire::valid"]
+
+
+def test_openaire_search_returns_empty_when_upstream_has_no_hits(monkeypatch):
+    monkeypatch.setattr(
+        api_openaire,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload=_openaire_payload(None, total=0),
+        ),
+    )
+
+    assert get_client("openaire").search(query="no-such-result") == []
+
+
+def test_openaire_search_returns_empty_on_non_200(monkeypatch):
+    monkeypatch.setattr(
+        api_openaire,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(status_code=503),
+    )
+
+    assert get_client("openaire").search(query="science") == []
+
+
+def test_openaire_search_returns_empty_on_timeout(monkeypatch):
+    def _timeout(*args, **kwargs):
+        raise TimeoutError("upstream timed out")
+
+    monkeypatch.setattr(api_openaire, "safe_request", _timeout)
+
+    assert get_client("openaire").search(query="science") == []
+
+
 @pytest.mark.live_network
 def test_openalex_search():
     """OpenAlex client returns results for a simple query."""
@@ -604,6 +834,28 @@ def test_inspire_search_respects_date_window():
     assert results
     assert all(isinstance(result, NormalizedResult) for result in results)
     assert all(result.source_repository == "inspire_hep" for result in results)
+    assert all(
+        result.publication_date is not None
+        and date_from <= result.publication_date <= date_to
+        for result in results
+    )
+
+
+@pytest.mark.live_network
+def test_openaire_search_respects_date_window():
+    """OpenAIRE returns normalized records inside the requested date range."""
+    date_from = "2024-01-01"
+    date_to = "2024-01-31"
+    results = get_client("openaire").search(
+        query="climate",
+        max_results=3,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+    assert results
+    assert all(isinstance(result, NormalizedResult) for result in results)
+    assert all(result.source_repository == "openaire" for result in results)
     assert all(
         result.publication_date is not None
         and date_from <= result.publication_date <= date_to

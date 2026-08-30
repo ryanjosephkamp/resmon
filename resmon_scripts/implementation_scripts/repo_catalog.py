@@ -92,7 +92,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 18 active repositories.
+# Catalog — 19 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -325,6 +325,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Daily quota (not per-second) is the binding limit.",
         keyword_combination="Relevance-ranked (Solr OR default)",
         keyword_combination_notes="NASA ADS uses Solr-style q parsing; the default operator is OR and results are returned in relevance-scored order.",
+    ),
+    _entry(
+        slug="openaire",
+        name="OpenAIRE",
+        description="Open scholarly graph aggregating research outputs and relationships",
+        subject_coverage="Multi-disciplinary publications / Research outputs",
+        endpoint="https://api.openaire.eu/search/publications",
+        query_method="GET legacy Search API with keywords, date filters, and XML-derived JSON pagination",
+        rate_limit="0.0167 req/s (60/hour unauthenticated)",
+        client_module="api_openaire.py",
+        requirement="none",
+        credential_name=None,
+        website="https://explore.openaire.eu",
+        registration_url=None,
+        upstream_policy="Unauthenticated limit: 60 requests/hour in a one-hour sliding window",
+        parallel_safe="Yes",
+        notes="OpenAIRE announced this legacy Search API discontinued on May 31, 2026. It still responded on August 30, 2026, but continued availability is not guaranteed.",
+        keyword_combination="Combination semantics undocumented",
+        keyword_combination_notes="OpenAIRE documents keywords only as a whitespace-separated list and lists its behavior as N/A. resmon forwards the query and does not infer Boolean semantics or perform local filtering.",
     ),
     _entry(
         slug="openalex",
