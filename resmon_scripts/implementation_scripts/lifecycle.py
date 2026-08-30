@@ -85,7 +85,8 @@ CROSSREF_BATCH = 40
 # rather than merely slow.
 ARXIV_BATCH = 50
 
-# Default ceiling on one run of the check. Raised from 200 in 1.7.1: at 200 a
+# Default ceiling on one run of the check. Raised from the 200 this feature was
+# first written with, which never shipped: at 200 a
 # 15,000-paper corpus needed seventy-nine presses of the button, which is not a
 # bounded operation, it is an unusable one. With Crossref and arXiv both batching
 # a thousand papers is a handful of requests, and ``run_until_done`` exists for
