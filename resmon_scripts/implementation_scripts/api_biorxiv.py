@@ -146,7 +146,7 @@ class BiorxivClient(BaseAPIClient):
 class MedrxivClient(BiorxivClient):
     """medRxiv client using the shared bioRxiv /details implementation."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(server="medrxiv")
 
 
