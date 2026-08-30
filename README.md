@@ -646,6 +646,20 @@ Databases created before this table are backfilled once from the progress events
 stored on each execution, so the watchdog is useful on an existing install immediately
 rather than after several more runs. Failing to write a health row never fails a sweep.
 
+**Per-lane AI record.** The `execution_ai` table is the same idea for AI (schema 9). One
+row per lane per execution records what was tried — provider, model, and the *alias* of the
+credential slot used, never its value — alongside `docs_attempted` / `docs_succeeded` and,
+on failure, a classified error kind. `ok`, `partial` and `failed` are held apart on purpose:
+partial is a normal run with one awkward abstract, failed is a lane that did not work.
+
+Before this table an AI failure was a line in the task log, which meant a run whose every
+summary failed still completed and looked healthy. Failures are now classified as
+**lane-fatal** (a rejected key, an exhausted quota, a model that does not exist — the lane
+is finished for this run) or **document-local** (an abstract past the context window, content
+the provider declined — this paper failed and the lane did not). That distinction is what
+fallback chains will act on. As with the per-source record, failing to write an AI row never
+fails a sweep.
+
 ### `/api/explorer`
 
 Corpus-wide search. `POST` rather than `GET` because the filter set is a structure with

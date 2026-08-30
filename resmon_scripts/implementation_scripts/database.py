@@ -212,6 +212,44 @@ CREATE TABLE IF NOT EXISTS execution_sources (
 CREATE INDEX IF NOT EXISTS idx_execution_sources_source
     ON execution_sources(source);
 
+-- What each AI lane did on each run (1.8a). The sibling of
+-- ``execution_sources``, and it exists for the same reason: before it, an AI
+-- failure was a line in the task log, which is enough for a person reading one
+-- run and not enough for anything else. A run whose every summary failed
+-- completed and looked healthy -- the watchdog's largest recorded blind spot.
+--
+-- One row per lane per execution. ``lane_index`` is the position in the chain,
+-- so lane 0 is what was tried first; a single-provider setup (every user
+-- before 1.8) records exactly one row with index 0.
+--
+-- ``credential_alias`` holds a keyring slot NAME, never a key value. Nothing
+-- in this table is a secret, which is what lets the report and the eventual
+-- error UI show it verbatim.
+CREATE TABLE IF NOT EXISTS execution_ai (
+    execution_id    INTEGER NOT NULL,
+    lane_index      INTEGER NOT NULL,
+    lane_label      TEXT NOT NULL,
+    lane_kind       TEXT NOT NULL
+        CHECK (lane_kind IN ('subscription', 'api_key', 'local')),
+    provider        TEXT NOT NULL,
+    model           TEXT,
+    credential_alias TEXT,
+    outcome         TEXT NOT NULL
+        CHECK (outcome IN ('running', 'ok', 'partial', 'failed', 'skipped')),
+    error_kind      TEXT,
+    http_status     INTEGER,
+    safe_message    TEXT,
+    docs_attempted  INTEGER NOT NULL DEFAULT 0,
+    docs_succeeded  INTEGER NOT NULL DEFAULT 0,
+    started_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    ended_at        TEXT,
+    PRIMARY KEY (execution_id, lane_index),
+    FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_ai_exec
+    ON execution_ai(execution_id);
+
 -- Findings the user has explicitly acknowledged. A watchdog with no off switch
 -- is a watchdog that gets ignored wholesale the first time it is wrong about
 -- something the user already knows -- a source they never configured a key for,
@@ -300,7 +338,7 @@ CREATE TABLE IF NOT EXISTS document_lifecycle_checks (
 # preprint-to-published and version tracking; 8 promotes the per-run
 # deduplication figures out of the progress-events blob into columns, for the
 # reproducible search record.
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -1374,6 +1412,94 @@ def get_execution_sources(conn: sqlite3.Connection, exec_id: int) -> list[dict]:
         FROM execution_sources
         WHERE execution_id = ?
         ORDER BY source
+        """,
+        (int(exec_id),),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# AI lane records (1.8a)
+# ---------------------------------------------------------------------------
+
+
+def start_ai_lane(
+    conn: sqlite3.Connection,
+    exec_id: int,
+    lane_index: int,
+    *,
+    lane_label: str,
+    lane_kind: str,
+    provider: str,
+    model: str | None = None,
+    credential_alias: str | None = None,
+) -> None:
+    """Open a row for a lane that is about to be tried.
+
+    Written before the first call rather than after the last one, on the same
+    reasoning as ``record_execution_source``: a crash mid-run should still
+    leave evidence that the lane was attempted. A row left at ``running`` is
+    itself a finding -- it means the process died while this lane held the work.
+    """
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO execution_ai
+            (execution_id, lane_index, lane_label, lane_kind, provider,
+             model, credential_alias, outcome, docs_attempted, docs_succeeded)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'running', 0, 0)
+        """,
+        (int(exec_id), int(lane_index), lane_label, lane_kind, provider,
+         model, credential_alias),
+    )
+    conn.commit()
+
+
+def finish_ai_lane(
+    conn: sqlite3.Connection,
+    exec_id: int,
+    lane_index: int,
+    *,
+    outcome: str,
+    docs_attempted: int = 0,
+    docs_succeeded: int = 0,
+    error_kind: str | None = None,
+    http_status: int | None = None,
+    safe_message: str | None = None,
+) -> None:
+    """Close a lane's row with what it actually achieved.
+
+    ``outcome`` is one of ``ok`` (every document summarised), ``partial`` (some
+    did), ``failed`` (none did), or ``skipped`` (never tried -- an earlier lane
+    covered everything). The distinction between ``partial`` and ``failed``
+    matters downstream: partial is a normal day with one awkward abstract,
+    failed is a lane that did not work.
+    """
+    conn.execute(
+        """
+        UPDATE execution_ai
+           SET outcome = ?, docs_attempted = ?, docs_succeeded = ?,
+               error_kind = ?, http_status = ?, safe_message = ?,
+               ended_at = datetime('now')
+         WHERE execution_id = ? AND lane_index = ?
+        """,
+        (outcome, int(docs_attempted or 0), int(docs_succeeded or 0),
+         error_kind, http_status, safe_message,
+         int(exec_id), int(lane_index)),
+    )
+    conn.commit()
+
+
+def get_execution_ai(conn: sqlite3.Connection, exec_id: int) -> list[dict]:
+    """Per-lane AI records for one execution, in the order they were tried."""
+    rows = conn.execute(
+        """
+        SELECT lane_index, lane_label, lane_kind, provider, model,
+               credential_alias, outcome, error_kind, http_status,
+               safe_message, docs_attempted, docs_succeeded,
+               started_at, ended_at
+        FROM execution_ai
+        WHERE execution_id = ?
+        ORDER BY lane_index
         """,
         (int(exec_id),),
     ).fetchall()

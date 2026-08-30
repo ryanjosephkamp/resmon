@@ -70,6 +70,7 @@ from implementation_scripts.credential_manager import (
     SMTP_CREDENTIAL_NAMES,
     migrate_legacy_global_ai_key,
 )
+from implementation_scripts.ai_lanes import resolve_chain
 from implementation_scripts.llm_factory import build_llm_client_from_settings
 from implementation_scripts.ai_models import (
     list_available_models as ai_list_available_models,
@@ -570,7 +571,16 @@ def _apply_ai_settings_to_engine(
 
     if not ai_enabled:
         engine.llm_client = None
+        engine.ai_lane = None
         return
+
+    # Resolve the configuration into lanes (1.8a). Today the chain is always
+    # one lane long -- resolve_chain reads the legacy ai_* keys as a one-lane
+    # chain -- so behaviour here is unchanged. What is new is that the engine
+    # now knows *which* lane it is running, which is what lets it record the
+    # attempt in execution_ai. Executing more than one lane is 1.8b.
+    chain = resolve_chain(merged)
+    engine.ai_lane = chain[0] if chain else None
 
     try:
         client = build_llm_client_from_settings(
@@ -585,6 +595,7 @@ def _apply_ai_settings_to_engine(
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
         engine.llm_client = None
+        engine.ai_lane = None
         return
 
     if client is None:
@@ -600,6 +611,7 @@ def _apply_ai_settings_to_engine(
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
         engine.llm_client = None
+        engine.ai_lane = None
         return
 
     engine.llm_client = client
