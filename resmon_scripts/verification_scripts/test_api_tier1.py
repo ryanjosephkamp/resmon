@@ -24,6 +24,7 @@ from implementation_scripts import api_dryad
 from implementation_scripts import api_eric
 from implementation_scripts import api_inspire_hep
 from implementation_scripts import api_nist_rmm
+from implementation_scripts import api_ndl_search
 from implementation_scripts import api_openlibrary
 from implementation_scripts import api_openaire
 from implementation_scripts import api_osti
@@ -36,12 +37,12 @@ import implementation_scripts.api_nasa_ads       # noqa: F401
 TIER_1_REPOS = [
     "arxiv", "crossref", "semantic_scholar", "openalex", "pubmed",
     "europepmc", "biorxiv", "core", "datacite", "doaj", "dblp", "dryad", "eric",
-    "inspire_hep", "medrxiv", "nasa_ads", "nist_rmm", "openlibrary", "openaire", "osti", "zenodo",
+    "inspire_hep", "medrxiv", "nasa_ads", "ndl_search", "nist_rmm", "openlibrary", "openaire", "osti", "zenodo",
 ]
 
 
 def test_all_tier1_registered():
-    """All 21 Tier 1 repositories are registered in the client registry."""
+    """All 22 Tier 1 repositories are registered in the client registry."""
     repos = list_repositories()
     for name in TIER_1_REPOS:
         assert name in repos, f"Missing Tier 1 client: {name}"
@@ -270,10 +271,11 @@ def test_nist_rmm_live_search_degrades_when_the_public_endpoint_is_unavailable()
 
 
 class _FakeResponse:
-    def __init__(self, status_code=200, payload=None, headers=None):
+    def __init__(self, status_code=200, payload=None, headers=None, text=""):
         self.status_code = status_code
         self._payload = {} if payload is None else payload
         self.headers = headers or {}
+        self.text = text
 
     def json(self):
         return self._payload
@@ -543,6 +545,299 @@ def test_openlibrary_live_search_returns_normalized_results():
 
     assert results
     assert all(isinstance(result, NormalizedResult) for result in results)
+
+
+_SRU = "http://www.loc.gov/zing/srw/"
+_RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+_DC_TERMS = "http://purl.org/dc/terms/"
+_DCNDL = "http://ndl.go.jp/dcndl/terms/"
+_FOAF = "http://xmlns.com/foaf/0.1/"
+
+
+def _ndl_record(
+    token,
+    *,
+    rights=("https://creativecommons.org/publicdomain/zero/1.0/",),
+    provider="R100000002",
+    title="NDL record",
+    issued="2024-03-15",
+    include_link=True,
+    resource_token=None,
+    abstract=None,
+    description=None,
+    doi=None,
+):
+    books_url = f"https://ndlsearch.ndl.go.jp/books/{token}"
+    resource_books_url = (
+        f"https://ndlsearch.ndl.go.jp/books/{resource_token}"
+        if resource_token else books_url
+    )
+    material_url = f"{resource_books_url}#material"
+    rights_xml = "".join(
+        f'<dcndl:rights rdf:resource="{value}"/>' for value in rights
+    )
+    provider_xml = (
+        f"<dcndl:bibRecordCategory>{provider}</dcndl:bibRecordCategory>"
+        if provider is not None else ""
+    )
+    link_xml = f'<dcndl:record rdf:resource="{material_url}"/>' if include_link else ""
+    abstract_xml = f"<dcterms:abstract>{abstract}</dcterms:abstract>" if abstract else ""
+    description_xml = f"<dcterms:description>{description}</dcterms:description>" if description else ""
+    doi_xml = (
+        '<dcterms:identifier rdf:datatype="http://ndl.go.jp/dcndl/terms/DOI">'
+        f"{doi}</dcterms:identifier>"
+        if doi else ""
+    )
+    return f'''<record><recordData><rdf:RDF xmlns:rdf="{_RDF}" xmlns:dcterms="{_DC_TERMS}" xmlns:dcndl="{_DCNDL}" xmlns:foaf="{_FOAF}">
+      <dcndl:BibResource rdf:about="{material_url}">
+        <dcterms:title>{title}</dcterms:title>
+        <dcterms:creator><foaf:Agent><foaf:name>Ada Lovelace</foaf:name></foaf:Agent></dcterms:creator>
+        <dcterms:creator><foaf:Agent><foaf:name>Ada Lovelace</foaf:name></foaf:Agent></dcterms:creator>
+        <dcterms:creator><foaf:Agent><foaf:name>Grace Hopper</foaf:name></foaf:Agent></dcterms:creator>
+        <dcterms:issued>{issued}</dcterms:issued>{abstract_xml}{description_xml}{doi_xml}
+      </dcndl:BibResource>
+      <dcndl:BibAdminResource rdf:about="{books_url}">{provider_xml}{rights_xml}{link_xml}</dcndl:BibAdminResource>
+    </rdf:RDF></recordData></record>'''
+
+
+def _ndl_response(records, *, total=None):
+    if total is None:
+        total = len(records)
+    return f'''<searchRetrieveResponse xmlns="{_SRU}">
+      <numberOfRecords>{total}</numberOfRecords><records>{''.join(records)}</records>
+    </searchRetrieveResponse>'''
+
+
+def _ndl_xml_response(records, *, total=None, status_code=200):
+    return _FakeResponse(status_code=status_code, payload=None, text=_ndl_response(records, total=total))
+
+
+def test_ndl_search_sends_open_cql_query_and_normalizes_validated_record(monkeypatch):
+    calls = []
+
+    def _request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return _ndl_xml_response([_ndl_record("R100000002-I000000001")])
+
+    monkeypatch.setattr(api_ndl_search, "safe_request", _request)
+
+    results = api_ndl_search.NDLSearchClient().search(
+        query='AI "systems" \\ biology', max_results=5,
+    )
+
+    assert calls == [(
+        "GET",
+        "https://ndlsearch.ndl.go.jp/api/sru",
+        {
+            "params": {
+                "operation": "searchRetrieve",
+                "version": "1.2",
+                "query": 'dpid = "open" AND anywhere = "AI \\"systems\\" \\\\ biology"',
+                "startRecord": 1,
+                "maximumRecords": 5,
+                "recordPacking": "xml",
+                "recordSchema": "dcndl_v3",
+            },
+            "headers": {
+                "User-Agent": "resmon (+https://github.com/ryanjosephkamp/resmon/issues)",
+            },
+            "rate_limiter": api_ndl_search._RATE_LIMITER,
+        },
+    )]
+    assert api_ndl_search._RATE_LIMITER._interval == pytest.approx(2.0)
+    assert results == [NormalizedResult(
+        source_repository="ndl_search",
+        external_id="R100000002-I000000001",
+        doi=None,
+        title="NDL record",
+        authors=["Ada Lovelace", "Grace Hopper"],
+        abstract=None,
+        publication_date="2024-03-15",
+        url="https://ndlsearch.ndl.go.jp/books/R100000002-I000000001",
+        categories=[],
+    )]
+
+
+def test_ndl_search_keeps_only_records_with_one_recognized_metadata_right(monkeypatch):
+    records = [
+        _ndl_record("R100000002-I000000001", rights=("http://creativecommons.org/publicdomain/mark/1.0/",)),
+        _ndl_record("R100000002-I000000002", rights=("https://creativecommons.org/publicdomain/zero/1.0",)),
+        _ndl_record("R100000002-I000000003", rights=("http://creativecommons.org/licenses/by/4.0",)),
+        _ndl_record("R100000002-I000000004", rights=("https://creativecommons.org/licenses/by-nc/4.0/",)),
+        _ndl_record("R100000002-I000000005", rights=("https://creativecommons.org/licenses/by/4.0/", "https://example.invalid/unknown")),
+        _ndl_record("R100000002-I000000006", rights=(), provider=""),
+        _ndl_record("R100000002-I000000007", rights=()),
+        _ndl_record("R100000002-I000000008", include_link=False),
+        _ndl_record(
+            "R100000002-I000000009",
+            resource_token="R100000002-I000000099",
+        ),
+    ]
+    monkeypatch.setattr(
+        api_ndl_search, "safe_request", lambda *args, **kwargs: _ndl_xml_response(records),
+    )
+
+    results = api_ndl_search.NDLSearchClient().search(query="history", max_results=10)
+
+    assert [result.external_id for result in results] == [
+        "R100000002-I000000001", "R100000002-I000000002", "R100000002-I000000003",
+    ]
+
+
+def test_ndl_search_uses_only_explicit_fields_and_linked_bibliographic_resource(monkeypatch):
+    record = _ndl_record(
+        "R100000002-I000000008",
+        abstract="An explicit abstract",
+        description="This description must not become an abstract",
+        doi="10.1000/ndl.8",
+    )
+    monkeypatch.setattr(
+        api_ndl_search, "safe_request", lambda *args, **kwargs: _ndl_xml_response([record]),
+    )
+
+    result = api_ndl_search.NDLSearchClient().search(query="history", max_results=1)[0]
+
+    assert result.abstract == "An explicit abstract"
+    assert result.doi == "10.1000/ndl.8"
+    assert result.url == "https://ndlsearch.ndl.go.jp/books/R100000002-I000000008"
+
+
+@pytest.mark.parametrize(("date_from", "date_to", "clauses"), [
+    ("2024-03-04", "2024-03-05", ('from = "2024-03-04"', 'until = "2024-03-05"')),
+    ("2024-03", "2024-04", ('from = "2024-03"', 'until = "2024-04"')),
+    ("2024", "2025", ('from = "2024"', 'until = "2025"')),
+    ("2024", "2024-03-05", ('from = "2024-01-01"', 'until = "2024-03-05"')),
+])
+def test_ndl_search_preserves_or_safely_aligns_documented_date_precision(
+    monkeypatch, date_from, date_to, clauses,
+):
+    calls = []
+
+    def _request(*args, **kwargs):
+        calls.append(kwargs["params"]["query"])
+        return _ndl_xml_response([])
+
+    monkeypatch.setattr(api_ndl_search, "safe_request", _request)
+
+    assert api_ndl_search.NDLSearchClient().search(
+        query="history", date_from=date_from, date_to=date_to,
+    ) == []
+    assert len(calls) == 1
+    assert all(clause in calls[0] for clause in clauses)
+
+
+@pytest.mark.parametrize("date_from,date_to", [
+    ("2024-02-30", None), (None, "2024-13"), ("2025-01-01", "2024-12-31"),
+])
+def test_ndl_search_rejects_invalid_or_inverted_dates_without_request(
+    monkeypatch, date_from, date_to,
+):
+    calls = []
+    monkeypatch.setattr(api_ndl_search, "safe_request", lambda *args, **kwargs: calls.append(kwargs))
+
+    assert api_ndl_search.NDLSearchClient().search(
+        query="history", date_from=date_from, date_to=date_to,
+    ) == []
+    assert calls == []
+
+
+def test_ndl_search_partitions_large_bounded_result_sets_without_overlap_and_deduplicates(monkeypatch):
+    calls = []
+    first = _ndl_record("R100000002-I000000010")
+    duplicate = _ndl_record("R100000002-I000000010")
+    second = _ndl_record("R100000002-I000000011")
+
+    def _request(*args, **kwargs):
+        cql = kwargs["params"]["query"]
+        calls.append((cql, kwargs["params"]["startRecord"], kwargs["params"]["maximumRecords"]))
+        if 'from = "2024-01-01" AND until = "2024-01-02"' in cql:
+            return _ndl_xml_response([], total=501)
+        if 'from = "2024-01-01" AND until = "2024-01-01"' in cql:
+            return _ndl_xml_response([first], total=1)
+        if 'from = "2024-01-02" AND until = "2024-01-02"' in cql:
+            return _ndl_xml_response([duplicate, second], total=2)
+        raise AssertionError(cql)
+
+    monkeypatch.setattr(api_ndl_search, "safe_request", _request)
+
+    results = api_ndl_search.NDLSearchClient().search(
+        query="history", date_from="2024-01-01", date_to="2024-01-02", max_results=501,
+    )
+
+    assert [result.external_id for result in results] == [
+        "R100000002-I000000010", "R100000002-I000000011",
+    ]
+    assert calls == [
+        (calls[0][0], 1, 500), (calls[1][0], 1, 500), (calls[2][0], 1, 500),
+    ]
+    assert 'from = "2024-01-01" AND until = "2024-01-02"' in calls[0][0]
+    assert 'from = "2024-01-01" AND until = "2024-01-01"' in calls[1][0]
+    assert 'from = "2024-01-02" AND until = "2024-01-02"' in calls[2][0]
+
+
+def test_ndl_search_refuses_unbounded_large_request_without_calling_upstream(monkeypatch):
+    calls = []
+    monkeypatch.setattr(api_ndl_search, "safe_request", lambda *args, **kwargs: calls.append(kwargs))
+
+    assert api_ndl_search.NDLSearchClient().search(query="history", max_results=501) == []
+    assert calls == []
+
+
+def test_ndl_search_fails_closed_when_one_day_still_exceeds_retrieval_ceiling(monkeypatch):
+    monkeypatch.setattr(
+        api_ndl_search,
+        "safe_request",
+        lambda *args, **kwargs: _ndl_xml_response([], total=501),
+    )
+
+    assert api_ndl_search.NDLSearchClient().search(
+        query="history", date_from="2024-01-01", date_to="2024-01-01", max_results=501,
+    ) == []
+
+
+def test_ndl_search_honors_small_requested_cap_without_partitioning(monkeypatch):
+    calls = []
+
+    def _request(*args, **kwargs):
+        calls.append(kwargs["params"])
+        return _ndl_xml_response([_ndl_record("R100000002-I000000012")], total=900)
+
+    monkeypatch.setattr(api_ndl_search, "safe_request", _request)
+
+    results = api_ndl_search.NDLSearchClient().search(query="history", max_results=1)
+
+    assert len(results) == 1
+    assert calls[0]["maximumRecords"] == 1
+    assert calls[0]["startRecord"] == 1
+
+
+@pytest.mark.parametrize("response", [
+    _FakeResponse(status_code=503, text=""),
+    _FakeResponse(status_code=200, text="not xml"),
+])
+def test_ndl_search_returns_empty_with_diagnostic_on_bad_response(monkeypatch, caplog, response):
+    monkeypatch.setattr(api_ndl_search, "safe_request", lambda *args, **kwargs: response)
+
+    assert api_ndl_search.NDLSearchClient().search(query="history") == []
+    assert "ndl" in caplog.text.lower()
+
+
+def test_ndl_search_returns_empty_on_request_exception(monkeypatch, caplog):
+    monkeypatch.setattr(
+        api_ndl_search, "safe_request", lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError()),
+    )
+
+    assert api_ndl_search.NDLSearchClient().search(query="history") == []
+    assert "ndl" in caplog.text.lower()
+
+
+@pytest.mark.live_network
+def test_ndl_search_live_search_returns_open_normalized_result():
+    results = api_ndl_search.NDLSearchClient().search(query="人工知能", max_results=1)
+
+    assert results
+    assert all(isinstance(result, NormalizedResult) for result in results)
+    assert all(result.source_repository == "ndl_search" for result in results)
 
 
 def _datacite_record(

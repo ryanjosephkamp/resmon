@@ -369,6 +369,34 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="NASA ADS uses Solr-style q parsing; the default operator is OR and results are returned in relevance-scored order.",
     ),
     _entry(
+        slug="ndl_search",
+        name="NDL Search",
+        description="National Diet Library of Japan cross-database bibliographic metadata",
+        subject_coverage="Japanese national bibliography / Books / Articles / Cultural heritage metadata",
+        endpoint="https://ndlsearch.ndl.go.jp/api/sru",
+        query_method="GET SRU 1.2 with dcndl_v3 XML, dpid=open, anywhere, from/until, and at most 500 records",
+        rate_limit="0.5 req/s (conservative; no published numeric API limit)",
+        client_module="api_ndl_search.py",
+        requirement="none",
+        credential_name=None,
+        website="https://ndlsearch.ndl.go.jp/en/",
+        registration_url=None,
+        upstream_policy="No numeric rate limit published; NDL asks continuous users to identify their usage and may restrict heavy or concurrent traffic",
+        parallel_safe="Yes",
+        notes=(
+            "NDL Search API v1.4: https://ndlsearch.ndl.go.jp/file/help/api/specifications/ndlsearch_api_20260331.pdf "
+            "Documents API providers and metadata terms: https://ndlsearch.ndl.go.jp/en/help/api/provider . "
+            "The client limits requests to dpid=open and independently retains only records with an explicit PDM 1.0, CC0 1.0, or CC BY 4.0 metadata-rights URI; "
+            "the open-provider summary is incomplete for current live results because they include CC BY. "
+            "You must credit NDL Search API, on a website or application using the API. "
+            "Also, you must credit the metadata providing database and institution in the case that credit is needed. "
+            "https://ndlsearch.ndl.go.jp/en/help/api/ . "
+            "This catalog note records those obligations but does not itself discharge attribution."
+        ),
+        keyword_combination="Implicit AND (documented for anywhere)",
+        keyword_combination_notes="NDL Search API v1.4 documents AND as the default when multiple values are specified for the anywhere search field. resmon sends the query as one safely quoted anywhere value and does not claim local keyword filtering.",
+    ),
+    _entry(
         slug="nist_rmm",
         name="NIST Resource Metadata Management",
         description="NIST papers and technical-report metadata",
