@@ -92,23 +92,23 @@ class DryadClient(BaseAPIClient):
                 )
                 if response.status_code != 200:
                     logger.error("Dryad API returned %d", response.status_code)
-                    break
+                    return []
                 payload = response.json()
             except Exception:
                 logger.exception("Dryad API request failed")
-                break
+                return []
 
             if not isinstance(payload, dict):
                 logger.error("Dryad API returned a non-object response")
-                break
+                return []
             embedded = payload.get("_embedded")
             if not isinstance(embedded, dict):
                 logger.error("Dryad API response has no embedded records")
-                break
+                return []
             records = embedded.get("stash:datasets")
             if not isinstance(records, list):
                 logger.error("Dryad API response has no dataset list")
-                break
+                return []
             if not records:
                 break
 

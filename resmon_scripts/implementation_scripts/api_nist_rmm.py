@@ -1,6 +1,7 @@
 """NIST Resource Metadata Management paper-search client."""
 
 import datetime as dt
+import json
 import logging
 import re
 
@@ -16,6 +17,7 @@ _PAGE_SIZE = 50
 _RATE_LIMITER = RateLimiter(requests_per_second=0.5)
 
 _DOI = re.compile(r"^10\.\d{4,9}/[-._;()/:a-z0-9]+$", re.IGNORECASE)
+_REQUEST_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # The official RMM OpenAPI defines the ResultData envelope but leaves each
 # item's shape unspecified. These aliases are cautious fixture-only parsing
@@ -32,6 +34,24 @@ def _date_value(value: object) -> str | None:
     except ValueError:
         return None
     return candidate
+
+
+def _request_date(value: object) -> str | None:
+    """Validate a caller's day-granular bound without normalizing its text."""
+    if not isinstance(value, str) or not _REQUEST_DATE.fullmatch(value):
+        return None
+    try:
+        dt.date.fromisoformat(value)
+    except ValueError:
+        return None
+    return value
+
+
+def _raw_page_signature(records: list[object]) -> str:
+    """Return a stable signature for an API page before record normalization."""
+    # Response JSON consists of JSON values, so a canonical JSON encoding detects
+    # repeated pages even when every record is malformed or already deduplicated.
+    return json.dumps(records, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
 def _doi(value: object) -> str | None:
@@ -86,9 +106,11 @@ class NistRmmClient(BaseAPIClient):
         if max_results <= 0:
             return []
 
-        lower_bound = _date_value(date_from) if date_from else None
-        upper_bound = _date_value(date_to) if date_to else None
-        if (date_from and lower_bound is None) or (date_to and upper_bound is None):
+        lower_bound = _request_date(date_from) if date_from is not None else None
+        upper_bound = _request_date(date_to) if date_to is not None else None
+        if (date_from is not None and lower_bound is None) or (
+            date_to is not None and upper_bound is None
+        ):
             logger.error("NIST RMM requires day-granular ISO date constraints")
             return []
         if lower_bound and upper_bound and lower_bound > upper_bound:
@@ -96,6 +118,7 @@ class NistRmmClient(BaseAPIClient):
 
         results: list[NormalizedResult] = []
         seen_identifiers: set[str] = set()
+        seen_page_signatures: set[str] = set()
         skip = 0
 
         while len(results) < max_results:
@@ -106,8 +129,8 @@ class NistRmmClient(BaseAPIClient):
             }
             # The documented RMM API has only from_date. date_to is applied
             # below after parsing each record, never presented as upstream work.
-            if date_from:
-                params["from_date"] = date_from
+            if lower_bound:
+                params["from_date"] = lower_bound
 
             try:
                 response = safe_request(
@@ -135,10 +158,19 @@ class NistRmmClient(BaseAPIClient):
             if not isinstance(records, list):
                 logger.error("NIST RMM API response has no ResultData list")
                 return []
+            result_count = payload.get("ResultCount")
             if not records:
+                if isinstance(result_count, int) and skip < result_count:
+                    logger.error("NIST RMM API ended before its ResultCount")
+                    return []
                 break
 
-            new_identifier_seen = False
+            page_signature = _raw_page_signature(records)
+            if page_signature in seen_page_signatures:
+                logger.warning("NIST RMM repeated a raw page; discarding partial results")
+                return []
+            seen_page_signatures.add(page_signature)
+
             for record in records:
                 parsed = self._parse_record(record)
                 if parsed is None:
@@ -146,7 +178,6 @@ class NistRmmClient(BaseAPIClient):
                 if parsed.external_id in seen_identifiers:
                     continue
                 seen_identifiers.add(parsed.external_id)
-                new_identifier_seen = True
 
                 if (lower_bound or upper_bound) and not self._inside_window(
                     parsed.publication_date, lower_bound, upper_bound,
@@ -157,15 +188,13 @@ class NistRmmClient(BaseAPIClient):
                     break
 
             skip += len(records)
-            result_count = payload.get("ResultCount")
-            if len(records) < _PAGE_SIZE:
-                break
-            if isinstance(result_count, int) and skip >= result_count:
-                break
-            # A full page repeating only records already seen could otherwise
-            # loop forever if the upstream ignores skip during an outage.
-            if not new_identifier_seen:
-                logger.warning("NIST RMM repeated a page; stopping pagination")
+            if isinstance(result_count, int):
+                if result_count < skip:
+                    logger.error("NIST RMM ResultCount is smaller than its page data")
+                    return []
+                if skip >= result_count:
+                    break
+            if len(records) < _PAGE_SIZE and not isinstance(result_count, int):
                 break
 
         return results[:max_results]

@@ -39,7 +39,7 @@ def _date_interval(value: str | None) -> tuple[str, str] | None:
         except (ValueError, IndexError):
             return None
         return (
-            f"{year_string}-{value[5:7]}",
+            f"{year_string}-{value[5:7]}-01",
             f"{year_string}-{value[5:7]}-{last_day:02d}",
         )
     try:
@@ -97,10 +97,7 @@ def _publication_year_clause(year_from: int | None, year_to: int | None) -> str 
     if year_from is not None and year_to is not None:
         if year_from == year_to:
             return f"first_publish_year:{year_from}"
-        years = " OR ".join(
-            f"first_publish_year:{year}" for year in range(year_from, year_to + 1)
-        )
-        return f"({years})"
+        return f"first_publish_year:[{year_from} TO {year_to}]"
     if year_from is not None:
         return f"first_publish_year:[{year_from} TO *]"
     if year_to is not None:
@@ -200,19 +197,19 @@ class OpenLibraryClient(BaseAPIClient):
                 )
                 if response.status_code != 200:
                     logger.error("Open Library API returned %d", response.status_code)
-                    break
+                    return []
                 payload = response.json()
             except Exception:
                 logger.exception("Open Library API request failed")
-                break
+                return []
 
             if not isinstance(payload, dict):
                 logger.error("Open Library API returned a non-object response")
-                break
+                return []
             records = payload.get("docs")
             if not isinstance(records, list):
                 logger.error("Open Library API response has no docs list")
-                break
+                return []
             if not records:
                 break
 

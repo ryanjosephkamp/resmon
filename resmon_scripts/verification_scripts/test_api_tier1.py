@@ -162,6 +162,105 @@ def test_nist_rmm_search_pages_by_skip_and_honors_max_results(monkeypatch):
     ]
 
 
+def test_nist_rmm_search_continues_after_a_full_page_of_malformed_records(monkeypatch):
+    malformed = [_nist_rmm_record(title="") for _ in range(50)]
+    valid = _nist_rmm_record(doi="10.18434/after-malformed-page")
+    requested = []
+
+    def _request(method, url, **kwargs):
+        skip = kwargs["params"]["skip"]
+        requested.append(skip)
+        records = malformed if skip == 0 else [valid]
+        return _FakeResponse(payload=_nist_rmm_payload(records, total=51))
+
+    monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
+
+    results = api_nist_rmm.NistRmmClient().search(
+        query="materials", max_results=51,
+    )
+
+    assert requested == [0, 50]
+    assert [result.external_id for result in results] == [
+        "10.18434/after-malformed-page",
+    ]
+
+
+def test_nist_rmm_search_uses_result_count_after_a_short_page(monkeypatch):
+    first = _nist_rmm_record(doi="10.18434/short-page-first")
+    second = _nist_rmm_record(doi="10.18434/short-page-second")
+    requested = []
+
+    def _request(method, url, **kwargs):
+        skip = kwargs["params"]["skip"]
+        requested.append(skip)
+        records = [first] if skip == 0 else [second]
+        return _FakeResponse(payload=_nist_rmm_payload(records, total=2))
+
+    monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
+
+    results = api_nist_rmm.NistRmmClient().search(
+        query="materials", max_results=2,
+    )
+
+    assert requested == [0, 1]
+    assert [result.external_id for result in results] == [
+        "10.18434/short-page-first", "10.18434/short-page-second",
+    ]
+
+
+def test_nist_rmm_search_returns_empty_when_a_raw_page_repeats(monkeypatch):
+    records = [
+        _nist_rmm_record(doi=f"10.18434/repeated-{index:04d}")
+        for index in range(50)
+    ]
+    requested = []
+
+    def _request(method, url, **kwargs):
+        requested.append(kwargs["params"]["skip"])
+        return _FakeResponse(payload=_nist_rmm_payload(records, total=100))
+
+    monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
+
+    assert api_nist_rmm.NistRmmClient().search(
+        query="materials", max_results=100,
+    ) == []
+    assert requested == [0, 50]
+
+
+def test_nist_rmm_search_rejects_non_exact_request_date_without_network(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        api_nist_rmm,
+        "safe_request",
+        lambda *args, **kwargs: calls.append(kwargs),
+    )
+
+    assert api_nist_rmm.NistRmmClient().search(
+        query="materials", date_from="2024-01-01garbage",
+    ) == []
+    assert calls == []
+
+
+def test_nist_rmm_search_forwards_the_validated_lower_date_bound(monkeypatch):
+    calls = []
+
+    def _request(method, url, **kwargs):
+        calls.append(kwargs["params"])
+        return _FakeResponse(payload=_nist_rmm_payload([]))
+
+    monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
+
+    assert api_nist_rmm.NistRmmClient().search(
+        query="materials", date_from="2024-02-29",
+    ) == []
+    assert calls == [{
+        "searchphrase": "materials",
+        "from_date": "2024-02-29",
+        "skip": 0,
+        "limit": 50,
+    }]
+
+
 def test_nist_rmm_search_applies_upper_date_bound_locally_and_skips_unknown_dates(monkeypatch):
     records = [
         _nist_rmm_record(doi="10.18434/inside", publication_date="2024-01-15"),
@@ -307,6 +406,18 @@ def _openlibrary_payload(records, *, total=None):
     return {"numFound": total, "docs": records}
 
 
+def test_openlibrary_date_month_bounds_are_day_granular_without_widening():
+    assert api_openlibrary._date_interval("2024-01") == (
+        "2024-01-01", "2024-01-31",
+    )
+    assert api_openlibrary._search_year_bounds("2024-01", "2024-12") == (
+        2024, 2024, "2024-01-01", "2024-12-31",
+    )
+    assert api_openlibrary._search_year_bounds(None, "2024-01") == (
+        None, 2023, None, "2024-01-31",
+    )
+
+
 def test_openlibrary_search_builds_year_query_and_normalizes_metadata(monkeypatch):
     calls = []
 
@@ -351,6 +462,23 @@ def test_openlibrary_search_builds_year_query_and_normalizes_metadata(monkeypatc
         url="https://openlibrary.org/works/OL123W",
         categories=[f"subject-{index}" for index in range(1, 11)],
     )]
+
+
+def test_openlibrary_search_uses_a_compact_exact_range_for_broad_year_windows(monkeypatch):
+    calls = []
+
+    def _request(method, url, **kwargs):
+        calls.append(kwargs["params"])
+        return _FakeResponse(payload=_openlibrary_payload([_openlibrary_record()]))
+
+    monkeypatch.setattr(api_openlibrary, "safe_request", _request)
+
+    results = api_openlibrary.OpenLibraryClient().search(
+        query="climate", date_from="2020", date_to="2025",
+    )
+
+    assert [result.external_id for result in results] == ["/works/OL123W"]
+    assert calls[0]["q"] == "(climate) AND first_publish_year:[2020 TO 2025]"
 
 
 def test_openlibrary_search_keeps_page_size_constant_across_pages(monkeypatch):
@@ -535,6 +663,33 @@ def test_openlibrary_search_returns_empty_on_exception(monkeypatch):
     monkeypatch.setattr(api_openlibrary, "safe_request", _raise)
 
     assert api_openlibrary.OpenLibraryClient().search(query="history") == []
+
+
+@pytest.mark.parametrize("failure", ["non_200", "malformed", "exception"])
+def test_openlibrary_search_fails_closed_when_page_two_is_unusable(monkeypatch, failure):
+    requested = []
+    first_page = [
+        _openlibrary_record(key=f"/works/OL{index}W", include_optional=False)
+        for index in range(100)
+    ]
+
+    def _request(method, url, **kwargs):
+        page = kwargs["params"]["page"]
+        requested.append(page)
+        if page == 1:
+            return _FakeResponse(payload=_openlibrary_payload(first_page, total=101))
+        if failure == "non_200":
+            return _FakeResponse(status_code=503)
+        if failure == "malformed":
+            return _FakeResponse(payload={})
+        raise TimeoutError("upstream timed out")
+
+    monkeypatch.setattr(api_openlibrary, "safe_request", _request)
+
+    assert api_openlibrary.OpenLibraryClient().search(
+        query="history", max_results=101,
+    ) == []
+    assert requested == [1, 2]
 
 
 @pytest.mark.live_network
@@ -1568,6 +1723,34 @@ def test_dryad_search_returns_empty_on_upstream_failure(monkeypatch, response):
     monkeypatch.setattr(api_dryad, "safe_request", _request)
 
     assert get_client("dryad").search(query="climate") == []
+
+
+@pytest.mark.parametrize("failure", ["non_200", "malformed", "exception"])
+def test_dryad_search_fails_closed_when_page_two_is_unusable(monkeypatch, failure):
+    requested = []
+    first_page = [
+        {
+            **_dryad_record(dataset_id=index),
+            "identifier": f"doi:10.5061/dryad.page-two-{index:04d}",
+        }
+        for index in range(100)
+    ]
+
+    def _request(method, url, **kwargs):
+        page = kwargs["params"]["page"]
+        requested.append(page)
+        if page == 1:
+            return _FakeResponse(payload=_dryad_payload(first_page, total=101))
+        if failure == "non_200":
+            return _FakeResponse(status_code=503)
+        if failure == "malformed":
+            return _FakeResponse(payload={})
+        raise TimeoutError("upstream timed out")
+
+    monkeypatch.setattr(api_dryad, "safe_request", _request)
+
+    assert get_client("dryad").search(query="climate", max_results=101) == []
+    assert requested == [1, 2]
 
 
 def _zenodo_record(
