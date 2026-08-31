@@ -97,6 +97,35 @@ const RepoDetailsPanel: React.FC<Props> = ({ entry }) => {
             <dd>{entry.keyword_combination_notes}</dd>
           </>
         )}
+
+        {entry.attribution && (
+          <>
+            <dt>
+              {entry.attribution_requirement === 'required'
+                ? 'Attribution (required)'
+                : 'Attribution (requested)'}
+            </dt>
+            <dd>
+              <span className="attribution-credit">{entry.attribution}</span>
+              {entry.attribution_requirement === 'required' ? (
+                <p className="attribution-note">
+                  A condition of this source's licence, not a courtesy. resmon shows it on
+                  this page for every source that requires it.
+                </p>
+              ) : (
+                <p className="attribution-note">
+                  The upstream asks for this credit but does not make it a condition of
+                  reuse.
+                </p>
+              )}
+              {entry.attribution_source && (
+                <p className="attribution-note">
+                  Stated at <ExternalLink href={entry.attribution_source} />
+                </p>
+              )}
+            </dd>
+          </>
+        )}
       </dl>
     </div>
   );

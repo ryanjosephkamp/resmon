@@ -71,6 +71,21 @@ The table below lists the 21 active sources registered in the repository catalog
 
 Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in `.ai:/prep/repos.md` and are not queried at runtime.
 
+### Source attributions
+
+Four of the sources resmon queries make a credit a **condition of reuse**, not a courtesy:
+CORE, OpenAIRE, PLOS and Semantic Scholar. resmon shows those credits at the top of the
+**Repositories & API Keys** page, unconditionally — a credit that only appears when you expand
+a card is not displayed in the sense the obligation means.
+
+Sources that merely *ask* for a credit — arXiv, DataCite, DBLP, Europe PMC, HAL, OSTI — are
+listed on their own row instead, labelled as requested rather than required. The distinction is
+deliberate: OpenAIRE's Graph metadata is CC BY, so attribution is a licence condition, while
+arXiv publishes an acknowledgement sentence it would like you to use. Rendering both the same
+way would overstate one and understate the other.
+
+Each credit records the clause that imposes it, so any of them can be re-checked later.
+
 ### IEEE Xplore was withdrawn in v1.8.1
 
 IEEE Xplore was an active source through v1.8.0 and is no longer queried. The client worked; the reason is the [IEEE Xplore API Terms of Use](https://developer.ieee.org/API_Terms_of_Use2), which limit the grant to non-commercial activity within the licensee's own institution, forbid using a "site search/retrieval application" against the content (4(c)), forbid retaining it in bulk (4(f)), and require deleting it on termination (12).

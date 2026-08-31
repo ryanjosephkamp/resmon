@@ -89,6 +89,7 @@ def test_catalog_as_dicts_shape():
         "credential_name", "website", "registration_url", "placeholder",
         "upstream_policy", "parallel_safe", "notes",
         "keyword_combination", "keyword_combination_notes",
+        "attribution", "attribution_requirement", "attribution_source",
     }
     for d in dicts:
         assert set(d.keys()) == expected_keys
