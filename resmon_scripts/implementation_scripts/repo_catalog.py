@@ -92,7 +92,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 21 active repositories.
+# Catalog — 22 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -401,6 +401,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Set mailto for stable performance.",
         keyword_combination="Relevance-ranked",
         keyword_combination_notes="OpenAlex's search ranks by relevance across title/abstract/fulltext; not a strict boolean.",
+    ),
+    _entry(
+        slug="osti",
+        name="OSTI.GOV",
+        description="U.S. Department of Energy research records including technical reports, datasets, and other grey literature",
+        subject_coverage="Energy / Physical sciences / DOE-funded research / Technical reports",
+        endpoint="https://www.osti.gov/api/v1/records",
+        query_method="GET JSON with q, publication date filters, and page/rows pagination",
+        rate_limit="0.5 req/s (conservative; no published API limit)",
+        client_module="api_osti.py",
+        requirement="none",
+        credential_name=None,
+        website="https://www.osti.gov",
+        registration_url=None,
+        upstream_policy="No numeric rate limit published; excessive automated requests prohibited; OSTI requests acknowledgement and links to current records",
+        parallel_safe="Yes",
+        notes="OSTI supports metadata export and full-corpus API access, but public access does not make records or abstracts public domain. OSTI asks users to contact it about library-database reuse and before using records or data as AI, ML, or LLM input.",
+        keyword_combination="Combination semantics undocumented",
+        keyword_combination_notes="OSTI documents q only as searching the full record for provided terms; it does not state how multiple terms are combined. resmon forwards the query unchanged.",
     ),
     _entry(
         slug="plos",

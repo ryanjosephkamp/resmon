@@ -19,7 +19,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Key Features
 
-- **Multi-repository ingestion across 19 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DBLP, DOAJ, EuropePMC, HAL, IEEE Xplore, INSPIRE-HEP, medRxiv, NASA ADS, OpenAIRE, OpenAlex, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
+- **Multi-repository ingestion across 22 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DataCite, DBLP, DOAJ, ERIC, EuropePMC, HAL, IEEE Xplore, INSPIRE-HEP, medRxiv, NASA ADS, OpenAIRE, OpenAlex, OSTI.GOV, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
 - **Three operational modes:**
   - *Targeted Deep Dive* — a focused, manual query against a single repository within a defined date range, with support for an ephemeral per-execution API key that never persists to disk.
   - *Broad Deep Sweep* — a cross-repository manual query that applies Deep Dive parameters across every selected repository in parallel.
@@ -43,7 +43,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Supported Repositories
 
-The table below lists the 21 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
+The table below lists the 22 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
 
 | Repository | API Type | API Key | Rate Limit (resmon) | Discipline Coverage |
 |---|---|---|---|---|
@@ -63,6 +63,7 @@ The table below lists the 21 active sources registered in the repository catalog
 | NASA ADS | REST (Solr JSON) | Required (Bearer) | 1.0 req/s (≈5000/day cap) | Astronomy, Astrophysics, Planetary science |
 | OpenAIRE | REST (XML-derived JSON) | Not required | 0.0167 req/s (60/hour) | Multi-disciplinary publications, Research outputs |
 | OpenAlex | REST (JSON) | Not required | 10.0 req/s (polite pool via mailto) | All disciplines |
+| OSTI.GOV | REST (JSON; XML and BibTeX optional) | Not required | 0.5 req/s | Energy, physical sciences, DOE-funded research, technical reports |
 | PLOS | REST (Solr JSON) | Not required | 5.0 req/s | Biology, Medicine, Natural sciences (PLOS journals) |
 | PubMed / NCBI E-utilities | REST (XML) | Optional (raises limit) | 3.0 req/s keyless, 10.0 req/s with key | Biomedicine |
 | Semantic Scholar | REST (JSON) | Optional (recommended) | 0.33 req/s (1 per 3 s) | All disciplines (strong CS, biomed) |

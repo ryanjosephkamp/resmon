@@ -23,6 +23,7 @@ from implementation_scripts import api_datacite
 from implementation_scripts import api_eric
 from implementation_scripts import api_inspire_hep
 from implementation_scripts import api_openaire
+from implementation_scripts import api_osti
 from implementation_scripts import api_zenodo
 import implementation_scripts.api_core           # noqa: F401
 import implementation_scripts.api_doaj           # noqa: F401
@@ -32,12 +33,12 @@ import implementation_scripts.api_nasa_ads       # noqa: F401
 TIER_1_REPOS = [
     "arxiv", "crossref", "semantic_scholar", "openalex", "pubmed",
     "europepmc", "biorxiv", "core", "datacite", "doaj", "dblp", "eric",
-    "inspire_hep", "medrxiv", "nasa_ads", "openaire", "zenodo",
+    "inspire_hep", "medrxiv", "nasa_ads", "openaire", "osti", "zenodo",
 ]
 
 
 def test_all_tier1_registered():
-    """All 17 Tier 1 repositories are registered in the client registry."""
+    """All 18 Tier 1 repositories are registered in the client registry."""
     repos = list_repositories()
     for name in TIER_1_REPOS:
         assert name in repos, f"Missing Tier 1 client: {name}"
@@ -51,9 +52,10 @@ def test_each_client_instantiates():
 
 
 class _FakeResponse:
-    def __init__(self, status_code=200, payload=None):
+    def __init__(self, status_code=200, payload=None, headers=None):
         self.status_code = status_code
         self._payload = {} if payload is None else payload
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -1214,6 +1216,241 @@ def test_openaire_search_returns_empty_on_timeout(monkeypatch):
     assert get_client("openaire").search(query="science") == []
 
 
+def _osti_record(
+    osti_id="12345",
+    *,
+    title="Fusion &amp; climate research",
+    publication_date="2024-02-29T00:00:00Z",
+    include_optional=True,
+):
+    record = {
+        "osti_id": osti_id,
+        "title": title,
+        "publication_date": publication_date,
+    }
+    if include_optional:
+        record.update({
+            "authors": ["Curie, Marie", "Fermi, Enrico"],
+            "description": "An &amp; abstract.",
+            "doi": "https://doi.org/10.2172/12345",
+            "subjects": [f"subject-{index}" for index in range(1, 12)],
+            "links": [
+                {"rel": "citation", "href": "https://www.osti.gov/biblio/12345"},
+                {"rel": "fulltext", "href": "https://www.osti.gov/servlets/purl/12345"},
+            ],
+        })
+    return record
+
+
+def test_osti_search_builds_date_query_and_normalizes_json(monkeypatch):
+    calls = []
+
+    def _request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return _FakeResponse(payload=[_osti_record()])
+
+    monkeypatch.setattr(api_osti, "safe_request", _request)
+
+    results = api_osti.OstiClient().search(
+        query="fusion climate",
+        date_from="2024-02-01",
+        date_to="2024-02-29",
+        max_results=5,
+    )
+
+    assert calls == [(
+        "GET",
+        "https://www.osti.gov/api/v1/records",
+        {
+            "params": {
+                "q": "fusion climate",
+                "page": 1,
+                "rows": 5,
+                "publication_date_start": "02/01/2024",
+                "publication_date_end": "02/29/2024",
+            },
+            "headers": {"Accept": "application/json"},
+            "rate_limiter": api_osti._RATE_LIMITER,
+        },
+    )]
+    assert api_osti._RATE_LIMITER._interval == pytest.approx(2.0)
+    assert results == [NormalizedResult(
+        source_repository="osti",
+        external_id="12345",
+        doi="10.2172/12345",
+        title="Fusion & climate research",
+        authors=["Curie, Marie", "Fermi, Enrico"],
+        abstract="An & abstract.",
+        publication_date="2024-02-29",
+        url="https://www.osti.gov/biblio/12345",
+        categories=[f"subject-{index}" for index in range(1, 11)],
+    )]
+
+
+def test_osti_search_follows_documented_next_link_with_constant_rows(monkeypatch):
+    requested = []
+    records = [
+        _osti_record(osti_id=str(index), include_optional=False)
+        for index in range(1, 151)
+    ]
+
+    def _request(method, url, **kwargs):
+        page = kwargs["params"]["page"]
+        rows = kwargs["params"]["rows"]
+        requested.append((page, rows))
+        start = (page - 1) * rows
+        headers = {}
+        if page == 1:
+            headers["Link"] = (
+                '<https://www.osti.gov/api/v1/records?page=2&rows=100>; '
+                'rel="next"'
+            )
+        return _FakeResponse(
+            payload=records[start:start + rows], headers=headers,
+        )
+
+    monkeypatch.setattr(api_osti, "safe_request", _request)
+
+    results = api_osti.OstiClient().search(query="energy", max_results=125)
+
+    assert requested == [(1, 100), (2, 100)]
+    assert [result.external_id for result in results] == [
+        str(index) for index in range(1, 126)
+    ]
+
+
+def test_osti_search_caps_pages_when_records_are_unusable(monkeypatch):
+    requested = []
+
+    def _request(method, url, **kwargs):
+        page = kwargs["params"]["page"]
+        requested.append(page)
+        headers = {}
+        if page < 4:
+            headers["Link"] = (
+                f'<https://www.osti.gov/api/v1/records?page={page + 1}>; '
+                'rel="next"'
+            )
+        return _FakeResponse(
+            payload=[{"osti_id": str(page), "title": ""}],
+            headers=headers,
+        )
+
+    monkeypatch.setattr(api_osti, "safe_request", _request)
+
+    results = api_osti.OstiClient().search(query="energy", max_results=125)
+
+    assert results == []
+    assert requested == [1, 2]
+
+
+def test_osti_search_rejects_invalid_date_window_without_request(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        api_osti,
+        "safe_request",
+        lambda *args, **kwargs: calls.append(kwargs),
+    )
+
+    results = api_osti.OstiClient().search(
+        query="energy",
+        date_from="2025-01-01",
+        date_to="2024-12-31",
+    )
+
+    assert results == []
+    assert calls == []
+
+
+def test_osti_search_rechecks_returned_publication_date(monkeypatch):
+    monkeypatch.setattr(
+        api_osti,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=[
+            _osti_record(publication_date="2024-03-01T00:00:00Z"),
+        ]),
+    )
+
+    results = api_osti.OstiClient().search(
+        query="energy",
+        date_from="2024-02-01",
+        date_to="2024-02-29",
+    )
+
+    assert results == []
+
+
+def test_osti_search_skips_malformed_and_allows_optional_fields(monkeypatch):
+    valid = _osti_record(
+        osti_id=54321,
+        title="Technical report",
+        publication_date="2023-07-04",
+        include_optional=False,
+    )
+    monkeypatch.setattr(
+        api_osti,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=[
+            {"osti_id": "999", "title": ""}, valid,
+        ]),
+    )
+
+    results = api_osti.OstiClient().search(query="energy", max_results=5)
+
+    assert results == [NormalizedResult(
+        source_repository="osti",
+        external_id="54321",
+        doi=None,
+        title="Technical report",
+        authors=[],
+        abstract=None,
+        publication_date="2023-07-04",
+        url="https://www.osti.gov/biblio/54321",
+        categories=[],
+    )]
+
+
+def test_osti_search_returns_empty_when_upstream_has_no_hits(monkeypatch):
+    monkeypatch.setattr(
+        api_osti,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=[]),
+    )
+
+    assert api_osti.OstiClient().search(query="no-such-result") == []
+
+
+@pytest.mark.parametrize("payload", [{}, {"records": []}])
+def test_osti_search_logs_malformed_success_payload(monkeypatch, caplog, payload):
+    monkeypatch.setattr(
+        api_osti,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=payload),
+    )
+
+    assert api_osti.OstiClient().search(query="energy") == []
+    assert "response" in caplog.text.lower()
+
+
+def test_osti_search_returns_empty_on_non_200(monkeypatch):
+    monkeypatch.setattr(
+        api_osti,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(status_code=503),
+    )
+
+    assert api_osti.OstiClient().search(query="energy") == []
+
+
+def test_osti_search_returns_empty_on_timeout(monkeypatch):
+    def _timeout(*args, **kwargs):
+        raise TimeoutError("upstream timed out")
+
+    monkeypatch.setattr(api_osti, "safe_request", _timeout)
+
+    assert api_osti.OstiClient().search(query="energy") == []
+
+
 @pytest.mark.live_network
 def test_openalex_search():
     """OpenAlex client returns results for a simple query."""
@@ -1310,6 +1547,28 @@ def test_eric_search_respects_publication_year_window():
     assert all(isinstance(result, NormalizedResult) for result in results)
     assert all(result.source_repository == "eric" for result in results)
     assert all(result.publication_date == "2024" for result in results)
+
+
+@pytest.mark.live_network
+def test_osti_search_respects_publication_date_window():
+    """OSTI returns publication metadata inside the requested date range."""
+    date_from = "2024-01-01"
+    date_to = "2024-12-31"
+    results = get_client("osti").search(
+        query="climate",
+        max_results=3,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+    assert results
+    assert all(isinstance(result, NormalizedResult) for result in results)
+    assert all(result.source_repository == "osti" for result in results)
+    assert all(
+        result.publication_date is not None
+        and date_from <= result.publication_date <= date_to
+        for result in results
+    )
 
 
 @pytest.mark.live_network
