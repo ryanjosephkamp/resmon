@@ -136,8 +136,29 @@ Settings → Cloud Storage tab all belong to it and all stay.
 
 ## Adding a source client
 
-The template is settled and every piece of it is pinned by tests. A new source
-`<slug>` touches these files and no others:
+**Full guide: [`docs/adding-a-source.md`](docs/adding-a-source.md).** Read it before starting
+— it carries the terms questions, the field-level storage rule, the attribution states and the
+retirement mechanism, all of which came from getting them wrong. What follows is the file list
+and the contract; the guide is the reasoning behind them.
+
+**Ask the licence question first.** resmon *stores* what it retrieves, indefinitely, and the
+user may back that database up to their own cloud storage. A source can be technically perfect
+and still be unusable: J-STAGE was refused on its terms, and IEEE Xplore shipped and was later
+withdrawn because §4(c) forbids using a retrieval application against its content at all.
+Check `docs/source-landscape.md` first — 22 shipped sources and 27 candidates are already
+assessed.
+
+**Store only the fields the terms permit.** Where a source conditions a field on provenance,
+licence or an access flag, the client reads that field and honours it. Reference
+implementation: `_licensed_abstract` in `implementation_scripts/api_inspire_hep.py`. A record
+whose abstract cannot lawfully be kept is still indexed, without one.
+
+**Record an attribution obligation, do not invent one.** Catalog entries carry `attribution`,
+`attribution_requirement` (`none` / `requested` / `required`) and `attribution_source`.
+Required means a licence condition and renders unconditionally; requested means a courtesy.
+The default is `none`, and silence is the correct value.
+
+A new source `<slug>` touches these files and no others:
 
 | File | Change |
 |---|---|
@@ -169,6 +190,13 @@ statements of fact. `keyword_combination` in particular describes how the *upstr
 combines space-separated terms — implicit AND, explicit OR, relevance-ranked — and
 getting it wrong makes the app lie about someone else's search engine. Verify it against
 the upstream's documentation rather than assuming.
+
+**Retiring a source takes two changes, not one.** Removing a module from `_CLIENT_MODULES`
+does not retire it: every `api_*.py` calls `register_client()` at import scope, so any import
+puts the source back into the process-wide registry — which is how `api_ieee` stayed reachable
+and its tests kept passing when they should have failed. Add the slug to
+`api_registry.RETIRED_REPOSITORIES` with the reason a user should see, *and* remove the
+module's `_register()` call. Keep the client on disk.
 
 `match_explain.py` holds `_LOCALLY_FILTERED_SOURCES`: the sources whose keyword matching
 resmon performs itself and can therefore speak about with certainty. A new source belongs
