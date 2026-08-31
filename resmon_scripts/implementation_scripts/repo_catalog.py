@@ -92,7 +92,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 19 active repositories.
+# Catalog — 22 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -175,6 +175,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="CrossRef ranks by relevance, not strict boolean; documents containing more of the words rank higher but single-term matches can still surface.",
     ),
     _entry(
+        slug="datacite",
+        name="DataCite",
+        description="DOI metadata with strong coverage of datasets, software, dissertations, and other research outputs",
+        subject_coverage="All disciplines / Data / Software / Dissertations / Other DOI outputs",
+        endpoint="https://api.datacite.org/dois",
+        query_method="GET JSON:API query with upstream publication-year filtering and precise Issued-date checks where available",
+        rate_limit="1.5 req/s (below 500 requests/5 min unidentified)",
+        client_module="api_datacite.py",
+        requirement="none",
+        credential_name=None,
+        website="https://datacite.org",
+        registration_url=None,
+        upstream_policy="Unidentified requests: 500 per 5 minutes per IP; CC0 metadata; attribution requested; linked resources excluded",
+        parallel_safe="Yes",
+        notes="Public API returns Findable DOI metadata only. Publication filtering is year-granular upstream; resmon preserves partial date precision and applies exact bounds only when Issued metadata supports them.",
+        keyword_combination="Implicit OR",
+        keyword_combination_notes="DataCite documents every unfielded term as optional so long as at least one matches. Unfielded search covers common metadata fields; explicit AND, OR, and NOT remain available in the forwarded query.",
+    ),
+    _entry(
         slug="dblp",
         name="DBLP",
         description="Computer-science bibliography maintained by Schloss Dagstuhl",
@@ -211,6 +230,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="",
         keyword_combination="Relevance-ranked (Lucene OR default)",
         keyword_combination_notes="DOAJ uses a Lucene-style URL path whose default operator is OR; results are returned in relevance-scored order.",
+    ),
+    _entry(
+        slug="eric",
+        name="ERIC",
+        description="Education research and information index maintained by the U.S. Department of Education",
+        subject_coverage="Education research / Policy / Practice",
+        endpoint="https://api.ies.ed.gov/eric/",
+        query_method="GET JSON served as text/plain with upstream publication-year filtering",
+        rate_limit="0.5 req/s (conservative; no published API limit)",
+        client_module="api_eric.py",
+        requirement="none",
+        credential_name=None,
+        website="https://eric.ed.gov",
+        registration_url=None,
+        upstream_policy="No published numeric rate limit; resmon waits two seconds between requests",
+        parallel_safe="Yes",
+        notes="ERIC documents metadata download for database use. Only publication year is searchable, so resmon preserves year-only precision and does not claim a narrower match.",
+        keyword_combination="Implicit OR",
+        keyword_combination_notes="ERIC documents OR as the default between unmarked terms, with stemming. Explicit AND is required when every term must match.",
     ),
     _entry(
         slug="europepmc",
@@ -363,6 +401,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Set mailto for stable performance.",
         keyword_combination="Relevance-ranked",
         keyword_combination_notes="OpenAlex's search ranks by relevance across title/abstract/fulltext; not a strict boolean.",
+    ),
+    _entry(
+        slug="osti",
+        name="OSTI.GOV",
+        description="U.S. Department of Energy research records including technical reports, datasets, and other grey literature",
+        subject_coverage="Energy / Physical sciences / DOE-funded research / Technical reports",
+        endpoint="https://www.osti.gov/api/v1/records",
+        query_method="GET JSON with q, publication date filters, and page/rows pagination",
+        rate_limit="0.5 req/s (conservative; no published API limit)",
+        client_module="api_osti.py",
+        requirement="none",
+        credential_name=None,
+        website="https://www.osti.gov",
+        registration_url=None,
+        upstream_policy="No numeric rate limit published; excessive automated requests prohibited; OSTI requests acknowledgement and links to current records",
+        parallel_safe="Yes",
+        notes="OSTI supports metadata export and full-corpus API access, but public access does not make records or abstracts public domain. OSTI asks users to contact it about library-database reuse and before using records or data as AI, ML, or LLM input.",
+        keyword_combination="Combination semantics undocumented",
+        keyword_combination_notes="OSTI documents q only as searching the full record for provided terms; it does not state how multiple terms are combined. resmon forwards the query unchanged.",
     ),
     _entry(
         slug="plos",
