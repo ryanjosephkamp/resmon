@@ -66,7 +66,7 @@ Outputs:
   configurable.
 - **Required keys.** Key-less repositories (e.g. arXiv, CrossRef, OpenAlex,
   bioRxiv, medRxiv) always work; the four repositories listed in
-  `_REQUIRED_CREDENTIALS` (`core`, `ieee`, `nasa_ads`, `springer`) require a
+  `_REQUIRED_CREDENTIALS` (`core`, `nasa_ads`, `springer`) require a
   stored or ephemeral key. A missing key does not fail the sweep — the
   engine emits a `repo_skipped_missing_key` event, the task log records a
   warning, and that repository's query returns zero results.

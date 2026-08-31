@@ -1,5 +1,28 @@
 # resmon_scripts/implementation_scripts/api_ieee.py
-"""IEEE Xplore API client — REST API with optional API key (Tier 3)."""
+"""IEEE Xplore API client — RETIRED, retained for reference only.
+
+**This module is not loaded.** It was removed from ``api_registry._CLIENT_MODULES``
+and from the repository catalog in v1.8.1, and importing it registers nothing
+that a sweep can reach.
+
+The reason is IEEE's terms rather than any defect here — the client worked. The
+`IEEE Xplore API Terms of Use <https://developer.ieee.org/API_Terms_of_Use2>`_
+limit the grant to "non-commercial educational, research, or scientific
+activities within the Licensee's educational institution", forbid using "any
+robot, spider, site search/retrieval application, or other device to retrieve or
+index any portion of the Content" (4(c)), require users to agree not to retain
+Content in bulk (4(f)), and require its removal from your system on termination
+(12).
+
+resmon is a retrieval application that keeps a corpus indefinitely and can copy
+it to Google Drive. No field-level gate reconciles that with 4(c), which is why
+this source was withdrawn outright while INSPIRE-HEP — whose terms restrict a
+single field — was fixed in place instead.
+
+Kept on disk because retirement on terms is reversible in a way that retirement
+on behaviour is not: a written licence from IEEE would make this file useful
+again unchanged. See ``docs/source-landscape.md`` for the full reading.
+"""
 
 import logging
 from urllib.robotparser import RobotFileParser
@@ -161,8 +184,18 @@ class IeeeClient(BaseAPIClient):
 # ---------------------------------------------------------------------------
 # Registry auto-registration
 # ---------------------------------------------------------------------------
-def _register():
-    from .api_registry import register_client
-    register_client("ieee", IeeeClient)
-
-_register()
+# Deliberately does not self-register. This source is retired
+# (api_registry.RETIRED_REPOSITORIES says why), and every other api_*.py calls
+# register_client() at import time. Leaving that call here would mean any
+# import of this module — a test, a debug session — silently put the source
+# back into the process-wide registry where a sweep could reach it. The
+# registry refuses a retired slug as well; this is the other half of that.
+#
+# To revive the source: drop its entry from RETIRED_REPOSITORIES, restore the
+# module to _CLIENT_MODULES, and restore the call below.
+#
+#     def _register():
+#         from .api_registry import register_client
+#         register_client("ieee", IeeeClient)
+#
+#     _register()

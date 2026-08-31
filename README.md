@@ -19,7 +19,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Key Features
 
-- **Multi-repository ingestion across 22 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DataCite, DBLP, DOAJ, ERIC, EuropePMC, HAL, IEEE Xplore, INSPIRE-HEP, medRxiv, NASA ADS, OpenAIRE, OpenAlex, OSTI.GOV, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
+- **Multi-repository ingestion across 21 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DataCite, DBLP, DOAJ, ERIC, EuropePMC, HAL, INSPIRE-HEP, medRxiv, NASA ADS, OpenAIRE, OpenAlex, OSTI.GOV, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
 - **Three operational modes:**
   - *Targeted Deep Dive* — a focused, manual query against a single repository within a defined date range, with support for an ephemeral per-execution API key that never persists to disk.
   - *Broad Deep Sweep* — a cross-repository manual query that applies Deep Dive parameters across every selected repository in parallel.
@@ -43,7 +43,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Supported Repositories
 
-The table below lists the 22 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
+The table below lists the 21 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
 
 | Repository | API Type | API Key | Rate Limit (resmon) | Discipline Coverage |
 |---|---|---|---|---|
@@ -57,7 +57,6 @@ The table below lists the 22 active sources registered in the repository catalog
 | ERIC | REST (JSON served as text/plain) | Not required | 0.5 req/s | Education research, policy, and practice |
 | EuropePMC | REST (JSON) | Not required | 5.0 req/s | Biomedicine, Life sciences |
 | HAL | REST (Solr JSON) | Not required | 2.0 req/s | All disciplines (French-leaning) |
-| IEEE Xplore | REST (JSON) | Required (API key) | 0.2 req/s (1 per 5 s) | Electrical engineering, CS, Electronics |
 | INSPIRE-HEP | REST (JSON) | Not required | 2.0 req/s | High-energy physics, Accelerators, Astroparticle physics |
 | medRxiv | REST (JSON) | Not required | 2.0 req/s | Medicine, Clinical research, Health sciences preprints |
 | NASA ADS | REST (Solr JSON) | Required (Bearer) | 1.0 req/s (≈5000/day cap) | Astronomy, Astrophysics, Planetary science |
@@ -71,6 +70,18 @@ The table below lists the 22 active sources registered in the repository catalog
 | Zenodo | REST (JSON) | Not required | 0.5 req/s (30/min) | Multi-disciplinary publications, data, software, and other outputs |
 
 Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in `.ai:/prep/repos.md` and are not queried at runtime.
+
+### IEEE Xplore was withdrawn in v1.8.1
+
+IEEE Xplore was an active source through v1.8.0 and is no longer queried. The client worked; the reason is the [IEEE Xplore API Terms of Use](https://developer.ieee.org/API_Terms_of_Use2), which limit the grant to non-commercial activity within the licensee's own institution, forbid using a "site search/retrieval application" against the content (4(c)), forbid retaining it in bulk (4(f)), and require deleting it on termination (12).
+
+resmon is a retrieval application that keeps a corpus indefinitely and can back it up to Google Drive, so no setting reconciles it with those clauses — and because each user registers for their own IEEE key, continuing to ship the integration would put the account holder in breach of terms they accepted personally. Withdrawing it was the honest option.
+
+Existing routines that name `ieee` keep running; that source is reported as unavailable with the reason above, and the rest of the routine is unaffected. Any IEEE key you stored is no longer used. The client is retained in the source tree, so a written licence from IEEE would restore the source unchanged.
+
+INSPIRE-HEP was affected differently and was fixed rather than withdrawn: its terms permit reuse of an abstract only where INSPIRE reports that abstract's own source as arXiv or CERN, so resmon now stores an abstract only in that case. Records carrying only a publisher-supplied abstract are still indexed, without one — about a fifth of them in a 100-record sample.
+
+The full terms review behind both changes, covering every shipped source, is in [`docs/source-landscape.md`](docs/source-landscape.md).
 
 ## Installation
 
@@ -213,7 +224,7 @@ A `Sidebar` + `Header` + `MainContent` layout wraps every route, and a `Floating
 
 ## Quick Start Guide
 
-The following walkthroughs cover the three core workflows. Each flow assumes the app is running and that any required API keys for keyed repositories (CORE, IEEE Xplore, NASA ADS, Springer Nature) are either stored under **Repositories & API Keys** or provided as ephemeral per-execution keys.
+The following walkthroughs cover the three core workflows. Each flow assumes the app is running and that any required API keys for keyed repositories (CORE, NASA ADS, Springer Nature) are either stored under **Repositories & API Keys** or provided as ephemeral per-execution keys.
 
 ### Run a Deep Dive
 
@@ -924,7 +935,7 @@ The **Settings → Advanced → Danger Zone** section centralizes every destruct
 
 ### Commit Messages
 
-Commit messages follow a concise, imperative style (`Add IEEE Xplore rate-limit fallback`, not `Added` or `Adds`). Multi-line bodies are encouraged for non-trivial changes; reference the issue number in the body rather than the subject line.
+Commit messages follow a concise, imperative style (`Add OpenAlex rate-limit fallback`, not `Added` or `Adds`). Multi-line bodies are encouraged for non-trivial changes; reference the issue number in the body rather than the subject line.
 
 ### Code of Conduct
 
@@ -946,7 +957,6 @@ The 19 scholarly sources registered in the repository catalog, whose public APIs
 - **DOAJ** — Directory of Open Access Journals / Infrastructure Services for Open Access C.I.C., for the journal- and article-level JSON API covering open-access journals across disciplines.
 - **EuropePMC** — EMBL-EBI on behalf of the Europe PMC Consortium, for the biomedical and life-sciences REST API.
 - **HAL** — CCSD / CNRS, for the Solr-backed multi-disciplinary JSON API.
-- **IEEE Xplore** — IEEE, for the Xplore REST API serving electrical engineering, computer science, and electronics literature.
 - **INSPIRE-HEP** — CERN and the INSPIRE collaboration, for the curated high-energy-physics literature API.
 - **NASA ADS** — Smithsonian Astrophysical Observatory / NASA Astrophysics Data System, for the Solr-backed astronomy, astrophysics, and planetary-science API.
 - **OpenAIRE** — the OpenAIRE partnership, for the multi-disciplinary scholarly-graph Search API.

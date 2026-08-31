@@ -29,7 +29,7 @@ The Repositories & API Keys page is the single surface for inspecting every scho
 - **Cloud scope requires sign-in.** If the user is not signed in, selecting the cloud tab shows a muted "Sign in to manage credentials stored in your cloud account" message and the page does not call the cloud API.
 - **Credential-name whitelist.** `PUT /api/credentials/{key_name}` rejects any name that is not in the union of `catalog_credential_names()`, `AI_CREDENTIAL_NAMES`, and `SMTP_CREDENTIAL_NAMES` with HTTP 400.
 - **Key-less repositories.** arXiv, CrossRef, OpenAlex, bioRxiv, medRxiv, DOAJ, EuropePMC, DBLP, HAL, and PubMed do not require a key; their API-key column shows "Not required".
-- **Key-required repositories.** CORE, IEEE Xplore, and NASA ADS are skipped at sweep time when no key is stored. Deep Dive accepts an ephemeral, per-execution key via the `push_ephemeral` / `pop_ephemeral` mechanism instead of requiring persistence.
+- **Key-required repositories.** CORE, NASA ADS and Springer Nature are skipped at sweep time when no key is stored. Deep Dive accepts an ephemeral, per-execution key via the `push_ephemeral` / `pop_ephemeral` mechanism instead of requiring persistence.
 - **No test/validate button on this page.** The `POST /api/credentials/validate` endpoint exists but is invoked from the Settings → AI panel, not from the Repositories page; saving a key here does not perform a live probe.
 
 ## Frontend
@@ -97,7 +97,7 @@ Handlers live in `resmon_scripts/resmon.py` unless noted otherwise.
 
 ### Request/Response Patterns
 
-- **Catalog:** `apiClient.get<RepoCatalogEntry[]>('/api/repositories/catalog')`. Each entry includes `slug`, `name`, `description`, `subject_coverage`, `endpoint`, `query_method`, `rate_limit`, `client_module`, `api_key_requirement` ∈ {`none`, `required`, `optional`, `recommended`}, `credential_name | null`, `website`, `registration_url | null`, `placeholder`, and optional `upstream_policy`, `parallel_safe`, `notes`. Rate-limit strings match `.ai:/prep/repos.csv` (e.g., arXiv `0.33 req/s (1 per 3 s)`, CrossRef `10.0 req/s (polite pool recommended)`, IEEE Xplore `0.2 req/s (1 per 5 s); per-key plan limits`).
+- **Catalog:** `apiClient.get<RepoCatalogEntry[]>('/api/repositories/catalog')`. Each entry includes `slug`, `name`, `description`, `subject_coverage`, `endpoint`, `query_method`, `rate_limit`, `client_module`, `api_key_requirement` ∈ {`none`, `required`, `optional`, `recommended`}, `credential_name | null`, `website`, `registration_url | null`, `placeholder`, and optional `upstream_policy`, `parallel_safe`, `notes`. Rate-limit strings match `.ai:/prep/repos.csv` (e.g., arXiv `0.33 req/s (1 per 3 s)`, CrossRef `10.0 req/s (polite pool recommended)`, NASA ADS `1.0 req/s (≈5000/day cap)`).
 - **Presence (local):** `GET /api/credentials` → `{name: {present: bool}}`. Never contains the key text.
 - **Presence (cloud):** `GET /api/v2/credentials` → `{name: bool}`; the frontend normalizer converts to the local shape.
 - **Store:** `PUT /api/credentials/{name}` with body `{value: <string>}`. The 400 error returned for an unknown `key_name` is `"Unknown credential name: <name>"`.

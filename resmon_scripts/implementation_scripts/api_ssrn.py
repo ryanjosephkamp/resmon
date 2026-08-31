@@ -159,8 +159,18 @@ class SsrnClient(BaseAPIClient):
 # ---------------------------------------------------------------------------
 # Registry auto-registration
 # ---------------------------------------------------------------------------
-def _register():
-    from .api_registry import register_client
-    register_client("ssrn", SsrnClient)
-
-_register()
+# Deliberately does not self-register. This source is retired
+# (api_registry.RETIRED_REPOSITORIES says why), and every other api_*.py calls
+# register_client() at import time. Leaving that call here would mean any
+# import of this module — a test, a debug session — silently put the source
+# back into the process-wide registry where a sweep could reach it. The
+# registry refuses a retired slug as well; this is the other half of that.
+#
+# To revive the source: drop its entry from RETIRED_REPOSITORIES, restore the
+# module to _CLIENT_MODULES, and restore the call below.
+#
+#     def _register():
+#         from .api_registry import register_client
+#         register_client("ssrn", SsrnClient)
+#
+#     _register()

@@ -19,7 +19,7 @@ const RepositorySelector: React.FC<Props> = ({ mode, value, onChange }) => {
       .catch(() => {
         setRepositories([
           'arxiv', 'biorxiv', 'core', 'crossref', 'datacite', 'dblp', 'doaj',
-          'eric', 'europepmc', 'hal', 'ieee', 'inspire_hep', 'medrxiv', 'nasa_ads',
+          'eric', 'europepmc', 'hal', 'inspire_hep', 'medrxiv', 'nasa_ads',
           'openaire', 'openalex', 'osti', 'plos', 'pubmed', 'semantic_scholar',
           'springer', 'zenodo',
         ]);
@@ -36,7 +36,7 @@ const RepositorySelector: React.FC<Props> = ({ mode, value, onChange }) => {
       <div className="form-field">
         <label className="form-label">
           Repository
-          <InfoTooltip text="The single scholarly repository to query. Keyed repositories (CORE, IEEE Xplore, NASA ADS) will prompt you for an ephemeral API key if none is stored. See the Repositories page for subject coverage and rate limits." />
+          <InfoTooltip text="The single scholarly repository to query. Keyed repositories (CORE, NASA ADS, Springer Nature) will prompt you for an ephemeral API key if none is stored. See the Repositories page for subject coverage and rate limits." />
         </label>
         <select
           className="form-select"

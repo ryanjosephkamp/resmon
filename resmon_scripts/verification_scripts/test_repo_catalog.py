@@ -17,21 +17,21 @@ from implementation_scripts.repo_catalog import (
 
 EXPECTED_SLUGS = {
     "arxiv", "biorxiv", "core", "crossref", "datacite", "dblp", "doaj",
-    "eric", "europepmc", "hal", "ieee", "inspire_hep", "medrxiv", "nasa_ads",
+    "eric", "europepmc", "hal", "inspire_hep", "medrxiv", "nasa_ads",
     "openaire", "openalex", "osti", "plos", "pubmed", "semantic_scholar",
     "springer", "zenodo",
 }
 
 EXPECTED_CREDENTIAL_NAMES = {
-    "core_api_key", "ieee_api_key", "nasa_ads_api_key",
+    "core_api_key", "nasa_ads_api_key",
     "pubmed_api_key", "semantic_scholar_api_key", "springer_api_key",
 }
 
 
-def test_catalog_has_twenty_two_entries():
-    """The active catalog should contain exactly 22 entries."""
+def test_catalog_has_twenty_one_entries():
+    """The active catalog should contain exactly 21 entries."""
     # RePEc/SSRN are excluded by policy and must not appear.
-    assert len(REPOSITORY_CATALOG) == 22
+    assert len(REPOSITORY_CATALOG) == 21
 
 
 def test_catalog_slugs_match_expected():
@@ -72,7 +72,7 @@ def test_credential_names_helper():
 def test_required_credential_for():
     """required_credential_for returns the credential name for required repos only."""
     assert required_credential_for("core") == "core_api_key"
-    assert required_credential_for("ieee") == "ieee_api_key"
+    assert required_credential_for("ieee") is None  # retired in v1.8.1
     # "recommended" / "optional" / "none" do not count as "required"
     assert required_credential_for("semantic_scholar") is None
     assert required_credential_for("pubmed") is None
@@ -82,7 +82,7 @@ def test_required_credential_for():
 def test_catalog_as_dicts_shape():
     """catalog_as_dicts returns JSON-serializable dicts with expected keys."""
     dicts = catalog_as_dicts()
-    assert len(dicts) == 22
+    assert len(dicts) == 21
     expected_keys = {
         "slug", "name", "description", "subject_coverage", "endpoint",
         "query_method", "rate_limit", "client_module", "api_key_requirement",

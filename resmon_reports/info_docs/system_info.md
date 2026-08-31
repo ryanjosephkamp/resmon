@@ -196,7 +196,7 @@ The `admission` singleton (`implementation_scripts/admission.py`, `ExecutionAdmi
 
 Cross-cutting responsibilities:
 
-- **Required-credentials gate** — the `_REQUIRED_CREDENTIALS` table maps repositories that cannot return any results without a key (`core`, `ieee`, `nasa_ads`, `springer`) to their credential name. Missing credentials short-circuit the repo with a user-visible error.
+- **Required-credentials gate** — the `_REQUIRED_CREDENTIALS` table maps repositories that cannot return any results without a key (`core`, `nasa_ads`, `springer`) to their credential name. Missing credentials short-circuit the repo with a user-visible error.
 - **Cooperative cancellation** — `_search_with_heartbeat` polls `progress_store`'s cancel flag on a 2-second heartbeat; `_ExecutionCancelled` is caught by `_handle_cancellation` to persist a partial report.
 - **Optional auto-backup** — `_maybe_auto_backup` invokes `cloud_storage.upload_directory` when the `cloud_auto_backup` setting is true and a Google Drive token is present.
 - **Per-execution task log** — `TaskLogger` writes structured per-execution logs under `resmon_reports/logs/` (see `results_and_logs_info.md`).
@@ -229,7 +229,7 @@ Two distinct cloud surfaces exist and must not be conflated:
 - `AI_CREDENTIAL_NAMES` — `openai_api_key`, `anthropic_api_key`, `google_api_key`, `xai_api_key`, `meta_api_key`, `deepseek_api_key`, `alibaba_api_key`, `custom_llm_api_key` (ADQ-AI9).
 - `SMTP_CREDENTIAL_NAMES` — `smtp_password`.
 
-Additional repository credentials (`core_api_key`, `ieee_api_key`, `nasa_ads_api_key`, `springer_api_key`, plus any optional/recommended keys from the catalog) are whitelisted via `repo_catalog.credential_names`. Core API: `store_credential`, `get_credential`, `delete_credential`, `validate_api_key`. The ephemeral-key stack (`push_ephemeral`, `pop_ephemeral`, `get_credential_for`) lets Deep Dive / Deep Sweep / Routines pass a per-execution key that lives only in-process, is keyed by `exec_id`, is never logged, and takes precedence over the persisted keyring value (IMPL-23). Credential values are never returned by any GET endpoint; only presence booleans are exposed through `/api/credentials`.
+Additional repository credentials (`core_api_key`, `nasa_ads_api_key`, `springer_api_key`, plus any optional/recommended keys from the catalog) are whitelisted via `repo_catalog.credential_names`. Core API: `store_credential`, `get_credential`, `delete_credential`, `validate_api_key`. The ephemeral-key stack (`push_ephemeral`, `pop_ephemeral`, `get_credential_for`) lets Deep Dive / Deep Sweep / Routines pass a per-execution key that lives only in-process, is keyed by `exec_id`, is never logged, and takes precedence over the persisted keyring value (IMPL-23). Credential values are never returned by any GET endpoint; only presence booleans are exposed through `/api/credentials`.
 
 ### LLM Factory and Provider Whitelist
 

@@ -41,7 +41,6 @@ class _ExecutionCancelled(Exception):
 # to the credential name used by ``credential_manager``.
 _REQUIRED_CREDENTIALS: dict[str, str] = {
     "core": "core_api_key",
-    "ieee": "ieee_api_key",
     "nasa_ads": "nasa_ads_api_key",
     "springer": "springer_api_key",
 }
