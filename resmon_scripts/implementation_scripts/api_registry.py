@@ -91,6 +91,7 @@ def _ensure_loaded():
         "api_datacite",
         "api_dblp",
         "api_doaj",
+        "api_dryad",
         "api_eric",
         "api_europepmc",
         "api_hal",

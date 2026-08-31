@@ -20,6 +20,7 @@ import implementation_scripts.api_pubmed         # noqa: F401
 import implementation_scripts.api_europepmc      # noqa: F401
 from implementation_scripts import api_biorxiv
 from implementation_scripts import api_datacite
+from implementation_scripts import api_dryad
 from implementation_scripts import api_eric
 from implementation_scripts import api_inspire_hep
 from implementation_scripts import api_openaire
@@ -32,7 +33,7 @@ import implementation_scripts.api_nasa_ads       # noqa: F401
 
 TIER_1_REPOS = [
     "arxiv", "crossref", "semantic_scholar", "openalex", "pubmed",
-    "europepmc", "biorxiv", "core", "datacite", "doaj", "dblp", "eric",
+    "europepmc", "biorxiv", "core", "datacite", "doaj", "dblp", "dryad", "eric",
     "inspire_hep", "medrxiv", "nasa_ads", "openaire", "osti", "zenodo",
 ]
 
@@ -612,6 +613,137 @@ def test_medrxiv_search_returns_empty_on_timeout(monkeypatch):
     monkeypatch.setattr(api_biorxiv, "safe_request", _timeout)
 
     assert get_client("medrxiv").search(query="cardiac", max_results=1) == []
+
+
+def _dryad_record(
+    dataset_id="doi:10.5061/dryad.ab12cd34",
+    *,
+    title="Climate observations dataset",
+):
+    return {
+        "id": dataset_id,
+        "title": title,
+        "authors": [
+            {
+                "firstName": "Jane",
+                "lastName": "Doe",
+                "email": "jane@example.edu",
+            },
+            {"firstName": "Priya", "lastName": "Rao"},
+        ],
+        "abstract": "Measurements collected from field stations.",
+        "publicationDate": "2024-01-15",
+        "keywords": ["climate", "observations"],
+    }
+
+
+def _dryad_payload(records, *, total=None):
+    if total is None:
+        total = len(records)
+    return {
+        "_embedded": {"stash:datasets": records},
+        "total": total,
+    }
+
+
+def test_dryad_search_sends_date_params_and_normalizes_without_emails(monkeypatch):
+    calls = []
+
+    def _request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return _FakeResponse(payload=_dryad_payload([_dryad_record()]))
+
+    monkeypatch.setattr(api_dryad, "safe_request", _request)
+
+    results = get_client("dryad").search(
+        query="climate data",
+        date_from="2024-01-01",
+        date_to="2024-01-31",
+        max_results=5,
+    )
+
+    assert calls == [(
+        "GET",
+        "https://datadryad.org/api/v2/search",
+        {
+            "params": {
+                "q": "climate data",
+                "publishedSince": "2024-01-01",
+                "publishedBefore": "2024-01-31",
+                "page": 1,
+                "per_page": 5,
+            },
+            "rate_limiter": api_dryad._RATE_LIMITER,
+        },
+    )]
+    assert results == [NormalizedResult(
+        source_repository="dryad",
+        external_id="doi:10.5061/dryad.ab12cd34",
+        doi="10.5061/dryad.ab12cd34",
+        title="Climate observations dataset",
+        authors=["Jane Doe", "Priya Rao"],
+        abstract="Measurements collected from field stations.",
+        publication_date="2024-01-15",
+        url="https://doi.org/10.5061/dryad.ab12cd34",
+        categories=["climate", "observations"],
+    )]
+
+
+def test_dryad_search_pages_at_documented_limit(monkeypatch):
+    requested = []
+    records = [
+        _dryad_record(dataset_id=f"doi:10.5061/dryad.{index:08d}")
+        for index in range(101)
+    ]
+
+    def _request(method, url, **kwargs):
+        params = kwargs["params"]
+        requested.append((params["page"], params["per_page"]))
+        start = (params["page"] - 1) * params["per_page"]
+        return _FakeResponse(payload=_dryad_payload(
+            records[start:start + params["per_page"]], total=len(records),
+        ))
+
+    monkeypatch.setattr(api_dryad, "safe_request", _request)
+
+    results = get_client("dryad").search(query="climate", max_results=101)
+
+    assert requested == [(1, 100), (2, 100)]
+    assert [result.external_id for result in results] == [
+        f"doi:10.5061/dryad.{index:08d}" for index in range(101)
+    ]
+
+
+def test_dryad_search_skips_malformed_records(monkeypatch):
+    valid = _dryad_record(dataset_id="doi:10.5061/dryad.valid")
+    monkeypatch.setattr(
+        api_dryad,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=_dryad_payload([
+            {"id": "doi:10.5061/dryad.no-title"},
+            {"title": "No stable identifier"},
+            valid,
+        ])),
+    )
+
+    results = get_client("dryad").search(query="climate", max_results=5)
+
+    assert [result.external_id for result in results] == ["doi:10.5061/dryad.valid"]
+
+
+@pytest.mark.parametrize("response", [
+    _FakeResponse(status_code=503),
+    TimeoutError("upstream timed out"),
+])
+def test_dryad_search_returns_empty_on_upstream_failure(monkeypatch, response):
+    def _request(*args, **kwargs):
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(api_dryad, "safe_request", _request)
+
+    assert get_client("dryad").search(query="climate") == []
 
 
 def _zenodo_record(
@@ -1569,6 +1701,17 @@ def test_osti_search_respects_publication_date_window():
         and date_from <= result.publication_date <= date_to
         for result in results
     )
+
+
+@pytest.mark.live_network
+def test_dryad_search_returns_normalized_results_when_available():
+    """Dryad search returns normalized records when the public API has matches."""
+    results = get_client("dryad").search(query="climate", max_results=3)
+
+    assert isinstance(results, list)
+    if results:
+        assert all(isinstance(result, NormalizedResult) for result in results)
+        assert all(result.source_repository == "dryad" for result in results)
 
 
 @pytest.mark.live_network
