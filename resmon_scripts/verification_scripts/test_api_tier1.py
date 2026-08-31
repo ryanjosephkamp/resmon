@@ -818,16 +818,19 @@ def test_ndl_search_refuses_unbounded_large_request_without_calling_upstream(mon
     assert calls == []
 
 
-def test_ndl_search_fails_closed_when_one_day_still_exceeds_retrieval_ceiling(monkeypatch):
+def test_ndl_search_fails_closed_when_one_day_still_exceeds_retrieval_ceiling(monkeypatch, caplog):
     monkeypatch.setattr(
         api_ndl_search,
         "safe_request",
-        lambda *args, **kwargs: _ndl_xml_response([], total=501),
+        lambda *args, **kwargs: _ndl_xml_response(
+            ["<record/>" for _ in range(500)], total=501,
+        ),
     )
 
     assert api_ndl_search.NDLSearchClient().search(
         query="history", date_from="2024-01-01", date_to="2024-01-01", max_results=501,
     ) == []
+    assert "exceeding the documented 500-record ceiling" in caplog.text
 
 
 def test_ndl_search_honors_small_requested_cap_without_partitioning(monkeypatch):
