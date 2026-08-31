@@ -236,3 +236,91 @@ def test_worker_thread_does_not_reuse_the_request_connection():
     assert observed["engine_db_id"] == observed["worker_conn_id"], (
         "engine.db was not rebound to the worker's own connection"
     )
+
+
+# ---------------------------------------------------------------------------
+# close_db must not close a connection out from under a live thread
+# ---------------------------------------------------------------------------
+#
+# Found 2026-08-31 in the v1.8.1 release CI. test_e2e_ai_summarization passed,
+# then the suite died with SIGSEGV inside close_db during fixture teardown
+# while an execution worker was still running. It reproduced once in
+# twenty-five runs, which is precisely why the guarantee belongs in close_db
+# rather than in the harness that joins the workers -- a join that times out
+# used to fail silently, and daemon.py calls close_db on shutdown without
+# joining anything at all.
+#
+# The race cannot be reproduced by waiting for it, so these tests force the
+# exact interleaving with an event.
+
+def test_close_db_leaves_a_live_threads_connection_open():
+    """A connection whose owner is still running must survive close_db().
+
+    Closing it is not an error that raises -- sqlite3 is handed a connection
+    another thread may be mid-statement on, and the process dies. So the
+    assertion is that the connection is still *usable* afterwards.
+    """
+    opened: list[sqlite3.Connection] = []
+    ready = threading.Event()
+    release = threading.Event()
+    still_usable: list[bool] = []
+
+    def worker() -> None:
+        conn = resmon_mod._get_db()
+        opened.append(conn)
+        ready.set()
+        release.wait(10)
+        try:
+            conn.execute("SELECT 1").fetchone()
+            still_usable.append(True)
+        except Exception:
+            still_usable.append(False)
+
+    thread = threading.Thread(target=worker, name="exec-close-db-race")
+    thread.start()
+    assert ready.wait(10), "worker never opened its connection"
+
+    # The worker is parked and alive; this is the window that used to segfault.
+    resmon_mod.close_db()
+
+    release.set()
+    thread.join(10)
+    assert not thread.is_alive()
+
+    assert still_usable == [True], (
+        "close_db closed a connection belonging to a running thread"
+    )
+
+
+def test_a_deferred_connection_is_closed_by_the_next_call():
+    """Deferring must not leak: the next close_db() collects it."""
+    opened: list[sqlite3.Connection] = []
+    ready = threading.Event()
+    release = threading.Event()
+
+    def worker() -> None:
+        opened.append(resmon_mod._get_db())
+        ready.set()
+        release.wait(10)
+
+    thread = threading.Thread(target=worker, name="exec-deferred-close")
+    thread.start()
+    assert ready.wait(10)
+
+    resmon_mod.close_db()          # defers the worker's connection
+    release.set()
+    thread.join(10)
+    assert not thread.is_alive()
+
+    resmon_mod.close_db()          # owner is gone; must collect it now
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        opened[0].execute("SELECT 1")
+
+
+def test_close_db_still_closes_the_calling_threads_own_connection():
+    """The guard is about *other* threads; our own connection always closes."""
+    conn = resmon_mod._get_db()
+    resmon_mod.close_db()
+    with pytest.raises(sqlite3.ProgrammingError):
+        conn.execute("SELECT 1")
