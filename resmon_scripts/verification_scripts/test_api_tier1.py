@@ -39,7 +39,7 @@ TIER_1_REPOS = [
 
 
 def test_all_tier1_registered():
-    """All 18 Tier 1 repositories are registered in the client registry."""
+    """All 19 Tier 1 repositories are registered in the client registry."""
     repos = list_repositories()
     for name in TIER_1_REPOS:
         assert name in repos, f"Missing Tier 1 client: {name}"
@@ -616,12 +616,13 @@ def test_medrxiv_search_returns_empty_on_timeout(monkeypatch):
 
 
 def _dryad_record(
-    dataset_id="doi:10.5061/dryad.ab12cd34",
+    dataset_id=12345,
     *,
     title="Climate observations dataset",
 ):
     return {
         "id": dataset_id,
+        "identifier": "doi:10.5061/dryad.ab12cd34",
         "title": title,
         "authors": [
             {
@@ -631,7 +632,7 @@ def _dryad_record(
             },
             {"firstName": "Priya", "lastName": "Rao"},
         ],
-        "abstract": "Measurements collected from field stations.",
+        "abstract": "<p>Measurements &amp; observations from <strong>field stations</strong>.</p>",
         "publicationDate": "2024-01-15",
         "keywords": ["climate", "observations"],
     }
@@ -682,7 +683,7 @@ def test_dryad_search_sends_date_params_and_normalizes_without_emails(monkeypatc
         doi="10.5061/dryad.ab12cd34",
         title="Climate observations dataset",
         authors=["Jane Doe", "Priya Rao"],
-        abstract="Measurements collected from field stations.",
+        abstract="Measurements & observations from field stations.",
         publication_date="2024-01-15",
         url="https://doi.org/10.5061/dryad.ab12cd34",
         categories=["climate", "observations"],
@@ -692,7 +693,10 @@ def test_dryad_search_sends_date_params_and_normalizes_without_emails(monkeypatc
 def test_dryad_search_pages_at_documented_limit(monkeypatch):
     requested = []
     records = [
-        _dryad_record(dataset_id=f"doi:10.5061/dryad.{index:08d}")
+        {
+            **_dryad_record(dataset_id=index),
+            "identifier": f"doi:10.5061/dryad.{index:08d}",
+        }
         for index in range(101)
     ]
 
@@ -715,7 +719,10 @@ def test_dryad_search_pages_at_documented_limit(monkeypatch):
 
 
 def test_dryad_search_skips_malformed_records(monkeypatch):
-    valid = _dryad_record(dataset_id="doi:10.5061/dryad.valid")
+    valid = {
+        **_dryad_record(dataset_id=12346),
+        "identifier": "doi:10.5061/dryad.valid",
+    }
     monkeypatch.setattr(
         api_dryad,
         "safe_request",
@@ -1709,9 +1716,9 @@ def test_dryad_search_returns_normalized_results_when_available():
     results = get_client("dryad").search(query="climate", max_results=3)
 
     assert isinstance(results, list)
-    if results:
-        assert all(isinstance(result, NormalizedResult) for result in results)
-        assert all(result.source_repository == "dryad" for result in results)
+    assert results
+    assert all(isinstance(result, NormalizedResult) for result in results)
+    assert all(result.source_repository == "dryad" for result in results)
 
 
 @pytest.mark.live_network

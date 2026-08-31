@@ -1,6 +1,7 @@
 """Dryad dataset search client."""
 
 import logging
+from html.parser import HTMLParser
 
 from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
 
@@ -11,6 +12,42 @@ _DRYAD_API_URL = "https://datadryad.org/api/v2/search"
 # Dryad documents no numeric API limit. One request per second is deliberately
 # conservative for its public, unauthenticated search endpoint.
 _RATE_LIMITER = RateLimiter(requests_per_second=1.0)
+
+
+class _DescriptionParser(HTMLParser):
+    """Extract readable text from Dryad's HTML abstracts."""
+
+    _BLOCK_TAGS = {
+        "br", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "p", "tr",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in self._BLOCK_TAGS:
+            self._parts.append(" ")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._BLOCK_TAGS:
+            self._parts.append(" ")
+
+    def handle_data(self, data: str) -> None:
+        self._parts.append(data)
+
+    def text(self) -> str:
+        return " ".join("".join(self._parts).split())
+
+
+def _strip_html(value: str | None) -> str | None:
+    """Mirror the existing Zenodo description normalization behaviour."""
+    if not value:
+        return None
+    parser = _DescriptionParser()
+    parser.feed(value)
+    parser.close()
+    return parser.text() or None
 
 
 class DryadClient(BaseAPIClient):
@@ -98,13 +135,24 @@ class DryadClient(BaseAPIClient):
             logger.warning("Dryad record was not an object; skipping it")
             return None
 
+        raw_identifier = record.get("identifier")
         raw_id = record.get("id")
         title = record.get("title")
-        if not isinstance(raw_id, str) or not raw_id.strip() or not isinstance(title, str) or not title.strip():
+        if not isinstance(title, str) or not title.strip():
             logger.warning("Dryad record has no stable id or title; skipping it")
             return None
 
-        external_id = raw_id.strip()
+        if isinstance(raw_identifier, str) and raw_identifier.strip():
+            external_id = raw_identifier.strip()
+        elif isinstance(raw_id, (str, int)) and not isinstance(raw_id, bool):
+            external_id = str(raw_id).strip()
+        else:
+            logger.warning("Dryad record has no stable id or title; skipping it")
+            return None
+        if not external_id:
+            logger.warning("Dryad record has no stable id or title; skipping it")
+            return None
+
         doi = external_id.removeprefix("doi:") if external_id.startswith("doi:") else None
         authors = DryadClient._author_names(record.get("authors"))
         abstract = record.get("abstract")
@@ -117,7 +165,7 @@ class DryadClient(BaseAPIClient):
             doi=doi,
             title=title.strip(),
             authors=authors,
-            abstract=abstract.strip() if isinstance(abstract, str) and abstract.strip() else None,
+            abstract=_strip_html(abstract if isinstance(abstract, str) else None),
             publication_date=(
                 publication_date.strip()
                 if isinstance(publication_date, str) and publication_date.strip()

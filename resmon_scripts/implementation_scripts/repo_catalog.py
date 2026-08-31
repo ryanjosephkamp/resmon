@@ -246,7 +246,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         registration_url=None,
         upstream_policy="No published numeric API rate limit; resmon uses a conservative shared ceiling",
         parallel_safe="Yes",
-        notes="Search metadata describes CC0 datasets. Citation is recommended, not required.",
+        notes=(
+            "Dryad publishes accepted datasets under CC0 for reuse: "
+            "https://datadryad.org/publication_policy. Citation is recommended, "
+            "not required: https://dev.datadryad.org/help/guides/reuse."
+        ),
         keyword_combination="Implicit AND",
         keyword_combination_notes="Dryad's OpenAPI /search documentation says multiple q terms return only items containing all terms.",
     ),
