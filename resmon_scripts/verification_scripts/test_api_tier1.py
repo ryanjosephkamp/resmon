@@ -64,6 +64,8 @@ def _nist_rmm_record(
     publication_date="2024-01-15",
     url="https://data.nist.gov/papers/nist-papers-1234",
 ):
+    # These are provisional item aliases for unit fixtures. The current RMM
+    # OpenAPI describes the response envelope, not an item-field schema.
     return {
         "doi": doi,
         "ediid": ediid,
@@ -86,7 +88,7 @@ def _nist_rmm_payload(records, *, total=None):
     }
 
 
-def test_nist_rmm_search_uses_documented_params_and_normalizes_doi_record(monkeypatch):
+def test_nist_rmm_search_uses_openapi_params_and_normalizes_fixture_doi_record(monkeypatch):
     calls = []
 
     def _request(method, url, **kwargs):
@@ -190,10 +192,10 @@ def test_nist_rmm_search_applies_upper_date_bound_locally_and_skips_unknown_date
     assert [result.external_id for result in results] == ["10.18434/inside"]
 
 
-def test_nist_rmm_search_uses_documented_ediid_when_doi_is_not_valid(monkeypatch):
+def test_nist_rmm_search_uses_raw_fixture_ediid_when_doi_is_not_valid(monkeypatch):
     record = _nist_rmm_record(
         doi="not a doi",
-        ediid="nist-papers-5678",
+        ediid="  nist-papers-5678  ",
         url="https://data.nist.gov/papers/nist-papers-5678",
     )
     monkeypatch.setattr(
@@ -206,7 +208,7 @@ def test_nist_rmm_search_uses_documented_ediid_when_doi_is_not_valid(monkeypatch
 
     assert results == [NormalizedResult(
         source_repository="nist_rmm",
-        external_id="ediid:nist-papers-5678",
+        external_id="  nist-papers-5678  ",
         doi=None,
         title="NIST materials measurement paper",
         authors=["Doe, Jane", "Rao, Priya"],

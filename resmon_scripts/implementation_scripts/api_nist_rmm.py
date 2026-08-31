@@ -17,9 +17,13 @@ _RATE_LIMITER = RateLimiter(requests_per_second=0.5)
 
 _DOI = re.compile(r"^10\.\d{4,9}/[-._;()/:a-z0-9]+$", re.IGNORECASE)
 
+# The official RMM OpenAPI defines the ResultData envelope but leaves each
+# item's shape unspecified. These aliases are cautious fixture-only parsing
+# candidates, not live-observed fields or OpenAPI schema guarantees.
+
 
 def _date_value(value: object) -> str | None:
-    """Return a day-granular ISO date only when the source value proves one."""
+    """Return a day-granular date only when a fixture alias contains one."""
     if not isinstance(value, str):
         return None
     candidate = value.strip()[:10]
@@ -43,14 +47,14 @@ def _doi(value: object) -> str | None:
 
 
 def _stable_identifier(record: dict[str, object]) -> tuple[str, str | None] | None:
-    """Prefer DOI, then the RMM-documented EDIID or ARK record identifiers."""
+    """Prefer a canonical DOI, then nonblank provisional fixture aliases."""
     doi = _doi(record.get("doi"))
     if doi:
         return doi, doi
 
     ediid = record.get("ediid")
     if isinstance(ediid, str) and ediid.strip():
-        return f"ediid:{ediid.strip()}", None
+        return ediid, None
 
     ark = record.get("ark")
     if isinstance(ark, str) and ark.strip():
@@ -59,14 +63,14 @@ def _stable_identifier(record: dict[str, object]) -> tuple[str, str | None] | No
 
 
 def _authors(value: object) -> list[str]:
-    """Keep only author-name strings supplied directly by the record."""
+    """Keep string names only when the provisional fixture alias supplies them."""
     if not isinstance(value, list):
         return []
     return [author.strip() for author in value if isinstance(author, str) and author.strip()]
 
 
 class NistRmmClient(BaseAPIClient):
-    """Client for the RMM papers endpoint's documented search envelope."""
+    """Client for the documented RMM envelope and cautious fixture aliases."""
 
     def get_name(self) -> str:
         return "NIST Resource Metadata Management"
@@ -201,8 +205,9 @@ class NistRmmClient(BaseAPIClient):
         elif isinstance(record_url, str) and record_url.startswith(("https://", "http://")):
             url = record_url
         else:
-            # RMM's current OpenAPI does not document a record landing-page
-            # field. Do not invent one from an identifier or API path.
+            # The current OpenAPI specifies only the response envelope, so it does
+            # not guarantee a landing-page alias. Do not invent one from an
+            # identifier or API path.
             url = ""
 
         return NormalizedResult(
