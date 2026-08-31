@@ -92,7 +92,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 20 active repositories.
+# Catalog — 21 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -230,6 +230,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="",
         keyword_combination="Relevance-ranked (Lucene OR default)",
         keyword_combination_notes="DOAJ uses a Lucene-style URL path whose default operator is OR; results are returned in relevance-scored order.",
+    ),
+    _entry(
+        slug="eric",
+        name="ERIC",
+        description="Education research and information index maintained by the U.S. Department of Education",
+        subject_coverage="Education research / Policy / Practice",
+        endpoint="https://api.ies.ed.gov/eric/",
+        query_method="GET JSON served as text/plain with upstream publication-year filtering",
+        rate_limit="0.5 req/s (conservative; no published API limit)",
+        client_module="api_eric.py",
+        requirement="none",
+        credential_name=None,
+        website="https://eric.ed.gov",
+        registration_url=None,
+        upstream_policy="No published numeric rate limit; resmon waits two seconds between requests",
+        parallel_safe="Yes",
+        notes="ERIC documents metadata download for database use. Only publication year is searchable, so resmon preserves year-only precision and does not claim a narrower match.",
+        keyword_combination="Implicit OR",
+        keyword_combination_notes="ERIC documents OR as the default between unmarked terms, with stemming. Explicit AND is required when every term must match.",
     ),
     _entry(
         slug="europepmc",

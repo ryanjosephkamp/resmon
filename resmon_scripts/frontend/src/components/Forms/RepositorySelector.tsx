@@ -19,7 +19,7 @@ const RepositorySelector: React.FC<Props> = ({ mode, value, onChange }) => {
       .catch(() => {
         setRepositories([
           'arxiv', 'biorxiv', 'core', 'crossref', 'datacite', 'dblp', 'doaj',
-          'europepmc', 'hal', 'ieee', 'inspire_hep', 'medrxiv', 'nasa_ads',
+          'eric', 'europepmc', 'hal', 'ieee', 'inspire_hep', 'medrxiv', 'nasa_ads',
           'openaire', 'openalex', 'plos', 'pubmed', 'semantic_scholar',
           'springer', 'zenodo',
         ]);

@@ -20,6 +20,7 @@ import implementation_scripts.api_pubmed         # noqa: F401
 import implementation_scripts.api_europepmc      # noqa: F401
 from implementation_scripts import api_biorxiv
 from implementation_scripts import api_datacite
+from implementation_scripts import api_eric
 from implementation_scripts import api_inspire_hep
 from implementation_scripts import api_openaire
 from implementation_scripts import api_zenodo
@@ -30,13 +31,13 @@ import implementation_scripts.api_nasa_ads       # noqa: F401
 
 TIER_1_REPOS = [
     "arxiv", "crossref", "semantic_scholar", "openalex", "pubmed",
-    "europepmc", "biorxiv", "core", "datacite", "doaj", "dblp",
+    "europepmc", "biorxiv", "core", "datacite", "doaj", "dblp", "eric",
     "inspire_hep", "medrxiv", "nasa_ads", "openaire", "zenodo",
 ]
 
 
 def test_all_tier1_registered():
-    """All 16 Tier 1 repositories are registered in the client registry."""
+    """All 17 Tier 1 repositories are registered in the client registry."""
     repos = list_repositories()
     for name in TIER_1_REPOS:
         assert name in repos, f"Missing Tier 1 client: {name}"
@@ -52,7 +53,7 @@ def test_each_client_instantiates():
 class _FakeResponse:
     def __init__(self, status_code=200, payload=None):
         self.status_code = status_code
-        self._payload = payload or {}
+        self._payload = {} if payload is None else payload
 
     def json(self):
         return self._payload
@@ -281,6 +282,258 @@ def test_datacite_search_returns_empty_on_timeout(monkeypatch):
     monkeypatch.setattr(api_datacite, "safe_request", _timeout)
 
     assert api_datacite.DataCiteClient().search(query="climate") == []
+
+
+def _eric_doc(
+    eric_id="EJ1234567",
+    *,
+    title="Teachers&apos; climate learning",
+    publication_date=2024,
+    include_optional=True,
+):
+    doc = {
+        "id": eric_id,
+        "title": title,
+        "publicationdateyear": publication_date,
+    }
+    if include_optional:
+        doc.update({
+            "author": ["Doe, Jane", "Rao, Priya"],
+            "description": "An &amp; abstract.",
+            "subject": [f"subject-{index}" for index in range(1, 12)],
+            "publicationtype": ["Journal Articles", "Reports - Research"],
+            "url": "http://dx.doi.org/10.1000/eric.1",
+        })
+    return doc
+
+
+def _eric_payload(docs, *, total=None, start=0):
+    if total is None:
+        total = len(docs)
+    return {
+        "response": {
+            "numFound": total,
+            "start": start,
+            "numFoundExact": True,
+            "docs": docs,
+        },
+    }
+
+
+def test_eric_search_builds_year_query_and_normalizes_text_plain_json(monkeypatch):
+    calls = []
+
+    def _request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return _FakeResponse(payload=_eric_payload([_eric_doc()]))
+
+    monkeypatch.setattr(api_eric, "safe_request", _request)
+
+    results = api_eric.EricClient().search(
+        query="climate education",
+        date_from="2024-01-01",
+        date_to="2024-12-31",
+        max_results=5,
+    )
+
+    assert calls == [(
+        "GET",
+        "https://api.ies.ed.gov/eric/",
+        {
+            "params": {
+                "search": "(climate education) AND publicationdateyear:2024",
+                "format": "json",
+                "start": 0,
+                "rows": 5,
+                "fields": (
+                    "id,title,author,description,publicationdateyear,subject,"
+                    "url"
+                ),
+            },
+            "rate_limiter": api_eric._RATE_LIMITER,
+        },
+    )]
+    assert api_eric._RATE_LIMITER._interval == pytest.approx(2.0)
+    assert results == [NormalizedResult(
+        source_repository="eric",
+        external_id="EJ1234567",
+        doi="10.1000/eric.1",
+        title="Teachers' climate learning",
+        authors=["Doe, Jane", "Rao, Priya"],
+        abstract="An & abstract.",
+        publication_date="2024",
+        url="https://eric.ed.gov/?id=EJ1234567",
+        categories=[f"subject-{index}" for index in range(1, 11)],
+    )]
+
+
+def test_eric_search_keeps_rows_constant_across_offsets(monkeypatch):
+    requested = []
+    docs = [
+        _eric_doc(eric_id=f"EJ{index:07d}", include_optional=False)
+        for index in range(1, 2002)
+    ]
+
+    def _request(method, url, **kwargs):
+        params = kwargs["params"]
+        start = params["start"]
+        rows = params["rows"]
+        requested.append((start, rows))
+        page_docs = docs[start:start + rows]
+        return _FakeResponse(payload=_eric_payload(
+            page_docs, total=len(docs), start=start,
+        ))
+
+    monkeypatch.setattr(api_eric, "safe_request", _request)
+
+    results = api_eric.EricClient().search(
+        query="education", max_results=2001,
+    )
+
+    assert requested == [(0, 2000), (2000, 2000)]
+    assert [result.external_id for result in results] == [
+        f"EJ{index:07d}" for index in range(1, 2002)
+    ]
+
+
+def test_eric_search_does_not_claim_year_only_date_fits_partial_window(monkeypatch):
+    calls = []
+
+    def _request(*args, **kwargs):
+        calls.append(kwargs["params"]["start"])
+        return _FakeResponse(payload=_eric_payload(
+            [_eric_doc(publication_date=2024)], total=3,
+            start=kwargs["params"]["start"],
+        ))
+
+    monkeypatch.setattr(
+        api_eric,
+        "safe_request",
+        _request,
+    )
+
+    results = api_eric.EricClient().search(
+        query="education",
+        date_from="2024-01-01",
+        date_to="2024-01-31",
+        max_results=5,
+    )
+
+    assert results == []
+    assert calls == []
+
+
+def test_eric_search_rejects_reversed_date_window_without_request(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        api_eric,
+        "safe_request",
+        lambda *args, **kwargs: calls.append(kwargs),
+    )
+
+    results = api_eric.EricClient().search(
+        query="education",
+        date_from="2025-01-01",
+        date_to="2024-12-31",
+        max_results=5,
+    )
+
+    assert results == []
+    assert calls == []
+
+
+def test_eric_search_expands_year_only_request_bounds(monkeypatch):
+    monkeypatch.setattr(
+        api_eric,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload=_eric_payload([_eric_doc(publication_date=2024)]),
+        ),
+    )
+
+    results = api_eric.EricClient().search(
+        query="education",
+        date_from="2024",
+        date_to="2024",
+        max_results=5,
+    )
+
+    assert [result.publication_date for result in results] == ["2024"]
+
+
+def test_eric_search_skips_malformed_and_allows_optional_fields(monkeypatch):
+    malformed = _eric_doc(eric_id="EJ0000001")
+    malformed["title"] = ""
+    valid = _eric_doc(
+        eric_id="ED7654321",
+        title="A government report",
+        publication_date="2023",
+        include_optional=False,
+    )
+    monkeypatch.setattr(
+        api_eric,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload=_eric_payload([malformed, valid]),
+        ),
+    )
+
+    results = api_eric.EricClient().search(query="education", max_results=5)
+
+    assert results == [NormalizedResult(
+        source_repository="eric",
+        external_id="ED7654321",
+        doi=None,
+        title="A government report",
+        authors=[],
+        abstract=None,
+        publication_date="2023",
+        url="https://eric.ed.gov/?id=ED7654321",
+        categories=[],
+    )]
+
+
+def test_eric_search_returns_empty_when_upstream_has_no_hits(monkeypatch):
+    monkeypatch.setattr(
+        api_eric,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload=_eric_payload([], total=0),
+        ),
+    )
+
+    assert api_eric.EricClient().search(query="no-such-result") == []
+
+
+@pytest.mark.parametrize("payload", [[], {}, {"response": {"docs": {}}}])
+def test_eric_search_logs_malformed_success_payload(monkeypatch, caplog, payload):
+    monkeypatch.setattr(
+        api_eric,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=payload),
+    )
+
+    assert api_eric.EricClient().search(query="education") == []
+    assert "response" in caplog.text.lower()
+
+
+def test_eric_search_returns_empty_on_non_200(monkeypatch):
+    monkeypatch.setattr(
+        api_eric,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(status_code=503),
+    )
+
+    assert api_eric.EricClient().search(query="education") == []
+
+
+def test_eric_search_returns_empty_on_timeout(monkeypatch):
+    def _timeout(*args, **kwargs):
+        raise TimeoutError("upstream timed out")
+
+    monkeypatch.setattr(api_eric, "safe_request", _timeout)
+
+    assert api_eric.EricClient().search(query="education") == []
 
 
 def _medrxiv_payload(*, title="Cardiac outcomes", abstract="Cardiac health"):
@@ -1041,6 +1294,22 @@ def test_datacite_search_respects_publication_year_window():
         and result.publication_date[:4] == "2024"
         for result in results
     )
+
+
+@pytest.mark.live_network
+def test_eric_search_respects_publication_year_window():
+    """ERIC returns publication metadata inside the requested full year."""
+    results = get_client("eric").search(
+        query="climate",
+        max_results=3,
+        date_from="2024-01-01",
+        date_to="2024-12-31",
+    )
+
+    assert results
+    assert all(isinstance(result, NormalizedResult) for result in results)
+    assert all(result.source_repository == "eric" for result in results)
+    assert all(result.publication_date == "2024" for result in results)
 
 
 @pytest.mark.live_network
