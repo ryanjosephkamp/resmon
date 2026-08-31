@@ -448,6 +448,7 @@ def credentials_presence():
 # through ``engine.config["ai_settings"]`` (request-body payload) and wins
 # on merge.
 _AI_SETTING_KEYS: tuple[str, ...] = (
+    "ai_chain",
     "ai_provider",
     "ai_model",
     "ai_local_model",
@@ -473,6 +474,8 @@ _AI_OVERRIDE_KEY_MAP: dict[str, str] = {
     "tone": "ai_tone",
     "temperature": "ai_temperature",
     "extraction_goals": "ai_extraction_goals",
+    # 1.8b — a routine can override the whole chain, not just the provider.
+    "chain": "ai_chain",
 }
 
 
@@ -580,7 +583,11 @@ def _apply_ai_settings_to_engine(
     # now knows *which* lane it is running, which is what lets it record the
     # attempt in execution_ai. Executing more than one lane is 1.8b.
     chain = resolve_chain(merged)
+    engine.ai_lanes = chain
     engine.ai_lane = chain[0] if chain else None
+    # The engine builds each lane's client lazily, so it needs the
+    # per-execution keys rather than a client built here.
+    engine.ai_ephemeral = ephemeral_credentials or None
 
     try:
         client = build_llm_client_from_settings(
@@ -2595,6 +2602,12 @@ _SETTINGS_GROUPS = {
         # AI tab can restore the user's previously chosen model when they
         # switch providers without re-loading the model list.
         "ai_default_models",
+        # 1.8b — the fallback chain, a JSON list of lane objects. When present
+        # it is the whole chain; ai_provider / ai_model are kept in step with
+        # lane 0 by the Settings tab so an older build (and the report's audit
+        # label) still find what they expect.
+        "ai_chain",
+        "ai_local_endpoint",
     ],
     "cloud": ["cloud_provider", "cloud_auto_backup"],
     "storage": ["pdf_policy", "txt_policy", "archive_after_days", "export_directory"],

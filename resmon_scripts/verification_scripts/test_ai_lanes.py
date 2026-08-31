@@ -437,7 +437,10 @@ def test_a_failing_lane_is_recorded_on_a_real_run(conn, tmp_path):
     assert row["outcome"] == "failed"
     assert row["error_kind"] == "auth"
     assert row["http_status"] == 401
-    assert row["docs_attempted"] == 2
+    # One attempt, not two. `auth` is lane-fatal, so 1.8b demotes the lane
+    # after the first rejection instead of re-presenting a dead key once per
+    # paper. Before chains this read 2; the change is the point.
+    assert row["docs_attempted"] == 1
     assert row["docs_succeeded"] == 0
     assert row["credential_alias"] == "anthropic_api_key"
     assert row["lane_label"] == "Anthropic · claude-3-5-sonnet"

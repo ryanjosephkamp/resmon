@@ -455,13 +455,17 @@ const sections: TutorialSection[] = [
       'Choose a Provider from the whitelist (Anthropic, OpenAI, Google, xAI, Meta, DeepSeek, Alibaba, Local, Custom) and pick a Model.',
       'Set the default `Summary length`, `Tone`, `Temperature`, and `Extraction goals` — each label has an `InfoTooltip` explaining valid values.',
       'Paste your provider API key and click `Test key` to validate; click `Load models` to populate the model dropdown from the live provider.',
+      'Under `If that fails, try…` add optional fallback providers, in order. Leave it empty and resmon behaves exactly as it did before fallbacks existed.',
       'Click `Save` to persist app-wide AI settings; click `Save as default model` to pin the chosen model into `ai_default_models[provider]` so it survives provider switches.',
     ],
     features: [
       'Each provider has its own keyring slot (e.g. `openai_api_key`, `anthropic_api_key`, `custom_llm_api_key`) — switching providers no longer clobbers other providers\' keys.',
       'The Stored API Keys table lets you switch the active provider by clicking its row, clear a per-provider default model, or clear a stored API key.',
+      'Fallback chains (1.8) try each provider in order. A rejected key, an exhausted quota or a missing model retires that provider for the rest of the run; one over-long abstract only falls through for that single paper, so a working provider is never abandoned over one difficult document.',
+      'Every lane attempt is recorded on the execution — which provider was tried, how many papers it summarized, and why it stopped if it did. The report header names the provider that actually produced the summaries, not the one configured first.',
     ],
     tips: [
+      'A good chain puts your best provider first and Ollama last: the local lane needs no key and costs nothing, so it is the natural floor. resmon has no summarizer beyond the lanes you configure — if every lane fails, those papers simply have no AI summary and the execution records why.',
       'For the Custom provider, Save is disabled unless the base URL is HTTPS — except for loopback hosts (`localhost`, `127.0.0.1`, `::1`). The backend `llm_factory` enforces the same rule.',
       'Per-execution AI overrides on Deep Dive, Deep Sweep, and Routines transparently override these defaults via per-field merge; empty override fields fall back to your saved defaults.',
     ],

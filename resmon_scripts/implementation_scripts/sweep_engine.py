@@ -22,11 +22,8 @@ from .database import (
     get_execution_by_id,
     get_setting,
     record_execution_source,
-    start_ai_lane,
-    finish_ai_lane,
 )
 from .logger import TaskLogger
-from .ai_errors import classify_exception
 from .normalizer import normalize_result, validate_result, deduplicate_batch
 from .progress import progress_store
 from .report_generator import generate_report, save_report
@@ -440,7 +437,15 @@ class SweepEngine:
             # be embedded directly in the Markdown report. ``report_docs``
             # is mutated in place with an ``ai_summary`` key per entry.
             ai_model_label: Optional[str] = None
-            if self.llm_client and self.config.get("ai_enabled") and report_docs:
+            ai_lanes = list(getattr(self, "ai_lanes", None) or [])
+            if not ai_lanes:
+                # Pre-chain callers (and tests) set a single lane, or only a
+                # client. Either is a one-lane chain.
+                single = getattr(self, "ai_lane", None)
+                if single is not None:
+                    ai_lanes = [single]
+            ai_possible = bool(ai_lanes) or self.llm_client is not None
+            if ai_possible and self.config.get("ai_enabled") and report_docs:
                 if store.should_cancel(exec_id):
                     return self._handle_cancellation(exec_id, task_log, all_results, wall_start)
 
@@ -456,37 +461,24 @@ class SweepEngine:
                     "timestamp": now_iso(),
                 })
 
-                # Open the execution_ai row before the first call (1.8a).
-                # Written up front on the same reasoning as
-                # ``record_execution_source``: a crash mid-run should still
-                # leave evidence the lane was attempted. A row left at
-                # 'running' is itself a finding.
-                ai_lane = getattr(self, "ai_lane", None)
-                ai_recorded = False
-                if ai_lane is not None:
-                    try:
-                        start_ai_lane(
-                            self.db, exec_id, 0,
-                            lane_label=ai_lane.label,
-                            lane_kind=ai_lane.kind,
-                            provider=ai_lane.provider,
-                            model=ai_lane.model,
-                            credential_alias=ai_lane.credential_alias,
-                        )
-                        ai_recorded = True
-                    except Exception:
-                        # Bookkeeping must never take down a run that is
-                        # otherwise producing summaries.
-                        logger.exception("Could not open execution_ai row")
+                # Run the configured lanes in order (1.8b). The runner owns
+                # client construction, lane demotion, and the execution_ai
+                # rows -- one per lane, which is the shape that table was
+                # built for.
+                from .ai_chain import ChainRunner
+
+                chain = ChainRunner(
+                    ai_lanes,
+                    db=self.db,
+                    exec_id=exec_id,
+                    prompt_params=self.config.get("ai_prompt_params") or {},
+                    ephemeral=getattr(self, "ai_ephemeral", None),
+                    primary_client=self.llm_client,
+                )
 
                 try:
                     task_log.log("Running AI summarization...")
-                    from .summarizer import SummarizationPipeline
                     prompt_params = self.config.get("ai_prompt_params") or {}
-                    pipeline = SummarizationPipeline(
-                        self.llm_client,
-                        prompt_params=prompt_params,
-                    )
 
                     # Build the text each document is summarized from.
                     # Title + abstract is the only body text we reliably
@@ -517,9 +509,6 @@ class SweepEngine:
                     total_chars = 0
                     cancelled_mid_summary = False
                     total_docs = len(doc_texts)
-                    last_ai_error = None
-                    ai_docs_attempted = 0
-                    ai_docs_succeeded = 0
                     for idx, (doc, text) in enumerate(zip(report_docs, doc_texts)):
                         if store.should_cancel(exec_id):
                             cancelled_mid_summary = True
@@ -528,42 +517,27 @@ class SweepEngine:
                                 f"{idx}/{total_docs} documents."
                             )
                             break
-                        ai_docs_attempted += 1
-                        try:
-                            summary = pipeline.summarize_document(text)
-                        except Exception as per_doc_exc:
-                            # Failing one paper should not abort the whole
-                            # batch; the user still wants summaries for the
-                            # others. Log and continue.
-                            #
-                            # The last failure is kept classified (1.8a) so the
-                            # execution_ai row can say *why* rather than just
-                            # how many. Last rather than first: when a lane
-                            # dies partway through, the death is what the user
-                            # needs to see, not an earlier one-off.
-                            last_ai_error = classify_exception(
-                                per_doc_exc,
-                                lane_label=getattr(ai_lane, "label", "") or "",
-                                provider=getattr(ai_lane, "provider", "") or "",
-                                model=getattr(ai_lane, "model", "") or "",
-                                credential_alias=getattr(
-                                    ai_lane, "credential_alias", None),
-                            )
+                        summary, doc_error = chain.summarize_document(text)
+                        if doc_error is not None:
+                            # Every remaining lane failed on this paper. The
+                            # others still get summaries -- one difficult
+                            # abstract is not a reason to abandon the batch --
+                            # and the runner has already classified and
+                            # recorded why, so this only has to say so.
                             task_log.log(
                                 f"AI summary failed for document "
                                 f"{idx + 1}/{total_docs} "
                                 f"({str(doc.get('title') or '')[:60]}): "
-                                f"{per_doc_exc}"
+                                f"{doc_error.kind.value} — {doc_error.message}"
                             )
                             logger.warning(
-                                "AI summary error on document %d: %s",
-                                idx + 1, per_doc_exc,
+                                "AI summary error on document %d (%s): %s",
+                                idx + 1, doc_error.kind.value, doc_error.message,
                             )
                             summary = ""
                         if isinstance(summary, str) and summary.strip():
                             doc["ai_summary"] = summary.strip()
                             total_chars += len(summary)
-                            ai_docs_succeeded += 1
 
                         completed = idx + 1
                         # Log-level progress every doc so the user can
@@ -584,42 +558,36 @@ class SweepEngine:
                             "timestamp": now_iso(),
                         })
 
-                    # Close the execution_ai row with what the lane actually
-                    # achieved (1.8a). 'partial' and 'failed' are held apart
-                    # deliberately: partial is a normal day with one awkward
-                    # abstract, failed is a lane that did not work at all.
-                    if ai_recorded:
-                        if ai_docs_succeeded == ai_docs_attempted:
-                            ai_outcome = "ok"
-                        elif ai_docs_succeeded > 0:
-                            ai_outcome = "partial"
-                        else:
-                            ai_outcome = "failed"
-                        try:
-                            finish_ai_lane(
-                                self.db, exec_id, 0,
-                                outcome=ai_outcome,
-                                docs_attempted=ai_docs_attempted,
-                                docs_succeeded=ai_docs_succeeded,
-                                **(last_ai_error.to_record() if last_ai_error else {}),
+                    # Close every lane's row with what it achieved (1.8b).
+                    # 'partial' and 'failed' stay apart deliberately: partial
+                    # is a normal day with one awkward abstract, failed is a
+                    # lane that did not work at all.
+                    chain.finish()
+                    for lane_row in chain.lane_summaries():
+                        if lane_row["attempted"] or lane_row["reason"]:
+                            task_log.log(
+                                f"AI lane {lane_row['index'] + 1} "
+                                f"({lane_row['label']}): {lane_row['outcome']} "
+                                f"— {lane_row['succeeded']}/{lane_row['attempted']}"
+                                + (f"; {lane_row['reason']}" if lane_row["reason"] else "")
                             )
-                        except Exception:
-                            logger.exception("Could not close execution_ai row")
 
                     if cancelled_mid_summary:
                         return self._handle_cancellation(
                             exec_id, task_log, all_results, wall_start,
                         )
 
-                    # Provider/model label for the report header.
-                    provider = str(prompt_params.get("_audit_provider") or "").strip()
-                    if not provider:
-                        provider = str(getattr(self.llm_client, "provider", "") or "").strip()
-                    model = str(prompt_params.get("_audit_model") or "").strip()
-                    if not model:
-                        model = str(getattr(self.llm_client, "model", "") or "").strip()
-                    if provider or model:
-                        ai_model_label = f"{provider or 'unknown'}/{model or 'unknown'}"
+                    # Provider/model label for the report header. With a
+                    # chain the honest answer is the lane that actually
+                    # produced these summaries, not the one configured first
+                    # -- a report saying "anthropic" when Ollama did the work
+                    # would be exactly the kind of quiet lie 1.7 was about.
+                    ai_model_label = chain.active_label or None
+                    if not ai_model_label:
+                        provider = str(prompt_params.get("_audit_provider") or "").strip()
+                        model = str(prompt_params.get("_audit_model") or "").strip()
+                        if provider or model:
+                            ai_model_label = f"{provider or 'unknown'}/{model or 'unknown'}"
 
                     task_log.log(
                         f"AI summaries produced for "
@@ -633,6 +601,14 @@ class SweepEngine:
                         "timestamp": now_iso(),
                     })
                 except Exception as exc:
+                    # Close the lane rows before continuing. Leaving them at
+                    # 'running' is the signal for a process that died; a run
+                    # that caught its own error and finished normally must not
+                    # send that signal.
+                    try:
+                        chain.finish()
+                    except Exception:
+                        logger.exception("Could not close execution_ai rows")
                     task_log.log(f"AI summarization failed: {exc}")
                     logger.warning("AI summarization error: %s", exc)
                     store.emit(exec_id, {
