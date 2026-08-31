@@ -99,6 +99,7 @@ def _ensure_loaded():
         "api_nasa_ads",
         "api_openaire",
         "api_openalex",
+        "api_openlibrary",
         "api_osti",
         "api_plos",
         "api_pubmed",

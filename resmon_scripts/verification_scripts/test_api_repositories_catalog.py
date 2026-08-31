@@ -18,7 +18,7 @@ def _reset_db():
     resmon_mod._db_initialized = False
 
 
-def test_catalog_endpoint_returns_twenty_two_entries():
+def test_catalog_endpoint_returns_twenty_three_entries():
     _reset_db()
     from resmon import app
     client = TestClient(app)
@@ -27,7 +27,7 @@ def test_catalog_endpoint_returns_twenty_two_entries():
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
-    assert len(data) == 22
+    assert len(data) == 23
 
 
 def test_repository_endpoints_include_new_sources():
@@ -40,8 +40,8 @@ def test_repository_endpoints_include_new_sources():
     }
     search_slugs = set(client.get("/api/search/repositories").json())
 
-    assert {"datacite", "dryad", "eric", "inspire_hep", "medrxiv", "openaire", "osti", "zenodo"} <= catalog_slugs
-    assert {"datacite", "dryad", "eric", "inspire_hep", "medrxiv", "openaire", "osti", "zenodo"} <= search_slugs
+    assert {"datacite", "dryad", "eric", "inspire_hep", "medrxiv", "openlibrary", "openaire", "osti", "zenodo"} <= catalog_slugs
+    assert {"datacite", "dryad", "eric", "inspire_hep", "medrxiv", "openlibrary", "openaire", "osti", "zenodo"} <= search_slugs
 
 
 def test_catalog_entries_have_expected_keys():

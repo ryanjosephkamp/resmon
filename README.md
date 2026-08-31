@@ -43,7 +43,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Supported Repositories
 
-The table below lists the 22 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
+The table below lists the 23 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
 
 | Repository | API Type | API Key | Rate Limit (resmon) | Discipline Coverage |
 |---|---|---|---|---|
@@ -63,6 +63,7 @@ The table below lists the 22 active sources registered in the repository catalog
 | NASA ADS | REST (Solr JSON) | Required (Bearer) | 1.0 req/s (≈5000/day cap) | Astronomy, Astrophysics, Planetary science |
 | OpenAIRE | REST (XML-derived JSON) | Not required | 0.0167 req/s (60/hour) | Multi-disciplinary publications, Research outputs |
 | OpenAlex | REST (JSON) | Not required | 10.0 req/s (polite pool via mailto) | All disciplines |
+| Open Library | REST (JSON) | Not required | 1.0 req/s (unidentified-client ceiling) | Books, Humanities, General bibliography |
 | OSTI.GOV | REST (JSON; XML and BibTeX optional) | Not required | 0.5 req/s | Energy, physical sciences, DOE-funded research, technical reports |
 | PLOS | REST (Solr JSON) | Not required | 5.0 req/s | Biology, Medicine, Natural sciences (PLOS journals) |
 | PubMed / NCBI E-utilities | REST (XML) | Optional (raises limit) | 3.0 req/s keyless, 10.0 req/s with key | Biomedicine |
@@ -276,7 +277,7 @@ resmon is a local-first desktop application composed of two cooperating processe
 
 The backend is a single FastAPI application constructed at module load in `resmon_scripts/resmon.py`. A shared `sqlite3.Connection` backs every request, the database path defaults to `resmon.db` at the project root, and the schema is owned by `implementation_scripts/database.py` with a version-tracked migration path on startup. Two ASGI middlewares wrap the app: a custom `PrivateNetworkMiddleware` that injects `Access-Control-Allow-Private-Network: true` so Chromium's Private Network Access policy permits the `file://` renderer to reach loopback, and `CORSMiddleware` with permissive origins (safe because the server binds to `127.0.0.1` only). All SQL is parameterized; all credentials flow through a single `credential_manager.py` module that owns OS-keyring access.
 
-The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), which orchestrates query → normalize → dedup → link → report → summarize → finalize for both manual and routine-fired runs. Per-source API clients (19 repositories) live under `implementation_scripts/api_*.py` and are registered through `api_registry.py`. Results are normalized by `normalizer.py`, deduplicated by DOI and by (title, first author), and rendered by `report_generator.py` into Markdown, with optional PDF and LaTeX exports through `report_exporter.py`.
+The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), which orchestrates query → normalize → dedup → link → report → summarize → finalize for both manual and routine-fired runs. Per-source API clients (23 repositories) live under `implementation_scripts/api_*.py` and are registered through `api_registry.py`. Results are normalized by `normalizer.py`, deduplicated by DOI and by (title, first author), and rendered by `report_generator.py` into Markdown, with optional PDF and LaTeX exports through `report_exporter.py`.
 
 ### Frontend — Electron + React
 
@@ -992,7 +993,7 @@ resmon is built on top of a broad ecosystem of open-access scholarly repositorie
 
 ### Open-Access Repository Providers
 
-The 19 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
+The 23 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
 
 - **arXiv** — Cornell University / arXiv.org, for the Atom XML API and the decades-long commitment to open preprint distribution in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics.
 - **bioRxiv** and **medRxiv** — openRxiv, for the date-range JSON API serving the life- and health-sciences communities.
@@ -1006,6 +1007,7 @@ The 19 scholarly sources registered in the repository catalog, whose public APIs
 - **NASA ADS** — Smithsonian Astrophysical Observatory / NASA Astrophysics Data System, for the Solr-backed astronomy, astrophysics, and planetary-science API.
 - **OpenAIRE** — the OpenAIRE partnership, for the multi-disciplinary scholarly-graph Search API.
 - **OpenAlex** — OurResearch, for the free, comprehensive scholarly-works REST API and the mailto-based polite-pool rate tier.
+- **Open Library** — the Internet Archive-led open catalog, for searchable work metadata across books and other published works.
 - **PLOS** — Public Library of Science, for the Solr-backed JSON API over the PLOS journal family.
 - **PubMed / NCBI E-utilities** — U.S. National Library of Medicine / National Center for Biotechnology Information, for the E-utilities suite that underpins biomedical literature retrieval.
 - **Semantic Scholar** — Allen Institute for AI (AI2), for the cross-disciplinary scholarly-graph REST API.

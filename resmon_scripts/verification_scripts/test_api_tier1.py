@@ -23,6 +23,7 @@ from implementation_scripts import api_datacite
 from implementation_scripts import api_dryad
 from implementation_scripts import api_eric
 from implementation_scripts import api_inspire_hep
+from implementation_scripts import api_openlibrary
 from implementation_scripts import api_openaire
 from implementation_scripts import api_osti
 from implementation_scripts import api_zenodo
@@ -34,7 +35,7 @@ import implementation_scripts.api_nasa_ads       # noqa: F401
 TIER_1_REPOS = [
     "arxiv", "crossref", "semantic_scholar", "openalex", "pubmed",
     "europepmc", "biorxiv", "core", "datacite", "doaj", "dblp", "dryad", "eric",
-    "inspire_hep", "medrxiv", "nasa_ads", "openaire", "osti", "zenodo",
+    "inspire_hep", "medrxiv", "nasa_ads", "openlibrary", "openaire", "osti", "zenodo",
 ]
 
 
@@ -60,6 +61,190 @@ class _FakeResponse:
 
     def json(self):
         return self._payload
+
+
+def _openlibrary_record(
+    key="/works/OL123W",
+    *,
+    title="Climate history",
+    first_publish_year=2024,
+    include_optional=True,
+):
+    record = {
+        "key": key,
+        "title": title,
+        "first_publish_year": first_publish_year,
+    }
+    if include_optional:
+        record.update({
+            "author_name": ["Doe, Jane", "Rao, Priya"],
+            "subject": [f"subject-{index}" for index in range(1, 12)],
+        })
+    return record
+
+
+def _openlibrary_payload(records, *, total=None):
+    if total is None:
+        total = len(records)
+    return {"numFound": total, "docs": records}
+
+
+def test_openlibrary_search_builds_year_query_and_normalizes_metadata(monkeypatch):
+    calls = []
+
+    def _request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return _FakeResponse(payload=_openlibrary_payload([_openlibrary_record()]))
+
+    monkeypatch.setattr(api_openlibrary, "safe_request", _request)
+
+    results = api_openlibrary.OpenLibraryClient().search(
+        query="climate history",
+        date_from="2024-01-01",
+        date_to="2024-12-31",
+        max_results=5,
+    )
+
+    assert calls == [(
+        "GET",
+        "https://openlibrary.org/search.json",
+        {
+            "params": {
+                "q": "(climate history) AND first_publish_year:2024",
+                "page": 1,
+                "limit": 5,
+                "fields": "key,title,author_name,first_publish_year,subject",
+            },
+            "headers": {
+                "User-Agent": "resmon (+https://github.com/ryanjosephkamp/resmon/issues)",
+            },
+            "rate_limiter": api_openlibrary._RATE_LIMITER,
+        },
+    )]
+    assert api_openlibrary._RATE_LIMITER._interval == pytest.approx(1.0)
+    assert results == [NormalizedResult(
+        source_repository="openlibrary",
+        external_id="/works/OL123W",
+        doi=None,
+        title="Climate history",
+        authors=["Doe, Jane", "Rao, Priya"],
+        abstract=None,
+        publication_date="2024",
+        url="https://openlibrary.org/works/OL123W",
+        categories=[f"subject-{index}" for index in range(1, 11)],
+    )]
+
+
+def test_openlibrary_search_keeps_page_size_constant_across_pages(monkeypatch):
+    requested = []
+    records = [
+        _openlibrary_record(key=f"/works/OL{index}W", include_optional=False)
+        for index in range(1, 102)
+    ]
+
+    def _request(method, url, **kwargs):
+        params = kwargs["params"]
+        requested.append((params["page"], params["limit"]))
+        start = (params["page"] - 1) * params["limit"]
+        return _FakeResponse(payload=_openlibrary_payload(
+            records[start:start + params["limit"]], total=len(records),
+        ))
+
+    monkeypatch.setattr(api_openlibrary, "safe_request", _request)
+
+    results = api_openlibrary.OpenLibraryClient().search(
+        query="history", max_results=101,
+    )
+
+    assert requested == [(1, 100), (2, 100)]
+    assert [result.external_id for result in results] == [
+        f"/works/OL{index}W" for index in range(1, 102)
+    ]
+
+
+def test_openlibrary_search_returns_empty_for_sub_year_window_without_request(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        api_openlibrary,
+        "safe_request",
+        lambda *args, **kwargs: calls.append(kwargs),
+    )
+
+    results = api_openlibrary.OpenLibraryClient().search(
+        query="history",
+        date_from="2024-01-01",
+        date_to="2024-01-31",
+    )
+
+    assert results == []
+    assert calls == []
+
+
+def test_openlibrary_search_skips_malformed_and_yearless_filtered_records(monkeypatch):
+    malformed = _openlibrary_record(key="", title="Missing key")
+    yearless = _openlibrary_record(key="/works/OLYEARLESSW", first_publish_year=None)
+    valid = _openlibrary_record(
+        key="/works/OLVALIDW", title="A valid history", include_optional=False,
+    )
+    monkeypatch.setattr(
+        api_openlibrary,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload=_openlibrary_payload([malformed, yearless, valid]),
+        ),
+    )
+
+    results = api_openlibrary.OpenLibraryClient().search(
+        query="history",
+        date_from="2024",
+        date_to="2024",
+        max_results=5,
+    )
+
+    assert [result.external_id for result in results] == ["/works/OLVALIDW"]
+
+
+@pytest.mark.parametrize("payload", [[], {}, {"docs": {}}])
+def test_openlibrary_search_returns_empty_for_malformed_success_payload(
+    monkeypatch, caplog, payload,
+):
+    monkeypatch.setattr(
+        api_openlibrary,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=payload),
+    )
+
+    assert api_openlibrary.OpenLibraryClient().search(query="history") == []
+    assert "response" in caplog.text.lower()
+
+
+def test_openlibrary_search_returns_empty_on_non_200(monkeypatch):
+    monkeypatch.setattr(
+        api_openlibrary,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(status_code=503),
+    )
+
+    assert api_openlibrary.OpenLibraryClient().search(query="history") == []
+
+
+def test_openlibrary_search_returns_empty_on_exception(monkeypatch):
+    def _raise(*args, **kwargs):
+        raise TimeoutError("upstream timed out")
+
+    monkeypatch.setattr(api_openlibrary, "safe_request", _raise)
+
+    assert api_openlibrary.OpenLibraryClient().search(query="history") == []
+
+
+@pytest.mark.live_network
+def test_openlibrary_live_search_returns_normalized_results():
+    results = api_openlibrary.OpenLibraryClient().search(
+        query="history", max_results=1,
+    )
+
+    assert results
+    assert all(isinstance(result, NormalizedResult) for result in results)
 
 
 def _datacite_record(

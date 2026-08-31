@@ -92,7 +92,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 22 active repositories.
+# Catalog — 23 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -405,6 +405,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Set mailto for stable performance.",
         keyword_combination="Relevance-ranked",
         keyword_combination_notes="OpenAlex's search ranks by relevance across title/abstract/fulltext; not a strict boolean.",
+    ),
+    _entry(
+        slug="openlibrary",
+        name="Open Library",
+        description="Open bibliographic catalog of books and other published works",
+        subject_coverage="Books / Humanities / General bibliography",
+        endpoint="https://openlibrary.org/search.json",
+        query_method="GET work search with q, first_publish_year field clauses, page, limit, and projected fields",
+        rate_limit="1.0 req/s (unidentified-client ceiling)",
+        client_module="api_openlibrary.py",
+        requirement="none",
+        credential_name=None,
+        website="https://openlibrary.org",
+        registration_url=None,
+        upstream_policy="1 request/second for unidentified clients; 3 requests/second only with an application-and-contact User-Agent",
+        parallel_safe="Yes",
+        notes="Open Library work search exposes only first publication year, so resmon preserves year-only precision and locally checks the requested window. A sub-year window returns nothing: no whole publication year can be established as inside it, so resmon does not widen the request.",
+        keyword_combination="Undocumented",
+        keyword_combination_notes="Open Library documents q as a Solr query, but does not document how plain unfielded space-separated terms are combined. resmon forwards the query and does not claim strict local matching.",
     ),
     _entry(
         slug="osti",

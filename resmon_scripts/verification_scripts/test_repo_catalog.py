@@ -18,7 +18,7 @@ from implementation_scripts.repo_catalog import (
 EXPECTED_SLUGS = {
     "arxiv", "biorxiv", "core", "crossref", "datacite", "dblp", "doaj", "dryad",
     "eric", "europepmc", "hal", "inspire_hep", "medrxiv", "nasa_ads",
-    "openaire", "openalex", "osti", "plos", "pubmed", "semantic_scholar",
+    "openaire", "openalex", "openlibrary", "osti", "plos", "pubmed", "semantic_scholar",
     "springer", "zenodo",
 }
 
@@ -28,10 +28,10 @@ EXPECTED_CREDENTIAL_NAMES = {
 }
 
 
-def test_catalog_has_twenty_two_entries():
-    """The active catalog should contain exactly 22 entries."""
+def test_catalog_has_twenty_three_entries():
+    """The active catalog should contain exactly 23 entries."""
     # RePEc/SSRN are excluded by policy and must not appear.
-    assert len(REPOSITORY_CATALOG) == 22
+    assert len(REPOSITORY_CATALOG) == 23
 
 
 def test_catalog_slugs_match_expected():
@@ -82,7 +82,7 @@ def test_required_credential_for():
 def test_catalog_as_dicts_shape():
     """catalog_as_dicts returns JSON-serializable dicts with expected keys."""
     dicts = catalog_as_dicts()
-    assert len(dicts) == 22
+    assert len(dicts) == 23
     expected_keys = {
         "slug", "name", "description", "subject_coverage", "endpoint",
         "query_method", "rate_limit", "client_module", "api_key_requirement",
@@ -136,6 +136,14 @@ def test_eric_catalog_does_not_invent_upstream_limits_or_date_precision():
     assert entry.rate_limit == "0.5 req/s (conservative; no published API limit)"
     assert entry.keyword_combination == "Implicit OR"
     assert "year" in entry.query_method.lower()
+
+
+def test_openlibrary_catalog_records_year_precision_and_undocumented_query_semantics():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "openlibrary")
+
+    assert entry.rate_limit == "1.0 req/s (unidentified-client ceiling)"
+    assert entry.keyword_combination == "Undocumented"
+    assert "sub-year window returns nothing" in entry.notes
 
 
 def test_osti_catalog_does_not_invent_upstream_limits_or_keyword_semantics():
