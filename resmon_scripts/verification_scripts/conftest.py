@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import warnings
 from pathlib import Path
 
 import pytest
@@ -88,10 +89,27 @@ _JOIN_TIMEOUT_SEC = 10.0
 
 
 def _join_execution_threads() -> None:
-    """Block until every pipeline worker thread has finished."""
+    """Block until every pipeline worker thread has finished.
+
+    ``Thread.join(timeout)`` returns nothing and raises nothing when it gives
+    up, so a worker that outlives the timeout used to sail past this silently
+    and teardown closed its connection underneath it. ``close_db`` now refuses
+    that close outright, which is what actually prevents the crash -- but a
+    straggler still means the next test starts with a live worker from the last
+    one, so it is worth being told about rather than left to be inferred.
+    """
+    stragglers: list[str] = []
     for thread in list(threading.enumerate()):
         if thread.name.startswith(_EXEC_THREAD_PREFIX) and thread.is_alive():
             thread.join(_JOIN_TIMEOUT_SEC)
+            if thread.is_alive():
+                stragglers.append(thread.name)
+    if stragglers:
+        warnings.warn(
+            f"execution worker(s) still running after {_JOIN_TIMEOUT_SEC}s: "
+            f"{', '.join(stragglers)}. The next test starts with them live.",
+            stacklevel=1,
+        )
 
 
 @pytest.hookimpl(hookwrapper=True)

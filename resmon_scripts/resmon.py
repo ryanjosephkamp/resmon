@@ -207,7 +207,15 @@ _db_initialized = False
 
 _db_generation = 0  # bumped on reset to invalidate per-thread connections
 _db_local = threading.local()
-_db_conns: list[sqlite3.Connection] = []  # every connection handed out
+# Every connection handed out, paired with the thread that owns it.
+#
+# The owner is recorded because closing a connection from a *different* thread
+# while its owner is mid-statement does not raise -- it segfaults. Connections
+# are opened with ``check_same_thread=False``, so nothing in sqlite3 serialises
+# a close against another thread's in-flight query, and CPython hands the C
+# library a connection it is still using. ``close_db`` uses the owner to refuse
+# exactly that; see the note there.
+_db_conns: list[tuple[sqlite3.Connection, threading.Thread]] = []
 _db_lock = threading.Lock()
 
 
@@ -235,7 +243,7 @@ def _open_connection():
     conn.execute("PRAGMA foreign_keys=ON;")
     conn.execute("PRAGMA busy_timeout=5000;")
     with _db_lock:
-        _db_conns.append(conn)
+        _db_conns.append((conn, threading.current_thread()))
     return conn
 
 
@@ -3688,21 +3696,59 @@ def admin_factory_reset(body: AdminConfirmBody):
 
 
 def close_db() -> None:
-    """Close every sqlite connection this process opened.
+    """Close every sqlite connection this process opened, except the unsafe ones.
 
     Since BUG-020 each thread holds its own connection, so closing only the
     anchor would leave the rest open -- and an in-memory database stays alive
     while any connection to it remains, which would leak state between tests.
+
+    **A connection owned by another thread that is still alive is not closed.**
+    Connections are opened with ``check_same_thread=False``, so sqlite3 does
+    nothing to serialise a close against a query running on another thread; the
+    C library is handed a connection mid-statement and the process dies with
+    SIGSEGV rather than raising anything Python can catch. This was found on
+    2026-08-31 in the v1.8.1 release CI: an end-to-end test passed, then the
+    suite segfaulted here during fixture teardown while an execution worker was
+    still running. It reproduced once in twenty-five runs.
+
+    It is not only a test problem. ``daemon.py`` calls this on shutdown after
+    flushing running executions and stopping the scheduler -- neither of which
+    joins the ``exec-`` worker threads -- so the same race can take down the
+    real application as it quits.
+
+    Deferred connections go back on the list, so the next call collects them
+    once their owner has finished. Leaking a connection until then is strictly
+    better than the alternative: it costs a file handle, and the generation bump
+    below means the owner rebuilds rather than reusing it either way.
     """
     global _shared_conn, _db_initialized, _db_generation
     with _db_lock:
-        conns = list(_db_conns)
+        entries = list(_db_conns)
         _db_conns.clear()
-    for conn in conns:
+
+    current = threading.current_thread()
+    deferred: list[tuple[sqlite3.Connection, threading.Thread]] = []
+    for conn, owner in entries:
+        # Closing our own connection is always safe: this thread cannot be
+        # inside a query on it while it is here.
+        if owner is not current and owner.is_alive():
+            deferred.append((conn, owner))
+            continue
         try:
             conn.close()
         except Exception:
             pass
+
+    if deferred:
+        with _db_lock:
+            _db_conns.extend(deferred)
+        logging.getLogger(__name__).warning(
+            "close_db left %d connection(s) open: their owning threads (%s) are "
+            "still running. They will be closed by the next call.",
+            len(deferred),
+            ", ".join(sorted({owner.name for _, owner in deferred})),
+        )
+
     _shared_conn = None
     _db_initialized = False
     # Move the generation on so any thread still holding a reference rebuilds

@@ -316,6 +316,21 @@ def test_e2e_ai_summarization(client, tmp_reports):
     Covers AI-1, AI-2, AI-3, AI-4, AI-5, AI-7.
     """
     # 1. Verify API accepts ai_enabled / ai_settings
+    #
+    # The poll loop belongs *inside* the patch block, and this test used to end
+    # it at the POST. ``/api/search/dive`` returns as soon as the worker thread
+    # starts, so unpatching straight away left the background execution running
+    # against the real arXiv client -- whose requests the hermeticity guard
+    # blocks, and whose rate limiter and retries then take far longer than the
+    # ten seconds conftest waits for a worker to finish.
+    #
+    # That straggler is what made this test the one that segfaulted in the
+    # v1.8.1 release CI: teardown reached close_db while exec-1 was still using
+    # its connection. close_db now refuses that close, but the worker should
+    # never have outlived the test in the first place. Same shape as BUG-022,
+    # which fixed the sibling test above and missed this one.
+    import time as _time
+
     mock_arxiv = _make_mock_client("arxiv")
     with (
         patch("implementation_scripts.sweep_engine.get_client",
@@ -329,8 +344,18 @@ def test_e2e_ai_summarization(client, tmp_reports):
             "ai_enabled": True,
             "ai_settings": {"summary_length": "short", "tone": "technical"},
         })
-    assert resp.status_code == 200
-    assert "execution_id" in resp.json()
+        assert resp.status_code == 200
+        exec_id = resp.json()["execution_id"]
+
+        for _ in range(50):
+            ex = client.get(f"/api/executions/{exec_id}").json()
+            if ex["status"] in ("completed", "failed"):
+                break
+            _time.sleep(0.1)
+
+        assert ex["status"] in ("completed", "failed"), (
+            "the dive never finished while its mock was still installed"
+        )
 
     # 2. SummarizationPipeline with a mock LLM client
     from implementation_scripts.summarizer import SummarizationPipeline
