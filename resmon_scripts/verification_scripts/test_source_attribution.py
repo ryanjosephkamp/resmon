@@ -31,6 +31,8 @@ _BY_SLUG = {e.slug: e for e in REPOSITORY_CATALOG}
 # A source is listed here only where the credit is a *condition*, not a request.
 REQUIRED = {
     "core": "Powered by CORE",
+    "ndl_search": "NDL Search API",
+    "nist_rmm": "NIST",
     "openaire": "OpenAIRE",
     "plos": "Data Provided by PLOS",
     "semantic_scholar": "Semantic Scholar",
@@ -90,3 +92,43 @@ def test_attribution_reaches_the_api_payload():
         assert payload[slug]["attribution_requirement"] == "required"
         assert payload[slug]["attribution"]
         assert payload[slug]["attribution_source"]
+
+
+# ---------------------------------------------------------------------------
+# Delegation 04's two sources
+# ---------------------------------------------------------------------------
+#
+# NDL Search and NIST RMM both make a credit a condition of reuse. They arrived
+# with those obligations recorded verbatim in `notes`, because the attribution
+# fields did not exist when their brief was written -- the brief said so, and
+# the delivering PR said plainly that a catalog note does not discharge an
+# obligation. These pin the move into the fields, so the credits actually
+# render rather than sitting in prose nobody is shown.
+
+def test_ndl_credits_both_the_api_and_the_contributing_institution():
+    """NDL asks for two credits, not one: the API and the metadata provider."""
+    entry = _BY_SLUG["ndl_search"]
+    assert "NDL Search API" in entry.attribution
+    assert "National Diet Library" in entry.attribution
+    assert entry.attribution_requirement == "required"
+
+
+def test_nist_acknowledgment_is_recorded_as_a_condition():
+    """NIST conditions reuse on acknowledgment; it is not a courtesy."""
+    entry = _BY_SLUG["nist_rmm"]
+    assert entry.attribution_requirement == "required"
+    assert "NIST" in entry.attribution
+
+
+def test_nist_says_its_field_mapping_is_unverified():
+    """Someone seeing zero NIST results is entitled to know why.
+
+    The endpoint has been returning HTTP 500 since the source was added, so the
+    record-field mapping has never met a live response. The parser skips what it
+    cannot map, so the failure mode is no results rather than wrong ones -- and
+    the catalog says both halves of that.
+    """
+    notes = _BY_SLUG["nist_rmm"].notes
+    assert "provisional" in notes
+    assert "never been checked against a live response" in notes
+    assert "no results rather than wrong ones" in notes

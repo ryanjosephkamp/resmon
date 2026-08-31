@@ -162,8 +162,8 @@ twice.
 
 ### Source attributions
 
-Four of the sources resmon queries make a credit a **condition of reuse**, not a courtesy:
-CORE, OpenAIRE, PLOS and Semantic Scholar. resmon shows those credits at the top of the
+Six of the sources resmon queries make a credit a **condition of reuse**, not a courtesy:
+CORE, NDL Search, NIST RMM, OpenAIRE, PLOS and Semantic Scholar. resmon shows those credits at the top of the
 **Repositories & API Keys** page, unconditionally — a credit that only appears when you expand
 a card is not displayed in the sense the obligation means.
 

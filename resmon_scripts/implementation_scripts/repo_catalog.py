@@ -434,6 +434,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         ),
         keyword_combination="Implicit AND (documented for anywhere)",
         keyword_combination_notes="NDL Search API v1.4 documents AND as the default when multiple values are specified for the anywhere search field. resmon sends the query as one safely quoted anywhere value and does not claim local keyword filtering.",
+        attribution='Powered by NDL Search API. Metadata provided by the National Diet Library and its contributing databases and institutions.',
+        attribution_requirement="required",
+        attribution_source='https://ndlsearch.ndl.go.jp/en/help/api/',
     ),
     _entry(
         slug="nist_rmm",
@@ -453,6 +456,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes=(
             "The documented RMM papers API has no upstream upper date bound; "
             "resmon sends from_date only and applies date_to locally. "
+            "The mapping from a record to a title, identifier and date is provisional: "
+            "NIST's OpenAPI documents the response envelope but not the fields inside a "
+            "record, and the endpoint has been returning HTTP 500 since this source was "
+            "added, so the mapping has never been checked against a live response. A "
+            "record resmon cannot map is skipped and logged rather than stored, so the "
+            "failure you would see is no results rather than wrong ones. "
             "Permission to use this data is contingent upon your acceptance of the terms "
             "of this agreement and upon your providing appropriate acknowledgments of "
             "NIST’s creation of the data/work. "
@@ -460,6 +469,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         ),
         keyword_combination="Undocumented",
         keyword_combination_notes="The RMM OpenAPI documents searchphrase but does not document how space-separated terms are combined.",
+        attribution='Data created by NIST (National Institute of Standards and Technology).',
+        attribution_requirement="required",
+        attribution_source='https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications',
     ),
     _entry(
         slug="openaire",
