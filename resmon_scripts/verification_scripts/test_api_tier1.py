@@ -19,6 +19,7 @@ import implementation_scripts.api_openalex       # noqa: F401
 import implementation_scripts.api_pubmed         # noqa: F401
 import implementation_scripts.api_europepmc      # noqa: F401
 from implementation_scripts import api_biorxiv
+from implementation_scripts import api_datacite
 from implementation_scripts import api_inspire_hep
 from implementation_scripts import api_openaire
 from implementation_scripts import api_zenodo
@@ -29,13 +30,13 @@ import implementation_scripts.api_nasa_ads       # noqa: F401
 
 TIER_1_REPOS = [
     "arxiv", "crossref", "semantic_scholar", "openalex", "pubmed",
-    "europepmc", "biorxiv", "core", "doaj", "dblp", "inspire_hep",
-    "medrxiv", "nasa_ads", "openaire", "zenodo",
+    "europepmc", "biorxiv", "core", "datacite", "doaj", "dblp",
+    "inspire_hep", "medrxiv", "nasa_ads", "openaire", "zenodo",
 ]
 
 
 def test_all_tier1_registered():
-    """All 15 Tier 1 repositories are registered in the client registry."""
+    """All 16 Tier 1 repositories are registered in the client registry."""
     repos = list_repositories()
     for name in TIER_1_REPOS:
         assert name in repos, f"Missing Tier 1 client: {name}"
@@ -55,6 +56,231 @@ class _FakeResponse:
 
     def json(self):
         return self._payload
+
+
+def _datacite_record(
+    doi="10.1234/data.1",
+    *,
+    title="Climate observations",
+    publication_year=2024,
+    issued="2024-03-15",
+    include_optional=True,
+):
+    attributes = {
+        "doi": doi,
+        "titles": [
+            {"title": "A subtitle", "titleType": "Subtitle"},
+            {"title": title},
+        ],
+        "creators": [
+            {"name": "Doe, Jane"},
+            {"name": "Rao, Priya"},
+        ],
+        "publicationYear": publication_year,
+        "dates": (
+            [{"date": issued, "dateType": "Issued"}]
+            if issued is not None else []
+        ),
+        "descriptions": [],
+        "subjects": [],
+    }
+    if include_optional:
+        attributes["descriptions"] = [
+            {"descriptionType": "Methods", "description": "Not an abstract."},
+            {"descriptionType": "Abstract", "description": "Measured observations."},
+        ]
+        attributes["subjects"] = [
+            {"subject": f"subject-{index}"} for index in range(1, 12)
+        ]
+    return {"id": doi, "type": "dois", "attributes": attributes}
+
+
+def _datacite_payload(records, *, total=None, page=1, total_pages=1):
+    if total is None:
+        total = len(records)
+    return {
+        "data": records,
+        "meta": {"total": total, "totalPages": total_pages, "page": page},
+        "links": {"next": None},
+    }
+
+
+def test_datacite_search_uses_year_filter_and_normalizes_metadata(monkeypatch):
+    calls = []
+
+    def _request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return _FakeResponse(payload=_datacite_payload([_datacite_record()]))
+
+    monkeypatch.setattr(api_datacite, "safe_request", _request)
+
+    results = api_datacite.DataCiteClient().search(
+        query="climate data",
+        date_from="2024-01-01",
+        date_to="2024-12-31",
+        max_results=5,
+    )
+
+    assert calls == [(
+        "GET",
+        "https://api.datacite.org/dois",
+        {
+            "params": {
+                "query": "climate data",
+                "published": "2024",
+                "page[size]": 5,
+                "page[number]": 1,
+                "sort": "relevance",
+            },
+            "rate_limiter": api_datacite._RATE_LIMITER,
+        },
+    )]
+    assert api_datacite._RATE_LIMITER._interval == pytest.approx(2.0 / 3.0)
+    assert results == [NormalizedResult(
+        source_repository="datacite",
+        external_id="10.1234/data.1",
+        doi="10.1234/data.1",
+        title="Climate observations",
+        authors=["Doe, Jane", "Rao, Priya"],
+        abstract="Measured observations.",
+        publication_date="2024-03-15",
+        url="https://doi.org/10.1234/data.1",
+        categories=[f"subject-{index}" for index in range(1, 11)],
+    )]
+
+
+def test_datacite_search_keeps_page_size_constant(monkeypatch):
+    requested = []
+    records = [
+        _datacite_record(doi=f"10.1234/data.{index}", include_optional=False)
+        for index in range(1, 1002)
+    ]
+
+    def _request(method, url, **kwargs):
+        params = kwargs["params"]
+        page = params["page[number]"]
+        size = params["page[size]"]
+        requested.append((page, size))
+        start = (page - 1) * size
+        page_records = records[start:start + size]
+        return _FakeResponse(payload=_datacite_payload(
+            page_records,
+            total=len(records),
+            page=page,
+            total_pages=2,
+        ))
+
+    monkeypatch.setattr(api_datacite, "safe_request", _request)
+
+    results = api_datacite.DataCiteClient().search(
+        query="climate", max_results=1001,
+    )
+
+    assert requested == [(1, 1000), (2, 1000)]
+    assert [result.external_id for result in results] == [
+        f"10.1234/data.{index}" for index in range(1, 1002)
+    ]
+
+
+def test_datacite_search_enforces_exact_window_only_for_precise_dates(monkeypatch):
+    records = [
+        _datacite_record(doi="10.1234/january", issued="2024-01-15"),
+        _datacite_record(doi="10.1234/february", issued="2024-02-15"),
+        _datacite_record(doi="10.1234/year-only", issued=None),
+    ]
+    monkeypatch.setattr(
+        api_datacite,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload=_datacite_payload(records),
+        ),
+    )
+
+    results = api_datacite.DataCiteClient().search(
+        query="climate",
+        date_from="2024-01-01",
+        date_to="2024-01-31",
+        max_results=5,
+    )
+
+    assert [result.external_id for result in results] == ["10.1234/january"]
+
+
+def test_datacite_search_skips_malformed_and_preserves_year_precision(monkeypatch):
+    valid = _datacite_record(
+        doi="10.1234/year-only",
+        title="Year-only record",
+        issued=None,
+        include_optional=False,
+    )
+    malformed = _datacite_record(doi="10.1234/no-title")
+    malformed["attributes"]["titles"] = []
+    monkeypatch.setattr(
+        api_datacite,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload=_datacite_payload([malformed, valid]),
+        ),
+    )
+
+    results = api_datacite.DataCiteClient().search(
+        query="climate", max_results=5,
+    )
+
+    assert results == [NormalizedResult(
+        source_repository="datacite",
+        external_id="10.1234/year-only",
+        doi="10.1234/year-only",
+        title="Year-only record",
+        authors=["Doe, Jane", "Rao, Priya"],
+        abstract=None,
+        publication_date="2024",
+        url="https://doi.org/10.1234/year-only",
+        categories=[],
+    )]
+
+
+def test_datacite_search_returns_empty_when_upstream_has_no_hits(monkeypatch):
+    monkeypatch.setattr(
+        api_datacite,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload=_datacite_payload([], total=0, total_pages=0),
+        ),
+    )
+
+    assert api_datacite.DataCiteClient().search(query="no-such-result") == []
+
+
+@pytest.mark.parametrize("payload", [[], {}, {"data": {"unexpected": "object"}}])
+def test_datacite_search_logs_malformed_success_payload(monkeypatch, caplog, payload):
+    monkeypatch.setattr(
+        api_datacite,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=payload),
+    )
+
+    assert api_datacite.DataCiteClient().search(query="climate") == []
+    assert "response" in caplog.text.lower()
+
+
+def test_datacite_search_returns_empty_on_non_200(monkeypatch):
+    monkeypatch.setattr(
+        api_datacite,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(status_code=503),
+    )
+
+    assert api_datacite.DataCiteClient().search(query="climate") == []
+
+
+def test_datacite_search_returns_empty_on_timeout(monkeypatch):
+    def _timeout(*args, **kwargs):
+        raise TimeoutError("upstream timed out")
+
+    monkeypatch.setattr(api_datacite, "safe_request", _timeout)
+
+    assert api_datacite.DataCiteClient().search(query="climate") == []
 
 
 def _medrxiv_payload(*, title="Cardiac outcomes", abstract="Cardiac health"):
@@ -793,6 +1019,26 @@ def test_medrxiv_search_respects_date_window():
     assert all(
         result.publication_date is not None
         and date_from <= result.publication_date <= date_to
+        for result in results
+    )
+
+
+@pytest.mark.live_network
+def test_datacite_search_respects_publication_year_window():
+    """DataCite returns publication metadata inside the requested full year."""
+    results = get_client("datacite").search(
+        query="climate",
+        max_results=3,
+        date_from="2024-01-01",
+        date_to="2024-12-31",
+    )
+
+    assert results
+    assert all(isinstance(result, NormalizedResult) for result in results)
+    assert all(result.source_repository == "datacite" for result in results)
+    assert all(
+        result.publication_date is not None
+        and result.publication_date[:4] == "2024"
         for result in results
     )
 

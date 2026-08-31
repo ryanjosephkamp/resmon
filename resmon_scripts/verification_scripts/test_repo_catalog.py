@@ -16,7 +16,7 @@ from implementation_scripts.repo_catalog import (
 
 
 EXPECTED_SLUGS = {
-    "arxiv", "biorxiv", "core", "crossref", "dblp", "doaj",
+    "arxiv", "biorxiv", "core", "crossref", "datacite", "dblp", "doaj",
     "europepmc", "hal", "ieee", "inspire_hep", "medrxiv", "nasa_ads",
     "openaire", "openalex", "plos", "pubmed", "semantic_scholar", "springer",
     "zenodo",
@@ -28,10 +28,10 @@ EXPECTED_CREDENTIAL_NAMES = {
 }
 
 
-def test_catalog_has_nineteen_entries():
-    """The active catalog should contain exactly 19 entries."""
+def test_catalog_has_twenty_entries():
+    """The active catalog should contain exactly 20 entries."""
     # RePEc/SSRN are excluded by policy and must not appear.
-    assert len(REPOSITORY_CATALOG) == 19
+    assert len(REPOSITORY_CATALOG) == 20
 
 
 def test_catalog_slugs_match_expected():
@@ -82,7 +82,7 @@ def test_required_credential_for():
 def test_catalog_as_dicts_shape():
     """catalog_as_dicts returns JSON-serializable dicts with expected keys."""
     dicts = catalog_as_dicts()
-    assert len(dicts) == 19
+    assert len(dicts) == 20
     expected_keys = {
         "slug", "name", "description", "subject_coverage", "endpoint",
         "query_method", "rate_limit", "client_module", "api_key_requirement",
@@ -120,3 +120,11 @@ def test_openaire_catalog_does_not_overclaim_upstream_behavior():
     assert entry.rate_limit == "0.0167 req/s (60/hour unauthenticated)"
     assert entry.keyword_combination == "Combination semantics undocumented"
     assert "discontinued" in entry.notes.lower()
+
+
+def test_datacite_catalog_records_documented_limits_and_semantics():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "datacite")
+
+    assert entry.rate_limit == "1.5 req/s (below 500 requests/5 min unidentified)"
+    assert entry.keyword_combination == "Implicit OR"
+    assert "year" in entry.query_method.lower()

@@ -92,7 +92,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 19 active repositories.
+# Catalog — 20 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -173,6 +173,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Set a contact email in the UA for priority.",
         keyword_combination="Relevance-ranked",
         keyword_combination_notes="CrossRef ranks by relevance, not strict boolean; documents containing more of the words rank higher but single-term matches can still surface.",
+    ),
+    _entry(
+        slug="datacite",
+        name="DataCite",
+        description="DOI metadata with strong coverage of datasets, software, dissertations, and other research outputs",
+        subject_coverage="All disciplines / Data / Software / Dissertations / Other DOI outputs",
+        endpoint="https://api.datacite.org/dois",
+        query_method="GET JSON:API query with upstream publication-year filtering and precise Issued-date checks where available",
+        rate_limit="1.5 req/s (below 500 requests/5 min unidentified)",
+        client_module="api_datacite.py",
+        requirement="none",
+        credential_name=None,
+        website="https://datacite.org",
+        registration_url=None,
+        upstream_policy="Unidentified requests: 500 per 5 minutes per IP; CC0 metadata; attribution requested; linked resources excluded",
+        parallel_safe="Yes",
+        notes="Public API returns Findable DOI metadata only. Publication filtering is year-granular upstream; resmon preserves partial date precision and applies exact bounds only when Issued metadata supports them.",
+        keyword_combination="Implicit OR",
+        keyword_combination_notes="DataCite documents every unfielded term as optional so long as at least one matches. Unfielded search covers common metadata fields; explicit AND, OR, and NOT remain available in the forwarded query.",
     ),
     _entry(
         slug="dblp",

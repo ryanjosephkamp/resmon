@@ -41,6 +41,7 @@ def _ensure_loaded():
         "api_biorxiv",
         "api_core",
         "api_crossref",
+        "api_datacite",
         "api_dblp",
         "api_doaj",
         "api_europepmc",
