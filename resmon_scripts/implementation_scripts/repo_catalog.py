@@ -92,7 +92,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 24 active repositories.
+# Catalog — 25 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -374,7 +374,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         description="National Diet Library of Japan cross-database bibliographic metadata",
         subject_coverage="Japanese national bibliography / Books / Articles / Cultural heritage metadata",
         endpoint="https://ndlsearch.ndl.go.jp/api/sru",
-        query_method="GET SRU 1.2 with dcndl_v3 XML, dpid=open, anywhere, from/until, and at most 500 records",
+        query_method="GET SRU 1.2 with dcndl_v3 XML, dpid=open, anywhere, from/until, and at most 500 records per SRU request",
         rate_limit="0.5 req/s (conservative; no published numeric API limit)",
         client_module="api_ndl_search.py",
         requirement="none",
@@ -386,6 +386,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes=(
             "NDL Search API v1.4: https://ndlsearch.ndl.go.jp/file/help/api/specifications/ndlsearch_api_20260331.pdf "
             "Documents API providers and metadata terms: https://ndlsearch.ndl.go.jp/en/help/api/provider . "
+            "Version 1.4 accepts YYYY, YYYY-MM, YYYY-MM-DD from/until bounds. When input bounds differ in precision, resmon preserves inclusive intent by expanding lower partials to their first day and upper partials to their last day before sending same-precision clauses. "
             "The client limits requests to dpid=open and independently retains only records with an explicit PDM 1.0, CC0 1.0, or CC BY 4.0 metadata-rights URI; "
             "the open-provider summary is incomplete for current live results because they include CC BY. "
             "You must credit NDL Search API, on a website or application using the API. "

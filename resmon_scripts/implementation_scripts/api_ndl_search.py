@@ -86,7 +86,7 @@ def _normalized_rights_uri(value: str) -> str | None:
     """Accept only HTTP(S) plus one optional trailing slash normalization."""
     if not isinstance(value, str):
         return None
-    normalized = value.strip()
+    normalized = value
     if normalized.startswith("http://"):
         normalized = "https://" + normalized[len("http://"):]
     elif not normalized.startswith("https://"):
@@ -230,6 +230,15 @@ class NDLSearchClient(BaseAPIClient):
             total = int(total_text) if total_text is not None else None
             if total is None or total < 0:
                 raise ValueError("missing or invalid numberOfRecords")
+            expected_records = min(total, min(maximum_records, _MAX_RECORDS))
+            raw_records = root.findall(".//sru:record", _NS)
+            if len(raw_records) != expected_records:
+                logger.error(
+                    "NDL Search API returned an incomplete SRU page: expected %d raw records, got %d",
+                    expected_records,
+                    len(raw_records),
+                )
+                return None
             return total, self._parse_records(root)
         except (ET.ParseError, ValueError, TypeError):
             logger.exception("NDL Search API returned malformed SRU XML")

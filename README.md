@@ -19,7 +19,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Key Features
 
-- **Multi-repository ingestion across 24 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DataCite, DBLP, DOAJ, Dryad, ERIC, EuropePMC, HAL, INSPIRE-HEP, medRxiv, NASA ADS, NIST Resource Metadata Management, OpenAIRE, OpenAlex, Open Library, OSTI.GOV, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
+- **Multi-repository ingestion across 25 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DataCite, DBLP, DOAJ, Dryad, ERIC, EuropePMC, HAL, INSPIRE-HEP, medRxiv, NASA ADS, NDL Search, NIST Resource Metadata Management, OpenAIRE, OpenAlex, Open Library, OSTI.GOV, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
 - **Three operational modes:**
   - *Targeted Deep Dive* — a focused, manual query against a single repository within a defined date range, with support for an ephemeral per-execution API key that never persists to disk.
   - *Broad Deep Sweep* — a cross-repository manual query that applies Deep Dive parameters across every selected repository in parallel.
@@ -353,7 +353,7 @@ resmon/
 │   │   ├── analytics.py              # Corpus analytics queries (thin-corpus policy).
 │   │   ├── explorer.py               # Corpus-wide search, faceting, keyset pagination.
 │   │   ├── ai_models.py              # Provider model-catalog probing.
-│   │   ├── api_*.py                  # Per-repository API clients (24 active sources).
+│   │   ├── api_*.py                  # Per-repository API clients (25 active sources).
 │   │   ├── api_base.py               # Shared rate limiter + HTTP client base class.
 │   │   ├── api_registry.py           # Slug → client dispatch table.
 │   │   ├── citation_graph.py         # Citation and context graphing.
@@ -995,7 +995,7 @@ resmon is built on top of a broad ecosystem of open-access scholarly repositorie
 
 ### Open-Access Repository Providers
 
-The 24 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
+The 25 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
 
 - **arXiv** — Cornell University / arXiv.org, for the Atom XML API and the decades-long commitment to open preprint distribution in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics.
 - **bioRxiv** and **medRxiv** — openRxiv, for the date-range JSON API serving the life- and health-sciences communities.
@@ -1007,6 +1007,7 @@ The 24 scholarly sources registered in the repository catalog, whose public APIs
 - **HAL** — CCSD / CNRS, for the Solr-backed multi-disciplinary JSON API.
 - **INSPIRE-HEP** — CERN and the INSPIRE collaboration, for the curated high-energy-physics literature API.
 - **NASA ADS** — Smithsonian Astrophysical Observatory / NASA Astrophysics Data System, for the Solr-backed astronomy, astrophysics, and planetary-science API.
+- **NDL Search** — National Diet Library of Japan, for the SRU metadata API over explicitly validated open records.
 - **OpenAIRE** — the OpenAIRE partnership, for the multi-disciplinary scholarly-graph Search API.
 - **OpenAlex** — OurResearch, for the free, comprehensive scholarly-works REST API and the mailto-based polite-pool rate tier.
 - **Open Library** — the Internet Archive-led open catalog, for searchable work metadata across books and other published works.

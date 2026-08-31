@@ -166,13 +166,17 @@ def test_ndl_search_catalog_records_current_contract_and_required_credits():
 
     assert entry.rate_limit == "0.5 req/s (conservative; no published numeric API limit)"
     assert entry.keyword_combination == "Implicit AND (documented for anywhere)"
-    assert "at most 500" in entry.query_method
+    assert "at most 500 records per SRU request" in entry.query_method
     assert "https://ndlsearch.ndl.go.jp/file/help/api/specifications/ndlsearch_api_20260331.pdf" in entry.notes
     assert "https://ndlsearch.ndl.go.jp/en/help/api/provider" in entry.notes
     assert "You must credit NDL Search API, on a website or application using the API." in entry.notes
     assert "Also, you must credit the metadata providing database and institution in the case that credit is needed." in entry.notes
     assert "https://ndlsearch.ndl.go.jp/en/help/api/" in entry.notes
     assert "does not itself discharge attribution" in entry.notes
+    assert "YYYY, YYYY-MM, YYYY-MM-DD" in entry.notes
+    assert "lower partials to their first day" in entry.notes
+    assert "upper partials to their last day" in entry.notes
+    assert "same-precision" in entry.notes
 
 
 def test_osti_catalog_does_not_invent_upstream_limits_or_keyword_semantics():

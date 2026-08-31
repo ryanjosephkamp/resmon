@@ -672,6 +672,10 @@ def test_ndl_search_keeps_only_records_with_one_recognized_metadata_right(monkey
             "R100000002-I000000009",
             resource_token="R100000002-I000000099",
         ),
+        _ndl_record(
+            "R100000002-I000000010",
+            rights=(" https://creativecommons.org/licenses/by/4.0/ ",),
+        ),
     ]
     monkeypatch.setattr(
         api_ndl_search, "safe_request", lambda *args, **kwargs: _ndl_xml_response(records),
@@ -682,6 +686,37 @@ def test_ndl_search_keeps_only_records_with_one_recognized_metadata_right(monkey
     assert [result.external_id for result in results] == [
         "R100000002-I000000001", "R100000002-I000000002", "R100000002-I000000003",
     ]
+
+
+def test_ndl_search_fails_closed_on_a_short_raw_sru_page(monkeypatch, caplog):
+    monkeypatch.setattr(
+        api_ndl_search,
+        "safe_request",
+        lambda *args, **kwargs: _ndl_xml_response(
+            [_ndl_record("R100000002-I000000011")], total=2,
+        ),
+    )
+
+    assert api_ndl_search.NDLSearchClient().search(query="history", max_results=2) == []
+    assert "incomplete" in caplog.text.lower()
+
+
+def test_ndl_search_counts_legally_rejected_records_toward_raw_page_completeness(monkeypatch, caplog):
+    allowed = _ndl_record("R100000002-I000000012")
+    rejected = _ndl_record(
+        "R100000002-I000000013",
+        rights=("https://creativecommons.org/licenses/by-nc/4.0/",),
+    )
+    monkeypatch.setattr(
+        api_ndl_search,
+        "safe_request",
+        lambda *args, **kwargs: _ndl_xml_response([allowed, rejected], total=2),
+    )
+
+    results = api_ndl_search.NDLSearchClient().search(query="history", max_results=2)
+
+    assert [result.external_id for result in results] == ["R100000002-I000000012"]
+    assert "incomplete" not in caplog.text.lower()
 
 
 def test_ndl_search_uses_only_explicit_fields_and_linked_bibliographic_resource(monkeypatch):
@@ -751,7 +786,7 @@ def test_ndl_search_partitions_large_bounded_result_sets_without_overlap_and_ded
         cql = kwargs["params"]["query"]
         calls.append((cql, kwargs["params"]["startRecord"], kwargs["params"]["maximumRecords"]))
         if 'from = "2024-01-01" AND until = "2024-01-02"' in cql:
-            return _ndl_xml_response([], total=501)
+            return _ndl_xml_response(["<record/>" for _ in range(500)], total=501)
         if 'from = "2024-01-01" AND until = "2024-01-01"' in cql:
             return _ndl_xml_response([first], total=1)
         if 'from = "2024-01-02" AND until = "2024-01-02"' in cql:
