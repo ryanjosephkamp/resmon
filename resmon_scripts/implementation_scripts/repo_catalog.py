@@ -112,7 +112,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 22 active repositories.
+# Catalog — 25 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -264,6 +264,29 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="DOAJ uses a Lucene-style URL path whose default operator is OR; results are returned in relevance-scored order.",
     ),
     _entry(
+        slug="dryad",
+        name="Dryad",
+        description="Curated research datasets published for open reuse",
+        subject_coverage="Multi-disciplinary research data",
+        endpoint="https://datadryad.org/api/v2/search",
+        query_method="GET /search with q, publishedSince, publishedBefore, page, and per_page",
+        rate_limit="1.0 req/s (conservative; no published API limit)",
+        client_module="api_dryad.py",
+        requirement="none",
+        credential_name=None,
+        website="https://datadryad.org",
+        registration_url=None,
+        upstream_policy="No published numeric API rate limit; resmon uses a conservative shared ceiling",
+        parallel_safe="Yes",
+        notes=(
+            "Dryad publishes accepted datasets under CC0 for reuse: "
+            "https://datadryad.org/publication_policy. Citation is recommended, "
+            "not required: https://dev.datadryad.org/help/guides/reuse."
+        ),
+        keyword_combination="Implicit AND",
+        keyword_combination_notes="Dryad's OpenAPI /search documentation says multiple q terms return only items containing all terms.",
+    ),
+    _entry(
         slug="eric",
         name="ERIC",
         description="Education research and information index maintained by the U.S. Department of Education",
@@ -384,6 +407,61 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="NASA ADS uses Solr-style q parsing; the default operator is OR and results are returned in relevance-scored order.",
     ),
     _entry(
+        slug="ndl_search",
+        name="NDL Search",
+        description="National Diet Library of Japan cross-database bibliographic metadata",
+        subject_coverage="Japanese national bibliography / Books / Articles / Cultural heritage metadata",
+        endpoint="https://ndlsearch.ndl.go.jp/api/sru",
+        query_method="GET SRU 1.2 with dcndl_v3 XML, dpid=open, anywhere, from/until, and at most 500 records per SRU request",
+        rate_limit="0.5 req/s (conservative; no published numeric API limit)",
+        client_module="api_ndl_search.py",
+        requirement="none",
+        credential_name=None,
+        website="https://ndlsearch.ndl.go.jp/en/",
+        registration_url=None,
+        upstream_policy="No numeric rate limit published; NDL asks continuous users to identify their usage and may restrict heavy or concurrent traffic",
+        parallel_safe="Yes",
+        notes=(
+            "NDL Search API v1.4: https://ndlsearch.ndl.go.jp/file/help/api/specifications/ndlsearch_api_20260331.pdf "
+            "Documents API providers and metadata terms: https://ndlsearch.ndl.go.jp/en/help/api/provider . "
+            "Version 1.4 accepts YYYY, YYYY-MM, YYYY-MM-DD from/until bounds. When input bounds differ in precision, resmon preserves inclusive intent by expanding lower partials to their first day and upper partials to their last day before sending same-precision clauses. "
+            "The client limits requests to dpid=open and independently retains only records with an explicit PDM 1.0, CC0 1.0, or CC BY 4.0 metadata-rights URI; "
+            "the open-provider summary is incomplete for current live results because they include CC BY. "
+            "You must credit NDL Search API, on a website or application using the API. "
+            "Also, you must credit the metadata providing database and institution in the case that credit is needed. "
+            "https://ndlsearch.ndl.go.jp/en/help/api/ . "
+            "This catalog note records those obligations but does not itself discharge attribution."
+        ),
+        keyword_combination="Implicit AND (documented for anywhere)",
+        keyword_combination_notes="NDL Search API v1.4 documents AND as the default when multiple values are specified for the anywhere search field. resmon sends the query as one safely quoted anywhere value and does not claim local keyword filtering.",
+    ),
+    _entry(
+        slug="nist_rmm",
+        name="NIST Resource Metadata Management",
+        description="NIST papers and technical-report metadata",
+        subject_coverage="Engineering / Government technical publications",
+        endpoint="https://data.nist.gov/rmm/papers",
+        query_method="GET with searchphrase, lower-bound-only from_date, skip, and limit; date_to is filtered locally",
+        rate_limit="0.5 req/s (conservative; no published API limit)",
+        client_module="api_nist_rmm.py",
+        requirement="none",
+        credential_name=None,
+        website="https://data.nist.gov/rmm/",
+        registration_url=None,
+        upstream_policy="No authentication or numeric rate limit is documented in the RMM OpenAPI; resmon uses a conservative shared ceiling",
+        parallel_safe="Yes",
+        notes=(
+            "The documented RMM papers API has no upstream upper date bound; "
+            "resmon sends from_date only and applies date_to locally. "
+            "Permission to use this data is contingent upon your acceptance of the terms "
+            "of this agreement and upon your providing appropriate acknowledgments of "
+            "NIST’s creation of the data/work. "
+            "https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications"
+        ),
+        keyword_combination="Undocumented",
+        keyword_combination_notes="The RMM OpenAPI documents searchphrase but does not document how space-separated terms are combined.",
+    ),
+    _entry(
         slug="openaire",
         name="OpenAIRE",
         description="Open scholarly graph aggregating research outputs and relationships",
@@ -423,6 +501,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Set mailto for stable performance.",
         keyword_combination="Relevance-ranked",
         keyword_combination_notes="OpenAlex's search ranks by relevance across title/abstract/fulltext; not a strict boolean.",
+    ),
+    _entry(
+        slug="openlibrary",
+        name="Open Library",
+        description="Open bibliographic catalog of books and other published works",
+        subject_coverage="Books / Humanities / General bibliography",
+        endpoint="https://openlibrary.org/search.json",
+        query_method="GET work search with q, first_publish_year field clauses, page, limit, and projected fields",
+        rate_limit="1.0 req/s (unidentified-client ceiling)",
+        client_module="api_openlibrary.py",
+        requirement="none",
+        credential_name=None,
+        website="https://openlibrary.org",
+        registration_url=None,
+        upstream_policy="1 request/second for unidentified clients; 3 requests/second only with an application-and-contact User-Agent",
+        parallel_safe="Yes",
+        notes="Open Library work search exposes only first publication year, so resmon preserves year-only precision and locally checks the requested window. A sub-year window returns nothing: no whole publication year can be established as inside it, so resmon does not widen the request.",
+        keyword_combination="Undocumented",
+        keyword_combination_notes="Open Library documents q as a Solr query, but does not document how plain unfielded space-separated terms are combined. resmon forwards the query and does not claim strict local matching.",
     ),
     _entry(
         slug="osti",

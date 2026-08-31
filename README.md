@@ -19,7 +19,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Key Features
 
-- **Multi-repository ingestion across 21 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DataCite, DBLP, DOAJ, ERIC, EuropePMC, HAL, INSPIRE-HEP, medRxiv, NASA ADS, OpenAIRE, OpenAlex, OSTI.GOV, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
+- **Multi-repository ingestion across 25 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DataCite, DBLP, DOAJ, Dryad, ERIC, EuropePMC, HAL, INSPIRE-HEP, medRxiv, NASA ADS, NDL Search, NIST Resource Metadata Management, OpenAIRE, OpenAlex, Open Library, OSTI.GOV, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
 - **Three operational modes:**
   - *Targeted Deep Dive* — a focused, manual query against a single repository within a defined date range, with support for an ephemeral per-execution API key that never persists to disk.
   - *Broad Deep Sweep* — a cross-repository manual query that applies Deep Dive parameters across every selected repository in parallel.
@@ -43,7 +43,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Supported Repositories
 
-The table below lists the 21 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
+The table below lists the 25 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
 
 | Repository | API Type | API Key | Rate Limit (resmon) | Discipline Coverage |
 |---|---|---|---|---|
@@ -54,14 +54,18 @@ The table below lists the 21 active sources registered in the repository catalog
 | DataCite | REST (JSON:API) | Not required | 1.5 req/s | All disciplines, especially data, software, dissertations, and other DOI outputs |
 | DBLP | REST (JSON) | Not required | 2.0 req/s | Computer science |
 | DOAJ | REST (JSON) | Not required | 5.0 req/s | All disciplines (OA journals) |
+| Dryad | REST (JSON) | Not required | 1.0 req/s (conservative; no published API limit) | Multi-disciplinary research data |
 | ERIC | REST (JSON served as text/plain) | Not required | 0.5 req/s | Education research, policy, and practice |
 | EuropePMC | REST (JSON) | Not required | 5.0 req/s | Biomedicine, Life sciences |
 | HAL | REST (Solr JSON) | Not required | 2.0 req/s | All disciplines (French-leaning) |
 | INSPIRE-HEP | REST (JSON) | Not required | 2.0 req/s | High-energy physics, Accelerators, Astroparticle physics |
 | medRxiv | REST (JSON) | Not required | 2.0 req/s | Medicine, Clinical research, Health sciences preprints |
 | NASA ADS | REST (Solr JSON) | Required (Bearer) | 1.0 req/s (≈5000/day cap) | Astronomy, Astrophysics, Planetary science |
+| NDL Search | SRU (DC-NDL v3 XML) | Not required | 0.5 req/s (conservative; no published numeric API limit) | Japanese national bibliography, Books, Articles, Cultural heritage metadata |
+| NIST Resource Metadata Management | REST (JSON) | Not required | 0.5 req/s (conservative; no published API limit) | Engineering, Government technical publications |
 | OpenAIRE | REST (XML-derived JSON) | Not required | 0.0167 req/s (60/hour) | Multi-disciplinary publications, Research outputs |
 | OpenAlex | REST (JSON) | Not required | 10.0 req/s (polite pool via mailto) | All disciplines |
+| Open Library | REST (JSON) | Not required | 1.0 req/s (unidentified-client ceiling) | Books, Humanities, General bibliography |
 | OSTI.GOV | REST (JSON; XML and BibTeX optional) | Not required | 0.5 req/s | Energy, physical sciences, DOE-funded research, technical reports |
 | PLOS | REST (Solr JSON) | Not required | 5.0 req/s | Biology, Medicine, Natural sciences (PLOS journals) |
 | PubMed / NCBI E-utilities | REST (XML) | Optional (raises limit) | 3.0 req/s keyless, 10.0 req/s with key | Biomedicine |

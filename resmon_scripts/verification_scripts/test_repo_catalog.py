@@ -16,9 +16,9 @@ from implementation_scripts.repo_catalog import (
 
 
 EXPECTED_SLUGS = {
-    "arxiv", "biorxiv", "core", "crossref", "datacite", "dblp", "doaj",
+    "arxiv", "biorxiv", "core", "crossref", "datacite", "dblp", "doaj", "dryad",
     "eric", "europepmc", "hal", "inspire_hep", "medrxiv", "nasa_ads",
-    "openaire", "openalex", "osti", "plos", "pubmed", "semantic_scholar",
+    "ndl_search", "openaire", "openalex", "openlibrary", "nist_rmm", "osti", "plos", "pubmed", "semantic_scholar",
     "springer", "zenodo",
 }
 
@@ -28,10 +28,10 @@ EXPECTED_CREDENTIAL_NAMES = {
 }
 
 
-def test_catalog_has_twenty_one_entries():
-    """The active catalog should contain exactly 21 entries."""
+def test_catalog_has_twenty_five_entries():
+    """The active catalog should contain exactly 25 entries."""
     # RePEc/SSRN are excluded by policy and must not appear.
-    assert len(REPOSITORY_CATALOG) == 21
+    assert len(REPOSITORY_CATALOG) == 25
 
 
 def test_catalog_slugs_match_expected():
@@ -82,7 +82,7 @@ def test_required_credential_for():
 def test_catalog_as_dicts_shape():
     """catalog_as_dicts returns JSON-serializable dicts with expected keys."""
     dicts = catalog_as_dicts()
-    assert len(dicts) == 21
+    assert len(dicts) == 25
     expected_keys = {
         "slug", "name", "description", "subject_coverage", "endpoint",
         "query_method", "rate_limit", "client_module", "api_key_requirement",
@@ -137,6 +137,47 @@ def test_eric_catalog_does_not_invent_upstream_limits_or_date_precision():
     assert entry.rate_limit == "0.5 req/s (conservative; no published API limit)"
     assert entry.keyword_combination == "Implicit OR"
     assert "year" in entry.query_method.lower()
+
+
+def test_openlibrary_catalog_records_year_precision_and_undocumented_query_semantics():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "openlibrary")
+
+    assert entry.rate_limit == "1.0 req/s (unidentified-client ceiling)"
+    assert entry.keyword_combination == "Undocumented"
+    assert "sub-year window returns nothing" in entry.notes
+
+
+def test_nist_rmm_catalog_records_documented_api_limits_and_acknowledgment():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "nist_rmm")
+
+    assert entry.rate_limit == "0.5 req/s (conservative; no published API limit)"
+    assert entry.keyword_combination == "Undocumented"
+    assert "lower-bound" in entry.query_method
+    assert "date_to" in entry.notes
+    assert (
+        "Permission to use this data is contingent upon your acceptance of the terms "
+        "of this agreement and upon your providing appropriate acknowledgments of "
+        "NIST’s creation of the data/work."
+    ) in entry.notes
+    assert "https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications" in entry.notes
+
+
+def test_ndl_search_catalog_records_current_contract_and_required_credits():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "ndl_search")
+
+    assert entry.rate_limit == "0.5 req/s (conservative; no published numeric API limit)"
+    assert entry.keyword_combination == "Implicit AND (documented for anywhere)"
+    assert "at most 500 records per SRU request" in entry.query_method
+    assert "https://ndlsearch.ndl.go.jp/file/help/api/specifications/ndlsearch_api_20260331.pdf" in entry.notes
+    assert "https://ndlsearch.ndl.go.jp/en/help/api/provider" in entry.notes
+    assert "You must credit NDL Search API, on a website or application using the API." in entry.notes
+    assert "Also, you must credit the metadata providing database and institution in the case that credit is needed." in entry.notes
+    assert "https://ndlsearch.ndl.go.jp/en/help/api/" in entry.notes
+    assert "does not itself discharge attribution" in entry.notes
+    assert "YYYY, YYYY-MM, YYYY-MM-DD" in entry.notes
+    assert "lower partials to their first day" in entry.notes
+    assert "upper partials to their last day" in entry.notes
+    assert "same-precision" in entry.notes
 
 
 def test_osti_catalog_does_not_invent_upstream_limits_or_keyword_semantics():
