@@ -136,22 +136,16 @@ class DryadClient(BaseAPIClient):
             return None
 
         raw_identifier = record.get("identifier")
-        raw_id = record.get("id")
         title = record.get("title")
         if not isinstance(title, str) or not title.strip():
             logger.warning("Dryad record has no stable id or title; skipping it")
             return None
 
-        if isinstance(raw_identifier, str) and raw_identifier.strip():
-            external_id = raw_identifier.strip()
-        elif isinstance(raw_id, (str, int)) and not isinstance(raw_id, bool):
-            external_id = str(raw_id).strip()
-        else:
+        if not isinstance(raw_identifier, str) or not raw_identifier.strip():
             logger.warning("Dryad record has no stable id or title; skipping it")
             return None
-        if not external_id:
-            logger.warning("Dryad record has no stable id or title; skipping it")
-            return None
+
+        external_id = raw_identifier.strip()
 
         doi = external_id.removeprefix("doi:") if external_id.startswith("doi:") else None
         authors = DryadClient._author_names(record.get("authors"))

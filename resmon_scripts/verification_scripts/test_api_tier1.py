@@ -729,6 +729,7 @@ def test_dryad_search_skips_malformed_records(monkeypatch):
         lambda *args, **kwargs: _FakeResponse(payload=_dryad_payload([
             {"id": "doi:10.5061/dryad.no-title"},
             {"title": "No stable identifier"},
+            {"id": 12347, "title": "Internal identifier only"},
             valid,
         ])),
     )
