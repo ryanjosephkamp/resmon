@@ -20,7 +20,7 @@ DEFAULT_DB_PATH = Path(os.environ.get("RESMON_DB_PATH") or PROJECT_ROOT / "resmo
 
 # Application metadata
 APP_NAME = "resmon"
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.8.1"
 
 # API Client defaults
 DEFAULT_REQUEST_TIMEOUT = 30  # seconds
