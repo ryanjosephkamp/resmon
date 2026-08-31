@@ -34,10 +34,19 @@ The same way the renderer does it, in order:
 
 1. `RESMON_PORT` in the environment.
 2. The port file the backend writes into its state directory on startup.
-3. `8742`, the default.
+3. `8742`, the default — **only when neither of the above named a port.**
 
 Every candidate is confirmed with `GET /api/health` before use. This matters because a
 user can run the packaged app and a dev build at once, on different ports.
+
+**A named port is never widened to the default.** If step 1 or step 2 supplies a port and
+that port does not answer, the answer is `backend_unavailable`. Implementing this found
+why: when a named port had stopped answering, falling through to `8742` connected the
+server to the **launchd daemon** — a different process, a different version, a different
+database — and every tool then answered truthfully about the wrong corpus. A harness
+asking "what did my routine find this week" would have reported another installation's
+papers as the user's own. Failing is the correct outcome; the default exists only for a
+backend old enough not to write a port file.
 
 ### When the backend is not running
 
@@ -102,17 +111,17 @@ called out explicitly.
 | Tool | Arguments | Returns | Backed by |
 |---|---|---|---|
 | `health` | — | version, schema version, scheduler state, daemon state | `GET /api/health` |
-| `search_corpus` | `query`, `sources?`, `date_from?`, `date_to?`, `limit=25`, `offset=0` | matching papers: id, title, authors, date, source, doi, url | `POST /api/explorer/search` |
+| `search_corpus` | `query`, `sources?`, `date_from?`, `date_to?`, `limit=25`, `cursor?` | matching papers: id, title, authors, date, source, doi, url, plus `next_cursor` | `POST /api/explorer/search` |
 | `list_sources` | — | slug, name, coverage, whether a key is required and whether one is present | `GET /api/repositories/catalog` + `GET /api/credentials` |
 | `list_routines` | `active_only?` | id, name, schedule, sources, keywords, last run, active | `GET /api/routines` |
 | `get_routine` | `routine_id` | the full routine record | `GET /api/routines/{id}` |
 | `list_executions` | `routine_id?`, `status?`, `limit=25`, `offset=0` | id, type, status, started, finished, result count | `GET /api/executions` |
 | `get_execution` | `exec_id` | status, per-source counts, timings, AI lane used | `GET /api/executions/{id}` |
-| `get_execution_results` | `exec_id`, `limit=25`, `offset=0` | the papers that run found | `GET /api/executions/{id}/report` |
+| `get_execution_results` | `exec_id`, `limit=25`, `offset=0` | the papers that run found | `GET /api/executions/{id}/references?format=json` |
 | `get_search_record` | `exec_id` | the PRISMA-shaped reproducible record | `GET /api/executions/{id}/search-record` |
 | `explain_match` | `doc_id` | which keywords matched, in which field, and what resmon cannot verify | `GET /api/documents/{doc_id}/why` |
 | `get_paper_lifecycle` | `doc_id` | retraction, preprint→published, version changes, each with its notice link | `GET /api/documents/{doc_id}/lifecycle` |
-| `get_analytics` | `view` (overview \| volume \| sources \| keywords \| routine-health \| discovery-lag), `window?` | the requested summary | `GET /api/analytics/*` |
+| `get_analytics` | `view` (overview \| volume \| sources \| keywords \| routine-health \| discovery-lag), `window?` | the requested summary | `GET /api/analytics/{overview,publication-volume,source-contribution,keyword-contribution,routine-health,discovery-lag}` |
 | `get_watchdog_findings` | `include_muted?` | findings, each labelled `broken` or `unusual`, with what-to-do and the thresholds used | `GET /api/watchdog` |
 | `export_references` | `exec_id` or `doc_ids`, `format` (bibtex \| ris \| csv \| json) | the exported text | `POST /api/export/references` |
 
@@ -176,6 +185,31 @@ Listed so the omissions are visible and arguable rather than silently missing.
 | `/api/cloud/*` | Google Drive linking is an OAuth flow that needs a browser and a person. |
 | `/api/executions/{id}/progress/stream` | SSE does not fit a request/response tool surface. Poll `get_execution`. |
 | `/api/lifecycle/check` | Long-running corpus-wide job. A tool call that runs for an hour is a trap; revisit with a job-handle model. |
+
+---
+
+## Amendments
+
+### v1.1 — 31 August 2026, from implementing it
+
+Three items in v1 named endpoints or arguments that do not exist as written. Found by
+building against the document and checking every route rather than trusting it, which is
+the same lesson the delegation briefs produced: pre-writing an API detail you have not
+verified produces a confident error.
+
+| Was | Now | Why |
+|---|---|---|
+| `get_execution_results` ← `GET /api/executions/{id}/report` | ← `GET /api/executions/{id}/references?format=json` | `/report` returns `{"report_text": ...}` — the entire rendered Markdown. Returning it would break this document's own token-efficiency guarantee, stated two sections above. |
+| `search_corpus` takes `offset` | takes `cursor`, returns `next_cursor` | The corpus seeks on `(publication_date DESC, id DESC)` with an opaque cursor so the index descends rather than walks. Emulating an offset would re-walk every prior page per call. An explicit `offset` is refused rather than ignored. |
+| `get_analytics` ← `/api/analytics/*` | ← the six real paths, named | Three view names do not match their route: `volume`, `sources` and `keywords` are served by `publication-volume`, `source-contribution` and `keyword-contribution`. The view names stay as the tool's vocabulary. |
+
+Port discovery also gained an explicit rule — a named port is never widened to the default
+— which is a clarification rather than a change of intent, and is recorded in that section
+with the reason it was needed.
+
+These are additive and clarifying rather than breaking: no tool was removed and no return
+shape a caller depended on changed, because there were no callers yet. The contract stays
+**v1**; this is its first amendment.
 
 ---
 
