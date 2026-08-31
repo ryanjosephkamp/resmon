@@ -50,9 +50,22 @@ __all__ = [
 
 LANE_KINDS = ("subscription", "api_key", "local")
 
-# Provider ids the subscription lane understands. The clients land in 1.8c;
-# naming them here keeps the resolver and the settings schema in one place.
+# Provider ids the subscription lane understands.
 SUBSCRIPTION_PROVIDERS = ("claude_code", "codex")
+
+# How many documents one execution may put through a subscription lane before
+# it stands down.
+#
+# This is a guard rail rather than a technical limit. An agent CLI is far slower
+# per call than a direct API request, and it spends the same Claude Max or
+# ChatGPT window the user does their own work in — so a 200-paper sweep routed
+# through one is both slow and capable of exhausting the plan the user actually
+# needs. Twenty-five is enough for the lane to be genuinely useful on a focused
+# run and small enough that nobody discovers the cost by losing a window.
+#
+# Reaching the cap is not a failure. The lane stands down, the chain carries on
+# with the next lane, and execution_ai records that the cap was the reason.
+DEFAULT_SUBSCRIPTION_DOC_CAP = 25
 
 _PROVIDER_DISPLAY = {
     "openai": "OpenAI",
@@ -84,6 +97,7 @@ class AILane:
     endpoint: Optional[str] = None        # local
     base_url: Optional[str] = None        # custom api_key provider
     binary_path: Optional[str] = None     # subscription
+    doc_cap: Optional[int] = None         # subscription; None means uncapped
     label: str = ""
 
     def __post_init__(self) -> None:
@@ -91,6 +105,13 @@ class AILane:
             raise ValueError(
                 f"Unknown lane kind {self.kind!r}. Expected one of {', '.join(LANE_KINDS)}."
             )
+        # A subscription lane is capped unless the user set their own number.
+        # Defaulting here rather than at the call site means a lane built from
+        # a hand-edited ai_chain, from the legacy settings, or straight from
+        # the constructor all get the guard -- there is no path that produces
+        # an uncapped subscription lane by omission.
+        if self.kind == "subscription" and self.doc_cap is None:
+            object.__setattr__(self, "doc_cap", DEFAULT_SUBSCRIPTION_DOC_CAP)
         if not self.label:
             # frozen dataclass — assign through object.__setattr__
             object.__setattr__(self, "label", describe_lane(self))
@@ -188,6 +209,28 @@ def _lane_from_entry(entry: Any, index: int) -> Optional[AILane]:
         text = str(value).strip()
         return text or None
 
+    # A cap that will not parse, or that is zero or negative, falls back to the
+    # default rather than being honoured. "0" would read as "no documents at
+    # all", which nobody means by it, and a corrupt value must not be the thing
+    # that removes the guard.
+    doc_cap: Optional[int] = None
+    raw_cap = entry.get("doc_cap")
+    if raw_cap is not None:
+        try:
+            parsed = int(raw_cap)
+        except (TypeError, ValueError):
+            logger.warning(
+                "ai_chain[%d] has a non-numeric doc_cap %r; using the default.",
+                index, raw_cap,
+            )
+        else:
+            if parsed > 0:
+                doc_cap = parsed
+            else:
+                logger.warning(
+                    "ai_chain[%d] has doc_cap %d; using the default.", index, parsed,
+                )
+
     try:
         return AILane(
             kind=kind,
@@ -197,6 +240,7 @@ def _lane_from_entry(entry: Any, index: int) -> Optional[AILane]:
             endpoint=_opt("endpoint"),
             base_url=_opt("base_url"),
             binary_path=_opt("binary_path"),
+            doc_cap=doc_cap,
             label=_opt("label") or "",
         )
     except ValueError as exc:  # pragma: no cover - kind already validated
@@ -225,11 +269,21 @@ def lane_from_legacy_settings(settings: dict[str, Any]) -> Optional[AILane]:
         return AILane(kind="local", provider="local", model=model, endpoint=endpoint)
 
     if provider in SUBSCRIPTION_PROVIDERS:
+        raw_cap = settings.get("ai_subscription_doc_cap")
+        doc_cap: Optional[int] = None
+        if raw_cap is not None:
+            try:
+                parsed = int(raw_cap)
+            except (TypeError, ValueError):
+                parsed = 0
+            if parsed > 0:
+                doc_cap = parsed
         return AILane(
             kind="subscription",
             provider=provider,
             model=str(settings.get("ai_model") or "").strip() or None,
             binary_path=str(settings.get("ai_cli_path") or "").strip() or None,
+            doc_cap=doc_cap,
         )
 
     return AILane(

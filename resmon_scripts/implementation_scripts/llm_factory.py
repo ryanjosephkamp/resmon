@@ -22,10 +22,12 @@ import logging
 from typing import Optional, Union
 from urllib.parse import urlparse
 
+from .ai_cli import discover_cli
 from .ai_lanes import AILane, resolve_chain
 from .credential_manager import AI_CREDENTIAL_NAMES, get_credential
 from .llm_local import LocalLLMClient
 from .llm_remote import RemoteLLMClient
+from .llm_subscription import SubscriptionLLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +176,7 @@ def build_llm_client_from_settings(
 def build_client_for_lane(
     lane: AILane,
     ephemeral: Optional[dict] = None,
-) -> Optional[Union[RemoteLLMClient, LocalLLMClient]]:
+) -> Optional[Union[RemoteLLMClient, LocalLLMClient, SubscriptionLLMClient]]:
     """Construct the client for one lane, or ``None`` if it cannot be built.
 
     Returns ``None`` rather than raising for the ordinary "not configured"
@@ -193,14 +195,21 @@ def build_client_for_lane(
         return LocalLLMClient(model=lane.model)
 
     if lane.kind == "subscription":
-        # The client that drives an installed agent CLI arrives in 1.8c. Until
-        # then a subscription lane resolves and records but cannot run, which
-        # is reported honestly rather than pretended around.
-        logger.info(
-            "Lane %s is a subscription lane; no client implementation yet (1.8c).",
-            lane.label,
+        # Discovery only. Finding the binary does not establish that anyone is
+        # logged into it -- that failure surfaces as CLI_AUTH on the first call
+        # and demotes the lane then, which is honest about what has actually
+        # been checked. Probing login here would mean an extra CLI invocation
+        # per execution to learn something the first real call tells us anyway.
+        discovery = discover_cli(lane.provider, lane.binary_path)
+        if not discovery.found:
+            logger.info("Lane %s: %s", lane.label, discovery.describe())
+            return None
+        return SubscriptionLLMClient(
+            provider=lane.provider,
+            binary_path=discovery.path or "",
+            model=lane.model,
+            lane_label=lane.label,
         )
-        return None
 
     # api_key
     custom_base_url: Optional[str] = None

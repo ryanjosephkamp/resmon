@@ -2724,6 +2724,43 @@ def update_ai_settings(body: SettingsBody):
         _close_db(conn)
 
 
+@app.get("/api/settings/ai/cli-status")
+def get_ai_cli_status():
+    """Report whether each subscription-lane CLI can be found, and where.
+
+    Detection only — this never runs the binary, so it cannot say whether
+    anyone is logged in. That distinction is deliberate and is carried in the
+    response: a CLI that is present but logged out fails on first use with
+    ``CLI_AUTH``, and claiming "ready" here would be a promise this endpoint
+    has not checked.
+
+    ``tried`` is returned because "not found" on its own is unhelpful. A
+    packaged app launched from the Finder searches a far smaller PATH than a
+    terminal does, so showing the candidate paths is what lets someone see that
+    resmon looked in the wrong place rather than that their CLI is broken.
+    """
+    from implementation_scripts.ai_cli import SUPPORTED_CLI_PROVIDERS, discover_cli
+
+    conn = _get_db()
+    try:
+        settings = _get_settings_group(conn, "ai")
+    finally:
+        _close_db(conn)
+
+    configured = str(settings.get("ai_cli_path") or "").strip() or None
+    providers = []
+    for provider in SUPPORTED_CLI_PROVIDERS:
+        # The configured path is a single setting, so it is only meaningful for
+        # the provider it was set for. Applying it to both would report Codex
+        # as "found" at the path of the Claude binary.
+        explicit = configured if settings.get("ai_provider") == provider else None
+        entry = discover_cli(provider, explicit).to_dict()
+        entry["login_checked"] = False
+        providers.append(entry)
+
+    return {"providers": providers}
+
+
 @app.get("/api/settings/cloud")
 def get_cloud_settings():
     conn = _get_db()
