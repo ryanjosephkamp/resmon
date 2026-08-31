@@ -785,6 +785,41 @@ The `local` provider bypasses the key flow entirely and dispatches through `impl
 
 No API key is required for `local`; `Test key` and `Store key` are hidden for this provider.
 
+### Fallback Chains
+
+One provider failing no longer costs you the run. Under **Settings → AI**, the
+`If that fails, try…` section adds ordered fallback providers beneath the one you
+selected. Leave it empty and resmon behaves exactly as it did before chains existed —
+the stored chain is written only once you add a fallback, and a single-provider
+configuration is read as a one-lane chain.
+
+What separates a chain from a retry loop is that **not every failure means the same
+thing**:
+
+| Failure | Examples | What resmon does |
+|---|---|---|
+| **Lane-fatal** | rejected key, exhausted quota, model does not exist, provider unreachable | Retires that provider **for the rest of the run** and moves to the next |
+| **Document-local** | abstract past the context window, content declined, a one-off `5xx` | Falls through **for that paper only**; the provider stays primary |
+
+Both mistakes are expensive in opposite directions. Re-presenting a rejected key once per
+paper burns an entire run rediscovering the same fact; abandoning a working provider
+because one abstract was too long silently downgrades every summary after it.
+
+Every attempt lands in `execution_ai` — one row per lane, with the provider, the model,
+the credential **alias** (never the value), how many papers it summarized, and the
+classified reason it stopped. A lane that was never reached is recorded as `skipped`
+rather than omitted, because "not needed" and "not configured" are different facts. The
+report header names the provider that **actually produced** the summaries, not the one
+configured first.
+
+Ollama is the natural last lane: it needs no key and costs nothing. Note honestly that
+**resmon has no summarizer beyond the lanes you configure.** If every lane fails, those
+papers have no AI summary and the execution says why — there is no hidden extractive
+fallback underneath.
+
+A routine can carry its own chain through the `chain` key in its per-execution AI
+override, exactly like `provider` or `model`.
+
 ### Per-Execution Overrides
 
 Deep Dive and Deep Sweep expose an **Override AI settings for this run** disclosure that accepts per-execution overrides for length, tone, and model. Empty override fields fall through to the persisted `ai_*` settings. Overrides flow through the request body of `POST /api/search/dive` / `POST /api/search/sweep` and are consumed by `SweepEngine` for that one execution only.
