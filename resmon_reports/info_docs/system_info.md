@@ -196,6 +196,7 @@ The `admission` singleton (`implementation_scripts/admission.py`, `ExecutionAdmi
 
 Cross-cutting responsibilities:
 
+- **MCP server (`resmon_scripts/mcp_server.py`).** Speaks MCP over stdio and is an HTTP client of the running backend on `127.0.0.1` — it never opens the database, so the backend keeps sole ownership of its connections, scheduler and admission control. Seventeen tools; nothing destructive, and no tool reads or writes a credential value (aliases and presence only). Port discovery is `RESMON_PORT` → the port file beside the database → the default, and a *named* port that does not answer is reported unavailable rather than widened to the default, so a harness cannot silently attach to a different installation. Contract: `docs/api-contract/mcp.md`.
 - **Required-credentials gate** — the `_REQUIRED_CREDENTIALS` table maps repositories that cannot return any results without a key (`core`, `nasa_ads`, `springer`) to their credential name. Missing credentials short-circuit the repo with a user-visible error.
 - **Cooperative cancellation** — `_search_with_heartbeat` polls `progress_store`'s cancel flag on a 2-second heartbeat; `_ExecutionCancelled` is caught by `_handle_cancellation` to persist a partial report.
 - **Optional auto-backup** — `_maybe_auto_backup` invokes `cloud_storage.upload_directory` when the `cloud_auto_backup` setting is true and a Google Drive token is present.

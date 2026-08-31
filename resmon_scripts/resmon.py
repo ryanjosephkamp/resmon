@@ -29,7 +29,9 @@ from starlette.responses import Response, StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field
 
-from implementation_scripts.config import APP_NAME, APP_VERSION, DEFAULT_DB_PATH, REPORTS_DIR
+from implementation_scripts.config import (
+    APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
+)
 from implementation_scripts.database import (
     get_connection,
     init_db,
@@ -1268,6 +1270,65 @@ def activate_routine(routine_id: int):
         _sync_routine_config(conn, routine_id)
         _sched_add_routine(routine_id)
         return {"id": routine_id, "is_active": True}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/routines/{routine_id}/run")
+def run_routine_now(routine_id: int):
+    """Run a routine immediately, outside its schedule.
+
+    Writing the MCP contract found that resmon had no way to do this at all:
+    routines could be activated or deactivated, and running one now meant
+    rebuilding its configuration by hand as a sweep. That is a gap in the
+    application rather than only in the tool surface -- "run my arXiv routine
+    now" is something a person should be able to do from the interface too.
+
+    Deliberately a thin wrapper over ``_dispatch_routine_fire``, the same
+    function the scheduler calls, so a manual run and a scheduled fire take one
+    code path and cannot drift apart. Everything that makes a scheduled fire
+    correct -- admission control, the routine_id stamp, progress registration,
+    the last_executed_at update -- applies here for free because it is
+    literally the same code.
+
+    An **inactive** routine does run, and the response says so. ``is_active``
+    governs whether the scheduler fires a routine on its own; it is not a
+    statement that the routine may never run. Refusing here would mean a user
+    has to activate a routine, run it, and deactivate it again to get one
+    result.
+    """
+    conn = _get_db()
+    try:
+        existing = get_routine_by_id(conn, routine_id)
+        if not existing:
+            raise HTTPException(404, "Routine not found")
+
+        was_inactive = not bool(existing.get("is_active"))
+        exec_id = _dispatch_routine_fire(
+            routine_id, existing.get("parameters") or "{}", allow_inactive=True,
+        )
+
+        if exec_id is None:
+            # The routine exists and we were willing to run it, so the only
+            # remaining reason is admission control -- resmon is already
+            # running as many executions as it allows. Saying that plainly
+            # beats a generic failure the caller cannot act on.
+            raise HTTPException(
+                409,
+                "resmon is already running as many executions as it allows at "
+                "once. Wait for one to finish and try again.",
+            )
+
+        return {
+            "execution_id": exec_id,
+            "routine_id": routine_id,
+            "was_inactive": was_inactive,
+            "detail": (
+                "This routine is not scheduled; it was run once because you "
+                "asked for it." if was_inactive else
+                "Running now, in addition to its schedule."
+            ),
+        }
     finally:
         _close_db(conn)
 
@@ -2921,23 +2982,45 @@ def _migrate_legacy_ai_key_on_startup() -> None:
 scheduler: ResmonScheduler | None = None
 
 
-def _dispatch_routine_fire(routine_id: int, parameters: str) -> None:
-    """Fire a scheduled routine: prepare execution, admit, launch, stamp.
+def _dispatch_routine_fire(
+    routine_id: int,
+    parameters: str,
+    *,
+    allow_inactive: bool = False,
+) -> int | None:
+    """Fire a routine: prepare execution, admit, launch, stamp.
 
-    Follows the pseudocode in ``resmon_routines.md`` Appendix A.1. Returns
-    early if the routine row is missing or inactive, or if the admission
-    controller enqueues / drops the fire. Admission slot release happens
-    inside ``_launch_execution``'s ``finally`` via ``admission.note_finished``.
+    Follows the pseudocode in ``resmon_routines.md`` Appendix A.1. Returns the
+    new execution id, or ``None`` if the routine row is missing or inactive, or
+    if the admission controller enqueues / drops the fire. Admission slot
+    release happens inside ``_launch_execution``'s ``finally`` via
+    ``admission.note_finished``.
+
+    ``allow_inactive`` exists for ``POST /api/routines/{id}/run``. Skipping an
+    inactive routine is right for a *scheduled* fire -- deactivating is how a
+    user stops one running on its own. A manual run is an explicit instruction,
+    so ``is_active`` governs scheduling rather than permission, and the endpoint
+    says in its response that the routine was inactive rather than running it
+    silently. The scheduler never passes this, so its behaviour is unchanged.
+
+    The return value is new. The scheduler ignores it, which is why widening it
+    is safe; the endpoint needs it, because "which execution did you just
+    start" is the only useful thing to answer with.
     """
     dispatch_logger = logging.getLogger(__name__)
     conn = _get_db()
     try:
         row = get_routine_by_id(conn, routine_id)
-        if not row or not row.get("is_active"):
+        if not row:
             dispatch_logger.info(
-                "Routine fire skipped: routine_id=%s missing or inactive", routine_id,
+                "Routine fire skipped: routine_id=%s missing", routine_id,
             )
-            return
+            return None
+        if not row.get("is_active") and not allow_inactive:
+            dispatch_logger.info(
+                "Routine fire skipped: routine_id=%s inactive", routine_id,
+            )
+            return None
 
         try:
             params = json.loads(parameters or "{}")
@@ -2945,7 +3028,7 @@ def _dispatch_routine_fire(routine_id: int, parameters: str) -> None:
             dispatch_logger.exception(
                 "Routine fire parameters unparseable: routine_id=%s", routine_id,
             )
-            return
+            return None
         if not isinstance(params, dict):
             params = {}
         repositories = list(params.get("repositories") or [])
@@ -2953,7 +3036,7 @@ def _dispatch_routine_fire(routine_id: int, parameters: str) -> None:
         if not admission.try_admit(
             kind="routine", routine_id=routine_id, params_json=parameters,
         ):
-            return
+            return None
 
         ai_settings_raw = row.get("ai_settings")
         try:
@@ -2997,6 +3080,7 @@ def _dispatch_routine_fire(routine_id: int, parameters: str) -> None:
             dispatch_logger.exception(
                 "Failed to stamp last_executed_at: routine_id=%s", routine_id,
             )
+        return int(exec_id)
     finally:
         _close_db(conn)
 
@@ -3760,12 +3844,42 @@ def close_db() -> None:
 # Entrypoint
 # ---------------------------------------------------------------------------
 
+def write_port_file(port: int) -> None:
+    """Record the port this process is serving on, for the MCP server to find.
+
+    Best-effort by design: a read-only or missing state directory must not stop
+    the backend starting. The MCP server falls back to RESMON_PORT and then the
+    default, and confirms whatever it finds with GET /api/health before using
+    it, so a stale or absent file costs a probe rather than a wrong answer.
+    """
+    try:
+        PORT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PORT_FILE.write_text(str(int(port)), encoding="utf-8")
+    except OSError:
+        logging.getLogger(__name__).warning(
+            "Could not write the port file at %s; the MCP server will fall back "
+            "to RESMON_PORT or the default port.", PORT_FILE,
+        )
+
+
+def remove_port_file() -> None:
+    """Delete the port file on the way out. Never raises."""
+    try:
+        PORT_FILE.unlink()
+    except OSError:
+        pass
+
+
 def main():
     import uvicorn
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8742
     create_app()
     print(f"{APP_NAME} v{APP_VERSION}")
-    uvicorn.run(app, host="127.0.0.1", port=port)
+    write_port_file(port)
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=port)
+    finally:
+        remove_port_file()
 
 
 if __name__ == "__main__":
