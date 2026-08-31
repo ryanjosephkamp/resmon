@@ -82,3 +82,12 @@ describe('required attributions', () => {
     expect(block.querySelectorAll('li')).toHaveLength(2);
   });
 });
+
+describe('keyed-source terms note', () => {
+  test('the page says whose terms bind the user for a keyed source', async () => {
+    await mount();
+    const note = await screen.findByTestId('keyed-source-terms-note');
+    expect(note).toHaveTextContent('your own credential');
+    expect(note).toHaveTextContent(/terms bind you/i);
+  });
+});

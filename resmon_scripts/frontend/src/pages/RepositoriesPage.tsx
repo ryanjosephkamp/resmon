@@ -118,6 +118,14 @@ const RepositoriesPage: React.FC = () => {
         12-character mask.
       </p>
 
+      <p className="text-muted" data-testid="keyed-source-terms-note">
+        A key you enter here is <strong>your own credential</strong>, and it is sent only to
+        that source. When a source runs on your key, that provider&rsquo;s terms bind you
+        rather than resmon &mdash; resmon checks a source&rsquo;s terms before adopting it,
+        and has withdrawn one that could not be used without putting the account holder in
+        breach, but it cannot accept a licence on your behalf.
+      </p>
+
       <div style={{ marginBottom: 12 }}>
         <button
           type="button"

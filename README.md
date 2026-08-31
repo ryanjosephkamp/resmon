@@ -117,6 +117,45 @@ cannot drift apart, and the run is recorded against the routine like any other.
 An **inactive** routine does run, and the response says so. `is_active` controls whether the
 scheduler fires a routine on its own; it is not a statement that the routine may never run.
 
+### Sources and their terms
+
+resmon queries third-party scholarly APIs. Some are open; some need **your own API key**, which
+you register for yourself and which resmon stores in your operating system's keyring and sends
+only to that source.
+
+That distinction matters more than it looks. **When a source runs on your key, the provider's
+terms bind you, not resmon.** resmon can decline to ship an integration it believes puts users
+in breach — and has: IEEE Xplore was withdrawn in v1.8.1 for exactly that reason — but it
+cannot accept a licence on your behalf, and it does not monitor whether your use stays within
+one.
+
+What resmon does do:
+
+- **Checks terms before adopting a source**, against the provider's own words, and records the
+  reasoning in [`docs/source-landscape.md`](docs/source-landscape.md) so you can read it.
+- **Honours field-level conditions.** Where a source permits storing a field only under
+  conditions, resmon checks them — INSPIRE-HEP abstracts are kept only where the abstract's own
+  source is arXiv or CERN, which drops about a fifth of them.
+- **Displays required attributions**, unconditionally, on the Repositories page.
+- **Says when it does not know.** Eleven shipped sources publish terms that neither clearly
+  grant nor forbid what resmon does. They are active, and that assessment is recorded rather
+  than dressed up as a clearance.
+
+What it does not do, and you should assume for yourself:
+
+- It does not give legal advice, and the assessments in this repository are not legal advice.
+- It does not verify that your use of a keyed source complies with the agreement you accepted
+  when you registered for that key.
+- It does not re-check a provider's terms after adoption. Terms change; the survey records the
+  date it was made.
+- Under the MIT licence resmon is provided **as is, without warranty of any kind**. That covers
+  the software. It does not and cannot extend to the third-party services you point it at.
+
+If you add a source yourself — directly, or by pointing your own AI harness at this repository —
+that source's terms are yours to read. [`docs/adding-a-source.md`](docs/adding-a-source.md)
+opens with the four questions to ask, because asking them last has cost this project real work
+twice.
+
 ### Source attributions
 
 Four of the sources resmon queries make a credit a **condition of reuse**, not a courtesy:
@@ -1003,7 +1042,7 @@ In short, the MIT License permits use, copying, modification, merging, publicati
 
 ## Contributing
 
-Contributions are welcome. resmon is a single-maintainer project, so the workflow below is deliberately lightweight; please open an issue before starting substantial work so the scope can be scoped and any related changes in the `.ai:/prep/` planning documents can be coordinated.
+Contributions are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)** for the short version, **[docs/adding-a-source.md](docs/adding-a-source.md)** for adding a scholarly source, and **[AGENTS.md](AGENTS.md)** if you are working this repository with an AI harness. resmon is a single-maintainer project, so the workflow below is deliberately lightweight; please open an issue before starting substantial work so the scope can be scoped and any related changes in the `.ai:/prep/` planning documents can be coordinated.
 
 ### Reporting Issues
 
