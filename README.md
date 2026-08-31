@@ -19,7 +19,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Key Features
 
-- **Multi-repository ingestion across 22 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DataCite, DBLP, DOAJ, Dryad, ERIC, EuropePMC, HAL, INSPIRE-HEP, medRxiv, NASA ADS, OpenAIRE, OpenAlex, OSTI.GOV, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
+- **Multi-repository ingestion across 24 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DataCite, DBLP, DOAJ, Dryad, ERIC, EuropePMC, HAL, INSPIRE-HEP, medRxiv, NASA ADS, NIST Resource Metadata Management, OpenAIRE, OpenAlex, Open Library, OSTI.GOV, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
 - **Three operational modes:**
   - *Targeted Deep Dive* — a focused, manual query against a single repository within a defined date range, with support for an ephemeral per-execution API key that never persists to disk.
   - *Broad Deep Sweep* — a cross-repository manual query that applies Deep Dive parameters across every selected repository in parallel.
@@ -43,7 +43,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Supported Repositories
 
-The table below lists the 23 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
+The table below lists the 24 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
 
 | Repository | API Type | API Key | Rate Limit (resmon) | Discipline Coverage |
 |---|---|---|---|---|
@@ -61,6 +61,7 @@ The table below lists the 23 active sources registered in the repository catalog
 | INSPIRE-HEP | REST (JSON) | Not required | 2.0 req/s | High-energy physics, Accelerators, Astroparticle physics |
 | medRxiv | REST (JSON) | Not required | 2.0 req/s | Medicine, Clinical research, Health sciences preprints |
 | NASA ADS | REST (Solr JSON) | Required (Bearer) | 1.0 req/s (≈5000/day cap) | Astronomy, Astrophysics, Planetary science |
+| NIST Resource Metadata Management | REST (JSON) | Not required | 0.5 req/s (conservative; no published API limit) | Engineering, Government technical publications |
 | OpenAIRE | REST (XML-derived JSON) | Not required | 0.0167 req/s (60/hour) | Multi-disciplinary publications, Research outputs |
 | OpenAlex | REST (JSON) | Not required | 10.0 req/s (polite pool via mailto) | All disciplines |
 | Open Library | REST (JSON) | Not required | 1.0 req/s (unidentified-client ceiling) | Books, Humanities, General bibliography |
@@ -351,7 +352,7 @@ resmon/
 │   │   ├── analytics.py              # Corpus analytics queries (thin-corpus policy).
 │   │   ├── explorer.py               # Corpus-wide search, faceting, keyset pagination.
 │   │   ├── ai_models.py              # Provider model-catalog probing.
-│   │   ├── api_*.py                  # Per-repository API clients (19 active sources).
+│   │   ├── api_*.py                  # Per-repository API clients (24 active sources).
 │   │   ├── api_base.py               # Shared rate limiter + HTTP client base class.
 │   │   ├── api_registry.py           # Slug → client dispatch table.
 │   │   ├── citation_graph.py         # Citation and context graphing.
@@ -993,7 +994,7 @@ resmon is built on top of a broad ecosystem of open-access scholarly repositorie
 
 ### Open-Access Repository Providers
 
-The 23 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
+The 24 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
 
 - **arXiv** — Cornell University / arXiv.org, for the Atom XML API and the decades-long commitment to open preprint distribution in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics.
 - **bioRxiv** and **medRxiv** — openRxiv, for the date-range JSON API serving the life- and health-sciences communities.

@@ -18,7 +18,7 @@ from implementation_scripts.repo_catalog import (
 EXPECTED_SLUGS = {
     "arxiv", "biorxiv", "core", "crossref", "datacite", "dblp", "doaj", "dryad",
     "eric", "europepmc", "hal", "inspire_hep", "medrxiv", "nasa_ads",
-    "openaire", "openalex", "openlibrary", "osti", "plos", "pubmed", "semantic_scholar",
+    "openaire", "openalex", "openlibrary", "nist_rmm", "osti", "plos", "pubmed", "semantic_scholar",
     "springer", "zenodo",
 }
 
@@ -28,10 +28,10 @@ EXPECTED_CREDENTIAL_NAMES = {
 }
 
 
-def test_catalog_has_twenty_three_entries():
-    """The active catalog should contain exactly 23 entries."""
+def test_catalog_has_twenty_four_entries():
+    """The active catalog should contain exactly 24 entries."""
     # RePEc/SSRN are excluded by policy and must not appear.
-    assert len(REPOSITORY_CATALOG) == 23
+    assert len(REPOSITORY_CATALOG) == 24
 
 
 def test_catalog_slugs_match_expected():
@@ -82,7 +82,7 @@ def test_required_credential_for():
 def test_catalog_as_dicts_shape():
     """catalog_as_dicts returns JSON-serializable dicts with expected keys."""
     dicts = catalog_as_dicts()
-    assert len(dicts) == 23
+    assert len(dicts) == 24
     expected_keys = {
         "slug", "name", "description", "subject_coverage", "endpoint",
         "query_method", "rate_limit", "client_module", "api_key_requirement",
@@ -144,6 +144,21 @@ def test_openlibrary_catalog_records_year_precision_and_undocumented_query_seman
     assert entry.rate_limit == "1.0 req/s (unidentified-client ceiling)"
     assert entry.keyword_combination == "Undocumented"
     assert "sub-year window returns nothing" in entry.notes
+
+
+def test_nist_rmm_catalog_records_documented_api_limits_and_acknowledgment():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "nist_rmm")
+
+    assert entry.rate_limit == "0.5 req/s (conservative; no published API limit)"
+    assert entry.keyword_combination == "Undocumented"
+    assert "lower-bound" in entry.query_method
+    assert "date_to" in entry.notes
+    assert (
+        "Permission to use this data is contingent upon your acceptance of the terms "
+        "of this agreement and upon your providing appropriate acknowledgments of "
+        "NIST’s creation of the data/work."
+    ) in entry.notes
+    assert "https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications" in entry.notes
 
 
 def test_osti_catalog_does_not_invent_upstream_limits_or_keyword_semantics():

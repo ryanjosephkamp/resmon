@@ -92,7 +92,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 23 active repositories.
+# Catalog — 24 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -367,6 +367,32 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Daily quota (not per-second) is the binding limit.",
         keyword_combination="Relevance-ranked (Solr OR default)",
         keyword_combination_notes="NASA ADS uses Solr-style q parsing; the default operator is OR and results are returned in relevance-scored order.",
+    ),
+    _entry(
+        slug="nist_rmm",
+        name="NIST Resource Metadata Management",
+        description="NIST papers and technical-report metadata",
+        subject_coverage="Engineering / Government technical publications",
+        endpoint="https://data.nist.gov/rmm/papers",
+        query_method="GET with searchphrase, lower-bound-only from_date, skip, and limit; date_to is filtered locally",
+        rate_limit="0.5 req/s (conservative; no published API limit)",
+        client_module="api_nist_rmm.py",
+        requirement="none",
+        credential_name=None,
+        website="https://data.nist.gov/rmm/",
+        registration_url=None,
+        upstream_policy="No authentication or numeric rate limit is documented in the RMM OpenAPI; resmon uses a conservative shared ceiling",
+        parallel_safe="Yes",
+        notes=(
+            "The documented RMM papers API has no upstream upper date bound; "
+            "resmon sends from_date only and applies date_to locally. "
+            "Permission to use this data is contingent upon your acceptance of the terms "
+            "of this agreement and upon your providing appropriate acknowledgments of "
+            "NIST’s creation of the data/work. "
+            "https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications"
+        ),
+        keyword_combination="Undocumented",
+        keyword_combination_notes="The RMM OpenAPI documents searchphrase but does not document how space-separated terms are combined.",
     ),
     _entry(
         slug="openaire",

@@ -97,6 +97,7 @@ def _ensure_loaded():
         "api_hal",
         "api_inspire_hep",
         "api_nasa_ads",
+        "api_nist_rmm",
         "api_openaire",
         "api_openalex",
         "api_openlibrary",

@@ -23,6 +23,7 @@ from implementation_scripts import api_datacite
 from implementation_scripts import api_dryad
 from implementation_scripts import api_eric
 from implementation_scripts import api_inspire_hep
+from implementation_scripts import api_nist_rmm
 from implementation_scripts import api_openlibrary
 from implementation_scripts import api_openaire
 from implementation_scripts import api_osti
@@ -35,12 +36,12 @@ import implementation_scripts.api_nasa_ads       # noqa: F401
 TIER_1_REPOS = [
     "arxiv", "crossref", "semantic_scholar", "openalex", "pubmed",
     "europepmc", "biorxiv", "core", "datacite", "doaj", "dblp", "dryad", "eric",
-    "inspire_hep", "medrxiv", "nasa_ads", "openlibrary", "openaire", "osti", "zenodo",
+    "inspire_hep", "medrxiv", "nasa_ads", "nist_rmm", "openlibrary", "openaire", "osti", "zenodo",
 ]
 
 
 def test_all_tier1_registered():
-    """All 20 Tier 1 repositories are registered in the client registry."""
+    """All 21 Tier 1 repositories are registered in the client registry."""
     repos = list_repositories()
     for name in TIER_1_REPOS:
         assert name in repos, f"Missing Tier 1 client: {name}"
@@ -51,6 +52,219 @@ def test_each_client_instantiates():
     for name in TIER_1_REPOS:
         client = get_client(name)
         assert client.get_name() is not None
+
+
+def _nist_rmm_record(
+    doi="10.18434/mds2-1234",
+    *,
+    ediid="nist-papers-1234",
+    ark=None,
+    title="NIST materials measurement paper",
+    authors=None,
+    publication_date="2024-01-15",
+    url="https://data.nist.gov/papers/nist-papers-1234",
+):
+    return {
+        "doi": doi,
+        "ediid": ediid,
+        "ark": ark,
+        "title": title,
+        "authors": ["Doe, Jane", "Rao, Priya"] if authors is None else authors,
+        "publication_date": publication_date,
+        "url": url,
+    }
+
+
+def _nist_rmm_payload(records, *, total=None):
+    if total is None:
+        total = len(records)
+    return {
+        "ResultData": records,
+        "ResultCount": total,
+        "PageSize": len(records),
+        "Metrics": {},
+    }
+
+
+def test_nist_rmm_search_uses_documented_params_and_normalizes_doi_record(monkeypatch):
+    calls = []
+
+    def _request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return _FakeResponse(payload=_nist_rmm_payload([_nist_rmm_record()]))
+
+    monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
+
+    results = api_nist_rmm.NistRmmClient().search(
+        query="materials measurement",
+        date_from="2024-01-01",
+        date_to="2024-01-31",
+        max_results=3,
+    )
+
+    assert calls == [(
+        "GET",
+        "https://data.nist.gov/rmm/papers",
+        {
+            "params": {
+                "searchphrase": "materials measurement",
+                "from_date": "2024-01-01",
+                "skip": 0,
+                "limit": 50,
+            },
+            "rate_limiter": api_nist_rmm._RATE_LIMITER,
+        },
+    )]
+    assert api_nist_rmm._RATE_LIMITER._interval == pytest.approx(2.0)
+    assert results == [NormalizedResult(
+        source_repository="nist_rmm",
+        external_id="10.18434/mds2-1234",
+        doi="10.18434/mds2-1234",
+        title="NIST materials measurement paper",
+        authors=["Doe, Jane", "Rao, Priya"],
+        abstract=None,
+        publication_date="2024-01-15",
+        url="https://doi.org/10.18434/mds2-1234",
+        categories=[],
+    )]
+
+
+def test_nist_rmm_search_pages_by_skip_and_honors_max_results(monkeypatch):
+    requested = []
+    records = [
+        _nist_rmm_record(
+            doi=f"10.18434/mds2-{index:04d}",
+            ediid=f"nist-papers-{index:04d}",
+        )
+        for index in range(51)
+    ]
+
+    def _request(method, url, **kwargs):
+        params = kwargs["params"]
+        requested.append((params["skip"], params["limit"]))
+        start = params["skip"]
+        return _FakeResponse(payload=_nist_rmm_payload(
+            records[start:start + params["limit"]], total=len(records),
+        ))
+
+    monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
+
+    results = api_nist_rmm.NistRmmClient().search(
+        query="materials", max_results=51,
+    )
+
+    assert requested == [(0, 50), (50, 50)]
+    assert [result.external_id for result in results] == [
+        f"10.18434/mds2-{index:04d}" for index in range(51)
+    ]
+
+
+def test_nist_rmm_search_applies_upper_date_bound_locally_and_skips_unknown_dates(monkeypatch):
+    records = [
+        _nist_rmm_record(doi="10.18434/inside", publication_date="2024-01-15"),
+        _nist_rmm_record(doi="10.18434/after", publication_date="2024-02-01"),
+        _nist_rmm_record(doi="10.18434/missing", publication_date=None),
+        _nist_rmm_record(doi="10.18434/bad-date", publication_date="not-a-date"),
+    ]
+    calls = []
+
+    def _request(method, url, **kwargs):
+        calls.append(kwargs["params"])
+        return _FakeResponse(payload=_nist_rmm_payload(records))
+
+    monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
+
+    results = api_nist_rmm.NistRmmClient().search(
+        query="materials",
+        date_from="2024-01-01",
+        date_to="2024-01-31",
+        max_results=10,
+    )
+
+    assert calls == [{
+        "searchphrase": "materials",
+        "from_date": "2024-01-01",
+        "skip": 0,
+        "limit": 50,
+    }]
+    assert [result.external_id for result in results] == ["10.18434/inside"]
+
+
+def test_nist_rmm_search_uses_documented_ediid_when_doi_is_not_valid(monkeypatch):
+    record = _nist_rmm_record(
+        doi="not a doi",
+        ediid="nist-papers-5678",
+        url="https://data.nist.gov/papers/nist-papers-5678",
+    )
+    monkeypatch.setattr(
+        api_nist_rmm,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=_nist_rmm_payload([record])),
+    )
+
+    results = api_nist_rmm.NistRmmClient().search(query="materials")
+
+    assert results == [NormalizedResult(
+        source_repository="nist_rmm",
+        external_id="ediid:nist-papers-5678",
+        doi=None,
+        title="NIST materials measurement paper",
+        authors=["Doe, Jane", "Rao, Priya"],
+        abstract=None,
+        publication_date="2024-01-15",
+        url="https://data.nist.gov/papers/nist-papers-5678",
+        categories=[],
+    )]
+
+
+def test_nist_rmm_search_skips_malformed_or_unidentified_records(monkeypatch):
+    valid = _nist_rmm_record(
+        doi=None,
+        ediid=None,
+        ark="ark:/88434/nist-papers-9012",
+        url="https://data.nist.gov/papers/nist-papers-9012",
+    )
+    records = [
+        _nist_rmm_record(title="", doi="10.18434/no-title"),
+        _nist_rmm_record(doi=None, ediid=None, ark=None),
+        _nist_rmm_record(doi="not a doi", ediid="", ark=None),
+        valid,
+    ]
+    monkeypatch.setattr(
+        api_nist_rmm,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=_nist_rmm_payload(records)),
+    )
+
+    results = api_nist_rmm.NistRmmClient().search(query="materials")
+
+    assert [result.external_id for result in results] == ["ark:/88434/nist-papers-9012"]
+
+
+@pytest.mark.parametrize("response", [
+    500,
+    TimeoutError("upstream timed out"),
+])
+def test_nist_rmm_search_returns_empty_on_upstream_failure(monkeypatch, response):
+    def _request(*args, **kwargs):
+        if isinstance(response, Exception):
+            raise response
+        return _FakeResponse(status_code=response)
+
+    monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
+
+    assert api_nist_rmm.NistRmmClient().search(query="materials") == []
+
+
+@pytest.mark.live_network
+def test_nist_rmm_live_search_degrades_when_the_public_endpoint_is_unavailable():
+    """The real call may return the known 500 outage; either outcome is a list."""
+    results = get_client("nist_rmm").search(query="materials", max_results=1)
+
+    assert isinstance(results, list)
+    if results:
+        assert all(isinstance(result, NormalizedResult) for result in results)
+        assert all(result.source_repository == "nist_rmm" for result in results)
 
 
 class _FakeResponse:
