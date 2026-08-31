@@ -110,20 +110,13 @@ class DryadClient(BaseAPIClient):
                 logger.error("Dryad API response has no dataset list")
                 return []
             total = payload.get("total")
+            page_short = False
             if isinstance(total, int):
                 expected_count = min(
                     page_size,
                     max(0, total - seen_records),
-                    max_results - seen_records,
                 )
-                if len(records) < expected_count:
-                    logger.error(
-                        "Dryad page has %d records; total requires at least %d",
-                        len(records), expected_count,
-                    )
-                    return []
-            if not records:
-                break
+                page_short = len(records) < expected_count
 
             for record in records:
                 parsed = self._parse_record(record)
@@ -131,6 +124,12 @@ class DryadClient(BaseAPIClient):
                     results.append(parsed)
                     if len(results) >= max_results:
                         break
+
+            if page_short and len(results) < max_results:
+                logger.error("Dryad page ended before its declared total")
+                return []
+            if not records:
+                break
 
             seen_records += len(records)
             if isinstance(total, int) and seen_records >= total:

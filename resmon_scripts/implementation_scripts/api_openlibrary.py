@@ -211,20 +211,13 @@ class OpenLibraryClient(BaseAPIClient):
                 logger.error("Open Library API response has no docs list")
                 return []
             total = payload.get("numFound")
+            page_short = False
             if isinstance(total, int):
                 expected_count = min(
                     page_size,
                     max(0, total - seen_records),
-                    max_results - seen_records,
                 )
-                if len(records) < expected_count:
-                    logger.error(
-                        "Open Library page has %d records; numFound requires at least %d",
-                        len(records), expected_count,
-                    )
-                    return []
-            if not records:
-                break
+                page_short = len(records) < expected_count
 
             for record in records:
                 parsed = self._parse_record(record)
@@ -240,6 +233,12 @@ class OpenLibraryClient(BaseAPIClient):
                 results.append(parsed)
                 if len(results) >= max_results:
                     break
+
+            if page_short and len(results) < max_results:
+                logger.error("Open Library page ended before its numFound total")
+                return []
+            if not records:
+                break
 
             seen_records += len(records)
             if isinstance(total, int) and seen_records >= total:

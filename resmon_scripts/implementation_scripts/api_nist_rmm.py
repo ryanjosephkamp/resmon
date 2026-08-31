@@ -121,8 +121,8 @@ class NistRmmClient(BaseAPIClient):
         seen_page_signatures: set[str] = set()
         skip = 0
 
-        while len(results) < max_results and skip < max_results:
-            page_limit = min(_PAGE_SIZE, max_results - skip)
+        while len(results) < max_results:
+            page_limit = min(_PAGE_SIZE, max_results - len(results))
             params: dict[str, str | int] = {
                 "searchphrase": query.strip(),
                 "skip": skip,
@@ -160,22 +160,23 @@ class NistRmmClient(BaseAPIClient):
                 logger.error("NIST RMM API response has no ResultData list")
                 return []
             result_count = payload.get("ResultCount")
+            page_short = False
             if isinstance(result_count, int):
                 expected_count = min(page_limit, max(0, result_count - skip))
-                if len(records) != expected_count:
+                if len(records) > expected_count:
                     logger.error(
                         "NIST RMM page has %d records; ResultCount requires %d",
                         len(records), expected_count,
                     )
                     return []
-            if not records:
-                break
+                page_short = len(records) < expected_count
 
-            page_signature = _raw_page_signature(records)
-            if page_signature in seen_page_signatures:
-                logger.warning("NIST RMM repeated a raw page; discarding partial results")
-                return []
-            seen_page_signatures.add(page_signature)
+            if records:
+                page_signature = _raw_page_signature(records)
+                if page_signature in seen_page_signatures:
+                    logger.warning("NIST RMM repeated a raw page; discarding partial results")
+                    return []
+                seen_page_signatures.add(page_signature)
 
             for record in records:
                 parsed = self._parse_record(record)
@@ -193,9 +194,15 @@ class NistRmmClient(BaseAPIClient):
                 if len(results) >= max_results:
                     break
 
+            if page_short and len(results) < max_results:
+                logger.error("NIST RMM page ended before its ResultCount")
+                return []
+            if not records:
+                break
+
             skip += len(records)
             if isinstance(result_count, int):
-                if skip >= result_count or skip >= max_results:
+                if skip >= result_count:
                     break
             if len(records) < page_limit:
                 break

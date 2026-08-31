@@ -185,6 +185,36 @@ def test_nist_rmm_search_continues_after_a_full_page_of_malformed_records(monkey
     ]
 
 
+def test_nist_rmm_raw_pages_do_not_consume_the_retained_result_cap(monkeypatch):
+    malformed = [_nist_rmm_record(title="") for _ in range(50)]
+    valid = [
+        _nist_rmm_record(doi=f"10.18434/retained-after-malformed-{index:04d}")
+        for index in range(51)
+    ]
+    records = malformed + valid
+    requested = []
+
+    def _request(method, url, **kwargs):
+        params = kwargs["params"]
+        requested.append((params["skip"], params["limit"]))
+        start = params["skip"]
+        return _FakeResponse(payload=_nist_rmm_payload(
+            records[start:start + params["limit"]], total=len(records),
+        ))
+
+    monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
+
+    results = api_nist_rmm.NistRmmClient().search(
+        query="materials", max_results=51,
+    )
+
+    assert requested == [(0, 50), (50, 50), (100, 1)]
+    assert [result.external_id for result in results] == [
+        f"10.18434/retained-after-malformed-{index:04d}"
+        for index in range(51)
+    ]
+
+
 def test_nist_rmm_search_fails_closed_when_result_count_page_is_short(monkeypatch):
     first = _nist_rmm_record(doi="10.18434/short-page-first")
     requested = []
@@ -200,6 +230,28 @@ def test_nist_rmm_search_fails_closed_when_result_count_page_is_short(monkeypatc
         query="materials", max_results=2,
     ) == []
     assert requested == [0]
+
+
+@pytest.mark.parametrize("declared_total", [None, "unknown"])
+def test_nist_rmm_search_accepts_valid_exhaustion_without_a_parseable_total(
+    monkeypatch, declared_total,
+):
+    payload = _nist_rmm_payload([_nist_rmm_record()])
+    if declared_total is None:
+        payload.pop("ResultCount")
+    else:
+        payload["ResultCount"] = declared_total
+    monkeypatch.setattr(
+        api_nist_rmm,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(payload=payload),
+    )
+
+    results = api_nist_rmm.NistRmmClient().search(
+        query="materials", max_results=2,
+    )
+
+    assert [result.external_id for result in results] == ["10.18434/mds2-1234"]
 
 
 def test_nist_rmm_search_returns_empty_when_a_raw_page_repeats(monkeypatch):
@@ -707,6 +759,84 @@ def test_openlibrary_search_fails_closed_on_a_short_page_proven_by_num_found(mon
         query="history", max_results=102,
     ) == []
     assert requested == [1, 2]
+
+
+def test_openlibrary_keeps_a_fixed_page_size_after_malformed_raw_records(monkeypatch):
+    malformed = [_openlibrary_record(key="", include_optional=False) for _ in range(51)]
+    valid = [
+        _openlibrary_record(key=f"/works/OLRETAINED{index}W", include_optional=False)
+        for index in range(51)
+    ]
+    requested = []
+
+    def _request(method, url, **kwargs):
+        params = kwargs["params"]
+        requested.append((params["page"], params["limit"]))
+        records = malformed if params["page"] == 1 else valid
+        return _FakeResponse(payload=_openlibrary_payload(records, total=102))
+
+    monkeypatch.setattr(api_openlibrary, "safe_request", _request)
+
+    results = api_openlibrary.OpenLibraryClient().search(
+        query="history", max_results=51,
+    )
+
+    assert requested == [(1, 51), (2, 51)]
+    assert [result.external_id for result in results] == [
+        f"/works/OLRETAINED{index}W" for index in range(51)
+    ]
+
+
+@pytest.mark.parametrize("second_page", [[], [
+    _openlibrary_record(key="/works/OLPARTIALW", include_optional=False),
+]])
+def test_openlibrary_fails_closed_when_declared_total_page_cannot_reach_cap(
+    monkeypatch, second_page,
+):
+    malformed = [_openlibrary_record(key="", include_optional=False) for _ in range(51)]
+    requested = []
+
+    def _request(method, url, **kwargs):
+        page = kwargs["params"]["page"]
+        requested.append(page)
+        records = malformed if page == 1 else second_page
+        return _FakeResponse(payload=_openlibrary_payload(records, total=102))
+
+    monkeypatch.setattr(api_openlibrary, "safe_request", _request)
+
+    assert api_openlibrary.OpenLibraryClient().search(
+        query="history", max_results=51,
+    ) == []
+    assert requested == [1, 2]
+
+
+@pytest.mark.parametrize("declared_total", [None, "unknown"])
+def test_openlibrary_accepts_valid_exhaustion_without_a_declared_total(
+    monkeypatch, declared_total,
+):
+    first_page = [_openlibrary_record(include_optional=False)] + [
+        _openlibrary_record(key="", include_optional=False) for _ in range(50)
+    ]
+    requested = []
+
+    def _request(method, url, **kwargs):
+        page = kwargs["params"]["page"]
+        requested.append(page)
+        payload = _openlibrary_payload(first_page if page == 1 else [])
+        if declared_total is None:
+            payload.pop("numFound")
+        else:
+            payload["numFound"] = declared_total
+        return _FakeResponse(payload=payload)
+
+    monkeypatch.setattr(api_openlibrary, "safe_request", _request)
+
+    results = api_openlibrary.OpenLibraryClient().search(
+        query="history", max_results=51,
+    )
+
+    assert requested == [1, 2]
+    assert [result.external_id for result in results] == ["/works/OL123W"]
 
 
 @pytest.mark.live_network
@@ -1793,6 +1923,84 @@ def test_dryad_search_fails_closed_on_a_short_page_proven_by_total(monkeypatch):
 
     assert get_client("dryad").search(query="climate", max_results=102) == []
     assert requested == [1, 2]
+
+
+def test_dryad_keeps_a_fixed_page_size_after_malformed_raw_records(monkeypatch):
+    malformed = [{"title": "Missing identifier"} for _ in range(51)]
+    valid = [
+        {
+            **_dryad_record(dataset_id=index),
+            "identifier": f"doi:10.5061/dryad.retained-{index:04d}",
+        }
+        for index in range(51)
+    ]
+    requested = []
+
+    def _request(method, url, **kwargs):
+        params = kwargs["params"]
+        requested.append((params["page"], params["per_page"]))
+        records = malformed if params["page"] == 1 else valid
+        return _FakeResponse(payload=_dryad_payload(records, total=102))
+
+    monkeypatch.setattr(api_dryad, "safe_request", _request)
+
+    results = get_client("dryad").search(query="climate", max_results=51)
+
+    assert requested == [(1, 51), (2, 51)]
+    assert [result.external_id for result in results] == [
+        f"doi:10.5061/dryad.retained-{index:04d}" for index in range(51)
+    ]
+
+
+@pytest.mark.parametrize("second_page", [[], [{
+    **_dryad_record(dataset_id=999),
+    "identifier": "doi:10.5061/dryad.partial",
+}]])
+def test_dryad_fails_closed_when_declared_total_page_cannot_reach_cap(
+    monkeypatch, second_page,
+):
+    malformed = [{"title": "Missing identifier"} for _ in range(51)]
+    requested = []
+
+    def _request(method, url, **kwargs):
+        page = kwargs["params"]["page"]
+        requested.append(page)
+        records = malformed if page == 1 else second_page
+        return _FakeResponse(payload=_dryad_payload(records, total=102))
+
+    monkeypatch.setattr(api_dryad, "safe_request", _request)
+
+    assert get_client("dryad").search(query="climate", max_results=51) == []
+    assert requested == [1, 2]
+
+
+@pytest.mark.parametrize("declared_total", [None, "unknown"])
+def test_dryad_accepts_valid_exhaustion_without_a_declared_total(
+    monkeypatch, declared_total,
+):
+    first_page = [_dryad_record()] + [
+        {"title": "Missing identifier"} for _ in range(50)
+    ]
+    requested = []
+
+    def _request(method, url, **kwargs):
+        page = kwargs["params"]["page"]
+        requested.append(page)
+        payload = _dryad_payload(first_page if page == 1 else [])
+        if declared_total is None:
+            payload.pop("total")
+        else:
+            payload["total"] = declared_total
+        return _FakeResponse(payload=payload)
+
+    monkeypatch.setattr(api_dryad, "safe_request", _request)
+
+    results = get_client("dryad").search(query="climate", max_results=51)
+
+    assert requested == [1, 2]
+    assert [result.external_id for result in results] == [
+        "doi:10.5061/dryad.ab12cd34",
+    ]
 
 
 def _zenodo_record(
