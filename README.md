@@ -71,6 +71,52 @@ The table below lists the 21 active sources registered in the repository catalog
 
 Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in `.ai:/prep/repos.md` and are not queried at runtime.
 
+### Driving resmon from your AI harness (MCP)
+
+resmon ships an **MCP server**, so a harness you already work in — Claude Code, Codex, or
+anything else speaking the Model Context Protocol — can read and control resmon without you
+leaving it. The full tool surface is specified in
+[`docs/api-contract/mcp.md`](docs/api-contract/mcp.md).
+
+```bash
+python3 resmon_scripts/mcp_server.py
+```
+
+It speaks MCP over stdio and is a **client of the running resmon backend**, reaching it over
+`127.0.0.1`. It never opens the database directly: the backend owns its connections and its
+scheduler, and going through the API means the tool surface cannot drift from what the app
+itself does. **resmon must be running.** If it is not, every tool returns one clear error
+rather than an empty result — a harness told "you have no papers" because the app is closed
+would repeat that to you as fact.
+
+To register it with Claude Code:
+
+```bash
+claude mcp add resmon -- python3 /full/path/to/resmon_scripts/mcp_server.py
+```
+
+Seventeen tools cover search, sources, routines, executions, match transparency, paper
+lifecycle, analytics, the watchdog and reference export, plus three that start work:
+`run_sweep`, `create_routine` and `run_routine`. **Nothing destructive is exposed** — no
+delete, no erase, no factory reset, and no tool that reads or writes an API key. A routine
+created through a tool is created **inactive**; putting something on a schedule on your
+machine is not a side effect a tool call gets to have.
+
+Finding the right resmon matters more than it sounds: the server checks `RESMON_PORT`, then
+the port file the backend writes beside its database, and only falls back to the default port
+when neither names one. A port that was named and is not answering is reported as
+unavailable rather than widened to the default — otherwise a harness can silently attach to a
+different resmon installation and answer truthfully about the wrong corpus.
+
+### Running a routine on demand
+
+`POST /api/routines/{id}/run` runs a saved routine immediately, outside its schedule. It is a
+thin wrapper over the same dispatcher the scheduler uses, so a manual run and a scheduled fire
+cannot drift apart, and the run is recorded against the routine like any other.
+
+An **inactive** routine does run, and the response says so. `is_active` controls whether the
+scheduler fires a routine on its own; it is not a statement that the routine may never run.
+
 ### Source attributions
 
 Four of the sources resmon queries make a credit a **condition of reuse**, not a courtesy:
