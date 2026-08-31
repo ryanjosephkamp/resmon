@@ -812,6 +812,50 @@ rather than omitted, because "not needed" and "not configured" are different fac
 report header names the provider that **actually produced** the summaries, not the one
 configured first.
 
+### Your own subscription as a lane
+
+resmon can run the agent CLI you already installed and signed into, so AI work is billed
+to your existing **Claude Max** or **ChatGPT** plan instead of a metered API key. Add
+`Claude Code (your Claude plan)` or `Codex (your ChatGPT plan)` in the `If that fails, try…`
+chain. resmon drives the command; it never embeds provider sign-in, never sees your
+credential, and never authenticates on your behalf. If the CLI is not signed in, the lane
+reports that and stands down — it is not worked around.
+
+**Where resmon looks for the command**, in order:
+
+1. **A full path you set** in the lane's command-path box. Always wins.
+2. **Known install locations** for your platform — `~/.local/bin/claude`, and for Codex
+   the copy inside `ChatGPT.app`.
+3. **`PATH`**, last.
+
+That order is deliberate and the reason is worth stating. A macOS app launched from the
+Finder inherits `/usr/bin:/bin:/usr/sbin:/sbin`, because `launchctl getenv PATH` is unset
+— and neither CLI is there. `claude` lives under a user-local prefix and `codex` lives
+*inside* an application bundle, on no `PATH` at all. A `PATH`-first search works perfectly
+in a terminal and fails in the installed app, so `PATH` is the last resort rather than the
+first. Settings → AI shows which of the three found your command, and lists the paths it
+searched when it found nothing.
+
+**Two things to know before you select it.**
+
+It is **much slower** than an API key — each paper starts a whole agent session — and it
+spends the same usage window you use for your own work. So the lane carries a
+**per-run limit of 25 papers** by default, editable per lane. Reaching the limit is not an
+error: the lane stands down, the remaining papers go to the next lane, and `execution_ai`
+records the cap as the reason. It is deliberately **not** the default for bulk
+summarization; a 200-paper sweep routed through an agent CLI can cost you the plan you
+actually need.
+
+Summaries are extracted through each CLI's structured output — `--output-format json` for
+Claude Code, `-o` for Codex — rather than by scraping console prose. When that yields
+nothing usable, resmon says *the CLI returned something we could not use* and moves on. It
+never stores a salvaged fragment as though it were a real summary.
+
+Each call runs in a fresh empty directory with tools switched off (`--tools ""`) or the
+sandbox pinned read-only (`-s read-only`). Abstracts are untrusted text fetched from the
+internet and an agent CLI can run commands, so the summarizer is given nothing to run and
+nothing to read.
+
 Ollama is the natural last lane: it needs no key and costs nothing. Note honestly that
 **resmon has no summarizer beyond the lanes you configure.** If every lane fails, those
 papers have no AI summary and the execution says why — there is no hidden extractive

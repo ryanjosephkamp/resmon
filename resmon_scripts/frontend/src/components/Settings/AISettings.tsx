@@ -3,7 +3,7 @@ import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
 import InfoTooltip from '../Help/InfoTooltip';
-import FallbackChain, { FallbackLane } from './FallbackChain';
+import FallbackChain, { FallbackLane, CliStatus } from './FallbackChain';
 
 const PROVIDERS: { value: string; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic' },
@@ -128,13 +128,26 @@ const parseFallbacks = (raw: string): FallbackLane[] => {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.slice(1).map((entry: any): FallbackLane => ({
-      kind: entry?.kind === 'local' ? 'local' : 'api_key',
-      provider: String(entry?.provider || ''),
-      model: String(entry?.model || ''),
-      endpoint: entry?.endpoint ? String(entry.endpoint) : undefined,
-      base_url: entry?.base_url ? String(entry.base_url) : undefined,
-    })).filter((lane: FallbackLane) => lane.provider);
+    return parsed.slice(1).map((entry: any): FallbackLane => {
+      // Preserve the stored kind rather than collapsing it to api_key. A
+      // subscription lane that round-tripped through here as api_key would
+      // lose its command path and its document cap, and would then look like
+      // a BYOK lane with no key -- silently skipped, with a misleading reason.
+      const kind: FallbackLane['kind'] =
+        entry?.kind === 'local' || entry?.kind === 'subscription'
+          ? entry.kind
+          : 'api_key';
+      const rawCap = Number(entry?.doc_cap);
+      return {
+        kind,
+        provider: String(entry?.provider || ''),
+        model: String(entry?.model || ''),
+        endpoint: entry?.endpoint ? String(entry.endpoint) : undefined,
+        base_url: entry?.base_url ? String(entry.base_url) : undefined,
+        binary_path: entry?.binary_path ? String(entry.binary_path) : undefined,
+        doc_cap: Number.isFinite(rawCap) && rawCap > 0 ? rawCap : undefined,
+      };
+    }).filter((lane: FallbackLane) => lane.provider);
   } catch {
     return [];
   }
@@ -164,6 +177,9 @@ const AISettings: React.FC = () => {
   // chain including lane 0; lane 0 is the provider form above, so it is
   // dropped on load and re-composed on save. That keeps one writer for it.
   const [fallbacks, setFallbacks] = useState<FallbackLane[]>([]);
+  // 1.8c — where each agent CLI was found, or that it was not. Detection only;
+  // it says nothing about whether the user is signed in.
+  const [cliStatus, setCliStatus] = useState<CliStatus[]>([]);
   const [apiKey, setApiKey] = useState('');
   const [keyMasked, setKeyMasked] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -214,9 +230,25 @@ const AISettings: React.FC = () => {
     }
   }, []);
 
+  // Detection is cheap (a few stat calls, no process is started) and only
+  // matters when the panel is open, so it runs once on mount alongside the
+  // rest. A failure leaves the list empty and the chain builder simply omits
+  // the status line rather than claiming anything.
+  const refreshCliStatus = React.useCallback(async () => {
+    try {
+      const data = await apiClient.get<{ providers: CliStatus[] }>(
+        '/api/settings/ai/cli-status',
+      );
+      setCliStatus(Array.isArray(data?.providers) ? data.providers : []);
+    } catch {
+      setCliStatus([]);
+    }
+  }, []);
+
   useEffect(() => {
     refreshSettings();
     refreshKeyPresence();
+    refreshCliStatus();
     // Re-fetch whenever any other surface (the AIOverridePanel "Save as
     // default model" / "Save key" buttons, the table-row click below)
     // dispatches ``ai-settings-changed``. Keeps the table column 3 and
@@ -533,6 +565,37 @@ const AISettings: React.FC = () => {
                 <li><strong>Custom Base URL</strong> — only for the <em>Custom</em> provider; must be HTTPS (or a loopback HTTP address).</li>
                 <li><strong>API Key</strong> — stored in the OS keychain, never echoed back.</li>
               </ul>
+            ),
+          },
+          {
+            heading: 'Using a plan you already pay for',
+            body: (
+              <>
+                <p>
+                  A <strong>subscription lane</strong> runs the Claude Code or
+                  Codex command you already installed and signed into, so the
+                  work is billed to your existing plan rather than a metered
+                  key. Add one under <em>If that fails, try…</em>. resmon never
+                  embeds provider sign-in and never sees your credential; if the
+                  CLI is not signed in, the lane reports that and stands down.
+                </p>
+                <p>
+                  It is much slower than an API key and spends the same usage
+                  window you use for your own work, so it is capped at{' '}
+                  <strong>25 papers per run</strong> by default and is not the
+                  default for bulk summarization. Reaching the cap is not an
+                  error — the remaining papers go to the next lane and the
+                  execution records the cap as the reason.
+                </p>
+                <p>
+                  resmon looks for the command at the path you set, then where
+                  the installers put it, then on <code>PATH</code> last. That
+                  order matters: an app launched from the Finder inherits a
+                  <code>PATH</code> containing neither CLI, while a terminal
+                  finds both. The lane shows which route found your command, and
+                  lists the paths it searched when it found nothing.
+                </p>
+              </>
             ),
           },
           {
@@ -886,6 +949,7 @@ const AISettings: React.FC = () => {
         )}
 
         <FallbackChain
+          cliStatus={cliStatus}
           lanes={fallbacks}
           onChange={setFallbacks}
           primaryLabel={

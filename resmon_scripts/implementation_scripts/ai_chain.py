@@ -159,6 +159,29 @@ class ChainRunner:
             if state.demoted:
                 continue
 
+            # A capped lane stands down when it has done its share. This is
+            # checked before the pipeline is built so a chain whose first lane
+            # is already spent does not pay to construct it again.
+            #
+            # Standing down is not failing: there is no AIError, the lane's
+            # outcome stays whatever its documents earned, and the recorded
+            # reason says the cap was reached rather than implying something
+            # went wrong. The chain simply continues with the next lane.
+            cap = state.lane.doc_cap
+            if cap is not None and state.attempted >= cap:
+                state.demoted = True
+                if not state.skip_reason:
+                    state.skip_reason = (
+                        f"Reached this lane's limit of {cap} documents for one "
+                        f"run; the rest were passed to the next lane."
+                    )
+                logger.info(
+                    "AI lane %d (%s) stood down at its %d-document cap.",
+                    state.index, state.lane.label, cap,
+                )
+                self._open(state)
+                continue
+
             pipeline = self._pipeline_for(state)
             if pipeline is None:
                 # Could not be built -- no key, no model, or not implemented
@@ -311,9 +334,17 @@ def _why_unusable(lane: AILane) -> str:
     already ships, and is all this needs to explain itself.
     """
     if lane.kind == "subscription":
-        return (
-            "Subscription lanes are not implemented yet; this lane was skipped."
-        )
+        # Say which paths were looked at, not just that nothing was found. The
+        # packaged app searches a different PATH than a terminal does, so
+        # "not found" on its own sends people to reinstall a CLI that is
+        # already installed.
+        try:
+            from .ai_cli import discover_cli
+
+            discovery = discover_cli(lane.provider, lane.binary_path)
+        except Exception:
+            return "The command for this lane could not be located."
+        return discovery.describe()
     if not lane.model:
         return "No model is configured for this lane."
     if lane.kind == "local":
