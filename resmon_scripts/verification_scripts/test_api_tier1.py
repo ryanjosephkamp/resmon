@@ -798,7 +798,7 @@ def _inspire_record(
     }
     if include_optional:
         metadata["dois"] = [{"value": "10.1000/inspire.301"}]
-        metadata["abstracts"] = [{"value": "An upstream abstract."}]
+        metadata["abstracts"] = [{"value": "An upstream abstract.", "source": "arXiv"}]
     return {"metadata": metadata}
 
 
@@ -1635,3 +1635,78 @@ def test_openaire_search_respects_date_window():
         and date_from <= result.publication_date <= date_to
         for result in results
     )
+
+
+# ---------------------------------------------------------------------------
+# INSPIRE abstract licensing (v1.8.1)
+# ---------------------------------------------------------------------------
+#
+# INSPIRE's Terms of Use §5(ii) permit reuse of an abstract only where that
+# abstract's own ``source`` is arXiv or CERN. The client honours that at parse
+# time; these pin it, because the failure mode is silent — a stored abstract we
+# have no licence for looks exactly like one we do.
+
+def _inspire_record_with_abstracts(abstracts):
+    record = _inspire_record(include_optional=False)
+    record["metadata"]["abstracts"] = abstracts
+    return record
+
+
+def _inspire_search_with(monkeypatch, abstracts):
+    monkeypatch.setattr(
+        api_inspire_hep, "safe_request",
+        lambda method, url, **kwargs: _FakeResponse(payload={
+            "hits": {"total": 1, "hits": [_inspire_record_with_abstracts(abstracts)]},
+        }),
+    )
+    return get_client("inspire_hep").search(query="q", max_results=1)
+
+
+@pytest.mark.parametrize("source", ["arXiv", "CERN", "arxiv", "cern"])
+def test_inspire_keeps_abstract_from_licensed_source(monkeypatch, source):
+    """An arXiv- or CERN-sourced abstract is stored, whatever its casing."""
+    results = _inspire_search_with(
+        monkeypatch, [{"value": "Licensed text.", "source": source}]
+    )
+    assert results[0].abstract == "Licensed text."
+
+
+@pytest.mark.parametrize("source", ["Elsevier B.V.", "Springer", "IOP", "submitter"])
+def test_inspire_drops_abstract_from_unlicensed_source(monkeypatch, source):
+    """A publisher-sourced abstract is dropped; the record is still returned."""
+    results = _inspire_search_with(
+        monkeypatch, [{"value": "Publisher text.", "source": source}]
+    )
+    assert len(results) == 1
+    assert results[0].title == "Quantum gravity amplitudes"
+    assert results[0].abstract is None
+
+
+def test_inspire_takes_the_licensed_abstract_from_further_down_the_list(monkeypatch):
+    """Ordering is not guaranteed upstream, so the whole list is scanned."""
+    results = _inspire_search_with(monkeypatch, [
+        {"value": "Publisher text.", "source": "Elsevier B.V."},
+        {"value": "arXiv text.", "source": "arXiv"},
+    ])
+    assert results[0].abstract == "arXiv text."
+
+
+def test_inspire_drops_abstract_with_no_source_field(monkeypatch):
+    """No source means no evidence of a licence, so nothing is stored.
+
+    An abstract whose provenance INSPIRE does not state is exactly the case
+    §5(ii) does not cover. Storing it would be assuming permission.
+    """
+    results = _inspire_search_with(monkeypatch, [{"value": "Unattributed text."}])
+    assert results[0].abstract is None
+
+
+def test_inspire_ignores_malformed_abstract_entries(monkeypatch):
+    """A malformed entry is skipped rather than aborting the record."""
+    results = _inspire_search_with(monkeypatch, [
+        "not-a-dict",
+        {"source": "arXiv"},                      # no value
+        {"value": "   ", "source": "arXiv"},      # blank value
+        {"value": "Real text.", "source": "arXiv"},
+    ])
+    assert results[0].abstract == "Real text."

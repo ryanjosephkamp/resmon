@@ -175,7 +175,7 @@ const DeepSweepPage: React.FC = () => {
             body: (
               <ul>
                 <li>Save the configuration once you are happy with it; routines reuse the same shape.</li>
-                <li>Key-less repositories (arXiv, CrossRef, OpenAlex, bioRxiv, medRxiv, etc.) always work; keyed repositories (CORE, IEEE Xplore, NASA ADS) require a stored or ephemeral key.</li>
+                <li>Key-less repositories (arXiv, CrossRef, OpenAlex, bioRxiv, medRxiv, etc.) always work; keyed repositories (CORE, NASA ADS, Springer Nature) require a stored or ephemeral key.</li>
               </ul>
             ),
           },

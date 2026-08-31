@@ -68,6 +68,6 @@ def test_credentials_presence_returns_only_status_never_values(monkeypatch):
         assert entry["status"] in {"present", "absent", "unreadable"}
 
     assert data["credentials"]["core_api_key"] == {"present": True, "status": "present"}
-    assert data["credentials"]["ieee_api_key"] == {"present": False, "status": "absent"}
+    assert data["credentials"]["springer_api_key"] == {"present": False, "status": "absent"}
     # No raw value anywhere in the response.
     assert "secret-value" not in resp.text

@@ -85,7 +85,7 @@ const RepositoriesPage: React.FC = () => {
               <p>
                 arXiv, CrossRef, OpenAlex, bioRxiv, medRxiv, DOAJ, EuropePMC,
                 DBLP, HAL, PubMed are key-less — they will work out of the
-                box. Key-required repositories (CORE, IEEE Xplore, NASA ADS)
+                box. Key-required repositories (CORE, NASA ADS, Springer Nature)
                 are skipped in a sweep if no key is stored; Deep Dive will
                 prompt for an ephemeral key at run time.
               </p>
@@ -96,7 +96,7 @@ const RepositoriesPage: React.FC = () => {
             body: (
               <p>
                 This page only manages keys for <strong>scholarly repositories</strong> (CORE,
-                IEEE Xplore, NASA ADS, etc.). Keys for AI providers (OpenAI,
+                NASA ADS, Springer Nature, etc.). Keys for AI providers (OpenAI,
                 Anthropic, Gemini, Together AI, &hellip;) live on
                 {' '}<strong>Settings → AI</strong>. Use the
                 {' '}<strong>Looking for AI API key settings?</strong> button at the top of the

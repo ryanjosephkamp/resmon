@@ -21,7 +21,6 @@ import implementation_scripts.api_nasa_ads
 import implementation_scripts.api_hal
 import implementation_scripts.api_plos
 import implementation_scripts.api_springer
-import implementation_scripts.api_ieee
 
 from implementation_scripts.api_base import NormalizedResult
 from implementation_scripts.api_registry import list_repositories, get_client
@@ -29,7 +28,7 @@ from implementation_scripts.api_registry import list_repositories, get_client
 # NOTE: SSRN and RePEc were removed from the active registry on 2026-04-18
 # because both sources block programmatic access (SSRN: Cloudflare 403; RePEc:
 # htsearch CGI no longer publicly reachable). See .ai/prep/repos.md.
-TIER_2_3_REPOS = ["hal", "plos", "springer", "ieee"]
+TIER_2_3_REPOS = ["hal", "plos", "springer"]
 
 
 def test_all_tier2_3_registered():
@@ -58,8 +57,12 @@ def test_hal_search():
 
 @pytest.mark.live_network
 def test_tier3_graceful_failure():
-    """Tier 3 clients return empty list on scraping failure (no crash)."""
-    for name in ["ieee"]:
-        client = get_client(name)
-        results = client.search(query="nonexistent_test_query_xyz_12345", max_results=1)
-        assert isinstance(results, list)  # may be empty, must not raise
+    """A keyed Tier 2/3 client returns an empty list rather than raising.
+
+    Covered IEEE Xplore until v1.8.1 retired that source on its terms; Springer
+    is the remaining keyed client with the same degrade-don't-raise contract,
+    and without a stored key it exercises exactly that path.
+    """
+    client = get_client("springer")
+    results = client.search(query="nonexistent_test_query_xyz_12345", max_results=1)
+    assert isinstance(results, list)  # may be empty, must not raise
