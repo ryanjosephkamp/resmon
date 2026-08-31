@@ -3,6 +3,7 @@ import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
 import InfoTooltip from '../Help/InfoTooltip';
+import FallbackChain, { FallbackLane } from './FallbackChain';
 
 const PROVIDERS: { value: string; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic' },
@@ -78,6 +79,8 @@ interface AISettingsState {
   // updates the entry for the currently selected provider so switching
   // providers later restores their last-saved model automatically.
   ai_default_models: string;
+  /** 1.8b — the complete ordered chain as JSON. Lane 0 mirrors the form above. */
+  ai_chain: string;
 }
 
 const DEFAULT_STATE: AISettingsState = {
@@ -91,6 +94,7 @@ const DEFAULT_STATE: AISettingsState = {
   ai_custom_base_url: '',
   ai_custom_header_prefix: 'Bearer',
   ai_default_models: '',
+  ai_chain: '',
 };
 
 // Parse the JSON-encoded default-model map. Returns an empty object on
@@ -113,8 +117,53 @@ const parseDefaultModels = (raw: string): Record<string, string> => {
   return {};
 };
 
+/**
+ * Read the fallback lanes out of a stored chain — everything after lane 0.
+ * Lane 0 is the provider form, so it is not editable here and not shown twice.
+ * A malformed chain yields no fallbacks rather than throwing; the backend makes
+ * the same choice and falls back to the single-provider settings.
+ */
+const parseFallbacks = (raw: string): FallbackLane[] => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.slice(1).map((entry: any): FallbackLane => ({
+      kind: entry?.kind === 'local' ? 'local' : 'api_key',
+      provider: String(entry?.provider || ''),
+      model: String(entry?.model || ''),
+      endpoint: entry?.endpoint ? String(entry.endpoint) : undefined,
+      base_url: entry?.base_url ? String(entry.base_url) : undefined,
+    })).filter((lane: FallbackLane) => lane.provider);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Compose the stored chain from the primary form plus the fallback lanes.
+ * Returns '' when there are no fallbacks, so the backend keeps resolving the
+ * legacy single-provider keys and nothing changes for anyone who never opens
+ * this section.
+ */
+const composeChain = (settings: AISettingsState, fallbacks: FallbackLane[]): string => {
+  if (!fallbacks.length) return '';
+  const isLocal = settings.ai_provider === 'local';
+  const primary = {
+    kind: isLocal ? 'local' : 'api_key',
+    provider: settings.ai_provider,
+    model: isLocal ? settings.ai_local_model : settings.ai_model,
+    ...(settings.ai_custom_base_url ? { base_url: settings.ai_custom_base_url } : {}),
+  };
+  return JSON.stringify([primary, ...fallbacks]);
+};
+
 const AISettings: React.FC = () => {
   const [settings, setSettings] = useState<AISettingsState>(DEFAULT_STATE);
+  // 1.8b — the lanes *after* the primary. The stored ai_chain holds the whole
+  // chain including lane 0; lane 0 is the provider form above, so it is
+  // dropped on load and re-composed on save. That keeps one writer for it.
+  const [fallbacks, setFallbacks] = useState<FallbackLane[]>([]);
   const [apiKey, setApiKey] = useState('');
   const [keyMasked, setKeyMasked] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -159,6 +208,7 @@ const AISettings: React.FC = () => {
       if (!merged.ai_temperature) merged.ai_temperature = '0.2';
       if (!merged.ai_custom_header_prefix) merged.ai_custom_header_prefix = 'Bearer';
       setSettings(merged);
+      setFallbacks(parseFallbacks(merged.ai_chain));
     } finally {
       setLoading(false);
     }
@@ -326,6 +376,9 @@ const AISettings: React.FC = () => {
         ai_extraction_goals: settings.ai_extraction_goals,
         ai_custom_base_url: settings.ai_custom_base_url,
         ai_custom_header_prefix: settings.ai_custom_header_prefix,
+        // 1.8b — written by this Save and nothing else, so lane 0 always
+        // matches the provider selected above.
+        ai_chain: composeChain(settings, fallbacks),
       };
       let mergedMap: Record<string, string> | null = null;
       if (provider && provider !== '' && chosenModel) {
@@ -831,6 +884,21 @@ const AISettings: React.FC = () => {
             </div>
           </>
         )}
+
+        <FallbackChain
+          lanes={fallbacks}
+          onChange={setFallbacks}
+          primaryLabel={
+            settings.ai_provider
+              ? `${settings.ai_provider}${
+                  (settings.ai_provider === 'local' ? settings.ai_local_model : settings.ai_model)
+                    ? ` · ${settings.ai_provider === 'local' ? settings.ai_local_model : settings.ai_model}`
+                    : ''
+                }`
+              : ''
+          }
+          disabled={saving}
+        />
 
         <div className="form-actions">
           <button className="btn btn-primary" onClick={handleSave} disabled={saveDisabled}>{saving ? 'Saving…' : 'Save'}</button>
