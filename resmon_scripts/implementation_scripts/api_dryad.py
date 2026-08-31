@@ -109,6 +109,19 @@ class DryadClient(BaseAPIClient):
             if not isinstance(records, list):
                 logger.error("Dryad API response has no dataset list")
                 return []
+            total = payload.get("total")
+            if isinstance(total, int):
+                expected_count = min(
+                    page_size,
+                    max(0, total - seen_records),
+                    max_results - seen_records,
+                )
+                if len(records) < expected_count:
+                    logger.error(
+                        "Dryad page has %d records; total requires at least %d",
+                        len(records), expected_count,
+                    )
+                    return []
             if not records:
                 break
 
@@ -120,7 +133,6 @@ class DryadClient(BaseAPIClient):
                         break
 
             seen_records += len(records)
-            total = payload.get("total")
             if isinstance(total, int) and seen_records >= total:
                 break
             if len(records) < page_size:

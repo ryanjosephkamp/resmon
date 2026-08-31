@@ -113,7 +113,7 @@ def test_nist_rmm_search_uses_openapi_params_and_normalizes_fixture_doi_record(m
                 "searchphrase": "materials measurement",
                 "from_date": "2024-01-01",
                 "skip": 0,
-                "limit": 50,
+                "limit": 3,
             },
             "rate_limiter": api_nist_rmm._RATE_LIMITER,
         },
@@ -156,7 +156,7 @@ def test_nist_rmm_search_pages_by_skip_and_honors_max_results(monkeypatch):
         query="materials", max_results=51,
     )
 
-    assert requested == [(0, 50), (50, 50)]
+    assert requested == [(0, 50), (50, 1)]
     assert [result.external_id for result in results] == [
         f"10.18434/mds2-{index:04d}" for index in range(51)
     ]
@@ -185,27 +185,21 @@ def test_nist_rmm_search_continues_after_a_full_page_of_malformed_records(monkey
     ]
 
 
-def test_nist_rmm_search_uses_result_count_after_a_short_page(monkeypatch):
+def test_nist_rmm_search_fails_closed_when_result_count_page_is_short(monkeypatch):
     first = _nist_rmm_record(doi="10.18434/short-page-first")
-    second = _nist_rmm_record(doi="10.18434/short-page-second")
     requested = []
 
     def _request(method, url, **kwargs):
         skip = kwargs["params"]["skip"]
         requested.append(skip)
-        records = [first] if skip == 0 else [second]
-        return _FakeResponse(payload=_nist_rmm_payload(records, total=2))
+        return _FakeResponse(payload=_nist_rmm_payload([first], total=2))
 
     monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
 
-    results = api_nist_rmm.NistRmmClient().search(
+    assert api_nist_rmm.NistRmmClient().search(
         query="materials", max_results=2,
-    )
-
-    assert requested == [0, 1]
-    assert [result.external_id for result in results] == [
-        "10.18434/short-page-first", "10.18434/short-page-second",
-    ]
+    ) == []
+    assert requested == [0]
 
 
 def test_nist_rmm_search_returns_empty_when_a_raw_page_repeats(monkeypatch):
@@ -287,7 +281,7 @@ def test_nist_rmm_search_applies_upper_date_bound_locally_and_skips_unknown_date
         "searchphrase": "materials",
         "from_date": "2024-01-01",
         "skip": 0,
-        "limit": 50,
+        "limit": 10,
     }]
     assert [result.external_id for result in results] == ["10.18434/inside"]
 
@@ -688,6 +682,29 @@ def test_openlibrary_search_fails_closed_when_page_two_is_unusable(monkeypatch, 
 
     assert api_openlibrary.OpenLibraryClient().search(
         query="history", max_results=101,
+    ) == []
+    assert requested == [1, 2]
+
+
+def test_openlibrary_search_fails_closed_on_a_short_page_proven_by_num_found(monkeypatch):
+    requested = []
+    first_page = [
+        _openlibrary_record(key=f"/works/OL{index}W", include_optional=False)
+        for index in range(100)
+    ]
+
+    def _request(method, url, **kwargs):
+        page = kwargs["params"]["page"]
+        requested.append(page)
+        records = first_page if page == 1 else [
+            _openlibrary_record(key="/works/OLSHORTW", include_optional=False),
+        ]
+        return _FakeResponse(payload=_openlibrary_payload(records, total=102))
+
+    monkeypatch.setattr(api_openlibrary, "safe_request", _request)
+
+    assert api_openlibrary.OpenLibraryClient().search(
+        query="history", max_results=102,
     ) == []
     assert requested == [1, 2]
 
@@ -1750,6 +1767,31 @@ def test_dryad_search_fails_closed_when_page_two_is_unusable(monkeypatch, failur
     monkeypatch.setattr(api_dryad, "safe_request", _request)
 
     assert get_client("dryad").search(query="climate", max_results=101) == []
+    assert requested == [1, 2]
+
+
+def test_dryad_search_fails_closed_on_a_short_page_proven_by_total(monkeypatch):
+    requested = []
+    first_page = [
+        {
+            **_dryad_record(dataset_id=index),
+            "identifier": f"doi:10.5061/dryad.short-page-{index:04d}",
+        }
+        for index in range(100)
+    ]
+
+    def _request(method, url, **kwargs):
+        page = kwargs["params"]["page"]
+        requested.append(page)
+        records = first_page if page == 1 else [{
+            **_dryad_record(dataset_id=101),
+            "identifier": "doi:10.5061/dryad.short-page-0101",
+        }]
+        return _FakeResponse(payload=_dryad_payload(records, total=102))
+
+    monkeypatch.setattr(api_dryad, "safe_request", _request)
+
+    assert get_client("dryad").search(query="climate", max_results=102) == []
     assert requested == [1, 2]
 
 

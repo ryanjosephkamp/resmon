@@ -121,11 +121,12 @@ class NistRmmClient(BaseAPIClient):
         seen_page_signatures: set[str] = set()
         skip = 0
 
-        while len(results) < max_results:
+        while len(results) < max_results and skip < max_results:
+            page_limit = min(_PAGE_SIZE, max_results - skip)
             params: dict[str, str | int] = {
                 "searchphrase": query.strip(),
                 "skip": skip,
-                "limit": _PAGE_SIZE,
+                "limit": page_limit,
             }
             # The documented RMM API has only from_date. date_to is applied
             # below after parsing each record, never presented as upstream work.
@@ -159,10 +160,15 @@ class NistRmmClient(BaseAPIClient):
                 logger.error("NIST RMM API response has no ResultData list")
                 return []
             result_count = payload.get("ResultCount")
-            if not records:
-                if isinstance(result_count, int) and skip < result_count:
-                    logger.error("NIST RMM API ended before its ResultCount")
+            if isinstance(result_count, int):
+                expected_count = min(page_limit, max(0, result_count - skip))
+                if len(records) != expected_count:
+                    logger.error(
+                        "NIST RMM page has %d records; ResultCount requires %d",
+                        len(records), expected_count,
+                    )
                     return []
+            if not records:
                 break
 
             page_signature = _raw_page_signature(records)
@@ -189,12 +195,9 @@ class NistRmmClient(BaseAPIClient):
 
             skip += len(records)
             if isinstance(result_count, int):
-                if result_count < skip:
-                    logger.error("NIST RMM ResultCount is smaller than its page data")
-                    return []
-                if skip >= result_count:
+                if skip >= result_count or skip >= max_results:
                     break
-            if len(records) < _PAGE_SIZE and not isinstance(result_count, int):
+            if len(records) < page_limit:
                 break
 
         return results[:max_results]
