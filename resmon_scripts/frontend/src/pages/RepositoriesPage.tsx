@@ -3,6 +3,7 @@ import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { useNavigate } from 'react-router-dom';
 import RepoCatalogTable from '../components/Repositories/RepoCatalogTable';
 import KeywordSemanticsGlossary from '../components/Repositories/KeywordSemanticsGlossary';
+import RequiredAttributions from '../components/Repositories/RequiredAttributions';
 import {
   repositoriesApi,
   RepoCatalogEntry,
@@ -106,6 +107,8 @@ const RepositoriesPage: React.FC = () => {
           },
         ]}
       />
+
+      <RequiredAttributions catalog={catalog} />
 
       <p className="text-muted">
         Every active repository that resmon can query is listed below. Click a

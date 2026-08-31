@@ -12,6 +12,17 @@ from typing import Literal
 
 ApiKeyRequirement = Literal["none", "required", "optional", "recommended"]
 
+# Whether a source's credit is something resmon *must* show or merely one the
+# upstream would like.
+#
+# The distinction is the whole point of the field and it is not decoration.
+# OpenAIRE's metadata is CC BY, so attribution is a licence condition and
+# reusing it without the credit is simply reuse without a licence. arXiv, by
+# contrast, *requests* an acknowledgement sentence. Rendering both the same way
+# would either overstate arXiv's terms or understate OpenAIRE's, and this
+# application does not get to be vague about which obligations are real.
+AttributionRequirement = Literal["none", "requested", "required"]
+
 
 @dataclass(frozen=True)
 class RepoCatalogEntry:
@@ -34,6 +45,9 @@ class RepoCatalogEntry:
     notes: str
     keyword_combination: str
     keyword_combination_notes: str
+    attribution: str
+    attribution_requirement: AttributionRequirement
+    attribution_source: str
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -68,6 +82,9 @@ def _entry(
     notes: str = "",
     keyword_combination: str = "",
     keyword_combination_notes: str = "",
+    attribution: str = "",
+    attribution_requirement: AttributionRequirement = "none",
+    attribution_source: str = "",
 ) -> RepoCatalogEntry:
     return RepoCatalogEntry(
         slug=slug,
@@ -88,6 +105,9 @@ def _entry(
         notes=notes,
         keyword_combination=keyword_combination,
         keyword_combination_notes=keyword_combination_notes,
+        attribution=attribution,
+        attribution_requirement=attribution_requirement,
+        attribution_source=attribution_source,
     )
 
 
@@ -116,6 +136,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Conservative by design. Do not drop the delay.",
         keyword_combination="Implicit AND",
         keyword_combination_notes="arXiv treats space-separated terms in the all: field as implicit AND across title, abstract, and author.",
+        attribution='Thank you to arXiv for use of its open access interoperability.',
+        attribution_requirement="requested",
+        attribution_source='https://info.arxiv.org/help/api/index.html',
     ),
     _entry(
         slug="biorxiv",
@@ -154,6 +177,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Must register for an API key before use.",
         keyword_combination="Relevance-ranked (Lucene OR default)",
         keyword_combination_notes="CORE's Solr/Lucene backend defaults to OR between terms; documents matching more terms rank higher but single-term matches still appear.",
+        attribution='Powered by CORE',
+        attribution_requirement="required",
+        attribution_source='https://core.ac.uk/faq',
     ),
     _entry(
         slug="crossref",
@@ -192,6 +218,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Public API returns Findable DOI metadata only. Publication filtering is year-granular upstream; resmon preserves partial date precision and applies exact bounds only when Issued metadata supports them.",
         keyword_combination="Implicit OR",
         keyword_combination_notes="DataCite documents every unfielded term as optional so long as at least one matches. Unfielded search covers common metadata fields; explicit AND, OR, and NOT remain available in the forwarded query.",
+        attribution='Metadata from DataCite',
+        attribution_requirement="requested",
+        attribution_source='https://support.datacite.org/docs/datacite-data-file-use-policy',
     ),
     _entry(
         slug="dblp",
@@ -211,6 +240,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="",
         keyword_combination="Relevance-ranked (upstream-default, unverified)",
         keyword_combination_notes="DBLP forwards the space-separated query string verbatim; the upstream search box's exact combination semantics are not authoritatively documented.",
+        attribution='Bibliographic data from the dblp computer science bibliography',
+        attribution_requirement="requested",
+        attribution_source='https://dblp.org/faq/1474677.html',
     ),
     _entry(
         slug="doaj",
@@ -268,6 +300,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="",
         keyword_combination="Relevance-ranked (Lucene OR default)",
         keyword_combination_notes="EuropePMC's Lucene backend defaults to OR between terms; you can place explicit AND/OR/quoted phrases inside a single keyword chip and they will be forwarded verbatim.",
+        attribution='Data from Europe PMC',
+        attribution_requirement="requested",
+        attribution_source='https://www.ebi.ac.uk/about/terms-of-use/',
     ),
     _entry(
         slug="hal",
@@ -287,6 +322,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="",
         keyword_combination="Relevance-ranked (Solr OR default)",
         keyword_combination_notes="HAL's Solr endpoint defaults to OR between terms unless the query parses as a phrase; results are returned in relevance-scored order.",
+        attribution='Data from HAL, the French national open archive',
+        attribution_requirement="requested",
+        attribution_source='https://doc.hal.science/en/legal-aspects/',
     ),
     _entry(
         slug="inspire_hep",
@@ -363,6 +401,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="OpenAIRE announced this legacy Search API discontinued on May 31, 2026. It still responded on August 30, 2026, but continued availability is not guaranteed.",
         keyword_combination="Combination semantics undocumented",
         keyword_combination_notes="OpenAIRE documents keywords only as a whitespace-separated list and lists its behavior as N/A. resmon forwards the query and does not infer Boolean semantics or perform local filtering.",
+        attribution='Data from the OpenAIRE Graph, licensed CC BY 4.0. Changes: resmon stores a normalised subset of the returned metadata.',
+        attribution_requirement="required",
+        attribution_source='https://graph.openaire.eu/docs/apis/terms/',
     ),
     _entry(
         slug="openalex",
@@ -401,6 +442,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="OSTI supports metadata export and full-corpus API access, but public access does not make records or abstracts public domain. OSTI asks users to contact it about library-database reuse and before using records or data as AI, ML, or LLM input.",
         keyword_combination="Combination semantics undocumented",
         keyword_combination_notes="OSTI documents q only as searching the full record for provided terms; it does not state how multiple terms are combined. resmon forwards the query unchanged.",
+        attribution='Courtesy of OSTI.GOV, U.S. Department of Energy',
+        attribution_requirement="requested",
+        attribution_source='https://www.osti.gov/disclaim',
     ),
     _entry(
         slug="plos",
@@ -420,6 +464,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="If you see 429s lower the limiter to 0.2 req/s.",
         keyword_combination="Relevance-ranked (upstream-default, unverified)",
         keyword_combination_notes="PLOS uses a Solr backend; the default operator is typically OR with relevance scoring, but the upstream's exact configuration is not authoritatively documented.",
+        attribution='Data Provided by PLOS',
+        attribution_requirement="required",
+        attribution_source='https://api.plos.org/api-display-policy/',
     ),
     _entry(
         slug="pubmed",
@@ -458,6 +505,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Expect 429s without a key in bursts.",
         keyword_combination="Relevance-ranked",
         keyword_combination_notes="Semantic Scholar's paper search ranks by relevance across multiple fields; not a strict boolean.",
+        attribution='Data from Semantic Scholar',
+        attribution_requirement="required",
+        attribution_source='https://www.semanticscholar.org/product/api/license',
     ),
     _entry(
         slug="springer",
