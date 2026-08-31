@@ -180,6 +180,30 @@ def test_openlibrary_search_returns_empty_for_sub_year_window_without_request(mo
     assert calls == []
 
 
+@pytest.mark.parametrize("date_from, date_to", [
+    ("0000", None),
+    ("0999-12", None),
+    (None, "0000-12-31"),
+    (None, "0999"),
+])
+def test_openlibrary_search_rejects_out_of_range_input_year_without_request(
+    monkeypatch, date_from, date_to,
+):
+    calls = []
+    monkeypatch.setattr(
+        api_openlibrary,
+        "safe_request",
+        lambda *args, **kwargs: calls.append(kwargs),
+    )
+
+    results = api_openlibrary.OpenLibraryClient().search(
+        query="history", date_from=date_from, date_to=date_to,
+    )
+
+    assert results == []
+    assert calls == []
+
+
 def test_openlibrary_search_skips_malformed_and_yearless_filtered_records(monkeypatch):
     malformed = _openlibrary_record(key="", title="Missing key")
     yearless = _openlibrary_record(key="/works/OLYEARLESSW", first_publish_year=None)

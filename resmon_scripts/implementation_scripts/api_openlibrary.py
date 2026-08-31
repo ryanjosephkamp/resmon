@@ -26,18 +26,23 @@ def _date_interval(value: str | None) -> tuple[str, str] | None:
     """Expand a partial ISO date while retaining its actual precision."""
     if not value or not _PARTIAL_DATE.fullmatch(value):
         return None
+    year_string = _normalized_publication_year(value[:4])
+    if year_string is None:
+        return None
+    year = int(year_string)
     if len(value) == 4:
-        return f"{value}-01-01", f"{value}-12-31"
+        return f"{year_string}-01-01", f"{year_string}-12-31"
     if len(value) == 7:
         try:
-            year = int(value[:4])
             month = int(value[5:7])
             last_day = calendar.monthrange(year, month)[1]
         except (ValueError, IndexError):
             return None
-        return f"{value}-01", f"{value}-{last_day:02d}"
+        return (
+            f"{year_string}-{value[5:7]}",
+            f"{year_string}-{value[5:7]}-{last_day:02d}",
+        )
     try:
-        year = int(value[:4])
         month = int(value[5:7])
         day = int(value[8:10])
         last_day = calendar.monthrange(year, month)[1]
