@@ -40,7 +40,7 @@ TIER_1_REPOS = [
 
 
 def test_all_tier1_registered():
-    """All 19 Tier 1 repositories are registered in the client registry."""
+    """All 20 Tier 1 repositories are registered in the client registry."""
     repos = list_repositories()
     for name in TIER_1_REPOS:
         assert name in repos, f"Missing Tier 1 client: {name}"
@@ -202,6 +202,64 @@ def test_openlibrary_search_skips_malformed_and_yearless_filtered_records(monkey
     )
 
     assert [result.external_id for result in results] == ["/works/OLVALIDW"]
+
+
+@pytest.mark.parametrize("key", [
+    "/books/OL123M",
+    "/works/OL123W?edition=1",
+    "/works/OL123W#details",
+    "/works/OL123W/editions",
+    "/works/",
+    "/works/../books/OL123M",
+])
+def test_openlibrary_parse_record_rejects_noncanonical_work_keys(key):
+    assert api_openlibrary.OpenLibraryClient._parse_record(
+        _openlibrary_record(key=key),
+    ) is None
+
+
+@pytest.mark.parametrize("year, expected", [
+    (999, None),
+    (1000, "1000"),
+    (9999, "9999"),
+    (10000, None),
+    ("0000", None),
+    ("0999", None),
+    ("1000", "1000"),
+    ("9999", "9999"),
+    ("10000", None),
+])
+def test_openlibrary_parse_record_accepts_only_four_digit_source_years_in_range(
+    year, expected,
+):
+    parsed = api_openlibrary.OpenLibraryClient._parse_record(
+        _openlibrary_record(first_publish_year=year),
+    )
+
+    assert parsed is not None
+    assert parsed.publication_date == expected
+
+
+def test_openlibrary_search_skips_invalid_source_year_under_date_constraint(monkeypatch):
+    invalid = _openlibrary_record(
+        key="/works/OLINVALIDYEARW", first_publish_year="0000",
+    )
+    valid = _openlibrary_record(key="/works/OLVALIDYEARW", first_publish_year=2024)
+    monkeypatch.setattr(
+        api_openlibrary,
+        "safe_request",
+        lambda *args, **kwargs: _FakeResponse(
+            payload=_openlibrary_payload([invalid, valid]),
+        ),
+    )
+
+    results = api_openlibrary.OpenLibraryClient().search(
+        query="history",
+        date_from="2024",
+        date_to="2024",
+    )
+
+    assert [result.external_id for result in results] == ["/works/OLVALIDYEARW"]
 
 
 @pytest.mark.parametrize("payload", [[], {}, {"docs": {}}])

@@ -19,6 +19,7 @@ _USER_AGENT = "resmon (+https://github.com/ryanjosephkamp/resmon/issues)"
 _RATE_LIMITER = RateLimiter(requests_per_second=1.0)
 
 _PARTIAL_DATE = re.compile(r"^\d{4}(?:-\d{2}(?:-\d{2})?)?$")
+_WORK_KEY = re.compile(r"^/works/[A-Za-z0-9][A-Za-z0-9._~-]*$")
 
 
 def _date_interval(value: str | None) -> tuple[str, str] | None:
@@ -128,6 +129,17 @@ def _string_list(value: object) -> list[str]:
     ]
 
 
+def _normalized_publication_year(value: object) -> str | None:
+    """Return a source year only when its range and precision are valid."""
+    if isinstance(value, int):
+        year = value
+    elif isinstance(value, str) and re.fullmatch(r"\d{4}", value.strip()):
+        year = int(value.strip())
+    else:
+        return None
+    return str(year) if 1000 <= year <= 9999 else None
+
+
 class OpenLibraryClient(BaseAPIClient):
     """Search Open Library work metadata without authentication."""
 
@@ -234,16 +246,13 @@ class OpenLibraryClient(BaseAPIClient):
         title_value = record.get("title")
         key = key_value.strip() if isinstance(key_value, str) else ""
         title = html.unescape(title_value).strip() if isinstance(title_value, str) else ""
-        if not key or not title:
+        if not _WORK_KEY.fullmatch(key) or not title:
             logger.warning("Open Library record has no stable key or title; skipping it")
             return None
 
-        publication_date = None
-        year_value = record.get("first_publish_year")
-        if isinstance(year_value, int) and 1000 <= year_value <= 9999:
-            publication_date = str(year_value)
-        elif isinstance(year_value, str) and re.fullmatch(r"\d{4}", year_value.strip()):
-            publication_date = year_value.strip()
+        publication_date = _normalized_publication_year(
+            record.get("first_publish_year"),
+        )
 
         return NormalizedResult(
             source_repository="openlibrary",
