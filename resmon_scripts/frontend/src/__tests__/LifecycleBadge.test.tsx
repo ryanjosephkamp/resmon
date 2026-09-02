@@ -1,5 +1,5 @@
 /**
- * Lifecycle badges — never assert, always link, never over-colour.
+ * Lifecycle badges — never assert, always link, never over-color.
  *
  * A false retraction flag is defamatory, so the interface has exactly one
  * defensible form of the claim: *the publisher registered this, here is the
@@ -7,7 +7,7 @@
  *
  * The second thing they hold is the severity discipline. A correction is normal
  * scholarly upkeep. If it renders like a retraction, users learn to ignore the
- * colour — and then the retraction goes unread too, which is the exact failure
+ * color — and then the retraction goes unread too, which is the exact failure
  * the feature exists to prevent.
  */
 

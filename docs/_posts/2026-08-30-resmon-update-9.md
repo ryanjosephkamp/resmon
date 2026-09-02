@@ -102,12 +102,12 @@ resmon now checks three things:
 **resmon never asserts a lifecycle event on its own authority.** Every finding carries a
 link to the notice behind it, and one that cannot produce a link is refused at the
 database layer — it cannot be stored, let alone displayed. A false retraction flag is
-defamatory, and "we inferred it from the metadata" is not a defence.
+defamatory, and "we inferred it from the metadata" is not a defense.
 
 The publisher's own wording is kept verbatim, an expression of concern is graded *below* a
 retraction and said to be weaker, and a correction renders as the routine scholarly
-upkeep it is. Colouring a correction like a retraction would teach you to ignore the
-colour — after which the retraction goes unread too.
+upkeep it is. Coloring a correction like a retraction would teach you to ignore the
+color — after which the retraction goes unread too.
 
 Coverage travels with the findings. An empty list over an unchecked corpus means *nobody
 looked*, not *nothing has been retracted*, and the page says which. Papers with no usable
@@ -125,7 +125,7 @@ software version — and it is assembled by hand in spreadsheets essentially eve
 resmon has recorded all of it since the beginning. Any execution now exports it as JSON or
 as a Markdown document shaped for a **PRISMA 2020** flow diagram.
 
-The work here is the labelling, not the layout. resmon's counters do not map cleanly onto
+The work here is the labeling, not the layout. resmon's counters do not map cleanly onto
 PRISMA's boxes, and printing them under PRISMA headings would publish a claim resmon
 cannot support:
 

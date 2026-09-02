@@ -218,7 +218,7 @@ def test_publication_volume_groups_by_source_and_by_category(conn):
 
 def test_publication_volume_rejects_an_unknown_grouping(conn):
     with pytest.raises(ValueError):
-        analytics.publication_volume(conn, group_by="colour")
+        analytics.publication_volume(conn, group_by="nonsense")
 
 
 def test_documents_without_a_publication_date_are_excluded_not_guessed(conn):

@@ -189,7 +189,7 @@ def _source_note(source: dict) -> str | None:
 
 
 def _dedup_block(execution: dict) -> dict:
-    """The deduplication figures, each labelled with the box it belongs in."""
+    """The deduplication figures, each labeled with the box it belongs in."""
     cross_source = execution.get("dedup_cross_source")
     return {
         "records_processed": execution.get("dedup_total"),

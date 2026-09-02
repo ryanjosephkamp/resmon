@@ -22,7 +22,7 @@ of the running resmon backend, reaching it over HTTP on `127.0.0.1`.
    cost a release to find, and the fix was one connection per thread inside a single
    process.
 2. Going through the API means the tool surface cannot drift from what the app itself
-   does. A behaviour change in an endpoint reaches MCP for free; a behaviour change that
+   does. A behavior change in an endpoint reaches MCP for free; a behavior change that
    forgets MCP is impossible.
 
 The cost is honest and accepted: **the backend must be running.** resmon is a desktop
@@ -122,7 +122,7 @@ called out explicitly.
 | `explain_match` | `doc_id` | which keywords matched, in which field, and what resmon cannot verify | `GET /api/documents/{doc_id}/why` |
 | `get_paper_lifecycle` | `doc_id` | retraction, preprint→published, version changes, each with its notice link | `GET /api/documents/{doc_id}/lifecycle` |
 | `get_analytics` | `view` (overview \| volume \| sources \| keywords \| routine-health \| discovery-lag), `window?` | the requested summary | `GET /api/analytics/{overview,publication-volume,source-contribution,keyword-contribution,routine-health,discovery-lag}` |
-| `get_watchdog_findings` | `include_muted?` | findings, each labelled `broken` or `unusual`, with what-to-do and the thresholds used | `GET /api/watchdog` |
+| `get_watchdog_findings` | `include_muted?` | findings, each labeled `broken` or `unusual`, with what-to-do and the thresholds used | `GET /api/watchdog` |
 | `export_references` | `exec_id` or `doc_ids`, `format` (bibtex \| ris \| csv \| json) | the exported text | `POST /api/export/references` |
 
 `explain_match` and `get_watchdog_findings` carry resmon's refusals with them: the
@@ -164,7 +164,7 @@ something a person should be able to do from the interface too.
 the MCP implementation. It is a thin wrapper over the same dispatcher the scheduler uses,
 so a manual run and a scheduled fire take one code path and cannot diverge.
 
-One deliberate behavioural difference: `_dispatch_routine_fire` returns early for an
+One deliberate behavioral difference: `_dispatch_routine_fire` returns early for an
 inactive routine, because an inactive routine should not fire *on a schedule*. A manual
 run is an explicit instruction, so **the endpoint runs an inactive routine** and says so in
 its response. `is_active` governs scheduling, not permission.

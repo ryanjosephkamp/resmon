@@ -141,7 +141,7 @@ Settings → Cloud Storage tab all belong to it and all stay.
 retirement mechanism, all of which came from getting them wrong. What follows is the file list
 and the contract; the guide is the reasoning behind them.
 
-**Ask the licence question first.** resmon *stores* what it retrieves, indefinitely, and the
+**Ask the license question first.** resmon *stores* what it retrieves, indefinitely, and the
 user may back that database up to their own cloud storage. A source can be technically perfect
 and still be unusable: J-STAGE was refused on its terms, and IEEE Xplore shipped and was later
 withdrawn because §4(c) forbids using a retrieval application against its content at all.
@@ -149,13 +149,13 @@ Check `docs/source-landscape.md` first — 22 shipped sources and 27 candidates 
 assessed.
 
 **Store only the fields the terms permit.** Where a source conditions a field on provenance,
-licence or an access flag, the client reads that field and honours it. Reference
+license or an access flag, the client reads that field and honours it. Reference
 implementation: `_licensed_abstract` in `implementation_scripts/api_inspire_hep.py`. A record
 whose abstract cannot lawfully be kept is still indexed, without one.
 
 **Record an attribution obligation, do not invent one.** Catalog entries carry `attribution`,
 `attribution_requirement` (`none` / `requested` / `required`) and `attribution_source`.
-Required means a licence condition and renders unconditionally; requested means a courtesy.
+Required means a license condition and renders unconditionally; requested means a courtesy.
 The default is `none`, and silence is the correct value.
 
 A new source `<slug>` touches these files and no others:
@@ -232,5 +232,5 @@ the change to cover it.
 
 Every delegated PR is reviewed by Claude Code against its brief before it reaches the
 maintainer. Expect the review to check contract conformance, whether the tests genuinely
-exercise the behaviour they name, and whether anything in the diff claims more than it
+exercise the behavior they name, and whether anything in the diff claims more than it
 proves.

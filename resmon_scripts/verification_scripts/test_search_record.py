@@ -1,7 +1,7 @@
 """The reproducible search record: the numbers, and what they do not mean.
 
 A methods section built on a mislabelled figure is worse than no record at all,
-because a reviewer will publish it. So most of this suite is about labelling
+because a reviewer will publish it. So most of this suite is about labeling
 rather than arithmetic.
 
 Three things resmon must never let the record imply:
@@ -143,7 +143,7 @@ def test_unproductive_sources_raise_a_caveat_about_overstating_coverage(conn):
 
 
 # ---------------------------------------------------------------------------
-# The labelling — the part that matters
+# The labeling — the part that matters
 # ---------------------------------------------------------------------------
 
 

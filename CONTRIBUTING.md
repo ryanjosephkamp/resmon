@@ -49,9 +49,9 @@ Python 3.10 is the floor: no `match` statements, no 3.11+ syntax.
 
 ### Tests that bite
 
-Break the behaviour on purpose and confirm the test fails. A test that asserts
+Break the behavior on purpose and confirm the test fails. A test that asserts
 `isinstance(x, list)` proves nothing. If nothing goes red when you sabotage the code, the
-test is checking shape rather than behaviour.
+test is checking shape rather than behavior.
 
 ### Docs move in step
 

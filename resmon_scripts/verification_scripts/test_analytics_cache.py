@@ -2,7 +2,7 @@
 
 Ledger open item 08: every Analytics figure was recomputed on each page load.
 The cache keys on a fingerprint of the tables analytics reads, so these tests
-pin the two behaviours that matter — a repeat request must not recompute, and
+pin the two behaviors that matter — a repeat request must not recompute, and
 any corpus change must.
 """
 

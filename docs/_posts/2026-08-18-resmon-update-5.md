@@ -113,7 +113,7 @@ the only evidence that a regression test is worth having.
   concurrent sweeps sharing a source's limiter all woke together. Measured against
   arXiv's 0.33 req/s ceiling, four concurrent sweeps issued every request within
   0.00 s of each other — 1.32 req/s, four times the advertised limit, the kind of
-  thing that earns a temporary IP block. Now correctly serialised.
+  thing that earns a temporary IP block. Now correctly serialized.
 - **A new execution no longer inherits an old one's progress log.**
   `ProgressStore.register()` only touched its dictionary entry instead of clearing
   it. Reachable in practice: cleanup is skipped whenever the persist step raises,
@@ -211,7 +211,7 @@ CI failed repeatedly on the same commit while every local run passed. Each failu
 turned out to be the same pattern: **a test's scope ends at the HTTP response while
 the work continues on a daemon thread.**
 
-- A calendar-colour test's arXiv mock was restored before the background execution
+- A calendar-color test's arXiv mock was restored before the background execution
   used it, so the execution quietly queried the real API.
 - A cancel test slept a fixed second and hoped the execution had finished.
 - Fixtures closed the shared database while a worker was still writing to it.

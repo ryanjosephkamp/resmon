@@ -1,8 +1,8 @@
 /**
- * The search record — the labelling, not the layout.
+ * The search record — the labeling, not the layout.
  *
  * A methods section built on a mislabelled figure is worse than no record,
- * because a reviewer will publish it. The interface is where the labelling is
+ * because a reviewer will publish it. The interface is where the labeling is
  * most easily lost: a tidy table under PRISMA headings, with the meanings
  * tucked behind a "details" toggle, would let a reader take the numbers and
  * leave the qualifications behind.
@@ -123,7 +123,7 @@ describe('SearchRecord', () => {
     expect(screen.getByText(/did not contribute to the search/)).toBeInTheDocument();
   });
 
-  test('duplicates are labelled as found, never as removed', async () => {
+  test('duplicates are labeled as found, never as removed', async () => {
     await renderRecord();
 
     expect(screen.getByText(/does not remove either/)).toBeInTheDocument();

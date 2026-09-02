@@ -320,7 +320,7 @@ def test_search_passes_the_cursor_through_and_returns_the_next_one():
 
 
 # ---------------------------------------------------------------------------
-# Behaviour the contract fixes
+# Behavior the contract fixes
 # ---------------------------------------------------------------------------
 
 def test_analytics_view_names_map_to_endpoints_that_exist():

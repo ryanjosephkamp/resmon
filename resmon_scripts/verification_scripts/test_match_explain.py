@@ -132,7 +132,7 @@ def test_each_field_is_reported_separately(conn):
 def test_a_keyword_ending_in_punctuation_still_matches(conn):
     """A \\b anchor after "C++" never fires. Category codes and versioned terms
     are common enough keywords that getting this wrong is not academic."""
-    doc_id = _doc(conn, title="Fast C++ kernels", abstract="COVID-19 modelling.")
+    doc_id = _doc(conn, title="Fast C++ kernels", abstract="COVID-19 modeling.")
     exec_id = _run(conn, keywords=["C++", "COVID-19"], doc_ids=[doc_id])
 
     result = match_explain.explain_document(conn, doc_id, execution_id=exec_id)
@@ -230,7 +230,7 @@ def test_the_full_text_limit_is_stated_even_when_keywords_matched(conn):
 
 def test_a_relevance_ranked_source_is_named_as_such(conn):
     """Semantic Scholar scores against the whole query. A paper with no literal
-    match is expected behaviour there, not an anomaly."""
+    match is expected behavior there, not an anomaly."""
     doc_id = _doc(conn, source="semantic_scholar", title="Something else")
     exec_id = _run(conn, keywords=["transformer"], doc_ids=[doc_id])
 

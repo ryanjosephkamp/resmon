@@ -11,7 +11,7 @@ interface Props {
  * Four of the sources resmon queries make attribution a condition of reuse
  * rather than a courtesy — OpenAIRE's Graph metadata is CC BY, PLOS's API
  * display policy names an exact phrase, CORE asks discovery products to carry
- * its snippet, and the Semantic Scholar API licence requires its credit. Until
+ * its snippet, and the Semantic Scholar API license requires its credit. Until
  * v1.8.2 resmon met none of them: the obligations were real, the catalog knew
  * nothing about them, and nothing was rendered anywhere.
  *

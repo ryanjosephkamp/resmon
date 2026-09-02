@@ -92,13 +92,13 @@ The catalog goes from 21 to **25**, all keyless:
 | **NIST RMM** | NIST papers, technical reports and software metadata |
 | **NDL Search** | The Japanese national bibliography — the largest geography gap the catalog had |
 
-These were the first sources chosen *after* checking their licence terms rather than before, and
+These were the first sources chosen *after* checking their license terms rather than before, and
 two of them show what that changes.
 
 **NDL** publishes an open metadata slice, and its live responses turned out not to match its own
-summary of that slice — some records carry licences the summary does not mention, and some carry
-no licence statement at all. resmon keeps a record only when its rights are explicitly one of
-three known-open licences, and drops it otherwise. Fewer records, all of them ones we may keep.
+summary of that slice — some records carry licenses the summary does not mention, and some carry
+no license statement at all. resmon keeps a record only when its rights are explicitly one of
+three known-open licenses, and drops it otherwise. Fewer records, all of them ones we may keep.
 
 **NIST's API has been returning an error since we added it.** The client handles that gracefully
 and the catalog page says plainly that its field mapping has never been checked against a live
@@ -126,7 +126,7 @@ Some sources need **your own API key**, which you register for yourself.
 
 When a source runs on your key, **that provider's terms bind you, not resmon.** resmon can
 decline to ship an integration it believes puts users in breach — and did, withdrawing IEEE
-Xplore last release for exactly that reason — but it cannot accept a licence on your behalf, and
+Xplore last release for exactly that reason — but it cannot accept a license on your behalf, and
 it does not monitor whether your use stays inside one. That is now said on the page where you
 enter keys, rather than only in a document.
 
@@ -142,7 +142,7 @@ dressed up as a clearance.
   that failed once in twenty-five runs, and it was real: the app closes connections the same way
   when you quit it. Connections belonging to a running job are now left alone until it finishes.
 - **Contributing to resmon is documented properly.** A `CONTRIBUTING.md`, and a full guide to
-  adding a scholarly source that opens with the licence question rather than closing on it. If
+  adding a scholarly source that opens with the license question rather than closing on it. If
   you point your own AI harness at resmon and ask it to add a source you need, that guide is
   written for it as much as for you.
 

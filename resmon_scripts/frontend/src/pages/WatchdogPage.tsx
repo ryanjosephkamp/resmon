@@ -15,7 +15,7 @@ import LifecycleBadge, { LifecycleEvent } from '../components/Explain/LifecycleB
  * as clearly as the backend does. A **broken** finding is a recorded fact: the
  * source raised an error, the key is absent, the routine did not fire. An
  * **unusual** finding is an inference from the user's own history, and its
- * innocent explanation is always genuinely possible. They are coloured, worded
+ * innocent explanation is always genuinely possible. They are colored, worded
  * and grouped differently on purpose. Presenting an inference with the
  * confidence of a fact is how a watchdog earns the mute button.
  *
@@ -93,7 +93,7 @@ const SEVERITY_LABEL: Record<Severity, string> = {
 
 /**
  * The one-line gloss under each chip. It exists so the difference between the
- * two alarm levels is stated, not just implied by colour — colour alone would
+ * two alarm levels is stated, not just implied by color — color alone would
  * leave a user to guess which of the two means "resmon is certain".
  */
 const SEVERITY_GLOSS: Record<Severity, string> = {

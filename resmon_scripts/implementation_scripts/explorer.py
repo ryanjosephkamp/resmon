@@ -18,7 +18,7 @@ and a rowid rather than a second copy of every abstract, and triggers keep it
 in step. Where FTS5 is genuinely unavailable the code degrades to LIKE rather
 than failing, and says so in the response.
 
-**Authors and categories are read from normalised tables, not split at query
+**Authors and categories are read from normalized tables, not split at query
 time.** They are stored on ``documents`` as comma-joined strings, which cannot
 be filtered or counted without reading every row. ``document_authors`` and
 ``document_categories`` carry indexed copies. ``documents`` remains the source
@@ -324,7 +324,7 @@ def matching_ids(
     """Every document id matching the filters, for exporting a filtered view.
 
     Bounded by *limit* so an accidental unfiltered export cannot try to
-    serialise the entire corpus into one BibTeX file.
+    serialize the entire corpus into one BibTeX file.
     """
     where, params, _ = _build_where(
         conn, query=query, sources=sources, authors=authors,

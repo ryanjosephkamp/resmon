@@ -57,7 +57,7 @@ from . import repo_catalog
 
 # Sources where resmon performs the keyword filtering itself, so the local
 # explanation is complete rather than partial. Derived from the catalog's
-# documented behaviour: these have no upstream keyword search.
+# documented behavior: these have no upstream keyword search.
 _LOCALLY_FILTERED_SOURCES = {"biorxiv", "medrxiv"}
 
 # Fields on ``documents`` that can be checked locally, in the order a reader

@@ -1,7 +1,7 @@
 /**
  * The fallback-chain editor (1.8b).
  *
- * The behaviour worth pinning is not that buttons render — it is that the
+ * The behavior worth pinning is not that buttons render — it is that the
  * chain saved to the backend is the *complete* ordered chain with the primary
  * provider at lane 0, and that leaving the section alone stores nothing at all
  * so a user who never opens it keeps behaving exactly as before.
@@ -30,7 +30,7 @@ describe('FallbackChain', () => {
     expect(screen.getByText(/tried first/i)).toBeInTheDocument();
   });
 
-  test('says plainly that an empty chain is the old behaviour', () => {
+  test('says plainly that an empty chain is the old behavior', () => {
     render(<Harness />);
     expect(
       screen.getByText(/exactly how\s+resmon behaved before fallbacks existed/i),

@@ -284,7 +284,7 @@ const sections: TutorialSection[] = [
       'Runs you cancelled are not held against a source: stopping a sweep says nothing about whether the source was answering.',
       'A missing API key outranks the error it causes. If a source needs a key you have not set, the finding names the key rather than the HTTP 401 underneath it.',
       'Cadence advice never means anything is broken. A daily routine against a slow source still works — it just spends requests without finding anything sooner.',
-      'A correction is not a retraction, and is not coloured like one. Grading normal scholarly upkeep as an alarm would teach you to ignore the colour, and then the real retraction goes unread too.',
+      'A correction is not a retraction, and is not colored like one. Grading normal scholarly upkeep as an alarm would teach you to ignore the color, and then the real retraction goes unread too.',
       'An empty lifecycle list on an unchecked corpus is not a clean bill of health, and the page says so rather than implying otherwise. The coverage line tells you how many papers have actually been looked at.',
       'Papers with no DOI and no supported identifier cannot be checked at all. They are counted separately rather than silently treated as clean.',
     ],
@@ -304,7 +304,7 @@ const sections: TutorialSection[] = [
       'Use `BibTeX`, `RIS`, or `CSV` to export the papers themselves in a format a reference manager reads, rather than the report about them.',
     ],
     features: [
-      'A reproducible search record per execution, mapped onto PRISMA 2020 identification-stage boxes — and explicitly labelled where resmon\u2019s figures have no honest PRISMA equivalent.',
+      'A reproducible search record per execution, mapped onto PRISMA 2020 identification-stage boxes — and explicitly labeled where resmon\u2019s figures have no honest PRISMA equivalent.',
       'Deep-link directly into a row and tab via URL hash, e.g. `#exec=42&tab=report`.',
     ],
     tips: [

@@ -17,8 +17,8 @@ import React from 'react';
  *   caution        a concern was registered — explicitly not a retraction
  *   informational  a correction, a new version, a preprint reaching a journal
  *
- * A correction is normal scholarly upkeep. Colouring it like a retraction would
- * train users to ignore the colour, and then the retraction goes unread too.
+ * A correction is normal scholarly upkeep. Coloring it like a retraction would
+ * train users to ignore the color, and then the retraction goes unread too.
  */
 
 export interface LifecycleEvent {

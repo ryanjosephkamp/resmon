@@ -12,21 +12,16 @@ const REQUIREMENT_LABEL: Record<RepoCatalogEntry['api_key_requirement'], string>
   recommended: 'Recommended',
 };
 
-function openExternal(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
-  const opener = window.resmonAPI?.openPath;
-  if (opener) {
-    e.preventDefault();
-    void opener(href);
-  }
-}
-
+// No click handler on purpose. These used to call ``resmonAPI.openPath``,
+// which sends the URL to the system browser — while the attribution links a
+// few hundred pixels up the same page opened in an in-app window. Two
+// behaviors for the same kind of link.
+//
+// Letting the anchor do its ordinary thing routes it through the main
+// process's window-open handler, which is now the single place external links
+// are decided. One rule, one implementation.
 const ExternalLink: React.FC<{ href: string; label?: string }> = ({ href, label }) => (
-  <a
-    href={href}
-    target="_blank"
-    rel="noreferrer noopener"
-    onClick={(e) => openExternal(e, href)}
-  >
+  <a href={href} target="_blank" rel="noreferrer noopener">
     {label ?? href}
   </a>
 );
@@ -109,7 +104,7 @@ const RepoDetailsPanel: React.FC<Props> = ({ entry }) => {
               <span className="attribution-credit">{entry.attribution}</span>
               {entry.attribution_requirement === 'required' ? (
                 <p className="attribution-note">
-                  A condition of this source's licence, not a courtesy. resmon shows it on
+                  A condition of this source's license, not a courtesy. resmon shows it on
                   this page for every source that requires it.
                 </p>
               ) : (

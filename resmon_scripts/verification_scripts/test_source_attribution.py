@@ -1,9 +1,9 @@
-"""Sources whose credit is a licence condition must actually be credited.
+"""Sources whose credit is a license condition must actually be credited.
 
 Delegation 03's terms survey found that four shipped sources make attribution a
 condition of reuse — OpenAIRE's Graph metadata is CC BY, PLOS's API display
 policy names an exact phrase, CORE asks discovery products to carry its
-snippet, and the Semantic Scholar API licence requires its credit — and that
+snippet, and the Semantic Scholar API license requires its credit — and that
 resmon met **none** of them. The obligations were real, the catalog had nowhere
 to record them, and nothing rendered them.
 
@@ -43,7 +43,7 @@ REQUIRED = {
 def test_required_attribution_is_recorded(slug, fragment):
     entry = _BY_SLUG[slug]
     assert entry.attribution_requirement == "required", (
-        f"{slug} makes attribution a licence condition; recording it as "
+        f"{slug} makes attribution a license condition; recording it as "
         f"{entry.attribution_requirement!r} understates the obligation"
     )
     assert fragment in entry.attribution

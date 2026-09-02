@@ -1,5 +1,5 @@
 # resmon_scripts/implementation_scripts/llm_subscription.py
-"""Driving an installed agent CLI as a summarisation lane.
+"""Driving an installed agent CLI as a summarization lane.
 
 resmon runs the CLI the user already installed and authenticated — ``claude -p``
 for Claude Code, ``codex exec`` for Codex — so the work draws on their existing
@@ -24,13 +24,13 @@ machine. Feeding one into the other without constraint would make every abstract
 in every sweep a prompt-injection vector against the user's filesystem. So each
 call runs in a fresh empty directory, with tools switched off (``--tools ""``)
 or the sandbox pinned read-only (``-s read-only``), and with the user's project
-configuration left out of it. A summariser needs no tools; taking them away
+configuration left out of it. A summarizer needs no tools; taking them away
 costs nothing and closes the hole.
 
 **It is slow and it spends a window the user also works in.** That is a product
 fact, not an implementation detail: the lane carries a per-execution document cap
 (see ``ai_lanes.DEFAULT_SUBSCRIPTION_DOC_CAP``), the interface says what a run
-will consume before it runs, and it is not the default for bulk summarisation.
+will consume before it runs, and it is not the default for bulk summarization.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ _QUOTA_MARKERS = (
 
 
 class SubscriptionLLMClient:
-    """Summarise through an installed agent CLI.
+    """Summarize through an installed agent CLI.
 
     Exposes ``summarize(text, prompt_params) -> str`` plus ``model`` and
     ``provider``, which is the whole contract ``SummarizationPipeline`` needs —
@@ -147,7 +147,7 @@ class SubscriptionLLMClient:
         """``claude -p --output-format json``.
 
         ``--tools ""`` disables every built-in tool, ``--strict-mcp-config``
-        keeps the user's MCP servers out of a summarisation call, and
+        keeps the user's MCP servers out of a summarization call, and
         ``--disable-slash-commands`` stops an abstract's text being read as a
         command. ``--bare`` is deliberately *not* used: it makes the CLI read
         ``ANTHROPIC_API_KEY`` only and never touch OAuth or the keychain, which
@@ -174,7 +174,7 @@ class SubscriptionLLMClient:
         ``-o`` writes the agent's final message to a file, which sidesteps the
         banner, the session header and the token accounting that ``codex exec``
         prints to stdout. ``-s read-only`` pins the sandbox regardless of what
-        the user's own ``~/.codex/config.toml`` sets — a summarisation call has
+        the user's own ``~/.codex/config.toml`` sets — a summarization call has
         no business writing anything. ``--skip-git-repo-check`` is required
         because the temporary working directory is deliberately not a
         repository.

@@ -3091,7 +3091,7 @@ html, body, #root {
   width: 100%;
   display: flex;
   flex-direction: column-reverse;
-  /* A 2px surface-coloured gap between segments, so adjacent fills read as
+  /* A 2px surface-colored gap between segments, so adjacent fills read as
      separate marks rather than one blended band. */
   gap: 2px;
   overflow: hidden;
@@ -3124,7 +3124,7 @@ html, body, #root {
 
 .scroll-x { overflow-x: auto; }
 
-/* Legend swatches take their colour inline from the validated palette. */
+/* Legend swatches take their color inline from the validated palette. */
 .analytics-legend span { display: inline-flex; align-items: center; }
 
 .analytics-table-toggle {
@@ -3285,7 +3285,7 @@ html, body, #root {
 /* ---------------------------------------------------------------------------
    Watchdog (1.7)
 
-   The severity colours are the feature, not decoration. "Broken" and "looks
+   The severity colors are the feature, not decoration. "Broken" and "looks
    unusual" are different claims about certainty, and a user scanning the page
    has to be able to tell them apart before reading a word. Red is reserved for
    recorded facts; amber for inferences from the user's own history; the accent
@@ -3480,7 +3480,7 @@ html, body, #root {
    the limits of the evidence are part of the answer — a match in a title says a
    paper is plausible, not that resmon knows why the source returned it.
 
-   Hits and misses are separated by weight and a leading mark as well as colour,
+   Hits and misses are separated by weight and a leading mark as well as color,
    so the distinction survives without it.
    --------------------------------------------------------------------------- */
 
@@ -3543,7 +3543,7 @@ html, body, #root {
   padding: 3px 0;
 }
 
-/* A leading mark, so hit and miss are distinguishable without colour. */
+/* A leading mark, so hit and miss are distinguishable without color. */
 .why-keywords li::before {
   font-family: inherit;
   width: 1em;
@@ -3605,7 +3605,7 @@ html, body, #root {
    Corpus lifecycle (1.7)
 
    Only `critical` is alarming. A correction is normal scholarly upkeep, and
-   colouring it like a retraction would train users to ignore the colour — after
+   coloring it like a retraction would train users to ignore the color — after
    which the retraction goes unread too, which is the failure this whole feature
    exists to prevent.
 
@@ -3833,4 +3833,18 @@ html, body, #root {
   color: var(--color-text-muted);
   font-size: 13px;
   margin: 4px 0 0;
+}
+
+/* Match the link color used inside the repository detail panels. These had no
+   color of their own, so they fell back to the browser default -- a dark blue
+   that is close to unreadable on this surface and looks nothing like every
+   other link on the same page. */
+.required-attributions a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.required-attributions a:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
 }

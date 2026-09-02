@@ -225,7 +225,7 @@ def test_finish_is_idempotent(conn, exec_id, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_every_lane_failing_returns_no_summary_and_says_why(conn, exec_id, monkeypatch):
-    """There is no summariser of last resort, and the rows must not imply one."""
+    """There is no summarizer of last resort, and the rows must not imply one."""
     runner = _runner(
         conn, exec_id,
         [_lane("anthropic", alias="anthropic_api_key"), _lane("openai")],
@@ -245,7 +245,7 @@ def test_every_lane_failing_returns_no_summary_and_says_why(conn, exec_id, monke
 
 
 def test_an_empty_completion_is_not_treated_as_success(conn, exec_id, monkeypatch):
-    """A provider returning "" has not summarised anything."""
+    """A provider returning "" has not summarized anything."""
     runner = _runner(
         conn, exec_id,
         [_lane("anthropic"), _lane("local", kind="local")],

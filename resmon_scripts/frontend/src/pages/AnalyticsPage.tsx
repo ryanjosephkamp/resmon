@@ -105,7 +105,7 @@ interface Overview {
 const nf = new Intl.NumberFormat();
 
 /**
- * Categorical series colours, in fixed slot order.
+ * Categorical series colors, in fixed slot order.
  *
  * Eight hues stepped for a dark surface, validated as a set against this app's
  * card surface (#1a1d27): every slot sits in the L 0.48–0.67 band, clears the
@@ -114,10 +114,10 @@ const nf = new Intl.NumberFormat();
  * adjacent pairlist, so all eight slots are legal here.
  *
  * Assigned in order and never cycled: a ninth group is folded into "other" by
- * the backend rather than given a generated hue. Colour follows the group, not
+ * the backend rather than given a generated hue. Color follows the group, not
  * its rank, so switching between source and category grouping repaints
  * deliberately — they are different entity spaces — but re-rendering the same
- * grouping never reshuffles colours.
+ * grouping never reshuffles colors.
  */
 const SERIES_COLOURS = [
   '#3987e5', // blue
@@ -322,7 +322,7 @@ const AnalyticsPage: React.FC = () => {
         // The state every new install starts in. An explanation and a way
         // forward, not four empty charts.
         <section className="card analytics-empty">
-          <h2>Nothing to analyse yet</h2>
+          <h2>Nothing to analyze yet</h2>
           <p>
             This page describes the papers resmon has collected. Once you have run a
             search, it will show which repositories are actually earning their place, how
@@ -479,7 +479,7 @@ const AnalyticsPage: React.FC = () => {
                 </p>
                 {/*
                   Said plainly rather than buried. On a relevance-ranked source a
-                  paper matching no keyword literally is normal behaviour, not a
+                  paper matching no keyword literally is normal behavior, not a
                   fault, and a user reading this number needs to know that before
                   they start deleting terms.
                 */}
@@ -667,7 +667,7 @@ const AnalyticsPage: React.FC = () => {
                   ))}
                 </p>
 
-                {/* Identity is never colour-alone: the same figures, readable. */}
+                {/* Identity is never color-alone: the same figures, readable. */}
                 <button
                   className="btn btn-sm btn-link analytics-table-toggle"
                   onClick={() => setShowVolumeTable((v) => !v)}

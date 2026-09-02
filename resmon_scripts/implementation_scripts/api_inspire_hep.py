@@ -29,7 +29,7 @@ _cooldown_until = 0.0
 
 # INSPIRE's Terms of Use §5(ii) permit reuse of an abstract only where that
 # abstract's own `source` field is arXiv or CERN; the rest are carried under
-# licences INSPIRE cannot pass on. The API returns the field the licence turns
+# licenses INSPIRE cannot pass on. The API returns the field the license turns
 # on, so honouring it is a matter of reading it rather than of judgement.
 #
 # Scanning the whole list rather than testing abstracts[0] is defensive, not
@@ -54,7 +54,7 @@ def _licensed_abstract(abstracts: object) -> str | None:
     ``None`` when the record carries no qualifying abstract. That is a real
     answer, not a failure: the paper is still indexed, and an absent abstract
     is how resmon says it has nothing it may keep rather than showing text it
-    has no licence for.
+    has no license for.
     """
     if not isinstance(abstracts, list):
         return None

@@ -672,7 +672,7 @@ TOOLS: list[dict] = [
          "window": {"type": "string"}}}},
 
     {"name": "get_watchdog_findings", "fn": t_get_watchdog_findings,
-     "description": ("Silent-failure findings, each labelled broken (a recorded fact) or "
+     "description": ("Silent-failure findings, each labeled broken (a recorded fact) or "
                      "unusual (an inference), with the thresholds used and what the "
                      "watchdog cannot judge."),
      "schema": {"type": "object", "properties": {

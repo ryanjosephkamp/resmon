@@ -1,7 +1,7 @@
 # resmon_scripts/verification_scripts/test_ai_lanes.py
 """Lane resolution, error classification, and the execution_ai record (1.8a).
 
-The tests that matter most here are the ones pinning behaviour that is
+The tests that matter most here are the ones pinning behavior that is
 expensive to get wrong rather than merely wrong:
 
 * a pre-1.8 configuration must resolve to exactly the lane it always used,
@@ -381,7 +381,7 @@ def _mock_source(name: str = "arxiv"):
         NormalizedResult(
             source_repository=name, external_id=f"{name}_1", doi=None,
             title="A paper", authors=["A. Author"],
-            abstract="An abstract long enough to be summarised.",
+            abstract="An abstract long enough to be summarized.",
             publication_date="2026-04-10", url="https://example.com/1",
             categories=["cs.AI"],
         ),
