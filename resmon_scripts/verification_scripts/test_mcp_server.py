@@ -35,14 +35,46 @@ def _payload(result: dict) -> dict:
     return json.loads(result["content"][0]["text"])
 
 
-def _stub(routes: dict, base: str = "http://127.0.0.1:8742"):
-    """Serve canned JSON for exact paths; anything else 404s."""
+def _stub(routes: dict, base: str = "http://127.0.0.1:8742",
+          formats: tuple[str, ...] = ("bibtex", "ris", "csv", "json")):
+    """Serve canned JSON for exact paths; anything else 404s.
+
+    **This double honours the query string, and that is the point of it.**
+
+    It used to strip ``?...`` before matching, which made it structurally
+    incapable of observing the parameter a real bug lived in: the MCP server
+    asked the reference endpoint for ``format=json`` when no JSON renderer
+    existed, the stub discarded the parameter and returned canned JSON anyway,
+    and the suite stayed green while the tool failed for every execution in
+    production.
+
+    So *format* is validated here the way the backend validates it -- an
+    unknown one is HTTP 400 with the backend's own wording -- and *params*
+    passed to a request are recorded for assertion. A test double that cannot
+    fail the way the real dependency fails is not testing the integration.
+    """
     mcp.backend._base = base
+    seen: list[dict] = []
 
     def _request(method, url, **kwargs):
-        path = url[len(base):]
-        if "?" in path:
-            path = path.split("?")[0]
+        raw_path = url[len(base):]
+        path, _, query = raw_path.partition("?")
+        params = dict(kwargs.get("params") or {})
+        if query:
+            for pair in query.split("&"):
+                key, _, value = pair.partition("=")
+                params.setdefault(key, value)
+        seen.append({"method": method, "path": path, "params": params})
+
+        fmt = params.get("format")
+        if fmt is not None and fmt not in formats:
+            return httpx.Response(
+                400,
+                json={"detail": f"Unknown export format {fmt!r}. Expected one of: "
+                                f"{', '.join(sorted(formats))}."},
+                request=httpx.Request(method, url),
+            )
+
         entry = routes.get((method, path)) or routes.get(path)
         if entry is None:
             return httpx.Response(404, json={"detail": "Not found"},
@@ -54,7 +86,9 @@ def _stub(routes: dict, base: str = "http://127.0.0.1:8742"):
         return httpx.Response(status, json=body,
                               request=httpx.Request(method, url))
 
-    return patch.object(mcp.httpx, "request", side_effect=_request)
+    patcher = patch.object(mcp.httpx, "request", side_effect=_request)
+    patcher.seen = seen  # type: ignore[attr-defined]
+    return patcher
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +219,8 @@ def test_a_candidate_is_confirmed_with_health_before_use(monkeypatch):
         seen.append(url)
         ok = "9002" in url
         return httpx.Response(200 if ok else 500,
-                              json={}, request=httpx.Request("GET", url))
+                              json={"version": "1.8.2"},
+                              request=httpx.Request("GET", url))
 
     monkeypatch.setattr(mcp.httpx, "get", _get)
     with patch.object(mcp, "_candidate_ports", return_value=[9001, 9002]):
@@ -369,3 +404,116 @@ def test_run_routine_calls_the_new_endpoint():
         body = _payload(mcp.call_tool("run_routine", {"routine_id": 3}))
     assert body["execution_id"] == 11
     assert body["was_inactive"] is True
+
+
+# ---------------------------------------------------------------------------
+# The version guard — the wrong-instance hazard
+# ---------------------------------------------------------------------------
+#
+# resmon writes a port file only while it is running, so with the app closed
+# nothing names a port and the default applies. On a machine where an older
+# resmon holds that port, it answers -- and every tool then reports another
+# installation's corpus as the user's own. That happened with a v1.2.1 daemon.
+
+def _health(version, port=8742, status=200):
+    def _get(url, **kwargs):
+        body = {"status": "ok"} if version is None else {"status": "ok", "version": version}
+        return httpx.Response(status, json=body, request=httpx.Request("GET", url))
+    return _get
+
+
+@pytest.mark.parametrize("version", ["1.8.0", "1.8.2", "1.10.0", "2.0.0"])
+def test_a_supported_backend_is_accepted(monkeypatch, version):
+    monkeypatch.setattr(mcp.httpx, "get", _health(version))
+    with patch.object(mcp, "_candidate_ports", return_value=[8742]):
+        assert mcp.backend.base_url() == "http://127.0.0.1:8742"
+
+
+@pytest.mark.parametrize("version", ["1.2.1", "1.7.9", "0.1.0"])
+def test_an_older_backend_is_refused_rather_than_used(monkeypatch, version):
+    """The whole point: answering about the wrong corpus is worse than failing."""
+    monkeypatch.setattr(mcp.httpx, "get", _health(version))
+    with patch.object(mcp, "_candidate_ports", return_value=[8742]):
+        with pytest.raises(mcp.ToolError) as excinfo:
+            mcp.backend.base_url()
+    assert excinfo.value.code == "backend_unavailable"
+    assert version in excinfo.value.message
+    assert version in str(excinfo.value.detail["rejected"])
+
+
+@pytest.mark.parametrize("version", [None, "", "garbage"])
+def test_a_backend_that_cannot_say_its_version_is_refused(monkeypatch, version):
+    """Unparseable is refused, not assumed good — that is the case guarded against."""
+    monkeypatch.setattr(mcp.httpx, "get", _health(version))
+    with patch.object(mcp, "_candidate_ports", return_value=[8742]):
+        with pytest.raises(mcp.ToolError):
+            mcp.backend.base_url()
+
+
+def test_the_refusal_names_the_version_so_a_user_can_act(monkeypatch):
+    monkeypatch.setattr(mcp.httpx, "get", _health("1.2.1"))
+    with patch.object(mcp, "_candidate_ports", return_value=[8742]):
+        with pytest.raises(mcp.ToolError) as excinfo:
+            mcp.backend.base_url()
+    message = excinfo.value.message
+    assert "1.2.1" in message and mcp.MIN_BACKEND_VERSION in message
+    assert "background" in message
+
+
+# ---------------------------------------------------------------------------
+# Format negotiation — the parameter the old double could not see
+# ---------------------------------------------------------------------------
+
+def test_execution_results_ask_for_a_format_the_backend_supports():
+    """The v1.8.2 defect, pinned. It asked for json when json did not exist."""
+    docs = [{"id": 1, "title": "A"}]
+    stub = _stub({"/api/executions/7/references": json.dumps(docs)})
+    with stub:
+        body = _payload(mcp.call_tool("get_execution_results", {"exec_id": 7}))
+    assert body["count"] == 1
+    assert stub.seen[0]["params"]["format"] == "json"
+
+
+def test_a_format_the_backend_rejects_surfaces_as_an_error_not_a_summary():
+    """If the double did not validate format, this test could not exist."""
+    stub = _stub({"/api/executions/7/references": json.dumps([])},
+                 formats=("bibtex", "ris", "csv"))
+    with stub:
+        body = _payload(mcp.call_tool("get_execution_results", {"exec_id": 7}))
+    assert body["error"] == "invalid_argument"
+    assert "Unknown export format" in body["message"]
+
+
+def test_export_references_by_execution_uses_the_execution_endpoint():
+    """It sent execution_id to an endpoint requiring document_ids: a 422 every time."""
+    stub = _stub({("GET", "/api/executions/9/references"): "@article{...}"})
+    with stub:
+        mcp.call_tool("export_references", {"exec_id": 9, "format": "bibtex"})
+    call = stub.seen[0]
+    assert call["method"] == "GET"
+    assert call["path"] == "/api/executions/9/references"
+    assert call["params"]["format"] == "bibtex"
+
+
+def test_export_references_by_doc_ids_still_posts_document_ids():
+    stub = _stub({("POST", "/api/export/references"): "@article{...}"})
+    with stub:
+        mcp.call_tool("export_references", {"doc_ids": [1, 2], "format": "ris"})
+    assert stub.seen[0]["path"] == "/api/export/references"
+
+
+@pytest.mark.parametrize("fmt", ["bibtex", "ris", "csv", "json"])
+def test_every_advertised_export_format_is_one_the_backend_has(fmt):
+    """The schema advertised 'json' before json existed. Now they must agree."""
+    from implementation_scripts import reference_export
+
+    schema = next(t["schema"] for t in mcp.TOOLS if t["name"] == "export_references")
+    assert fmt in schema["properties"]["format"]["enum"]
+    assert fmt in reference_export.FORMATS
+
+
+def test_health_description_does_not_promise_fields_the_endpoint_lacks():
+    """It claimed schema version and scheduler state; /api/health returns neither."""
+    description = next(t["description"] for t in mcp.TOOLS if t["name"] == "health")
+    assert "schema" not in description.lower()
+    assert "scheduler" not in description.lower()

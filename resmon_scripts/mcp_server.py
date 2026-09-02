@@ -44,6 +44,16 @@ SERVER_NAME = "resmon"
 DEFAULT_PORT = 8742
 _TIMEOUT = httpx.Timeout(30.0, connect=3.0)
 
+# The oldest backend whose API this server was built against.
+#
+# Not defensive tidiness. resmon writes a port file, but only while it is
+# running -- so with the app closed, nothing names a port and the default
+# applies, and on a machine where an older resmon holds that port, it answers.
+# That happened: a v1.2.1 launchd daemon from April answered every tool
+# truthfully about a completely different corpus. Checking the version closes
+# the one path the "a named port is never widened" rule does not cover.
+MIN_BACKEND_VERSION = "1.8.0"
+
 # Every list tool defaults small. Token efficiency is a contract term rather
 # than an aspiration: a harness asking "what did my arXiv routine find this
 # week" must not cost a five-hour usage window.
@@ -133,6 +143,7 @@ class Backend:
             return self._base
 
         self._tried = []
+        rejected: list[str] = []
         for port in _candidate_ports():
             base = f"http://127.0.0.1:{port}"
             self._tried.append(base)
@@ -140,9 +151,32 @@ class Backend:
                 resp = httpx.get(f"{base}/api/health", timeout=httpx.Timeout(3.0))
             except httpx.HTTPError:
                 continue
-            if resp.status_code == 200:
-                self._base = base
-                return base
+            if resp.status_code != 200:
+                continue
+
+            version = _reported_version(resp)
+            if not _version_is_supported(version):
+                # Something answered, and it is not a resmon this server can
+                # speak for. Refusing is the whole point: a user ran the app,
+                # asked "what did my routine find this week", and was answered
+                # truthfully by a *different* installation over a different
+                # database. Being wrong quietly is worse than being unavailable.
+                rejected.append(f"{base} (v{version or 'unknown'})")
+                continue
+
+            self._base = base
+            return base
+
+        if rejected:
+            raise ToolError(
+                "backend_unavailable",
+                "Found a resmon backend, but it is version "
+                f"{rejected[0].split('(v')[-1].rstrip(')')}, which this MCP server "
+                f"cannot speak for (it needs {MIN_BACKEND_VERSION} or later). That is "
+                "usually an older resmon still running in the background. Start the "
+                "current app and try again.",
+                {"tried": list(self._tried), "rejected": rejected},
+            )
 
         raise ToolError(
             "backend_unavailable",
@@ -183,6 +217,43 @@ class Backend:
             return resp.json()
         except ValueError:
             return resp.text
+
+
+def _reported_version(resp: httpx.Response) -> Optional[str]:
+    """The version string from a /api/health response, if it has one."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    if isinstance(body, dict):
+        version = body.get("version")
+        if isinstance(version, str) and version.strip():
+            return version.strip()
+    return None
+
+
+def _version_is_supported(version: Optional[str]) -> bool:
+    """True when *version* is at least MIN_BACKEND_VERSION.
+
+    An unparseable or absent version is refused rather than assumed good: a
+    backend that cannot say what it is, is exactly the case this guard exists
+    for. Compared numerically part by part so "1.10.0" sorts above "1.9.0",
+    which a string comparison gets wrong.
+    """
+    if not version:
+        return False
+
+    def parts(value: str) -> Optional[tuple[int, ...]]:
+        chunks = value.split(".")
+        try:
+            return tuple(int(chunk) for chunk in chunks[:3])
+        except ValueError:
+            return None
+
+    found, minimum = parts(version), parts(MIN_BACKEND_VERSION)
+    if found is None or minimum is None:
+        return False
+    return found >= minimum
 
 
 def _detail_of(resp: httpx.Response, fallback: str) -> str:
@@ -458,14 +529,27 @@ def t_get_watchdog_findings(args: dict) -> Any:
 
 
 def t_export_references(args: dict) -> Any:
-    body: dict[str, Any] = {"format": args.get("format") or "bibtex"}
+    """Export references for an execution, or for an explicit set of papers.
+
+    Two different endpoints, because the backend already has one for each and
+    neither should be widened for this client's convenience. An execution has
+    its own route with the id in the path; ``POST /api/export/references``
+    takes ``document_ids`` and *only* ``document_ids`` -- passing it an
+    ``execution_id`` was a guaranteed HTTP 422, which is exactly what shipped
+    in v1.8.2 and what a caller hit the first time they tried it.
+    """
+    fmt = args.get("format") or "bibtex"
     if args.get("exec_id") is not None:
-        body["execution_id"] = _require_int(args, "exec_id")
-    elif args.get("doc_ids"):
-        body["document_ids"] = list(args["doc_ids"])
-    else:
-        raise ToolError("invalid_argument", "Pass either 'exec_id' or 'doc_ids'.")
-    return backend.request("POST", "/api/export/references", json=body)
+        exec_id = _require_int(args, "exec_id")
+        return backend.request(
+            "GET", f"/api/executions/{exec_id}/references", params={"format": fmt},
+        )
+    if args.get("doc_ids"):
+        return backend.request(
+            "POST", "/api/export/references",
+            json={"document_ids": list(args["doc_ids"]), "format": fmt},
+        )
+    raise ToolError("invalid_argument", "Pass either 'exec_id' or 'doc_ids'.")
 
 
 def t_run_sweep(args: dict) -> Any:
@@ -519,7 +603,7 @@ def t_run_routine(args: dict) -> Any:
 
 TOOLS: list[dict] = [
     {"name": "health", "fn": t_health,
-     "description": "resmon's version, schema version and scheduler state.",
+     "description": "Whether resmon is running, and which version.",
      "schema": {"type": "object", "properties": {}}},
 
     {"name": "search_corpus", "fn": t_search_corpus,

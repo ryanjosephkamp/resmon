@@ -1,9 +1,10 @@
-"""Reference-manager exports: BibTeX, RIS and CSV.
+"""Reference-manager exports: BibTeX, RIS, CSV and JSON.
 
 resmon's existing outputs -- Markdown, PDF and LaTeX -- are all for reading.
 None of them import into Zotero, Mendeley, EndNote or Papers, which is where a
-researcher actually keeps the papers a sweep found. These three formats close
-that gap.
+researcher actually keeps the papers a sweep found. These formats close that
+gap; JSON is the one that is not for a reference manager at all, and exists
+because a program consuming this data should not have to parse BibTeX.
 
 Everything here is pure: it takes document dicts as stored in the ``documents``
 table and returns text. No database access, no network.
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 from typing import Iterable, Sequence
 
@@ -171,10 +173,32 @@ def to_csv(documents: Iterable[dict]) -> str:
     return buf.getvalue()
 
 
+def to_json(documents: Iterable[dict]) -> str:
+    """Render documents as a JSON array, for a program rather than a person.
+
+    Added because its absence was a shipped defect rather than a missing
+    nicety. The MCP server asked this module for ``json`` from the day it was
+    written -- the contract it was built against named a structured export --
+    and the format did not exist, so ``get_execution_results`` returned HTTP
+    400 for *every* execution and the tool that answers "what did my last run
+    find" never worked once.
+
+    The same field set as the CSV export, so the two cannot describe a
+    document differently. Values are passed through as stored: a missing field
+    is ``null`` rather than an empty string, because for a machine-readable
+    format "we do not have this" and "this is blank" are different facts.
+    """
+    rows = []
+    for doc in documents:
+        rows.append({column: doc.get(column) for column in CSV_COLUMNS})
+    return json.dumps(rows, indent=2, ensure_ascii=False, default=str)
+
+
 FORMATS = {
     "bibtex": (to_bibtex, "application/x-bibtex", "bib"),
     "ris": (to_ris, "application/x-research-info-systems", "ris"),
     "csv": (to_csv, "text/csv", "csv"),
+    "json": (to_json, "application/json", "json"),
 }
 
 
