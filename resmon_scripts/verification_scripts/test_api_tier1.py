@@ -3110,3 +3110,84 @@ def test_inspire_ignores_malformed_abstract_entries(monkeypatch):
         {"value": "Real text.", "source": "arXiv"},
     ])
     assert results[0].abstract == "Real text."
+
+
+# ---------------------------------------------------------------------------
+# NDL: a zero-match query is not a malformed response
+# ---------------------------------------------------------------------------
+#
+# Found 2026-09-02 chasing Ryan's report that NDL "returned nothing". NDL
+# answers a query matching no records with an SRU *diagnostic* -- no
+# numberOfRecords element and "Record does not exist" -- which the client
+# treated as malformed XML. The user-visible count was right either way, but
+# the app reported an upstream fault that had not happened, and the watchdog
+# reads a source error differently from a legitimate zero.
+
+_NDL_NO_RECORDS = (
+    '<searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/">'
+    '<diagnostics>'
+    '<diagnostic xmlns="http://www.loc.gov/zing/srw/diagnostic/">'
+    '<uri>info:srw/diagnostic/1/1</uri>'
+    '<details>An error occurred</details>'
+    '<message>Record does not exist</message>'
+    '</diagnostic></diagnostics></searchRetrieveResponse>'
+)
+
+_NDL_REAL_DIAGNOSTIC = (
+    '<searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/">'
+    '<diagnostics>'
+    '<diagnostic xmlns="http://www.loc.gov/zing/srw/diagnostic/">'
+    '<uri>info:srw/diagnostic/1/7</uri>'
+    '<details>query</details>'
+    '<message>Mandatory parameter not supplied</message>'
+    '</diagnostic></diagnostics></searchRetrieveResponse>'
+)
+
+
+def test_ndl_zero_match_is_reported_as_zero_not_as_malformed(monkeypatch, caplog):
+    monkeypatch.setattr(
+        api_ndl_search, "safe_request",
+        lambda *a, **k: _FakeResponse(text=_NDL_NO_RECORDS),
+    )
+    with caplog.at_level("INFO"):
+        results = api_ndl_search.NDLSearchClient().search(query="LLM", max_results=5)
+
+    assert results == []
+    assert "malformed" not in caplog.text.lower()
+    assert "no records" in caplog.text.lower()
+
+
+def test_ndl_a_real_diagnostic_is_still_an_error(monkeypatch, caplog):
+    """Only 'does not exist' means zero. Other diagnostics are real failures.
+
+    Flattening every diagnostic into "no results" would hide a broken query
+    behind an empty page, which is the opposite mistake.
+    """
+    monkeypatch.setattr(
+        api_ndl_search, "safe_request",
+        lambda *a, **k: _FakeResponse(text=_NDL_REAL_DIAGNOSTIC),
+    )
+    results = api_ndl_search.NDLSearchClient().search(query="x", max_results=5)
+
+    assert results == []
+    assert "malformed" in caplog.text.lower()
+
+
+def test_ndl_genuinely_malformed_xml_is_still_malformed(monkeypatch, caplog):
+    monkeypatch.setattr(
+        api_ndl_search, "safe_request",
+        lambda *a, **k: _FakeResponse(text="<searchRetrieveResponse><oops"),
+    )
+    assert api_ndl_search.NDLSearchClient().search(query="x", max_results=5) == []
+    assert "malformed" in caplog.text.lower()
+
+
+@pytest.mark.live_network
+def test_ndl_live_zero_match_query_reports_zero_cleanly(caplog):
+    """Against the real API: a query with no matches must not look like a fault."""
+    with caplog.at_level("INFO"):
+        results = api_ndl_search.NDLSearchClient().search(
+            query="zzzqqxnomatchhere", max_results=5,
+        )
+    assert results == []
+    assert "malformed" not in caplog.text.lower()
