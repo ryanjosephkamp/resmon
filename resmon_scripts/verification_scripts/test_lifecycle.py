@@ -191,8 +191,8 @@ def test_two_updates_of_different_severity_are_not_flattened():
 
     assert set(by_kind) == {"retraction", "correction"}
     assert by_kind["retraction"].severity == "critical"
-    # A correction is normal scholarly upkeep. Colouring it like a retraction
-    # would train users to ignore the colour.
+    # A correction is normal scholarly upkeep. Coloring it like a retraction
+    # would train users to ignore the color.
     assert by_kind["correction"].severity == "informational"
 
 

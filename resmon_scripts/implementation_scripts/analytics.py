@@ -47,7 +47,7 @@ def _dedup_key_sql(alias: str = "documents") -> str:
 
     The same paper arriving from arXiv and from OpenAlex is two rows, because
     ``documents`` is unique on (source_repository, external_id). DOI is the
-    reliable identity when present; a normalised title is the fallback.
+    reliable identity when present; a normalized title is the fallback.
     """
     return (
         f"COALESCE(NULLIF(LOWER(TRIM({alias}.doi)), ''), LOWER(TRIM({alias}.title)))"

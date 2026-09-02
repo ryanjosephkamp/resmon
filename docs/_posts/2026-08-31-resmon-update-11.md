@@ -89,7 +89,7 @@ IEEE Xplore was a working source in 1.8.0 and is not in 1.8.1. Nothing broke. We
 [IEEE Xplore API Terms of Use](https://developer.ieee.org/API_Terms_of_Use2) properly and
 found four clauses that resmon cannot satisfy:
 
-- the licence covers only non-commercial activity **within the licensee's own institution**;
+- the license covers only non-commercial activity **within the licensee's own institution**;
 - clause 4(c) forbids using "any robot, spider, site search/retrieval application, or other
   device to retrieve or index any portion of the Content";
 - clause 4(f) requires users to agree not to retain the content in bulk;
@@ -106,13 +106,13 @@ agreement you signed is not a trade-off we get to make on your behalf.
 If you have an IEEE key stored, it is simply no longer used; nothing was deleted. Routines
 that name IEEE keep running — that source reports itself as unavailable, with the reason
 above, and the rest of the routine is unaffected. The code is still in the repository, so
-a written licence from IEEE would bring the source back unchanged.
+a written license from IEEE would bring the source back unchanged.
 
 ### INSPIRE-HEP was fixed rather than withdrawn
 
 The same review found a narrower problem at INSPIRE-HEP. Its terms allow reuse of an
 abstract only where INSPIRE reports that abstract's own source as arXiv or CERN; abstracts
-supplied by publishers are carried under licences INSPIRE cannot pass on. resmon was
+supplied by publishers are carried under licenses INSPIRE cannot pass on. resmon was
 storing whichever abstract came first without checking.
 
 It now checks. Records whose only abstract is publisher-supplied are still found, still
@@ -127,7 +127,7 @@ permission to keep.
 
 All of this came out of a full terms review of every source resmon ships, published in the
 repository as `docs/source-landscape.md`. It also surveys 27 sources resmon does *not* have
-yet, with the licence question asked **first** rather than last — which is how we ended up
+yet, with the license question asked **first** rather than last — which is how we ended up
 finding these three after the fact rather than before.
 
 Eleven further sources are marked unresolved: their published terms do not clearly grant

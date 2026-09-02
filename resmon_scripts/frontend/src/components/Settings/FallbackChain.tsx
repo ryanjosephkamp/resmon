@@ -238,7 +238,7 @@ const FallbackChain: React.FC<Props> = ({
                   <strong>This spends your own plan.</strong> resmon runs the{' '}
                   {lane.provider === 'codex' ? 'Codex' : 'Claude Code'} command
                   you already installed and signed into, so every paper this
-                  lane summarises draws on the same{' '}
+                  lane summarizes draws on the same{' '}
                   {lane.provider === 'codex' ? 'ChatGPT' : 'Claude'} usage
                   window you use for your own work — and it is much slower than
                   an API key, because it starts a whole agent session per paper.

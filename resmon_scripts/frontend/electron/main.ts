@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { ChildProcess, spawn } from 'child_process';
 import * as fs from 'fs';
@@ -337,6 +337,18 @@ function createWindow(): void {
     minHeight: 600,
     title: 'resmon',
     show: false,
+    // Paint the window in the app's own background from the moment it exists.
+    //
+    // Without this, Chromium composites an unpainted window as white, so the
+    // app flashed white on open and again on close against its dark interface.
+    // `show: false` alone does not prevent it: it delays the first paint but
+    // the surface Chromium hands over is still white, and on close the
+    // renderer tears down before the frame does.
+    //
+    // Kept in sync with `--color-bg` in styles/global.css by hand — there is no
+    // build step shared between the CSS and the main process, so a theme change
+    // has to touch both. That is worth one comment and no machinery.
+    backgroundColor: '#0f1117',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -371,6 +383,23 @@ function createWindow(): void {
     (webPreferences as { contextIsolation?: boolean }).contextIsolation = true;
   });
 
+  // Every external link opens the same way: an in-app window, not the system
+  // browser.
+  //
+  // Before this, it depended on where you clicked. The attribution links fell
+  // through to Electron's default window handling and opened in-app, while the
+  // repository detail links called shell.openExternal and threw you out to
+  // Safari. Same kind of link, same page, two behaviors.
+  //
+  // In-app is the one to keep: it stays inside the thing you were reading, and
+  // it is where a license or a rate-limit page is usually only glanced at. The
+  // window carries the URL in its title bar so it is never hidden, and a
+  // right-click offers copying it or handing it to the real browser.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openLinkWindow(url);
+    return { action: 'deny' };
+  });
+
   mainWindow.loadURL(`http://127.0.0.1:${rendererPort}/index.html`);
 
   // Open maximized by default (not full-screen) for a more spacious default
@@ -380,9 +409,169 @@ function createWindow(): void {
     mainWindow?.show();
   });
 
+  // Browser-style history navigation.
+  //
+  // The renderer is a HashRouter, so every page change is a real Chromium
+  // navigation entry — the history was always there, nothing was ever wired to
+  // it. Three ways in, because people reach for different ones: the trackpad,
+  // the keyboard, and the menu.
+  //
+  // macOS only delivers `swipe` when the user has "Swipe between pages" set to
+  // a two-finger gesture in System Settings; there is no way to detect that
+  // from here, which is why the menu items exist rather than relying on it.
+  mainWindow.on('swipe', (_event, direction) => {
+    if (direction === 'left') navigateHistory('back');
+    if (direction === 'right') navigateHistory('forward');
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+}
+
+/**
+ * Open an external URL in a small in-app window.
+ *
+ * Only http(s). Anything else — a file: path, a custom scheme — is handed to
+ * the operating system, which is what the user means by clicking it and is not
+ * something to render inside the app.
+ *
+ * The window is deliberately plain: no preload, no node integration, and no
+ * access to resmon's IPC bridge. It shows somebody else's page, so it gets the
+ * privileges a stranger's page should have.
+ */
+function openLinkWindow(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    void shell.openExternal(url);
+    return;
+  }
+
+  const win = new BrowserWindow({
+    width: 900,
+    height: 700,
+    title: url,
+    backgroundColor: '#0f1117',
+    show: false,
+    parent: mainWindow ?? undefined,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  // Keep the title bar showing where you actually are. A page that sets its own
+  // title would otherwise hide the address, which matters most for exactly the
+  // pages this window is used for: licenses and terms.
+  const showUrl = () => {
+    if (!win.isDestroyed()) win.setTitle(win.webContents.getURL() || url);
+  };
+  win.webContents.on('page-title-updated', (event) => {
+    event.preventDefault();
+    showUrl();
+  });
+  win.webContents.on('did-navigate', showUrl);
+  win.webContents.on('did-navigate-in-page', showUrl);
+
+  win.webContents.on('context-menu', () => {
+    const current = win.webContents.getURL() || url;
+    Menu.buildFromTemplate([
+      { label: 'Copy Link', click: () => clipboard.writeText(current) },
+      { label: 'Open in Browser', click: () => void shell.openExternal(current) },
+      { type: 'separator' },
+      {
+        label: 'Back',
+        enabled: win.webContents.navigationHistory.canGoBack(),
+        click: () => win.webContents.navigationHistory.goBack(),
+      },
+      {
+        label: 'Forward',
+        enabled: win.webContents.navigationHistory.canGoForward(),
+        click: () => win.webContents.navigationHistory.goForward(),
+      },
+      { label: 'Reload', click: () => win.webContents.reload() },
+    ]).popup({ window: win });
+  });
+
+  // A link inside this window opens another one just like it, rather than
+  // silently doing nothing.
+  win.webContents.setWindowOpenHandler(({ url: next }) => {
+    openLinkWindow(next);
+    return { action: 'deny' };
+  });
+
+  win.once('ready-to-show', () => win.show());
+  void win.loadURL(url);
+}
+
+/** Go back or forward one page, if there is one. Never throws. */
+function navigateHistory(direction: 'back' | 'forward'): void {
+  const history = mainWindow?.webContents.navigationHistory;
+  if (!history) return;
+  try {
+    if (direction === 'back' && history.canGoBack()) history.goBack();
+    if (direction === 'forward' && history.canGoForward()) history.goForward();
+  } catch {
+    // A window torn down mid-gesture is not worth a crash report.
+  }
+}
+
+/**
+ * Install the application menu.
+ *
+ * resmon shipped with Electron's default menu, which has no history items at
+ * all — so there was no Back, no Forward, and no keyboard shortcut for either.
+ * This adds a History menu carrying the shortcuts macOS users expect
+ * (Cmd+[ / Cmd+]) alongside the Cmd+Left / Cmd+Right pair, and keeps the rest
+ * of the standard menu so Copy, Paste, Minimise and the window list behave as
+ * they always have.
+ */
+function installApplicationMenu(): void {
+  const isMac = process.platform === 'darwin';
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac ? [{ role: 'appMenu' as const }] : []),
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    {
+      label: 'History',
+      submenu: [
+        {
+          label: 'Back',
+          accelerator: isMac ? 'Cmd+[' : 'Alt+Left',
+          click: () => navigateHistory('back'),
+        },
+        {
+          label: 'Forward',
+          accelerator: isMac ? 'Cmd+]' : 'Alt+Right',
+          click: () => navigateHistory('forward'),
+        },
+        { type: 'separator' },
+        // The other pair macOS users reach for. Electron allows one accelerator
+        // per item, so the alternates are their own hidden entries.
+        {
+          label: 'Back',
+          accelerator: isMac ? 'Cmd+Left' : 'Backspace',
+          visible: false,
+          click: () => navigateHistory('back'),
+        },
+        {
+          label: 'Forward',
+          accelerator: isMac ? 'Cmd+Right' : 'Shift+Backspace',
+          visible: false,
+          click: () => navigateHistory('forward'),
+        },
+      ],
+    },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 // ---------------------------------------------------------------------------
@@ -494,6 +683,7 @@ app.whenReady().then(async () => {
 
     const rendererRoot = path.join(__dirname, '..', 'renderer');
     await startRendererServer(rendererRoot);
+    installApplicationMenu();
     createWindow();
     initAutoUpdater();
   } catch (err) {

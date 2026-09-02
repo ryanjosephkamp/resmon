@@ -108,7 +108,7 @@ describe('Analytics page', () => {
     mockFetch(EMPTY);
     await renderPage();
 
-    expect(screen.getByText(/Nothing to analyse yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing to analyze yet/i)).toBeInTheDocument();
     // The analysis sections must not be rendered at all — an axis with no data
     // reads as breakage, not as emptiness. Queried as level-2 headings
     // specifically, because the collapsible help above still describes every
@@ -156,7 +156,7 @@ describe('Analytics page', () => {
     expect(screen.getByText(/needs 5/i)).toBeInTheDocument();
   });
 
-  test('a quiet routine is labelled and says how long it has been quiet', async () => {
+  test('a quiet routine is labeled and says how long it has been quiet', async () => {
     mockFetch(POPULATED);
     await renderPage();
 
@@ -172,11 +172,11 @@ describe('Analytics page', () => {
     // POPULATED has two months, one group each.
     const segments = document.querySelectorAll('.analytics-volume-seg');
     expect(segments.length).toBe(2);
-    // Identity is carried by a legend, never by colour alone.
+    // Identity is carried by a legend, never by color alone.
     expect(screen.getAllByText('arxiv').length).toBeGreaterThan(0);
   });
 
-  test('the same figures are available as a table, not colour alone', async () => {
+  test('the same figures are available as a table, not color alone', async () => {
     mockFetch(POPULATED);
     await renderPage();
 

@@ -166,7 +166,7 @@ def build_llm_client_from_settings(
 #
 # ``build_llm_client_from_settings`` above is kept as-is: it is the pre-1.8
 # entry point, it is what ``resmon.py`` calls today, and a pile of tests pin
-# its exact behaviour including which failures return None and which raise.
+# its exact behavior including which failures return None and which raise.
 # The functions below are the lane-shaped view of the same machinery. 1.8b
 # moves the caller onto them; until then both exist and agree, because the
 # one-lane chain a legacy configuration resolves to produces exactly the

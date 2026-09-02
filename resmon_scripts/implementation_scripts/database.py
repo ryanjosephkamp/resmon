@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 --
 -- Authors and categories are stored on ``documents`` as comma-joined strings,
 -- which is fine for display but cannot be filtered or counted without reading
--- every row. These two tables normalise them so both are index-backed. They are
+-- every row. These two tables normalize them so both are index-backed. They are
 -- derived data: ``documents`` remains the source of truth and the strings are
 -- still written there unchanged.
 
@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS watchdog_mutes (
 -- The governing rule for this table: **resmon never asserts a lifecycle event
 -- on its own authority.** Every row must carry ``notice_url``, a resolvable
 -- link to the notice that a reader can open and judge for themselves. A false
--- retraction flag is defamatory, and "we inferred it" is not a defence. The
+-- retraction flag is defamatory, and "we inferred it" is not a defense. The
 -- insert helper refuses a row without one, so the rule is enforced in code
 -- rather than trusted to the callers.
 --
@@ -421,7 +421,7 @@ def _migrate_executions_columns(conn: sqlite3.Connection) -> None:
     # Results & Logs). Nullable; ON DELETE SET NULL is enforced by the
     # CREATE TABLE statement for new databases. ALTER TABLE in SQLite
     # cannot add a FOREIGN KEY clause to an existing column, but the
-    # behaviour we need (graceful nulling on config delete) is enforced
+    # behavior we need (graceful nulling on config delete) is enforced
     # at the application layer in delete_configuration_endpoint and is
     # also a no-op when the column is NULL.
     if "saved_configuration_id" not in existing:
@@ -497,7 +497,7 @@ def _split_list_field(raw: str | None) -> list[str]:
 
 def index_document_facets(conn: sqlite3.Connection, document_id: int,
                           authors: str | None, categories: str | None) -> None:
-    """Populate the normalised author/category rows for one document."""
+    """Populate the normalized author/category rows for one document."""
     conn.executemany(
         "INSERT OR IGNORE INTO document_authors (document_id, author) VALUES (?, ?)",
         [(document_id, a) for a in _split_list_field(authors)],
@@ -857,7 +857,7 @@ def insert_document(conn: sqlite3.Connection, doc: dict) -> int | None:
     ))
     doc_id = cursor.lastrowid if cursor.rowcount > 0 else None
     if doc_id:
-        # Keep the normalised facet tables in step. The FTS index maintains
+        # Keep the normalized facet tables in step. The FTS index maintains
         # itself through triggers; these two cannot, because they split a
         # comma-joined string that SQL has no clean way to parse.
         index_document_facets(conn, doc_id, doc.get("authors"), doc.get("categories"))
@@ -1468,7 +1468,7 @@ def finish_ai_lane(
 ) -> None:
     """Close a lane's row with what it actually achieved.
 
-    ``outcome`` is one of ``ok`` (every document summarised), ``partial`` (some
+    ``outcome`` is one of ``ok`` (every document summarized), ``partial`` (some
     did), ``failed`` (none did), or ``skipped`` (never tried -- an earlier lane
     covered everything). The distinction between ``partial`` and ``failed``
     matters downstream: partial is a normal day with one awkward abstract,

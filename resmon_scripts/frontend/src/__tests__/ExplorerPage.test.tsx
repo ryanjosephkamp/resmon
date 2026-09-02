@@ -1,7 +1,7 @@
 /**
  * Explorer page.
  *
- * The behaviours worth guarding: an incoming filtered link is honoured, filters
+ * The behaviors worth guarding: an incoming filtered link is honoured, filters
  * live in the URL so they survive Back and can be shared, and an empty result
  * offers a way out instead of a blank page.
  */

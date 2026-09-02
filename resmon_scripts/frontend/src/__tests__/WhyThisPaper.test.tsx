@@ -145,7 +145,7 @@ describe('WhyThisPaper', () => {
     expect(screen.getByText('Matched locally')).toBeInTheDocument();
   });
 
-  test('the one source resmon filters itself is labelled differently', async () => {
+  test('the one source resmon filters itself is labeled differently', async () => {
     mockFetch(RESMON_FILTERED);
     await act(async () => { render(<WhyThisPaper documentId={7} />); });
     await open();

@@ -172,7 +172,7 @@ app.add_middleware(
 # There used to be exactly one module-level ``sqlite3.Connection``, opened with
 # ``check_same_thread=False`` and handed to everything: every FastAPI request
 # thread, and every execution worker thread spawned by ``_launch_execution``.
-# Nothing serialised them.
+# Nothing serialized them.
 #
 # sqlite3 connections are not safe to use concurrently from multiple threads.
 # Python 3.10 and 3.11 mostly got away with it because their sqlite3 module
@@ -201,7 +201,7 @@ app.add_middleware(
 #     which ``busy_timeout`` does not retry, so a worker writing while a request
 #     reads raises "database table is locked". Production is always a file with
 #     WAL, where one writer and many readers coexist happily -- so tests get
-#     exactly that, and exercise the same locking behaviour resmon ships.
+#     exactly that, and exercise the same locking behavior resmon ships.
 
 _db_path: str | None = None  # overridable for testing
 _shared_conn = None  # anchor connection; keeps an in-memory database alive
@@ -589,7 +589,7 @@ def _apply_ai_settings_to_engine(
 
     # Resolve the configuration into lanes (1.8a). Today the chain is always
     # one lane long -- resolve_chain reads the legacy ai_* keys as a one-lane
-    # chain -- so behaviour here is unchanged. What is new is that the engine
+    # chain -- so behavior here is unchanged. What is new is that the engine
     # now knows *which* lane it is running, which is what lets it record the
     # attempt in execution_ai. Executing more than one lane is 1.8b.
     chain = resolve_chain(merged)
@@ -2143,8 +2143,8 @@ def analytics_publication_volume(group_by: str = "source", months: int = 12):
 # Every systematic review's methods section needs the same account, and it is
 # assembled by hand in spreadsheets essentially everywhere. resmon already
 # records all of it. See implementation_scripts/search_record.py for why the
-# figures are labelled with the PRISMA box they belong in — and, where there is
-# no honest match, labelled as having none.
+# figures are labeled with the PRISMA box they belong in — and, where there is
+# no honest match, labeled as having none.
 # ---------------------------------------------------------------------------
 
 
@@ -3001,7 +3001,7 @@ def _dispatch_routine_fire(
     user stops one running on its own. A manual run is an explicit instruction,
     so ``is_active`` governs scheduling rather than permission, and the endpoint
     says in its response that the routine was inactive rather than running it
-    silently. The scheduler never passes this, so its behaviour is unchanged.
+    silently. The scheduler never passes this, so its behavior is unchanged.
 
     The return value is new. The scheduler ignores it, which is why widening it
     is safe; the endpoint needs it, because "which execution did you just
@@ -3788,7 +3788,7 @@ def close_db() -> None:
 
     **A connection owned by another thread that is still alive is not closed.**
     Connections are opened with ``check_same_thread=False``, so sqlite3 does
-    nothing to serialise a close against a query running on another thread; the
+    nothing to serialize a close against a query running on another thread; the
     C library is handed a connection mid-statement and the process dies with
     SIGSEGV rather than raising anything Python can catch. This was found on
     2026-08-31 in the v1.8.1 release CI: an end-to-end test passed, then the

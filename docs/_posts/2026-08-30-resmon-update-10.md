@@ -99,7 +99,7 @@ The catalog goes from 15 to 19:
 
 Each carries an honest description of how its upstream actually combines your keywords.
 OpenAIRE's now reads **"Combination semantics undocumented"**, because OpenAIRE documents
-that behaviour as undefined — and a catalog field that renders to you as a statement about
+that behavior as undefined — and a catalog field that renders to you as a statement about
 someone else's search engine should not guess.
 
 ## Under the hood
@@ -117,5 +117,5 @@ someone else's search engine should not guess.
 ## Upgrading
 
 Nothing to do. Your existing AI configuration keeps working exactly as it did — the
-fallback section starts empty, and an empty chain is the old behaviour. Add a fallback
+fallback section starts empty, and an empty chain is the old behavior. Add a fallback
 only if you want one.

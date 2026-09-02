@@ -6,11 +6,11 @@ import React, { useState } from 'react';
  * Deep Sweep, and Routines pages. Grounded in
  * `.ai/prep/keyword_booleans_overview.md`.
  *
- * Layout: grouped, card-grid format. Entries are organised into three
+ * Layout: grouped, card-grid format. Entries are organized into three
  * conceptual categories (boolean-combination semantics, ranking &
  * confidence labels, and underlying search platforms) so users can scan
  * by relationship instead of alphabetically. Each term is rendered as
- * a labelled card with a colour-coded badge and a short definition.
+ * a labeled card with a color-coded badge and a short definition.
  */
 type Category = 'combination' | 'ranking' | 'platform';
 

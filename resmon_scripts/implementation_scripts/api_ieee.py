@@ -20,7 +20,7 @@ this source was withdrawn outright while INSPIRE-HEP — whose terms restrict a
 single field — was fixed in place instead.
 
 Kept on disk because retirement on terms is reversible in a way that retirement
-on behaviour is not: a written licence from IEEE would make this file useful
+on behavior is not: a written license from IEEE would make this file useful
 again unchanged. See ``docs/source-landscape.md`` for the full reading.
 """
 

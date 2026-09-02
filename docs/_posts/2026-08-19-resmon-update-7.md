@@ -70,7 +70,7 @@ stores tokens and a row pointer rather than a second copy of every abstract, and
 keep it in step with inserts, updates, and deletes. Free-text search across a hundred
 thousand papers: **10.8 ms**.
 
-**Authors and categories are normalised.** They are stored as comma-joined strings, which
+**Authors and categories are normalized.** They are stored as comma-joined strings, which
 is fine for display and impossible to filter or count without reading every row. Two
 indexed companion tables now carry them. The original strings are untouched — `documents`
 remains the source of truth, and the new tables are derived from it.

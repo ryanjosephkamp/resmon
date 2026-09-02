@@ -116,7 +116,7 @@ def _ensure_loaded():
         # reachable) — they never worked.
         #
         # IEEE Xplore worked, and was withdrawn in v1.8.1 on its terms rather
-        # than on its behaviour: 4(c) forbids using a retrieval application
+        # than on its behavior: 4(c) forbids using a retrieval application
         # against the content at all, so no field-level gate makes the
         # integration compliant. See RETIRED_REPOSITORIES above for the wording
         # the user is shown, and docs/source-landscape.md for the full reading.

@@ -16,8 +16,8 @@ ApiKeyRequirement = Literal["none", "required", "optional", "recommended"]
 # upstream would like.
 #
 # The distinction is the whole point of the field and it is not decoration.
-# OpenAIRE's metadata is CC BY, so attribution is a licence condition and
-# reusing it without the credit is simply reuse without a licence. arXiv, by
+# OpenAIRE's metadata is CC BY, so attribution is a license condition and
+# reusing it without the credit is simply reuse without a license. arXiv, by
 # contrast, *requests* an acknowledgement sentence. Rendering both the same way
 # would either overstate arXiv's terms or understate OpenAIRE's, and this
 # application does not get to be vague about which obligations are real.
@@ -491,7 +491,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="OpenAIRE announced this legacy Search API discontinued on May 31, 2026. It still responded on August 30, 2026, but continued availability is not guaranteed.",
         keyword_combination="Combination semantics undocumented",
         keyword_combination_notes="OpenAIRE documents keywords only as a whitespace-separated list and lists its behavior as N/A. resmon forwards the query and does not infer Boolean semantics or perform local filtering.",
-        attribution='Data from the OpenAIRE Graph, licensed CC BY 4.0. Changes: resmon stores a normalised subset of the returned metadata.',
+        attribution='Data from the OpenAIRE Graph, licensed CC BY 4.0. Changes: resmon stores a normalized subset of the returned metadata.',
         attribution_requirement="required",
         attribution_source='https://graph.openaire.eu/docs/apis/terms/',
     ),

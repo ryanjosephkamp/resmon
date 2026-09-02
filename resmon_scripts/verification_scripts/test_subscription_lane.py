@@ -130,7 +130,7 @@ def test_the_lane_stops_at_its_cap(no_db_writes):
 
 
 def test_documents_past_the_cap_go_to_the_next_lane(no_db_writes):
-    """The chain carries on; the papers are summarised, just not by that lane."""
+    """The chain carries on; the papers are summarized, just not by that lane."""
     capped = _CountingClient(text="from the CLI")
     overflow = _CountingClient(text="from the API", provider="anthropic")
 

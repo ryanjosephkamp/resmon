@@ -52,7 +52,7 @@ hourly.
 
 - **Which sources earn their place.** Per repository, papers that nothing else found,
   against papers that also arrived from somewhere else. Papers are identified across
-  sources by DOI, falling back to a normalised title, because the same paper arriving
+  sources by DOI, falling back to a normalized title, because the same paper arriving
   from arXiv and OpenAlex is two rows by design. A source with almost no unique
   contribution is a candidate for deselecting.
 - **How quickly each source surfaces a paper.** Median, fastest, and slowest days

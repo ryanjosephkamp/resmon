@@ -8,7 +8,7 @@ import { apiClient, getBaseUrl } from '../../api/client';
  * after the search. resmon has recorded all of it since the beginning; this is
  * the report format.
  *
- * The design problem is not layout, it is labelling. resmon's counters do not
+ * The design problem is not layout, it is labeling. resmon's counters do not
  * map cleanly onto PRISMA's boxes, and a table that printed them under PRISMA
  * headings would be publishing a claim resmon cannot support:
  *

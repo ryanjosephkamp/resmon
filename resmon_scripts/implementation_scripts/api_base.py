@@ -91,7 +91,7 @@ class RateLimiter:
     three seconds apart. Providers answer that with 429s and, on repeat, a
     temporary IP block.
 
-    The sleep is held inside the lock deliberately: the point is to serialise
+    The sleep is held inside the lock deliberately: the point is to serialize
     callers, so a thread must not be able to claim a slot while another is
     still waiting for its own.
     """

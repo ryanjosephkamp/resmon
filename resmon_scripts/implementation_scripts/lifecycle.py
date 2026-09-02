@@ -29,7 +29,7 @@ The rule that shapes everything here
 **resmon never asserts a lifecycle event on its own authority.** Every finding
 carries a resolvable link to the notice behind it, and a finding that cannot
 produce one is not recorded at all. A false retraction flag is defamatory, and
-"we inferred it from the metadata" is not a defence.
+"we inferred it from the metadata" is not a defense.
 
 Two consequences that look like limitations and are not:
 
@@ -102,7 +102,7 @@ RECHECK_AFTER_DAYS = 30
 # ``critical`` is reserved for the paper being withdrawn from the record.
 # ``caution`` is for a registered concern that is explicitly not a retraction.
 # Everything else is informational: a correction is normal scholarly upkeep, not
-# a warning, and colouring it like one would train users to ignore the colour.
+# a warning, and coloring it like one would train users to ignore the color.
 _SEVERITY_BY_TYPE = {
     "retraction": "critical",
     "withdrawal": "critical",

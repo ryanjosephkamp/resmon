@@ -7,7 +7,7 @@ times out, and the app told the user their keys were absent — while they sat
 in the keychain untouched. Silently behaving as unconfigured is exactly the
 class of lie phase 1.7 exists to remove.
 
-Two behaviours are pinned here:
+Two behaviors are pinned here:
 
 1.  ``probe_credential`` distinguishes present / absent / unreadable, and the
     presence endpoint reports it plus a top-level responsiveness flag.

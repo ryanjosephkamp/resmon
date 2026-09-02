@@ -3044,7 +3044,7 @@ def test_openaire_search_respects_date_window():
 # INSPIRE's Terms of Use §5(ii) permit reuse of an abstract only where that
 # abstract's own ``source`` is arXiv or CERN. The client honours that at parse
 # time; these pin it, because the failure mode is silent — a stored abstract we
-# have no licence for looks exactly like one we do.
+# have no license for looks exactly like one we do.
 
 def _inspire_record_with_abstracts(abstracts):
     record = _inspire_record(include_optional=False)
@@ -3092,7 +3092,7 @@ def test_inspire_takes_the_licensed_abstract_from_further_down_the_list(monkeypa
 
 
 def test_inspire_drops_abstract_with_no_source_field(monkeypatch):
-    """No source means no evidence of a licence, so nothing is stored.
+    """No source means no evidence of a license, so nothing is stored.
 
     An abstract whose provenance INSPIRE does not state is exactly the case
     §5(ii) does not cover. Storing it would be assuming permission.

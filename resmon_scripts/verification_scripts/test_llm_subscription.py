@@ -1,4 +1,4 @@
-"""Driving an agent CLI as a summarisation lane (1.8c).
+"""Driving an agent CLI as a summarization lane (1.8c).
 
 Two things are being pinned here.
 
@@ -188,7 +188,7 @@ def test_timeout_is_document_local_not_lane_fatal(runs):
 
 @pytest.mark.parametrize("stdout", [
     "",
-    "I'll help you summarise that! Here is my answer:",   # prose, not JSON
+    "I'll help you summarize that! Here is my answer:",   # prose, not JSON
     "[1, 2, 3]",                                          # JSON, wrong shape
     json.dumps({"is_error": False, "result": ""}),        # empty result
     json.dumps({"is_error": False}),                      # no result at all

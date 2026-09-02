@@ -163,7 +163,7 @@ describe('Watchdog page', () => {
     expect(heading).toHaveTextContent('1 looks unusual');
   });
 
-  test('each severity states what it claims, so colour is not the only signal', async () => {
+  test('each severity states what it claims, so color is not the only signal', async () => {
     mockFetch(WITH_FINDINGS);
     await renderPage();
 

@@ -2,7 +2,7 @@ import { apiClient } from './client';
 
 export type ApiKeyRequirement = 'none' | 'required' | 'optional' | 'recommended';
 
-/** 'required' is a licence condition; 'requested' is a courtesy. They are rendered differently on purpose. */
+/** 'required' is a license condition; 'requested' is a courtesy. They are rendered differently on purpose. */
 export type AttributionRequirement = 'none' | 'requested' | 'required';
 
 export interface RepoCatalogEntry {
@@ -28,7 +28,7 @@ export interface RepoCatalogEntry {
   keyword_combination_notes?: string;
   /** The credit line this source asks to be shown, verbatim where the upstream specifies exact wording. */
   attribution?: string;
-  /** Whether that credit is a licence condition ("required") or a courtesy the upstream asks for ("requested"). */
+  /** Whether that credit is a license condition ("required") or a courtesy the upstream asks for ("requested"). */
   attribution_requirement?: AttributionRequirement;
   /** URL of the clause or policy page stating the obligation. */
   attribution_source?: string;

@@ -41,7 +41,7 @@ class _DescriptionParser(HTMLParser):
 
 
 def _strip_html(value: str | None) -> str | None:
-    """Mirror the existing Zenodo description normalization behaviour."""
+    """Mirror the existing Zenodo description normalization behavior."""
     if not value:
         return None
     parser = _DescriptionParser()

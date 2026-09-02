@@ -308,5 +308,5 @@ def credential_alias_for(provider: str) -> Optional[str]:
 
 
 def chain_to_json(lanes: Iterable[AILane]) -> str:
-    """Serialise lanes for storage in ``app_settings['ai_chain']``."""
+    """Serialize lanes for storage in ``app_settings['ai_chain']``."""
     return json.dumps([lane.to_dict() for lane in lanes])

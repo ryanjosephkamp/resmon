@@ -1,6 +1,6 @@
 """Retired sources stay retired, and say why.
 
-IEEE Xplore was withdrawn in v1.8.1 on its terms rather than its behaviour
+IEEE Xplore was withdrawn in v1.8.1 on its terms rather than its behavior
 (see ``api_registry.RETIRED_REPOSITORIES``). Retirement has two halves and both
 are load-bearing: the module is not imported, and the registry refuses the slug
 even if something imports it anyway. The second half exists because the first

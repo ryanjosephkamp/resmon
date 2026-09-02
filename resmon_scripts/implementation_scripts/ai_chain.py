@@ -21,7 +21,7 @@ built for. A lane that was never reached is recorded as ``skipped`` rather than
 omitted, because "we never needed it" and "it was not configured" are different
 facts and the user is entitled to both.
 
-**There is no summariser of last resort.** If every lane fails, the documents
+**There is no summarizer of last resort.** If every lane fails, the documents
 have no AI summary and the stored rows say why. resmon has never had a
 keyless extractive fallback -- the Master Plan said otherwise and was wrong --
 so this module does not pretend to one.
@@ -74,7 +74,7 @@ class LaneState:
 
 
 class ChainRunner:
-    """Summarise documents through an ordered list of lanes.
+    """Summarize documents through an ordered list of lanes.
 
     Construct one per execution, call :meth:`summarize_document` per paper, then
     :meth:`finish` once. ``finish`` is not optional -- it is what closes the
@@ -282,7 +282,7 @@ class ChainRunner:
             )
 
     def _pipeline_for(self, state: LaneState):
-        """Build (once) the summarisation pipeline for a lane, or ``None``."""
+        """Build (once) the summarization pipeline for a lane, or ``None``."""
         if state._built:
             return state._pipeline
         state._built = True
@@ -303,7 +303,7 @@ class ChainRunner:
                 return None
             except Exception:
                 logger.exception("AI lane %d could not be built", state.index)
-                state.skip_reason = "The lane could not be initialised."
+                state.skip_reason = "The lane could not be initialized."
                 return None
 
         if client is None:
@@ -348,7 +348,7 @@ def _why_unusable(lane: AILane) -> str:
     if not lane.model:
         return "No model is configured for this lane."
     if lane.kind == "local":
-        return "The local model could not be initialised."
+        return "The local model could not be initialized."
     if lane.credential_alias:
         try:
             from .credential_manager import probe_credential

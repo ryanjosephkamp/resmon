@@ -10,7 +10,7 @@ this repository and ask it to add a source, this is the document it should read.
 
 ---
 
-## Before you write any code: does its licence let us?
+## Before you write any code: does its license let us?
 
 **This is the first question, not the last one.** It was the last one twice, and both times
 that cost real work.
@@ -57,7 +57,7 @@ It still had to go.
 
 The rule that came out of INSPIRE-HEP, and it now applies to every client:
 
-> **Where a source's terms condition a field on provenance, licence, or an access flag, the
+> **Where a source's terms condition a field on provenance, license, or an access flag, the
 > client reads that field and honours it.**
 
 INSPIRE's Terms §5(ii) permit reuse of an abstract only where that abstract's own `source`
@@ -87,8 +87,8 @@ attribution_requirement="required",   # none | requested | required
 attribution_source="https://api.plos.org/api-display-policy/",
 ```
 
-- `required` — a licence condition. OpenAIRE's metadata is CC BY; using it without the
-  credit is using it without a licence. Required credits render on the Repositories page
+- `required` — a license condition. OpenAIRE's metadata is CC BY; using it without the
+  credit is using it without a license. Required credits render on the Repositories page
   **unconditionally**, because a credit the user must go looking for is not displayed.
 - `requested` — a courtesy the upstream would like. arXiv publishes an acknowledgement
   sentence. Rendering it as required would overstate arXiv's terms.
@@ -123,7 +123,7 @@ page and are read as statements of fact about someone else's service.
 
 `keyword_combination` in particular describes how the **upstream** combines space-separated
 terms — implicit AND, explicit OR, relevance-ranked. Getting it wrong makes resmon lie about
-another organisation's search engine.
+another organization's search engine.
 
 > Where the upstream does not document it, the value is **"Undocumented"**. That is a
 > correct answer, not a gap. A previous brief instructed a contributor to label OpenAIRE's
@@ -196,7 +196,7 @@ Retirement therefore has two halves, and both are required:
 2. Remove the module's `_register()` call, leaving it commented with the steps to revive it.
 
 Keep the client on disk. Retirement on *terms* is reversible in a way retirement on
-*behaviour* is not: a written licence would restore IEEE Xplore unchanged.
+*behavior* is not: a written license would restore IEEE Xplore unchanged.
 
 ---
 
@@ -218,13 +218,13 @@ central claim untested.
 
 ### Tests that bite
 
-A test that passes is not evidence. Break the behaviour on purpose and confirm the test
+A test that passes is not evidence. Break the behavior on purpose and confirm the test
 fails: comment out the date filter, return the wrong field, collapse a list to its first
-element. If nothing goes red, the test asserts shape rather than behaviour.
+element. If nothing goes red, the test asserts shape rather than behavior.
 
 One caution learned here: a mutation can survive because a **second** layer catches it. When
 ERIC's year rounding was mutated, all twelve tests still passed — not a coverage gap, but a
-re-filter downstream doing its job. Check the behaviour, not only the test result.
+re-filter downstream doing its job. Check the behavior, not only the test result.
 
 ---
 
