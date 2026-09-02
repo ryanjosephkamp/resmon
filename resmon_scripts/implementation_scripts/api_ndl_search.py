@@ -96,6 +96,28 @@ def _normalized_rights_uri(value: str) -> str | None:
     return normalized
 
 
+def _no_records_diagnostic(root: ET.Element) -> str | None:
+    """Return NDL's own wording when the response is a zero-match diagnostic.
+
+    ``None`` when the response is not one, so a genuinely malformed body still
+    falls through to the error path. Matching on the diagnostic's message
+    rather than merely on the presence of a diagnostics block, because an SRU
+    diagnostic can also report a real failure -- a bad query, a server fault --
+    and those must not be flattened into "no results".
+    """
+    diagnostics = root.find("sru:diagnostics", _NS)
+    if diagnostics is None:
+        return None
+    for diagnostic in diagnostics.iter():
+        tag = diagnostic.tag.rsplit("}", 1)[-1]
+        if tag != "message":
+            continue
+        message = (diagnostic.text or "").strip()
+        if "does not exist" in message.lower():
+            return message
+    return None
+
+
 def _books_token(value: str | None) -> tuple[str, str] | None:
     """Return the source-provided NDL books token and its canonical URL."""
     if not isinstance(value, str):
@@ -226,6 +248,22 @@ class NDLSearchClient(BaseAPIClient):
             return None
         try:
             root = ET.fromstring(response.text)
+
+            # A query that matches nothing comes back as an SRU *diagnostic*
+            # rather than an empty result set: no numberOfRecords element at
+            # all, and "Record does not exist" in the message. That is a
+            # well-formed answer meaning zero, and treating it as malformed XML
+            # -- which is what shipped -- reports an upstream fault that did not
+            # happen. It also matters downstream: the watchdog reads a source
+            # error differently from a legitimate zero, and one of these is a
+            # fact about NDL while the other is a fact about the query.
+            diagnostic = _no_records_diagnostic(root)
+            if diagnostic is not None:
+                logger.info(
+                    "NDL Search returned no records for this query (%s)", diagnostic,
+                )
+                return 0, []
+
             total_text = root.findtext("sru:numberOfRecords", namespaces=_NS)
             total = int(total_text) if total_text is not None else None
             if total is None or total < 0:
