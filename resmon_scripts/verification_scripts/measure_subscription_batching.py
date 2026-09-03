@@ -263,6 +263,7 @@ def score(result: dict, tokens: list[str] | None, bounds) -> dict:
     produced = [s for s in summaries if s]
     return {
         "mode": result["mode"],
+        "size": result["size"],
         "papers": len(summaries),
         "calls": result["calls"],
         "wall_s": round(result["wall"], 1),
@@ -273,6 +274,112 @@ def score(result: dict, tokens: list[str] | None, bounds) -> dict:
         "leaks": len(leaked(summaries, tokens)) if tokens else None,
         "fallback_batches": result["fallbacks"],
     }
+
+
+# ---------------------------------------------------------------------------
+# The flip gate
+# ---------------------------------------------------------------------------
+#
+# Evaluated here rather than by hand afterwards, so re-running this script
+# reproduces the verdict as well as the numbers. The thresholds are the ones
+# phase 1.8.5's brief adopted:
+#
+#   speed      median wall-clock per paper <= 1/4 of the per-document run
+#   leakage    0 canary tokens in another document's summary
+#   band       band compliance no worse than the per-document run
+#   fallback   <= 10 % of batches fell back to per-document calls
+
+SPEED_RATIO_GATE = 0.25
+FALLBACK_RATE_GATE = 0.10
+
+
+def _print_gate(rows: list[dict]) -> None:
+    groups: dict = {}
+    for row in rows:
+        groups.setdefault((row["provider"], row["corpus"]), []).append(row)
+
+    print("\n## Flip gate\n")
+    print("| provider | corpus | mode | s/paper | ratio | speed | leakage | band | fallback | verdict |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
+    for (provider, corpus), group in groups.items():
+        baseline = next(
+            (r for r in group if r["mode"] == "per-document"), None,
+        )
+        if baseline is None or not baseline["median_s_per_paper"]:
+            print(f"| {provider} | {corpus} | — | — | — | — | — | — | — | "
+                  f"no per-document baseline in this run |")
+            continue
+        base = baseline["median_s_per_paper"]
+        for row in group:
+            if row["mode"] == "per-document":
+                continue
+            ratio = row["median_s_per_paper"] / base
+            speed_ok = ratio <= SPEED_RATIO_GATE
+            leak_ok = row["leaks"] == 0 if row["leaks"] is not None else None
+            band_ok = row["in_band"] >= baseline["in_band"]
+            calls = row["calls"] or 1
+            fallback_rate = row["fallback_batches"] / calls
+            fallback_ok = fallback_rate <= FALLBACK_RATE_GATE
+            checks = [speed_ok, band_ok, fallback_ok]
+            if leak_ok is not None:
+                checks.append(leak_ok)
+            verdict = "PASS" if all(checks) else "FAIL"
+            print(
+                f"| {provider} | {corpus} | {row['mode']} | "
+                f"{row['median_s_per_paper']} | {ratio:.3f} | "
+                f"{'pass' if speed_ok else 'FAIL'} | "
+                f"{'—' if leak_ok is None else ('pass' if leak_ok else 'FAIL')} | "
+                f"{'pass' if band_ok else 'FAIL'} | "
+                f"{'pass' if fallback_ok else 'FAIL'} ({fallback_rate:.0%}) | "
+                f"**{verdict}** |"
+            )
+
+        _print_cost_model(provider, corpus, base, group)
+
+
+def _print_cost_model(provider: str, corpus: str, base: float, group: list[dict]) -> None:
+    """Split per-paper cost into fixed per-call overhead and per-paper work.
+
+    Two batched points determine both, because batch-N per-paper is
+    ``F / N + G``. This is the number that says whether a failing speed gate
+    means "batch harder" or "this threshold cannot be met at any batch size" —
+    batching amortises ``F`` and cannot touch ``G``. Reported because a ratio
+    on its own does not distinguish those two, and they call for opposite
+    decisions.
+    """
+    batched = sorted(
+        (r for r in group if r["mode"].startswith("batch-") and r["median_s_per_paper"]),
+        key=lambda r: r["size"],
+    )
+    if len(batched) < 2:
+        return
+    small, large = batched[0], batched[-1]
+    n1, n2 = small["size"], large["size"]
+    t1, t2 = small["median_s_per_paper"], large["median_s_per_paper"]
+    if n1 == n2 or (1 / n1 - 1 / n2) == 0:
+        return
+    fixed = (t1 - t2) / (1 / n1 - 1 / n2)
+    per_paper = t2 - fixed / n2
+
+    # A negative fixed cost means the larger batch was *slower* per paper, so
+    # "fixed overhead plus per-paper work" does not describe this CLI at these
+    # sizes. Say that rather than printing a fitted number that reads as an
+    # explanation. Observed for real: codex at the reasoning effort inherited
+    # from the user's config is slower per paper at 10 than at 5.
+    if fixed < 0 or per_paper < 0:
+        print(
+            f"|   ↳ {provider} / {corpus} cost model | | "
+            f"**not monotonic** — {n2} papers per call is slower per paper "
+            f"than {n1} ({t2}s vs {t1}s), so batching further makes it worse, "
+            f"not better | | | | | | | |"
+        )
+        return
+
+    print(
+        f"|   ↳ {provider} / {corpus} cost model | | "
+        f"fixed {fixed:.1f}s per call + {per_paper:.1f}s per paper | | "
+        f"floor ratio {per_paper / base:.3f} at infinite batch size | | | | | |"
+    )
 
 
 def main() -> int:
@@ -346,6 +453,8 @@ def main() -> int:
     if not rows:
         print("nothing measured — no CLI was usable", file=sys.stderr)
         return 1
+
+    _print_gate(rows)
 
     headers = ["provider", "corpus", "mode", "papers", "calls", "wall_s",
                "median_s_per_paper", "produced", "in_band", "leaks",
