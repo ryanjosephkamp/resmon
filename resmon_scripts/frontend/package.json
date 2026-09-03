@@ -1,6 +1,6 @@
 {
   "name": "resmon",
-  "version": "1.8.4",
+  "version": "1.8.5",
   "description": "resmon \u2014 Research Monitor desktop application",
   "main": "dist/electron/main.js",
   "scripts": {
