@@ -23,9 +23,26 @@ fetched from the internet, and an agent CLI can execute commands on the user's
 machine. Feeding one into the other without constraint would make every abstract
 in every sweep a prompt-injection vector against the user's filesystem. So each
 call runs in a fresh empty directory, with tools switched off (``--tools ""``)
-or the sandbox pinned read-only (``-s read-only``), and with the user's project
+or the sandbox pinned read-only (``-s read-only``), and with the *user's* project
 configuration left out of it. A summarizer needs no tools; taking them away
 costs nothing and closes the hole.
+
+**The constitution travels above the abstract, not beside it.**
+``SUMMARIZE_ABSTRACT`` opens by telling the model to follow the attached
+constitution, so a lane that does not attach one is instructing the model to
+obey a document it was never given — and an agent CLI, told to follow something
+it cannot find, will go looking for it. With tools off it cannot look, so it
+*fabricates* the search and its results and returns them as the summary. That
+was shipped behaviour until this was fixed; see
+``workspace/audits/subscription-lane-constitution-2026-09-03.md``.
+
+Each CLI therefore gets the constitution through its own system-level channel
+rather than inlined into the prompt beside the untrusted abstract: ``claude``
+takes ``--append-system-prompt``, and ``codex`` — which has no equivalent flag —
+reads an ``AGENTS.md`` that resmon writes into the temporary working directory
+it controls. Both were verified against the installed CLIs. Keeping the rules
+above the abstract rather than next to it means injected text in an abstract is
+arguing with a system instruction, not with a peer.
 
 **It is slow and it spends a window the user also works in.** That is a product
 fact, not an implementation detail: the lane carries a per-execution document cap
@@ -43,7 +60,7 @@ import tempfile
 from typing import Optional
 
 from .ai_errors import AIError, AIErrorKind
-from .prompt_templates import SUMMARIZE_ABSTRACT, length_band
+from .prompt_templates import SUMMARIZE_ABSTRACT, SYSTEM_PREAMBLE, length_band
 
 logger = logging.getLogger(__name__)
 
@@ -120,9 +137,11 @@ class SubscriptionLLMClient:
         """Run one document through the CLI and return the summary text."""
         prompt = self._build_prompt(text, prompt_params)
 
-        # A fresh empty directory per call. The agent gets no repository, no
-        # CLAUDE.md, no AGENTS.md and nothing to read even if the abstract asks
-        # it to go looking.
+        # A fresh empty directory per call. The agent gets no repository and
+        # none of the user's project configuration — no CLAUDE.md, and no
+        # AGENTS.md but the one resmon writes there itself to carry the
+        # constitution on the codex path. Nothing of the user's to find even if
+        # the abstract asks it to go looking.
         with tempfile.TemporaryDirectory(prefix="resmon-ai-") as workdir:
             if self.provider == "codex":
                 return self._run_codex(prompt, workdir)
@@ -149,7 +168,8 @@ class SubscriptionLLMClient:
         ``--tools ""`` disables every built-in tool, ``--strict-mcp-config``
         keeps the user's MCP servers out of a summarization call, and
         ``--disable-slash-commands`` stops an abstract's text being read as a
-        command. ``--bare`` is deliberately *not* used: it makes the CLI read
+        command. ``--append-system-prompt`` carries the summarization
+        constitution, which the user prompt tells the model to follow. ``--bare`` is deliberately *not* used: it makes the CLI read
         ``ANTHROPIC_API_KEY`` only and never touch OAuth or the keychain, which
         would defeat the entire purpose of a subscription lane.
         """
@@ -160,6 +180,7 @@ class SubscriptionLLMClient:
             "--tools", "",
             "--strict-mcp-config",
             "--disable-slash-commands",
+            "--append-system-prompt", str(SYSTEM_PREAMBLE),
         ]
         if self.model:
             argv += ["--model", self.model]
@@ -178,7 +199,18 @@ class SubscriptionLLMClient:
         no business writing anything. ``--skip-git-repo-check`` is required
         because the temporary working directory is deliberately not a
         repository.
+
+        codex has no ``--append-system-prompt``, so the constitution goes into
+        an ``AGENTS.md`` that resmon writes into that working directory — the
+        channel codex itself uses for standing instructions. Verified against
+        codex-cli reading it from a non-repository directory under
+        ``-s read-only``. The file is resmon's own; the user's ``AGENTS.md`` is
+        still nowhere near this call, because the directory is a fresh
+        temporary one.
         """
+        with open(os.path.join(workdir, "AGENTS.md"), "w", encoding="utf-8") as handle:
+            handle.write(str(SYSTEM_PREAMBLE))
+
         out_path = os.path.join(workdir, "resmon-summary.txt")
         argv = [
             self.binary_path,
