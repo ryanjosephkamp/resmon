@@ -953,8 +953,9 @@ searched when it found nothing.
 
 **Two things to know before you select it.**
 
-It is **much slower** than an API key — each paper starts a whole agent session — and it
-spends the same usage window you use for your own work. So the lane carries a
+It is **slower** than an API key and it spends the same usage window you use for your own
+work. Papers are therefore sent **ten at a time in one call** rather than one session per
+paper, which is what makes the lane usable on a real sweep, and the lane still carries a
 **per-run limit of 25 papers** by default, editable per lane. Reaching the limit is not an
 error: the lane stands down, the remaining papers go to the next lane, and `execution_ai`
 records the cap as the reason. It is deliberately **not** the default for bulk
@@ -962,9 +963,19 @@ summarization; a 200-paper sweep routed through an agent CLI can cost you the pl
 actually need.
 
 Summaries are extracted through each CLI's structured output — `--output-format json` for
-Claude Code, `-o` for Codex — rather than by scraping console prose. When that yields
-nothing usable, resmon says *the CLI returned something we could not use* and moves on. It
-never stores a salvaged fragment as though it were a real summary.
+Claude Code, `-o` for Codex — rather than by scraping console prose. A batched call adds a
+schema (`--json-schema` for Claude Code, `--output-schema` for Codex) describing one entry
+per paper. The schema deliberately does **not** pin the number of entries: both CLIs
+enforce an exact count by making the model *invent* the missing summary, which was
+measured rather than assumed. resmon checks the count and the numbering itself, and a
+paper the batch did not answer for is simply re-sent on its own. If the numbering is
+inconsistent — the same paper answered twice, or a number outside the batch — the whole
+batch is discarded and re-sent one paper at a time, because a summary attached to the
+wrong paper is a quieter failure than none at all.
+
+When the structured route yields nothing usable, resmon says *the CLI returned something
+we could not use* and moves on. It never stores a salvaged fragment as though it were a
+real summary.
 
 Each call runs in a fresh empty directory with tools switched off (`--tools ""`) or the
 sandbox pinned read-only (`-s read-only`). Abstracts are untrusted text fetched from the

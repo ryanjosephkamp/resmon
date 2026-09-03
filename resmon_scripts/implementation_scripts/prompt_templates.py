@@ -169,3 +169,98 @@ AGGREGATE_SUMMARIES = (
     "Section summaries:\n{chunk_summaries}\n\n"
     "Produce the unified summary now."
 )
+
+
+# ---------------------------------------------------------------------------
+# Batched abstract summarization (1.8.5)
+# ---------------------------------------------------------------------------
+#
+# One agent-CLI call per paper is the dominant cost of the subscription lane:
+# a process to start, a session to establish, and the constitution to read,
+# every time. Batching sends N abstracts in one call and asks for N summaries.
+#
+# Two things make that safe rather than merely fast, and both are in the text
+# below because a prompt is where they have to be said:
+#
+# 1. **Each summary draws only on its own document.** Papers in one sweep are
+#    on one topic by construction, so a model given ten of them at once has
+#    every opportunity to carry a number from paper three into paper seven's
+#    summary. That is the accuracy failure this batching could introduce, and
+#    D3 measures it with canary tokens rather than assuming it away.
+# 2. **A missing entry is handled; an invented one is not.** See the note on
+#    the schema below.
+
+BATCH_DOCUMENT_TEMPLATE = (
+    "===== DOCUMENT {index} =====\n"
+    "{text}\n"
+    "===== END DOCUMENT {index} ====="
+)
+
+
+def render_batch_documents(texts) -> str:
+    """Render *texts* as numbered, delimited blocks starting at index 0."""
+    return "\n\n".join(
+        BATCH_DOCUMENT_TEMPLATE.format(index=i, text=text)
+        for i, text in enumerate(texts)
+    )
+
+
+SUMMARIZE_ABSTRACTS_BATCH = (
+    "Write every summary in strict adherence to the attached constitution.\n\n"
+    "You are given {count} documents, numbered from 0. Summarize each one "
+    "separately.\n"
+    "Each summary draws only on its own document and never on another in this "
+    "batch. Do not compare the documents, do not combine them, and never carry "
+    "a fact, number or citation from one document into another's summary.\n"
+    "Return one array entry per document, with `index` set to that document's "
+    "number. If a document cannot be summarized, omit its entry rather than "
+    "writing something to fill the slot: a missing entry is handled, an "
+    "invented one is stored as a paper's summary.\n\n"
+    "Tone: {tone}\n"
+    "Target length for each summary: {length} ({word_count_band} words)\n"
+    "Extraction goals: {extraction_goals}\n\n"
+    "{documents}\n\n"
+    "Produce the summaries now."
+)
+
+
+# The structured-output schema both CLIs are given.
+#
+# NOTE THE ABSENCE OF ``minItems`` / ``maxItems``, WHICH IS DELIBERATE AND WAS
+# MEASURED. The obvious design pins the array to exactly N entries so a short
+# answer is rejected by the CLI rather than by resmon. Both CLIs do enforce
+# those keywords -- and both enforce them by making the model *fabricate* the
+# missing entry:
+#
+#   claude 2.1.258, schema minItems/maxItems 3, two documents supplied
+#     -> three summaries, the third invented ("Cats and dogs exhibit different
+#        behavioral characteristics"), num_turns 3 rather than 2, is_error false.
+#   codex 0.153.0-alpha.5, same schema, same two documents
+#     -> three summaries, the third invented ("Cats and dogs are common pets"),
+#        exit 0.
+#
+# That is the v1.8.4 failure again in a new place: constrain a model to produce
+# something it does not have and it invents it, and the invention arrives as a
+# clean success. A short array is a fact resmon can act on -- it retries those
+# documents individually. A padded array is a fabricated summary attached to a
+# real paper. So the schema describes the *shape* and resmon checks the count
+# and the index set itself.
+BATCH_SUMMARY_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "summaries": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "summary": {"type": "string"},
+                },
+                "required": ["index", "summary"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["summaries"],
+    "additionalProperties": False,
+}

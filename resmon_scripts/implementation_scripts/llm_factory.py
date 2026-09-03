@@ -209,6 +209,7 @@ def build_client_for_lane(
             binary_path=discovery.path or "",
             model=lane.model,
             lane_label=lane.label,
+            effort=lane.effort,
         )
 
     # api_key

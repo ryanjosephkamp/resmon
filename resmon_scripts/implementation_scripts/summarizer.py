@@ -66,6 +66,18 @@ _DEFAULT_MAX_TOKENS = 3000  # conservative default leaving room for prompt overh
 _DEFAULT_OVERLAP_TOKENS = 200
 _CHARS_PER_TOKEN_HEURISTIC = 4  # rough estimate for non-tiktoken models
 
+# Batching budget (1.8.5).
+#
+# A batched call sends N documents in one prompt, so the thing that has to stay
+# bounded is the *total*, and the thing that has to stay small is each part. A
+# title-plus-abstract is a few hundred tokens; anything near 1,500 is not an
+# abstract, and the chunk-and-aggregate path is what handles those correctly.
+# So a batch is taken only when every document in it is small, and the whole
+# batch is under the total -- otherwise the slice falls back to the
+# per-document path, which loses the speed and keeps the correctness.
+_BATCH_MAX_TOKENS_PER_DOCUMENT = 1500
+_BATCH_MAX_TOKENS_TOTAL = 12000
+
 
 class SummarizationPipeline:
     """Route text through an LLM client with automatic token-aware chunking.
@@ -251,9 +263,55 @@ class SummarizationPipeline:
     # Batch summarization
     # ------------------------------------------------------------------
 
+    def supports_batching(self, documents: list[str]) -> bool:
+        """True when *documents* can go through the client in one call.
+
+        Two conditions, and both are necessary. The client has to expose
+        ``summarize_many`` — only the subscription lane does, because it is the
+        only lane where a call has a fixed cost worth amortising — and every
+        document has to be small enough that batching does not push the prompt
+        somewhere the chunking path exists to handle.
+        """
+        if getattr(self.llm_client, "supports_batch_calls", False) is not True:
+            return False
+        if not callable(getattr(self.llm_client, "summarize_many", None)):
+            return False
+        if not documents:
+            return False
+        total = 0
+        for doc in documents:
+            count = self.estimate_tokens(doc)
+            if count > _BATCH_MAX_TOKENS_PER_DOCUMENT:
+                return False
+            total += count
+        return total <= _BATCH_MAX_TOKENS_TOTAL
+
     def summarize_batch(self, documents: list[str]) -> list[str]:
-        """Summarize a list of documents, returning per-document results."""
-        results: list[str] = []
+        """Summarize a list of documents, returning one result per document.
+
+        Takes the batched route when the client and the documents both allow
+        it; an empty string marks a document the batch did not answer for, and
+        the caller is expected to retry those. Otherwise this is the
+        per-document loop it has always been.
+        """
+        if self.supports_batching(documents):
+            logger.info(
+                "Summarizing %d documents in one call", len(documents),
+            )
+            raw = self.llm_client.summarize_many(documents, self.prompt_params)
+            results: list[str] = []
+            for position in range(len(documents)):
+                value = raw[position] if position < len(raw) else None
+                # ``_decorate("")`` would return the audit prefix on its own,
+                # which reads as a summary that says nothing rather than as a
+                # document with no summary. An unanswered slot stays empty.
+                results.append(
+                    self._decorate(value) if isinstance(value, str) and value.strip()
+                    else ""
+                )
+            return results
+
+        results = []
         for i, doc in enumerate(documents):
             logger.info("Summarizing document %d/%d", i + 1, len(documents))
             results.append(self.summarize_document(doc))

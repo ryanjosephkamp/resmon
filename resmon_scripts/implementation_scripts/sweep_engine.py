@@ -500,62 +500,116 @@ class SweepEngine:
                         "timestamp": now_iso(),
                     })
 
-                    # Per-document summarization loop. We intentionally do
-                    # *not* call ``pipeline.summarize_batch`` here so that
-                    # (a) cancellation can be honored between documents and
-                    # (b) the UI can display granular per-article progress
-                    # for long-running AI summarization jobs.
+                    # Summarization loop, in slices of the primary lane's
+                    # batch size.
+                    #
+                    # It used to be strictly one document per call, on purpose:
+                    # cancellation could then be honoured between documents and
+                    # the live log could show per-article progress. Both still
+                    # hold. Cancellation is checked between slices *and*
+                    # reaches inside one -- ``_summarize_with_heartbeat`` runs
+                    # the call on a worker thread and terminates the CLI
+                    # process on cancel -- and the per-document ``ai_progress``
+                    # events are emitted after the slice returns, so the
+                    # renderer's consumer is unchanged. What a batch costs is
+                    # granularity *during* a slice, which is why the slice also
+                    # announces itself before it starts.
                     total_chars = 0
                     cancelled_mid_summary = False
                     total_docs = len(doc_texts)
-                    for idx, (doc, text) in enumerate(zip(report_docs, doc_texts)):
+                    batch_size = max(1, int(getattr(ai_lanes[0], "batch_size", 1) or 1))
+                    completed = 0
+
+                    for start in range(0, total_docs, batch_size):
                         if store.should_cancel(exec_id):
                             cancelled_mid_summary = True
                             task_log.log(
                                 f"AI summarization cancelled after "
-                                f"{idx}/{total_docs} documents."
+                                f"{completed}/{total_docs} documents."
                             )
                             break
-                        summary, doc_error = chain.summarize_document(text)
-                        if doc_error is not None:
-                            # Every remaining lane failed on this paper. The
-                            # others still get summaries -- one difficult
-                            # abstract is not a reason to abandon the batch --
-                            # and the runner has already classified and
-                            # recorded why, so this only has to say so.
-                            task_log.log(
-                                f"AI summary failed for document "
-                                f"{idx + 1}/{total_docs} "
-                                f"({str(doc.get('title') or '')[:60]}): "
-                                f"{doc_error.kind.value} — {doc_error.message}"
-                            )
-                            logger.warning(
-                                "AI summary error on document %d (%s): %s",
-                                idx + 1, doc_error.kind.value, doc_error.message,
-                            )
-                            summary = ""
-                        if isinstance(summary, str) and summary.strip():
-                            doc["ai_summary"] = summary.strip()
-                            total_chars += len(summary)
 
-                        completed = idx + 1
-                        # Log-level progress every doc so the user can
-                        # follow along in the Live Activity Log.
-                        title_preview = str(doc.get("title") or "")[:80]
-                        task_log.log(
-                            f"AI summary {completed}/{total_docs}"
-                            + (f": {title_preview}" if title_preview else "")
-                        )
+                        slice_texts = doc_texts[start:start + batch_size]
+                        slice_docs = report_docs[start:start + batch_size]
+                        first, last = start + 1, start + len(slice_texts)
+                        if len(slice_texts) > 1:
+                            message = (
+                                f"Summarizing papers {first}–{last} of "
+                                f"{total_docs} in one call..."
+                            )
+                        else:
+                            message = (
+                                f"Summarizing document {first}/{total_docs}..."
+                            )
+                        task_log.log(message)
                         store.emit(exec_id, {
                             "type": "ai_progress",
-                            "message": (
-                                f"Summarizing document "
-                                f"{completed}/{total_docs}..."
-                            ),
+                            "message": message,
                             "completed": completed,
                             "total": total_docs,
                             "timestamp": now_iso(),
                         })
+
+                        try:
+                            outcomes = self._summarize_with_heartbeat(
+                                chain=chain,
+                                texts=slice_texts,
+                                exec_id=exec_id,
+                                first=first,
+                                last=last,
+                                total=total_docs,
+                            )
+                        except _ExecutionCancelled:
+                            cancelled_mid_summary = True
+                            task_log.log(
+                                f"AI summarization cancelled after "
+                                f"{completed}/{total_docs} documents."
+                            )
+                            break
+
+                        for offset, (doc, (summary, doc_error)) in enumerate(
+                            zip(slice_docs, outcomes)
+                        ):
+                            idx = start + offset
+                            if doc_error is not None:
+                                # Every remaining lane failed on this paper. The
+                                # others still get summaries -- one difficult
+                                # abstract is not a reason to abandon the batch --
+                                # and the runner has already classified and
+                                # recorded why, so this only has to say so.
+                                task_log.log(
+                                    f"AI summary failed for document "
+                                    f"{idx + 1}/{total_docs} "
+                                    f"({str(doc.get('title') or '')[:60]}): "
+                                    f"{doc_error.kind.value} — {doc_error.message}"
+                                )
+                                logger.warning(
+                                    "AI summary error on document %d (%s): %s",
+                                    idx + 1, doc_error.kind.value, doc_error.message,
+                                )
+                                summary = ""
+                            if isinstance(summary, str) and summary.strip():
+                                doc["ai_summary"] = summary.strip()
+                                total_chars += len(summary)
+
+                            completed = idx + 1
+                            # Log-level progress every doc so the user can
+                            # follow along in the Live Activity Log.
+                            title_preview = str(doc.get("title") or "")[:80]
+                            task_log.log(
+                                f"AI summary {completed}/{total_docs}"
+                                + (f": {title_preview}" if title_preview else "")
+                            )
+                            store.emit(exec_id, {
+                                "type": "ai_progress",
+                                "message": (
+                                    f"Summarizing document "
+                                    f"{completed}/{total_docs}..."
+                                ),
+                                "completed": completed,
+                                "total": total_docs,
+                                "timestamp": now_iso(),
+                            })
 
                     # Close every lane's row with what it achieved (1.8b).
                     # 'partial' and 'failed' stay apart deliberately: partial
@@ -821,6 +875,84 @@ class SweepEngine:
                 "Failed to record source health for exec_id=%s repo=%s: %s",
                 exec_id, repo_name, exc,
             )
+
+    def _summarize_with_heartbeat(
+        self,
+        *,
+        chain,
+        texts: list,
+        exec_id: int,
+        first: int,
+        last: int,
+        total: int,
+        heartbeat_interval: float = 2.0,
+    ) -> list:
+        """Run one summarization slice on a worker thread, cancellably.
+
+        Same shape as :meth:`_search_with_heartbeat` and for the same reason,
+        plus one that is specific to batching: a batched call is a **single
+        CLI process holding ten documents**, so a cancel honoured only between
+        calls would leave the user waiting out the whole batch after pressing
+        the button. ``chain.cancel()`` reaches into the lane and terminates the
+        process that is actually running.
+
+        The heartbeat matters more here than it does for a search. A ten-paper
+        batch is one long silence where ten short ones used to be, and a live
+        log that says nothing for four minutes is indistinguishable from one
+        that has died.
+        """
+        store = progress_store
+        holder: dict = {}
+
+        def _worker() -> None:
+            try:
+                holder["results"] = chain.summarize_documents(texts)
+            except BaseException as exc:  # re-raised in the caller
+                holder["error"] = exc
+
+        thread = threading.Thread(
+            target=_worker, daemon=True, name=f"ai-summarize-{exec_id}",
+        )
+        start = time.monotonic()
+        thread.start()
+
+        cancelled = False
+        while thread.is_alive():
+            thread.join(timeout=heartbeat_interval)
+            if not thread.is_alive():
+                break
+            if not cancelled and store.should_cancel(exec_id):
+                # Terminate the CLI, then wait for the worker to unwind rather
+                # than abandoning it: the temporary working directory holding
+                # the constitution is cleaned up on the way out, and a thread
+                # left holding it would leak one per cancelled batch.
+                cancelled = True
+                try:
+                    chain.cancel()
+                except Exception:  # pragma: no cover - defensive
+                    logger.exception("Could not cancel the AI lane")
+                continue
+            elapsed = time.monotonic() - start
+            store.emit(exec_id, {
+                "type": "ai_progress",
+                "message": (
+                    f"still summarizing papers {first}–{last} of {total} "
+                    f"({elapsed:.0f}s elapsed)"
+                    if last > first else
+                    f"still summarizing paper {first} of {total} "
+                    f"({elapsed:.0f}s elapsed)"
+                ),
+                "completed": first - 1,
+                "total": total,
+                "elapsed": round(elapsed, 1),
+                "timestamp": now_iso(),
+            })
+
+        if cancelled:
+            raise _ExecutionCancelled()
+        if "error" in holder:
+            raise holder["error"]
+        return holder.get("results", [("", None)] * len(texts))
 
     def _search_with_heartbeat(
         self,

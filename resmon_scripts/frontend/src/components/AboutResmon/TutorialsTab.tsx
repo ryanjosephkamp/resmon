@@ -466,10 +466,11 @@ const sections: TutorialSection[] = [
       'Every lane attempt is recorded on the execution — which provider was tried, how many papers it summarized, and why it stopped if it did. The report header names the provider that actually produced the summaries, not the one configured first.',
       'Subscription lanes (1.8c) drive the Claude Code or Codex command you already installed and signed into, so the work is billed to your existing plan. resmon never embeds provider sign-in and never sees your credential; if the CLI is not signed in, the lane says so and stands down.',
       'The command is located by an explicit path you set, then known install locations, then PATH last — because an app launched from the Finder inherits a PATH containing neither CLI, while a terminal finds both.',
+      'A subscription lane sends ten papers per call rather than starting a session per paper (1.8.5). The call asks for one numbered summary per paper; a paper the batch did not answer for is re-sent on its own, and if the numbering is inconsistent the whole batch is re-sent one paper at a time rather than risking a summary attached to the wrong paper.',
     ],
     tips: [
       'A good chain puts your best provider first and Ollama last: the local lane needs no key and costs nothing, so it is the natural floor. resmon has no summarizer beyond the lanes you configure — if every lane fails, those papers simply have no AI summary and the execution records why.',
-      'A subscription lane is far slower than an API key and spends the same usage window you use for your own work, so it is capped at 25 papers per run by default and is not the default for bulk summarization. Reaching the cap is not an error — the rest of the papers go to the next lane and the execution records the cap as the reason.',
+      'A subscription lane is slower than an API key and spends the same usage window you use for your own work, so it is capped at 25 papers per run by default and is not the default for bulk summarization. Reaching the cap is not an error — the rest of the papers go to the next lane and the execution records the cap as the reason.',
       'For the Custom provider, Save is disabled unless the base URL is HTTPS — except for loopback hosts (`localhost`, `127.0.0.1`, `::1`). The backend `llm_factory` enforces the same rule.',
       'Per-execution AI overrides on Deep Dive, Deep Sweep, and Routines transparently override these defaults via per-field merge; empty override fields fall back to your saved defaults.',
     ],

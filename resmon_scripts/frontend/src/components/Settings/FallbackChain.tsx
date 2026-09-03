@@ -240,9 +240,9 @@ const FallbackChain: React.FC<Props> = ({
                   you already installed and signed into, so every paper this
                   lane summarizes draws on the same{' '}
                   {lane.provider === 'codex' ? 'ChatGPT' : 'Claude'} usage
-                  window you use for your own work — and it is much slower than
-                  an API key, because it starts a whole agent session per paper.
-                  This run will send it{' '}
+                  window you use for your own work, and it is slower than an API
+                  key. Papers are sent ten at a time in one call rather than one
+                  session each. This run will send it{' '}
                   <strong>at most {lane.doc_cap ?? DEFAULT_DOC_CAP} papers</strong>;
                   anything past that goes to the next lane. resmon never sees or
                   stores your sign-in.
