@@ -563,7 +563,16 @@ def test_a_non_batching_lane_is_unchanged(conn):
     assert get_execution_ai(conn, exec_id)[0]["docs_attempted"] == 4
 
 
-def test_the_default_subscription_batch_size_is_ten():
-    """A product decision, measured before the default route changed."""
-    assert DEFAULT_SUBSCRIPTION_BATCH_SIZE == 10
-    assert AILane(kind="subscription", provider="codex").batch_size == 10
+def test_the_default_subscription_batch_size_is_five():
+    """Measured, not assumed — and the measurement changed it from ten.
+
+    Batching does not improve monotonically with size. On 25 real abstracts
+    claude took 6.1s per paper at five and 6.9s at ten; codex took 5.3s at
+    five and 8.0s at ten. Ten also produced fewer summaries inside the
+    word-count band on real abstracts (19/25 against 21/25).
+
+    Changing this is a product decision backed by
+    ``verification_scripts/measure_subscription_batching.py``, not a refactor.
+    """
+    assert DEFAULT_SUBSCRIPTION_BATCH_SIZE == 5
+    assert AILane(kind="subscription", provider="codex").batch_size == 5
