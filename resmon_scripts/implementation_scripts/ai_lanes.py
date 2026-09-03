@@ -71,17 +71,33 @@ DEFAULT_SUBSCRIPTION_DOC_CAP = 25
 # How many documents one subscription-lane CLI call carries (1.8.5).
 #
 # One call per paper was the dominant cost of this lane: a process to start, a
-# session to establish and the constitution to read, per abstract. Ten is the
-# starting value, measured against both installed CLIs before the default AI
-# route was changed (the measurement script is
-# ``verification_scripts/measure_subscription_batching.py``). The number is a
-# lane field rather than a constant so a slower machine or a stricter plan can
-# lower it without a release.
+# session to establish and the constitution to read, per abstract.
+#
+# **Five, not ten, and the number was measured rather than guessed.** Batching
+# was expected to improve monotonically with size; it does not. Against the
+# installed CLIs (``verification_scripts/measure_subscription_batching.py``,
+# 2026-09-03):
+#
+#   claude, 25 real abstracts   per paper  5 -> 6.1s   10 -> 6.9s   25 -> 6.2s
+#                               in band    5 -> 21/25  10 -> 19/25  25 -> 22/25
+#   codex, 10 synthetic         per paper  5 -> 5.3s   10 -> 8.0s
+#
+# Ten was worse than five on both CLIs on speed, and worse on band compliance
+# on the corpus that matters -- real abstracts. The one configuration where ten
+# won was synthetic abstracts on claude, by a tenth of a second per paper.
+#
+# The reason batching stops paying is that it amortises the fixed cost of a
+# call and cannot touch the generation itself, which is the same work whether
+# it happens in one call or ten. Past a handful of documents there is little
+# fixed cost left to spread.
+#
+# The number is a lane field rather than a constant so a slower machine, a
+# stricter plan or a different CLI can change it without a release.
 #
 # Every other lane kind is 1 by construction. An HTTP request to an API-key
 # provider has no fixed cost worth amortising, and batching there would trade a
-# real accuracy risk -- ten abstracts in one context -- for nothing.
-DEFAULT_SUBSCRIPTION_BATCH_SIZE = 10
+# real accuracy risk -- several abstracts in one context -- for nothing.
+DEFAULT_SUBSCRIPTION_BATCH_SIZE = 5
 
 _PROVIDER_DISPLAY = {
     "openai": "OpenAI",
