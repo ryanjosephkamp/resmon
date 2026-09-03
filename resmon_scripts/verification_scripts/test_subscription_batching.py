@@ -118,7 +118,11 @@ class _Process:
 
 
 def _claude_batch_reply(summaries: dict, **extra) -> tuple:
-    """A ``claude --output-format json`` envelope carrying *summaries*."""
+    """A ``claude --output-format json`` envelope carrying *summaries*.
+
+    ``extra`` overlays envelope fields — used to carry the usage and cost the
+    real CLI reports.
+    """
     payload = {
         "is_error": False,
         "subtype": "success",
@@ -810,3 +814,102 @@ def test_a_slice_inside_both_budgets_is_batched(monkeypatch):
     pipeline.summarize_batch(documents)
 
     assert spawns.count == 1
+
+
+# ---------------------------------------------------------------------------
+# P14 (the capture half) — what the call cost, as the CLI reported it
+# ---------------------------------------------------------------------------
+#
+# The D3 gate measured wall-clock while the guard it informed existed to
+# protect the plan's usage window, which is spent in tokens. claude reports
+# both in every envelope and the lane discarded them. These pin the capture;
+# the ratio itself is measured live and lives in the handback, because a
+# hermetic test cannot establish a cost ratio.
+
+def test_a_claude_call_records_what_the_envelope_said_it_cost(monkeypatch):
+    spawns = _Spawns().install(monkeypatch)
+    spawns.default = (
+        json.dumps({
+            "is_error": False,
+            "result": "A summary.",
+            "duration_ms": 11230,
+            "total_cost_usd": 0.0753,
+            "num_turns": 1,
+            "usage": {
+                "input_tokens": 2, "output_tokens": 719,
+                "cache_creation_input_tokens": 5615, "cache_read_input_tokens": 0,
+            },
+        }), "", 0,
+    )
+
+    client = _claude()
+    client.summarize("an abstract")
+
+    assert len(client.telemetry) == 1
+    row = client.telemetry[0]
+    assert row["total_cost_usd"] == 0.0753
+    assert row["cache_creation_input_tokens"] == 5615
+    assert row["output_tokens"] == 719
+    assert row["documents"] == 1, "a single call carries one document"
+
+
+def test_a_batched_call_records_how_many_documents_it_carried(monkeypatch):
+    """Cost per *paper* is the quantity the gate needs, so the divisor matters."""
+    spawns = _Spawns().install(monkeypatch)
+    spawns.default = _claude_batch_reply(
+        {i: f"S{i}" for i in range(5)},
+        total_cost_usd=0.1262, duration_ms=28098, num_turns=2,
+        usage={"input_tokens": 2, "output_tokens": 2540,
+               "cache_creation_input_tokens": 6063, "cache_read_input_tokens": 837},
+    )
+
+    client = _claude()
+    client.summarize_many(_docs(5))
+
+    row = client.telemetry[0]
+    assert row["documents"] == 5
+    assert row["total_cost_usd"] == 0.1262
+    assert row["cache_creation_input_tokens"] == 6063
+
+
+def test_a_failed_call_is_still_recorded(monkeypatch):
+    """A call that failed still spent the window.
+
+    Counting only successes would understate what batching costs precisely
+    when it falls back, which is the case the measurement most needs to see.
+    """
+    spawns = _Spawns().install(monkeypatch)
+    spawns.default = (
+        json.dumps({
+            "is_error": False, "subtype": "success",
+            "total_cost_usd": 0.09, "usage": {"cache_creation_input_tokens": 5600},
+        }), "", 0,
+    )
+    client = _claude()
+    assert client.summarize_many(_docs(3)) == [None, None, None]
+    assert len(client.telemetry) == 1
+    assert client.telemetry[0]["total_cost_usd"] == 0.09
+
+
+def test_codex_records_that_it_reports_no_cost(monkeypatch):
+    """Absent is not zero, and the table has to be able to say which.
+
+    codex writes its answer to the ``-o`` file and prints a token total to
+    stdout. There is no envelope, so there is no cost and no cache breakdown —
+    recorded as ``None`` rather than omitted.
+    """
+    spawns = _Spawns().install(monkeypatch)
+
+    def _codex_reply(argv, process):
+        with open(argv[argv.index("-o") + 1], "w", encoding="utf-8") as handle:
+            handle.write("a summary")
+        return ("OpenAI Codex\ntokens used\n22,381\n", "", 0)
+
+    spawns.default = _codex_reply
+    client = SubscriptionLLMClient("codex", "/fake/codex")
+    client.summarize("an abstract")
+
+    row = client.telemetry[0]
+    assert row["total_cost_usd"] is None
+    assert row["input_tokens"] is None
+    assert row["tokens_used"] == 22381
