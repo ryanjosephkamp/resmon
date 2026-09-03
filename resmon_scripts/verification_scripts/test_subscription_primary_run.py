@@ -32,6 +32,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import resmon as resmon_mod  # noqa: E402
 from implementation_scripts.api_base import NormalizedResult  # noqa: E402
+from implementation_scripts.ai_lanes import DEFAULT_SUBSCRIPTION_BATCH_SIZE  # noqa: E402
 from implementation_scripts.database import get_execution_ai  # noqa: E402
 
 
@@ -348,35 +349,49 @@ def _run_dive(client, tmp_path, cli_path, *, papers, settings_extra=None):
     return exec_id, ex
 
 
-def test_a_sweep_of_ten_papers_spawns_one_cli_process(client, tmp_path):
+def _calls_for(papers: int) -> int:
+    """How many CLI processes a sweep of *papers* papers should cost.
+
+    Derived from the lane default rather than written as a literal, so that
+    changing the default — which D3's measurement did, from ten to five —
+    fails on the one test that asserts the default and not on every test that
+    happens to count processes.
+    """
+    import math
+    return math.ceil(papers / DEFAULT_SUBSCRIPTION_BATCH_SIZE)
+
+
+def test_a_sweep_of_ten_papers_spawns_one_process_per_batch(client, tmp_path):
     """P3 at the boundary that matters: a real fork/exec, counted.
 
-    Ten papers, one process. Before batching this was ten processes, each
-    starting a session and reading the constitution, which is the whole reason
-    the lane was capped at 25 documents and kept out of the default.
+    Before batching this was one process per paper, each starting a session
+    and reading the constitution, which is the whole reason the lane was
+    capped at 25 documents and kept out of the default.
     """
     script, counter = batching_fake_claude(tmp_path)
     exec_id, ex = _run_dive(client, tmp_path, script, papers=10)
 
     assert ex["status"] == "completed", ex
-    assert spawn_count(counter) == 1, (
-        f"ten papers spawned {spawn_count(counter)} CLI processes"
+    assert spawn_count(counter) == _calls_for(10), (
+        f"ten papers spawned {spawn_count(counter)} CLI processes, expected "
+        f"{_calls_for(10)} at a batch size of {DEFAULT_SUBSCRIPTION_BATCH_SIZE}"
     )
+    assert spawn_count(counter) < 10, "batching did not happen at all"
 
     report = client.get(f"/api/executions/{exec_id}/report").text
-    for i in range(10):
+    for i in range(DEFAULT_SUBSCRIPTION_BATCH_SIZE):
         assert f"Batched summary {i}." in report
 
 
 def test_the_batch_size_is_what_slices_the_run(client, tmp_path):
-    """Twenty-five papers at ten per call is three processes, not twenty-five."""
+    """Twenty-five papers cost one process per batch, not twenty-five."""
     script, counter = batching_fake_claude(tmp_path)
     _, ex = _run_dive(
         client, tmp_path, script, papers=25,
         settings_extra={"ai_subscription_doc_cap": "25"},
     )
     assert ex["status"] == "completed", ex
-    assert spawn_count(counter) == 3
+    assert spawn_count(counter) == _calls_for(25)
 
 
 def test_the_live_log_announces_the_batch_and_then_each_paper(client, tmp_path):
@@ -390,7 +405,10 @@ def test_the_live_log_announces_the_batch_and_then_each_paper(client, tmp_path):
         for e in _events(client, exec_id)
         if e.get("type") == "ai_progress"
     ]
-    assert any("papers 1–10 of 10 in one call" in m for m in messages), messages
+    first_slice = min(DEFAULT_SUBSCRIPTION_BATCH_SIZE, 10)
+    assert any(
+        f"papers 1–{first_slice} of 10 in one call" in m for m in messages
+    ), messages
     # And the per-document completions the existing consumer counts on.
     assert sum(1 for m in messages if "Summarizing document" in m) == 10
 
