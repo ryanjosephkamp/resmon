@@ -562,7 +562,8 @@ class SweepEngine:
                     # is a normal day with one awkward abstract, failed is a
                     # lane that did not work at all.
                     chain.finish()
-                    for lane_row in chain.lane_summaries():
+                    lane_rows = chain.lane_summaries()
+                    for lane_row in lane_rows:
                         if lane_row["attempted"] or lane_row["reason"]:
                             task_log.log(
                                 f"AI lane {lane_row['index'] + 1} "
@@ -570,6 +571,27 @@ class SweepEngine:
                                 f"— {lane_row['succeeded']}/{lane_row['attempted']}"
                                 + (f"; {lane_row['reason']}" if lane_row["reason"] else "")
                             )
+
+                    # No lane got as far as one attempt: AI was on, and no
+                    # summary was produced by anything. Say so in the live log
+                    # with the reason the lane itself gave.
+                    #
+                    # Before 1.8.5 this warning was emitted *before* the run,
+                    # guessed from ai_provider, and said "API key missing" for
+                    # a subscription lane that has no key to miss. The reason
+                    # is only knowable per lane and only after the lane has
+                    # been built, so this is where it is said.
+                    if not any(row["attempted"] for row in lane_rows):
+                        reason = next(
+                            (row["reason"] for row in lane_rows if row["reason"]),
+                            "no lane could be used",
+                        )
+                        store.emit(exec_id, {
+                            "type": "log_entry",
+                            "level": "warn",
+                            "message": f"AI skipped: {reason}",
+                            "timestamp": now_iso(),
+                        })
 
                     if cancelled_mid_summary:
                         return self._handle_cancellation(

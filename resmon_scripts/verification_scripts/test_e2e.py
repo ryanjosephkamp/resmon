@@ -889,8 +889,15 @@ def _poll_status(client, exec_id, target=("completed", "failed"), attempts=60, d
 
 
 def test_dive_with_ai_enabled_constructs_client(client, tmp_reports):
-    """AI8-V1: build_llm_client_from_settings is called; SummarizationPipeline
-    receives prompt_params reflecting persisted settings."""
+    """AI8-V1: the lane factory is called; SummarizationPipeline receives
+    prompt_params reflecting persisted settings.
+
+    1.8.5 moved lane 0's construction off ``build_llm_client_from_settings``
+    and onto ``build_client_for_lane``, so this patches the builder the engine
+    now actually reaches and asserts on the *lane* it was handed rather than
+    on a settings dict. That is the stronger assertion: a lane carries its
+    kind, and the kind is what the old builder had no branch for.
+    """
     mock_arxiv = _make_mock_client("arxiv")
 
     recorded: dict = {"pipeline_args": []}
@@ -921,7 +928,7 @@ def test_dive_with_ai_enabled_constructs_client(client, tmp_reports):
         patch("implementation_scripts.sweep_engine.get_client", return_value=mock_arxiv),
         patch("implementation_scripts.sweep_engine.REPORTS_DIR", tmp_reports),
         patch(
-            "resmon.build_llm_client_from_settings",
+            "implementation_scripts.llm_factory.build_client_for_lane",
             return_value=_StubLLM(),
         ) as mock_factory,
         patch(
@@ -940,11 +947,13 @@ def test_dive_with_ai_enabled_constructs_client(client, tmp_reports):
         ex = _poll_status(client, exec_id)
         assert ex["status"] == "completed", f"unexpected status: {ex}"
 
-    # Factory must have been invoked once with the persisted settings merged in.
+    # The lane factory must have been invoked once, with the lane the
+    # persisted settings resolve to.
     assert mock_factory.call_count == 1
-    passed_settings = mock_factory.call_args.args[0]
-    assert passed_settings.get("ai_provider") == "xai"
-    assert passed_settings.get("ai_summary_length") == "detailed"
+    lane = mock_factory.call_args.args[0]
+    assert lane.kind == "api_key"
+    assert lane.provider == "xai"
+    assert lane.model == "grok-2-latest"
 
     # Pipeline must have been constructed with prompt_params reflecting settings.
     assert recorded["pipeline_args"], "SummarizationPipeline was never constructed"
@@ -954,8 +963,19 @@ def test_dive_with_ai_enabled_constructs_client(client, tmp_reports):
 
 
 def test_dive_with_ai_enabled_but_no_key_emits_log_entry(client, tmp_reports):
-    """AI8-V2: factory returning None emits a warn log_entry and the execution
-    still completes."""
+    """AI8-V2: a lane that cannot be built emits a warn log_entry naming the
+    real reason, and the execution still completes.
+
+    Nothing is patched into the factory here any more. The keyring is the
+    in-memory one ``conftest`` installs, no OpenAI key is in it, so
+    ``build_client_for_lane`` genuinely returns ``None`` — the failure this
+    test names is now produced rather than simulated.
+
+    The message changed in 1.8.5 and is asserted in its new form on purpose.
+    It used to be guessed from ``ai_provider`` *before* the run, which is why
+    a subscription-primary run — a lane with no key to be missing — was told
+    its API key was missing. The reason is now the lane's own.
+    """
     mock_arxiv = _make_mock_client("arxiv")
 
     client.put("/api/settings/ai", json={"settings": {
@@ -968,7 +988,6 @@ def test_dive_with_ai_enabled_but_no_key_emits_log_entry(client, tmp_reports):
     with (
         patch("implementation_scripts.sweep_engine.get_client", return_value=mock_arxiv),
         patch("implementation_scripts.sweep_engine.REPORTS_DIR", tmp_reports),
-        patch("resmon.build_llm_client_from_settings", return_value=None),
     ):
         resp = client.post("/api/search/dive", json={
             "repository": "arxiv",
@@ -992,7 +1011,10 @@ def test_dive_with_ai_enabled_but_no_key_emits_log_entry(client, tmp_reports):
     ]
     assert log_entries, f"no AI-skip log_entry found in events: {events}"
     msg = log_entries[0]["message"]
-    assert "provider not configured" in msg or "API key missing" in msg
+    # The lane's own reason, not a guess: it names the keyring slot that was
+    # looked in. "API key missing" would have been said for a subscription
+    # lane too, and that was the defect.
+    assert "openai_api_key" in msg, msg
 
 
 # ---------------------------------------------------------------------------
@@ -1079,7 +1101,10 @@ def test_per_execution_override_wins(client, tmp_reports):
     with (
         patch("implementation_scripts.sweep_engine.get_client", return_value=mock_arxiv),
         patch("implementation_scripts.sweep_engine.REPORTS_DIR", tmp_reports),
-        patch("resmon.build_llm_client_from_settings", return_value=_StubLLM()),
+        patch(
+            "implementation_scripts.llm_factory.build_client_for_lane",
+            return_value=_StubLLM(),
+        ),
         patch("implementation_scripts.summarizer.SummarizationPipeline", _StubPipeline),
     ):
         resp = client.post("/api/search/dive", json={

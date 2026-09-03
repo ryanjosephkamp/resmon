@@ -73,7 +73,6 @@ from implementation_scripts.credential_manager import (
     migrate_legacy_global_ai_key,
 )
 from implementation_scripts.ai_lanes import resolve_chain
-from implementation_scripts.llm_factory import build_llm_client_from_settings
 from implementation_scripts.ai_models import (
     list_available_models as ai_list_available_models,
     ModelListError,
@@ -469,6 +468,16 @@ _AI_SETTING_KEYS: tuple[str, ...] = (
     "ai_temperature",
     "ai_extraction_goals",
     "ai_show_audit_prefix",
+    # 1.8.5 — the three subscription-lane keys. They were reachable through
+    # ``PUT /api/settings/ai`` in the renderer's mind only: absent from this
+    # tuple, ``_load_ai_settings_from_db`` never read them, so
+    # ``resolve_chain`` built every subscription lane without the binary path
+    # or the cap the user had set. Absent from ``_SETTINGS_GROUPS["ai"]``
+    # below, the PUT dropped them before they were ever stored. A setting is
+    # only real when it appears in both.
+    "ai_cli_path",
+    "ai_subscription_doc_cap",
+    "ai_effort",
 )
 
 # IMPL-AI13 / Update 2 — Feature 2: per-execution override dicts sent
@@ -559,21 +568,33 @@ def _apply_ai_settings_to_engine(
     conn,
     ephemeral_credentials: Optional[dict[str, str]],
 ) -> None:
-    """Attach ``engine.llm_client`` and ``engine.config['ai_prompt_params']``.
+    """Attach ``engine.ai_lanes`` and ``engine.config['ai_prompt_params']``.
 
     Behavior:
 
     * Always merge persisted ``ai_*`` settings with the per-execution
       override in ``engine.config["ai_settings"]`` (override wins).
-    * Build a client via :func:`build_llm_client_from_settings`. If the
-      factory returns ``None`` and ``ai_enabled`` was requested, emit a
-      single ``log_entry`` progress event explaining which knob is missing;
-      never raise.
-    * If the factory raises ``ValueError`` (e.g. insecure custom base URL),
-      log the error to the progress stream and fall back to no LLM.
+    * Resolve the merged settings into lanes. **No client is built here.**
+      ``ChainRunner`` builds each lane, lane 0 included, from the lane
+      itself — which is the only place that knows what kind of lane it is.
+    * Emit one ``log_entry`` warning when nothing at all is configured, i.e.
+      when ``resolve_chain`` is empty; never raise.
     * Populate ``engine.config["ai_prompt_params"]`` from the merged
       settings so :class:`SummarizationPipeline` can honor Summary-Length
       / Tone selectors.
+
+    Until 1.8.5 this function also called
+    :func:`build_llm_client_from_settings` and handed the result to the
+    engine as ``llm_client``. That function has no subscription branch: for a
+    subscription-primary configuration it returned ``None`` and this code
+    then announced *"AI skipped: API key missing"* on every run — while the
+    chain went on to drive the CLI perfectly well. A message that is wrong
+    about work the app is doing correctly is the overclaim in reverse, and it
+    was reaching users on the exact route 1.8.5 makes primary.
+
+    Building lane 0 here also mislabelled a routine override that carried
+    ``provider`` without ``chain``: the override provider did the work while
+    lane 0's ``execution_ai`` row named the persisted chain's lane.
     """
     persisted = _load_ai_settings_from_db(conn)
     override = _normalize_ai_override(engine.config.get("ai_settings"))
@@ -599,39 +620,25 @@ def _apply_ai_settings_to_engine(
     # per-execution keys rather than a client built here.
     engine.ai_ephemeral = ephemeral_credentials or None
 
-    try:
-        client = build_llm_client_from_settings(
-            merged, ephemeral=ephemeral_credentials or None,
-        )
-    except ValueError as exc:
-        # Insecure custom base URL or similar; never leak credentials.
+    # No prebuilt client. ``ChainRunner`` accepts ``primary_client`` and it
+    # stays as the seam tests construct an engine through, but the API path
+    # leaves it empty so every lane -- including lane 0 -- is built from the
+    # lane by ``build_client_for_lane``, which is the only builder that knows
+    # what a subscription lane is.
+    engine.llm_client = None
+
+    if not chain:
+        # Nothing is configured at all. Every other reason a lane cannot run
+        # -- no key, no model, CLI not found -- is known per lane rather than
+        # globally, so it is reported by the lane after the chain has tried,
+        # in ``SweepEngine``. Guessing here is what produced the false
+        # "API key missing".
         progress_store.emit(exec_id, {
             "type": "log_entry",
             "level": "warn",
-            "message": f"AI skipped: {exc}",
+            "message": "AI skipped: provider not configured",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
-        engine.llm_client = None
-        engine.ai_lane = None
-        return
-
-    if client is None:
-        provider = str(merged.get("ai_provider") or "").strip().lower()
-        if not provider:
-            reason = "AI skipped: provider not configured"
-        else:
-            reason = "AI skipped: API key missing"
-        progress_store.emit(exec_id, {
-            "type": "log_entry",
-            "level": "warn",
-            "message": reason,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        engine.llm_client = None
-        engine.ai_lane = None
-        return
-
-    engine.llm_client = client
 
 
 # ---------------------------------------------------------------------------
@@ -2677,6 +2684,12 @@ _SETTINGS_GROUPS = {
         # label) still find what they expect.
         "ai_chain",
         "ai_local_endpoint",
+        # 1.8.5 — see the note on ``_AI_SETTING_KEYS``. Without these three the
+        # PUT silently discarded them and ``get_ai_cli_status``'s read of
+        # ``ai_cli_path`` could never return anything but "".
+        "ai_cli_path",
+        "ai_subscription_doc_cap",
+        "ai_effort",
     ],
     "cloud": ["cloud_provider", "cloud_auto_backup"],
     "storage": ["pdf_policy", "txt_policy", "archive_after_days", "export_directory"],
