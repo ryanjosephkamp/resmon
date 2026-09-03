@@ -94,9 +94,19 @@ jobs:
           git rev-parse HEAD > "$EVIDENCE/source-commit.txt"
           npm install --package-lock=false --no-audit --no-fund
 
-      - name: Stage the release runtime and install the pinned probe-only wheel
+      - name: Stage the release runtime
+        if: runner.os != 'Windows'
+        run: npm run prepare:backend
+
+      - name: Stage the release runtime on Windows
+        # Match release.yml's native Windows shell. Git Bash puts GNU tar first;
+        # it reads Node's D:\ archive path as a remote host, before Python runs.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: npm run prepare:backend
+
+      - name: Install the pinned probe-only wheel
         run: |
-          npm run prepare:backend
           printf '%s\n' "sqlite-vec==$SQLITE_VEC_VERSION --hash=sha256:${{ matrix.wheel_hash }}" > "$EVIDENCE/probe-requirement.txt"
           "$STAGED_PYTHON" -I -m pip install --only-binary=:all: --no-deps --require-hashes \
             --report "$EVIDENCE/pip-install.json" -r "$EVIDENCE/probe-requirement.txt"
@@ -104,7 +114,13 @@ jobs:
             --expected-runtime-pin "$RUNTIME_PIN" > "$EVIDENCE/staged.json"
 
       - name: Build with the existing release packaging configuration
-        run: npm run dist 2>&1 | tee "$EVIDENCE/build.log"
+        if: runner.os != 'Windows'
+        run: npm run dist
+
+      - name: Build with the existing release packaging configuration on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: npm run dist
 
       - name: Load and query inside electron-builder's packaged resources
         run: |
