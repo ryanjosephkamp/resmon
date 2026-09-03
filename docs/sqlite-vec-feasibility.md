@@ -2,9 +2,14 @@
 
 ## Verdict and scope
 
-**Interim: viable with caveats on macOS ARM64; the other three release targets
-await native CI evidence.** This is a packaging spike, not a decision about phase
-1.9. No application code, schema, runtime requirements, or existing workflow changes.
+**Viable with caveats on all four actual release targets:** macOS ARM64, macOS
+x64, Windows x64, and Linux x64. All four native CI jobs loaded sqlite-vec and
+ran the expected query from packaged resources and their installer contents.
+The caveats below include untested macOS signing and Finder quarantine/translocation.
+This is a packaging finding, not a decision about phase 1.9. No application code,
+schema, runtime requirements, or existing workflow changes.
+
+Evidence collected **2026-09-03 UTC**.
 
 The freshly fetched `upstream/main` was
 **`3c7298adbef92c7282ca29bd0d397a740676753d`**, the v1.8.3 release, matching the
@@ -21,7 +26,7 @@ brief's `3c7298a` baseline. The branch starts at that commit.
    [staging script](https://github.com/ryanjosephkamp/resmon/blob/3c7298adbef92c7282ca29bd0d397a740676753d/resmon_scripts/frontend/scripts/prepare-backend.js)
    pins Astral python-build-standalone **CPython 3.11.16, release 20260814**.
    Several older comments still describe a venv. The new workflow uses the
-   staged/published interpreter paths, not setup-python, for every probe.
+   staged/packaged interpreter paths, not setup-python, for every probe.
 3. **Configure output alone is insufficient evidence.** On the measured ARM64
    runtime, `CONFIG_ARGS` lacks `--enable-loadable-sqlite-extensions` and
    `pyconfig.h` says `/* #undef PY_SQLITE_ENABLE_LOAD_EXTENSION */`, yet loading
@@ -30,6 +35,10 @@ brief's `3c7298a` baseline. The branch starts at that commit.
    [_sqlite3 module definition](https://github.com/astral-sh/python-build-standalone/blob/20260814/cpython-unix/extension-modules.yml#L525-L555).
    `_sqlite3` is built into this interpreter and has no `__file__`. The probe
    checks the callable behavior and records built-in versus file-backed modules.
+   CPython's pinned
+   [Windows project](https://github.com/python/cpython/blob/v3.11.16/PCbuild/_sqlite3.vcxproj#L94-L99)
+   also defines `PY_SQLITE_ENABLE_LOAD_EXTENSION`; Windows native CI confirms
+   loading in its bundled runtime, whose `_sqlite3` is a file-backed module.
 4. The brief's `danger-full-access` / approval-policy description does not match
    this session's workspace sandbox. Fetching, branch creation, network downloads,
    and packaging checks used the available approval mechanism; no other checkout
@@ -44,10 +53,10 @@ query supply that narrower evidence for the tested runtime and host.
 
 | Release target | Bundled interpreter permits extension loading | Matching binary / ABI evidence | Loads inside packaged app |
 | --- | --- | --- | --- |
-| macOS ARM64 (`macos-14`) | Yes locally: enable/disable returned normally | 0.1.9 ARM64 wheel; actual load and vector query passed locally | Unsigned `.app` and read-only DMG passed locally; native CI pending |
-| macOS x64 (`macos-15-intel`) | Not established: native CI pending | 0.1.9 x64 wheel exists; ABI not yet tested | Not established: native CI pending |
-| Windows x64 (`windows-latest`) | Not established: native CI pending | 0.1.9 `win_amd64` wheel exists; ABI not yet tested | Not established: native CI pending |
-| Linux x64 (`ubuntu-latest`) | Not established: native CI pending | 0.1.9 manylinux x64 wheel exists; ABI not yet tested | Not established: native CI pending |
+| macOS ARM64 (`macos-14`) | Yes: native CI and local enable/disable checks passed | 0.1.9 ARM64 wheel; actual load and vector query passed | Yes: unsigned `.app` and read-only DMG, locally and in [CI](https://github.com/ryanjosephkamp/resmon/actions/runs/33701953896/job/100482938735) |
+| macOS x64 (`macos-15-intel`) | Yes: native CI enable/disable checks passed | 0.1.9 x64 wheel; actual load and vector query passed | Yes: unsigned `.app` and read-only DMG in [CI](https://github.com/ryanjosephkamp/resmon/actions/runs/33701953896/job/100482939023) |
+| Windows x64 (`windows-latest`) | Yes: native CI enable/disable checks passed | 0.1.9 `win_amd64` wheel; actual load and vector query passed | Yes: `win-unpacked` and silently installed NSIS app in [CI](https://github.com/ryanjosephkamp/resmon/actions/runs/33701953896/job/100482938822) |
+| Linux x64 (`ubuntu-latest`) | Yes: native CI enable/disable checks passed | 0.1.9 manylinux x64 wheel; actual load and vector query passed | Yes: `linux-unpacked` and extracted AppImage in [CI](https://github.com/ryanjosephkamp/resmon/actions/runs/33701953896/job/100482938994) |
 
 ### Local evidence
 
@@ -104,14 +113,51 @@ four baseline release runner labels. Each native job:
 6. Repeats the positive probe from a read-only mounted DMG on macOS, extracted
    AppImage on Linux, or a silent NSIS installation on Windows.
 
-The shell uses GitHub's explicit bash `-e -o pipefail` behavior; no positive step
-has `continue-on-error`. Evidence is uploaded even on failure. Installers are
+Unix and probe steps use explicit bash `-e -o pipefail`; Windows staging/build
+use PowerShell, matching release.yml. No positive step has `continue-on-error`.
+Evidence is uploaded even on failure. Installers are
 neither published nor attached to a release. The workflow runs in the public
 upstream repository, avoiding duplicate packaging on the working mirror.
 
-**Hosted results: pending first branch run.** Run/job URLs and actual results will
-replace this statement after execution; the presence of a workflow is not evidence
-that it passed.
+**[Corrected run 33701953896](https://github.com/ryanjosephkamp/resmon/actions/runs/33701953896):
+4 of 4 jobs passed**, at source commit
+`18ae96d4abe7b22c53e04961bf7e0f12d3c3ec19`. Downloaded JSON receipts were inspected,
+including `source-commit.txt`, pip's selected wheel hash, `packaged.json`, the
+installer-specific result, and `broken-binary.json`. Probe/build behavior in the
+final workflow is unchanged from this run; its concurrency key additionally
+coalesces push and PR runs for the same branch.
+
+| CI target | Host reported by Python | Installer receipt | Positive output | Invalid-binary output |
+| --- | --- | --- | --- | --- |
+| macOS ARM64 | macOS 14.8.7 / arm64 | `dmg.json` | All four statuses `pass`, exit 0 | Load `fail`, exit 1 |
+| macOS x64 | macOS 15.7.9 / x86_64 | `dmg.json` | All four statuses `pass`, exit 0 | Load `fail`, exit 1 |
+| Windows x64 | Windows build 10.0.26100 / AMD64 | `installed.json` | All four statuses `pass`, exit 0 | Load `fail`, exit 1 |
+| Linux x64 | Kernel 6.17.0-1022-azure / x86_64 / glibc 2.39 | `appimage.json` | All four statuses `pass`, exit 0 | Load `fail`, exit 1 |
+
+All four used CPython 3.11.16 / SQLite 3.53.1, reported `vec_version()=v0.1.9`,
+and returned `[[1, 0.0], [2, 2.8284270763397217]]`. Each packaged and
+installer-contained native binary had the same byte count and SHA-256 as its
+inspected wheel member:
+
+```text
+macOS ARM64  193e480c50b59a55977d166f4aaf0e1bc8832d6963516e5950f39e4d2ce0b793
+macOS x64    d39d33d16d302d57440d9a9cdbe3cc095e8324aa96b979b5171f545a6346996d
+Windows x64  fcf98662a7ad9dce394b96a88f91032047823831b951c76636787c312a6476e6
+Linux x64    5923730861b86c707cca5602b5f91092f9e52a46706dbc6e269fd4bb9c4498e8
+```
+
+Receipts are attached to that run as `sqlite-vec-<target>-18ae96d...` artifacts
+with 14-day retention. The outputs above preserve the essential results after
+artifact expiry; a later run is needed to reestablish them on changed hosts.
+
+The [first run](https://github.com/ryanjosephkamp/resmon/actions/runs/33701670277)
+at `0ce6f48a50a42378cc68e199bef7cf0d09487e18` passed both macOS targets and Linux.
+Its [Windows staging step](https://github.com/ryanjosephkamp/resmon/actions/runs/33701670277/job/100482086036)
+failed **before running Python**, with `tar (child): Cannot connect to D: resolve failed`.
+Git Bash selected GNU tar, which interpreted Node's Windows archive path as a
+remote host. The new workflow's Windows staging/build steps now use native
+PowerShell, as the release workflow does. This was a probe-workflow defect and
+provides no negative evidence about sqlite-vec compatibility.
 
 ### Failure-path and regression checks
 
@@ -128,6 +174,12 @@ that it passed.
 - `.venv/bin/python -m pytest -q`: **882 passed, 41 deselected**.
 - In `resmon_scripts/frontend`, `npm run typecheck && npm test -- --runInBand && npm run build`:
   **typecheck passed; 139 tests in 20 suites passed; build passed**.
+- [Regression CI at the same commit](https://github.com/ryanjosephkamp/resmon/actions/runs/33701953897):
+  `pytest -v` on Python **3.10, 3.11, and 3.12** each returned **880 passed,
+  2 skipped, 41 deselected**. The two skips are existing macOS-only osascript
+  notification tests on Ubuntu, not missing probe coverage. Frontend typecheck,
+  **139 tests / 20 suites**, and build passed. The brief's 882-pass count is the
+  observed local macOS count, not the Linux CI count.
 - The existing test files and `requirements.txt` are unchanged. The 41 live-network
   tests were not run: this spike changes no source client and the brief requests
   the hermetic suite. sqlite-vec remains absent from the development venv.
@@ -171,7 +223,7 @@ selected URL and hash, and each probe records the actual native binary size/hash
 - Minimum-supported-OS coverage or clean consumer machines without runner tooling.
   A native hosted runner establishes its own OS/runtime combination only.
 - Electron launching a backend that uses sqlite-vec: application code never imports
-  it in this spike. No existing release artifact includes the new dependency.
+  it in this spike. This task does not modify or publish any existing release artifact.
 - The identities and behavior of the brief's three additional, unnamed targets.
 
 ## Fallback cost if a target cannot load the extension
