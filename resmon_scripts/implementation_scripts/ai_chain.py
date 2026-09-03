@@ -152,6 +152,18 @@ class ChainRunner:
                 return state.lane.label
         return ""
 
+    @property
+    def active_effort(self) -> str:
+        """The effort level of the lane that produced the summaries, if any.
+
+        Mirrors :attr:`active_label`: the report names what actually did the
+        work, not what was configured first.
+        """
+        for state in self._states:
+            if not state.demoted and state.succeeded:
+                return str(state.lane.effort or "")
+        return ""
+
     def lane_summaries(self) -> list[dict]:
         """Per-lane counts, for logging and the completion message."""
         return [

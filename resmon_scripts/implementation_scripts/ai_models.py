@@ -208,3 +208,183 @@ def list_available_models(
 
     # De-duplicate while preserving sort order.
     return sorted({m for m in ids if isinstance(m, str) and m})
+
+
+# ---------------------------------------------------------------------------
+# Subscription lanes (1.8.5)
+# ---------------------------------------------------------------------------
+#
+# ``list_available_models`` above raises ``Unsupported provider`` for
+# ``claude_code`` and ``codex``, which was correct while nothing could answer
+# for them and is not correct now. But the two CLIs answer in genuinely
+# different ways, and flattening that into one list would be the overclaim this
+# project rejects:
+#
+# ``claude``  has **no** models-listing command. What it documents is aliases —
+#             ``--help`` names 'fable', 'opus' and 'sonnet', and 'haiku' was
+#             verified by running it. So the list resmon offers is *the aliases
+#             the CLI accepts*, and the interface says so. It is not a list of
+#             models this account can reach, and resmon has not checked that.
+#
+# ``codex``   does answer. ``codex debug models`` prints JSON with a slug, a
+#             ``visibility`` flag and, per model, the reasoning levels that
+#             model supports. That is a real catalog and it is used as one —
+#             with the caveat, recorded here because it is load-bearing, that
+#             ``debug`` is not a documented stable interface. If it changes
+#             shape or disappears, this degrades to free text rather than
+#             failing the lane.
+#
+# Neither call is made to decide whether the lane works. Only the first real
+# summarization call establishes that, and that has not changed.
+
+import json as _json  # noqa: E402  (module already imports what it needs above)
+import subprocess  # noqa: E402
+
+# How long ``codex debug models`` may take before resmon gives up on it. The
+# Settings page waits on this, so it is short: an unavailable catalog costs the
+# dropdown, not the lane.
+_CLI_CATALOG_TIMEOUT = 20.0
+
+# The aliases ``claude --help`` documents, plus the one verified by running it.
+# Ordered strongest-first, which is also how the CLI's own help lists them.
+CLAUDE_MODEL_ALIASES = ("fable", "opus", "sonnet", "haiku")
+
+# ``claude --effort`` accepts these; the CLI rejects a level a model does not
+# support, and resmon passes that rejection through rather than pre-judging it.
+CLAUDE_EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+
+class SubscriptionCatalog:
+    """What resmon can honestly offer for one agent CLI.
+
+    ``provenance`` is not decoration. "These are the aliases the command
+    accepts" and "this is the catalog the command reported" are different
+    claims, and the interface renders whichever one is true.
+    """
+
+    __slots__ = ("models", "provenance", "efforts", "default_efforts", "error")
+
+    def __init__(
+        self,
+        models: list[str],
+        provenance: str,
+        efforts: dict[str, list[str]] | None = None,
+        default_efforts: dict[str, str] | None = None,
+        error: str = "",
+    ) -> None:
+        self.models = models
+        self.provenance = provenance
+        self.efforts = efforts or {}
+        self.default_efforts = default_efforts or {}
+        self.error = error
+
+    def to_dict(self) -> dict:
+        return {
+            "models": list(self.models),
+            "provenance": self.provenance,
+            "efforts": {k: list(v) for k, v in self.efforts.items()},
+            "default_efforts": dict(self.default_efforts),
+            "error": self.error,
+        }
+
+
+def list_subscription_catalog(
+    provider: str, binary_path: str | None = None,
+) -> SubscriptionCatalog:
+    """Return the models and effort levels *provider* can honestly offer."""
+    provider = (provider or "").strip().lower()
+
+    if provider == "claude_code":
+        return SubscriptionCatalog(
+            models=list(CLAUDE_MODEL_ALIASES),
+            provenance=(
+                "Aliases the claude command accepts — not a list of models "
+                "this account can reach. resmon has not checked that."
+            ),
+            # One effort list for every alias: the CLI documents the levels
+            # globally and rejects an unsupported one per model at call time.
+            efforts={alias: list(CLAUDE_EFFORT_LEVELS) for alias in CLAUDE_MODEL_ALIASES},
+        )
+
+    if provider == "codex":
+        return _codex_catalog(binary_path)
+
+    raise ModelListError(f"Unsupported provider: {provider}")
+
+
+def _codex_catalog(binary_path: str | None) -> SubscriptionCatalog:
+    from .ai_cli import discover_cli
+
+    discovery = discover_cli("codex", binary_path)
+    if not discovery.found:
+        return SubscriptionCatalog(
+            models=[], provenance="", error=discovery.describe(),
+        )
+
+    try:
+        completed = subprocess.run(
+            [discovery.path or "", "debug", "models"],
+            capture_output=True, text=True, timeout=_CLI_CATALOG_TIMEOUT,
+            stdin=subprocess.DEVNULL, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.info("codex debug models did not answer: %s", exc)
+        return SubscriptionCatalog(
+            models=[], provenance="",
+            error="The codex command did not answer with its model catalog.",
+        )
+
+    try:
+        payload = _json.loads((completed.stdout or "").strip())
+        entries = payload["models"]
+        if not isinstance(entries, list):
+            raise ValueError("models is not a list")
+    except (ValueError, TypeError, KeyError):
+        # `debug` is not a stable interface. A shape change costs the dropdown
+        # and nothing else; free text still reaches the CLI.
+        logger.info("codex debug models returned an unrecognised shape.")
+        return SubscriptionCatalog(
+            models=[], provenance="",
+            error=(
+                "The codex command's model catalog was not in a shape resmon "
+                "recognises. Type a model name instead."
+            ),
+        )
+
+    models: list[str] = []
+    efforts: dict[str, list[str]] = {}
+    defaults: dict[str, str] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        slug = entry.get("slug")
+        if not isinstance(slug, str) or not slug:
+            continue
+        # ``hide`` marks a model codex itself does not list to users. Offering
+        # it would be resmon inventing a choice the tool declines to present.
+        if entry.get("visibility") != "list":
+            continue
+        models.append(slug)
+        levels = [
+            level.get("effort")
+            for level in entry.get("supported_reasoning_levels") or []
+            if isinstance(level, dict) and isinstance(level.get("effort"), str)
+        ]
+        if levels:
+            efforts[slug] = levels
+        default_level = entry.get("default_reasoning_level")
+        if isinstance(default_level, str) and default_level:
+            defaults[slug] = default_level
+
+    if not models:
+        return SubscriptionCatalog(
+            models=[], provenance="",
+            error="The codex command reported no models it lists.",
+        )
+
+    return SubscriptionCatalog(
+        models=models,
+        provenance="Reported by `codex debug models` on this machine.",
+        efforts=efforts,
+        default_efforts=defaults,
+    )

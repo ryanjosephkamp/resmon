@@ -467,6 +467,8 @@ const sections: TutorialSection[] = [
       'Subscription lanes (1.8c) drive the Claude Code or Codex command you already installed and signed into, so the work is billed to your existing plan. resmon never embeds provider sign-in and never sees your credential; if the CLI is not signed in, the lane says so and stands down.',
       'The command is located by an explicit path you set, then known install locations, then PATH last — because an app launched from the Finder inherits a PATH containing neither CLI, while a terminal finds both.',
       'A subscription lane sends ten papers per call rather than starting a session per paper (1.8.5). The call asks for one numbered summary per paper; a paper the batch did not answer for is re-sent on its own, and if the numbering is inconsistent the whole batch is re-sent one paper at a time rather than risking a summary attached to the wrong paper.',
+      'Model and effort are chosen per subscription lane (1.8.5). Codex reports a real model catalog and the reasoning levels each model supports, so only those levels are offered for that model; Claude Code has no models command, so resmon offers the aliases its help documents and says that is what they are. Leaving either unset means the command\u2019s own default.',
+      'No effort control is shown for API-key providers, because none of the eight has one. A control that silently did nothing for most providers would be worse than no control.',
     ],
     tips: [
       'A good chain puts your best provider first and Ollama last: the local lane needs no key and costs nothing, so it is the natural floor. resmon has no summarizer beyond the lanes you configure — if every lane fails, those papers simply have no AI summary and the execution records why.',

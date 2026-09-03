@@ -198,8 +198,20 @@ def test_a_named_port_is_never_widened_to_the_default(monkeypatch):
     assert mcp.DEFAULT_PORT not in mcp._candidate_ports()
 
 
-def test_a_dead_named_port_is_backend_unavailable(monkeypatch):
+def test_a_dead_named_port_is_backend_unavailable(monkeypatch, tmp_path):
+    """Only the named port is tried, and nothing else is.
+
+    ``PORT_FILE`` is pointed at a path that does not exist, because it is a
+    *second* named source and a real one on disk makes ``tried`` two entries
+    long. This test passed only because no port file happened to be sitting in
+    the repo root; running the dev build puts one there and the assertion
+    changed under it. A test whose result depends on a file nobody mentioned is
+    not testing what its name says.
+    """
     monkeypatch.setenv("RESMON_PORT", "8791")
+    monkeypatch.setattr(
+        "implementation_scripts.config.PORT_FILE", str(tmp_path / "absent.port"),
+    )
 
     def _boom(*a, **k):
         raise httpx.ConnectError("refused")

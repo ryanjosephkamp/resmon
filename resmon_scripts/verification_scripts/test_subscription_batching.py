@@ -576,3 +576,121 @@ def test_the_default_subscription_batch_size_is_five():
     """
     assert DEFAULT_SUBSCRIPTION_BATCH_SIZE == 5
     assert AILane(kind="subscription", provider="codex").batch_size == 5
+
+
+def test_an_empty_summary_string_counts_as_missing(monkeypatch):
+    """A slot filled with whitespace is not an answer."""
+    spawns = _Spawns().install(monkeypatch)
+    spawns.default = (
+        json.dumps({
+            "is_error": False,
+            "structured_output": {"summaries": [
+                {"index": 0, "summary": "S0"},
+                {"index": 1, "summary": "   "},
+                {"index": 2, "summary": ""},
+            ]},
+        }), "", 0,
+    )
+    assert _claude().summarize_many(_docs(3)) == ["S0", None, None]
+
+
+# ---------------------------------------------------------------------------
+# The leakage detector, checked against a leak
+# ---------------------------------------------------------------------------
+
+def test_the_canary_leak_detector_can_actually_detect_a_leak():
+    """D3 reports "0 leaks". A detector that always says zero would too.
+
+    This is the check that makes P9's zero mean something. It is not testing
+    resmon; it is testing the instrument, which is the thing the phase's whole
+    accuracy claim about batching rests on.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "measure",
+        str(PROJECT_ROOT / "resmon_scripts" / "verification_scripts"
+            / "measure_subscription_batching.py"),
+    )
+    measure = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(measure)
+
+    tokens = ["AAA-1", "BBB-2", "CCC-3"]
+
+    clean = ["about AAA-1", "about BBB-2", "about CCC-3"]
+    assert measure.leaked(clean, tokens) == []
+
+    # Document 1's summary mentions document 0's token: that is the failure
+    # batching could introduce, and the detector must name it.
+    dirty = ["about AAA-1", "about BBB-2 and also AAA-1", "about CCC-3"]
+    assert measure.leaked(dirty, tokens) == [(1, "AAA-1")]
+
+    # A document mentioning its own token is not a leak.
+    assert measure.leaked(["AAA-1 AAA-1", "BBB-2", "CCC-3"], tokens) == []
+
+    # An unanswered slot cannot leak.
+    assert measure.leaked([None, "BBB-2", "CCC-3"], tokens) == []
+
+
+# ---------------------------------------------------------------------------
+# Against the real CLIs
+# ---------------------------------------------------------------------------
+#
+# BE PRECISE ABOUT WHAT THIS DOES AND DOES NOT CATCH — the same warning that
+# sits on `test_real_cli_returns_a_summary_not_a_fabricated_tool_transcript`,
+# for the same reason.
+#
+# It does NOT guard batching's accuracy. Leakage between documents in one batch
+# is probabilistic, so one live call is not a detector for it; D3's script
+# measures it as a rate over canary tokens, and even that measures leakage of
+# *unrelated* content, which is the easy case.
+#
+# What it DOES catch, deterministically, is **structured-output contract
+# drift**. `--json-schema` (claude, inline) and `--output-schema` (codex, a
+# file path) are the two flags the batched path is built on, and both CLIs exit
+# non-zero on an unknown option. If a future release renames or drops either,
+# or moves the validated object out of `structured_output`, this fails where
+# the hermetic tests cannot — and the hermetic tests would go on passing
+# against a double that still speaks the old contract.
+#
+# Skipped unless the CLI is discoverable and signed in, because neither is true
+# in CI. It spends the plan's usage window like any other lane call.
+
+@pytest.mark.live_network
+@pytest.mark.parametrize("provider", ["claude_code", "codex"])
+def test_the_real_cli_answers_a_batch_with_one_summary_per_document(provider):
+    from implementation_scripts.ai_cli import discover_cli
+    from implementation_scripts.ai_errors import AIError, AIErrorKind
+
+    found = discover_cli(provider)
+    if not found.found:
+        pytest.skip(f"{provider} CLI not installed: {found.describe()}")
+
+    texts = [
+        "Title: Thermal drift in layered sensors\n\nAbstract: We characterise "
+        "the thermal drift of a layered sensing lattice across 240 hours of "
+        "continuous operation. Drift was 0.4 mK per hour under nominal load.",
+        "Title: A retrieval benchmark for procedural corpora\n\nAbstract: We "
+        "report baseline retrieval scores for sparse and dense methods and "
+        "find that sparse retrieval remains competitive on procedural queries.",
+        "Title: Population dynamics of a ground beetle\n\nAbstract: Field "
+        "surveys across eleven sites record seasonal abundance. Abundance "
+        "peaked in late June and correlated with soil moisture.",
+    ]
+
+    client = SubscriptionLLMClient(provider=provider, binary_path=found.path)
+    try:
+        summaries = client.summarize_many(texts)
+    except AIError as exc:
+        if exc.kind in (AIErrorKind.CLI_AUTH, AIErrorKind.QUOTA):
+            pytest.skip(f"{provider} CLI is installed but not usable: {exc.kind.value}")
+        raise
+
+    assert len(summaries) == len(texts)
+    assert all(s and s.strip() for s in summaries), (
+        f"{provider} returned {sum(1 for s in summaries if s)} of {len(texts)} "
+        f"summaries — the structured-output contract may have drifted"
+    )
+    # Each summary must be about its own document. A cheap sanity check, not
+    # the leakage detector: D3's script measures that as a rate.
+    assert "beetle" not in (summaries[0] or "").lower()

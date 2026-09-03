@@ -982,6 +982,30 @@ sandbox pinned read-only (`-s read-only`). Abstracts are untrusted text fetched 
 internet and an agent CLI can run commands, so the summarizer is given nothing to run and
 nothing to read.
 
+**Choosing a model and an effort level.** A subscription lane offers both, and
+the two commands can honestly offer different things. `codex debug models`
+reports a real catalog — the models it lists, and per model the reasoning
+levels that model supports — so resmon shows that catalog and offers only the
+levels codex says each model takes. `claude` has no models-listing command, so
+what resmon offers is the aliases its `--help` documents (`fable`, `opus`,
+`sonnet`, `haiku`), labelled as exactly that: names the command accepts, not a
+list of models your account can reach, which resmon has not checked. Both
+dropdowns keep a saved value reachable even when the catalog does not list it,
+because either command may accept names resmon cannot enumerate.
+
+**Effort is offered only where effort exists.** The two agent CLIs take a
+reasoning-effort level (`--effort` for Claude Code, `model_reasoning_effort`
+for Codex). None of the eight API-key providers has an equivalent, so no
+effort control is shown for them — a knob that silently did nothing for most
+providers would be worse than no knob. Where a provider does have a thinking
+control, it will be offered per provider once each has been verified. Leaving
+effort unset means the command's own default, which for Codex is whatever your
+`~/.codex/config.toml` sets: resmon will not override a preference you set for
+yourself.
+
+**"Where is the command?" is behind Advanced**, and opens by itself when
+detection failed — which is the only time it matters.
+
 Ollama is the natural last lane: it needs no key and costs nothing. Note honestly that
 **resmon has no summarizer beyond the lanes you configure.** If every lane fails, those
 papers have no AI summary and the execution says why — there is no hidden extractive
