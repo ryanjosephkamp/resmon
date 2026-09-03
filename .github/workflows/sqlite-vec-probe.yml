@@ -1,0 +1,219 @@
+name: sqlite-vec packaging probe
+
+on:
+  push:
+    branches: ['codex/sqlite-vec-spike']
+  pull_request:
+    paths:
+      - '.github/workflows/sqlite-vec-probe.yml'
+      - '.github/workflows/release.yml'
+      - 'resmon_scripts/verification_scripts/probe_sqlite_vec.py'
+      - 'resmon_scripts/frontend/scripts/prepare-backend.js'
+      - 'resmon_scripts/frontend/package*.json'
+      - 'resmon_scripts/frontend/build-resources/entitlements.mac.plist'
+      - 'requirements.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sqlite-vec-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    # The private working mirror should not duplicate these full packaging jobs.
+    if: github.repository == 'ryanjosephkamp/resmon'
+    name: sqlite-vec (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      # These are the FOUR release.yml targets at 3c7298adbef92c7282ca29bd0d397a740676753d.
+      # A wheel tag is only availability evidence; each native runner must load it.
+      matrix:
+        include:
+          - target: macos-arm64
+            os: macos-14
+            triple: aarch64-apple-darwin
+            python: bin/python3
+            resources: release/mac-arm64/resmon.app/Contents/Resources
+            wheel_hash: 1d52e30513bae4cc9778ddbf6145610434081be4c3afe57cd877893bad9f6b6c
+          - target: macos-x64
+            os: macos-15-intel
+            triple: x86_64-apple-darwin
+            python: bin/python3
+            resources: release/mac/resmon.app/Contents/Resources
+            wheel_hash: 1b62a7f0a060d9475575d4e599bbf94a13d85af896bc1ce86ee80d1b5b48e5fb
+          - target: windows-x64
+            os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            python: python.exe
+            resources: release/win-unpacked/resources
+            wheel_hash: 4a28dc12fa4b53d7b1dced22da2488fade444e96b5d16fd2d698cd670675cf32
+          - target: linux-x64
+            os: ubuntu-latest
+            triple: x86_64-unknown-linux-gnu
+            python: bin/python3
+            resources: release/linux-unpacked/resources
+            wheel_hash: 1515727990b49e79bcaf75fdee2ffc7d461f8b66905013231251f1c8938e7786
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: resmon_scripts/frontend
+
+    env:
+      SQLITE_VEC_VERSION: '0.1.9'
+      RUNTIME_PIN: 3.11.16+20260814-${{ matrix.triple }}
+      EVIDENCE: ../../build/sqlite-vec-probe/${{ matrix.target }}
+      PROBE: ../verification_scripts/probe_sqlite_vec.py
+      STAGED_PYTHON: build-resources/backend/python/${{ matrix.python }}
+      PACKAGED_PYTHON: ${{ matrix.resources }}/backend/python/${{ matrix.python }}
+      # prepare-backend.js validates the runtime marker before reusing it.
+      # Otherwise beforePack would replace the probe-only sqlite-vec install.
+      RESMON_REUSE_VENV: '1'
+      # No signing secrets: this establishes unsigned packaging only.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: resmon_scripts/frontend/package-lock.json
+
+      - name: Record source and install build tooling
+        run: |
+          mkdir -p "$EVIDENCE"
+          git rev-parse HEAD > "$EVIDENCE/source-commit.txt"
+          npm install --package-lock=false --no-audit --no-fund
+
+      - name: Stage the release runtime
+        if: runner.os != 'Windows'
+        run: npm run prepare:backend
+
+      - name: Stage the release runtime on Windows
+        # Match release.yml's native Windows shell. Git Bash puts GNU tar first;
+        # it reads Node's D:\ archive path as a remote host, before Python runs.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: npm run prepare:backend
+
+      - name: Install the pinned probe-only wheel
+        run: |
+          printf '%s\n' "sqlite-vec==$SQLITE_VEC_VERSION --hash=sha256:${{ matrix.wheel_hash }}" > "$EVIDENCE/probe-requirement.txt"
+          "$STAGED_PYTHON" -I -m pip install --only-binary=:all: --no-deps --require-hashes \
+            --report "$EVIDENCE/pip-install.json" -r "$EVIDENCE/probe-requirement.txt"
+          "$STAGED_PYTHON" -I "$PROBE" --expected-version "$SQLITE_VEC_VERSION" \
+            --expected-runtime-pin "$RUNTIME_PIN" > "$EVIDENCE/staged.json"
+
+      - name: Build with the existing release packaging configuration
+        if: runner.os != 'Windows'
+        run: npm run dist
+
+      - name: Build with the existing release packaging configuration on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: npm run dist
+
+      - name: Load and query inside electron-builder's packaged resources
+        run: |
+          "$PACKAGED_PYTHON" -I "$PROBE" --resources-dir '${{ matrix.resources }}' \
+            --expected-version "$SQLITE_VEC_VERSION" --expected-runtime-pin "$RUNTIME_PIN" \
+            > "$EVIDENCE/packaged.json"
+          cat "$EVIDENCE/packaged.json"
+
+      - name: Confirm an invalid native binary fails the probe
+        # Check the specific loader-failure result, not just any nonzero exit
+        # (a missing interpreter or a Python syntax error is not this test).
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess, sys
+          evidence = pathlib.Path(os.environ['EVIDENCE']).resolve()
+          suffix = {'darwin': '.dylib', 'win32': '.dll'}.get(sys.platform, '.so')
+          broken = evidence / ('invalid-vec0' + suffix)
+          broken.write_bytes(b'This is deliberately not a native library.\n')
+          command = [str(pathlib.Path(os.environ['PACKAGED_PYTHON']).resolve()), '-I',
+                     str(pathlib.Path(os.environ['PROBE']).resolve()), '--extension', str(broken)]
+          result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+          (evidence / 'broken-binary.json').write_text(result.stdout)
+          (evidence / 'broken-binary.stderr.txt').write_text(result.stderr)
+          report = json.loads(result.stdout)
+          if (result.returncode != 1 or report['extension_loading']['status'] != 'pass'
+                  or report['binary']['status'] != 'found' or report['binary']['load_status'] != 'fail'):
+              raise SystemExit('FAIL: invalid binary did not reach the expected loader-failure path')
+          print('PASS: deliberately invalid native binary reached load_extension and exited 1')
+          PY
+
+      - name: Probe the read-only DMG contents
+        if: runner.os == 'macOS'
+        # Direct execution from a mounted image tests the read-only container,
+        # but does not exercise Finder's quarantine/translocation policy.
+        run: |
+          mountpoint="$PWD/release/probe-volume"
+          mkdir -p "$mountpoint"
+          images=(release/*.dmg)
+          test "${#images[@]}" -eq 1
+          hdiutil attach "${images[0]}" -readonly -nobrowse -mountpoint "$mountpoint"
+          trap 'hdiutil detach "$mountpoint"' EXIT
+          resources="$mountpoint/resmon.app/Contents/Resources"
+          "$resources/backend/python/bin/python3" -I "$PROBE" --resources-dir "$resources" \
+            --expected-version "$SQLITE_VEC_VERSION" --expected-runtime-pin "$RUNTIME_PIN" \
+            > "$EVIDENCE/dmg.json"
+          cat "$EVIDENCE/dmg.json"
+
+      - name: Probe the extracted AppImage contents
+        if: runner.os == 'Linux'
+        run: |
+          images=("$PWD"/release/*.AppImage)
+          test "${#images[@]}" -eq 1
+          probe="$PWD/$PROBE"
+          evidence="$(cd "$EVIDENCE" && pwd)"
+          mkdir -p release/probe-appimage
+          cd release/probe-appimage
+          "${images[0]}" --appimage-extract > "$evidence/appimage-extract.log"
+          resources="$PWD/squashfs-root/resources"
+          "$resources/backend/python/bin/python3" -I "$probe" --resources-dir "$resources" \
+            --expected-version "$SQLITE_VEC_VERSION" --expected-runtime-pin "$RUNTIME_PIN" \
+            > "$evidence/appimage.json"
+          cat "$evidence/appimage.json"
+
+      - name: Install the NSIS artifact and probe its resources
+        if: runner.os == 'Windows'
+        run: |
+          python - <<'PY'
+          import os, pathlib, subprocess
+          evidence = pathlib.Path(os.environ['EVIDENCE']).resolve()
+          installers = list(pathlib.Path('release').glob('*-setup-x64.exe'))
+          if len(installers) != 1:
+              raise SystemExit('Expected exactly one NSIS installer')
+          destination = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sqlite-vec-installed'
+          # NSIS /D must be last and unquoted; GitHub runner temp paths have no spaces.
+          if ' ' in str(destination) or destination.exists():
+              raise SystemExit('Need a fresh installation path without spaces')
+          subprocess.run([str(installers[0].resolve()), '/S', '/D=' + str(destination)],
+                         check=True, timeout=180)
+          resources = destination / 'resources'
+          command = [str(resources / 'backend/python/python.exe'), '-I',
+                     str(pathlib.Path(os.environ['PROBE']).resolve()), '--resources-dir', str(resources),
+                     '--expected-version', os.environ['SQLITE_VEC_VERSION'],
+                     '--expected-runtime-pin', os.environ['RUNTIME_PIN']]
+          with (evidence / 'installed.json').open('w') as out:
+              subprocess.run(command, stdout=out, check=True, timeout=60)
+          print((evidence / 'installed.json').read_text())
+          PY
+
+      - name: Upload evidence even when a probe fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-vec-${{ matrix.target }}-${{ github.sha }}
+          path: build/sqlite-vec-probe/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 14
