@@ -57,20 +57,55 @@ import logging
 import os
 import subprocess
 import tempfile
+import threading
 from typing import Optional
 
 from .ai_errors import AIError, AIErrorKind
-from .prompt_templates import SUMMARIZE_ABSTRACT, SYSTEM_PREAMBLE, length_band
+from .prompt_templates import (
+    BATCH_SUMMARY_SCHEMA,
+    SUMMARIZE_ABSTRACT,
+    SUMMARIZE_ABSTRACTS_BATCH,
+    SYSTEM_PREAMBLE,
+    length_band,
+    render_batch_documents,
+)
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["SubscriptionLLMClient", "DEFAULT_CLI_TIMEOUT_SECONDS"]
+__all__ = [
+    "SubscriptionLLMClient",
+    "DEFAULT_CLI_TIMEOUT_SECONDS",
+    "DEFAULT_BATCH_BASE_SECONDS",
+    "DEFAULT_BATCH_PER_DOCUMENT_SECONDS",
+]
 
 # Agent CLIs are far slower per call than a direct API request: there is a
 # process to start, a session to establish and an agent loop to run. Five
 # minutes is generous for one abstract and still bounded, so a wedged CLI
 # cannot hold a sweep open indefinitely.
 DEFAULT_CLI_TIMEOUT_SECONDS = 300
+
+# A batched call is one process for N documents, so its budget scales with N
+# rather than being the single-document number reused. ``base`` covers what a
+# call costs before any summarizing happens -- process start, session setup,
+# reading the constitution -- and is the part batching exists to pay once.
+#
+# The numbers are set against the wall-clock figures
+# ``verification_scripts/measure_subscription_batching.py`` produces, rounded
+# up generously: a timeout that fires on a merely slow run costs a batch split
+# and then N spawns, which is the outcome batching exists to avoid.
+DEFAULT_BATCH_BASE_SECONDS = 120
+DEFAULT_BATCH_PER_DOCUMENT_SECONDS = 45
+
+
+class _CLITimeout(Exception):
+    """The CLI did not answer in time.
+
+    Private, and distinct from the ``AIError`` a timeout eventually becomes,
+    because the batch path needs to tell a timeout apart from every other
+    document-local failure: a timeout is the one that is worth retrying with a
+    smaller batch, and everything else is not.
+    """
 
 # Substrings that mean "nobody is logged into this CLI" rather than "this
 # request failed". Matched case-insensitively against the CLI's own output.
@@ -111,6 +146,14 @@ class SubscriptionLLMClient:
     lane would.
     """
 
+    # An explicit opt-in rather than a ``hasattr(client, "summarize_many")``
+    # sniff. Duck-typing on a method name is how a ``MagicMock`` — which
+    # answers to every attribute — silently became a batching client in the
+    # suite, and a test double that claims a capability it does not have is
+    # the shape of failure this project keeps paying for. Identity against
+    # ``True`` so a truthy stand-in does not qualify either.
+    supports_batch_calls = True
+
     def __init__(
         self,
         provider: str,
@@ -118,12 +161,28 @@ class SubscriptionLLMClient:
         model: Optional[str] = None,
         timeout: int = DEFAULT_CLI_TIMEOUT_SECONDS,
         lane_label: str = "",
+        effort: Optional[str] = None,
     ) -> None:
         self.provider = provider
         self.binary_path = binary_path
         self.model = model
         self.timeout = timeout
+        self.effort = (effort or "").strip() or None
         self.lane_label = lane_label or provider
+        # Cancellation. A batch is one long-running process, so "cancel the
+        # sweep" has to reach inside a call rather than only between them --
+        # otherwise a user who cancels waits out a ten-document batch. The
+        # engine calls ``cancel()`` from its heartbeat thread; the lock is
+        # what makes that safe against the thread doing the spawning.
+        self._lock = threading.Lock()
+        self._active: set = set()
+        self._cancelled = False
+        # How many batches had to fall back to per-document calls. Reported on
+        # the lane rather than inferred, because "batching worked" and
+        # "batching was silently abandoned" produce identical summaries.
+        self.batch_fallbacks = 0
+        self.batch_splits = 0
+        self.batch_calls = 0
         logger.info(
             "SubscriptionLLMClient initialized: provider=%s, binary=%s, model=%s",
             provider, binary_path, model or "(CLI default)",
@@ -143,9 +202,16 @@ class SubscriptionLLMClient:
         # constitution on the codex path. Nothing of the user's to find even if
         # the abstract asks it to go looking.
         with tempfile.TemporaryDirectory(prefix="resmon-ai-") as workdir:
-            if self.provider == "codex":
-                return self._run_codex(prompt, workdir)
-            return self._run_claude_code(prompt, workdir)
+            try:
+                if self.provider == "codex":
+                    return self._run_codex(prompt, workdir)
+                return self._run_claude_code(prompt, workdir)
+            except _CLITimeout as timed_out:
+                raise self._error(
+                    AIErrorKind.UNKNOWN,
+                    f"The {self.provider} CLI did not answer within "
+                    f"{timed_out.args[0]} seconds for this document.",
+                ) from None
 
     def _build_prompt(self, text: str, prompt_params: dict | None) -> str:
         defaults = {
@@ -157,6 +223,200 @@ class SubscriptionLLMClient:
         params.setdefault("abstract", text)
         params.setdefault("word_count_band", length_band(params.get("length", "")))
         return SUMMARIZE_ABSTRACT.format(**params)
+
+    # ------------------------------------------------------------------
+    # Summarize many, in one call
+    # ------------------------------------------------------------------
+
+    def summarize_many(
+        self, texts: list[str], prompt_params: dict | None = None,
+    ) -> list[Optional[str]]:
+        """Summarize *texts* in one CLI call. ``None`` where a document failed.
+
+        The contract that makes this composable with the chain:
+
+        * **Lane-fatal failures raise.** Authentication, quota, a missing
+          binary — anything that will fail identically for the next document —
+          comes out as an ``AIError`` and demotes the lane. None of the
+          documents is retried on this lane, because there is nothing here to
+          retry against.
+        * **Everything else returns ``None`` in that document's slot.** The
+          caller retries those documents individually, once. One malformed
+          answer costs a batch, not the run.
+
+        A timeout is the one failure worth answering with a smaller batch
+        rather than with N individual calls: the batch is halved and each half
+        re-sent, recursively. N spawns is therefore the ceiling and not the
+        default.
+        """
+        texts = list(texts)
+        if not texts:
+            return []
+        return self._batched(texts, prompt_params)
+
+    def _batched(
+        self, texts: list[str], prompt_params: dict | None,
+    ) -> list[Optional[str]]:
+        try:
+            return self._one_batch_call(texts, prompt_params)
+        except _CLITimeout:
+            if len(texts) == 1:
+                logger.warning(
+                    "%s did not answer within the batch timeout for a single "
+                    "document; giving up on it.", self.provider,
+                )
+                return [None]
+            mid = len(texts) // 2
+            self.batch_splits += 1
+            logger.info(
+                "%s batch of %d timed out; halving to %d + %d rather than "
+                "falling straight to one call per document.",
+                self.provider, len(texts), mid, len(texts) - mid,
+            )
+            return (
+                self._batched(texts[:mid], prompt_params)
+                + self._batched(texts[mid:], prompt_params)
+            )
+
+    def _one_batch_call(
+        self, texts: list[str], prompt_params: dict | None,
+    ) -> list[Optional[str]]:
+        prompt = self._build_batch_prompt(texts, prompt_params)
+        timeout = self.batch_timeout(len(texts))
+        self.batch_calls += 1
+
+        with tempfile.TemporaryDirectory(prefix="resmon-ai-") as workdir:
+            try:
+                if self.provider == "codex":
+                    payload = self._run_codex_batch(prompt, workdir, timeout)
+                else:
+                    payload = self._run_claude_code_batch(prompt, workdir, timeout)
+            except AIError as exc:
+                # Lane-fatal goes straight up: the next document will fail the
+                # same way, so retrying any of them here would only spend the
+                # window rediscovering it.
+                if exc.lane_fatal:
+                    raise
+                logger.warning(
+                    "%s batch of %d failed document-locally (%s); the "
+                    "documents will be retried individually.",
+                    self.provider, len(texts), exc.kind.value,
+                )
+                self.batch_fallbacks += 1
+                return [None] * len(texts)
+
+        mapped = self._map_batch(payload, len(texts))
+        if any(m is None for m in mapped):
+            self.batch_fallbacks += 1
+        return mapped
+
+    def batch_timeout(self, count: int) -> int:
+        """Seconds to allow one batched call of *count* documents."""
+        return int(
+            DEFAULT_BATCH_BASE_SECONDS
+            + DEFAULT_BATCH_PER_DOCUMENT_SECONDS * max(1, count)
+        )
+
+    def _build_batch_prompt(
+        self, texts: list[str], prompt_params: dict | None,
+    ) -> str:
+        defaults = {
+            "tone": "technical",
+            "length": "standard",
+            "extraction_goals": "key findings, methodology, contributions",
+        }
+        params = {**defaults, **{k: v for k, v in (prompt_params or {}).items() if v}}
+        return SUMMARIZE_ABSTRACTS_BATCH.format(
+            count=len(texts),
+            tone=params["tone"],
+            length=params["length"],
+            word_count_band=length_band(str(params.get("length", ""))),
+            extraction_goals=params["extraction_goals"],
+            documents=render_batch_documents(texts),
+        )
+
+    def _map_batch(self, payload, count: int) -> list[Optional[str]]:
+        """Turn the CLI's validated object into one slot per document.
+
+        Three rules, and the second is the one that matters:
+
+        * A **missing** entry is fine. That document is retried individually.
+        * A **duplicate or out-of-range index** discards the whole batch. If
+          the model emitted index 3 twice, one of those summaries belongs to a
+          different paper and there is no way to tell which — and storing a
+          summary against the wrong paper is a quieter, worse failure than
+          storing none. Every document in the batch is retried individually.
+        * An **empty summary** is a missing one.
+        """
+        out: list[Optional[str]] = [None] * count
+        items = payload.get("summaries") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            logger.warning(
+                "%s returned no 'summaries' array; retrying the batch "
+                "individually.", self.provider,
+            )
+            return out
+
+        seen: set = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            index = item.get("index")
+            summary = item.get("summary")
+            # ``bool`` is an ``int`` in Python and True would read as index 1.
+            if not isinstance(index, int) or isinstance(index, bool):
+                logger.warning(
+                    "%s returned a non-integer index; discarding the batch.",
+                    self.provider,
+                )
+                return [None] * count
+            if not 0 <= index < count:
+                logger.warning(
+                    "%s returned index %r for a batch of %d; the mapping "
+                    "cannot be trusted, so the whole batch is retried "
+                    "individually.", self.provider, index, count,
+                )
+                return [None] * count
+            if index in seen:
+                logger.warning(
+                    "%s returned index %d twice; one of those summaries "
+                    "belongs to another paper, so the whole batch is retried "
+                    "individually.", self.provider, index,
+                )
+                return [None] * count
+            seen.add(index)
+            if isinstance(summary, str) and summary.strip():
+                out[index] = summary.strip()
+
+        missing = [i for i, value in enumerate(out) if value is None]
+        if missing:
+            logger.info(
+                "%s returned %d of %d summaries; %d will be retried "
+                "individually.",
+                self.provider, count - len(missing), count, len(missing),
+            )
+        return out
+
+    # ------------------------------------------------------------------
+    # Cancellation
+    # ------------------------------------------------------------------
+
+    def cancel(self) -> None:
+        """Terminate any call in flight and refuse to start another.
+
+        A batched call is one process holding N documents, so cancellation
+        that only takes effect between calls would leave a user waiting out a
+        whole batch after pressing cancel. Idempotent, and safe to call from a
+        thread other than the one running the CLI.
+        """
+        with self._lock:
+            self._cancelled = True
+            active = list(self._active)
+        for process in active:
+            try:
+                process.terminate()
+            except Exception:  # pragma: no cover - process already gone
+                logger.debug("Could not terminate %s", process, exc_info=True)
 
     # ------------------------------------------------------------------
     # Per-provider invocation
@@ -173,6 +433,16 @@ class SubscriptionLLMClient:
         ``ANTHROPIC_API_KEY`` only and never touch OAuth or the keychain, which
         would defeat the entire purpose of a subscription lane.
         """
+        completed = self._execute(self._claude_argv(prompt), workdir, self.timeout)
+        return self._extract_claude_code(completed)
+
+    def _claude_argv(self, prompt: str, schema: Optional[dict] = None) -> list[str]:
+        """The argv both the single and batched claude calls are built from.
+
+        One function so a flag cannot be present on one path and absent on the
+        other. That is exactly how ``--append-system-prompt`` came to be
+        missing from two lanes.
+        """
         argv = [
             self.binary_path,
             "-p",
@@ -182,12 +452,73 @@ class SubscriptionLLMClient:
             "--disable-slash-commands",
             "--append-system-prompt", str(SYSTEM_PREAMBLE),
         ]
+        if schema is not None:
+            # Inline JSON, not a path: `--json-schema <schema>` takes the
+            # document itself (verified against claude 2.1.258, whose --help
+            # gives an inline object as its example).
+            argv += ["--json-schema", json.dumps(schema)]
         if self.model:
             argv += ["--model", self.model]
+        if self.effort:
+            argv += ["--effort", self.effort]
         argv.append(prompt)
+        return argv
 
-        completed = self._execute(argv, workdir)
-        return self._extract_claude_code(completed)
+    def _run_claude_code_batch(self, prompt: str, workdir: str, timeout: int) -> dict:
+        """One ``claude`` call for N documents, returning the validated object.
+
+        With ``--json-schema`` the CLI puts the validated object in the result
+        envelope's ``structured_output`` field as well as serialising it into
+        ``result``. ``structured_output`` is what is read: it is already
+        parsed, and a ``result`` string is what an unvalidated answer also
+        looks like.
+        """
+        completed = self._execute(
+            self._claude_argv(prompt, BATCH_SUMMARY_SCHEMA), workdir, timeout,
+        )
+        raw = (completed.stdout or "").strip()
+        if not raw:
+            self._raise_for_output(completed, "")
+
+        try:
+            payload = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            self._raise_for_output(completed, raw)
+
+        if not isinstance(payload, dict):
+            self._raise_for_output(completed, raw)
+
+        # is_error first, before any shape check. An authentication failure
+        # arrives with is_error true and subtype still "success", so a count
+        # check that ran first would report a lane-fatal auth problem as a
+        # document-local malformed answer and keep re-presenting a dead
+        # session once per document.
+        if payload.get("is_error"):
+            result = payload.get("result")
+            self._raise_for_output(
+                completed, result if isinstance(result, str) else raw,
+            )
+
+        if payload.get("subtype") == "error_max_structured_output_retries":
+            # The CLI could not get the model to satisfy the schema. Document-
+            # local: the same documents may well succeed one at a time.
+            raise self._error(
+                AIErrorKind.UNKNOWN,
+                f"The {self.provider} CLI could not produce output matching "
+                f"the summary schema for this batch.",
+            )
+
+        structured = payload.get("structured_output")
+        if not isinstance(structured, dict):
+            # A `success` with no structured_output is a failure, not an
+            # answer -- documented as such by the Agent SDK, and the reason
+            # this does not fall back to parsing `result` by hand.
+            raise self._error(
+                AIErrorKind.UNKNOWN,
+                f"The {self.provider} CLI reported success but returned no "
+                f"validated output for this batch.",
+            )
+        return structured
 
     def _run_codex(self, prompt: str, workdir: str) -> str:
         """``codex exec -o FILE``.
@@ -212,6 +543,19 @@ class SubscriptionLLMClient:
             handle.write(str(SYSTEM_PREAMBLE))
 
         out_path = os.path.join(workdir, "resmon-summary.txt")
+        completed = self._execute(
+            self._codex_argv(prompt, workdir, out_path), workdir, self.timeout,
+        )
+        return self._extract_codex(completed, out_path)
+
+    def _codex_argv(
+        self,
+        prompt: str,
+        workdir: str,
+        out_path: str,
+        schema_path: Optional[str] = None,
+    ) -> list[str]:
+        """The argv both the single and batched codex calls are built from."""
         argv = [
             self.binary_path,
             "exec",
@@ -221,31 +565,116 @@ class SubscriptionLLMClient:
             "-C", workdir,
             "-o", out_path,
         ]
+        if schema_path is not None:
+            # codex takes a *path*, where claude takes the document inline.
+            # Verified against codex-cli 0.153.0-alpha.5:
+            # `--output-schema <FILE>  Path to a JSON Schema file`.
+            argv += ["--output-schema", schema_path]
         if self.model:
             argv += ["-m", self.model]
+        if self.effort:
+            argv += ["-c", f"model_reasoning_effort={self.effort}"]
         argv.append(prompt)
+        return argv
 
-        completed = self._execute(argv, workdir)
-        return self._extract_codex(completed, out_path)
+    def _run_codex_batch(self, prompt: str, workdir: str, timeout: int) -> dict:
+        """One ``codex`` call for N documents, returning the validated object.
+
+        codex writes the final message to the ``-o`` file, and with
+        ``--output-schema`` that message *is* the JSON object. There is no
+        envelope to read it out of, which is why this parses the file rather
+        than stdout.
+        """
+        with open(os.path.join(workdir, "AGENTS.md"), "w", encoding="utf-8") as handle:
+            handle.write(str(SYSTEM_PREAMBLE))
+
+        schema_path = os.path.join(workdir, "resmon-summary-schema.json")
+        with open(schema_path, "w", encoding="utf-8") as handle:
+            json.dump(BATCH_SUMMARY_SCHEMA, handle)
+
+        out_path = os.path.join(workdir, "resmon-summaries.json")
+        completed = self._execute(
+            self._codex_argv(prompt, workdir, out_path, schema_path), workdir, timeout,
+        )
+
+        try:
+            with open(out_path, "r", encoding="utf-8") as handle:
+                message = handle.read().strip()
+        except OSError:
+            message = ""
+
+        if not message:
+            # No final message means the run did not get as far as answering.
+            # stdout carries the banner and any error text, so it is what gets
+            # classified -- and it is never read as a summary.
+            self._raise_for_output(completed, "")
+
+        try:
+            payload = json.loads(message)
+        except (json.JSONDecodeError, TypeError):
+            raise self._error(
+                AIErrorKind.UNKNOWN,
+                f"The {self.provider} CLI returned output that is not the "
+                f"summary schema for this batch.",
+            ) from None
+        if not isinstance(payload, dict):
+            raise self._error(
+                AIErrorKind.UNKNOWN,
+                f"The {self.provider} CLI returned output that is not the "
+                f"summary schema for this batch.",
+            )
+        return payload
 
     # ------------------------------------------------------------------
     # Running the process
     # ------------------------------------------------------------------
 
-    def _execute(self, argv: list[str], workdir: str) -> subprocess.CompletedProcess:
+    def _execute(
+        self, argv: list[str], workdir: str, timeout: Optional[int] = None,
+    ) -> subprocess.CompletedProcess:
+        """Spawn the CLI and wait for it, registering it so it can be killed.
+
+        ``Popen`` rather than ``subprocess.run`` for one reason: a batched call
+        is a single process holding ten documents, and cancellation has to be
+        able to reach into it. ``run`` gives no handle to terminate. The
+        registration and the cancelled-flag check are both under the lock, so a
+        ``cancel()`` arriving between the check and the spawn still finds the
+        process in ``_active``.
+        """
+        timeout = self.timeout if timeout is None else timeout
         try:
-            return subprocess.run(
-                argv,
-                cwd=workdir,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                # Closed stdin. Both CLIs will otherwise sit waiting to read a
-                # prompt from it -- codex says so out loud ("Reading additional
-                # input from stdin...") -- and a sweep that blocks forever on a
-                # pipe is indistinguishable from one that has crashed.
-                stdin=subprocess.DEVNULL,
-                check=False,
+            with self._lock:
+                if self._cancelled:
+                    raise self._error(
+                        AIErrorKind.UNKNOWN,
+                        f"The run was cancelled before the {self.provider} CLI "
+                        f"was started.",
+                    )
+                process = subprocess.Popen(
+                    argv,
+                    cwd=workdir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    # Closed stdin. Both CLIs will otherwise sit waiting to read
+                    # a prompt from it -- codex says so out loud ("Reading
+                    # additional input from stdin...") -- and a sweep that
+                    # blocks forever on a pipe is indistinguishable from one
+                    # that has crashed.
+                    stdin=subprocess.DEVNULL,
+                )
+                self._active.add(process)
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+                raise
+            finally:
+                with self._lock:
+                    self._active.discard(process)
+            return subprocess.CompletedProcess(
+                argv, process.returncode, stdout=stdout, stderr=stderr,
             )
         except FileNotFoundError:
             raise self._error(
@@ -259,16 +688,17 @@ class SubscriptionLLMClient:
                 f"resmon is not allowed to run {self.binary_path}.",
             ) from None
         except subprocess.TimeoutExpired:
+            # Raised as the private ``_CLITimeout`` so the batch path can tell
+            # it apart from every other document-local failure: a timeout is
+            # the one worth answering with a smaller batch. ``summarize``
+            # converts it back into the AIError it has always been.
+            #
             # Document-local on purpose. A timeout is not evidence the lane is
             # dead -- one unusually long paper can cause it -- and demoting a
             # working subscription lane over a single slow document would
             # silently downgrade every summary after it. The per-execution
             # document cap already bounds what repeated timeouts can cost.
-            raise self._error(
-                AIErrorKind.UNKNOWN,
-                f"The {self.provider} CLI did not answer within "
-                f"{self.timeout} seconds for this document.",
-            ) from None
+            raise _CLITimeout(timeout) from None
         except OSError as exc:
             raise self._error(
                 AIErrorKind.CLI_MISSING,

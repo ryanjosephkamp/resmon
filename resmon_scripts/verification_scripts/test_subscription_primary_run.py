@@ -57,6 +57,76 @@ def fake_claude(tmp_path, *, summary="A faithful summary of the abstract."):
     return script, argv_log
 
 
+_FAKE_CLI_SOURCE = """#!{python}
+import json, re, sys
+
+# Count this invocation. The engine-level claim "one process for ten
+# documents" is about processes, so it is counted at a real fork/exec.
+with open({counter!r}, "a") as handle:
+    handle.write("x\\n")
+with open({argv_log!r}, "a") as handle:
+    handle.write("\\n".join(sys.argv[1:]) + "\\n--\\n")
+
+prompt = sys.argv[-1]
+indices = [int(m) for m in re.findall(r"^===== DOCUMENT (\\d+) =====$", prompt, re.M)]
+if not indices:
+    print(json.dumps({{"is_error": False, "result": {single!r}}}))
+    sys.exit(0)
+print(json.dumps({{
+    "is_error": False,
+    "subtype": "success",
+    "structured_output": {{
+        "summaries": [
+            {{"index": i, "summary": "Batched summary %d." % i}} for i in indices
+        ],
+    }},
+}}))
+"""
+
+
+def batching_fake_claude(tmp_path, *, single="A single summary.", sleep=0.0):
+    """A CLI that answers ``--json-schema`` with one entry per document.
+
+    Written in Python rather than shell because it has to parse the prompt it
+    was handed: a batch of three answers for three and a batch of one answers
+    for one, so the same script serves the batched path and the per-document
+    fallback path without the test choosing which is which.
+
+    It counts its own invocations in a file. That is the boundary the "one
+    process for the whole batch" claim has to be checked at — a real
+    fork/exec, not a counter on a double, which is a double that could not
+    fail the way a process fails.
+    """
+    counter = tmp_path / "spawns.txt"
+    argv_log = tmp_path / "argv.txt"
+    script = tmp_path / "claude"
+    source = _FAKE_CLI_SOURCE.format(
+        python=sys.executable,
+        counter=str(counter),
+        argv_log=str(argv_log),
+        single=single,
+    )
+    if sleep:
+        # A batch that takes a while, so a cancel can arrive during it. This
+        # is the only way to observe that cancellation reaches *inside* a
+        # call rather than only between calls -- with an instant CLI the
+        # distinction is invisible.
+        source = source.replace(
+            "prompt = sys.argv[-1]",
+            f"import time as _t; _t.sleep({sleep!r})\nprompt = sys.argv[-1]",
+        )
+    script.write_text(source)
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    return script, counter
+
+
+def spawn_count(counter) -> int:
+    try:
+        return len([line for line in counter.read_text().splitlines() if line])
+    except OSError:
+        return 0
+
+
 def _mock_arxiv():
     client = MagicMock()
     client.get_name.return_value = "arxiv"
@@ -222,3 +292,172 @@ def test_the_summaries_reach_the_documents(client, tmp_path):
     report = client.get(f"/api/executions/{exec_id}/report")
     assert report.status_code == 200
     assert "Sentinel summary text." in report.text
+
+
+# ---------------------------------------------------------------------------
+# P3 / P7 at the engine boundary — real processes, real progress events
+# ---------------------------------------------------------------------------
+
+def _mock_arxiv_n(count: int):
+    client = MagicMock()
+    client.get_name.return_value = "arxiv"
+    client.search.return_value = [
+        NormalizedResult(
+            source_repository="arxiv", external_id=f"arxiv_{i}", doi=None,
+            title=f"Paper {i}", authors=["A. Author"],
+            abstract=f"Abstract {i}, long enough to be worth summarizing.",
+            publication_date="2026-04-10", url=f"https://example.com/{i}",
+            categories=["cs.AI"],
+        )
+        for i in range(count)
+    ]
+    return client
+
+
+def _run_dive(client, tmp_path, cli_path, *, papers, settings_extra=None):
+    settings = {
+        "ai_provider": "claude_code",
+        "ai_cli_path": str(cli_path),
+        "ai_summary_length": "standard",
+    }
+    settings.update(settings_extra or {})
+    assert client.put("/api/settings/ai", json={"settings": settings}).status_code == 200
+
+    reports = tmp_path / "reports"
+    reports.mkdir(exist_ok=True)
+    with (
+        patch("implementation_scripts.sweep_engine.get_client",
+              return_value=_mock_arxiv_n(papers)),
+        patch("implementation_scripts.sweep_engine.REPORTS_DIR", reports),
+    ):
+        resp = client.post("/api/search/dive", json={
+            "repository": "arxiv",
+            "query": "neural networks",
+            "max_results": papers,
+            "ai_enabled": True,
+        })
+        assert resp.status_code == 200
+        exec_id = resp.json()["execution_id"]
+
+        import time as _t
+        for _ in range(240):
+            ex = client.get(f"/api/executions/{exec_id}").json()
+            if ex["status"] in ("completed", "failed", "cancelled"):
+                break
+            _t.sleep(0.25)
+    return exec_id, ex
+
+
+def test_a_sweep_of_ten_papers_spawns_one_cli_process(client, tmp_path):
+    """P3 at the boundary that matters: a real fork/exec, counted.
+
+    Ten papers, one process. Before batching this was ten processes, each
+    starting a session and reading the constitution, which is the whole reason
+    the lane was capped at 25 documents and kept out of the default.
+    """
+    script, counter = batching_fake_claude(tmp_path)
+    exec_id, ex = _run_dive(client, tmp_path, script, papers=10)
+
+    assert ex["status"] == "completed", ex
+    assert spawn_count(counter) == 1, (
+        f"ten papers spawned {spawn_count(counter)} CLI processes"
+    )
+
+    report = client.get(f"/api/executions/{exec_id}/report").text
+    for i in range(10):
+        assert f"Batched summary {i}." in report
+
+
+def test_the_batch_size_is_what_slices_the_run(client, tmp_path):
+    """Twenty-five papers at ten per call is three processes, not twenty-five."""
+    script, counter = batching_fake_claude(tmp_path)
+    _, ex = _run_dive(
+        client, tmp_path, script, papers=25,
+        settings_extra={"ai_subscription_doc_cap": "25"},
+    )
+    assert ex["status"] == "completed", ex
+    assert spawn_count(counter) == 3
+
+
+def test_the_live_log_announces_the_batch_and_then_each_paper(client, tmp_path):
+    """The renderer's ai_progress consumer is unchanged, so both must arrive."""
+    script, _ = batching_fake_claude(tmp_path)
+    exec_id, ex = _run_dive(client, tmp_path, script, papers=10)
+    assert ex["status"] == "completed", ex
+
+    messages = [
+        e.get("message") or ""
+        for e in _events(client, exec_id)
+        if e.get("type") == "ai_progress"
+    ]
+    assert any("papers 1–10 of 10 in one call" in m for m in messages), messages
+    # And the per-document completions the existing consumer counts on.
+    assert sum(1 for m in messages if "Summarizing document" in m) == 10
+
+
+def test_the_lane_row_counts_documents_not_calls(client, tmp_path):
+    script, _ = batching_fake_claude(tmp_path)
+    exec_id, ex = _run_dive(client, tmp_path, script, papers=10)
+    assert ex["status"] == "completed", ex
+
+    conn = resmon_mod._get_db()
+    try:
+        row = get_execution_ai(conn, exec_id)[0]
+    finally:
+        resmon_mod._close_db(conn)
+
+    assert row["docs_attempted"] == 10, "one call, ten documents"
+    assert row["docs_succeeded"] == 10
+    assert row["outcome"] == "ok"
+
+
+def test_cancelling_during_a_batch_terminates_the_cli(client, tmp_path):
+    """P7: the process holding ten documents is killed, not waited out.
+
+    A batched call is one long silence where ten short ones used to be, so a
+    cancel honoured only between calls would make the user sit through the
+    whole batch. The assertion is on the clock as well as the status: a
+    30-second CLI, cancelled, must not take 30 seconds to stop.
+    """
+    import time as _t
+
+    script, counter = batching_fake_claude(tmp_path, sleep=30.0)
+    settings = {"ai_provider": "claude_code", "ai_cli_path": str(script)}
+    assert client.put("/api/settings/ai", json={"settings": settings}).status_code == 200
+
+    reports = tmp_path / "reports"
+    reports.mkdir(exist_ok=True)
+    with (
+        patch("implementation_scripts.sweep_engine.get_client",
+              return_value=_mock_arxiv_n(10)),
+        patch("implementation_scripts.sweep_engine.REPORTS_DIR", reports),
+    ):
+        resp = client.post("/api/search/dive", json={
+            "repository": "arxiv", "query": "q", "max_results": 10,
+            "ai_enabled": True,
+        })
+        exec_id = resp.json()["execution_id"]
+
+        # Wait until the CLI is actually running, then cancel.
+        for _ in range(120):
+            if spawn_count(counter) >= 1:
+                break
+            _t.sleep(0.25)
+        assert spawn_count(counter) == 1, "the batch never started"
+
+        cancelled_at = _t.monotonic()
+        assert client.post(f"/api/executions/{exec_id}/cancel").status_code == 200
+
+        for _ in range(80):
+            ex = client.get(f"/api/executions/{exec_id}").json()
+            if ex["status"] in ("completed", "failed", "cancelled"):
+                break
+            _t.sleep(0.25)
+
+    elapsed = _t.monotonic() - cancelled_at
+    assert ex["status"] == "cancelled", ex
+    assert elapsed < 20, (
+        f"cancellation took {elapsed:.1f}s against a 30s CLI call — it waited "
+        f"the batch out instead of terminating it"
+    )
+    assert spawn_count(counter) == 1, "no further batch may be spawned after cancel"

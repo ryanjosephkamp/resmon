@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "AILane",
+    "DEFAULT_SUBSCRIPTION_BATCH_SIZE",
     "LANE_KINDS",
     "resolve_chain",
     "lane_from_legacy_settings",
@@ -66,6 +67,21 @@ SUBSCRIPTION_PROVIDERS = ("claude_code", "codex")
 # Reaching the cap is not a failure. The lane stands down, the chain carries on
 # with the next lane, and execution_ai records that the cap was the reason.
 DEFAULT_SUBSCRIPTION_DOC_CAP = 25
+
+# How many documents one subscription-lane CLI call carries (1.8.5).
+#
+# One call per paper was the dominant cost of this lane: a process to start, a
+# session to establish and the constitution to read, per abstract. Ten is the
+# starting value, measured against both installed CLIs before the default AI
+# route was changed (the measurement script is
+# ``verification_scripts/measure_subscription_batching.py``). The number is a
+# lane field rather than a constant so a slower machine or a stricter plan can
+# lower it without a release.
+#
+# Every other lane kind is 1 by construction. An HTTP request to an API-key
+# provider has no fixed cost worth amortising, and batching there would trade a
+# real accuracy risk -- ten abstracts in one context -- for nothing.
+DEFAULT_SUBSCRIPTION_BATCH_SIZE = 10
 
 _PROVIDER_DISPLAY = {
     "openai": "OpenAI",
@@ -98,6 +114,8 @@ class AILane:
     base_url: Optional[str] = None        # custom api_key provider
     binary_path: Optional[str] = None     # subscription
     doc_cap: Optional[int] = None         # subscription; None means uncapped
+    batch_size: Optional[int] = None      # documents per call; 1 means no batching
+    effort: Optional[str] = None          # subscription; the CLI's own effort level
     label: str = ""
 
     def __post_init__(self) -> None:
@@ -112,6 +130,17 @@ class AILane:
         # an uncapped subscription lane by omission.
         if self.kind == "subscription" and self.doc_cap is None:
             object.__setattr__(self, "doc_cap", DEFAULT_SUBSCRIPTION_DOC_CAP)
+        # Batch size defaults the same way and for the same reason: a lane
+        # built from a hand-edited chain, from the legacy settings or straight
+        # from the constructor must not differ in how many documents one call
+        # carries. Non-subscription lanes are pinned to 1 rather than left
+        # unset, so "does this lane batch" is answerable without knowing the
+        # kind.
+        if self.batch_size is None:
+            object.__setattr__(
+                self, "batch_size",
+                DEFAULT_SUBSCRIPTION_BATCH_SIZE if self.kind == "subscription" else 1,
+            )
         if not self.label:
             # frozen dataclass — assign through object.__setattr__
             object.__setattr__(self, "label", describe_lane(self))
@@ -231,6 +260,29 @@ def _lane_from_entry(entry: Any, index: int) -> Optional[AILane]:
                     "ai_chain[%d] has doc_cap %d; using the default.", index, parsed,
                 )
 
+    # A batch size that will not parse, or that is zero or negative, falls
+    # back to the default. Unlike doc_cap this is not a guard rail -- a wrong
+    # value costs speed, not the user's plan -- but silently running batches of
+    # -3 would be worse than either.
+    batch_size: Optional[int] = None
+    raw_batch = entry.get("batch_size")
+    if raw_batch is not None:
+        try:
+            parsed_batch = int(raw_batch)
+        except (TypeError, ValueError):
+            logger.warning(
+                "ai_chain[%d] has a non-numeric batch_size %r; using the default.",
+                index, raw_batch,
+            )
+        else:
+            if parsed_batch > 0:
+                batch_size = parsed_batch
+            else:
+                logger.warning(
+                    "ai_chain[%d] has batch_size %d; using the default.",
+                    index, parsed_batch,
+                )
+
     try:
         return AILane(
             kind=kind,
@@ -241,6 +293,8 @@ def _lane_from_entry(entry: Any, index: int) -> Optional[AILane]:
             base_url=_opt("base_url"),
             binary_path=_opt("binary_path"),
             doc_cap=doc_cap,
+            batch_size=batch_size,
+            effort=_opt("effort"),
             label=_opt("label") or "",
         )
     except ValueError as exc:  # pragma: no cover - kind already validated
@@ -284,6 +338,7 @@ def lane_from_legacy_settings(settings: dict[str, Any]) -> Optional[AILane]:
             model=str(settings.get("ai_model") or "").strip() or None,
             binary_path=str(settings.get("ai_cli_path") or "").strip() or None,
             doc_cap=doc_cap,
+            effort=str(settings.get("ai_effort") or "").strip() or None,
         )
 
     return AILane(

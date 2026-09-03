@@ -42,24 +42,63 @@ class _FakeCompleted:
         self.returncode = returncode
 
 
+class _FakeProcess:
+    """Stands in for a ``Popen``, not for ``subprocess.run``.
+
+    The client moved to ``Popen`` in 1.8.5 for one reason: a batched call is a
+    single process holding ten documents and cancellation has to be able to
+    reach into it, which ``run`` gives no handle for. So the double has to be a
+    process object — it records ``terminate()`` because that is now a property
+    worth asserting on.
+    """
+
+    def __init__(self, argv, record, scripted):
+        self.argv = argv
+        self._record = record
+        self._scripted = scripted
+        self._raised = False
+        self.returncode = None
+        self.terminated = False
+        self.killed = False
+
+    def communicate(self, timeout=None):
+        self._record["timeout"] = timeout
+        raises = self._scripted["raises"]
+        if raises is not None and not self._raised:
+            self._raised = True
+            raise raises
+        if self._scripted["writes"] is not None and not self.terminated:
+            # Mimic codex's -o file, which is how its output is collected.
+            out_index = self.argv.index("-o") + 1
+            with open(self.argv[out_index], "w", encoding="utf-8") as handle:
+                handle.write(self._scripted["writes"])
+        result = self._scripted["result"]
+        self.returncode = result.returncode
+        return result.stdout, result.stderr
+
+    def terminate(self):
+        self.terminated = True
+        self.returncode = -15
+
+    def kill(self):
+        self.killed = True
+        self.returncode = -9
+
+
 @pytest.fixture
 def runs(monkeypatch):
     """Capture every subprocess invocation and script its result."""
     calls = []
     scripted = {"result": _FakeCompleted(), "raises": None, "writes": None}
 
-    def _run(argv, **kwargs):
-        calls.append({"argv": argv, "kwargs": kwargs})
-        if scripted["raises"] is not None:
-            raise scripted["raises"]
-        if scripted["writes"] is not None:
-            # Mimic codex's -o file, which is how its output is collected.
-            out_index = argv.index("-o") + 1
-            with open(argv[out_index], "w", encoding="utf-8") as handle:
-                handle.write(scripted["writes"])
-        return scripted["result"]
+    def _popen(argv, **kwargs):
+        record = {"argv": argv, "kwargs": kwargs, "timeout": None}
+        process = _FakeProcess(argv, record, scripted)
+        record["process"] = process
+        calls.append(record)
+        return process
 
-    monkeypatch.setattr(subprocess, "run", _run)
+    monkeypatch.setattr(subprocess, "Popen", _popen)
     return {"calls": calls, "script": scripted}
 
 
@@ -277,7 +316,7 @@ def test_a_timeout_is_always_applied(runs):
         stdout=json.dumps({"is_error": False, "result": "s"}),
     )
     _claude(timeout=42).summarize("t")
-    assert runs["calls"][0]["kwargs"]["timeout"] == 42
+    assert runs["calls"][0]["timeout"] == 42
 
 
 # ---------------------------------------------------------------------------

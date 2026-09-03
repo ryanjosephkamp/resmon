@@ -580,12 +580,21 @@ const AISettings: React.FC = () => {
                   CLI is not signed in, the lane reports that and stands down.
                 </p>
                 <p>
-                  It is much slower than an API key and spends the same usage
-                  window you use for your own work, so it is capped at{' '}
-                  <strong>25 papers per run</strong> by default and is not the
-                  default for bulk summarization. Reaching the cap is not an
-                  error — the remaining papers go to the next lane and the
-                  execution records the cap as the reason.
+                  It is slower than an API key and spends the same usage window
+                  you use for your own work. Papers are sent{' '}
+                  <strong>ten at a time in one call</strong> rather than one
+                  session per paper, and the lane is capped at{' '}
+                  <strong>25 papers per run</strong> by default and is not yet
+                  the default for bulk summarization. Reaching the cap is not an
+                  error — the remaining papers go to the next lane
+                  and the execution records the cap as the reason.
+                </p>
+                <p>
+                  A batched call asks for one numbered summary per paper. A
+                  paper the batch did not answer for is re-sent on its own; if
+                  the numbering comes back inconsistent, the whole batch is
+                  re-sent one paper at a time, because a summary attached to the
+                  wrong paper is a quieter failure than no summary at all.
                 </p>
                 <p>
                   resmon looks for the command at the path you set, then where

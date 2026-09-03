@@ -29,6 +29,7 @@ import pytest
 
 from implementation_scripts.ai_lanes import LANE_KINDS, SUBSCRIPTION_PROVIDERS
 from implementation_scripts.llm_local import LocalLLMClient
+from implementation_scripts.llm_remote import RemoteLLMClient
 from implementation_scripts.llm_subscription import SubscriptionLLMClient
 from implementation_scripts.prompt_templates import (
     SUMMARIZE_ABSTRACT,
@@ -56,6 +57,37 @@ class _FakeCompleted:
         self.returncode = returncode
 
 
+def _spawns(monkeypatch, handler):
+    """Replace ``Popen`` with a double that runs *handler* over the argv.
+
+    *handler* receives the argv and returns a ``_FakeCompleted``; it is where a
+    test writes codex's ``-o`` file or reads the working directory. The client
+    spawns through ``Popen`` rather than ``subprocess.run`` since 1.8.5,
+    because a batched call is one process holding N documents and cancellation
+    has to be able to terminate it from another thread.
+    """
+    class _Process:
+        def __init__(self, argv):
+            self.argv = argv
+            self.returncode = None
+
+        def communicate(self, timeout=None):
+            completed = handler(self.argv)
+            self.returncode = completed.returncode
+            return completed.stdout, completed.stderr
+
+        def terminate(self):  # pragma: no cover - not exercised here
+            self.returncode = -15
+
+        def kill(self):  # pragma: no cover - not exercised here
+            self.returncode = -9
+
+    monkeypatch.setattr(
+        "implementation_scripts.llm_subscription.subprocess.Popen",
+        lambda argv, **kwargs: _Process(argv),
+    )
+
+
 # ---------------------------------------------------------------------------
 # The prompt is what creates the obligation
 # ---------------------------------------------------------------------------
@@ -78,7 +110,7 @@ def test_claude_sends_the_constitution_as_a_system_prompt(monkeypatch):
         captured["argv"] = argv
         return _FakeCompleted(stdout=json.dumps({"result": "a summary", "is_error": False}))
 
-    monkeypatch.setattr("implementation_scripts.llm_subscription.subprocess.run", _run)
+    _spawns(monkeypatch, _run)
 
     SubscriptionLLMClient(provider="claude_code", binary_path="/bin/claude").summarize(_ABSTRACT)
 
@@ -105,7 +137,7 @@ def test_claude_keeps_the_constitution_out_of_the_user_prompt(monkeypatch):
         captured["argv"] = argv
         return _FakeCompleted(stdout=json.dumps({"result": "a summary", "is_error": False}))
 
-    monkeypatch.setattr("implementation_scripts.llm_subscription.subprocess.run", _run)
+    _spawns(monkeypatch, _run)
 
     SubscriptionLLMClient(provider="claude_code", binary_path="/bin/claude").summarize(_ABSTRACT)
 
@@ -132,7 +164,7 @@ def test_codex_writes_the_constitution_into_its_working_directory(monkeypatch):
             handle.write("a summary")
         return _FakeCompleted()
 
-    monkeypatch.setattr("implementation_scripts.llm_subscription.subprocess.run", _run)
+    _spawns(monkeypatch, _run)
 
     SubscriptionLLMClient(provider="codex", binary_path="/bin/codex").summarize(_ABSTRACT)
 
@@ -150,7 +182,7 @@ def test_codex_constitution_does_not_outlive_the_call(monkeypatch):
             handle.write("a summary")
         return _FakeCompleted()
 
-    monkeypatch.setattr("implementation_scripts.llm_subscription.subprocess.run", _run)
+    _spawns(monkeypatch, _run)
 
     SubscriptionLLMClient(provider="codex", binary_path="/bin/codex").summarize(_ABSTRACT)
 
@@ -212,23 +244,141 @@ def test_api_key_lane_sends_the_constitution():
 
 
 # ---------------------------------------------------------------------------
+# Subscription lane — the batched call shape (1.8.5)
+# ---------------------------------------------------------------------------
+#
+# A second way to call a lane is a second way to forget the constitution, and
+# the first time this file was written there was only one. The batched call is
+# built from the same argv helpers as the single one precisely so a flag
+# cannot be present on one path and absent on the other — but "built from the
+# same helper" is an implementation claim, and what has to be asserted is that
+# the document arrives.
+
+
+def _batch_reply(argv):
+    return _FakeCompleted(stdout=json.dumps({
+        "is_error": False,
+        "structured_output": {"summaries": [
+            {"index": 0, "summary": "one"}, {"index": 1, "summary": "two"},
+        ]},
+    }))
+
+
+def test_claude_sends_the_constitution_on_the_batched_call(monkeypatch):
+    captured = {}
+
+    def _run(argv, **kwargs):
+        captured["argv"] = argv
+        return _batch_reply(argv)
+
+    _spawns(monkeypatch, _run)
+
+    SubscriptionLLMClient(provider="claude_code", binary_path="/bin/claude").summarize_many(
+        [_ABSTRACT, "A second abstract."],
+    )
+
+    argv = captured["argv"]
+    assert "--append-system-prompt" in argv
+    assert _constitution_marker() in argv[argv.index("--append-system-prompt") + 1]
+
+
+def test_claude_keeps_the_constitution_out_of_the_batched_prompt(monkeypatch):
+    captured = {}
+
+    def _run(argv, **kwargs):
+        captured["argv"] = argv
+        return _batch_reply(argv)
+
+    _spawns(monkeypatch, _run)
+
+    SubscriptionLLMClient(provider="claude_code", binary_path="/bin/claude").summarize_many(
+        [_ABSTRACT, "A second abstract."],
+    )
+
+    user_prompt = captured["argv"][-1]
+    assert _ABSTRACT in user_prompt
+    assert _constitution_marker() not in user_prompt
+
+
+def test_codex_writes_the_constitution_for_the_batched_call(monkeypatch):
+    captured = {}
+
+    def _run(argv, **kwargs):
+        workdir = argv[argv.index("-C") + 1]
+        with open(f"{workdir}/AGENTS.md", encoding="utf-8") as handle:
+            captured["agents_md"] = handle.read()
+        captured["argv"] = argv
+        with open(argv[argv.index("-o") + 1], "w", encoding="utf-8") as handle:
+            handle.write(json.dumps({"summaries": [
+                {"index": 0, "summary": "one"}, {"index": 1, "summary": "two"},
+            ]}))
+        return _FakeCompleted()
+
+    _spawns(monkeypatch, _run)
+
+    SubscriptionLLMClient(provider="codex", binary_path="/bin/codex").summarize_many(
+        [_ABSTRACT, "A second abstract."],
+    )
+
+    assert _constitution_marker() in captured["agents_md"]
+    assert _constitution_marker() not in captured["argv"][-1]
+
+
+# ---------------------------------------------------------------------------
 # The guard that makes the next lane answer this question
 # ---------------------------------------------------------------------------
+#
+# The denominator is every lane kind × every call shape that lane kind
+# implements, and it is read out of the code rather than hand-counted: the
+# client class for each kind, and which of the two summarization methods it
+# actually defines. Adding ``summarize_many`` to a second lane kind therefore
+# fails this test until that lane has a case above.
 
-_COVERED_LANE_KINDS = {"subscription", "local", "api_key"}
+_LANE_CLIENT_CLASSES = {
+    "subscription": SubscriptionLLMClient,
+    "local": LocalLLMClient,
+    "api_key": RemoteLLMClient,
+}
+
+_CALL_SHAPES = ("summarize", "summarize_many")
+
+_COVERED_LANE_CALLS = {
+    ("subscription", "summarize"),
+    ("subscription", "summarize_many"),
+    ("local", "summarize"),
+    ("api_key", "summarize"),
+}
 
 
-def test_every_lane_kind_has_a_transmission_test():
-    """A fourth lane cannot ship without a case in this file.
+def test_every_lane_kind_and_call_shape_has_a_transmission_test():
+    """A fourth lane, or a second way to call an existing one, answers here.
 
     This is the durable half. The individual assertions above catch today's
-    bug; this one catches the next lane that forgets, which is the failure that
-    actually repeated.
+    bug; this one catches the next lane — or the next call shape — that
+    forgets, which is the failure that actually repeated.
     """
-    assert set(LANE_KINDS) == _COVERED_LANE_KINDS, (
-        f"lane kinds are {sorted(LANE_KINDS)} but this file covers "
-        f"{sorted(_COVERED_LANE_KINDS)} — add a transmission test for the new lane "
+    implemented = set()
+    for kind in LANE_KINDS:
+        client_class = _LANE_CLIENT_CLASSES.get(kind)
+        assert client_class is not None, (
+            f"lane kind {kind!r} has no client class listed here, so its "
+            f"call shapes cannot be enumerated — add it before widening"
+        )
+        for shape in _CALL_SHAPES:
+            if callable(getattr(client_class, shape, None)):
+                implemented.add((kind, shape))
+
+    assert implemented == _COVERED_LANE_CALLS, (
+        f"lane calls in the code are {sorted(implemented)} but this file "
+        f"covers {sorted(_COVERED_LANE_CALLS)} — add a transmission test "
         f"before widening this set"
+    )
+
+
+def test_both_subscription_providers_have_a_batched_case():
+    """The channel differs per provider, so the denominator does too."""
+    assert set(SUBSCRIPTION_PROVIDERS) == {"claude_code", "codex"}, (
+        "a third agent CLI needs its own batched transmission test above"
     )
 
 
