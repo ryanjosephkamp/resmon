@@ -1,12 +1,20 @@
 # resmon_scripts/implementation_scripts/llm_local.py
-"""Local LLM client via the ollama REST API."""
+"""Local LLM client via the ollama REST API.
+
+``SUMMARIZE_ABSTRACT`` tells the model to follow the attached constitution, so
+this lane must attach one. ``/api/generate`` takes it in the ``system`` field,
+which keeps the accuracy rules above the abstract rather than beside it — the
+abstract is untrusted text from the internet. This lane previously sent the
+instruction and no constitution; see
+``workspace/audits/subscription-lane-constitution-2026-09-03.md``.
+"""
 
 import logging
 
 import httpx
 
 from .ai_errors import classify_exception
-from .prompt_templates import SUMMARIZE_ABSTRACT, length_band
+from .prompt_templates import SUMMARIZE_ABSTRACT, SYSTEM_PREAMBLE, length_band
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +66,12 @@ class LocalLLMClient:
             with httpx.Client(timeout=120) as client:
                 response = client.post(
                     f"{self.endpoint}/api/generate",
-                    json={"model": self.model, "prompt": prompt, "stream": False},
+                    json={
+                        "model": self.model,
+                        "prompt": prompt,
+                        "system": str(SYSTEM_PREAMBLE),
+                        "stream": False,
+                    },
                 )
                 response.raise_for_status()
                 return response.json().get("response", "")
