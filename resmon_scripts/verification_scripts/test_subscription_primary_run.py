@@ -479,3 +479,131 @@ def test_cancelling_during_a_batch_terminates_the_cli(client, tmp_path):
         f"the batch out instead of terminating it"
     )
     assert spawn_count(counter) == 1, "no further batch may be spawned after cancel"
+
+
+# ---------------------------------------------------------------------------
+# P15 — a subscription lane chosen as the PRIMARY provider, through the API
+# ---------------------------------------------------------------------------
+#
+# The renderer half of this lives in `SubscriptionSettings.test.tsx`. This is
+# the other end: the chain the primary form writes, PUT through the real
+# endpoint, resolving to a lane 0 that carries every field the form set.
+#
+# Until 1.8.5 a subscription lane could only be a fallback, so lane 0 was never
+# a subscription lane and nothing exercised this at all.
+
+# Deliberately NOT the defaults.
+#
+# The first version of this test used doc_cap 50 and batch_size 5 — which are
+# `DEFAULT_SUBSCRIPTION_DOC_CAP` and `DEFAULT_SUBSCRIPTION_BATCH_SIZE`. `AILane`
+# fills both in when they arrive as None, so the assertions passed whether the
+# values were carried through the chain or invented by the constructor, and a
+# mutation that made `parse_chain` drop `batch_size` entirely went unnoticed.
+# A test whose expected value equals the default cannot see the default.
+_CHAIN_DOC_CAP = 37
+_CHAIN_BATCH_SIZE = 3
+
+
+def _primary_chain(cli_path, **over):
+    from implementation_scripts.ai_lanes import (
+        DEFAULT_SUBSCRIPTION_BATCH_SIZE,
+        DEFAULT_SUBSCRIPTION_DOC_CAP,
+    )
+    assert _CHAIN_DOC_CAP != DEFAULT_SUBSCRIPTION_DOC_CAP
+    assert _CHAIN_BATCH_SIZE != DEFAULT_SUBSCRIPTION_BATCH_SIZE
+    lane = {
+        "kind": "subscription",
+        "provider": "claude_code",
+        "model": "opus",
+        "binary_path": str(cli_path),
+        "doc_cap": _CHAIN_DOC_CAP,
+        "batch_size": _CHAIN_BATCH_SIZE,
+        "effort": "high",
+    }
+    lane.update(over)
+    return json.dumps([lane])
+
+
+def test_a_primary_subscription_chain_resolves_as_lane_zero(client, tmp_path):
+    """P15: every field the primary form can set arrives on `engine.ai_lane`."""
+    script, _ = fake_claude(tmp_path)
+    captured = {}
+    real_apply = resmon_mod._apply_ai_settings_to_engine
+
+    def _spy(engine, exec_id, conn, ephemeral):
+        real_apply(engine, exec_id, conn, ephemeral)
+        captured["lane"] = engine.ai_lane
+        captured["lanes"] = list(getattr(engine, "ai_lanes", []) or [])
+
+    with patch.object(resmon_mod, "_apply_ai_settings_to_engine", _spy):
+        _run_subscription_dive(
+            client, tmp_path, script,
+            extra_settings={"ai_chain": _primary_chain(script)},
+        )
+
+    lane = captured["lane"]
+    assert len(captured["lanes"]) == 1, "a primary with no fallbacks is a one-lane chain"
+    assert lane.kind == "subscription"
+    assert lane.provider == "claude_code"
+    assert lane.model == "opus"
+    assert lane.binary_path == str(script)
+    assert lane.doc_cap == _CHAIN_DOC_CAP
+    assert lane.batch_size == _CHAIN_BATCH_SIZE
+    assert lane.effort == "high"
+
+
+def test_a_primary_subscription_chain_actually_runs(client, tmp_path):
+    """Resolving is not running. The row and the report are the evidence."""
+    script, _ = fake_claude(tmp_path, summary="Primary-lane summary.")
+    exec_id = _run_subscription_dive(
+        client, tmp_path, script,
+        extra_settings={"ai_chain": _primary_chain(script)},
+    )
+
+    conn = resmon_mod._get_db()
+    try:
+        rows = get_execution_ai(conn, exec_id)
+    finally:
+        resmon_mod._close_db(conn)
+
+    assert len(rows) == 1
+    assert rows[0]["lane_kind"] == "subscription"
+    assert rows[0]["outcome"] == "ok"
+    assert "Primary-lane summary." in client.get(
+        f"/api/executions/{exec_id}/report",
+    ).text
+    skipped = [
+        e for e in _events(client, exec_id)
+        if e.get("type") == "log_entry" and "AI skipped" in (e.get("message") or "")
+    ]
+    assert not skipped
+
+
+def test_the_chain_beats_the_legacy_keys_for_a_subscription_primary(client, tmp_path):
+    """The chain is the whole configuration when it is present.
+
+    The legacy keys are written alongside it for a downgrade, so they must not
+    be able to contradict it. Here they name a *different* provider; the chain
+    wins, which is `resolve_chain`'s documented precedence and is what stops a
+    stale legacy key silently re-pointing the lane.
+    """
+    script, _ = fake_claude(tmp_path)
+    captured = {}
+    real_apply = resmon_mod._apply_ai_settings_to_engine
+
+    def _spy(engine, exec_id, conn, ephemeral):
+        real_apply(engine, exec_id, conn, ephemeral)
+        captured["lane"] = engine.ai_lane
+
+    with patch.object(resmon_mod, "_apply_ai_settings_to_engine", _spy):
+        _run_subscription_dive(
+            client, tmp_path, script,
+            extra_settings={
+                "ai_chain": _primary_chain(script),
+                "ai_provider": "anthropic",
+                "ai_model": "claude-3-5-sonnet",
+            },
+        )
+
+    assert captured["lane"].kind == "subscription"
+    assert captured["lane"].provider == "claude_code"

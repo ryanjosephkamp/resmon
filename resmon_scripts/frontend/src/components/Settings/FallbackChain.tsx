@@ -58,8 +58,11 @@ export interface CliStatus {
   detail: string;
 }
 
-/** The default per-run document cap, mirroring ai_lanes.DEFAULT_SUBSCRIPTION_DOC_CAP. */
-const DEFAULT_DOC_CAP = 25;
+/** The default per-run document cap, mirroring ai_lanes.DEFAULT_SUBSCRIPTION_DOC_CAP.
+ *  Raised from 25 to 50 in 1.8.5: batching measured a paper at 0.33x the cost
+ *  and 0.23x the input tokens of a per-document call, so fifty papers now spend
+ *  less of the plan's window than twenty-five did before. */
+const DEFAULT_DOC_CAP = 50;
 
 const FALLBACK_PROVIDERS: { value: string; label: string; kind: LaneKind }[] = [
   { value: 'anthropic', label: 'Anthropic', kind: 'api_key' },
@@ -75,6 +78,13 @@ const FALLBACK_PROVIDERS: { value: string; label: string; kind: LaneKind }[] = [
   { value: 'claude_code', label: 'Claude Code (your Claude plan)', kind: 'subscription' },
   { value: 'codex', label: 'Codex (your ChatGPT plan)', kind: 'subscription' },
 ];
+
+/** The provider ids that drive an installed agent CLI. Mirrors
+ *  `ai_lanes.SUBSCRIPTION_PROVIDERS`; one list, so the primary form and the
+ *  chain editor cannot disagree about what a subscription lane is. */
+const SUBSCRIPTION_PROVIDERS = FALLBACK_PROVIDERS
+  .filter((p) => p.kind === 'subscription')
+  .map((p) => p.value);
 
 const kindFor = (provider: string): LaneKind =>
   FALLBACK_PROVIDERS.find((p) => p.value === provider)?.kind ?? 'api_key';
@@ -401,4 +411,4 @@ const FallbackChain: React.FC<Props> = ({
 };
 
 export default FallbackChain;
-export { FALLBACK_PROVIDERS, kindFor };
+export { FALLBACK_PROVIDERS, kindFor, SUBSCRIPTION_PROVIDERS, DEFAULT_DOC_CAP };

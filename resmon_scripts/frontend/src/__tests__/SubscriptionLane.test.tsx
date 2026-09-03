@@ -12,6 +12,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import FallbackChain, {
   CliStatus,
+  DEFAULT_DOC_CAP,
   FallbackLane,
 } from '../components/Settings/FallbackChain';
 
@@ -64,7 +65,7 @@ describe('the subscription lane', () => {
     expect(state()[0]).toMatchObject({
       kind: 'subscription',
       provider: 'codex',
-      doc_cap: 25,
+      doc_cap: DEFAULT_DOC_CAP,
     });
   });
 

@@ -44,10 +44,16 @@ it controls. Both were verified against the installed CLIs. Keeping the rules
 above the abstract rather than next to it means injected text in an abstract is
 arguing with a system instruction, not with a peer.
 
-**It is slow and it spends a window the user also works in.** That is a product
-fact, not an implementation detail: the lane carries a per-execution document cap
-(see ``ai_lanes.DEFAULT_SUBSCRIPTION_DOC_CAP``), the interface says what a run
-will consume before it runs, and it is not the default for bulk summarization.
+**It spends a window the user also works in.** That is a product fact, not an
+implementation detail: the lane carries a per-execution document cap (see
+``ai_lanes.DEFAULT_SUBSCRIPTION_DOC_CAP``) and the interface says what a run
+will consume before it runs.
+
+Since 1.8.5 it is the **recommended** route rather than a fallback, because
+batching changed what it costs: five papers per call put a measured paper at
+0.33x the cost and 0.23x the input-side tokens of a per-document call, since
+the constitution and the prompt scaffold are paid once per call instead of once
+per paper. The cap moved from 25 to 50 on that measurement, not on a hunch.
 """
 
 from __future__ import annotations

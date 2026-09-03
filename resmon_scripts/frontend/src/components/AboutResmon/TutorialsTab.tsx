@@ -472,7 +472,7 @@ const sections: TutorialSection[] = [
     ],
     tips: [
       'A good chain puts your best provider first and Ollama last: the local lane needs no key and costs nothing, so it is the natural floor. resmon has no summarizer beyond the lanes you configure — if every lane fails, those papers simply have no AI summary and the execution records why.',
-      'A subscription lane is slower than an API key and spends the same usage window you use for your own work, so it is capped at 25 papers per run by default and is not the default for bulk summarization. Reaching the cap is not an error — the rest of the papers go to the next lane and the execution records the cap as the reason.',
+      'Subscription lanes are the recommended route as of 1.8.5, because batching made them affordable: a paper measured at 0.33× the cost and 0.23× the input tokens of a per-document call. They still spend your own usage window, so a lane is capped at 50 papers per run by default. Reaching the cap is not an error — the rest of the papers go to the next lane and the execution records the cap as the reason.',
       'For the Custom provider, Save is disabled unless the base URL is HTTPS — except for loopback hosts (`localhost`, `127.0.0.1`, `::1`). The backend `llm_factory` enforces the same rule.',
       'Per-execution AI overrides on Deep Dive, Deep Sweep, and Routines transparently override these defaults via per-field merge; empty override fields fall back to your saved defaults.',
     ],
