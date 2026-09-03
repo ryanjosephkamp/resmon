@@ -3,7 +3,7 @@ import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
 import InfoTooltip from '../Help/InfoTooltip';
-import FallbackChain, { FallbackLane, CliStatus } from './FallbackChain';
+import FallbackChain, { FallbackLane, CliStatus, SubscriptionCatalog } from './FallbackChain';
 
 const PROVIDERS: { value: string; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic' },
@@ -138,6 +138,7 @@ const parseFallbacks = (raw: string): FallbackLane[] => {
           ? entry.kind
           : 'api_key';
       const rawCap = Number(entry?.doc_cap);
+      const rawBatch = Number(entry?.batch_size);
       return {
         kind,
         provider: String(entry?.provider || ''),
@@ -146,6 +147,11 @@ const parseFallbacks = (raw: string): FallbackLane[] => {
         base_url: entry?.base_url ? String(entry.base_url) : undefined,
         binary_path: entry?.binary_path ? String(entry.binary_path) : undefined,
         doc_cap: Number.isFinite(rawCap) && rawCap > 0 ? rawCap : undefined,
+        // 1.8.5 — a lane that round-tripped without these would silently lose
+        // the batch size and the effort level the user chose, and would then
+        // run at the defaults while the form went on showing their selection.
+        batch_size: Number.isFinite(rawBatch) && rawBatch > 0 ? rawBatch : undefined,
+        effort: entry?.effort ? String(entry.effort) : undefined,
       };
     }).filter((lane: FallbackLane) => lane.provider);
   } catch {
@@ -180,6 +186,10 @@ const AISettings: React.FC = () => {
   // 1.8c — where each agent CLI was found, or that it was not. Detection only;
   // it says nothing about whether the user is signed in.
   const [cliStatus, setCliStatus] = useState<CliStatus[]>([]);
+  // 1.8.5 — per-provider model/effort catalogs for subscription lanes. Loaded
+  // on demand rather than on mount: `codex debug models` starts a process, and
+  // opening Settings should not.
+  const [catalogs, setCatalogs] = useState<Record<string, SubscriptionCatalog>>({});
   const [apiKey, setApiKey] = useState('');
   const [keyMasked, setKeyMasked] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -192,6 +202,39 @@ const AISettings: React.FC = () => {
   // by credential name (e.g. ``openai_api_key``). Refreshed after every
   // save / clear so the panel always reflects the current keyring state.
   const [keyPresence, setKeyPresence] = useState<Record<string, boolean>>({});
+
+  const loadSubscriptionCatalog = React.useCallback(
+    async (provider: string, binaryPath?: string) => {
+      try {
+        const resp = await apiClient.post<SubscriptionCatalog>('/api/ai/models', {
+          provider,
+          ...(binaryPath ? { binary_path: binaryPath } : {}),
+        });
+        setCatalogs((prev) => ({
+          ...prev,
+          [provider]: {
+            models: Array.isArray(resp?.models) ? resp.models : [],
+            provenance: resp?.provenance || '',
+            efforts: resp?.efforts || {},
+            default_efforts: resp?.default_efforts || {},
+            error: '',
+          },
+        }));
+      } catch (err: any) {
+        // The catalog is a convenience. Losing it costs the dropdown, never
+        // the lane: free text still reaches the CLI, and the CLI's own
+        // rejection is what the user sees if a model name is wrong.
+        setCatalogs((prev) => ({
+          ...prev,
+          [provider]: {
+            models: [], provenance: '', efforts: {}, default_efforts: {},
+            error: err?.message || 'Could not load models for this command.',
+          },
+        }));
+      }
+    },
+    [],
+  );
 
   const refreshKeyPresence = React.useCallback(async () => {
     try {
@@ -597,6 +640,22 @@ const AISettings: React.FC = () => {
                   wrong paper is a quieter failure than no summary at all.
                 </p>
                 <p>
+                  <strong>Model and effort are per lane.</strong> Codex reports
+                  a real model catalog and the reasoning levels each model
+                  supports, so only those are offered. Claude Code has no
+                  models command, so the list is the aliases its help documents
+                  — names the command accepts, not models resmon has confirmed
+                  your account can reach. Leaving either unset means the
+                  command&rsquo;s own default.
+                </p>
+                <p>
+                  There is <strong>no effort control for API-key providers</strong>,
+                  because none of the eight has one. Where a provider does have
+                  a thinking control it will be offered per provider once it has
+                  been verified; offering one knob that silently did nothing for
+                  most of them would claim more than resmon delivers.
+                </p>
+                <p>
                   resmon looks for the command at the path you set, then where
                   the installers put it, then on <code>PATH</code> last. That
                   order matters: an app launched from the Finder inherits a
@@ -959,6 +1018,8 @@ const AISettings: React.FC = () => {
 
         <FallbackChain
           cliStatus={cliStatus}
+          catalogs={catalogs}
+          onLoadCatalog={loadSubscriptionCatalog}
           lanes={fallbacks}
           onChange={setFallbacks}
           primaryLabel={
@@ -983,3 +1044,9 @@ const AISettings: React.FC = () => {
 };
 
 export default AISettings;
+
+// Exported for tests. These two are the whole of lane 0's round trip — the
+// chain is written by one place and read by one place, and a field the writer
+// emits but the reader drops is a setting that silently reverts to its
+// default while the form goes on showing the user's choice.
+export { composeChain, parseFallbacks };

@@ -658,6 +658,13 @@ class SweepEngine:
                     # -- a report saying "anthropic" when Ollama did the work
                     # would be exactly the kind of quiet lie 1.7 was about.
                     ai_model_label = chain.active_label or None
+                    # 1.8.5 — name the effort level in the header when the lane
+                    # that did the work actually set one. Additive: no lane
+                    # without an effort control gains an empty field implying
+                    # it has one.
+                    active_effort = chain.active_effort
+                    if ai_model_label and active_effort:
+                        ai_model_label = f"{ai_model_label} · effort {active_effort}"
                     if not ai_model_label:
                         provider = str(prompt_params.get("_audit_provider") or "").strip()
                         model = str(prompt_params.get("_audit_model") or "").strip()

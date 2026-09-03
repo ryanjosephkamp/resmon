@@ -214,9 +214,19 @@ class SummarizationPipeline:
             const_hash = constitution_sha256_prefix(8)
         except Exception:  # pragma: no cover - constitution is mandatory
             const_hash = "unknown"
+        # 1.8.5 — effort is additive and appears only when a lane actually set
+        # one. An empty `| effort:` on the eight API-key providers would imply
+        # a control they do not have; a missing one says nothing, which is the
+        # honest answer for a lane where the concept does not exist.
+        effort = str(
+            self.prompt_params.get("_audit_effort")
+            or getattr(self.llm_client, "effort", "")
+            or ""
+        ).strip()
+        suffix = f" | effort: {effort}" if effort else ""
         return (
             f"[constitution: {const_hash} | model: {provider}/{model} "
-            f"| length: {band}]"
+            f"| length: {band}{suffix}]"
         )
 
     def _decorate(self, summary: str) -> str:

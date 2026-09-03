@@ -72,9 +72,10 @@ from implementation_scripts.credential_manager import (
     SMTP_CREDENTIAL_NAMES,
     migrate_legacy_global_ai_key,
 )
-from implementation_scripts.ai_lanes import resolve_chain
+from implementation_scripts.ai_lanes import SUBSCRIPTION_PROVIDERS, resolve_chain
 from implementation_scripts.ai_models import (
     list_available_models as ai_list_available_models,
+    list_subscription_catalog,
     ModelListError,
 )
 from implementation_scripts.cloud_storage import (
@@ -374,6 +375,9 @@ class AIModelsRequest(BaseModel):
     header_prefix: Optional[str] = None
     # Required for ``local`` — the ollama endpoint URL.
     endpoint: Optional[str] = None
+    # 1.8.5, subscription lanes only — the full path to the agent CLI, when the
+    # user has set one. Never a credential: it is a path to a binary.
+    binary_path: Optional[str] = None
 
 class CloudBackup(BaseModel):
     execution_ids: Optional[list[int]] = None
@@ -3227,6 +3231,19 @@ def list_ai_models(body: AIModelsRequest):
     provider = (body.provider or "").strip().lower()
     if not provider:
         raise HTTPException(400, "Provider is required.")
+
+    # Subscription lanes have no key to look up, and asking for one would be
+    # the false "API key missing" all over again. They are answered from the
+    # CLI itself, and the response says which kind of answer it is: claude has
+    # no models command and offers documented aliases, codex reports a real
+    # catalog through `codex debug models`.
+    if provider in SUBSCRIPTION_PROVIDERS:
+        catalog = list_subscription_catalog(
+            provider, (body.binary_path or "").strip() or None,
+        )
+        if catalog.error:
+            raise HTTPException(400, catalog.error)
+        return catalog.to_dict()
 
     key: Optional[str] = (body.key or "").strip() or None
     if key is None and provider != "local":

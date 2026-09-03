@@ -23,6 +23,29 @@ export interface FallbackLane {
   binary_path?: string;
   /** Subscription lanes only: documents this lane may handle in one run. */
   doc_cap?: number;
+  /** Subscription lanes only: documents sent in one CLI call. */
+  batch_size?: number;
+  /**
+   * Subscription lanes only: the CLI's own reasoning-effort level.
+   *
+   * Deliberately absent from api_key lanes. None of the eight BYOK providers
+   * shares an effort parameter, so a control here that did nothing for most of
+   * them would claim a capability resmon cannot deliver.
+   */
+  effort?: string;
+}
+
+/** What the CLI can honestly offer for models and effort levels. */
+export interface SubscriptionCatalog {
+  models: string[];
+  /** How this list was obtained — rendered, because it is a different claim
+   *  for each CLI. claude has no models command and these are documented
+   *  aliases; codex reports a real catalog. */
+  provenance: string;
+  /** Per-model effort levels, where the CLI reports them per model. */
+  efforts: Record<string, string[]>;
+  default_efforts: Record<string, string>;
+  error: string;
 }
 
 /** What the CLI-detection endpoint reports for one provider. */
@@ -64,13 +87,41 @@ interface Props {
   disabled?: boolean;
   /** Detection results from /api/settings/ai/cli-status, when loaded. */
   cliStatus?: CliStatus[];
+  /** Per-provider model/effort catalogs, once loaded. */
+  catalogs?: Record<string, SubscriptionCatalog>;
+  /** Ask the parent to load the catalog for one subscription provider. */
+  onLoadCatalog?: (provider: string, binaryPath?: string) => void;
 }
 
 const FallbackChain: React.FC<Props> = ({
-  lanes, onChange, primaryLabel, disabled, cliStatus,
+  lanes, onChange, primaryLabel, disabled, cliStatus, catalogs, onLoadCatalog,
 }) => {
   const statusFor = (provider: string): CliStatus | undefined =>
     cliStatus?.find((s) => s.provider === provider);
+
+  // "Where is the command?" is a question almost nobody has to answer, and the
+  // paragraph explaining the search order was in everyone's way. It lives
+  // behind Advanced now -- opened by default only for a lane whose CLI was not
+  // found, which is exactly when it is the next thing to do.
+  const [advancedOpen, setAdvancedOpen] = React.useState<Record<number, boolean>>({});
+  const advancedIsOpen = (index: number, provider: string): boolean => {
+    if (index in advancedOpen) return advancedOpen[index];
+    const status = statusFor(provider);
+    return status ? !status.found : false;
+  };
+
+  const effortsFor = (lane: FallbackLane): string[] => {
+    const catalog = catalogs?.[lane.provider];
+    if (!catalog) return [];
+    if (lane.model && catalog.efforts[lane.model]) return catalog.efforts[lane.model];
+    // No model chosen yet, or one the catalog does not know: offer the union
+    // of what any listed model supports rather than nothing. The CLI rejects a
+    // level its model does not take, and resmon passes that message through
+    // rather than pre-judging it.
+    const union = new Set<string>();
+    Object.values(catalog.efforts).forEach((levels) => levels.forEach((l) => union.add(l)));
+    return Array.from(union);
+  };
 
   const update = (index: number, patch: Partial<FallbackLane>) => {
     const next = lanes.map((lane, i) => (i === index ? { ...lane, ...patch } : lane));
@@ -142,14 +193,61 @@ const FallbackChain: React.FC<Props> = ({
                 ))}
               </select>
 
-              <input
-                className="form-input"
-                aria-label={`Fallback ${index + 1} model`}
-                placeholder="model id"
-                value={lane.model}
-                disabled={disabled}
-                onChange={(e) => update(index, { model: e.target.value })}
-              />
+              {lane.kind === 'subscription' ? (
+                <>
+                  <select
+                    className="form-select"
+                    aria-label={`Fallback ${index + 1} model`}
+                    value={lane.model}
+                    disabled={disabled}
+                    onChange={(e) => update(index, { model: e.target.value })}
+                  >
+                    <option value="">CLI default</option>
+                    {/* Keep a saved value reachable even when it is not in the
+                        catalog: the CLI may accept names resmon cannot list. */}
+                    {lane.model
+                      && !(catalogs?.[lane.provider]?.models || []).includes(lane.model) && (
+                      <option value={lane.model}>{lane.model} (saved)</option>
+                    )}
+                    {(catalogs?.[lane.provider]?.models || []).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    aria-label={`Load ${lane.provider} models`}
+                    disabled={disabled || !onLoadCatalog}
+                    onClick={() => onLoadCatalog?.(lane.provider, lane.binary_path)}
+                  >
+                    Load models
+                  </button>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span className="text-muted">effort</span>
+                    <select
+                      className="form-select"
+                      aria-label={`Fallback ${index + 1} effort`}
+                      value={lane.effort || ''}
+                      disabled={disabled}
+                      onChange={(e) => update(index, { effort: e.target.value || undefined })}
+                    >
+                      <option value="">CLI default</option>
+                      {effortsFor(lane).map((level) => (
+                        <option key={level} value={level}>{level}</option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              ) : (
+                <input
+                  className="form-input"
+                  aria-label={`Fallback ${index + 1} model`}
+                  placeholder="model id"
+                  value={lane.model}
+                  disabled={disabled}
+                  onChange={(e) => update(index, { model: e.target.value })}
+                />
+              )}
 
               {lane.provider === 'local' && (
                 <input
@@ -164,14 +262,6 @@ const FallbackChain: React.FC<Props> = ({
 
               {lane.kind === 'subscription' && (
                 <>
-                  <input
-                    className="form-input"
-                    aria-label={`Fallback ${index + 1} command path`}
-                    placeholder="full path to the command (optional)"
-                    value={lane.binary_path || ''}
-                    disabled={disabled}
-                    onChange={(e) => update(index, { binary_path: e.target.value })}
-                  />
                   <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
                     <span className="text-muted">max papers</span>
                     <input
@@ -263,6 +353,40 @@ const FallbackChain: React.FC<Props> = ({
                     up on the first paper, and is recorded on the run.
                   </p>
                 )}
+
+                <details
+                  open={advancedIsOpen(index, lane.provider)}
+                  onToggle={(e) => setAdvancedOpen({
+                    ...advancedOpen,
+                    [index]: (e.target as HTMLDetailsElement).open,
+                  })}
+                  style={{ marginTop: '0.3rem' }}
+                >
+                  <summary className="text-muted" style={{ cursor: 'pointer' }}>
+                    Advanced
+                  </summary>
+                  <label className="form-label" style={{ marginTop: '0.3rem' }}>
+                    Where is the <code>{lane.provider === 'codex' ? 'codex' : 'claude'}</code>{' '}
+                    command?
+                  </label>
+                  <input
+                    className="form-input"
+                    aria-label={`Fallback ${index + 1} command path`}
+                    placeholder={
+                      lane.provider === 'codex'
+                        ? '/Applications/ChatGPT.app/Contents/Resources/codex'
+                        : '/Users/you/.local/bin/claude'
+                    }
+                    value={lane.binary_path || ''}
+                    disabled={disabled}
+                    onChange={(e) => update(index, { binary_path: e.target.value })}
+                  />
+                  <p className="text-muted" style={{ margin: '0.2rem 0 0' }}>
+                    Only needed when resmon could not find the command on its
+                    own. Leave it empty and resmon looks where the installers
+                    put it, then on <code>PATH</code>.
+                  </p>
+                </details>
               </div>
             )}
           </li>
