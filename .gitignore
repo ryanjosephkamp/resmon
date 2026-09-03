@@ -152,6 +152,11 @@ $RECYCLE.BIN/
 # Runtime / generated output directories
 resmon_printouts/
 resmon_experiments/
+# The running backend writes its chosen port here, at the repo root. It is
+# per-run state, it differs between the dev build and the daemon, and a
+# committed one would point a later session at a port nothing is listening on.
+resmon.port
+
 resmon_reports/logs/
 resmon_reports/pdfs/
 resmon_reports/markdowns/
