@@ -1,0 +1,18 @@
+{
+  "//": "The repo's tsconfig.json has `include: [\"src/**/*\"]`, so `npm run typecheck` does not see this directory, and Playwright's runner transpiles TS with esbuild without typechecking it. Without this file the e2e specs would be the only TypeScript in the repository nothing typechecks. `npm run typecheck:e2e` runs it; ui-smoke.yml runs that before the suite. Making the root tsconfig cover e2e/ would be the tidier fix and is 1.8.7's call — tsconfig.json is outside this spike's file grant.",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node10",
+    "types": ["node"],
+    "noEmit": true,
+    "ignoreDeprecations": "6.0"
+  },
+  "include": ["**/*.ts"]
+}

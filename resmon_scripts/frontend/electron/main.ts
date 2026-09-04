@@ -326,13 +326,36 @@ function startRendererServer(rendererRoot: string): Promise<number> {
   });
 }
 
+/**
+ * True when the app is being driven by the end-to-end suite.
+ *
+ * Everything this flag gates is *test determinism only* — never behaviour a
+ * user could want, and never anything that changes what the app shows. With the
+ * variable unset every branch below takes the path it took before the flag
+ * existed; `e2e/default-behaviour.spec.ts` is the check that says so by
+ * launching the app without it and asserting the old behaviour.
+ */
+function isE2E(): boolean {
+  return process.env.RESMON_E2E === '1';
+}
+
 function createWindow(): void {
   if (rendererPort === null) {
     throw new Error('Renderer server has not been started');
   }
+  // E2E hunk 1 of 3 — a fixed window size. A maximized window is a different
+  // size on every machine and on CI it is whatever xvfb was told to be, so a
+  // screenshot is only evidence if the viewport it was taken at is known. The
+  // suite supplies the numbers rather than this file guessing them.
+  const e2eSize = isE2E()
+    ? {
+      width: Number(process.env.RESMON_E2E_WIDTH) || 1440,
+      height: Number(process.env.RESMON_E2E_HEIGHT) || 900,
+    }
+    : null;
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
+    width: e2eSize ? e2eSize.width : 1280,
+    height: e2eSize ? e2eSize.height : 820,
     minWidth: 960,
     minHeight: 600,
     title: 'resmon',
@@ -404,8 +427,11 @@ function createWindow(): void {
 
   // Open maximized by default (not full-screen) for a more spacious default
   // layout. Users can still un-maximize, resize, or close normally.
+  //
+  // E2E hunk 2 of 3 — the other half of the fixed-size change above. Maximizing
+  // would immediately discard the size the constructor was given.
   mainWindow.once('ready-to-show', () => {
-    mainWindow?.maximize();
+    if (!isE2E()) mainWindow?.maximize();
     mainWindow?.show();
   });
 
@@ -591,6 +617,11 @@ function installApplicationMenu(): void {
 
 function initAutoUpdater(): void {
   if (!app.isPackaged) return;
+  // E2E hunk 3 of 3 — the packaged-app run must not reach out to the GitHub
+  // releases feed, and must not be able to pop the "Update ready" dialog over
+  // a screenshot. Unreachable in a checkout (the line above returns first);
+  // it exists for the packaged leg of the suite.
+  if (isE2E()) return;
   if (process.platform !== 'win32' && process.platform !== 'linux') return;
   // A Linux user running the extracted filesystem instead of the AppImage
   // has nothing the updater can replace; electron-updater errors on the
