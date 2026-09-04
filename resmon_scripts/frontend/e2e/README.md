@@ -39,7 +39,8 @@ under `release/` it skips, and says so.
 | `observability.spec.ts` | Q3 — that the console-error and failed-request collectors actually catch something. |
 | `ipc-stubs.spec.ts` | Q5 — replacing the three IPC handlers from the main process, with counters proving nothing reached the OS. |
 | `default-behaviour.spec.ts` | P6 — the app behaves as it always did with `RESMON_E2E` unset. |
-| `zero-reason.spec.ts` | Phase 1.8.6 — a source that came back empty says why, on all three surfaces. |
+| `zero-reason.spec.ts` | Phase 1.8.6 — `window_unanswerable` on all three surfaces. |
+| `zero-reasons.spec.ts` | P13 — `upstream_failure` (a dead loopback proxy), `answered_empty` (a live query nothing matches) and `not_recorded`, plus which of the nine reasons a real browser has seen. |
 | `third-party.spec.ts` | P9 — the YouTube embeds and the blog `<webview>`, asserted to have *loaded* rather than merely not failed. |
 | `packaged.spec.ts` | Q6 — the built `.app` launches under Playwright too. Skips when there is no build. |
 
