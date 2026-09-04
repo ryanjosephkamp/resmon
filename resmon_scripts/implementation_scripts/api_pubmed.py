@@ -4,7 +4,13 @@
 import logging
 import xml.etree.ElementTree as ET
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import (
+    BaseAPIClient,
+    NormalizedResult,
+    RateLimiter,
+    note_parse_failure,
+    safe_request,
+)
 from .credential_manager import get_credential_for
 
 logger = logging.getLogger(__name__)
@@ -114,6 +120,9 @@ class PubmedClient(BaseAPIClient):
             root = ET.fromstring(xml_text)
         except ET.ParseError:
             logger.error("Failed to parse PubMed XML response")
+            # Same shape as arXiv: efetch answered 200 and the body will not
+            # parse, so the search returns [] with no HTTP failure on record.
+            note_parse_failure()
             return results
 
         for article_el in root.findall(".//PubmedArticle"):

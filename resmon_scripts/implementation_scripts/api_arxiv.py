@@ -4,7 +4,13 @@
 import logging
 import xml.etree.ElementTree as ET
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import (
+    BaseAPIClient,
+    NormalizedResult,
+    RateLimiter,
+    note_parse_failure,
+    safe_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +101,10 @@ class ArxivClient(BaseAPIClient):
             root = ET.fromstring(xml_text)
         except ET.ParseError:
             logger.error("Failed to parse arXiv Atom XML response")
+            # A 200 whose body will not parse ends the paging loop and the
+            # search returns []. Without this the record would read "arXiv
+            # answered and had nothing", which is a different claim.
+            note_parse_failure()
             return results
 
         for entry in root.findall(f"{_ATOM_NS}entry"):

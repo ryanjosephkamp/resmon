@@ -8,7 +8,14 @@ import re
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import (
+    BaseAPIClient,
+    NormalizedResult,
+    RateLimiter,
+    note_filtered,
+    note_parse_failure,
+    safe_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -276,10 +283,15 @@ class NDLSearchClient(BaseAPIClient):
                     expected_records,
                     len(raw_records),
                 )
+                note_parse_failure("incomplete_page")
                 return None
             return total, self._parse_records(root)
         except (ET.ParseError, ValueError, TypeError):
             logger.exception("NDL Search API returned malformed SRU XML")
+            # NDL answered 200 and the body could not be read. Recorded here
+            # rather than left as a bare zero: the diagnostic path above is
+            # the *legitimate* zero, and these two must not look alike.
+            note_parse_failure()
             return None
 
     @staticmethod
@@ -296,11 +308,25 @@ class NDLSearchClient(BaseAPIClient):
 
     @classmethod
     def _parse_records(cls, root: ET.Element) -> list[NormalizedResult]:
+        """Normalize an SRU page, counting what was dropped and why.
+
+        NDL returns records resmon may not keep, and until now nothing counted
+        them: a page of twelve records that were all rejected on their rights
+        statement reached the user as a bare zero. The two drop reasons are
+        counted separately on purpose. Attributing an incomplete record to a
+        rights statement would be a false claim about somebody else's
+        licensing, and this application does not get to be vague about that.
+        """
         records: list[NormalizedResult] = []
+        matched = 0
+        dropped_rights = 0
+        dropped_incomplete = 0
         for record_data in root.findall(".//sru:recordData", _NS):
             rdf_root = record_data.find("rdf:RDF", _NS)
             if rdf_root is None:
                 logger.warning("NDL Search record has no RDF payload; skipping it")
+                matched += 1
+                dropped_incomplete += 1
                 continue
             resources = {
                 resource.get(f"{{{_RDF}}}about"): resource
@@ -308,9 +334,23 @@ class NDLSearchClient(BaseAPIClient):
                 if resource.get(f"{{{_RDF}}}about")
             }
             for admin in rdf_root.findall("dcndl:BibAdminResource", _NS):
-                parsed = cls._parse_admin_record(admin, resources)
+                matched += 1
+                parsed, drop = cls._parse_admin_record(admin, resources)
                 if parsed is not None:
                     records.append(parsed)
+                elif drop == "rights":
+                    dropped_rights += 1
+                else:
+                    dropped_incomplete += 1
+
+        if matched and not records:
+            if dropped_rights and not dropped_incomplete:
+                note_filtered(matched, 0, "rights", rights=dropped_rights)
+            else:
+                note_filtered(
+                    matched, 0, "mixed",
+                    rights=dropped_rights, incomplete=dropped_incomplete,
+                )
         return records
 
     @classmethod
@@ -318,7 +358,15 @@ class NDLSearchClient(BaseAPIClient):
         cls,
         admin: ET.Element,
         resources: dict[str, ET.Element],
-    ) -> NormalizedResult | None:
+    ) -> tuple[NormalizedResult | None, str | None]:
+        """Normalize one admin record, or say which gate rejected it.
+
+        Returns ``(result, None)`` on success and ``(None, reason)``
+        otherwise, where ``reason`` is ``"rights"`` when the record's rights
+        statement is not one resmon may store and ``"incomplete"`` when the
+        record's provenance could not be established at all. The caller counts
+        them separately so the zero it reports names the real cause.
+        """
         provider = (admin.findtext("dcndl:bibRecordCategory", namespaces=_NS) or "").strip()
         identity = _books_token(admin.get(f"{{{_RDF}}}about"))
         record_link = admin.find("dcndl:record", _NS)
@@ -334,16 +382,17 @@ class NDLSearchClient(BaseAPIClient):
             or identity is None
             or not linked_resource
             or linked_resource != f"{identity[1]}#material"
-            or len(rights) != 1
-            or rights[0] not in _ALLOWED_RIGHTS
         ):
             logger.warning("NDL Search record lacks a validated open metadata provenance; skipping it")
-            return None
+            return None, "incomplete"
+        if len(rights) != 1 or rights[0] not in _ALLOWED_RIGHTS:
+            logger.warning("NDL Search record has no single storable rights statement; skipping it")
+            return None, "rights"
         resource = resources.get(linked_resource)
         if resource is None:
             logger.warning("NDL Search admin record does not link to a BibResource; skipping it")
-            return None
-        return cls._normalize_resource(identity[0], identity[1], resource)
+            return None, "incomplete"
+        return cls._normalize_resource(identity[0], identity[1], resource), None
 
     @staticmethod
     def _normalize_resource(

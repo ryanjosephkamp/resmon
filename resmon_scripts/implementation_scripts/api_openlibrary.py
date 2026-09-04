@@ -5,7 +5,14 @@ import html
 import logging
 import re
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import (
+    BaseAPIClient,
+    NormalizedResult,
+    RateLimiter,
+    note_parse_failure_unless_transport,
+    note_unanswerable,
+    safe_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +171,11 @@ class OpenLibraryClient(BaseAPIClient):
             # The source exposes only a publication year. Returning a work for
             # a window that does not contain a whole year would overstate what
             # resmon knows about its publication date.
+            #
+            # Nothing is sent upstream, so this refusal is the only record of
+            # why the search came back empty. See api_eric.py for the same
+            # reasoning.
+            note_unanswerable("year_granularity")
             return []
         year_from, year_to, normalized_from, normalized_to = bounds
 
@@ -199,8 +211,12 @@ class OpenLibraryClient(BaseAPIClient):
                     logger.error("Open Library API returned %d", response.status_code)
                     return []
                 payload = response.json()
-            except Exception:
+            except Exception as exc:
                 logger.exception("Open Library API request failed")
+                # A reply that arrived and would not parse is a
+                # different fact from a source that never answered;
+                # safe_request has already recorded the second kind.
+                note_parse_failure_unless_transport(exc)
                 return []
 
             if not isinstance(payload, dict):

@@ -7,7 +7,14 @@ import logging
 import re
 from urllib.parse import quote, unquote, urlparse
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import (
+    BaseAPIClient,
+    NormalizedResult,
+    RateLimiter,
+    note_parse_failure_unless_transport,
+    note_unanswerable,
+    safe_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +176,12 @@ class EricClient(BaseAPIClient):
         if bounds is None:
             # ERIC exposes only a publication year. If no whole calendar year
             # fits, any returned record would have unknowable in-window status.
+            #
+            # No HTTP call is made, so ``safe_request`` records nothing and the
+            # engine would otherwise have to report this zero as "not
+            # recorded". The refusal is a fact resmon knows, and it is the
+            # answer the user is actually looking for.
+            note_unanswerable("year_granularity")
             return []
         year_from, year_to, normalized_from, normalized_to = bounds
 
@@ -203,8 +216,12 @@ class EricClient(BaseAPIClient):
                     logger.error("ERIC API returned %d", response.status_code)
                     break
                 payload = response.json()
-            except Exception:
+            except Exception as exc:
                 logger.exception("ERIC API request failed")
+                # A reply that arrived and would not parse is a
+                # different fact from a source that never answered;
+                # safe_request has already recorded the second kind.
+                note_parse_failure_unless_transport(exc)
                 break
 
             if not isinstance(payload, dict):

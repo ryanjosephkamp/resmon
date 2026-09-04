@@ -23,6 +23,22 @@ ApiKeyRequirement = Literal["none", "required", "optional", "recommended"]
 # application does not get to be vague about which obligations are real.
 AttributionRequirement = Literal["none", "requested", "required"]
 
+# The finest date precision **resmon's own query to this source can express**,
+# read from the client's date-filter code rather than from a description of
+# the upstream. That is the quantity that decides whether a window can be
+# answered at all, and it is the one a user is entitled to before they read a
+# zero: NASA ADS is asked for whole months, DataCite, DBLP, ERIC, Open Library
+# and Semantic Scholar for whole years, and everything else for exact days.
+#
+# The field says what the query can express, not what each source does about a
+# window it cannot express -- those are two different facts and conflating
+# them was the temptation here. ERIC and Open Library **refuse** a window
+# shorter than a calendar year, because a record they returned would have
+# unknowable in-window status. DataCite, DBLP, NASA ADS and Semantic Scholar
+# answer the coarser window instead. Both behaviours are honest; only the
+# first produces a ``window_unanswerable`` zero.
+DateGranularity = Literal["day", "month", "year"]
+
 
 @dataclass(frozen=True)
 class RepoCatalogEntry:
@@ -48,6 +64,7 @@ class RepoCatalogEntry:
     attribution: str
     attribution_requirement: AttributionRequirement
     attribution_source: str
+    date_granularity: DateGranularity
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -85,6 +102,7 @@ def _entry(
     attribution: str = "",
     attribution_requirement: AttributionRequirement = "none",
     attribution_source: str = "",
+    date_granularity: DateGranularity = "day",
 ) -> RepoCatalogEntry:
     return RepoCatalogEntry(
         slug=slug,
@@ -108,6 +126,7 @@ def _entry(
         attribution=attribution,
         attribution_requirement=attribution_requirement,
         attribution_source=attribution_source,
+        date_granularity=date_granularity,
     )
 
 
@@ -221,6 +240,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Metadata from DataCite',
         attribution_requirement="requested",
         attribution_source='https://support.datacite.org/docs/datacite-data-file-use-policy',
+        # api_datacite.py:101-107 sends a whole-year `published` filter and keeps each record's own precision.
+        date_granularity="year",
     ),
     _entry(
         slug="dblp",
@@ -243,6 +264,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Bibliographic data from the dblp computer science bibliography',
         attribution_requirement="requested",
         attribution_source='https://dblp.org/faq/1474677.html',
+        # api_dblp.py:88-90 — DBLP has no date parameter; resmon filters the returned records on their year.
+        date_granularity="year",
     ),
     _entry(
         slug="doaj",
@@ -304,6 +327,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="ERIC documents metadata download for database use. Only publication year is searchable, so resmon preserves year-only precision and does not claim a narrower match. A date window narrower than one whole year therefore returns nothing from ERIC — there is no field to filter on, so resmon reports zero results rather than widening the window you asked for.",
         keyword_combination="Implicit OR",
         keyword_combination_notes="ERIC documents OR as the default between unmarked terms, with stemming. Explicit AND is required when every term must match.",
+        # api_eric.py:168-172 — a window with no whole calendar year inside it is refused, not widened.
+        date_granularity="year",
     ),
     _entry(
         slug="europepmc",
@@ -405,6 +430,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Daily quota (not per-second) is the binding limit.",
         keyword_combination="Relevance-ranked (Solr OR default)",
         keyword_combination_notes="NASA ADS uses Solr-style q parsing; the default operator is OR and results are returned in relevance-scored order.",
+        # api_nasa_ads.py:38-43 sends `pubdate:[YYYY-MM TO YYYY-MM]`.
+        date_granularity="month",
     ),
     _entry(
         slug="ndl_search",
@@ -532,6 +559,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Open Library work search exposes only first publication year, so resmon preserves year-only precision and locally checks the requested window. A sub-year window returns nothing: no whole publication year can be established as inside it, so resmon does not widen the request.",
         keyword_combination="Undocumented",
         keyword_combination_notes="Open Library documents q as a Solr query, but does not document how plain unfielded space-separated terms are combined. resmon forwards the query and does not claim strict local matching.",
+        # api_openlibrary.py:162-166 — a window with no whole calendar year inside it is refused, not widened.
+        date_granularity="year",
     ),
     _entry(
         slug="osti",
@@ -617,6 +646,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Data from Semantic Scholar',
         attribution_requirement="required",
         attribution_source='https://www.semanticscholar.org/product/api/license',
+        # api_semantic_scholar.py:46-54 sends a `year` range.
+        date_granularity="year",
     ),
     _entry(
         slug="springer",

@@ -5,7 +5,13 @@ import json
 import logging
 import re
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import (
+    BaseAPIClient,
+    NormalizedResult,
+    RateLimiter,
+    note_parse_failure,
+    safe_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +157,9 @@ class NistRmmClient(BaseAPIClient):
                 payload = response.json()
             except Exception:
                 logger.exception("NIST RMM API returned invalid JSON")
+                # The source answered; resmon could not read the reply. That
+                # is not the same zero as "there was nothing there".
+                note_parse_failure()
                 return []
             if not isinstance(payload, dict):
                 logger.error("NIST RMM API returned a non-object response")
