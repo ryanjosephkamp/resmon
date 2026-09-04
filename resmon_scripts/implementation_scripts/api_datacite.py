@@ -5,7 +5,13 @@ import calendar
 import logging
 import re
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import (
+    BaseAPIClient,
+    NormalizedResult,
+    RateLimiter,
+    note_parse_failure_unless_transport,
+    safe_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -135,8 +141,12 @@ class DataCiteClient(BaseAPIClient):
                     logger.error("DataCite API returned %d", response.status_code)
                     break
                 payload = response.json()
-            except Exception:
+            except Exception as exc:
                 logger.exception("DataCite API request failed")
+                # A reply that arrived and would not parse is a
+                # different fact from a source that never answered;
+                # safe_request has already recorded the second kind.
+                note_parse_failure_unless_transport(exc)
                 break
 
             if not isinstance(payload, dict):

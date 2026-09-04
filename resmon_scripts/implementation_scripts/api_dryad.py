@@ -3,7 +3,13 @@
 import logging
 from html.parser import HTMLParser
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import (
+    BaseAPIClient,
+    NormalizedResult,
+    RateLimiter,
+    note_parse_failure_unless_transport,
+    safe_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +100,12 @@ class DryadClient(BaseAPIClient):
                     logger.error("Dryad API returned %d", response.status_code)
                     return []
                 payload = response.json()
-            except Exception:
+            except Exception as exc:
                 logger.exception("Dryad API request failed")
+                # A reply that arrived and would not parse is a
+                # different fact from a source that never answered;
+                # safe_request has already recorded the second kind.
+                note_parse_failure_unless_transport(exc)
                 return []
 
             if not isinstance(payload, dict):

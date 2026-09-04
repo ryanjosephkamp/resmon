@@ -8,6 +8,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
+from implementation_scripts import api_base, zero_reason
 from implementation_scripts.api_base import NormalizedResult
 from implementation_scripts.api_registry import list_repositories, get_client
 
@@ -561,6 +562,7 @@ def test_openlibrary_search_returns_empty_for_sub_year_window_without_request(mo
         "safe_request",
         lambda *args, **kwargs: calls.append(kwargs),
     )
+    api_base.reset_search_outcome()
 
     results = api_openlibrary.OpenLibraryClient().search(
         query="history",
@@ -570,6 +572,16 @@ def test_openlibrary_search_returns_empty_for_sub_year_window_without_request(mo
 
     assert results == []
     assert calls == []
+    # The refusal is the answer the user is looking for, and nothing else can
+    # supply it: no call was made, so the HTTP channel has nothing to say and
+    # this zero would otherwise be recorded as "not recorded".
+    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+    assert reason == "window_unanswerable"
+    assert zero_reason.sentence("Open Library", reason, detail) == (
+        "Open Library filters by publication year only, so a window shorter "
+        "than one whole calendar year cannot be answered. resmon did not "
+        "widen your window."
+    )
 
 
 @pytest.mark.parametrize("date_from, date_to", [
@@ -1533,6 +1545,7 @@ def test_eric_search_does_not_claim_year_only_date_fits_partial_window(monkeypat
         _request,
     )
 
+    api_base.reset_search_outcome()
     results = api_eric.EricClient().search(
         query="education",
         date_from="2024-01-01",
@@ -1542,6 +1555,13 @@ def test_eric_search_does_not_claim_year_only_date_fits_partial_window(monkeypat
 
     assert results == []
     assert calls == []
+    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+    assert reason == "window_unanswerable"
+    assert zero_reason.sentence("ERIC", reason, detail) == (
+        "ERIC filters by publication year only, so a window shorter than one "
+        "whole calendar year cannot be answered. resmon did not widen your "
+        "window."
+    )
 
 
 def test_eric_search_rejects_reversed_date_window_without_request(monkeypatch):
@@ -3191,3 +3211,98 @@ def test_ndl_live_zero_match_query_reports_zero_cleanly(caplog):
         )
     assert results == []
     assert "malformed" not in caplog.text.lower()
+
+
+# ---------------------------------------------------------------------------
+# P4 — NDL's rights gate, counted rather than silent
+# ---------------------------------------------------------------------------
+#
+# NDL drops whole records whose rights statement is not one resmon may store,
+# and until now nothing counted them: a reply of three records, all rejected,
+# reached the user as a bare zero indistinguishable from "nothing matched".
+
+
+def test_ndl_records_rights_filtered_with_matched_and_kept(monkeypatch):
+    monkeypatch.setattr(
+        api_ndl_search, "safe_request",
+        lambda *a, **kw: _ndl_xml_response([
+            _ndl_record(f"R100000002-I00000000{n}",
+                        rights=("https://example.org/all-rights-reserved/",))
+            for n in (1, 2, 3)
+        ]),
+    )
+    api_base.reset_search_outcome()
+
+    results = api_ndl_search.NDLSearchClient().search(query="a", max_results=5)
+
+    assert results == []
+    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+    assert reason == "rights_filtered"
+    assert (detail["matched"], detail["kept"], detail["rights"]) == (3, 0, 3)
+    assert zero_reason.sentence("NDL Search", reason, detail) == (
+        "NDL Search matched 3 records; 3 were not kept because their rights "
+        "statement is not one resmon can store."
+    )
+
+
+def test_ndl_does_not_blame_rights_for_an_incomplete_record(monkeypatch):
+    """A record dropped for a missing provenance is not a rights rejection.
+
+    Folding the two together would make resmon state something false about
+    somebody else's licensing, so a mixed drop gets its own sentence carrying
+    both counts.
+    """
+    monkeypatch.setattr(
+        api_ndl_search, "safe_request",
+        lambda *a, **kw: _ndl_xml_response([
+            _ndl_record("R100000002-I000000001",
+                        rights=("https://example.org/all-rights-reserved/",)),
+            _ndl_record("R100000002-I000000002", provider=None),
+        ]),
+    )
+    api_base.reset_search_outcome()
+
+    results = api_ndl_search.NDLSearchClient().search(query="a", max_results=5)
+
+    assert results == []
+    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+    assert reason == "records_unusable"
+    assert (detail["rights"], detail["incomplete"]) == (1, 1)
+
+
+def test_ndl_says_nothing_when_it_keeps_what_it_matched(monkeypatch):
+    """The counters did not break the gate, and a kept record raises no reason."""
+    monkeypatch.setattr(
+        api_ndl_search, "safe_request",
+        lambda *a, **kw: _ndl_xml_response([_ndl_record("R100000002-I000000001")]),
+    )
+    api_base.reset_search_outcome()
+
+    results = api_ndl_search.NDLSearchClient().search(query="a", max_results=5)
+
+    assert len(results) == 1
+    assert api_base.search_outcome().snapshot()["explicit_reason"] is None
+
+
+def test_ndl_zero_match_diagnostic_is_not_a_parse_failure(monkeypatch):
+    """NDL's own "no records" answer is a legitimate zero, not a fault.
+
+    This is the v1.8.3 finding (Ledger 24) and it must stay true now that the
+    malformed-XML path writes to the outcome channel: the diagnostic returns
+    before that path is reached.
+    """
+    diagnostic = f'''<searchRetrieveResponse xmlns="{_SRU}">
+      <diagnostics xmlns:diag="http://www.loc.gov/zing/srw/diagnostic/">
+        <diag:diagnostic><diag:message>Record does not exist</diag:message></diag:diagnostic>
+      </diagnostics>
+    </searchRetrieveResponse>'''
+    monkeypatch.setattr(
+        api_ndl_search, "safe_request",
+        lambda *a, **kw: _FakeResponse(status_code=200, payload=None, text=diagnostic),
+    )
+    api_base.reset_search_outcome()
+
+    results = api_ndl_search.NDLSearchClient().search(query="a", max_results=5)
+
+    assert results == []
+    assert api_base.search_outcome().snapshot()["explicit_reason"] is None
