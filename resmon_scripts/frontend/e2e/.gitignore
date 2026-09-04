@@ -1,0 +1,12 @@
+# Playwright's per-failure output: traces, error-context markdown, videos.
+# Regenerated on every run and specific to the machine that produced it.
+#
+# This lives here rather than in the repository root .gitignore because the
+# spike that added this directory was not permitted to touch that file. Folding
+# it into the root ignore list is a one-line tidy-up for phase 1.8.7.
+test-results/
+
+# The screenshots are NOT ignored. They are the evidence the suite exists to
+# produce, and the repository root .gitignore says images are committed on
+# purpose. They are overwritten in place on every run, so the diff of a PR that
+# changes the interface shows what changed.

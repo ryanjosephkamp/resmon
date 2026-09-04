@@ -1,0 +1,119 @@
+name: UI smoke
+
+# The first thing in this repository that has ever launched the app.
+#
+# `ci.yml`'s frontend job typechecks, runs 154 jsdom tests and builds a bundle.
+# None of that starts Electron, so `electron/main.ts` — 700-odd lines carrying
+# every v1.8.3 interface fix — has never been executed by CI at all. This job
+# launches the real app under Playwright on a virtual display and walks every
+# route in `e2e/routes.ts`.
+#
+# It is a spike deliverable (Delegation 06) and it is deliberately narrow: the
+# 14 route smoke specs plus the observability, IPC and default-behaviour specs.
+# The packaged-app spec skips here, because building an installer downloads a
+# Python runtime and takes minutes; it is exercised locally and its result is
+# recorded in docs/ui-verification-feasibility.md.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      break_route:
+        description: >-
+          Append a route App.tsx does not declare, to demonstrate that this job
+          fails when a route fails to load. Try "/no-such-page".
+        required: false
+        default: ''
+
+concurrency:
+  group: ui-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Route smoke (Electron under xvfb)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      # No OS keyring on a runner. Same reasoning as ci.yml's backend job: every
+      # credential read otherwise pays a timeout against a backend that cannot work.
+      PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+      RESMON_KEYRING_TIMEOUT: '2.0'
+      # The app spawns `python resmon.py <port>`; without this it would find the
+      # runner's `python3` only if one is on PATH under that exact name.
+      RESMON_PYTHON: python3
+      RESMON_E2E_BREAK_ROUTE: ${{ github.event.inputs.break_route }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install the backend's dependencies
+        # The app under test spawns the real FastAPI backend. Without this the
+        # window opens and every page reports "Backend: Offline".
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: resmon_scripts/frontend/package-lock.json
+
+      - name: Install the renderer's dependencies
+        # `npm install`, not `npm ci` — see the comment in ci.yml's frontend job.
+        working-directory: resmon_scripts/frontend
+        run: npm install --no-audit --no-fund
+
+      - name: Install Electron's system libraries and a virtual display
+        # Electron is Chromium, and a headless runner has none of the X, GTK,
+        # NSS or DBus libraries it links against. `playwright install-deps
+        # chromium` installs exactly that set — it is used here for the app's
+        # own Electron, not to download a browser: `_electron.launch()` runs the
+        # Electron already in node_modules and downloads nothing.
+        working-directory: resmon_scripts/frontend
+        run: |
+          sudo npx playwright install-deps chromium
+          sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Typecheck the e2e sources
+        # The repo tsconfig covers src/** only, and Playwright's runner
+        # transpiles without typechecking, so nothing else looks at e2e/.
+        working-directory: resmon_scripts/frontend
+        run: npm run typecheck:e2e
+
+      - name: Build the renderer and the Electron main process
+        working-directory: resmon_scripts/frontend
+        run: npm run build
+
+      - name: Launch the app and walk every route
+        working-directory: resmon_scripts/frontend
+        # A fixed virtual display, so the screenshots this uploads are all taken
+        # at a size that is written down. The window itself is fixed at
+        # 1440x900 by RESMON_E2E; the display has to be at least that.
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24' npm run e2e
+
+      - name: Upload the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-smoke-screenshots
+          path: resmon_scripts/frontend/e2e/screenshots/
+          if-no-files-found: warn
+
+      - name: Upload the failure context
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-smoke-failures
+          path: resmon_scripts/frontend/e2e/test-results/
+          if-no-files-found: ignore
