@@ -30,6 +30,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { launchEnv, FRONTEND_ROOT } from './fixtures/resmon-app';
@@ -71,11 +72,33 @@ async function launchWithCli(cli: 'claude' | 'codex' | null): Promise<Launched> 
 
   const env = launchEnv(stateDir, true);
   env.HOME = home;
-  // `/usr/bin:/bin` keeps the interpreter and the shell reachable while
-  // guaranteeing neither real CLI is on it. `RESMON_PYTHON` is an absolute path
-  // from the fixture, so the backend still starts.
-  env.PATH = `${bin}:/usr/bin:/bin`;
 
+  // The backend interpreter has to be resolved **before** PATH is replaced.
+  // In a checkout `pythonPath()` returns the venv's absolute path and this is a
+  // no-op; on CI it returns the bare name `python3`, and the runner's real
+  // interpreter — the one `pip install -r requirements.txt` went into — is on
+  // the inherited PATH and nowhere else. Scrubbing PATH first left the app
+  // spawning a python with no dependencies, which quits before a window opens
+  // and reports as `firstWindow: Target page … has been closed`.
+  if (env.RESMON_PYTHON && !path.isAbsolute(env.RESMON_PYTHON)) {
+    try {
+      env.RESMON_PYTHON = execFileSync(
+        process.platform === 'win32' ? 'where' : 'which',
+        [env.RESMON_PYTHON], { encoding: 'utf8' },
+      ).split('\n')[0].trim();
+    } catch {
+      /* leave the name; the launch failure below will say so */
+    }
+  }
+
+  // A PATH with exactly one thing on it that this spec put there, plus the
+  // system directories Electron's own helpers need. This is the second half of
+  // pinning the machine's answer: `discover_cli` consults PATH last.
+  env.PATH = [bin, '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(path.delimiter);
+
+  console.log('AI SETTINGS LAUNCH', JSON.stringify({
+    cli, stub: stubPath, python: env.RESMON_PYTHON, path: env.PATH,
+  }));
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
     cwd: FRONTEND_ROOT,
