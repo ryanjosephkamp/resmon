@@ -201,7 +201,14 @@ jobs:
         # No xvfb and no wrapper: a macOS runner has a window server, which is
         # the entire reason this job exists. `RESMON_PYTHON` is resolved to an
         # absolute path by the specs that scrub PATH.
-        run: npm run e2e 2>&1 | tee "$RUNNER_TEMP/ui-window.log"
+        #
+        # `set -o pipefail` is not decoration. Without it this job's exit code
+        # is `tee`'s, and the first run of it reported **green with two failing
+        # tests** — a job that cannot go red is not a gate, which is the exact
+        # class of defect this phase exists to prevent.
+        run: |
+          set -o pipefail
+          npm run e2e 2>&1 | tee "$RUNNER_TEMP/ui-window.log"
 
       - name: Say what this job did not verify
         if: always()

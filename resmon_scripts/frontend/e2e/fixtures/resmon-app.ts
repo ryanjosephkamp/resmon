@@ -67,6 +67,29 @@ export const SCREENSHOT_DIR = process.env.RESMON_E2E_SCREENSHOT_DIR
 export const WINDOW_WIDTH = 1440;
 export const WINDOW_HEIGHT = 900;
 
+/**
+ * The size a window of `WINDOW_WIDTH` x `WINDOW_HEIGHT` can actually take on a
+ * given work area.
+ *
+ * `RESMON_E2E` asks for a fixed size so a screenshot is evidence rather than a
+ * picture of somebody's monitor. A **display smaller than the request** is the
+ * case that was missed: the macOS CI runner's work area is 1024x684, macOS
+ * clamps the window to it, and then reports it as maximized. Two specs asserted
+ * the requested numbers literally and went red on a runner where the app was
+ * behaving perfectly.
+ *
+ * So the property is "the window took the size it asked for, as far as the
+ * display allows", and the clamp is computed from the same work area the main
+ * process reports rather than assumed away.
+ */
+export function fittedWindowSize(
+  workArea: { width: number; height: number },
+): { width: number; height: number; clamped: boolean } {
+  const width = Math.min(WINDOW_WIDTH, workArea.width);
+  const height = Math.min(WINDOW_HEIGHT, workArea.height);
+  return { width, height, clamped: width !== WINDOW_WIDTH || height !== WINDOW_HEIGHT };
+}
+
 /** A console message Chromium classified as an error, tagged with the route that was current. */
 export interface ConsoleError {
   route: string;

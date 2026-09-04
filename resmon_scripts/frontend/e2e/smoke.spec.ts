@@ -8,7 +8,8 @@
  */
 import * as path from 'path';
 import {
-  test, expect, ensureScreenshotDir, isOwnOrigin, WINDOW_WIDTH, WINDOW_HEIGHT,
+  test, expect, ensureScreenshotDir, isOwnOrigin, fittedWindowSize,
+  WINDOW_WIDTH, WINDOW_HEIGHT,
 } from './fixtures/resmon-app';
 import { ROUTES } from './routes';
 
@@ -86,10 +87,23 @@ test.describe('route smoke', () => {
         `resmon's own requests failed on ${route.path}:\n${JSON.stringify(ourFailures, null, 2)}`,
       ).toEqual([]);
 
-      // Recorded in the report as the caption for every screenshot.
+      // Recorded in the report as the caption for every screenshot — and
+      // measured against what the display allows rather than against the
+      // requested numbers. The macOS CI runner's work area is 1024x684, so a
+      // literal 1440 here failed on a runner where the app was correct. See
+      // `fittedWindowSize` in the fixture.
       const viewport = await win.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
-      expect(viewport.w).toBe(WINDOW_WIDTH);
-      expect(viewport.h).toBeLessThanOrEqual(WINDOW_HEIGHT);
+      const workArea = await win.evaluate(() => ({
+        width: window.screen.availWidth, height: window.screen.availHeight,
+      }));
+      const fitted = fittedWindowSize(workArea);
+      if (fitted.clamped && route.path === '/') {
+        console.log('SMOKE WINDOW CLAMPED', JSON.stringify({ workArea, fitted }),
+          `— screenshots on this run are smaller than the requested `
+          + `${WINDOW_WIDTH}x${WINDOW_HEIGHT}`);
+      }
+      expect(viewport.w).toBe(fitted.width);
+      expect(viewport.h).toBeLessThanOrEqual(fitted.height);
     });
   }
 });
