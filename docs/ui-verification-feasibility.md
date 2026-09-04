@@ -440,18 +440,18 @@ browser — and `xvfb` from apt. It installs the backend's Python requirements
 too, because the app under test spawns the real FastAPI backend; without that
 the window opens and every page reads *Backend: Offline*.
 
-**Yes — the app launches and every route is walked under xvfb.** First run, on
-`ubuntu-24.04` (runner image `20260831.293`), Node 20:
+**Yes — the app launches and every route is walked under xvfb**, on
+`ubuntu-24.04` (runner image `20260831.293`), Node 20.
 
-```
-✓  8 route smoke › Dashboard (/) loads with no console errors (707ms)
-…
-✓ 21 route smoke › About resmon (/about-resmon) loads with no console errors (1.1s)
-19 passed, 1 skipped, 1 failed (41.5s)
-```
+| Run | What it shows | Result |
+|---|---|---|
+| [33821624928](https://github.com/ryanjosephkamp/resmon/actions/runs/33821624928) | The first run, before the P6 correction below | 19 passed, 1 skipped, **1 failed** in 41.5 s |
+| [33821961524](https://github.com/ryanjosephkamp/resmon/actions/runs/33821961524) | The suite as it stands | **20 passed**, 1 skipped, 34.7 s |
+| [33822159270](https://github.com/ryanjosephkamp/resmon/actions/runs/33822159270) | `break_route=/no-such-page` — the P5 demonstration below | 20 passed, **1 failed** |
 
-The skip is `packaged.spec.ts`, by design. **The failure was this spike's own
-spec, not the app, and it is a finding worth more than the green tick.**
+The skip is `packaged.spec.ts`, by design. **The first run's failure was this
+spike's own spec, not the app, and it is a finding worth more than the green
+tick.**
 
 ### Finding: xvfb has no window manager, so `maximize()` does nothing
 
@@ -490,6 +490,44 @@ multi-window stacking, and anything about the title bar. A CI job under xvfb
 verifies the *renderer* thoroughly and the *window* barely. If window behaviour
 matters, the runner needs a light window manager alongside xvfb, and that is a
 decision rather than an oversight.
+
+---
+
+### P5 — the job fails when a route fails to load, demonstrated
+
+`ui-smoke.yml` takes a `break_route` `workflow_dispatch` input which sets
+`RESMON_E2E_BREAK_ROUTE`; `routes.ts` then appends a route `App.tsx` does not
+declare. React Router renders nothing for it while the sidebar and header paint
+normally — the exact failure a smoke suite exists to catch.
+
+Run [33822159270](https://github.com/ryanjosephkamp/resmon/actions/runs/33822159270),
+dispatched with `break_route=/no-such-page`:
+
+```
+✘ 22 route smoke › Deliberately broken route (/no-such-page) loads with no console errors (622ms)
+   Error: route /no-such-page rendered an empty <main class="main-content">
+   Expected: > 0
+   Received:   0
+1 failed, 20 passed (36.0s)
+```
+
+The job exits non-zero. It is a `workflow_dispatch` input rather than a commit
+on purpose: **a demonstration that needs a commit to reproduce stops being
+reproducible the moment the commit is reverted.** Anyone can re-run it, from the
+Actions tab or with:
+
+```bash
+gh workflow run ui-smoke.yml --repo ryanjosephkamp/resmon \
+  --ref spike/ui-verification -f break_route=/no-such-page
+```
+
+The same input works locally: `RESMON_E2E_BREAK_ROUTE=/no-such-page npm run e2e:smoke`.
+
+**And the mutation this demonstration actually performed.** With the *first*
+version of the assertion — `body` has text, rather than `main.main-content` has
+text — the broken route **passed**, because the sidebar's own labels satisfied
+it. The break_route input did not merely confirm a working guard; it is what
+found that the guard was not one.
 
 ---
 
@@ -634,6 +672,60 @@ Named plainly, because a spike that lists only what worked is not a spike.
   *loads*. Nothing asserts that it is *correct* — no visual regression, no
   layout assertion, no accessibility check. Whether 1.8.7 wants any of those is
   its decision; this spike deliberately did not make it.
+
+---
+
+## Verification ledger
+
+Per `workspace/plans/HANDBACK-FORMAT.md`. One row per property in the brief's
+P-list. **Cannot see** is mandatory and non-empty.
+
+| P | Check | Boundary | Establishes | Cannot see | Mutation | Denominator |
+|---|---|---|---|---|---|---|
+| **P1** — the app launches and `firstWindow()` resolves | `e2e/fixtures/resmon-app.ts` `app`/`win` fixtures; every one of the 21 tests depends on them | **real dependency, out-of-process** — the app's own Electron 41.10.6 binary, its own spawned Python backend, a real display locally and xvfb on CI | `_electron.launch()` starts resmon from `resmon_scripts/frontend`, `firstWindow()` resolves, and the window is serving `http://127.0.0.1:<port>/index.html` with the preload bridge attached | A launch that succeeds but takes minutes; the 180 s timeout would pass it. Nothing here measures startup time. Also: launch on Windows, on Intel macOS, or from a signed or quarantined bundle | Not mutated — a launch failure is not a subtle state, and the first CI run and the packaged-app run are two independent confirmations | 2 of 2 launch modes exercised (checkout, packaged `.app`); packaged on macOS arm64 only |
+| **P2** — each of the 14 routes loads with zero console errors | `e2e/smoke.spec.ts`, parametrised over `ROUTES` | **real dependency, out-of-process** — real Chromium, real backend | Each route sets `location.hash`, renders a non-empty `main.main-content`, and produces no console error and no failed request **from `127.0.0.1`** | Three things. (1) A route in `App.tsx` that is not in `routes.ts` — the list is a copy. (2) A broken YouTube embed or blog `<webview>`, since assertions are scoped to resmon's origins. (3) Anything about a page beyond it rendering *something*: wrong content, broken layout, and an unreadable page all pass | `RESMON_E2E_BREAK_ROUTE=/no-such-page` fails the run, locally and on CI ([33822159270](https://github.com/ryanjosephkamp/resmon/actions/runs/33822159270)). **The same mutation passed against the first version of the assertion**, which is how the `body`-vs-`main.main-content` gap was found | 14 of 14, from `ROUTES` in `e2e/routes.ts` — **copied by hand** from `App.tsx`, not derived. This is the weakest denominator here and proposal 1 below is the fix |
+| **P3** — the Search-record tab activates on click, or the DOM shows why not | `e2e/search-record.spec.ts` | **real dependency, out-of-process** — a real trusted Chromium input event via `locator.click()`, against a real execution seeded through `POST /api/search/dive` | The tab's class goes `tab-btn ` → `tab-btn tab-active`, the sole `.tab-active` element is labelled *Search record*, and `.search-record` renders after its own fetch | Whether the tab works from a *user's* pointer, on a display with a window manager and a real cursor — Playwright's event is trusted but synthesised. And whether session 5's failure was caused by headless mode, by raw CDP, or by the served-renderer shim: three variables changed at once | Not mutated. The before-state is asserted (`classesBefore` does not contain `tab-active`), so the transition is not a coincidence — but no deliberate break was introduced | 1 of 5 report-viewer tabs driven. Report, Log, Metadata and Progress were not clicked |
+| **P4** — no native dialog opens and no `shell` call escapes | `e2e/ipc-stubs.spec.ts`, both tests | **real dependency, out-of-process** — real `ipcMain` handlers replaced in the real main process via `electronApp.evaluate` | All three IPC channels answer from stubs (1 call each), and all five OS-facing functions record **0** calls across a full 14-route pass | Anything called before `installIpcGuards` runs — i.e. during startup. Nothing in `main.ts` does, but that is read from the code, not measured. Also, the app's *renderer-side* callers are never pressed: this proves the stubs work, not that every button routes through them | Not mutated. The counters distinguish "stub reached" from "OS reached" and both were observed non-zero and zero respectively in the same run, which is the discriminating evidence | 5 of 5 OS-facing calls guarded; denominator from `grep -n 'dialog\.\|shell\.' electron/main.ts`. 3 of 3 IPC channels, denominator from `preload.ts`'s `exposeInMainWorld` |
+| **P5** — the CI job fails when a route fails to load | `ui-smoke.yml` with `break_route`; run [33822159270](https://github.com/ryanjosephkamp/resmon/actions/runs/33822159270) | **real dependency, out-of-process** — a real GitHub Actions runner, xvfb, exit code 1 | A route that renders nothing makes the job red, and the message names the route and the empty element | A route that renders *something wrong*. The job fails on an empty outlet, not on incorrect content — every content regression in resmon's history would have passed this | This **is** the mutation, and it did real work: it failed the first version of the assertion's absence | 1 of 1 failure mode demonstrated (empty route). Other failure modes — a backend that never starts, a window that never opens — are not demonstrated |
+| **P6** — default behaviour unchanged with `RESMON_E2E` unset | `e2e/default-behaviour.spec.ts` | **real dependency, out-of-process** — the same app launched twice, from environments built by one `launchEnv()` and differing only in the variable | With the flag unset the app takes its pre-flag window (maximized to the work area on macOS; the 1280×820 constructor size under xvfb, which has no window manager) and never the E2E size; title, renderer URL shape, preload bridge, `isPackaged` and spawn-its-own-backend are identical across both | **Hunk 3.** `initAutoUpdater`'s guard is unreachable in a checkout and the packaged run was macOS, where the updater is off — so 1 of the 3 hunks has no behavioural check at all. Also, this compares the flag's *own* branches; it cannot see a change to `main.ts` that affects both paths equally | Not mutated. The comparison is itself differential — the two launches are the control for each other | 2 of 3 `RESMON_E2E` hunks observed behaviourally. Denominator from the three `isE2E()` call sites in `electron/main.ts` |
+
+### Not covered
+
+- **Hunk 3 of `RESMON_E2E`** (the auto-updater skip) has no behavioural check.
+  It needs a packaged app on Windows or Linux.
+- **`packaged.spec.ts` does not run on CI.** It skips, with the reason in the
+  skip message. Packaged verification is local and on demand.
+- **Windows, Intel macOS, a signed app, a quarantined app.** None launched.
+- **Window-manager behaviour on CI**: maximize/restore, the `swipe` gesture,
+  focus, stacking.
+- **Correctness of any page.** Every check here is "it rendered". No visual
+  regression, no layout assertion, no accessibility check, no content assertion.
+
+### Residual risk
+
+Written by the implementer, and read against the ledger above.
+
+1. **The copied route list is the biggest one.** P2's denominator is a hand
+   copy, so the property "every route is swept" degrades silently the first time
+   somebody adds a route. Nothing fails, nothing warns. Everything else here is
+   sound and this one thing rots.
+2. **Origin scoping hides two real surfaces.** The YouTube embeds and the blog
+   `<webview>` are things a user sees, and the suite now cannot fail on them. A
+   reader of a green run could reasonably believe About resmon was verified; it
+   was verified apart from its two most fragile parts.
+3. **"It rendered" is a low bar and a green suite may read as more than it is.**
+   Every v1.8.3 interface defect — the white flash, the unwired back/forward,
+   the inconsistent link behaviour — would pass every check in this directory.
+   That is appropriate for a smoke suite and dangerous if the tick is read as
+   "the interface is fine".
+4. **The fuse state is one hardening PR from flipping.** `RunAsNode` and
+   `EnableNodeCliInspectArguments` are enabled only because electron-builder
+   leaves them alone. Turning them off is a reasonable security change, and it
+   would break packaged-app verification the same day, with no warning that
+   connects the two.
+5. **CI verifies the renderer well and the window barely.** A regression in
+   `main.ts`'s window handling — the part of the app that had no test at all,
+   which is why this spike exists — is largely still untested under xvfb.
 
 ---
 
