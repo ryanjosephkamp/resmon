@@ -94,18 +94,21 @@ MISSING_KEY_RECENCY_DAYS = 30
 
 # A zero for one of these reasons is a source that **did not answer**. The
 # consecutive-failure rule treats it like an error row, because that is what
-# it is: resmon sent a query and got nothing back from the source.
+# it is: resmon sent a query and got nothing usable back from the source.
 #
-# Only ``upstream_failure`` is here, and the omissions are deliberate.
-# ``window_unanswerable`` is not a fault at all -- the source is behaving
-# correctly and the window is the user's -- and alarming on it would train
-# people to ignore the watchdog. ``parse_failure`` is a genuine candidate and
-# is deliberately left out of *this* phase: it changes when an alarm fires,
-# and this phase already changes the baseline denominator. Its rows are still
-# dropped from the baseline below, so a source that only ever returns
-# unreadable replies goes to `unjudged` with a stated reason rather than
-# silently counting as healthy.
-ERROR_EQUIVALENT_ZERO_REASONS = frozenset({"upstream_failure"})
+# ``upstream_failure`` is the source not replying at all. ``parse_failure`` is
+# the source replying with something resmon cannot read -- a 200 whose body
+# will not parse, a schema that changed under us. Neither raises, because
+# every client degrades rather than failing a sweep, and both leave the user
+# with nothing while the run reads ``ok``. A reply that cannot be read on
+# every run for a fortnight is precisely the silent breakage this component
+# exists to catch, and it was the one shape it still could not see.
+#
+# ``window_unanswerable`` is deliberately **not** here. It is not a fault at
+# all -- the source is behaving correctly and the window is the user's -- and
+# alarming on it would train people to ignore the watchdog, which is the
+# failure this whole file is written against.
+ERROR_EQUIVALENT_ZERO_REASONS = frozenset({"upstream_failure", "parse_failure"})
 
 # A zero for one of these reasons is not a measurement of the field, so it
 # cannot be part of a baseline of what the source normally returns. Dropping
@@ -334,29 +337,48 @@ def _failure_detail(run: dict) -> str:
     """What the most recent failing run actually recorded, in one clause.
 
     An ``error`` row has an exception string. An ``ok / 0`` row recorded as an
-    upstream failure has no exception -- nothing raised -- and its detail is
-    the JSON the engine wrote. Reading the exception field for both was how the
-    old wording ended up saying "raised an error" about a run that did not.
+    upstream failure or a parse failure has no exception -- nothing raised --
+    and its detail is the JSON the engine wrote. Reading the exception field
+    for all of them was how the old wording ended up saying "raised an error"
+    about a run that did not.
+
+    The two no-answer reasons need different clauses. An upstream failure is
+    the source not replying; a parse failure is the source replying with
+    something resmon cannot read. Telling a user their source is unreachable
+    when it is answering perfectly well and has changed its response format
+    sends them to look for a problem that is not there.
     """
     if run["status"] == "error":
         return str(run.get("error_message") or "unknown error")
+
     detail = run.get("zero_detail")
+    parsed: dict = {}
     if isinstance(detail, str) and detail:
         try:
-            parsed = json.loads(detail)
+            loaded = json.loads(detail)
         except (ValueError, TypeError):
-            parsed = {}
-        if isinstance(parsed, dict):
-            kind = parsed.get("detail")
-            status = parsed.get("status")
-            if status:
-                return f"the source answered HTTP {status}"
-            if kind == "timeout":
-                return "the request timed out"
-            if kind == "connect":
-                return "resmon could not open a connection"
-            if kind:
-                return str(kind).replace("_", " ")
+            loaded = None
+        if isinstance(loaded, dict):
+            parsed = loaded
+    kind = parsed.get("detail")
+
+    if run.get("zero_reason") == "parse_failure":
+        if kind == "incomplete_page":
+            return (
+                "the source answered and resmon could not read the reply "
+                "(the page it returned was incomplete)"
+            )
+        return "the source answered and resmon could not read the reply"
+
+    status = parsed.get("status")
+    if status:
+        return f"the source answered HTTP {status}"
+    if kind == "timeout":
+        return "the request timed out"
+    if kind == "connect":
+        return "resmon could not open a connection"
+    if kind:
+        return str(kind).replace("_", " ")
     return "the source did not answer"
 
 
