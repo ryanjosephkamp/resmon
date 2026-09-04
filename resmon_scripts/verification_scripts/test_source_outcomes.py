@@ -534,13 +534,23 @@ class _SilentClient(BaseAPIClient):
         return []
 
 
-def _run_dive(monkeypatch, client):
+def _run_dive(monkeypatch, client, repo="arxiv", **params):
     conn = sqlite3.connect(":memory:")
     init_db(conn=conn)
+    # ``progress_store`` is a process-wide singleton keyed by execution id, and
+    # ``register`` / ``cleanup`` are called by the API layer rather than by the
+    # engine -- so an engine-level test never clears it. Every ``:memory:``
+    # database starts its AUTOINCREMENT at 1, so without this each dive in this
+    # file appends to the previous one's event list under id 1 and a test
+    # reading "the repo_done event" gets five of them.
+    for exec_id in list(se.progress_store._events):
+        se.progress_store.cleanup(exec_id)
     monkeypatch.setattr(se, "get_client", lambda _name: client)
     monkeypatch.setattr(cm, "get_credential", lambda _name: "a-key")
     engine = se.SweepEngine(db_conn=conn, config={})
-    result = engine.execute_dive("arxiv", {"query": "x", "max_results": 1})
+    query_params = {"query": "x", "max_results": 1}
+    query_params.update(params)
+    result = engine.execute_dive(repo, query_params)
     return conn, result
 
 
@@ -747,3 +757,125 @@ def test_the_search_worker_clears_the_channel_before_it_starts(
     assert results == []
     assert outcome["failures"] == 0
     assert zero_reason.derive(outcome) == ("not_recorded", {})
+
+
+# ---------------------------------------------------------------------------
+# P14 — the event carries the sentence, and it is the same sentence
+# ---------------------------------------------------------------------------
+#
+# Reconciliation found this hole by mutation: setting ``zero_message`` to
+# ``None`` on the ``repo_done`` event left the whole backend suite green and
+# the whole jsdom suite green, because the jsdom cases build their own fixture
+# events. Only the Playwright spec noticed, and the Playwright spec does not
+# run in the hermetic suite. So the contract between the engine's event and
+# the monitor had exactly one guard, in the slowest place.
+#
+# The property is not "the field is present". It is that the sentence on the
+# event is the *same sentence* the task log and the search record carry for
+# that source, which is the whole reason the renderer displays what the
+# backend rendered instead of composing its own.
+
+
+def _repo_done_event(exec_id, repository):
+    events = [
+        e for e in se.progress_store.get_events(exec_id)
+        if e.get("type") == "repo_done" and e.get("repository") == repository
+    ]
+    assert len(events) == 1, f"expected one repo_done for {repository}"
+    return events[0]
+
+
+def _one_sentence_everywhere(conn, result, repository):
+    """The sentence as each of the three surfaces has it."""
+    from pathlib import Path
+
+    event = _repo_done_event(result["execution_id"], repository)
+    record = search_record.build(conn, result["execution_id"])
+    note = next(
+        s["note"] for s in record["sources"] if s["source"] == repository
+    )
+    log = Path(result["log_path"]).read_text(encoding="utf-8")
+    return event, note, log
+
+
+def test_the_event_carries_the_same_sentence_as_the_log_and_the_record(
+    monkeypatch, http_server, fast_retries,
+):
+    """upstream_failure, through the real engine."""
+    http_server.reply = (503, "unavailable")
+    conn, result = _run_dive(monkeypatch, _RealHTTPClient(http_server.url))
+
+    event, note, log = _one_sentence_everywhere(conn, result, "arxiv")
+
+    assert event["zero_reason"] == "upstream_failure"
+    assert event["zero_message"], "the event carries no sentence"
+    # The three surfaces agree, verbatim. If they ever stop agreeing, the
+    # renderer is showing a user something no other record of the run says.
+    assert event["zero_message"] == note
+    assert event["zero_message"] in log
+    # And the structured fact travels with it, so the renderer can choose an
+    # icon without parsing the prose.
+    assert event["zero_detail"]["status"] == 503
+    conn.close()
+
+
+def test_an_unanswerable_window_carries_its_sentence_on_the_event_too(
+    monkeypatch,
+):
+    """window_unanswerable, through the *real* ERIC client.
+
+    ERIC refuses a window shorter than one calendar year without sending a
+    request, so this exercises the whole engine path — client, channel,
+    derivation, event, log, record — with no network and no fixture client.
+    It is the same seed the real-browser spec uses, which is why the two can
+    be compared at all.
+    """
+    from resmon_scripts.implementation_scripts import api_eric
+
+    conn, result = _run_dive(
+        monkeypatch, api_eric.EricClient(), repo="eric",
+        date_from="2026-01-01", date_to="2026-01-14",
+    )
+
+    event, note, log = _one_sentence_everywhere(conn, result, "eric")
+
+    assert event["zero_reason"] == "window_unanswerable"
+    assert event["zero_message"] == note
+    assert event["zero_message"] in log
+    assert event["zero_message"] == (
+        "ERIC filters by publication year only, so a window shorter than one "
+        "whole calendar year cannot be answered. resmon did not widen your "
+        "window."
+    )
+    conn.close()
+
+
+def test_a_source_that_answered_emits_no_sentence(
+    monkeypatch, http_server, fast_retries,
+):
+    """The other half: a run with nothing to explain says nothing."""
+
+    class _ProductiveClient(BaseAPIClient):
+        def get_name(self):
+            return "arxiv"
+
+        def search(self, query, date_from=None, date_to=None, max_results=100, **kw):
+            api_base.safe_request("GET", self._url)
+            from resmon_scripts.implementation_scripts.api_base import (
+                NormalizedResult,
+            )
+            return [NormalizedResult(
+                source_repository="arxiv", external_id="1", doi=None,
+                title="A paper", authors=["A"], abstract=None,
+                publication_date="2024-01-01", url="https://example.org/1",
+            )]
+
+    client = _ProductiveClient()
+    client._url = http_server.url
+    conn, result = _run_dive(monkeypatch, client)
+
+    event = _repo_done_event(result["execution_id"], "arxiv")
+
+    assert event["zero_reason"] is None
+    assert event["zero_message"] is None
+    conn.close()

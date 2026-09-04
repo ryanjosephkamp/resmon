@@ -28,15 +28,24 @@ this phase exists to prevent.
 
 Two rules read the new column:
 
-1. A zero recorded as `upstream_failure` counts as a **failure to get an
-   answer**, both for the consecutive-failure rule and for "it last answered
-   successfully" — which previously could name an outage as a success, because
-   an outage is recorded `ok / 0`.
+1. A zero recorded as `upstream_failure` **or `parse_failure`** counts as a
+   **failure to get an answer**, both for the consecutive-failure rule and for
+   "it last answered successfully" — which previously could name an outage as a
+   success, because an outage is recorded `ok / 0`.
 2. A zero recorded as `upstream_failure`, `parse_failure` or
    `window_unanswerable` is **not a measurement of the field**, so it cannot be
    part of a baseline of what a source normally returns.
 
 A NULL reason keeps the pre-1.8.6 reading in both.
+
+`parse_failure` was left out of rule 1 when this phase was first written, on
+the grounds that a phase already changing the baseline denominator should not
+also change when an alarm fires. The planning session decided otherwise at
+reconciliation, and the reasoning is the stronger one: a source that answers
+with something resmon cannot read on every run for a fortnight is exactly the
+silent breakage this component exists to catch. Nothing raises, every run reads
+`ok`, and the user simply gets nothing. Bound C below is the same test applied
+to that decision.
 
 ## Result: the report is unchanged, byte for byte
 
@@ -71,10 +80,10 @@ themselves.
 
 ## Bounds: what the change would do to this history
 
-Neither of these is a measurement. Each labels **all 182** real `ok / 0` rows
-with **one** reason, to show the direction and the size of the change against
-the real corpus's shape rather than a fixture's. What actually happened on
-those 182 runs is not knowable and is not claimed.
+None of these is a measurement. Each labels **all 182** real `ok / 0` rows with
+**one** reason, to show the direction and the size of the change against the
+real corpus's shape rather than a fixture's. What actually happened on those
+182 runs is not knowable and is not claimed.
 
 ### Bound A — if every one of them had been an outage
 
@@ -89,6 +98,33 @@ seven `source_errors` findings (severity **broken**, a recorded fact), and
 `dblp`, `europepmc` and `ieee` — silent before — appear. That is the correct
 direction: a source that has not answered for 29 runs is broken, not quiet, and
 the old code could not say so because nothing raised.
+
+The two failure modes are one streak, not two — a source alternating between
+an unreachable endpoint and an unreadable reply would otherwise never reach
+either threshold. And the sentence distinguishes them, because telling someone
+their source is unreachable when it is answering fine and has changed its
+response format sends them to look for a problem that is not there:
+
+```
+resmon got no answer from arxiv on each of its last 4 runs. The most recent
+one: the source answered and resmon could not read the reply. It last answered
+successfully 7 days ago.
+```
+
+### Bound C — if every one of them had been an unreadable reply
+
+```
+$ python fieldtest-bound.py resmon.db parse_failure
+labelled 182 ok/0 rows as parse_failure
+findings: 12
+```
+
+The same twelve findings as bound A, with the same seven sources promoted from
+`source_quiet` to `source_errors` — as it should be, since both reasons are now
+error-equivalent and this corpus's zeros fall in the same places whichever
+reason is applied. What differs is the sentence, quoted above: bound A says
+*the source answered HTTP 503*, bound C says *the source answered and resmon
+could not read the reply*.
 
 ### Bound B — if every one of them had been a real empty answer
 
