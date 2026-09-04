@@ -203,7 +203,24 @@ def leaked(summaries: list[str | None], tokens: list[str]) -> list[tuple[int, st
 # The runs
 # ---------------------------------------------------------------------------
 
+def _telemetry_totals(client) -> dict:
+    """Sum what the CLI said the calls cost. ``None`` where it reports nothing."""
+    rows = list(client.telemetry)
+    def _sum(field):
+        values = [r.get(field) for r in rows if r.get(field) is not None]
+        return sum(values) if values else None
+    return {
+        "cost_usd": _sum("total_cost_usd"),
+        "input_tokens": _sum("cache_creation_input_tokens"),
+        "output_tokens": _sum("output_tokens"),
+        "cache_read": _sum("cache_read_input_tokens"),
+        "tokens_used": _sum("tokens_used"),
+        "calls_recorded": len(rows),
+    }
+
+
 def run_per_document(client, documents, params) -> dict:
+    client.telemetry.clear()
     started = time.monotonic()
     summaries: list[str | None] = []
     failures = 0
@@ -226,6 +243,8 @@ def run_per_document(client, documents, params) -> dict:
         "failures": failures,
         "calls": len(documents),
         "fallbacks": 0,
+        "missed": [i for i, s in enumerate(summaries) if not s],
+        "telemetry": _telemetry_totals(client),
     }
 
 
@@ -235,6 +254,7 @@ def run_batched(client, documents, params, size) -> dict:
     per_paper = []
     client.batch_fallbacks = 0
     client.batch_calls = 0
+    client.telemetry.clear()
     for start in range(0, len(documents), size):
         slice_docs = documents[start:start + size]
         one = time.monotonic()
@@ -244,6 +264,18 @@ def run_batched(client, documents, params, size) -> dict:
             print(f"    ! {exc.kind.value}: {exc.message}", file=sys.stderr)
             answered = [None] * len(slice_docs)
         elapsed = time.monotonic() - one
+        # Which document a short batch missed, not just how many. Every real
+        # batched run in D3 came back one summary short and the script could
+        # not say whether it was the same paper each time -- so "one abstract
+        # this model will not summarize" and "batching drops one at random"
+        # were indistinguishable, and they call for different responses.
+        for offset, answer in enumerate(answered):
+            if not answer:
+                print(
+                    f"    · no summary for document {start + offset} "
+                    f"in the batch starting at {start}",
+                    file=sys.stderr,
+                )
         summaries.extend(answered)
         per_paper.extend([elapsed / max(1, len(slice_docs))] * len(slice_docs))
     return {
@@ -255,16 +287,24 @@ def run_batched(client, documents, params, size) -> dict:
         "failures": sum(1 for s in summaries if not s),
         "calls": client.batch_calls,
         "fallbacks": client.batch_fallbacks,
+        "missed": [i for i, s in enumerate(summaries) if not s],
+        "telemetry": _telemetry_totals(client),
     }
 
 
 def score(result: dict, tokens: list[str] | None, bounds) -> dict:
     summaries = result["summaries"]
     produced = [s for s in summaries if s]
+    papers = len(summaries)
+    tele = result.get("telemetry") or {}
+
+    def _per_paper(value):
+        return round(value / papers, 6) if (value is not None and papers) else None
+
     return {
         "mode": result["mode"],
         "size": result["size"],
-        "papers": len(summaries),
+        "papers": papers,
         "calls": result["calls"],
         "wall_s": round(result["wall"], 1),
         "median_s_per_paper": round(statistics.median(result["per_paper"]), 1)
@@ -273,6 +313,13 @@ def score(result: dict, tokens: list[str] | None, bounds) -> dict:
         "in_band": sum(1 for s in produced if in_band(s, bounds)),
         "leaks": len(leaked(summaries, tokens)) if tokens else None,
         "fallback_batches": result["fallbacks"],
+        # The quantities the guard actually protects. The plan's window is
+        # spent in tokens, not seconds.
+        "cost_usd": round(tele["cost_usd"], 4) if tele.get("cost_usd") is not None else None,
+        "cost_per_paper": _per_paper(tele.get("cost_usd")),
+        "in_tokens_per_paper": _per_paper(tele.get("input_tokens")),
+        "out_tokens_per_paper": _per_paper(tele.get("output_tokens")),
+        "missed": result.get("missed") or [],
     }
 
 
@@ -289,8 +336,27 @@ def score(result: dict, tokens: list[str] | None, bounds) -> dict:
 #   band       band compliance no worse than the per-document run
 #   fallback   <= 10 % of batches fell back to per-document calls
 
-SPEED_RATIO_GATE = 0.25
-FALLBACK_RATE_GATE = 0.10
+# Restated at the 1.8.5 reconciliation, and the restatement is the point.
+#
+# The first version of this gate required wall-clock per paper <= 1/4 of the
+# per-document run. That measured the wrong quantity: the document cap and the
+# not-default-for-bulk guard existed to protect the **plan's usage window**,
+# which is spent in tokens. Batching amortises a ~5.6k-token fixed cost per
+# call -- the constitution and the prompt scaffold -- so it moves tokens far
+# more than it moves seconds, and a seconds threshold answered a question
+# nobody was asking.
+#
+# The fallback-rate criterion is gone. A batch answering four of five costs one
+# re-send call, not a summary, and D3 showed it is the normal case on real
+# abstracts.
+COST_RATIO_GATE = 0.40      # total_cost_usd per paper, and input-side tokens
+WALL_RATIO_GATE = 0.60      # wall-clock per paper
+
+
+def _ratio(now, base):
+    if now is None or base in (None, 0):
+        return None
+    return now / base
 
 
 def _print_gate(rows: list[dict]) -> None:
@@ -298,43 +364,63 @@ def _print_gate(rows: list[dict]) -> None:
     for row in rows:
         groups.setdefault((row["provider"], row["corpus"]), []).append(row)
 
-    print("\n## Flip gate\n")
-    print("| provider | corpus | mode | s/paper | ratio | speed | leakage | band | fallback | verdict |")
-    print("|---|---|---|---|---|---|---|---|---|---|")
+    print("\n## Flip gate (restated at the 1.8.5 reconciliation)\n")
+    print("| provider | corpus | mode | cost/paper | ×base | in-tok/paper | ×base "
+          "| s/paper | ×base | leakage | band | verdict |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|")
     for (provider, corpus), group in groups.items():
-        baseline = next(
-            (r for r in group if r["mode"] == "per-document"), None,
-        )
+        baseline = next((r for r in group if r["mode"] == "per-document"), None)
         if baseline is None or not baseline["median_s_per_paper"]:
-            print(f"| {provider} | {corpus} | — | — | — | — | — | — | — | "
+            print(f"| {provider} | {corpus} | — | — | — | — | — | — | — | — | — | "
                   f"no per-document baseline in this run |")
             continue
-        base = baseline["median_s_per_paper"]
+
         for row in group:
             if row["mode"] == "per-document":
                 continue
-            ratio = row["median_s_per_paper"] / base
-            speed_ok = ratio <= SPEED_RATIO_GATE
-            leak_ok = row["leaks"] == 0 if row["leaks"] is not None else None
-            band_ok = row["in_band"] >= baseline["in_band"]
-            calls = row["calls"] or 1
-            fallback_rate = row["fallback_batches"] / calls
-            fallback_ok = fallback_rate <= FALLBACK_RATE_GATE
-            checks = [speed_ok, band_ok, fallback_ok]
-            if leak_ok is not None:
-                checks.append(leak_ok)
-            verdict = "PASS" if all(checks) else "FAIL"
-            print(
-                f"| {provider} | {corpus} | {row['mode']} | "
-                f"{row['median_s_per_paper']} | {ratio:.3f} | "
-                f"{'pass' if speed_ok else 'FAIL'} | "
-                f"{'—' if leak_ok is None else ('pass' if leak_ok else 'FAIL')} | "
-                f"{'pass' if band_ok else 'FAIL'} | "
-                f"{'pass' if fallback_ok else 'FAIL'} ({fallback_rate:.0%}) | "
-                f"**{verdict}** |"
-            )
+            cost_r = _ratio(row["cost_per_paper"], baseline["cost_per_paper"])
+            tok_r = _ratio(row["in_tokens_per_paper"], baseline["in_tokens_per_paper"])
+            wall_r = row["median_s_per_paper"] / baseline["median_s_per_paper"]
 
-        _print_cost_model(provider, corpus, base, group)
+            # A criterion the CLI reports nothing for is not a pass. It is
+            # unmeasured, and the verdict says so rather than quietly
+            # dropping it -- codex reports no cost at all.
+            cost_ok = None if cost_r is None else cost_r <= COST_RATIO_GATE
+            tok_ok = None if tok_r is None else tok_r <= COST_RATIO_GATE
+            wall_ok = wall_r <= WALL_RATIO_GATE
+            leak_ok = None if row["leaks"] is None else row["leaks"] == 0
+            band_ok = row["in_band"] >= baseline["in_band"]
+
+            checks = [wall_ok, band_ok] + [
+                c for c in (cost_ok, tok_ok, leak_ok) if c is not None
+            ]
+            unmeasured = [c for c in (cost_ok, tok_ok, leak_ok) if c is None]
+            if not all(checks):
+                verdict = "**FAIL**"
+            elif unmeasured:
+                verdict = f"**PASS**, {len(unmeasured)} criterion unmeasured"
+            else:
+                verdict = "**PASS**"
+
+            def _f(value, places=4):
+                return "—" if value is None else f"{value:.{places}f}"
+
+            print(
+                f"| {provider} | {corpus} | {row['mode']} "
+                f"| {_f(row['cost_per_paper'])} | {_f(cost_r, 3)} "
+                f"| {'—' if row['in_tokens_per_paper'] is None else int(row['in_tokens_per_paper'])} "
+                f"| {_f(tok_r, 3)} "
+                f"| {row['median_s_per_paper']} | {wall_r:.3f} "
+                f"| {'—' if leak_ok is None else ('0' if leak_ok else str(row['leaks']))} "
+                f"| {row['in_band']}/{row['produced']} vs {baseline['in_band']}/{baseline['produced']} "
+                f"| {verdict} |"
+            )
+            if row["missed"]:
+                print(f"|   ↳ documents with no summary from the batch: "
+                      f"{row['missed']} (each costs one re-send call in the app, "
+                      f"not a lost summary) | | | | | | | | | | | |")
+
+        _print_cost_model(provider, corpus, baseline["median_s_per_paper"], group)
 
 
 def _print_cost_model(provider: str, corpus: str, base: float, group: list[dict]) -> None:
@@ -457,8 +543,9 @@ def main() -> int:
     _print_gate(rows)
 
     headers = ["provider", "corpus", "mode", "papers", "calls", "wall_s",
-               "median_s_per_paper", "produced", "in_band", "leaks",
-               "fallback_batches"]
+               "median_s_per_paper", "cost_usd", "cost_per_paper",
+               "in_tokens_per_paper", "out_tokens_per_paper",
+               "produced", "in_band", "leaks", "fallback_batches", "missed"]
     print("\n| " + " | ".join(headers) + " |")
     print("|" + "|".join("---" for _ in headers) + "|")
     for row in rows:

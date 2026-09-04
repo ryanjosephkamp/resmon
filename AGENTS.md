@@ -46,11 +46,11 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 949 pass, 45 deselected
+.venv/bin/python -m pytest -q          # hermetic suite: 960 pass, 45 deselected
 .venv/bin/python -m pytest -m live_network   # the 45 — real scholarly APIs and CLIs
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 154 tests across 21 suites
+npm run typecheck && npm test && npm run build   # 160 tests across 21 suites
 ```
 
 All four must pass before a PR opens. CI runs the backend suite on Python 3.10, 3.11 and

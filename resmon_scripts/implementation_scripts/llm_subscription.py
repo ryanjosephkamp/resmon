@@ -44,10 +44,16 @@ it controls. Both were verified against the installed CLIs. Keeping the rules
 above the abstract rather than next to it means injected text in an abstract is
 arguing with a system instruction, not with a peer.
 
-**It is slow and it spends a window the user also works in.** That is a product
-fact, not an implementation detail: the lane carries a per-execution document cap
-(see ``ai_lanes.DEFAULT_SUBSCRIPTION_DOC_CAP``), the interface says what a run
-will consume before it runs, and it is not the default for bulk summarization.
+**It spends a window the user also works in.** That is a product fact, not an
+implementation detail: the lane carries a per-execution document cap (see
+``ai_lanes.DEFAULT_SUBSCRIPTION_DOC_CAP``) and the interface says what a run
+will consume before it runs.
+
+Since 1.8.5 it is the **recommended** route rather than a fallback, because
+batching changed what it costs: five papers per call put a measured paper at
+0.33x the cost and 0.23x the input-side tokens of a per-document call, since
+the constitution and the prompt scaffold are paid once per call instead of once
+per paper. The cap moved from 25 to 50 on that measurement, not on a hunch.
 """
 
 from __future__ import annotations
@@ -183,6 +189,16 @@ class SubscriptionLLMClient:
         self.batch_fallbacks = 0
         self.batch_splits = 0
         self.batch_calls = 0
+        # What the CLI said each call cost. Appended to, never read by the
+        # summarization path -- it changes no behaviour.
+        #
+        # It exists because the document cap and the not-default-for-bulk guard
+        # were always about the **plan's usage window**, which is spent in
+        # tokens, and resmon had no way to see that number even though claude
+        # reports it in every envelope. Measuring batching on wall-clock
+        # instead answered a question nobody was asking.
+        self.telemetry: list[dict] = []
+        self._batch_documents = 1
         logger.info(
             "SubscriptionLLMClient initialized: provider=%s, binary=%s, model=%s",
             provider, binary_path, model or "(CLI default)",
@@ -284,6 +300,10 @@ class SubscriptionLLMClient:
         prompt = self._build_batch_prompt(texts, prompt_params)
         timeout = self.batch_timeout(len(texts))
         self.batch_calls += 1
+        # How many documents this call carries, so the telemetry row can be
+        # divided by it. Set here rather than threaded through every extractor
+        # because the extractors already take enough arguments.
+        self._batch_documents = len(texts)
 
         with tempfile.TemporaryDirectory(prefix="resmon-ai-") as workdir:
             try:
@@ -488,6 +508,8 @@ class SubscriptionLLMClient:
         if not isinstance(payload, dict):
             self._raise_for_output(completed, raw)
 
+        self._record_claude_telemetry(payload, self._batch_documents)
+
         # is_error first, before any shape check. An authentication failure
         # arrives with is_error true and subtype still "success", so a count
         # check that ran first would report a lane-fatal auth problem as a
@@ -596,6 +618,8 @@ class SubscriptionLLMClient:
         completed = self._execute(
             self._codex_argv(prompt, workdir, out_path, schema_path), workdir, timeout,
         )
+
+        self._record_codex_telemetry(completed, self._batch_documents)
 
         try:
             with open(out_path, "r", encoding="utf-8") as handle:
@@ -725,6 +749,8 @@ class SubscriptionLLMClient:
         if not isinstance(payload, dict):
             self._raise_for_output(completed, raw)
 
+        self._record_claude_telemetry(payload, 1)
+
         result = payload.get("result")
 
         # `is_error` is the field that matters, and it is not the obvious one:
@@ -744,6 +770,7 @@ class SubscriptionLLMClient:
     def _extract_codex(
         self, completed: subprocess.CompletedProcess, out_path: str,
     ) -> str:
+        self._record_codex_telemetry(completed, 1)
         try:
             with open(out_path, "r", encoding="utf-8") as handle:
                 message = handle.read().strip()
@@ -757,6 +784,63 @@ class SubscriptionLLMClient:
         # stdout carries the banner and any error text, so it is what gets
         # classified -- but it is never returned as a summary.
         self._raise_for_output(completed, "")
+
+    # ------------------------------------------------------------------
+    # What the call cost
+    # ------------------------------------------------------------------
+
+    def _record_claude_telemetry(self, payload: dict, documents: int) -> None:
+        """Keep the usage fields ``claude`` reports in its result envelope.
+
+        Recorded whatever the outcome: a failed call still spends the window,
+        and a measurement that counted only successes would understate what
+        batching costs when it falls back.
+        """
+        usage = payload.get("usage")
+        usage = usage if isinstance(usage, dict) else {}
+        self.telemetry.append({
+            "provider": self.provider,
+            "documents": documents,
+            "duration_ms": payload.get("duration_ms"),
+            "duration_api_ms": payload.get("duration_api_ms"),
+            "total_cost_usd": payload.get("total_cost_usd"),
+            "num_turns": payload.get("num_turns"),
+            "input_tokens": usage.get("input_tokens"),
+            "output_tokens": usage.get("output_tokens"),
+            "cache_creation_input_tokens": usage.get("cache_creation_input_tokens"),
+            "cache_read_input_tokens": usage.get("cache_read_input_tokens"),
+        })
+
+    def _record_codex_telemetry(
+        self, completed: subprocess.CompletedProcess, documents: int,
+    ) -> None:
+        """Keep what ``codex`` reports, which is less.
+
+        There is no result envelope on the ``-o`` path -- the file holds the
+        answer and nothing else -- so the only figure available is the token
+        total codex prints to stdout. No cost, no cache breakdown, no
+        per-turn detail. Recorded as ``None`` rather than omitted, so a table
+        can say *this CLI does not report it* instead of leaving a blank that
+        reads as zero.
+        """
+        tokens = None
+        for line in (completed.stdout or "").splitlines():
+            stripped = line.strip().replace(",", "")
+            if stripped.isdigit():
+                tokens = int(stripped)
+        self.telemetry.append({
+            "provider": self.provider,
+            "documents": documents,
+            "duration_ms": None,
+            "duration_api_ms": None,
+            "total_cost_usd": None,
+            "num_turns": None,
+            "input_tokens": None,
+            "output_tokens": None,
+            "cache_creation_input_tokens": None,
+            "cache_read_input_tokens": None,
+            "tokens_used": tokens,
+        })
 
     # ------------------------------------------------------------------
     # Failure classification

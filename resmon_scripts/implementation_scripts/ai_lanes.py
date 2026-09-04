@@ -57,16 +57,25 @@ SUBSCRIPTION_PROVIDERS = ("claude_code", "codex")
 # How many documents one execution may put through a subscription lane before
 # it stands down.
 #
-# This is a guard rail rather than a technical limit. An agent CLI is far slower
-# per call than a direct API request, and it spends the same Claude Max or
-# ChatGPT window the user does their own work in — so a 200-paper sweep routed
-# through one is both slow and capable of exhausting the plan the user actually
-# needs. Twenty-five is enough for the lane to be genuinely useful on a focused
-# run and small enough that nobody discovers the cost by losing a window.
+# This is a guard rail rather than a technical limit. An agent CLI spends the
+# same Claude Max or ChatGPT window the user does their own work in, so a
+# 200-paper sweep routed through one is capable of exhausting the plan the user
+# actually needs.
+#
+# **Fifty since 1.8.5, and the number moved because batching moved it.** At the
+# default batch size of five, a measured paper costs 0.33× what it cost per
+# document and 0.23× the input-side tokens — the constitution and the prompt
+# scaffold are ~5.6k tokens paid once per call rather than once per paper. Fifty
+# papers now spend rather less of the window than twenty-five did before
+# batching existed.
+#
+# Not a hundred. Every real batched run in D3 came back one summary short of its
+# batch, and each miss costs a re-send call; doubling is what the measurement
+# supports, quadrupling is not.
 #
 # Reaching the cap is not a failure. The lane stands down, the chain carries on
 # with the next lane, and execution_ai records that the cap was the reason.
-DEFAULT_SUBSCRIPTION_DOC_CAP = 25
+DEFAULT_SUBSCRIPTION_DOC_CAP = 50
 
 # How many documents one subscription-lane CLI call carries (1.8.5).
 #
