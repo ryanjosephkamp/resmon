@@ -1,6 +1,38 @@
 # Can an agent see the app?
 
-**Delegation 06 — a feasibility spike.** Branched from `8fa38ba` (phase 1.8.5's
+**Delegation 06 — a feasibility spike.**
+
+> **Phase 1.8.7 addendum (2026-09-04).** This report is left as written: it is
+> the record of what was true when the spike ran, and its three caveats are the
+> reason the phase that followed had the shape it did. What has changed since:
+>
+> 1. **The route list is no longer a copy.** `src/routes.ts` is the one table;
+>    `App.tsx` renders from it and `e2e/routes.ts` imports it, and
+>    `src/__tests__/routes.test.tsx` fails when they disagree. The sweep also
+>    grew from 14 routes to **24** — the six Settings tabs and four About tabs
+>    had never been visited, because the suite reached `/settings`, landed on
+>    the index redirect, and never saw the other five.
+> 2. **The two third-party surfaces are asserted, positively.**
+>    `e2e/third-party.spec.ts` scrolls each of the **seventeen** YouTube embeds
+>    (this report said six; it counted the ones that load eagerly) into view,
+>    evaluates *inside* the cross-origin frame, and requires a mounted player,
+>    no `.ytp-error`, and a real video title — because a removed video answers
+>    **HTTP 200** and a status check would call it healthy. The blog
+>    `<webview>` is watched from the main process through
+>    `web-contents-created`. A machine that cannot reach either origin skips,
+>    printing what it did not verify.
+> 3. **The fuses are read, not trusted.** `e2e/fixtures/electron-fuses.ts`
+>    parses the fuse wire out of the built binary and `packaged.spec.ts` fails
+>    if `RunAsNode` or `EnableNodeCliInspectArguments` is disabled;
+>    `src/__tests__/electronFuses.test.ts` fails in **CI** if the build block
+>    ever asks for them off, which is the half that a local-only packaged spec
+>    could not cover. The parse was checked against `npx @electron/fuses read`,
+>    and flipping the byte by hand was confirmed to make the packaged app fail
+>    to launch at all.
+>
+> Still open, and named in the 1.8.7 handback rather than here: Windows, Intel
+> macOS, a signed or quarantined app, the packaged app on CI, and any
+> window-manager behaviour under xvfb. Branched from `8fa38ba` (phase 1.8.5's
 four PRs, `#51`–`#54`), which is past the `6d38f8d` the brief was written
 against; the brief said to say so, and this is that.
 
