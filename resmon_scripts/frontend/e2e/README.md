@@ -29,6 +29,7 @@ under `release/` it skips, and says so.
 | File | What it answers |
 |---|---|
 | `fixtures/resmon-app.ts` | The launch fixture. Read its header first — it carries the isolation story and two things that were found the hard way. |
+| `fixtures/electron-fuses.ts` | Reads the fuse wire out of a built app. Two fuses are what make a packaged app driveable at all. |
 | `fixtures/ipc-guards.ts` | Counting replacements for every native call `main.ts` can make, so "nothing reached the OS" is a measurement. |
 | `routes.ts` | The routes, **imported** from `src/routes.ts` — the same table `App.tsx` renders from. 24 of them: 14 top-level plus the 10 Settings and About tabs those pages declare. |
 | `main-window.spec.ts` | P2–P4 — `electron/main.ts` itself: the window background, the in-app link window, the History menu. |
@@ -39,6 +40,7 @@ under `release/` it skips, and says so.
 | `ipc-stubs.spec.ts` | Q5 — replacing the three IPC handlers from the main process, with counters proving nothing reached the OS. |
 | `default-behaviour.spec.ts` | P6 — the app behaves as it always did with `RESMON_E2E` unset. |
 | `zero-reason.spec.ts` | Phase 1.8.6 — a source that came back empty says why, on all three surfaces. |
+| `third-party.spec.ts` | P9 — the YouTube embeds and the blog `<webview>`, asserted to have *loaded* rather than merely not failed. |
 | `packaged.spec.ts` | Q6 — the built `.app` launches under Playwright too. Skips when there is no build. |
 
 ## Four things to know before adding a spec
@@ -63,11 +65,16 @@ A committed screenshot is a merge conflict, not evidence.
 **8742** is a live launchd daemon over a different database; every spec asserts
 the backend port it found is not that one. Keep that assertion in a new spec.
 
-**Assertions are scoped to resmon's own origins.** The app embeds six YouTube
-iframes and a GitHub Pages `<webview>`, and both produce console errors and
-aborted requests that no change to this repository can fix. `isOwnOrigin()` is
-the boundary; third-party events are printed, not asserted. The cost — a broken
-embed is invisible — is recorded in the report.
+**Assertions are scoped to resmon's own origins.** The app embeds seventeen
+YouTube iframes and a GitHub Pages `<webview>`, and both produce console errors
+and aborted requests that no change to this repository can fix. `isOwnOrigin()`
+is the boundary; third-party events are printed, not asserted.
+
+That scoping used to mean a broken embed was invisible. `third-party.spec.ts`
+is the answer to it: a **positive** check, separate from "nothing failed" — it
+scrolls each embed into view, evaluates inside the cross-origin frame, and
+requires a player, no error overlay and a real video title. A removed video
+answers HTTP 200, so a status check would have called it healthy.
 
 ## `RESMON_E2E`
 

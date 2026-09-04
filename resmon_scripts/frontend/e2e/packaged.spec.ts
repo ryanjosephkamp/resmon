@@ -33,6 +33,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron } from '@playwright/test';
 import { launchEnv, FRONTEND_ROOT, WINDOW_WIDTH } from './fixtures/resmon-app';
+import { readFuses, FUSES_VERIFICATION_DEPENDS_ON, fuseBinaryFor } from './fixtures/electron-fuses';
 import { ROUTES } from './routes';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -76,6 +77,24 @@ function packagedAppVersion(exe: string): string | null {
     return null;
   }
 }
+
+test('D4: the two fuses packaged verification depends on are still enabled', () => {
+  const exe = packagedExecutable();
+  test.skip(exe === null, 'no packaged app under release/ — run `npm run dist` first');
+  const fuses = readFuses(exe as string);
+  console.log('D4 FUSES', JSON.stringify({ binary: fuseBinaryFor(exe as string), fuses }));
+  expect(fuses, `no fuse wire found in ${fuseBinaryFor(exe as string)}`).toBeTruthy();
+  for (const name of FUSES_VERIFICATION_DEPENDS_ON) {
+    expect(
+      (fuses as Record<string, string>)[name],
+      `${name} is not enabled in the packaged app. Packaged-app verification `
+      + 'drives the main process over the Node inspector and stops working '
+      + 'without it — see docs/ui-verification-feasibility.md, Q6. If this was '
+      + 'a deliberate hardening change, packaged verification has to be '
+      + 'replaced, not merely re-enabled.',
+    ).toBe('enabled');
+  }
+});
 
 test('Q6: the packaged app launches under Playwright and serves every route', async () => {
   const exe = packagedExecutable();
