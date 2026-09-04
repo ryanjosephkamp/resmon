@@ -694,3 +694,119 @@ def test_the_real_cli_answers_a_batch_with_one_summary_per_document(provider):
     # Each summary must be about its own document. A cheap sanity check, not
     # the leakage detector: D3's script measures that as a rate.
     assert "beetle" not in (summaries[0] or "").lower()
+
+
+# ---------------------------------------------------------------------------
+# P13 — the budgets that keep a long document out of a batch
+# ---------------------------------------------------------------------------
+#
+# `supports_batching` refuses a batch when any one document is over
+# `_BATCH_MAX_TOKENS_PER_DOCUMENT` or the batch total is over
+# `_BATCH_MAX_TOKENS_TOTAL`, and those documents take the per-document
+# chunk-and-aggregate path instead. Nothing guarded either check: the
+# reconciliation disabled the per-document budget and all 949 tests still
+# passed.
+#
+# The assertion is a **spawn count**, because that is the observable difference.
+# One process means the batch happened; N means it did not. Asserting on
+# `supports_batching`'s return value would restate the implementation and would
+# have survived the same mutation.
+
+def _pipeline_with(client, monkeypatch=None):
+    from implementation_scripts.summarizer import SummarizationPipeline
+    return SummarizationPipeline(client, prompt_params={"_show_audit_prefix": False})
+
+
+def _doc_of_tokens(n: int) -> str:
+    """A document the pipeline's estimator sizes at exactly *n* tokens.
+
+    The estimator falls back to ``len(text) // 4`` for every provider but
+    OpenAI, and a subscription client is never OpenAI — so four characters per
+    token, exactly, is what lets a test sit deliberately either side of a
+    threshold.
+
+    An earlier version emitted five characters per token. Every document it
+    built was 1.25× the intended size, so the "over the total budget" test was
+    actually tripping the *per-document* budget and would have passed with the
+    total check deleted. Mutation testing found that; the arithmetic here is
+    the fix, and `test_the_token_helper_sizes_documents_as_the_estimator_does`
+    below pins it.
+    """
+    return "abc " * n
+
+
+def test_the_token_helper_sizes_documents_as_the_estimator_does():
+    """The two budget tests below are only meaningful if this holds."""
+    from implementation_scripts.summarizer import SummarizationPipeline
+
+    pipeline = SummarizationPipeline(_claude())
+    for n in (100, 1400, 1600):
+        assert pipeline.estimate_tokens(_doc_of_tokens(n)) == n
+
+
+def test_one_oversize_document_keeps_the_whole_slice_off_the_batch_path(monkeypatch):
+    """P13: a batch with one long document spawns one process per document."""
+    from implementation_scripts.summarizer import _BATCH_MAX_TOKENS_PER_DOCUMENT
+
+    spawns = _Spawns().install(monkeypatch)
+    spawns.default = _claude_single_reply("A single-document summary.")
+
+    pipeline = _pipeline_with(_claude())
+    documents = [
+        _doc_of_tokens(200),
+        # Over the per-document budget, and still under the chunking threshold,
+        # so the count stays exactly one process per document.
+        _doc_of_tokens(_BATCH_MAX_TOKENS_PER_DOCUMENT + 100),
+        _doc_of_tokens(200),
+    ]
+    assert pipeline.supports_batching(documents) is False
+    results = pipeline.summarize_batch(documents)
+
+    assert spawns.count == 3, (
+        f"three documents, one of them oversize, spawned {spawns.count} "
+        f"processes — a batch would have been 1"
+    )
+    assert all(r.strip() for r in results)
+
+
+def test_a_slice_over_the_total_budget_is_not_batched(monkeypatch):
+    """P13: every document small, the sum too large — still not one call."""
+    from implementation_scripts.summarizer import (
+        _BATCH_MAX_TOKENS_PER_DOCUMENT,
+        _BATCH_MAX_TOKENS_TOTAL,
+    )
+
+    spawns = _Spawns().install(monkeypatch)
+    spawns.default = _claude_single_reply("A single-document summary.")
+
+    # Each comfortably under the per-document budget; enough of them to pass
+    # the total. This is the check the other test cannot exercise, and it only
+    # exercises it while every document is genuinely under the per-document
+    # threshold — asserted, not assumed.
+    each = _BATCH_MAX_TOKENS_PER_DOCUMENT - 100
+    count = (_BATCH_MAX_TOKENS_TOTAL // each) + 2
+    documents = [_doc_of_tokens(each) for _ in range(count)]
+    assert each < _BATCH_MAX_TOKENS_PER_DOCUMENT
+    assert each * count > _BATCH_MAX_TOKENS_TOTAL
+
+    pipeline = _pipeline_with(_claude())
+    assert pipeline.supports_batching(documents) is False
+    pipeline.summarize_batch(documents)
+
+    assert spawns.count == count, (
+        f"{count} documents over the total budget spawned {spawns.count} "
+        f"processes — a batch would have been 1"
+    )
+
+
+def test_a_slice_inside_both_budgets_is_batched(monkeypatch):
+    """The control. Without it the two tests above pass on a lane that never batches."""
+    spawns = _Spawns().install(monkeypatch)
+    spawns.default = _claude_batch_reply({i: f"S{i}" for i in range(3)})
+
+    pipeline = _pipeline_with(_claude())
+    documents = [_doc_of_tokens(200) for _ in range(3)]
+    assert pipeline.supports_batching(documents) is True
+    pipeline.summarize_batch(documents)
+
+    assert spawns.count == 1
