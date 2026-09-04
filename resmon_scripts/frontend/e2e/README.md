@@ -45,6 +45,7 @@ under `release/` it skips, and says so.
 | `zero-reasons.spec.ts` | P13 — `upstream_failure` (a dead loopback proxy), `answered_empty` (a live query nothing matches) and `not_recorded`, plus which of the nine reasons a real browser has seen. |
 | `window-manager.spec.ts` | The window itself — maximize on open, the link window's parentage and focus, the swipe binding. Says which arms a bare-X display could not verify. |
 | `third-party.spec.ts` | P9 — the YouTube embeds and the blog `<webview>`, asserted to have *loaded* rather than merely not failed. |
+| `zz-isolation.spec.ts` | P12 and P14 — the launch uses its own Chromium profile, the installed app's is untouched, and a run leaves the tree clean. Named `zz-` so it runs last. |
 | `packaged.spec.ts` | Q6 — the built `.app` launches under Playwright too. Skips when there is no build. |
 
 ## Five things to know before adding a spec

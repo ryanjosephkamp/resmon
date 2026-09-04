@@ -79,6 +79,17 @@ const tail = lines
   .map((l) => l.trim())
   .join('\n') || '(no summary line — the run did not finish)';
 
+// P14, from outside the suite as well as inside it: a review run writes to
+// `outDir`, which is not in the repository at all, so the tree it was run
+// against must be exactly as it was found.
+let treeState = '(git not available)';
+try {
+  const st = spawnSync('git', ['status', '--porcelain'], {
+    cwd: FRONTEND, encoding: 'utf8',
+  });
+  treeState = (st.stdout || '').trim() || '(clean)';
+} catch { /* not a checkout */ }
+
 const shots = fs.existsSync(shotDir)
   ? fs.readdirSync(shotDir).filter((f) => f.endsWith('.png')).sort()
   : [];
@@ -120,6 +131,15 @@ ${results.join('\n')}
 \`\`\`
 ${evidence.join('\n')}
 \`\`\`
+
+## Working tree after the run
+
+\`\`\`
+${treeState}
+\`\`\`
+
+A review run writes to \`${outDir}\`, outside the repository. Anything listed
+above is something else's.
 
 Full output: \`${logPath}\`
 `;

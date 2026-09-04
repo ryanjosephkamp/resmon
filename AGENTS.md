@@ -51,7 +51,7 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 # Frontend — from resmon_scripts/frontend
 npm run typecheck && npm test && npm run build   # 190 tests across 26 suites
-npm run e2e                                      # the real Electron app — 24 routes
+npm run e2e                                      # the real Electron app — 60 checks, 24 routes
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
