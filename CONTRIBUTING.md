@@ -41,6 +41,11 @@ cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
 npm run e2e                                      # the real Electron app, every route
 ```
 
+`npm run e2e:review` runs the same suite on your own display — which is the only
+place the window-manager specs actually run — and writes the screenshots and a
+Markdown summary to a folder outside the repository. Use it before asking anyone
+to look at an interface change. Screenshots are never committed.
+
 ### Adding a page
 
 Routes live in one table, `resmon_scripts/frontend/src/routes.ts`. `App.tsx` renders from

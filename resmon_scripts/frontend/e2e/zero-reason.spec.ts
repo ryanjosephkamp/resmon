@@ -84,7 +84,7 @@ test('a zero says why, on the results row and in the search record', async ({
   await expect(win.locator('.results-coverage').first())
     .toContainText('1 of 1 sources could not answer');
   await win.screenshot({
-    path: path.join(ensureScreenshotDir(), '16-results-zero-reason.png'),
+    path: path.join(ensureScreenshotDir(), '31-results-zero-reason.png'),
     fullPage: false,
   });
 
@@ -103,7 +103,7 @@ test('a zero says why, on the results row and in the search record', async ({
   // the sentence is not evidence that the sentence is on screen.
   await win.locator('.record-notes').scrollIntoViewIfNeeded();
   await win.screenshot({
-    path: path.join(ensureScreenshotDir(), '17-search-record-zero-reason.png'),
+    path: path.join(ensureScreenshotDir(), '32-search-record-zero-reason.png'),
     fullPage: false,
   });
 
@@ -142,7 +142,7 @@ test('the monitor names the source that could not answer', async ({
   // A source that could not answer must not be showing a green tick.
   await expect(win.locator('.mon-repo-icon--no_answer').first()).toBeVisible();
   await win.screenshot({
-    path: path.join(ensureScreenshotDir(), '18-monitor-zero-reason.png'),
+    path: path.join(ensureScreenshotDir(), '33-monitor-zero-reason.png'),
     fullPage: false,
   });
 });

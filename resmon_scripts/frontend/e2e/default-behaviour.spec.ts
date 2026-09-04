@@ -24,7 +24,9 @@
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import type { ElectronApplication } from '@playwright/test';
-import { launchResmon, WINDOW_WIDTH, WINDOW_HEIGHT } from './fixtures/resmon-app';
+import {
+  launchResmon, WINDOW_WIDTH, WINDOW_HEIGHT, fittedWindowSize,
+} from './fixtures/resmon-app';
 
 interface Observed {
   bounds: { width: number; height: number };
@@ -143,10 +145,28 @@ test('P6: RESMON_E2E unset keeps the pre-flag window; set gives a fixed 1440x900
   // Whatever it did, it did not take the size the flag asks for.
   expect(plainObs.bounds.width).not.toBe(WINDOW_WIDTH);
 
-  // The flag's behaviour.
-  expect(e2eObs.maximized).toBe(false);
-  expect(e2eObs.bounds.width).toBe(WINDOW_WIDTH);
-  expect(e2eObs.bounds.height).toBe(WINDOW_HEIGHT);
+  // The flag's behaviour, measured against what the display allows.
+  //
+  // A work area smaller than the requested window is the case this originally
+  // got wrong: the macOS CI runner is 1024x684, macOS clamps the window to it
+  // — and then reports the clamped window as **maximized**. Asserting
+  // `maximized === false` there failed on a runner where the app was doing
+  // exactly the right thing. "Not maximized" is only observable when the
+  // requested size fits, so that is when it is asserted.
+  const fitted = fittedWindowSize(e2eObs.workArea);
+  console.log('P6 SET WINDOW FIT', JSON.stringify({ workArea: e2eObs.workArea, fitted }));
+  expect(e2eObs.bounds.width).toBe(fitted.width);
+  expect(e2eObs.bounds.height).toBe(fitted.height);
+  if (fitted.clamped) {
+    console.log(
+      'P6 SET NOT MAXIMIZED NOT VERIFIED — the display work area',
+      `${e2eObs.workArea.width}x${e2eObs.workArea.height} is smaller than the`,
+      `requested ${WINDOW_WIDTH}x${WINDOW_HEIGHT}, so a window at the full`,
+      'work area is indistinguishable from a maximized one.',
+    );
+  } else {
+    expect(e2eObs.maximized).toBe(false);
+  }
 
   // Everything the flag does not control is identical across the two launches.
   expect(plainObs.title).toBe(e2eObs.title);
