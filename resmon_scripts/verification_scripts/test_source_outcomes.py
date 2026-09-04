@@ -698,3 +698,52 @@ def test_rows_written_at_schema_9_read_as_not_recorded(tmp_path):
     )
     assert record["identification"]["sources_that_answered"] == 0
     conn.close()
+
+
+def test_the_search_worker_clears_the_channel_before_it_starts(
+    monkeypatch, http_server, fast_retries,
+):
+    """The reset at the top of the worker, pinned rather than assumed.
+
+    Today the engine gives every search its own fresh thread, so a thread-local
+    channel is empty when the worker starts and the reset changes nothing —
+    which means removing it fails no other test in this file. That was found by
+    mutating it and watching everything stay green.
+
+    The reset is not decoration: ``lifecycle.py`` calls ``safe_request``
+    outside any search, and a pooled or reused thread would carry that call's
+    outcome into the next source's answer. So the worker is made to run on a
+    thread that already has state, which is the only condition under which the
+    reset is observable, and asserted to start clean.
+    """
+    class _InlineThread:
+        """Runs the worker on *this* thread, which the test has dirtied."""
+
+        def __init__(self, target, **kwargs):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+        def is_alive(self):
+            return False
+
+        def join(self, timeout=None):
+            return None
+
+    # Dirty the current thread's channel the way lifecycle.py would.
+    http_server.reply = (503, "unavailable")
+    api_base.safe_request("GET", http_server.url)
+    assert api_base.search_outcome().snapshot()["failures"] > 0
+
+    monkeypatch.setattr(se.threading, "Thread", _InlineThread)
+
+    results, outcome = se.SweepEngine(
+        db_conn=None, config={},
+    )._search_with_heartbeat(
+        client=_SilentClient(), repo_name="arxiv", exec_id=1, query_params={},
+    )
+
+    assert results == []
+    assert outcome["failures"] == 0
+    assert zero_reason.derive(outcome) == ("not_recorded", {})
