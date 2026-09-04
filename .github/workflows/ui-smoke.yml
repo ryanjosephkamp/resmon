@@ -8,10 +8,22 @@ name: UI smoke
 # launches the real app under Playwright on a virtual display and walks every
 # route in `e2e/routes.ts`.
 #
-# It is a spike deliverable (Delegation 06) and it is deliberately narrow: the
-# 14 route smoke specs plus the observability, IPC and default-behaviour specs.
-# The packaged-app spec skips here, because building an installer downloads a
-# Python runtime and takes minutes; it is exercised locally and its result is
+# Two jobs, because one runner cannot see the whole app.
+#
+#   smoke   ubuntu-latest under xvfb-run. Fast, free, and it verifies the
+#           renderer thoroughly — but `xvfb-run` starts a bare X server with
+#           NO WINDOW MANAGER, so maximize, focus and stacking are silent
+#           no-ops there. The window-manager specs skip on this job and the
+#           job summary says which ones and why. A green tick from this job
+#           alone is not a statement about the window.
+#
+#   window  macos-15, with a real window server. Runs the same suite, so the
+#           specs that skip above actually run. macOS minutes are free on a
+#           public repository, which is what makes this worth having rather
+#           than deferring it to a local run.
+#
+# The packaged-app spec skips on both, because building an installer downloads
+# a Python runtime and takes minutes; it is exercised locally and its result is
 # recorded in docs/ui-verification-feasibility.md.
 
 on:
@@ -100,7 +112,34 @@ jobs:
         # A fixed virtual display, so the screenshots this uploads are all taken
         # at a size that is written down. The window itself is fixed at
         # 1440x900 by RESMON_E2E; the display has to be at least that.
-        run: xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24' npm run e2e
+        # `tee` so the summary step below can read what the suite reported
+        # skipping. `set -o pipefail` keeps the job red when the suite fails —
+        # without it the exit code would be tee's.
+        run: |
+          set -o pipefail
+          xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24' \
+            npm run e2e 2>&1 | tee "$RUNNER_TEMP/ui-smoke.log"
+
+      - name: Say what this job did not verify
+        # The suite prints a NOT VERIFIED line for every arm it skipped, and a
+        # job that swallows those is a green tick that means less than it looks
+        # like. This puts them in the run summary, where they are read.
+        if: always()
+        working-directory: resmon_scripts/frontend
+        run: |
+          {
+            echo "### What the xvfb job did not verify"
+            echo
+            echo "\`xvfb-run\` starts a bare X server with **no window manager**, so"
+            echo "maximize, focus and window stacking are no-ops here. The lines below"
+            echo "are what the suite itself reported skipping."
+            echo
+            echo '```'
+            grep -h 'NOT VERIFIED' "$RUNNER_TEMP/ui-smoke.log" || echo "(none reported)"
+            echo '```'
+            echo
+            echo "The **window** job on macOS runs the same specs on a real window server."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the screenshots
         if: always()
@@ -115,5 +154,83 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ui-smoke-failures
+          path: resmon_scripts/frontend/e2e/test-results/
+          if-no-files-found: ignore
+
+  window:
+    name: Window behaviour (Electron on macOS)
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    env:
+      PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+      RESMON_KEYRING_TIMEOUT: '2.0'
+      RESMON_PYTHON: python3
+      RESMON_E2E_BREAK_ROUTE: ${{ github.event.inputs.break_route }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install the backend's dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: resmon_scripts/frontend/package-lock.json
+
+      - name: Install the renderer's dependencies
+        working-directory: resmon_scripts/frontend
+        run: npm install --no-audit --no-fund
+
+      - name: Build the renderer and the Electron main process
+        working-directory: resmon_scripts/frontend
+        run: npm run build
+
+      - name: Run the whole suite on a real window server
+        working-directory: resmon_scripts/frontend
+        # No xvfb and no wrapper: a macOS runner has a window server, which is
+        # the entire reason this job exists. `RESMON_PYTHON` is resolved to an
+        # absolute path by the specs that scrub PATH.
+        run: npm run e2e 2>&1 | tee "$RUNNER_TEMP/ui-window.log"
+
+      - name: Say what this job did not verify
+        if: always()
+        run: |
+          {
+            echo "### What the macOS window job did not verify"
+            echo
+            echo '```'
+            grep -h 'NOT VERIFIED' "$RUNNER_TEMP/ui-window.log" || echo "(none reported)"
+            echo '```'
+            echo
+            echo "This runner has a window server, so maximize and stacking are"
+            echo "observable here in a way they are not under xvfb. It is still a"
+            echo "headless CI session: a spec that needs the app to be the frontmost"
+            echo "application reports rather than asserts."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-window-screenshots
+          path: resmon_scripts/frontend/e2e/screenshots/
+          if-no-files-found: warn
+
+      - name: Upload the failure context
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-window-failures
           path: resmon_scripts/frontend/e2e/test-results/
           if-no-files-found: ignore

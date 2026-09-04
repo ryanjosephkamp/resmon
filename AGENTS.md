@@ -52,11 +52,27 @@ work on one side of it cannot break the other except through an endpoint's shape
 # Frontend — from resmon_scripts/frontend
 npm run typecheck && npm test && npm run build   # 190 tests across 26 suites
 npm run e2e                                      # the real Electron app — 24 routes
+npm run e2e:review                               # the same, on your display, into one folder
 ```
 
 All five must pass before a PR opens. `npm run e2e` launches the app itself (PR #59); a
 route you change must still load, and the renderer suite is jsdom and cannot tell you
 that.
+
+**CI runs the app twice, because one runner cannot see all of it.**
+`ui-smoke.yml` has a `smoke` job on `ubuntu-latest` under `xvfb-run` and a
+`window` job on `macos-15`. `xvfb-run` starts a bare X server with **no window
+manager**, so maximize, focus and stacking are silent no-ops there — the
+window-manager specs skip on that job, and its run summary lists every
+`NOT VERIFIED` line the suite printed. A green tick from the xvfb job alone is
+not a statement about the window.
+
+`npm run e2e:review` runs the whole suite on your own display and writes the
+screenshots and a Markdown summary to a directory **outside the repository** —
+what passed, and what the run explicitly did not verify. That is the artifact a
+handback embeds. Screenshots are not committed: `e2e/screenshots/` is
+gitignored, because two branches that both run the suite both rewrite every
+file, and a committed screenshot is a merge conflict rather than evidence.
 
 **Adding a page means adding a row, not a route.** `frontend/src/routes.ts` is the one
 route table: `App.tsx` renders from it and `e2e/routes.ts` imports it, so a new page is

@@ -185,7 +185,7 @@ test('P13a: upstream_failure — the source did not answer, on all three surface
     const monitorSentence = (await reason.innerText()).trim();
     console.log('P13a MONITOR', JSON.stringify(monitorSentence));
     await win.screenshot({
-      path: path.join(ensureScreenshotDir(), '19-monitor-upstream-failure.png'),
+      path: path.join(ensureScreenshotDir(), '34-monitor-upstream-failure.png'),
     });
 
     // --- what the backend actually recorded ------------------------------
@@ -212,7 +212,7 @@ test('P13a: upstream_failure — the source did not answer, on all three surface
       .toContainText('did not answer');
     await win.locator('.record-notes').scrollIntoViewIfNeeded();
     await win.screenshot({
-      path: path.join(ensureScreenshotDir(), '20-search-record-upstream-failure.png'),
+      path: path.join(ensureScreenshotDir(), '35-search-record-upstream-failure.png'),
     });
   } finally {
     await close();
@@ -264,7 +264,7 @@ test('P13b: answered_empty — the source answered and had nothing', async () =>
       .toContainText('answered, zero');
     await expect(win.locator('.record-notes')).toContainText('answered (HTTP 200)');
     await win.screenshot({
-      path: path.join(ensureScreenshotDir(), '21-search-record-answered-empty.png'),
+      path: path.join(ensureScreenshotDir(), '36-search-record-answered-empty.png'),
     });
   } finally {
     await close();
@@ -314,7 +314,7 @@ test('P13c: not_recorded — resmon did not observe why, and says exactly that',
       .toContainText('returned nothing for a reason resmon did not record',
         { timeout: 30_000 });
     await win.screenshot({
-      path: path.join(ensureScreenshotDir(), '22-results-not-recorded.png'),
+      path: path.join(ensureScreenshotDir(), '37-results-not-recorded.png'),
     });
 
     // --- the search record ------------------------------------------------
@@ -325,7 +325,7 @@ test('P13c: not_recorded — resmon did not observe why, and says exactly that',
       .toContainText('did not record whether Open Library answered');
     await win.locator('.record-notes').scrollIntoViewIfNeeded();
     await win.screenshot({
-      path: path.join(ensureScreenshotDir(), '23-search-record-not-recorded.png'),
+      path: path.join(ensureScreenshotDir(), '38-search-record-not-recorded.png'),
     });
 
     // --- the monitor, reported rather than asserted -----------------------

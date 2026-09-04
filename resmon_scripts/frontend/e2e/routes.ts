@@ -27,7 +27,15 @@ export interface RouteEntry {
   redirectsTo?: string;
 }
 
-/** `About resmon — blog` → `about-resmon-blog`. */
+/**
+ * `About resmon — blog` → `about-resmon-blog`.
+ *
+ * The number prefix is the route's position, so the screenshots sort the way
+ * the sidebar reads. Routes own **01–29**; a spec that screenshots something
+ * other than a route (a tab, a seeded zero) numbers from 30, so adding a page
+ * cannot silently overwrite another spec's evidence. It did: a fifteenth route
+ * and `15-search-record-tab.png` collided in the first review run.
+ */
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }

@@ -110,7 +110,7 @@ test('Q4: the Search record tab activates under a real Playwright click', async 
   await expect(win.locator('.search-record-head')).toBeVisible();
 
   await win.screenshot({
-    path: path.join(ensureScreenshotDir(), '15-search-record-tab.png'),
+    path: path.join(ensureScreenshotDir(), '30-search-record-tab.png'),
     fullPage: false,
   });
 
