@@ -257,6 +257,10 @@ const AISettings: React.FC = () => {
   // on demand rather than on mount: `codex debug models` starts a process, and
   // opening Settings should not.
   const [catalogs, setCatalogs] = useState<Record<string, SubscriptionCatalog>>({});
+  // Shown only when the picker is unavailable — a button that silently does
+  // nothing is worse than one that says why.
+  const [cliPathNotice, setCliPathNotice] = useState('');
+
   // The primary form's Advanced disclosure. Undefined until the user touches
   // it, so the default can follow detection: open when the command was not
   // found, which is the only time the question is the next thing to answer.
@@ -1191,17 +1195,54 @@ const AISettings: React.FC = () => {
                 <code>{settings.ai_provider === 'codex' ? 'codex' : 'claude'}</code>{' '}
                 command?
               </label>
-              <input
-                className="form-input"
-                aria-label="Primary command path"
-                placeholder={
-                  settings.ai_provider === 'codex'
-                    ? '/Applications/ChatGPT.app/Contents/Resources/codex'
-                    : '/Users/you/.local/bin/claude'
-                }
-                value={settings.ai_cli_path}
-                onChange={(e) => setSettings({ ...settings, ai_cli_path: e.target.value })}
-              />
+              <div className="key-input-row">
+                <input
+                  className="form-input"
+                  aria-label="Primary command path"
+                  placeholder={
+                    settings.ai_provider === 'codex'
+                      ? '/Applications/ChatGPT.app/Contents/Resources/codex'
+                      : '/Users/you/.local/bin/claude'
+                  }
+                  value={settings.ai_cli_path}
+                  onChange={(e) => setSettings({ ...settings, ai_cli_path: e.target.value })}
+                />
+                {/*
+                  Typing the path is the fallback, not the route. Both CLIs live
+                  where a plain open panel will not take you — `claude` under a
+                  hidden `~/.local`, `codex` inside `ChatGPT.app` — so the
+                  picker asks for hidden files and for permission to descend
+                  into an app bundle. See `resmon:choose-file` in main.ts.
+                */}
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  aria-label="Browse for the command"
+                  onClick={async () => {
+                    const picker = window.resmonAPI?.chooseFile;
+                    if (!picker) {
+                      // The browser build has no main process to ask. Say so
+                      // rather than doing nothing: the field still accepts a
+                      // typed path.
+                      setCliPathNotice(
+                        'The file picker is only available inside the resmon desktop app — '
+                        + 'type the path instead.',
+                      );
+                      return;
+                    }
+                    const picked = await picker(settings.ai_cli_path || undefined);
+                    if (picked) {
+                      setCliPathNotice('');
+                      setSettings((prev) => ({ ...prev, ai_cli_path: picked }));
+                    }
+                  }}
+                >
+                  Browse…
+                </button>
+              </div>
+              {cliPathNotice && (
+                <div className="form-error" data-testid="cli-path-notice">{cliPathNotice}</div>
+              )}
               <p className="text-muted" style={{ margin: '0.2rem 0 0' }}>
                 Only needed when resmon could not find the command on its own.
                 Leave it empty and resmon looks where the installers put it,

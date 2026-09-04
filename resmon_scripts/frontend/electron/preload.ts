@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('resmonAPI', {
   },
   chooseDirectory: (defaultPath?: string): Promise<string | null> =>
     ipcRenderer.invoke('resmon:choose-directory', defaultPath),
+  chooseFile: (defaultPath?: string): Promise<string | null> =>
+    ipcRenderer.invoke('resmon:choose-file', defaultPath),
   openPath: (targetPath: string): Promise<string> =>
     ipcRenderer.invoke('resmon:open-path', targetPath),
   revealPath: (targetPath: string): Promise<boolean> =>

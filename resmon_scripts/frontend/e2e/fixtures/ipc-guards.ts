@@ -28,9 +28,23 @@ export interface Escaped {
 
 export interface Stubbed {
   chooseDirectory: number;
+  chooseFile: number;
   openPath: number;
   revealPath: number;
 }
+
+/**
+ * The IPC channels the preload bridge exposes, and therefore the complete set a
+ * guard has to replace. Checked against `electron/preload.ts` by
+ * `ipc-stubs.spec.ts`, not counted by hand — the spike's report called this a
+ * denominator and it was a hand count.
+ */
+export const STUBBED_CHANNELS: Record<keyof Stubbed, string> = {
+  chooseDirectory: 'resmon:choose-directory',
+  chooseFile: 'resmon:choose-file',
+  openPath: 'resmon:open-path',
+  revealPath: 'resmon:reveal-path',
+};
 
 export interface GuardCounts {
   stubbed: Stubbed;
@@ -54,7 +68,7 @@ export const NOTHING_ESCAPED: Escaped = {
 export async function installIpcGuards(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ ipcMain, dialog, shell }) => {
     const counts = {
-      stubbed: { chooseDirectory: 0, openPath: 0, revealPath: 0 },
+      stubbed: { chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0 },
       escaped: {
         showOpenDialog: 0,
         showMessageBox: 0,
@@ -101,6 +115,13 @@ export async function installIpcGuards(app: ElectronApplication): Promise<void> 
       counts.stubbed.chooseDirectory += 1;
       counts.lastArgs.chooseDirectory = defaultPath ?? null;
       return '/tmp/e2e-chosen-directory';
+    });
+
+    ipcMain.removeHandler('resmon:choose-file');
+    ipcMain.handle('resmon:choose-file', async (_e, defaultPath?: string) => {
+      counts.stubbed.chooseFile += 1;
+      counts.lastArgs.chooseFile = defaultPath ?? null;
+      return '/tmp/e2e-chosen-file';
     });
 
     ipcMain.removeHandler('resmon:open-path');

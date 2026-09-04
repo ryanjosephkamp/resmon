@@ -705,6 +705,38 @@ app.whenReady().then(async () => {
       return result.filePaths[0];
     });
 
+    // IPC: choose a single file via the native file picker.
+    //
+    // Separate from ``resmon:choose-directory`` rather than a flag on it,
+    // because the two dialogs need different properties and the extra ones here
+    // are not cosmetic. This picker exists for one field — "where is the
+    // ``claude`` / ``codex`` command?" — and both CLIs live somewhere a plain
+    // open panel will not show you:
+    //
+    //   * ``claude`` installs under ``~/.local/...`` and ``~/.claude/...``,
+    //     which the Finder hides. Without ``showHiddenFiles`` the user is
+    //     looking at an empty home directory.
+    //   * ``codex`` ships *inside* ``ChatGPT.app``. macOS treats an app bundle
+    //     as a single file, so without ``treatPackageAsDirectory`` there is no
+    //     way to descend into ``Contents/Resources`` and pick it at all.
+    //
+    // Both are the documented install locations resmon already probes in
+    // ``ai_cli.known_locations``; a picker that cannot reach them would be a
+    // button that fails for exactly the users who need it.
+    ipcMain.handle('resmon:choose-file', async (_evt, defaultPath?: string) => {
+      const opts: Electron.OpenDialogOptions = {
+        title: 'Select command',
+        properties: ['openFile', 'showHiddenFiles', 'treatPackageAsDirectory'],
+      };
+      if (defaultPath) opts.defaultPath = defaultPath;
+      const result = await dialog.showOpenDialog(
+        mainWindow ?? (undefined as unknown as BrowserWindow),
+        opts,
+      );
+      if (result.canceled || result.filePaths.length === 0) return null;
+      return result.filePaths[0];
+    });
+
     // IPC: open a filesystem path in the OS default handler, or an
     // http(s)/mailto URL in the user's default browser. ``shell.openPath``
     // is path-only; URLs require ``shell.openExternal``.
