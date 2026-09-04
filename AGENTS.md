@@ -46,7 +46,7 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 1018 pass, 45 deselected
+.venv/bin/python -m pytest -q          # hermetic suite: 1025 pass, 45 deselected
 .venv/bin/python -m pytest -m live_network   # the 45 — real scholarly APIs and CLIs
 
 # Frontend — from resmon_scripts/frontend

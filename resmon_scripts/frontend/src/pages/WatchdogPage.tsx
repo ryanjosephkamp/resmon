@@ -306,22 +306,40 @@ const WatchdogPage: React.FC = () => {
         {
           heading: 'Broken versus looks unusual',
           body: (
-            <p>
-              <strong>Broken</strong> means resmon recorded the failure — the source
-              returned an error, a required key is missing, a routine did not fire. It is
-              not a guess. <strong>Looks unusual</strong> means something departed from
-              the pattern your own history established, and there is often an innocent
-              reason: a genuinely quiet field looks identical to a dead query. Those
-              findings are worded as prompts to check, never as faults.
-            </p>
+            <>
+              <p>
+                <strong>Broken</strong> means resmon recorded the failure — the source
+                did not answer, a required key is missing, a routine did not fire. It is
+                not a guess. <strong>Looks unusual</strong> means something departed from
+                the pattern your own history established, and there is often an innocent
+                reason: a genuinely quiet field looks identical to a dead query. Those
+                findings are worded as prompts to check, never as faults.
+              </p>
+              <p>
+                Two of those failures never raise an error at all, and both count here.
+                A source whose endpoint could not be reached, and a source that answered
+                with something resmon could not read, are both recorded as completed runs
+                that returned nothing — every source client degrades rather than failing
+                your sweep. Since resmon 1.8.6 the watchdog can tell them apart from a
+                quiet field, counts them toward the same run of failures, and names which
+                of the two it was. Neither counts as the last time that source answered
+                successfully, and neither can be part of the baseline of what it normally
+                returns.
+              </p>
+              <p>
+                A window a source cannot answer at all — ERIC and Open Library filter by
+                publication year, so they refuse anything shorter than a calendar year —
+                is <em>not</em> counted as a failure. The source is behaving correctly.
+              </p>
+            </>
           ),
         },
         {
           heading: 'Why it stays quiet so often',
           body: (
             <p>
-              The thresholds are deliberately conservative — three failing runs in a row
-              before a source is called broken, four empty runs on top of an established
+              The thresholds are deliberately conservative — three runs in a row with
+              no answer before a source is called broken, four empty runs on top of an established
               baseline before it is called unusual. A watchdog that cries wolf gets muted,
               and a muted watchdog misses the failure it existed to catch. The exact
               numbers it is using are listed at the bottom of this page.
