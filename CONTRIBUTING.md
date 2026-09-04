@@ -35,7 +35,7 @@ estimate, and "undocumented" is a correct answer.
 All five must pass:
 
 ```bash
-.venv/bin/python -m pytest -q                    # hermetic backend suite — 1018 pass
+.venv/bin/python -m pytest -q                    # hermetic backend suite — 1025 pass
 .venv/bin/python -m pytest -m live_network -q    # real APIs — CI cannot run these
 cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
 npm run e2e                                      # the real Electron app, every route
