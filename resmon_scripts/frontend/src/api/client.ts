@@ -5,6 +5,7 @@ declare global {
       platform: string;
       versions: { node: string; electron: string };
       chooseDirectory?: (defaultPath?: string) => Promise<string | null>;
+      chooseFile?: (defaultPath?: string) => Promise<string | null>;
       openPath?: (targetPath: string) => Promise<string>;
       revealPath?: (targetPath: string) => Promise<boolean>;
     };

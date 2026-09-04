@@ -460,7 +460,7 @@ const sections: TutorialSection[] = [
       'Set the default `Summary length`, `Tone`, `Temperature`, and `Extraction goals` — each label has an `InfoTooltip` explaining valid values.',
       'Paste your provider API key and click `Test key` to validate; click `Load models` to populate the model dropdown from the live provider.',
       'Under `If that fails, try…` add optional fallback providers, in order. Leave it empty and resmon behaves exactly as it did before fallbacks existed.',
-      'To use a plan you already pay for instead of a metered key, add `Claude Code (your Claude plan)` or `Codex (your ChatGPT plan)` as a lane. resmon shows whether it could find the command and where; if it cannot, paste the full path into the lane\'s command-path box.',
+      'To use a plan you already pay for instead of a metered key, add `Claude Code (your Claude plan)` or `Codex (your ChatGPT plan)` as a lane. resmon shows whether it could find the command and where; if it cannot, use `Browse…` beside the lane\'s command-path box, or paste the path in. The picker shows hidden files and opens app bundles, which is where both commands actually live.',
       'Click `Save` to persist app-wide AI settings; click `Save as default model` to pin the chosen model into `ai_default_models[provider]` so it survives provider switches.',
     ],
     features: [

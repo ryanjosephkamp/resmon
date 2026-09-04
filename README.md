@@ -1019,7 +1019,11 @@ effort unset means the command's own default, which for Codex is whatever your
 yourself.
 
 **"Where is the command?" is behind Advanced**, and opens by itself when
-detection failed — which is the only time it matters.
+detection failed — which is the only time it matters. **Browse…** beside it
+opens a file picker rather than asking you to type a path from memory. It shows
+hidden files and lets you open an application bundle, because that is where both
+commands live: `claude` under `~/.local`, which the Finder hides, and `codex`
+inside `ChatGPT.app`, which macOS treats as a single file.
 
 Ollama is the natural last lane: it needs no key and costs nothing. Note honestly that
 **resmon has no summarizer beyond the lanes you configure.** If every lane fails, those
