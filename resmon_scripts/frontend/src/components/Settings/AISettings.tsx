@@ -967,7 +967,12 @@ const AISettings: React.FC = () => {
       <div className="settings-form">
         <div className="form-field">
           <label className="form-label">Provider</label>
-          <select className="form-select" value={settings.ai_provider} onChange={(e) => handleProviderChange(e.target.value)}>
+          <select
+            className="form-select"
+            aria-label="Provider"
+            value={settings.ai_provider}
+            onChange={(e) => handleProviderChange(e.target.value)}
+          >
             <option value="">Select provider</option>
             {PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
           </select>
