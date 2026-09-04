@@ -84,6 +84,11 @@ def _run(
             result_count=outcome.get("result_count", 0),
             error_message=outcome.get("error_message"),
             credential_name=outcome.get("credential_name"),
+            zero_reason=outcome.get("zero_reason"),
+            zero_detail=(
+                json.dumps(outcome["zero_detail"])
+                if outcome.get("zero_detail") else None
+            ),
         )
     update_execution_status(
         conn, exec_id, status,
@@ -763,3 +768,157 @@ def test_a_freshly_muted_finding_is_not_served_from_a_stale_cache():
     client.post("/api/watchdog/mute", json={"finding_key": key})
 
     assert client.get("/api/watchdog").json()["findings"][0]["muted"] is True
+
+
+# ---------------------------------------------------------------------------
+# 1.8.6 — a zero that was never an answer
+# ---------------------------------------------------------------------------
+#
+# Every client degrades rather than raising, so an upstream that answers 503
+# is recorded ``ok / 0`` and, until schema 10, was indistinguishable here from
+# a quiet field. These pin the calibrated change: an outage now counts as a
+# failure to answer, and no run where the source did not answer can be part of
+# a baseline of what it normally returns.
+
+
+def _outage(attempts: int = 3, status: int = 503) -> dict:
+    return {
+        "status": "ok", "result_count": 0, "zero_reason": "upstream_failure",
+        "zero_detail": {"detail": f"http_{status}", "status": status,
+                        "attempts": attempts},
+    }
+
+
+def test_three_consecutive_outages_are_reported_as_a_broken_source(conn):
+    """The finding this phase exists to make possible.
+
+    Before schema 10 these three runs were ``ok / 0`` and produced nothing at
+    all: not an error finding, because nothing raised, and not a quiet finding
+    either, because four zeros are needed and there is a productive baseline
+    right behind them.
+    """
+    for days in (40, 35, 30, 25, 20):
+        _run(conn, days_ago=days, sources={"arxiv": {"result_count": 30}})
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"arxiv": _outage()})
+
+    report = watchdog.report(conn, now=NOW)
+    findings = _by_kind(report, "source_errors")
+
+    assert len(findings) == 1
+    assert findings[0]["severity"] == "broken"
+    # The old wording said every counted run "raised an error". A 503 raises
+    # nothing, and the sentence must not say it did.
+    assert "raised an error" not in findings[0]["detail"]
+    assert "resmon got no answer from arxiv" in findings[0]["detail"]
+    assert "answered HTTP 503" in findings[0]["detail"]
+    # And it last answered 20 days ago, not an hour ago.
+    assert "It last answered successfully" in findings[0]["detail"]
+    assert findings[0]["evidence"]["last_success_at"] == _ts(20)
+
+
+def test_last_answered_successfully_does_not_count_a_run_with_no_answer(conn):
+    """The half of the fix that is easiest to miss.
+
+    An ``ok / 0`` outage row satisfies ``status == 'ok'``, so the old query
+    picked the most recent outage as the last success and told the user the
+    source had answered an hour ago while it was in fact down.
+    """
+    _run(conn, days_ago=30, sources={"arxiv": {"result_count": 30}})
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"arxiv": _outage()})
+
+    findings = _by_kind(watchdog.report(conn, now=NOW), "source_errors")
+
+    assert findings[0]["evidence"]["last_success_at"] == _ts(30)
+
+
+def test_a_mixed_history_yields_exactly_one_true_finding(conn):
+    """[outage, outage, 0, 0, 0, 0 | productive baseline].
+
+    Two outages are one short of the failure threshold, so the consecutive
+    rule stays quiet. The four zeros behind them are real answers, and the
+    baseline behind those is productive — so this is a `source_quiet`, and its
+    sentence must describe the four zeros rather than the six.
+    """
+    for days in (60, 55, 50, 45, 40):
+        _run(conn, days_ago=days, sources={"arxiv": {"result_count": 30}})
+    for days in (20, 15, 10, 8):
+        _run(conn, days_ago=days, sources={"arxiv": {"result_count": 0}})
+    for days in (2, 1):
+        _run(conn, days_ago=days, sources={"arxiv": _outage()})
+
+    report = watchdog.report(conn, now=NOW)
+    source_findings = [
+        f for f in report["findings"] if f["scope"].get("id") == "arxiv"
+    ]
+
+    assert len(source_findings) == 1
+    finding = source_findings[0]
+    assert finding["kind"] == "source_quiet"
+    # The two outages are not answers, so they are not part of the streak of
+    # zeros the sentence counts.
+    assert "its last 4 runs" in finding["title"]
+    assert finding["severity"] == "unusual"
+
+
+def test_an_unanswerable_window_is_not_a_fault_and_never_alarms(conn):
+    """ERIC refusing a sub-year window is the source behaving correctly.
+
+    Alarming on it would train people to ignore the watchdog, which is the
+    failure this whole file exists to prevent.
+    """
+    for days in (40, 35, 30, 25, 20, 3, 2, 1):
+        _run(conn, days_ago=days, sources={"eric": {
+            "status": "ok", "result_count": 0,
+            "zero_reason": "window_unanswerable",
+            "zero_detail": {"detail": "year_granularity"},
+        }})
+
+    report = watchdog.report(conn, now=NOW)
+
+    assert [f for f in report["findings"] if f["scope"].get("id") == "eric"] == []
+
+
+def test_a_baseline_is_not_built_from_runs_the_source_never_answered(conn):
+    """The calibrated change, and the direction it moves in.
+
+    Five outages used to be five baseline runs, and a source that had been
+    down for its entire recorded history could satisfy MIN_BASELINE_RUNS. It
+    is now `unjudged`, and the reason says how many runs were set aside and
+    why rather than claiming there is no history.
+    """
+    for days in (40, 35, 30, 25, 20):
+        _run(conn, days_ago=days, sources={"crossref": _outage()})
+    # One real answer, so the consecutive-failure rule does not fire instead.
+    _run(conn, days_ago=1, sources={"crossref": {"result_count": 12}})
+
+    report = watchdog.report(conn, now=NOW)
+    unjudged = [
+        u for u in report["not_enough_data"] if u["scope"].get("id") == "crossref"
+    ]
+
+    assert len(unjudged) == 1
+    assert unjudged[0]["runs_recorded"] == 1
+    assert unjudged[0]["runs_not_a_measurement"] == 5
+    assert "not a measurement of the field" in unjudged[0]["reason"]
+    assert _by_kind(report, "source_quiet") == []
+
+
+def test_history_written_before_schema_10_reads_exactly_as_it_used_to(conn):
+    """A NULL reason keeps the pre-1.8.6 reading, on purpose.
+
+    Every row in every existing install has one. Treating an unexplained zero
+    as an outage would invent findings about runs nobody observed — which is
+    the same overclaim as inventing the reason itself.
+    """
+    for days in (40, 35, 30, 25, 20):
+        _run(conn, days_ago=days, sources={"arxiv": {"result_count": 30}})
+    for days in (8, 6, 4, 2):
+        _run(conn, days_ago=days, sources={"arxiv": {"result_count": 0}})
+
+    report = watchdog.report(conn, now=NOW)
+    findings = _by_kind(report, "source_quiet")
+
+    assert len(findings) == 1
+    assert _by_kind(report, "source_errors") == []

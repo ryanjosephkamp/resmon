@@ -147,6 +147,39 @@ Where the upstream can only filter one end of a range — NIST's API takes a low
 upper — the client applies the other end **locally**, and the catalog entry says so rather
 than implying the upstream filtered something it did not.
 
+`date_granularity` on the catalog entry carries the same fact in a form the app can read:
+`"day"` (the default), `"month"`, or `"year"`. It says the finest precision **resmon's own
+query to this source can express**, read from your client's date-filter code — not a claim
+about the upstream's index. It is rendered on the Repositories page, and the
+`window_unanswerable` sentence is derived from it rather than from the free-text note.
+
+The field deliberately does not say what your client *does* about a window it cannot express,
+because those are two different facts. ERIC and Open Library **refuse**; DataCite, DBLP, NASA
+ADS and Semantic Scholar answer the coarser window. Both are honest. Only the first calls
+`note_unanswerable`.
+
+### Saying why a search came back empty
+
+A client returning `[]` is the normal way a source fails, and by the time the engine sees it a
+503 and a genuinely empty result field are identical. `safe_request` records the HTTP side for
+you — **you do not need to write anything for an outage to be captured** — but three things
+only your client can know. All three live in `api_base` and all three are one line at the site
+that already returns `[]`:
+
+| Call | When |
+|---|---|
+| `note_unanswerable(why)` | The source cannot answer this window at all and you are **not** sending a request. ERIC and Open Library, at their `return []`. Without this the zero reads *not recorded*, because nothing observed it. |
+| `note_parse_failure()` | You got a 200 and could not read the body. arXiv's `ET.ParseError`, PubMed's, NDL's malformed SRU. |
+| `note_filtered(matched, kept, why)` | The source answered with records you are not allowed to keep. NDL's rights gate. Count the drop reasons **separately** — attributing an incomplete record to a rights statement is a false claim about somebody else's licensing. |
+
+If your request and your `response.json()` share one `try`, use
+`note_parse_failure_unless_transport(exc)` rather than `note_parse_failure()`: the same
+`except` catches "the source never answered", and calling that an unreadable reply tells the
+user the source answered when it did not.
+
+**Never invent a reason.** A zero is a recorded fact with a named source of truth, or it is
+`not_recorded`. There is no third state, and there is no backfill.
+
 ### Local filtering, and what it licenses you to claim
 
 `match_explain._LOCALLY_FILTERED_SOURCES` lists the sources whose keyword matching **resmon
@@ -164,11 +197,12 @@ A new source `<slug>` touches these and no others.
 |---|---|
 | `implementation_scripts/api_<slug>.py` | **new** — subclass `BaseAPIClient`, implement `search()` and `get_name()`, call `register_client()` at module scope |
 | `implementation_scripts/api_registry.py` | add `"api_<slug>"` to `_CLIENT_MODULES`, alphabetically |
-| `implementation_scripts/repo_catalog.py` | add an `_entry(...)`, alphabetically by slug |
+| `implementation_scripts/repo_catalog.py` | add an `_entry(...)`, alphabetically by slug, including `date_granularity` when it is not `"day"` |
 | `implementation_scripts/match_explain.py` | `_LOCALLY_FILTERED_SOURCES` — only if resmon does the filtering |
 | `verification_scripts/test_repo_catalog.py` | the slug set and the two length assertions |
 | `verification_scripts/test_api_repositories_catalog.py` | the catalog-length assertion |
 | `verification_scripts/test_api_tier*.py` | registration, instantiation, and a `live_network` search test |
+| `verification_scripts/test_source_outcomes.py` | nothing to add — `test_every_client_records_an_attempt` parametrises over the registry, so a new source is covered the moment it registers, and fails if its `search()` makes no recorded HTTP attempt |
 | `frontend/src/components/Forms/RepositorySelector.tsx` | the offline fallback slug list |
 | `README.md` → *Supported Repositories* | one row, and the count in the intro line |
 

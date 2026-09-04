@@ -32,12 +32,13 @@ estimate, and "undocumented" is a correct answer.
 
 ## Before you open a pull request
 
-All four must pass:
+All five must pass:
 
 ```bash
-.venv/bin/python -m pytest -q                    # hermetic backend suite
+.venv/bin/python -m pytest -q                    # hermetic backend suite — 1018 pass
 .venv/bin/python -m pytest -m live_network -q    # real APIs — CI cannot run these
 cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
+npm run e2e:smoke                                # every route, in the real Electron app
 ```
 
 CI runs the backend suite on Python 3.10, 3.11 and 3.12 plus the frontend job. **3.12 is not

@@ -259,7 +259,8 @@ const sections: TutorialSection[] = [
     youtubeId: '',
     instructions: [
       'An empty week looks the same whether nothing was published or your sources stopped answering. This page interrogates that silence, using only runs resmon has already done on this machine — it makes no repository requests and costs no API quota.',
-      '`Broken` means resmon recorded the failure: the source returned an error on several runs in a row, a required API key is missing, or an active routine did not fire when its own history says it should have. These are facts, not inferences.',
+      '`Broken` means resmon recorded the failure: the source got no answer on several runs in a row, a required API key is missing, or an active routine did not fire when its own history says it should have. These are facts, not inferences.',
+      'Since resmon 1.8.6 a source whose endpoint was unreachable counts as one that did not answer, even though nothing crashed — every source client degrades rather than failing a sweep, so an outage is recorded as a completed run with zero results. It also no longer counts as the last time that source answered successfully, and no run where a source did not answer can be part of the baseline of what it normally returns.',
       '`Looks unusual` means something departed from the pattern your history established — a source that reliably returned papers has returned none for several runs. There is often an innocent reason, so these are worded as prompts to check, never as faults.',
       '`Worth considering` is advice, not an alarm, and is never counted as one. It appears when a source takes far longer to index papers than your routine waits between runs.',
       '`Show the evidence` on any finding opens the numbers behind it — how many runs, the actual error text, when the source last answered.',
@@ -302,6 +303,7 @@ const sections: TutorialSection[] = [
       'Click a row to open the viewer and switch between the Report, Log, Metadata, and Progress tabs.',
       'Select rows and click `Export Selected` to write a zip bundle, or `Delete Selected` to remove the selected local rows after a confirmation dialog.',
       'Use `BibTeX`, `RIS`, or `CSV` to export the papers themselves in a format a reference manager reads, rather than the report about them.',
+      'A run whose sources did not all answer says so under its Results count — `n of m sources could not answer` — with a link straight to the Search record, where each one carries the recorded reason. A zero resmon did not observe the reason for is named as unrecorded rather than being folded in with the rest; every run from before resmon 1.8.6 is in that state, because nothing was recording it.',
     ],
     features: [
       'A reproducible search record per execution, mapped onto PRISMA 2020 identification-stage boxes — and explicitly labeled where resmon\u2019s figures have no honest PRISMA equivalent.',
@@ -312,6 +314,7 @@ const sections: TutorialSection[] = [
       '`Already held from an earlier run` has no PRISMA box. It is a consequence of monitoring the literature over time rather than running a single search, and the record says so instead of filing it under a heading it does not belong in.',
       'A figure that was never measured shows as `not recorded`, never as 0 — a reviewer reads 0 as a measurement.',
       'The record covers one execution. A review that searched on several dates needs the record from each.',
+      'A source that was unreachable is recorded as a completed run with zero results, because every source client degrades rather than failing the sweep. The record no longer counts it among the sources that answered — a strategy listing it as searched would overstate its coverage.',
       'resmon records no screening decisions. Nothing in the record should be presented as an include/exclude outcome.',
       'Set Settings → Storage → Export directory to pin where exports land; otherwise a temporary file is used.',
     ],
@@ -369,7 +372,8 @@ const sections: TutorialSection[] = [
     mediaCaption: 'Repositories & API Keys demo.',
     youtubeId: 'QIcgil9JNU8',
     instructions: [
-      'Browse the catalog with one row per active repository; click a name (or caret) to expand a details panel showing subject coverage, endpoint, rate limit, and credential requirement.',
+      'Browse the catalog with one row per active repository; click a name (or caret) to expand a details panel showing subject coverage, endpoint, rate limit, credential requirement, and `Date Filtering`.',
+      '`Date Filtering` is the finest date precision resmon\u2019s own query to that source can express. Most take exact dates; NASA ADS takes whole months; DataCite, DBLP, ERIC, Open Library and Semantic Scholar take whole years. ERIC and Open Library refuse a window shorter than one calendar year rather than widening it, so a short-window search of those two comes back empty by construction \u2014 and the run\u2019s Search record says exactly that.',
       'Use Expand All / Collapse All to reveal or hide every detail panel at once.',
       'For key-gated repositories, type a key into the inline input and press Enter to save it; click `Clear` on a row with a saved key to delete it.',
     ],

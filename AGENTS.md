@@ -46,14 +46,17 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 960 pass, 45 deselected
+.venv/bin/python -m pytest -q          # hermetic suite: 1018 pass, 45 deselected
 .venv/bin/python -m pytest -m live_network   # the 45 — real scholarly APIs and CLIs
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 167 tests across 22 suites
+npm run typecheck && npm test && npm run build   # 178 tests across 23 suites
+npm run e2e:smoke                                # 14 routes, in the real Electron app
 ```
 
-All four must pass before a PR opens. CI runs the backend suite on Python 3.10, 3.11 and
+All five must pass before a PR opens. `e2e:smoke` launches the app itself (PR #59); a
+route you change must still load, and the renderer suite is jsdom and cannot tell you
+that. CI runs the backend suite on Python 3.10, 3.11 and
 3.12, plus the frontend job; **3.12 is not decoration** — it releases the GIL around
 sqlite3 aggressively and is the acceptance test for the per-thread-connection fix. If
 that column alone goes red, suspect a shared `sqlite3.Connection`.

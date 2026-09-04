@@ -84,6 +84,62 @@ MIN_PRODUCTIVE_BASELINE_RUNS = 3
 # active routine still selects it. Old one-off sweeps should not alarm forever.
 MISSING_KEY_RECENCY_DAYS = 30
 
+# --- What an "ok / 0" row is worth -----------------------------------------
+#
+# Until schema 10 every source that finished without raising was ``ok``, so a
+# source whose endpoint 503'd on every run of a month looked to this file
+# exactly like a source in a quiet field. Clients degrade rather than raise --
+# that is a deliberate contract and it is right -- and the cost was that the
+# watchdog could not tell an outage from silence.
+
+# A zero for one of these reasons is a source that **did not answer**. The
+# consecutive-failure rule treats it like an error row, because that is what
+# it is: resmon sent a query and got nothing back from the source.
+#
+# Only ``upstream_failure`` is here, and the omissions are deliberate.
+# ``window_unanswerable`` is not a fault at all -- the source is behaving
+# correctly and the window is the user's -- and alarming on it would train
+# people to ignore the watchdog. ``parse_failure`` is a genuine candidate and
+# is deliberately left out of *this* phase: it changes when an alarm fires,
+# and this phase already changes the baseline denominator. Its rows are still
+# dropped from the baseline below, so a source that only ever returns
+# unreadable replies goes to `unjudged` with a stated reason rather than
+# silently counting as healthy.
+ERROR_EQUIVALENT_ZERO_REASONS = frozenset({"upstream_failure"})
+
+# A zero for one of these reasons is not a measurement of the field, so it
+# cannot be part of a baseline of what the source normally returns. Dropping
+# them shrinks the denominator: on a real corpus this produces *more*
+# `unjudged` sources and *fewer* `source_quiet` findings, which is the correct
+# direction -- a baseline built from runs where the source never answered was
+# never a baseline.
+NOT_A_MEASUREMENT_ZERO_REASONS = frozenset({
+    "upstream_failure",
+    "parse_failure",
+    "window_unanswerable",
+})
+
+
+def _did_not_answer(run: dict) -> bool:
+    """Did this run fail to get an answer out of the source?
+
+    A NULL ``zero_reason`` keeps the pre-1.8.6 reading, which is what every
+    historical row has: an ``ok`` row is treated as an answer because nothing
+    observed otherwise. That is the honest default and it is why this rule
+    changes nothing about existing recorded history.
+    """
+    if run["status"] == "error":
+        return True
+    return run.get("zero_reason") in ERROR_EQUIVALENT_ZERO_REASONS
+
+
+def _is_a_measurement(run: dict) -> bool:
+    """Can this run stand as evidence of what the source normally returns?"""
+    if run["status"] != "ok":
+        return False
+    return run.get("zero_reason") not in NOT_A_MEASUREMENT_ZERO_REASONS
+
+
 # --- Routine thresholds ----------------------------------------------------
 
 # Completed runs before the gap between them is treated as this routine's
@@ -185,6 +241,8 @@ def _source_history(conn: sqlite3.Connection) -> dict[str, list[dict]]:
                es.result_count      AS result_count,
                es.error_message     AS error_message,
                es.credential_name   AS credential_name,
+               es.zero_reason       AS zero_reason,
+               es.zero_detail       AS zero_detail,
                e.id                 AS execution_id,
                e.start_time         AS start_time,
                e.execution_type     AS execution_type
@@ -272,6 +330,36 @@ def _finding(
     }
 
 
+def _failure_detail(run: dict) -> str:
+    """What the most recent failing run actually recorded, in one clause.
+
+    An ``error`` row has an exception string. An ``ok / 0`` row recorded as an
+    upstream failure has no exception -- nothing raised -- and its detail is
+    the JSON the engine wrote. Reading the exception field for both was how the
+    old wording ended up saying "raised an error" about a run that did not.
+    """
+    if run["status"] == "error":
+        return str(run.get("error_message") or "unknown error")
+    detail = run.get("zero_detail")
+    if isinstance(detail, str) and detail:
+        try:
+            parsed = json.loads(detail)
+        except (ValueError, TypeError):
+            parsed = {}
+        if isinstance(parsed, dict):
+            kind = parsed.get("detail")
+            status = parsed.get("status")
+            if status:
+                return f"the source answered HTTP {status}"
+            if kind == "timeout":
+                return "the request timed out"
+            if kind == "connect":
+                return "resmon could not open a connection"
+            if kind:
+                return str(kind).replace("_", " ")
+    return "the source did not answer"
+
+
 def _check_sources(
     history: dict[str, list[dict]],
     active_sources: dict[str, list[str]],
@@ -331,16 +419,21 @@ def _check_sources(
                 ))
             continue
 
-        # --- Rule: consecutive errors --------------------------------------
+        # --- Rule: consecutive failures to get an answer -------------------
         consecutive_errors = 0
         for run in runs:
-            if run["status"] != "error":
+            if not _did_not_answer(run):
                 break
             consecutive_errors += 1
 
         if consecutive_errors >= CONSECUTIVE_ERRORS:
+            # "Last answered successfully" must not count a run where the
+            # source never answered. Before schema 10 it did, because an
+            # outage was recorded as ``ok / 0`` -- so a source that had been
+            # down for a month was reported as having answered an hour ago.
             last_ok = next(
-                (r for r in runs if r["status"] == "ok"), None,
+                (r for r in runs
+                 if r["status"] == "ok" and not _did_not_answer(r)), None,
             )
             last_ok_at = _parse_ts(last_ok["start_time"]) if last_ok else None
             since = _humanise_days(_days_between(last_ok_at, now)) if last_ok_at else None
@@ -353,10 +446,16 @@ def _check_sources(
                     f"{source} has failed on its last "
                     f"{consecutive_errors} runs"
                 ),
+                # The old wording said every one of those runs "raised an
+                # error". That is no longer true of every counted run and
+                # never was of all of them: an upstream that answers 503 is
+                # recorded as ``ok / 0`` and raises nothing at all. The
+                # sentence says what actually happened, and the most recent
+                # run's own recorded reason is what it quotes.
                 detail=(
-                    f"Every query resmon sent to {source} in its last "
-                    f"{consecutive_errors} runs raised an error. The most recent "
-                    f"one was: {latest.get('error_message') or 'unknown error'}."
+                    f"resmon got no answer from {source} on each of its last "
+                    f"{consecutive_errors} runs. The most recent one: "
+                    f"{_failure_detail(latest)}."
                     + (f" It last answered successfully {since} ago." if since
                        else " There is no successful run on record.")
                 ),
@@ -368,6 +467,7 @@ def _check_sources(
                 evidence={
                     "consecutive_errors": consecutive_errors,
                     "last_error": latest.get("error_message"),
+                    "last_zero_reason": latest.get("zero_reason"),
                     "last_success_at": last_ok["start_time"] if last_ok else None,
                     "runs_recorded": len(runs),
                 },
@@ -375,16 +475,35 @@ def _check_sources(
             continue
 
         # --- Rule: a productive source has gone quiet -----------------------
-        ok_runs = [r for r in runs if r["status"] == "ok"]
+        # Only runs where the source actually answered can say what it
+        # normally returns. A run where it 503'd, replied unreadably, or could
+        # not express the window is not a measurement of the field, and a
+        # baseline built from those was never a baseline.
+        ok_runs = [r for r in runs if _is_a_measurement(r)]
         if len(ok_runs) < MIN_BASELINE_RUNS:
+            dropped = sum(
+                1 for r in runs
+                if r["status"] == "ok" and not _is_a_measurement(r)
+            )
+            reason = (
+                f"{len(ok_runs)} run{'s' if len(ok_runs) != 1 else ''} on "
+                f"record; a baseline needs {MIN_BASELINE_RUNS}."
+            )
+            if dropped:
+                # Saying "1 run on record" about a source that has run twenty
+                # times, nineteen of them without an answer, would be true and
+                # useless. The reason names what was set aside and why.
+                reason += (
+                    f" {dropped} further run{'s' if dropped != 1 else ''} "
+                    "returned nothing for a recorded reason that is not a "
+                    "measurement of the field, so they are not counted here."
+                )
             unjudged.append({
                 "scope": {"type": "source", "id": source},
-                "reason": (
-                    f"{len(ok_runs)} run{'s' if len(ok_runs) != 1 else ''} on "
-                    f"record; a baseline needs {MIN_BASELINE_RUNS}."
-                ),
+                "reason": reason,
                 "runs_recorded": len(ok_runs),
                 "runs_needed": MIN_BASELINE_RUNS,
+                "runs_not_a_measurement": dropped,
             })
             continue
 
