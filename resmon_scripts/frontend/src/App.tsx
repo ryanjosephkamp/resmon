@@ -20,6 +20,7 @@ import MonitorPage from './pages/MonitorPage';
 import RepositoriesPage from './pages/RepositoriesPage';
 import SettingsPage from './pages/SettingsPage';
 import AboutResmonPage from './pages/AboutResmonPage';
+import { APP_ROUTES } from './routes';
 
 /**
  * Tells the backend the renderer is alive so its desktop-notification
@@ -48,6 +49,34 @@ const useRendererHeartbeat = (): void => {
   }, []);
 };
 
+/**
+ * The page each route renders, keyed by the route's own path.
+ *
+ * Split from `routes.ts` because that table is imported by the Playwright
+ * suite, which runs outside webpack and must not pull React or a stylesheet in
+ * with it. The two halves are held together by `src/__tests__/routes.test.tsx`:
+ * it fails when a key here has no route, when a route has no key, and when
+ * this file grows a hand-written `<Route>` that would bypass the table
+ * entirely. That last guard is what makes the route list a denominator rather
+ * than a copy — see the header of `routes.ts`.
+ */
+export const PAGE_ELEMENTS: Record<string, React.ReactElement> = {
+  '/': <DashboardPage />,
+  '/dive': <DeepDivePage />,
+  '/sweep': <DeepSweepPage />,
+  '/routines': <RoutinesPage />,
+  '/calendar': <CalendarPage />,
+  '/results': <ResultsPage />,
+  '/analytics': <AnalyticsPage />,
+  '/watchdog': <WatchdogPage />,
+  '/explorer': <ExplorerPage />,
+  '/configurations': <ConfigurationsPage />,
+  '/monitor': <MonitorPage />,
+  '/repositories': <RepositoriesPage />,
+  '/settings/*': <SettingsPage />,
+  '/about-resmon/*': <AboutResmonPage />,
+};
+
 const App: React.FC = () => {
   useRendererHeartbeat();
   return (
@@ -59,20 +88,13 @@ const App: React.FC = () => {
               <Header />
               <MainContent>
                 <Routes>
-                  <Route path="/" element={<DashboardPage />} />
-                  <Route path="/dive" element={<DeepDivePage />} />
-                  <Route path="/sweep" element={<DeepSweepPage />} />
-                  <Route path="/routines" element={<RoutinesPage />} />
-                  <Route path="/calendar" element={<CalendarPage />} />
-                  <Route path="/results" element={<ResultsPage />} />
-                  <Route path="/analytics" element={<AnalyticsPage />} />
-                  <Route path="/watchdog" element={<WatchdogPage />} />
-                  <Route path="/explorer" element={<ExplorerPage />} />
-                  <Route path="/configurations" element={<ConfigurationsPage />} />
-                  <Route path="/monitor" element={<MonitorPage />} />
-                  <Route path="/repositories" element={<RepositoriesPage />} />
-                  <Route path="/settings/*" element={<SettingsPage />} />
-                  <Route path="/about-resmon/*" element={<AboutResmonPage />} />
+                  {APP_ROUTES.map((route) => (
+                    <Route
+                      key={route.path}
+                      path={route.path}
+                      element={PAGE_ELEMENTS[route.path]}
+                    />
+                  ))}
                 </Routes>
               </MainContent>
             </div>

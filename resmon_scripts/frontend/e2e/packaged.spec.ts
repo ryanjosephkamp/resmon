@@ -19,6 +19,14 @@
  * The spec **skips rather than fails** when no packaged app is present, and the
  * skip reason names what is missing. Building one takes minutes and downloads a
  * Python runtime, so this cannot be a precondition of the smoke suite.
+ *
+ * **And it skips when the build under `release/` is not this checkout's.** The
+ * spike's precondition was "a directory exists", which is not the same claim:
+ * on a machine whose `release/` still held a **1.6.0** bundle from months
+ * earlier, this spec launched that app, walked its routes, and failed on a
+ * window-size branch three releases older than the code under test. A stale
+ * pass would have been worse than the failure — it would have reported the
+ * shipped bundle as verified while never opening it. `npm run dist` first.
  */
 import * as fs from 'fs';
 import * as os from 'os';
@@ -26,6 +34,9 @@ import * as path from 'path';
 import { test, expect, _electron as electron } from '@playwright/test';
 import { launchEnv, FRONTEND_ROOT, WINDOW_WIDTH } from './fixtures/resmon-app';
 import { ROUTES } from './routes';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const CHECKOUT_VERSION: string = require(path.join(FRONTEND_ROOT, 'package.json')).version;
 
 /** Where electron-builder leaves the app for each platform. */
 function packagedExecutable(): string | null {
@@ -41,6 +52,31 @@ function packagedExecutable(): string | null {
   return candidates.find((c) => fs.existsSync(c)) ?? null;
 }
 
+/**
+ * The version electron-builder stamped into the bundle, without launching it.
+ *
+ * macOS keeps it in `Contents/Info.plist`; on Windows and Linux the app's own
+ * `package.json` travels inside `resources/app.asar`, which is not readable
+ * without unpacking, so `resources/app-update.yml` — which electron-builder
+ * writes next to it — is used instead. Returns null when it cannot be read,
+ * and the caller treats that as a mismatch rather than as a pass.
+ */
+function packagedAppVersion(exe: string): string | null {
+  try {
+    if (process.platform === 'darwin') {
+      const plist = path.resolve(exe, '..', '..', 'Info.plist');
+      const m = fs.readFileSync(plist, 'utf8')
+        .match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/);
+      return m ? m[1] : null;
+    }
+    const yml = path.join(path.dirname(exe), 'resources', 'app-update.yml');
+    const m = fs.readFileSync(yml, 'utf8').match(/^version:\s*(\S+)/m);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 test('Q6: the packaged app launches under Playwright and serves every route', async () => {
   const exe = packagedExecutable();
   test.skip(
@@ -48,6 +84,22 @@ test('Q6: the packaged app launches under Playwright and serves every route', as
     'no packaged app found under resmon_scripts/frontend/release — run `npm run dist` first',
   );
   test.setTimeout(300_000);
+
+  // What was built, read from the bundle rather than assumed from its
+  // existence. `app.getVersion()` would answer this too, but only after a
+  // launch — and launching the wrong app is the failure being prevented.
+  const packagedVersion = packagedAppVersion(exe as string);
+  // Printed as well as annotated: Playwright's list reporter shows a skip as a
+  // dash, and a run that quietly did not verify the shipped app is exactly the
+  // thing this guard exists to make legible.
+  console.log('Q6 PACKAGED APP VERSION', JSON.stringify(
+    { packaged: packagedVersion, checkout: CHECKOUT_VERSION, executable: exe },
+  ));
+  test.skip(
+    packagedVersion !== CHECKOUT_VERSION,
+    `the packaged app under release/ is ${packagedVersion ?? 'unreadable'}, `
+    + `this checkout is ${CHECKOUT_VERSION} — run \`npm run dist\` to rebuild it`,
+  );
 
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-pkg-'));
   const env = launchEnv(stateDir, true);

@@ -2,8 +2,9 @@
  * One smoke test per route: the page loads, Chromium logged no error, and a
  * screenshot lands in `e2e/screenshots/`.
  *
- * The route list is `e2e/routes.ts`, copied by hand from `App.tsx` — see the
- * comment at the top of that file for why it is a copy and what that costs.
+ * The route list is `e2e/routes.ts`, which **imports** the table `App.tsx`
+ * renders from. A page that exists is therefore a page with a smoke test; the
+ * hand copy this replaced is described in that file's header.
  */
 import * as path from 'path';
 import {
@@ -25,6 +26,10 @@ test.describe('route smoke', () => {
 
       await goto(route.path);
 
+      // The two splat parents redirect their index to a child. `redirectsTo`
+      // is read out of the child page's own `<Route index>` by
+      // `src/__tests__/routes.test.tsx`, so this asserts the app does what
+      // that page declares rather than what anyone wrote down here.
       if (route.redirectsTo) {
         expect(win.url()).toContain(`#${route.redirectsTo}`);
       }

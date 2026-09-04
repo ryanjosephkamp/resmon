@@ -49,7 +49,19 @@ import * as path from 'path';
 
 export const FRONTEND_ROOT = path.resolve(__dirname, '..', '..');
 export const REPO_ROOT = path.resolve(FRONTEND_ROOT, '..', '..');
-export const SCREENSHOT_DIR = path.join(__dirname, '..', 'screenshots');
+/**
+ * Where a run's screenshots land.
+ *
+ * Inside `e2e/screenshots/` by default, which is **gitignored** from phase
+ * 1.8.7: the spike committed 15 PNGs and 1.8.6 added three, and every stacked
+ * branch afterwards conflicted on them, because two branches that both run the
+ * suite both rewrite every file. CI uploads the directory as a workflow
+ * artifact and `npm run e2e:review` overrides this to a directory outside the
+ * repository, so a review run leaves the working tree untouched.
+ */
+export const SCREENSHOT_DIR = process.env.RESMON_E2E_SCREENSHOT_DIR
+  ? path.resolve(process.env.RESMON_E2E_SCREENSHOT_DIR)
+  : path.join(__dirname, '..', 'screenshots');
 
 /** Fixed so a screenshot means the same thing on every machine — see RESMON_E2E in main.ts. */
 export const WINDOW_WIDTH = 1440;
