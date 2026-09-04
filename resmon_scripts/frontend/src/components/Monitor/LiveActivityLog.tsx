@@ -10,10 +10,17 @@ function formatTime(iso: string): string {
   }
 }
 
-function severityClass(type: string): string {
+function severityClass(type: string, ev?: ProgressEvent): string {
   switch (type) {
     case 'repo_done':
+      // A source that could not answer is not a success, even though the
+      // engine's own bookkeeping calls the run ok.
+      return ev?.zero_reason && ev.zero_reason !== 'answered_empty'
+        && ev.zero_reason !== 'not_recorded'
+        ? 'log-warning'
+        : 'log-success';
     case 'complete': return 'log-success';
+    case 'repo_skipped_missing_key': return 'log-warning';
     case 'repo_error':
     case 'error': return 'log-error';
     case 'cancelled': return 'log-warning';
@@ -42,7 +49,21 @@ function eventMessage(ev: ProgressEvent): string {
     case 'repo_start':
       return `Querying repository: ${ev.repository} (${ev.index}/${ev.total_repos})`;
     case 'repo_done':
+      // A zero now says why, in the sentence the backend rendered. The
+      // renderer never composes this wording: one vocabulary, one place.
+      if ((ev.result_count ?? 0) === 0 && ev.zero_message) {
+        return `${ev.repository}: 0 results — ${ev.zero_message}`;
+      }
       return `${ev.repository}: ${ev.result_count ?? 0} results`;
+    case 'repo_skipped_missing_key':
+      // Before this case the log printed the literal string
+      // "repo_skipped_missing_key" at the user, because the default branch
+      // falls back to the event name.
+      return (
+        `${ev.repository}: not queried — the API key it requires` +
+        `${ev.credential_name ? ` (${ev.credential_name})` : ''} is not ` +
+        'configured. Add it under Repositories & API Keys.'
+      );
     case 'repo_error':
       return `${ev.repository}: error — ${ev.error ?? 'unknown'}`;
     case 'query_progress':
@@ -136,7 +157,7 @@ const LiveActivityLog: React.FC<LiveActivityLogProps> = ({ events, verbose = fal
       <div className="mon-log-body">
         {filtered.length === 0 && <div className="mon-log-empty">No events yet.</div>}
         {filtered.map((ev, i) => (
-          <div key={i} className={`mon-log-entry ${severityClass(ev.type)}`}>
+          <div key={i} className={`mon-log-entry ${severityClass(ev.type, ev)}`}>
             <span className="mon-log-time">{formatTime(ev.timestamp)}</span>
             <span className="mon-log-msg">{eventMessage(ev)}</span>
           </div>

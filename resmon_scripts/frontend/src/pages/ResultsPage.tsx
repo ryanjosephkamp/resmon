@@ -23,7 +23,7 @@ interface Execution {
 const ResultsPage: React.FC = () => {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [viewId, setViewId] = useState<number | null>(null);
-  const [viewTab, setViewTab] = useState<'report' | 'log' | 'meta' | 'progress' | undefined>(undefined);
+  const [viewTab, setViewTab] = useState<'report' | 'log' | 'meta' | 'progress' | 'record' | undefined>(undefined);
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [error, setError] = useState('');
@@ -219,6 +219,38 @@ const ResultsPage: React.FC = () => {
             ),
           },
           {
+            heading: 'When a source returned nothing',
+            body: (
+              <>
+                <p>
+                  A run whose sources did not all answer says so on its row, and the
+                  Search record tab carries the sentence for each one. resmon
+                  distinguishes three things it used to render identically:
+                </p>
+                <ul>
+                  <li>
+                    <strong>Answered, zero.</strong> The source replied and had nothing
+                    matching. This is a real measurement.
+                  </li>
+                  <li>
+                    <strong>Could not answer.</strong> The source was unreachable,
+                    replied with something resmon could not read, cannot express the
+                    date window you asked for, needs a key that is not configured, or
+                    has been withdrawn. This is <em>not</em> a zero, and a search
+                    strategy that lists the source as searched would be overstating its
+                    coverage.
+                  </li>
+                  <li>
+                    <strong>Reason not recorded.</strong> resmon did not observe why.
+                    Every run from before resmon 1.8.6 is in this state, because
+                    nothing was recording it. Those zeros are unexplained, not
+                    measured — resmon will not reconstruct a reason after the fact.
+                  </li>
+                </ul>
+              </>
+            ),
+          },
+          {
             heading: 'The table',
             body: (
               <ul>
@@ -296,6 +328,7 @@ const ResultsPage: React.FC = () => {
           onToggle={handleToggle}
           onToggleAll={handleToggleAll}
           onRowClick={(e) => setViewId(e.id)}
+          onOpenSearchRecord={(e) => { setViewTab('record'); setViewId(e.id); }}
           typeFilter={typeFilter}
           statusFilter={statusFilter}
           onTypeFilterChange={setTypeFilter}

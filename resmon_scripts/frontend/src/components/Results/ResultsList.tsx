@@ -1,5 +1,23 @@
 import React from 'react';
 
+/**
+ * How many of an execution's sources actually answered.
+ *
+ * Sent with the execution rows themselves rather than fetched per row: a page
+ * is fifty executions and this belongs on the row the user is already looking
+ * at. ``not_recorded`` is its own count and is not folded into either of the
+ * others — a zero nobody observed is neither an answer nor a failure to
+ * answer, and rounding it into either would state something resmon did not
+ * see.
+ */
+interface SourceOutcomes {
+  selected: number;
+  answered: number;
+  could_not_answer: number;
+  not_recorded: number;
+  sources_that_could_not_answer: string[];
+}
+
 interface Execution {
   id: number;
   execution_type: string;
@@ -11,6 +29,7 @@ interface Execution {
   end_time?: string;
   total_results?: number;
   new_results?: number;
+  source_outcomes?: SourceOutcomes | null;
 }
 
 interface Props {
@@ -19,6 +38,8 @@ interface Props {
   onToggle: (id: number) => void;
   onToggleAll: () => void;
   onRowClick: (exec: Execution) => void;
+  /** Open this execution straight at its Search record tab. */
+  onOpenSearchRecord?: (exec: Execution) => void;
   typeFilter: string;
   statusFilter: string;
   onTypeFilterChange: (v: string) => void;
@@ -82,12 +103,66 @@ const formatRepos = (exec: Execution): string => {
   return '—';
 };
 
+/**
+ * The coverage line under a row.
+ *
+ * Says nothing when every source answered, because a badge that is always
+ * present is a badge nobody reads. Says "reason not recorded" separately from
+ * "could not answer", because runs from before resmon 1.8.6 carry no reason
+ * and presenting their zeros as measured would be the overclaim this whole
+ * surface exists to avoid.
+ */
+const CoverageNote: React.FC<{
+  exec: Execution;
+  onOpen?: (exec: Execution) => void;
+}> = ({ exec, onOpen }) => {
+  const o = exec.source_outcomes;
+  if (!o || o.selected === 0) return null;
+  if (o.could_not_answer === 0 && o.not_recorded === 0) return null;
+
+  const parts: string[] = [];
+  if (o.could_not_answer > 0) {
+    parts.push(`${o.could_not_answer} of ${o.selected} sources could not answer`);
+  }
+  if (o.not_recorded > 0) {
+    parts.push(
+      `${o.not_recorded} returned nothing for a reason resmon did not record`,
+    );
+  }
+
+  return (
+    <div
+      className="results-coverage"
+      title={
+        o.sources_that_could_not_answer.length
+          ? o.sources_that_could_not_answer.join(', ')
+          : undefined
+      }
+    >
+      {parts.join('; ')}
+      {onOpen && (
+        <>
+          {' — '}
+          <button
+            type="button"
+            className="link-button"
+            onClick={(ev) => { ev.stopPropagation(); onOpen(exec); }}
+          >
+            see the search record
+          </button>
+        </>
+      )}
+    </div>
+  );
+};
+
 const ResultsList: React.FC<Props> = ({
   executions,
   selected,
   onToggle,
   onToggleAll,
   onRowClick,
+  onOpenSearchRecord,
   typeFilter,
   statusFilter,
   onTypeFilterChange,
@@ -156,7 +231,10 @@ const ResultsList: React.FC<Props> = ({
                     {e.status}
                   </span>
                 </td>
-                <td>{e.total_results ?? '—'}</td>
+                <td>
+                  {e.total_results ?? '—'}
+                  <CoverageNote exec={e} onOpen={onOpenSearchRecord} />
+                </td>
                 <td>{e.new_results ?? '—'}</td>
               </tr>
           ))}

@@ -5,10 +5,23 @@ import { ActiveExecution } from '../../context/ExecutionContext';
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The icon per status.
+ *
+ * ``done`` and ``no_answer`` used to share the ✓, because both are what the
+ * engine calls a completed source: every client degrades rather than raising,
+ * so a 503 and a quiet field arrive here identically. They are different
+ * facts and the grid now says so — a tick on a source that never answered is
+ * the app agreeing that nothing was wrong.
+ */
 function statusIcon(status: string): string {
   switch (status) {
     case 'done':
       return '✓';
+    case 'no_answer':
+      return '⚠';
+    case 'skipped':
+      return '⊘';
     case 'querying':
       return '⟳';
     case 'error':
@@ -17,6 +30,15 @@ function statusIcon(status: string): string {
       return '⏳';
   }
 }
+
+const STATUS_LABEL: Record<string, string> = {
+  done: 'done',
+  no_answer: 'no answer',
+  skipped: 'not queried',
+  querying: 'querying',
+  error: 'error',
+  pending: 'pending',
+};
 
 function resultCountForRepo(
   exec: ActiveExecution,
@@ -55,14 +77,27 @@ const RepoProgressGrid: React.FC<RepoProgressGridProps> = ({ exec }) => {
         <tbody>
           {exec.repositories.map((repo) => {
             const status = exec.repoStatuses[repo] ?? 'pending';
+            /* The sentence the backend rendered for this source's zero. It is
+               shown verbatim rather than rebuilt here, so the monitor, the
+               report and the search record cannot say three different
+               things about the same run. */
+            const zero = exec.repoZeroReasons?.[repo];
             return (
               <tr key={repo} className={`mon-repo-row mon-repo-row--${status}`}>
                 <td className="mon-repo-name">{repo}</td>
                 <td className="mon-repo-status">
-                  <span className={`mon-repo-icon mon-repo-icon--${status}`}>
+                  <span
+                    className={`mon-repo-icon mon-repo-icon--${status}`}
+                    title={zero?.message}
+                  >
                     {statusIcon(status)}
                   </span>
-                  <span className="mon-repo-status-text">{status}</span>
+                  <span className="mon-repo-status-text" title={zero?.message}>
+                    {STATUS_LABEL[status] ?? status}
+                  </span>
+                  {zero && (
+                    <span className="mon-repo-zero-reason">{zero.message}</span>
+                  )}
                 </td>
                 <td className="mon-repo-count">{resultCountForRepo(exec, repo)}</td>
               </tr>

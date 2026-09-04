@@ -31,7 +31,20 @@ export interface ActiveExecution {
   totalRepos?: number;
   resultCount: number;
   newCount: number;
-  repoStatuses: Record<string, 'pending' | 'querying' | 'done' | 'error'>;
+  /**
+   * Per-source live status.
+   *
+   * ``done`` used to cover every source that finished, including the ones that
+   * never answered — a 503 and a quiet field looked identical on the monitor
+   * because they are identical in the engine's result list. ``no_answer``
+   * separates them, and ``skipped`` is the source that was never queried at
+   * all because a key it needs is not configured.
+   */
+  repoStatuses: Record<
+    string, 'pending' | 'querying' | 'done' | 'error' | 'no_answer' | 'skipped'
+  >;
+  /** Per-source zero reason and its rendered sentence, from ``repo_done``. */
+  repoZeroReasons: Record<string, { reason: string; message: string }>;
   currentStage?: string;
   elapsedSeconds: number;
   /**
@@ -74,6 +87,22 @@ interface ExecutionContextValue {
 /* State reducer                                                       */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The reasons that mean *the source did not answer*, as opposed to *it
+ * answered and had nothing*. Mirrors ``DID_NOT_ANSWER`` in
+ * ``implementation_scripts/zero_reason.py``; it is duplicated here only to
+ * choose an icon. The **sentence** shown to the user is never composed in this
+ * file — the backend renders it and it arrives on the event as
+ * ``zero_message`` — so there is no second copy of the wording to drift.
+ */
+const DID_NOT_ANSWER = new Set([
+  'missing_key',
+  'retired',
+  'window_unanswerable',
+  'upstream_failure',
+  'parse_failure',
+]);
+
 function updateExecutionState(
   prev: ActiveExecution,
   event: ProgressEvent,
@@ -90,9 +119,29 @@ function updateExecutionState(
       next.currentRepoIndex = event.index;
       next.totalRepos = event.total_repos;
       break;
-    case 'repo_done':
-      next.repoStatuses = { ...next.repoStatuses, [event.repository]: 'done' };
+    case 'repo_done': {
+      const reason: string | undefined = event.zero_reason ?? undefined;
+      next.repoStatuses = {
+        ...next.repoStatuses,
+        [event.repository]:
+          reason && DID_NOT_ANSWER.has(reason) ? 'no_answer' : 'done',
+      };
+      if (reason && event.zero_message) {
+        next.repoZeroReasons = {
+          ...next.repoZeroReasons,
+          [event.repository]: { reason, message: event.zero_message },
+        };
+      }
       next.resultCount += event.result_count ?? 0;
+      break;
+    }
+    case 'repo_skipped_missing_key':
+      // This event has been emitted since 1.3 and the renderer had no case for
+      // it, so the live log printed the raw event name and the grid left the
+      // source on "pending" until the (also emitted) repo_done arrived.
+      next.repoStatuses = {
+        ...next.repoStatuses, [event.repository]: 'skipped',
+      };
       break;
     case 'repo_error':
       next.repoStatuses = { ...next.repoStatuses, [event.repository]: 'error' };
@@ -436,6 +485,7 @@ export const ExecutionProvider: React.FC<{ children: React.ReactNode }> = ({
         resultCount: 0,
         newCount: 0,
         repoStatuses: Object.fromEntries(repos.map((r) => [r, 'pending' as const])),
+        repoZeroReasons: {},
         elapsedSeconds: 0,
       };
 
@@ -562,6 +612,7 @@ export const ExecutionProvider: React.FC<{ children: React.ReactNode }> = ({
               resultCount: ex.total_results || 0,
               newCount: ex.new_results || 0,
               repoStatuses: {},
+              repoZeroReasons: {},
               elapsedSeconds: 0,
               routine_id: ex.routine_id ?? null,
             };

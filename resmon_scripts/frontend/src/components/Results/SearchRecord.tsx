@@ -29,8 +29,45 @@ interface SourceRow {
   source: string;
   records_identified: number;
   status: string;
+  /** Why this source returned nothing, or "not_recorded". Null when it did. */
+  zero_reason: string | null;
+  /** Whether the source replied at all — not the same as status === 'ok'. */
+  answered: boolean;
   note: string | null;
 }
+
+/**
+ * The short label in the Outcome column.
+ *
+ * This column used to read "answered" for every ``ok`` row. Every client
+ * degrades rather than raising, so a source whose endpoint 503'd is recorded
+ * ``ok / 0`` and was being reported to a systematic reviewer as a database
+ * that answered. The full sentence is rendered underneath the table; this is
+ * the label.
+ */
+// A plain index signature rather than `Record<…>`: this module declares its
+// own `Record` interface for the search record itself, which shadows the
+// built-in utility type.
+const OUTCOME_LABELS: { [reason: string]: string } = {
+  window_unanswerable: 'could not answer this window',
+  upstream_failure: 'did not answer',
+  parse_failure: 'reply unreadable',
+  rights_filtered: 'answered; nothing storable',
+  records_unusable: 'answered; nothing storable',
+  answered_empty: 'answered, zero',
+  not_recorded: 'zero, reason not recorded',
+  missing_key: 'no API key configured',
+  retired: 'withdrawn',
+};
+
+const outcomeLabel = (s: SourceRow): string => {
+  if (s.status === 'ok') {
+    if (!s.zero_reason) return 'answered';
+    return OUTCOME_LABELS[s.zero_reason] ?? s.zero_reason.replace(/_/g, ' ');
+  }
+  if (s.zero_reason === 'retired') return OUTCOME_LABELS.retired;
+  return s.status.replace(/_/g, ' ');
+};
 
 interface DedupBlock {
   count: number | null;
@@ -176,10 +213,10 @@ const SearchRecord: React.FC<{ executionId: number }> = ({ executionId }) => {
         </thead>
         <tbody>
           {data.sources.map((s) => (
-            <tr key={s.source} className={s.status === 'ok' ? '' : 'record-quiet'}>
+            <tr key={s.source} className={s.answered ? '' : 'record-quiet'}>
               <td>{s.source}</td>
               <td>{nf.format(s.records_identified)}</td>
-              <td>{s.status === 'ok' ? 'answered' : s.status.replace(/_/g, ' ')}</td>
+              <td>{outcomeLabel(s)}</td>
             </tr>
           ))}
           <tr className="record-total">
