@@ -92,6 +92,7 @@ from implementation_scripts.config_manager import (
 )
 from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
+from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
     analytics, explorer, lifecycle, match_explain, reference_export,
     search_record, watchdog,
@@ -1411,6 +1412,53 @@ def _enrich_execution_row(row: dict) -> dict:
     return row
 
 
+def _source_outcomes(conn, exec_ids: list[int]) -> dict[int, dict]:
+    """A compact per-execution summary of which sources actually answered.
+
+    One query for a whole page rather than one per row: the Results list asks
+    for fifty executions at a time, and "n of m sources could not answer"
+    belongs on the row the user is already looking at rather than behind a
+    click. ``could_not_answer`` counts the zeros that were **not** answers --
+    an outage, an unreadable reply, a window the source cannot express, a
+    missing key, a retired source -- and ``not_recorded`` counts the zeros
+    resmon never observed, which are deliberately not folded into either
+    number.
+    """
+    if not exec_ids:
+        return {}
+    placeholders = ",".join("?" for _ in exec_ids)
+    rows = conn.execute(
+        f"""
+        SELECT execution_id, source, status, result_count, zero_reason
+        FROM execution_sources
+        WHERE execution_id IN ({placeholders})
+        """,
+        [int(i) for i in exec_ids],
+    ).fetchall()
+
+    summary: dict[int, dict] = {
+        int(i): {
+            "selected": 0, "answered": 0,
+            "could_not_answer": 0, "not_recorded": 0,
+            "sources_that_could_not_answer": [],
+        }
+        for i in exec_ids
+    }
+    for row in rows:
+        entry = summary[int(row["execution_id"])]
+        entry["selected"] += 1
+        reason = row["zero_reason"]
+        count = int(row["result_count"] or 0)
+        if zero_answered(row["status"], count, reason):
+            entry["answered"] += 1
+        elif row["status"] == "ok" and count == 0 and reason in (None, "not_recorded"):
+            entry["not_recorded"] += 1
+        else:
+            entry["could_not_answer"] += 1
+            entry["sources_that_could_not_answer"].append(row["source"])
+    return summary
+
+
 @app.get("/api/executions")
 def list_executions(
     limit: int = Query(50, ge=1, le=500),
@@ -1420,8 +1468,10 @@ def list_executions(
     conn = _get_db()
     try:
         rows = get_executions(conn, limit=limit, offset=offset, execution_type=type)
+        outcomes = _source_outcomes(conn, [int(r["id"]) for r in rows])
         for row in rows:
             _enrich_execution_row(row)
+            row["source_outcomes"] = outcomes.get(int(row["id"]))
         return rows
     finally:
         _close_db(conn)
@@ -1439,7 +1489,9 @@ def get_execution(exec_id: int):
         row = get_execution_by_id(conn, exec_id)
         if not row:
             raise HTTPException(404, "Execution not found")
-        return _enrich_execution_row(row)
+        _enrich_execution_row(row)
+        row["source_outcomes"] = _source_outcomes(conn, [exec_id]).get(exec_id)
+        return row
     finally:
         _close_db(conn)
 

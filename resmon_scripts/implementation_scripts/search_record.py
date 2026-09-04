@@ -61,8 +61,12 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 
+from . import zero_reason as zero_reason_module
 from .config import APP_NAME, APP_VERSION
 from .database import get_execution_sources
+from .repo_catalog import REPOSITORY_CATALOG
+
+_CATALOG_NAMES = {entry.slug: entry.name for entry in REPOSITORY_CATALOG}
 
 # PRISMA 2020 identification-stage box names, used verbatim so a reviewer can
 # match them against the template without translating.
@@ -121,6 +125,13 @@ def build(conn: sqlite3.Connection, execution_id: int) -> dict:
             "source": s["source"],
             "records_identified": int(s["result_count"] or 0),
             "status": s["status"],
+            # The reason a zero is a zero. NULL on every row written before
+            # schema 10, which reads as "not recorded" rather than as an
+            # answer -- see zero_reason.py.
+            "zero_reason": s.get("zero_reason") or (
+                "not_recorded" if _is_zero(s) else None
+            ),
+            "answered": _answered(s),
             "note": _source_note(s),
         }
         for s in sources
@@ -157,8 +168,12 @@ def build(conn: sqlite3.Connection, execution_id: int) -> dict:
         "identification": {
             "records_identified": identified_total,
             "sources_searched": len(per_source),
+            # "Answered" now means the source was asked and replied. A
+            # source whose endpoint 503'd is recorded ``ok / 0`` -- every
+            # client degrades rather than raising -- and counting it as having
+            # answered was the overstatement this phase exists to remove.
             "sources_that_answered": sum(
-                1 for s in per_source if s["status"] == "ok"),
+                1 for s in per_source if s["answered"]),
             "prisma": _PRISMA_IDENTIFIED,
         },
         "deduplication": dedup,
@@ -168,10 +183,51 @@ def build(conn: sqlite3.Connection, execution_id: int) -> dict:
     }
 
 
+def _display_name(slug: str) -> str:
+    return _CATALOG_NAMES.get(slug, slug)
+
+
+def _zero_detail(source: dict) -> dict:
+    raw = source.get("zero_detail")
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw:
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _is_zero(source: dict) -> bool:
+    return int(source.get("result_count") or 0) == 0
+
+
+def _answered(source: dict) -> bool:
+    return zero_reason_module.answered(
+        source["status"],
+        int(source.get("result_count") or 0),
+        source.get("zero_reason"),
+    )
+
+
 def _source_note(source: dict) -> str | None:
     status = source["status"]
     if status == "ok":
+        # A zero is now explained where the explanation was recorded, and
+        # explicitly unexplained where it was not.
+        if _is_zero(source):
+            return zero_reason_module.sentence(
+                _display_name(source["source"]),
+                source.get("zero_reason"),
+                _zero_detail(source),
+            )
         return None
+    if status == "error" and source.get("zero_reason") == "retired":
+        return zero_reason_module.sentence(
+            _display_name(source["source"]), "retired", _zero_detail(source),
+        )
     if status == "skipped_missing_key":
         return (
             "Selected, but the API key it requires was not configured, so this "
@@ -265,6 +321,38 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
             f"contribute records ({names}). A search strategy that lists them as "
             "searched would be overstating its coverage."
         )
+
+    # An ``ok / 0`` row is where the overstatement actually hides: every client
+    # degrades rather than raising, so a source whose endpoint 503'd, whose
+    # reply would not parse, or that cannot answer this window at all is
+    # recorded exactly like a source that answered and had nothing. Those are
+    # separated here because a reviewer citing "we searched 12 databases" on
+    # the strength of a run where three of them never answered is making a
+    # claim the record does not support.
+    could_not_answer = [
+        s for s in sources
+        if s["status"] == "ok" and not s["answered"]
+        and s["zero_reason"] != "not_recorded"
+    ]
+    if could_not_answer:
+        names = ", ".join(s["source"] for s in could_not_answer)
+        caveats.append(
+            f"{len(could_not_answer)} of the {len(sources)} sources selected "
+            f"returned zero because they could not answer, not because there "
+            f"was nothing to find ({names}). Their notes below say why. They "
+            "did not contribute to this search."
+        )
+
+    unrecorded = [s for s in sources if s["zero_reason"] == "not_recorded"]
+    if unrecorded:
+        names = ", ".join(s["source"] for s in unrecorded)
+        caveats.append(
+            f"resmon did not record why {len(unrecorded)} of the "
+            f"{len(sources)} sources returned nothing ({names}). Runs from "
+            "before resmon 1.8.6 have no such record. Those zeros are "
+            "unexplained, not measured — do not report them as evidence that "
+            "there was nothing to find."
+        )
     return caveats
 
 
@@ -276,6 +364,33 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
 def _n(value) -> str:
     """Render a count, keeping "not recorded" visibly distinct from zero."""
     return "not recorded" if value is None else f"{value:,}"
+
+
+# The outcome column used to read "answered" for every ``ok`` row, including
+# the ones where the source never answered at all. These are the short labels;
+# the sentence underneath each table carries the reason.
+_OUTCOME_LABELS = {
+    "window_unanswerable": "could not answer this window",
+    "upstream_failure": "did not answer",
+    "parse_failure": "reply unreadable",
+    "rights_filtered": "answered; nothing storable",
+    "records_unusable": "answered; nothing storable",
+    "answered_empty": "answered, zero",
+    "not_recorded": "zero, reason not recorded",
+    "missing_key": "no API key configured",
+    "retired": "withdrawn",
+}
+
+
+def _outcome_label(source: dict) -> str:
+    if source["status"] == "ok":
+        reason = source.get("zero_reason")
+        if not reason:
+            return "answered"
+        return _OUTCOME_LABELS.get(reason, reason.replace("_", " "))
+    if source.get("zero_reason") == "retired":
+        return _OUTCOME_LABELS["retired"]
+    return source["status"].replace("_", " ")
 
 
 def to_markdown(record: dict) -> str:
@@ -334,7 +449,7 @@ def to_markdown(record: dict) -> str:
     lines.append("| Database | Records | Outcome |")
     lines.append("|---|---:|---|")
     for source in record["sources"]:
-        outcome = "answered" if source["status"] == "ok" else source["status"].replace("_", " ")
+        outcome = _outcome_label(source)
         lines.append(
             f"| {source['source']} | {source['records_identified']:,} | {outcome} |"
         )
