@@ -216,3 +216,97 @@ describe('a subscription lane survives the chain round trip', () => {
     expect(lane.batch_size).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// P10 / P15 — a subscription lane chosen as the PRIMARY provider
+// ---------------------------------------------------------------------------
+//
+// Before 1.8.5's flip, `composeChain` returned '' whenever there were no
+// fallbacks, and the backend fell through to the legacy `ai_provider` /
+// `ai_model` keys. Those keys can carry a provider and a model and nothing
+// else — so a subscription primary written through them would silently lose
+// the command path the user typed and run at the default cap and batch size
+// while the form went on showing their choices.
+//
+// This is the P10 the first handback could not establish, because subscription
+// lanes could only be fallbacks.
+
+import { composeChain, primaryFromChain } from '../components/Settings/AISettings';
+
+const baseSettings = {
+  ai_provider: '', ai_model: '', ai_local_model: '', ai_summary_length: '',
+  ai_tone: '', ai_temperature: '0.2', ai_extraction_goals: '',
+  ai_custom_base_url: '', ai_custom_header_prefix: 'Bearer',
+  ai_default_models: '', ai_chain: '', ai_cli_path: '', ai_effort: '',
+  ai_subscription_doc_cap: '', ai_batch_size: '',
+};
+
+describe('a subscription primary with no fallbacks', () => {
+  const settings = {
+    ...baseSettings,
+    ai_provider: 'claude_code',
+    ai_model: 'opus',
+    ai_cli_path: '/opt/claude',
+    ai_effort: 'high',
+    ai_subscription_doc_cap: '50',
+    ai_batch_size: '5',
+  };
+
+  test('emits a one-lane chain carrying every subscription-only field', () => {
+    const raw = composeChain(settings, []);
+    expect(raw).not.toBe('');
+    const chain = JSON.parse(raw);
+    expect(chain).toHaveLength(1);
+    expect(chain[0]).toMatchObject({
+      kind: 'subscription',
+      provider: 'claude_code',
+      model: 'opus',
+      binary_path: '/opt/claude',
+      effort: 'high',
+      doc_cap: 50,
+      batch_size: 5,
+    });
+  });
+
+  test('reads back into the form as the values the user set', () => {
+    const back = primaryFromChain(composeChain(settings, []));
+    expect(back).toMatchObject({
+      ai_cli_path: '/opt/claude',
+      ai_effort: 'high',
+      ai_subscription_doc_cap: '50',
+      ai_batch_size: '5',
+    });
+  });
+
+  test('an API-key primary with no fallbacks still stores nothing', () => {
+    // The whole point of the '' return: a user who never opens the fallback
+    // section and runs a BYOK provider behaves exactly as before chains.
+    expect(composeChain(
+      { ...baseSettings, ai_provider: 'anthropic', ai_model: 'claude-3-5-sonnet' },
+      [],
+    )).toBe('');
+  });
+
+  test('an Ollama primary with no fallbacks still stores nothing', () => {
+    expect(composeChain(
+      { ...baseSettings, ai_provider: 'local', ai_local_model: 'llama3' }, [],
+    )).toBe('');
+  });
+
+  test('a subscription lane that set nothing extra invents no values', () => {
+    const chain = JSON.parse(composeChain(
+      { ...baseSettings, ai_provider: 'codex' }, [],
+    ));
+    expect(chain[0].binary_path).toBeUndefined();
+    expect(chain[0].effort).toBeUndefined();
+    expect(chain[0].doc_cap).toBeUndefined();
+    expect(chain[0].batch_size).toBeUndefined();
+  });
+
+  test('primaryFromChain ignores a lane 0 that is not a subscription', () => {
+    const raw = JSON.stringify([
+      { kind: 'api_key', provider: 'anthropic', model: 'm', binary_path: '/x' },
+    ]);
+    expect(primaryFromChain(raw)).toEqual({});
+  });
+});

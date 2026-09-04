@@ -30,9 +30,17 @@ def test_a_subscription_lane_is_capped_by_default():
     assert lane.doc_cap == DEFAULT_SUBSCRIPTION_DOC_CAP
 
 
-def test_the_default_cap_is_twenty_five():
-    """The agreed number. Changing it is a product decision, not a refactor."""
-    assert DEFAULT_SUBSCRIPTION_DOC_CAP == 25
+def test_the_default_cap_is_fifty():
+    """The agreed number. Changing it is a product decision, not a refactor.
+
+    Twenty-five until 1.8.5, when batching changed what a paper costs: at the
+    default batch size of five a paper measured 0.33× the cost and 0.23× the
+    input-side tokens of a per-document call, so fifty papers spend less of the
+    plan's window than twenty-five did before. Fifty rather than a hundred
+    because every real batched run came back one summary short of its batch and
+    each miss costs a re-send.
+    """
+    assert DEFAULT_SUBSCRIPTION_DOC_CAP == 50
 
 
 def test_other_lane_kinds_are_uncapped():

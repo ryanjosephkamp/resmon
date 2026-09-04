@@ -953,14 +953,16 @@ searched when it found nothing.
 
 **Two things to know before you select it.**
 
-It is **slower** than an API key and it spends the same usage window you use for your own
-work. Papers are therefore sent **ten at a time in one call** rather than one session per
-paper, which is what makes the lane usable on a real sweep, and the lane still carries a
-**per-run limit of 25 papers** by default, editable per lane. Reaching the limit is not an
+**It is the recommended route as of 1.8.5**, because batching made it affordable. Papers go
+**five at a time in one call** rather than one session each, and measured against the same
+abstracts one at a time, a paper costs **0.33× as much and 0.23× the input-side tokens** —
+the constitution and the prompt scaffold are about 5,600 tokens paid once per call instead
+of once per paper.
+
+It still spends the same usage window you use for your own work, so the lane carries a
+**per-run limit of 50 papers** by default, editable per lane. Reaching the limit is not an
 error: the lane stands down, the remaining papers go to the next lane, and `execution_ai`
-records the cap as the reason. It is deliberately **not** the default for bulk
-summarization; a 200-paper sweep routed through an agent CLI can cost you the plan you
-actually need.
+records the cap as the reason. A 200-paper sweep is still worth routing somewhere else.
 
 Summaries are extracted through each CLI's structured output — `--output-format json` for
 Claude Code, `-o` for Codex — rather than by scraping console prose. A batched call adds a

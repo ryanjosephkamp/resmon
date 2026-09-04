@@ -3,9 +3,18 @@ import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
 import InfoTooltip from '../Help/InfoTooltip';
-import FallbackChain, { FallbackLane, CliStatus, SubscriptionCatalog } from './FallbackChain';
+import FallbackChain, {
+  FallbackLane, CliStatus, SubscriptionCatalog, SUBSCRIPTION_PROVIDERS,
+  DEFAULT_DOC_CAP,
+} from './FallbackChain';
 
 const PROVIDERS: { value: string; label: string }[] = [
+  // 1.8.5 — the subscription lanes lead, because they are now the recommended
+  // route: they run the CLI the user already pays for, and batching measured a
+  // paper at 0.33x the cost and 0.23x the input tokens of a per-document call,
+  // which is what made it safe to promote them out of the fallback list.
+  { value: 'claude_code', label: 'Claude Code — your Claude plan' },
+  { value: 'codex',       label: 'Codex — your ChatGPT plan' },
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai',    label: 'OpenAI' },
   { value: 'google',    label: 'Google' },
@@ -81,6 +90,12 @@ interface AISettingsState {
   ai_default_models: string;
   /** 1.8b — the complete ordered chain as JSON. Lane 0 mirrors the form above. */
   ai_chain: string;
+  /** 1.8.5, subscription primary only. Persisted inside `ai_chain`; the legacy
+   *  keys cannot carry them. */
+  ai_cli_path: string;
+  ai_effort: string;
+  ai_subscription_doc_cap: string;
+  ai_batch_size: string;
 }
 
 const DEFAULT_STATE: AISettingsState = {
@@ -95,6 +110,10 @@ const DEFAULT_STATE: AISettingsState = {
   ai_custom_header_prefix: 'Bearer',
   ai_default_models: '',
   ai_chain: '',
+  ai_cli_path: '',
+  ai_effort: '',
+  ai_subscription_doc_cap: '',
+  ai_batch_size: '',
 };
 
 // Parse the JSON-encoded default-model map. Returns an empty object on
@@ -161,19 +180,67 @@ const parseFallbacks = (raw: string): FallbackLane[] => {
 
 /**
  * Compose the stored chain from the primary form plus the fallback lanes.
- * Returns '' when there are no fallbacks, so the backend keeps resolving the
- * legacy single-provider keys and nothing changes for anyone who never opens
- * this section.
+ *
+ * Returns '' when there is nothing a chain can express that the legacy
+ * single-provider keys cannot — so a user who never opens the fallback section
+ * and runs an API-key or Ollama provider still stores no chain, and nothing
+ * changes for them.
+ *
+ * **A subscription primary always emits the chain, even with no fallbacks**
+ * (1.8.5). The legacy keys can carry a provider and a model and nothing else;
+ * `binary_path`, `doc_cap`, `batch_size` and `effort` exist only on a lane. A
+ * subscription primary written to the legacy keys alone would silently lose
+ * the command path the user typed and run at the default cap and batch size
+ * while the form went on showing their choices. The legacy keys are still
+ * written alongside, for a downgrade to an older build.
  */
+/**
+ * Read lane 0's subscription-only fields back out of the stored chain.
+ *
+ * The counterpart to `composeChain`'s subscription branch. Those four fields
+ * exist only on a lane, so if they are not read back here the form shows
+ * defaults for values the user set, saves those defaults, and quietly reverts
+ * their choice — the same class of bug as a writer emitting a field the reader
+ * drops.
+ */
+const primaryFromChain = (raw: string): Partial<AISettingsState> => {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || !parsed.length) return {};
+    const lane = parsed[0];
+    if (!lane || lane.kind !== 'subscription') return {};
+    const out: Partial<AISettingsState> = {};
+    if (lane.binary_path) out.ai_cli_path = String(lane.binary_path);
+    if (lane.effort) out.ai_effort = String(lane.effort);
+    if (lane.doc_cap) out.ai_subscription_doc_cap = String(lane.doc_cap);
+    if (lane.batch_size) out.ai_batch_size = String(lane.batch_size);
+    return out;
+  } catch {
+    return {};
+  }
+};
+
 const composeChain = (settings: AISettingsState, fallbacks: FallbackLane[]): string => {
-  if (!fallbacks.length) return '';
   const isLocal = settings.ai_provider === 'local';
-  const primary = {
-    kind: isLocal ? 'local' : 'api_key',
+  const isSubscription = SUBSCRIPTION_PROVIDERS.includes(settings.ai_provider);
+  if (!fallbacks.length && !isSubscription) return '';
+  if (!settings.ai_provider) return '';
+
+  const primary: FallbackLane & Record<string, unknown> = {
+    kind: isSubscription ? 'subscription' : (isLocal ? 'local' : 'api_key'),
     provider: settings.ai_provider,
     model: isLocal ? settings.ai_local_model : settings.ai_model,
     ...(settings.ai_custom_base_url ? { base_url: settings.ai_custom_base_url } : {}),
   };
+  if (isSubscription) {
+    if (settings.ai_cli_path) primary.binary_path = settings.ai_cli_path;
+    if (settings.ai_effort) primary.effort = settings.ai_effort;
+    const cap = Number(settings.ai_subscription_doc_cap);
+    if (Number.isFinite(cap) && cap > 0) primary.doc_cap = cap;
+    const batch = Number(settings.ai_batch_size);
+    if (Number.isFinite(batch) && batch > 0) primary.batch_size = batch;
+  }
   return JSON.stringify([primary, ...fallbacks]);
 };
 
@@ -190,6 +257,10 @@ const AISettings: React.FC = () => {
   // on demand rather than on mount: `codex debug models` starts a process, and
   // opening Settings should not.
   const [catalogs, setCatalogs] = useState<Record<string, SubscriptionCatalog>>({});
+  // The primary form's Advanced disclosure. Undefined until the user touches
+  // it, so the default can follow detection: open when the command was not
+  // found, which is the only time the question is the next thing to answer.
+  const [advancedTouched, setAdvancedTouched] = useState<boolean | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [keyMasked, setKeyMasked] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -266,7 +337,10 @@ const AISettings: React.FC = () => {
       }
       if (!merged.ai_temperature) merged.ai_temperature = '0.2';
       if (!merged.ai_custom_header_prefix) merged.ai_custom_header_prefix = 'Bearer';
-      setSettings(merged);
+      // Lane 0's subscription-only fields live in the chain, not in the
+      // legacy keys, so they have to be read back out of it or the form would
+      // show defaults for values the user set.
+      setSettings({ ...merged, ...primaryFromChain(merged.ai_chain) });
       setFallbacks(parseFallbacks(merged.ai_chain));
     } finally {
       setLoading(false);
@@ -288,6 +362,25 @@ const AISettings: React.FC = () => {
     }
   }, []);
 
+  // Fresh install: if nothing is configured and a CLI is sitting there, propose
+  // it. **Proposing is selecting a provider in this form, and nothing else** —
+  // it never sets ai_enabled, never saves, and never claims the lane works.
+  // resmon cannot know whether the user is signed in until the first paper, and
+  // a "ready" here would be a promise nobody checked. It also does not fire
+  // once a provider is chosen, so it can never overwrite a choice.
+  const proposedRef = React.useRef(false);
+  useEffect(() => {
+    if (proposedRef.current || loading) return;
+    if (settings.ai_provider) return;
+    if (settings.ai_chain) return;
+    const found = cliStatus.find((c) => c.found);
+    if (!found) return;
+    proposedRef.current = true;
+    setSettings((prev) => (prev.ai_provider ? prev : {
+      ...prev, ai_provider: found.provider,
+    }));
+  }, [loading, cliStatus, settings.ai_provider, settings.ai_chain]);
+
   useEffect(() => {
     refreshSettings();
     refreshKeyPresence();
@@ -306,6 +399,9 @@ const AISettings: React.FC = () => {
 
   const credentialNameForProvider = (provider: string): string | null => {
     if (provider === 'local' || provider === '') return null;
+    // A subscription lane authenticates through the CLI the user already
+    // signed into. resmon never sees that credential and has no slot for it.
+    if (SUBSCRIPTION_PROVIDERS.includes(provider)) return null;
     if (provider === 'custom') return 'custom_llm_api_key';
     return `${provider}_api_key`;
   };
@@ -316,7 +412,7 @@ const AISettings: React.FC = () => {
   // remote API key.
   const STORED_KEY_SLOTS: { provider: string; label: string; credName: string }[] =
     PROVIDERS
-      .filter((p) => p.value !== 'local')
+      .filter((p) => p.value !== 'local' && !SUBSCRIPTION_PROVIDERS.includes(p.value))
       .map((p) => ({
         provider: p.value,
         label: p.label,
@@ -454,6 +550,11 @@ const AISettings: React.FC = () => {
         // 1.8b — written by this Save and nothing else, so lane 0 always
         // matches the provider selected above.
         ai_chain: composeChain(settings, fallbacks),
+        // Written alongside the chain so an older build, which reads only the
+        // legacy keys, still finds the command path and the cap.
+        ai_cli_path: settings.ai_cli_path,
+        ai_effort: settings.ai_effort,
+        ai_subscription_doc_cap: settings.ai_subscription_doc_cap,
       };
       let mergedMap: Record<string, string> | null = null;
       if (provider && provider !== '' && chosenModel) {
@@ -569,9 +670,33 @@ const AISettings: React.FC = () => {
 
   if (loading) return <p className="text-muted">Loading…</p>;
 
-  const isRemote = settings.ai_provider !== '' && settings.ai_provider !== 'local';
+  // A subscription lane is neither "remote" nor "local": it has no API key to
+  // store, no endpoint, and no credential slot. Folding it into isRemote would
+  // put an API Key field and a keyring row in front of a lane that has neither.
+  const isSubscription = SUBSCRIPTION_PROVIDERS.includes(settings.ai_provider);
+  const isRemote = settings.ai_provider !== ''
+    && settings.ai_provider !== 'local'
+    && !isSubscription;
   const providerSelected = settings.ai_provider !== '';
   const isCustom = settings.ai_provider === 'custom';
+  const primaryCliStatus = cliStatus.find((c) => c.provider === settings.ai_provider);
+  const primaryCatalog = catalogs[settings.ai_provider];
+  const primaryAdvancedOpen = advancedTouched !== null
+    ? advancedTouched
+    : (primaryCliStatus ? !primaryCliStatus.found : false);
+  const setPrimaryAdvancedOpen = (open: boolean) => setAdvancedTouched(open);
+  // Effort levels for the chosen model, falling back to the union of what any
+  // listed model supports. The CLI rejects a level its model does not take and
+  // resmon passes that message through rather than pre-judging it.
+  const primaryEffortLevels: string[] = (() => {
+    if (!primaryCatalog) return [];
+    if (settings.ai_model && primaryCatalog.efforts[settings.ai_model]) {
+      return primaryCatalog.efforts[settings.ai_model];
+    }
+    const union = new Set<string>();
+    Object.values(primaryCatalog.efforts).forEach((ls) => ls.forEach((l) => union.add(l)));
+    return Array.from(union);
+  })();
   const customBaseUrlError = isCustom ? validateCustomBaseUrl(settings.ai_custom_base_url) : null;
   const saveDisabled = saving || customBaseUrlError !== null;
 
@@ -623,14 +748,18 @@ const AISettings: React.FC = () => {
                   CLI is not signed in, the lane reports that and stands down.
                 </p>
                 <p>
-                  It is slower than an API key and spends the same usage window
-                  you use for your own work. Papers are sent{' '}
-                  <strong>ten at a time in one call</strong> rather than one
-                  session per paper, and the lane is capped at{' '}
-                  <strong>25 papers per run</strong> by default and is not yet
-                  the default for bulk summarization. Reaching the cap is not an
-                  error — the remaining papers go to the next lane
-                  and the execution records the cap as the reason.
+                  <strong>It is the recommended route as of 1.8.5</strong>,
+                  because batching made it affordable. Papers go{' '}
+                  <strong>five at a time in one call</strong> rather than one
+                  session each, and measured against the same abstracts one at a
+                  time a paper costs <strong>0.33× as much</strong> and{' '}
+                  <strong>0.23× the input-side tokens</strong> — the constitution
+                  and the prompt scaffold are about 5,600 tokens paid once per
+                  call instead of once per paper. It still spends your own
+                  window, so a lane is capped at{' '}
+                  <strong>50 papers per run</strong> by default. Reaching the cap
+                  is not an error — the remaining papers go to the next lane and
+                  the execution records the cap as the reason.
                 </p>
                 <p>
                   A batched call asks for one numbered summary per paper. A
@@ -921,6 +1050,162 @@ const AISettings: React.FC = () => {
           </>
         )}
 
+        {isSubscription && (
+          <>
+            {proposedRef.current && (
+              <div className="form-field">
+                <p className="text-muted" style={{ margin: 0 }}>
+                  resmon found this command on your machine and selected it.
+                  Nothing is switched on yet — AI summarization stays off until
+                  you turn it on for a run, and resmon cannot tell whether you
+                  are signed in until the first paper.
+                </p>
+              </div>
+            )}
+
+            <div className="form-field">
+              <p className="text-muted" style={{ margin: 0 }}>
+                <strong>This spends your own plan.</strong> resmon runs the{' '}
+                {settings.ai_provider === 'codex' ? 'Codex' : 'Claude Code'}{' '}
+                command you already installed and signed into, so summaries draw
+                on the same{' '}
+                {settings.ai_provider === 'codex' ? 'ChatGPT' : 'Claude'} usage
+                window you use for your own work. resmon never sees or stores
+                your sign-in. Papers are sent five at a time in one call, and a
+                run sends at most{' '}
+                <strong>
+                  {settings.ai_subscription_doc_cap || DEFAULT_DOC_CAP} papers
+                </strong>{' '}
+                to this lane.
+              </p>
+              {primaryCliStatus && (
+                <p
+                  className="text-muted"
+                  style={{ margin: '0.3rem 0 0' }}
+                  data-testid={`primary-cli-status-${settings.ai_provider}`}
+                >
+                  {primaryCliStatus.found ? '✓ ' : '⚠ '}
+                  {primaryCliStatus.detail}
+                  {!primaryCliStatus.found && (
+                    <> Looked in: {primaryCliStatus.tried.join(', ')}.</>
+                  )}{' '}
+                  resmon has not checked whether you are signed in — that shows
+                  up on the first paper, and is recorded on the run.
+                </p>
+              )}
+            </div>
+
+            <div className="form-field">
+              <label className="form-label">Model</label>
+              <div className="key-input-row">
+                <select
+                  className="form-select"
+                  aria-label="Primary model"
+                  value={settings.ai_model}
+                  onChange={(e) => setSettings({ ...settings, ai_model: e.target.value })}
+                >
+                  <option value="">CLI default</option>
+                  {settings.ai_model
+                    && !(primaryCatalog?.models || []).includes(settings.ai_model) && (
+                    <option value={settings.ai_model}>{settings.ai_model} (saved)</option>
+                  )}
+                  {(primaryCatalog?.models || []).map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                <button
+                  className="btn btn-sm"
+                  type="button"
+                  aria-label={`Load ${settings.ai_provider} models`}
+                  onClick={() => loadSubscriptionCatalog(
+                    settings.ai_provider, settings.ai_cli_path || undefined,
+                  )}
+                >
+                  Load models
+                </button>
+              </div>
+              {primaryCatalog?.provenance && (
+                <div className="text-muted" style={{ fontSize: '0.85em', marginTop: 4 }}>
+                  {primaryCatalog.provenance}
+                </div>
+              )}
+              {primaryCatalog?.error && (
+                <div className="form-error">{primaryCatalog.error}</div>
+              )}
+            </div>
+
+            <div className="form-field">
+              <label className="form-label">Effort</label>
+              <select
+                className="form-select"
+                aria-label="Primary effort"
+                value={settings.ai_effort}
+                onChange={(e) => setSettings({ ...settings, ai_effort: e.target.value })}
+              >
+                <option value="">CLI default</option>
+                {primaryEffortLevels.map((level) => (
+                  <option key={level} value={level}>{level}</option>
+                ))}
+              </select>
+              <div className="text-muted" style={{ fontSize: '0.85em', marginTop: 4 }}>
+                How hard the command thinks about each summary. Only the agent
+                CLIs have this — none of the API-key providers does, so no
+                effort control is offered for them.
+              </div>
+            </div>
+
+            <div className="form-field">
+              <label className="form-label">Papers per run</label>
+              <input
+                className="form-input"
+                type="number"
+                min={1}
+                style={{ width: '7rem' }}
+                aria-label="Primary document limit"
+                value={settings.ai_subscription_doc_cap || DEFAULT_DOC_CAP}
+                onChange={(e) => setSettings({
+                  ...settings, ai_subscription_doc_cap: e.target.value,
+                })}
+              />
+              <div className="text-muted" style={{ fontSize: '0.85em', marginTop: 4 }}>
+                Anything past this goes to the next lane, and the run records
+                the limit as the reason. It is not an error.
+              </div>
+            </div>
+
+            <details
+              open={primaryAdvancedOpen}
+              onToggle={(e) => setPrimaryAdvancedOpen((e.target as HTMLDetailsElement).open)}
+              className="form-field"
+            >
+              <summary className="text-muted" style={{ cursor: 'pointer' }}>
+                Advanced
+              </summary>
+              <label className="form-label" style={{ marginTop: '0.3rem' }}>
+                Where is the{' '}
+                <code>{settings.ai_provider === 'codex' ? 'codex' : 'claude'}</code>{' '}
+                command?
+              </label>
+              <input
+                className="form-input"
+                aria-label="Primary command path"
+                placeholder={
+                  settings.ai_provider === 'codex'
+                    ? '/Applications/ChatGPT.app/Contents/Resources/codex'
+                    : '/Users/you/.local/bin/claude'
+                }
+                value={settings.ai_cli_path}
+                onChange={(e) => setSettings({ ...settings, ai_cli_path: e.target.value })}
+              />
+              <p className="text-muted" style={{ margin: '0.2rem 0 0' }}>
+                Only needed when resmon could not find the command on its own.
+                Leave it empty and resmon looks where the installers put it,
+                then on <code>PATH</code>.
+              </p>
+            </details>
+          </>
+        )}
+
         {settings.ai_provider === 'local' && (
           <>
             <div className="form-field">
@@ -1049,4 +1334,4 @@ export default AISettings;
 // chain is written by one place and read by one place, and a field the writer
 // emits but the reader drops is a setting that silently reverts to its
 // default while the form goes on showing the user's choice.
-export { composeChain, parseFallbacks };
+export { composeChain, parseFallbacks, primaryFromChain };
