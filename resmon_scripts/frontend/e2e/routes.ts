@@ -1,55 +1,47 @@
 /**
- * The renderer's routes, **copied by hand** from `src/App.tsx`'s `<Routes>`
- * block at commit 8fa38ba.
+ * The routes the smoke suite sweeps — **imported** from `src/routes.ts`, not
+ * copied from it.
  *
- * It is a copy on purpose, and this comment is the record of that. Making the
- * route table the single source of truth — exporting it from `App.tsx` and
- * importing it here — is a change to `src/**`, which this spike is not
- * permitted to make, and it is phase 1.8.7's decision rather than a spike's.
- * Until then, adding a route to `App.tsx` without adding it here leaves the
- * new route unswept and nothing fails. That gap is stated in
- * `docs/ui-verification-feasibility.md` and is the denominator caveat on P2.
+ * This file used to be a hand copy of `App.tsx`'s `<Routes>` block, because the
+ * spike that wrote it was not permitted to change `src/**`. The cost was
+ * written down at the time and it was the biggest residual risk in that
+ * report: a route added to the app and not to the copy was unswept and nothing
+ * failed. Phase 1.8.7 exported the table instead, so a page cannot exist
+ * without a smoke test — adding one to `App.tsx` without adding it to
+ * `src/routes.ts` fails `src/__tests__/routes.test.tsx`, and adding it to
+ * `src/routes.ts` puts it in `ROUTES` below automatically.
  *
- * `path` is what goes after the `#` — the app is a `HashRouter`.
- * The two splat routes (`/settings/*`, `/about-resmon/*`) redirect from their
- * index to a child, so `redirectsTo` records where they actually land.
+ * The denominator is therefore `allRouteHashes()` in `src/routes.ts`: every
+ * top-level route plus every Settings and About tab those pages declare.
  */
+import { allRouteHashes } from '../src/routes';
+
 export interface RouteEntry {
-  /** Hash path, exactly as `App.tsx` declares it, minus the `/*` splat. */
+  /** Hash path — what goes after the `#`; the app is a `HashRouter`. */
   path: string;
-  /** Filename-safe slug for the screenshot. */
+  /** Filename-safe slug for the screenshot. Derived, never written down. */
   slug: string;
   /** Human name, used in the test title and the screenshot caption. */
   name: string;
-  /** Where an index redirect lands, for the routes that have one. */
+  /** Where a parent route's index redirect lands, for the two that have one. */
   redirectsTo?: string;
 }
 
-const APP_ROUTES: RouteEntry[] = [
-  { path: '/', slug: '01-dashboard', name: 'Dashboard' },
-  { path: '/dive', slug: '02-deep-dive', name: 'Deep Dive' },
-  { path: '/sweep', slug: '03-deep-sweep', name: 'Deep Sweep' },
-  { path: '/routines', slug: '04-routines', name: 'Routines' },
-  { path: '/calendar', slug: '05-calendar', name: 'Calendar' },
-  { path: '/results', slug: '06-results', name: 'Results' },
-  { path: '/analytics', slug: '07-analytics', name: 'Analytics' },
-  { path: '/watchdog', slug: '08-watchdog', name: 'Watchdog' },
-  { path: '/explorer', slug: '09-explorer', name: 'Explorer' },
-  { path: '/configurations', slug: '10-configurations', name: 'Configurations' },
-  { path: '/monitor', slug: '11-monitor', name: 'Monitor' },
-  { path: '/repositories', slug: '12-repositories', name: 'Repositories' },
-  { path: '/settings', slug: '13-settings', name: 'Settings', redirectsTo: '/settings/email' },
-  {
-    path: '/about-resmon',
-    slug: '14-about-resmon',
-    name: 'About resmon',
-    redirectsTo: '/about-resmon/tutorials',
-  },
-];
+/** `About resmon — blog` → `about-resmon-blog`. */
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+const APP_ROUTES: RouteEntry[] = allRouteHashes().map((entry, i) => ({
+  path: entry.hash,
+  slug: `${String(i + 1).padStart(2, '0')}-${slugify(entry.name)}`,
+  name: entry.name,
+  redirectsTo: entry.redirectsTo,
+}));
 
 /**
- * `RESMON_E2E_BREAK_ROUTE=/no-such-page` appends a route that `App.tsx` does
- * not declare.
+ * `RESMON_E2E_BREAK_ROUTE=/no-such-page` appends a route `App.tsx` does not
+ * declare.
  *
  * This is how "the CI job fails when a route fails to load" is *demonstrated*
  * rather than asserted — `ui-smoke.yml` takes a `break_route` input that sets

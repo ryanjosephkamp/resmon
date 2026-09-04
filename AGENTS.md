@@ -50,13 +50,20 @@ work on one side of it cannot break the other except through an endpoint's shape
 .venv/bin/python -m pytest -m live_network   # the 45 — real scholarly APIs and CLIs
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 178 tests across 23 suites
-npm run e2e:smoke                                # 14 routes, in the real Electron app
+npm run typecheck && npm test && npm run build   # 185 tests across 24 suites
+npm run e2e                                      # the real Electron app — 24 routes
 ```
 
-All five must pass before a PR opens. `e2e:smoke` launches the app itself (PR #59); a
+All five must pass before a PR opens. `npm run e2e` launches the app itself (PR #59); a
 route you change must still load, and the renderer suite is jsdom and cannot tell you
-that. CI runs the backend suite on Python 3.10, 3.11 and
+that.
+
+**Adding a page means adding a row, not a route.** `frontend/src/routes.ts` is the one
+route table: `App.tsx` renders from it and `e2e/routes.ts` imports it, so a new page is
+swept by the smoke suite automatically and a page cannot exist without one.
+`src/__tests__/routes.test.tsx` fails if `App.tsx` hand-writes a `<Route>` around the
+table, or if a Settings/About tab is declared in its page and not in the table's
+`children`. CI runs the backend suite on Python 3.10, 3.11 and
 3.12, plus the frontend job; **3.12 is not decoration** — it releases the GIL around
 sqlite3 aggressively and is the acceptance test for the per-thread-connection fix. If
 that column alone goes red, suspect a shared `sqlite3.Connection`.

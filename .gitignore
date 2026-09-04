@@ -183,3 +183,20 @@ resmon_scripts/frontend/build-resources/*
 # The entitlements file is source, not build output — it must ship with the repo.
 !resmon_scripts/frontend/build-resources/entitlements.mac.plist
 resmon_scripts/frontend/release/
+
+# -----------------------------------------------------------------------------
+# End-to-end run output (phase 1.8.7)
+# -----------------------------------------------------------------------------
+# The UI spike committed 15 PNGs and phase 1.8.6 added three more, and every
+# stacked branch since has conflicted on them: two branches that both run the
+# suite both regenerate every file, so the merge is a binary conflict on
+# evidence nobody reads from the tree. A committed screenshot is a merge
+# conflict, not evidence.
+#
+# Where they go instead: `ui-smoke.yml` uploads them as a workflow artifact,
+# and `npm run e2e:review` writes them outside the repository for a handback to
+# embed. The note at the top of this file still holds for the figures that
+# belong to the documentation — this exempts one generated directory, not
+# images in general.
+resmon_scripts/frontend/e2e/screenshots/
+resmon_scripts/frontend/e2e/test-results/
