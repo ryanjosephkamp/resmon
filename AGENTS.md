@@ -50,7 +50,7 @@ work on one side of it cannot break the other except through an endpoint's shape
 .venv/bin/python -m pytest -m live_network   # the 45 — real scholarly APIs and CLIs
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 160 tests across 21 suites
+npm run typecheck && npm test && npm run build   # 167 tests across 22 suites
 ```
 
 All four must pass before a PR opens. CI runs the backend suite on Python 3.10, 3.11 and
