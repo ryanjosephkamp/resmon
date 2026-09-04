@@ -922,3 +922,93 @@ def test_history_written_before_schema_10_reads_exactly_as_it_used_to(conn):
 
     assert len(findings) == 1
     assert _by_kind(report, "source_errors") == []
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation 1 — a reply that cannot be read is a failure to answer
+# ---------------------------------------------------------------------------
+#
+# 1.8.6 shipped with ``parse_failure`` dropped from the baseline but not
+# treated as a failure, so a source that returned an unreadable reply on every
+# run reached `unjudged` and raised no alarm. The planning session decided
+# otherwise on reconciliation, and the reasoning is that this is the shape the
+# watchdog most exists to catch: nothing raises, every run reads ``ok``, and
+# the user gets nothing for a fortnight.
+
+
+def _unreadable(kind: str = "parse_error") -> dict:
+    return {
+        "status": "ok", "result_count": 0, "zero_reason": "parse_failure",
+        "zero_detail": {"detail": kind},
+    }
+
+
+def test_three_consecutive_unreadable_replies_are_reported_as_broken(conn):
+    for days in (40, 35, 30, 25, 20):
+        _run(conn, days_ago=days, sources={"arxiv": {"result_count": 30}})
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"arxiv": _unreadable()})
+
+    report = watchdog.report(conn, now=NOW)
+    findings = _by_kind(report, "source_errors")
+
+    assert len(findings) == 1
+    assert findings[0]["severity"] == "broken"
+    # Nothing raised, and the sentence must not say it did.
+    assert "raised an error" not in findings[0]["detail"]
+    assert "resmon got no answer from arxiv" in findings[0]["detail"]
+    # And it must not say the source was unreachable, which would send the
+    # user to check a network that is working. It answered; resmon could not
+    # read what it said.
+    assert (
+        "the source answered and resmon could not read the reply"
+        in findings[0]["detail"]
+    )
+    assert "HTTP" not in findings[0]["detail"]
+    assert findings[0]["evidence"]["last_zero_reason"] == "parse_failure"
+    assert findings[0]["evidence"]["last_success_at"] == _ts(20)
+
+
+def test_an_incomplete_page_says_which_kind_of_unreadable_it_was(conn):
+    for days in (40, 35, 30):
+        _run(conn, days_ago=days, sources={"ndl_search": {"result_count": 8}})
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days,
+             sources={"ndl_search": _unreadable("incomplete_page")})
+
+    findings = _by_kind(watchdog.report(conn, now=NOW), "source_errors")
+
+    assert len(findings) == 1
+    assert "the page it returned was incomplete" in findings[0]["detail"]
+
+
+def test_two_unreadable_replies_are_one_short_of_the_threshold(conn):
+    """The threshold is unchanged: CONSECUTIVE_ERRORS is still three."""
+    for days in (40, 35, 30, 25, 20):
+        _run(conn, days_ago=days, sources={"arxiv": {"result_count": 30}})
+    for days in (2, 1):
+        _run(conn, days_ago=days, sources={"arxiv": _unreadable()})
+
+    report = watchdog.report(conn, now=NOW)
+
+    assert _by_kind(report, "source_errors") == []
+
+
+def test_an_outage_and_an_unreadable_reply_count_toward_the_same_streak(conn):
+    """Both are failures to get an answer, so they are one streak, not two.
+
+    Counting them separately would let a source alternate between the two
+    failure modes forever without ever reaching either threshold.
+    """
+    for days in (40, 35, 30, 25, 20):
+        _run(conn, days_ago=days, sources={"arxiv": {"result_count": 30}})
+    _run(conn, days_ago=3, sources={"arxiv": _outage()})
+    _run(conn, days_ago=2, sources={"arxiv": _unreadable()})
+    _run(conn, days_ago=1, sources={"arxiv": _outage()})
+
+    findings = _by_kind(watchdog.report(conn, now=NOW), "source_errors")
+
+    assert len(findings) == 1
+    assert findings[0]["evidence"]["consecutive_errors"] == 3
+    # The detail quotes the most recent run, which was the outage.
+    assert "the source answered HTTP 503" in findings[0]["detail"]
