@@ -12,6 +12,16 @@ const REQUIREMENT_LABEL: Record<RepoCatalogEntry['api_key_requirement'], string>
   recommended: 'Recommended',
 };
 
+// What resmon's own query to this source can express — not a claim about the
+// upstream's index. It is here because it is the field that decides whether a
+// date window can be answered at all, and a user reading "0 results" from
+// ERIC on a two-week window is entitled to know before they read the zero.
+const GRANULARITY_LABEL: Record<RepoCatalogEntry['date_granularity'], string> = {
+  day: 'Exact dates — resmon can ask for any window',
+  month: 'Whole months — a shorter window is widened to the months it touches',
+  year: 'Whole years only',
+};
+
 // No click handler on purpose. These used to call ``resmonAPI.openPath``,
 // which sends the URL to the system browser — while the attribution links a
 // few hundred pixels up the same page opened in an in-app window. Two
@@ -58,6 +68,9 @@ const RepoDetailsPanel: React.FC<Props> = ({ entry }) => {
 
         <dt>Query Method</dt>
         <dd>{entry.query_method || '—'}</dd>
+
+        <dt>Date Filtering</dt>
+        <dd>{GRANULARITY_LABEL[entry.date_granularity] ?? entry.date_granularity}</dd>
 
         <dt>Credential Name</dt>
         <dd>{entry.credential_name ? <code>{entry.credential_name}</code> : '—'}</dd>

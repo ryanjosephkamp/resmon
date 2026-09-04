@@ -32,6 +32,13 @@ export interface RepoCatalogEntry {
   attribution_requirement?: AttributionRequirement;
   /** URL of the clause or policy page stating the obligation. */
   attribution_source?: string;
+  /**
+   * The finest date precision resmon's own query to this source can express,
+   * read from the client's date-filter code rather than from a description of
+   * the upstream. Rendered on the Repositories page because it decides
+   * whether a window can be answered at all.
+   */
+  date_granularity: 'day' | 'month' | 'year';
 }
 
 /** present = stored; absent = not set; unreadable = the keyring would not answer. */

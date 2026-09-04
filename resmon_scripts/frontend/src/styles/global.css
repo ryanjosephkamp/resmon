@@ -861,6 +861,27 @@ html, body, #root {
   gap: 10px;
 }
 
+/* "n of m sources could not answer", under the results count. Present only
+   when there is something to say. */
+.results-coverage {
+  font-size: 11px;
+  font-weight: 400;
+  color: #d29922;
+  line-height: 1.4;
+  margin-top: 2px;
+  max-width: 260px;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .clickable-row {
   cursor: pointer;
   transition: background 0.15s;
@@ -1681,9 +1702,33 @@ html, body, #root {
   opacity: 0.5;
 }
 
+/* A source that could not answer is not a success. The tick used to cover
+   both, because the engine calls both "done". */
+.mon-repo-icon--no_answer {
+  color: #d29922;
+}
+
+.mon-repo-icon--skipped {
+  color: var(--text-secondary);
+}
+
+.mon-repo-status {
+  flex-wrap: wrap;
+}
+
 .mon-repo-status-text {
   text-transform: capitalize;
   font-size: 12px;
+}
+
+/* The rendered sentence, in full, under the status. It is deliberately not
+   only a tooltip: the whole point of the phase is that the reason is visible
+   at the moment the user is looking at the zero. */
+.mon-repo-zero-reason {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .mon-repo-count {

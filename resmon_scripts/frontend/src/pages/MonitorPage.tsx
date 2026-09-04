@@ -10,6 +10,49 @@ import StatsCounters from '../components/Monitor/StatsCounters';
 import LiveActivityLog from '../components/Monitor/LiveActivityLog';
 import PageHelp from '../components/Help/PageHelp';
 
+// One definition for both renders of this page — the empty state and the
+// active one each mounted their own copy, which is two places for the same
+// text to drift apart.
+const MONITOR_HELP_SECTIONS = [
+  {
+    heading: 'What this page shows',
+    body: (
+      <ul>
+        <li>One tab per active execution (manual dive, manual sweep, or routine-fired sweep).</li>
+        <li>The focused execution displays its pipeline stages, per-repository progress grid, aggregate counters, and a live activity log.</li>
+        <li>Completed, failed, and cancelled executions remain on the page until you dismiss them with the <strong>✕</strong> on their tab.</li>
+      </ul>
+    ),
+  },
+  {
+    heading: 'When a repository returns nothing',
+    body: (
+      <>
+        <p>
+          A source that comes back with zero results says why, in the repository
+          grid and in the activity log, using only what resmon actually observed
+          on that run:
+        </p>
+        <ul>
+          <li><strong>answered, zero</strong> — the source replied and had nothing matching. A ✓.</li>
+          <li><strong>no answer</strong> — the source could not be queried, or cannot answer this window at all. A ⚠, and it is <em>not</em> a zero: it says nothing about whether the papers exist.</li>
+          <li><strong>not queried</strong> — a key the source requires is not configured, so resmon never sent the query. A ⊘.</li>
+          <li><strong>reason not recorded</strong> — resmon did not observe why. Runs from before resmon 1.8.6 carry no reason at all. That is unexplained, not measured, and resmon will not guess.</li>
+        </ul>
+      </>
+    ),
+  },
+  {
+    heading: 'Controls',
+    body: (
+      <ul>
+        <li><strong>Cancel</strong> (on the execution header) requests a graceful stop — the run finishes its current batch, flushes partial results, and marks itself <em>cancelled</em>.</li>
+        <li><strong>Verbose logging</strong> toggles INFO-level lines in the activity log; WARN / ERROR always show.</li>
+      </ul>
+    ),
+  },
+];
+
 interface RoutineLite {
   id: number;
   name: string;
@@ -114,27 +157,7 @@ const MonitorPage: React.FC = () => {
           storageKey="monitor"
           title="Monitor"
           summary="Real-time view of every execution in progress on this device."
-          sections={[
-            {
-              heading: 'What this page shows',
-              body: (
-                <ul>
-                  <li>One tab per active execution (manual dive, manual sweep, or routine-fired sweep).</li>
-                  <li>The focused execution displays its pipeline stages, per-repository progress grid, aggregate counters, and a live activity log.</li>
-                  <li>Completed, failed, and cancelled executions remain on the page until you dismiss them with the <strong>✕</strong> on their tab.</li>
-                </ul>
-              ),
-            },
-            {
-              heading: 'Controls',
-              body: (
-                <ul>
-                  <li><strong>Cancel</strong> (on the execution header) requests a graceful stop — the run finishes its current batch, flushes partial results, and marks itself <em>cancelled</em>.</li>
-                  <li><strong>Verbose logging</strong> toggles INFO-level lines in the activity log; WARN / ERROR always show.</li>
-                </ul>
-              ),
-            },
-          ]}
+          sections={MONITOR_HELP_SECTIONS}
         />
         <div className="mon-empty">
           <h2>No active executions.</h2>
@@ -156,27 +179,7 @@ const MonitorPage: React.FC = () => {
         storageKey="monitor"
         title="Monitor"
         summary="Real-time view of every execution in progress on this device."
-        sections={[
-          {
-            heading: 'What this page shows',
-            body: (
-              <ul>
-                <li>One tab per active execution (manual dive, manual sweep, or routine-fired sweep).</li>
-                <li>The focused execution displays its pipeline stages, per-repository progress grid, aggregate counters, and a live activity log.</li>
-                <li>Completed, failed, and cancelled executions remain on the page until you dismiss them with the <strong>✕</strong> on their tab.</li>
-              </ul>
-            ),
-          },
-          {
-            heading: 'Controls',
-            body: (
-              <ul>
-                <li><strong>Cancel</strong> (on the execution header) requests a graceful stop — the run finishes its current batch, flushes partial results, and marks itself <em>cancelled</em>.</li>
-                <li><strong>Verbose logging</strong> toggles INFO-level lines in the activity log; WARN / ERROR always show.</li>
-              </ul>
-            ),
-          },
-        ]}
+        sections={MONITOR_HELP_SECTIONS}
       />
       <div className="mon-tabs" role="tablist" aria-label="Active executions">
         {executionOrder.map((id) => {
