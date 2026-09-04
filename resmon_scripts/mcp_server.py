@@ -650,7 +650,11 @@ TOOLS: list[dict] = [
          "offset": {"type": "integer", "default": 0}}}},
 
     {"name": "get_search_record", "fn": t_get_search_record,
-     "description": "The PRISMA-shaped reproducible record for an execution.",
+     "description": ("The PRISMA-shaped reproducible record for an execution. Each "
+                     "source that returned nothing carries the recorded reason why, "
+                     "or says the reason was not recorded — runs from before resmon "
+                     "1.8.6 have none, and an unexplained zero is not evidence that "
+                     "there was nothing to find."),
      "schema": {"type": "object", "required": ["exec_id"], "properties": {
          "exec_id": {"type": "integer"}}}},
 

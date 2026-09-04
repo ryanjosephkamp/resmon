@@ -10,7 +10,14 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
-from .api_registry import get_client, list_repositories
+from . import zero_reason as zero_reason_module
+from .api_base import reset_search_outcome, search_outcome
+from .api_registry import (
+    RETIRED_REPOSITORIES,
+    get_client,
+    list_repositories,
+)
+from .repo_catalog import REPOSITORY_CATALOG
 from .config import REPORTS_DIR
 from .credential_manager import get_credential_for
 from .database import (
@@ -30,6 +37,15 @@ from .report_generator import generate_report, save_report
 from .utils import now_iso
 
 logger = logging.getLogger(__name__)
+
+# Slug -> the name the catalog shows a user. The zero-reason sentences name
+# the source, and "ndl_search filters by publication year only" is not a
+# sentence anybody wants to read.
+_CATALOG_NAMES = {entry.slug: entry.name for entry in REPOSITORY_CATALOG}
+
+
+def _source_display_name(slug: str) -> str:
+    return _CATALOG_NAMES.get(slug, slug)
 
 
 class _ExecutionCancelled(Exception):
@@ -215,6 +231,9 @@ class SweepEngine:
         all_results = []
         missing_key_repos: list[str] = []
         repo_errors: list[dict] = []
+        # One entry per source that came back with nothing, in the order the
+        # sources were queried. Rendered into the report's footer.
+        zero_notes: list[dict] = []
         try:
             # 3. Query each repository
             store.emit(exec_id, {
@@ -277,7 +296,7 @@ class SweepEngine:
                         "max_results": query_params.get("max_results", 100),
                         "timestamp": now_iso(),
                     })
-                    results = self._search_with_heartbeat(
+                    results, outcome = self._search_with_heartbeat(
                         client=client,
                         repo_name=repo_name,
                         exec_id=exec_id,
@@ -293,12 +312,50 @@ class SweepEngine:
                     task_log.log(f"  {repo_name}: {len(results)} results")
                     all_results.extend(results)
 
+                    # Why nothing came back, derived only when nothing came
+                    # back. A source that returned papers has no zero to
+                    # explain, and asking the question anyway would put a
+                    # reason on a row that does not need one.
+                    zero_reason_value: str | None = None
+                    zero_detail_value: dict | None = None
+                    zero_message: str | None = None
+                    if not results:
+                        if repo_name in missing_key_repos:
+                            # The engine already knows this one, and it is a
+                            # better answer than anything the channel holds.
+                            zero_reason_value = "missing_key"
+                            zero_detail_value = {
+                                "credential_name":
+                                    _REQUIRED_CREDENTIALS.get(repo_name),
+                            }
+                        else:
+                            zero_reason_value, zero_detail_value = (
+                                zero_reason_module.derive(outcome))
+                        zero_message = zero_reason_module.sentence(
+                            _source_display_name(repo_name),
+                            zero_reason_value, zero_detail_value,
+                        )
+                        task_log.log(f"    {zero_message}")
+                        zero_notes.append({
+                            "source": _source_display_name(repo_name),
+                            "slug": repo_name,
+                            "reason": zero_reason_value,
+                            "sentence": zero_message,
+                        })
+
                     store.emit(exec_id, {
                         "type": "repo_done",
                         "repository": repo_name,
                         "index": i + 1,
                         "total_repos": len(repositories),
                         "result_count": len(results),
+                        "zero_reason": zero_reason_value,
+                        "zero_detail": zero_detail_value,
+                        # The rendered sentence travels with the event so the
+                        # renderer displays what the backend wrote rather than
+                        # keeping a second copy of this vocabulary in
+                        # TypeScript for the two to drift apart.
+                        "zero_message": zero_message,
                         "timestamp": now_iso(),
                     })
                     # A source that was flagged for a missing key keeps that
@@ -309,6 +366,8 @@ class SweepEngine:
                         "skipped_missing_key" if repo_name in missing_key_repos else "ok",
                         result_count=len(results),
                         credential_name=_REQUIRED_CREDENTIALS.get(repo_name),
+                        zero_reason=zero_reason_value,
+                        zero_detail=zero_detail_value,
                     )
                 except _ExecutionCancelled:
                     # Mark the in-flight repo as errored for UI clarity, then
@@ -331,11 +390,31 @@ class SweepEngine:
                     task_log.log(f"  {repo_name}: ERROR - {exc}")
                     logger.warning("Query failed for %s: %s", repo_name, exc)
                     repo_errors.append({"repository": repo_name, "error": str(exc)})
+                    # A routine saved before a source was retired still names
+                    # its slug and lands here. The row stays an error -- the
+                    # query genuinely did not run -- but it now carries the
+                    # reason too, so the search record can say "withdrawn on
+                    # its terms" rather than only quoting an exception.
+                    retired_reason = RETIRED_REPOSITORIES.get(repo_name)
+                    zero_notes.append({
+                        "source": _source_display_name(repo_name),
+                        "slug": repo_name,
+                        "reason": "retired" if retired_reason else "error",
+                        "sentence": (
+                            retired_reason if retired_reason
+                            else f"The query failed: {exc}. This is not a zero "
+                                 "— the source did not answer."
+                        ),
+                    })
                     self._record_source(
                         exec_id, repo_name,
                         "skipped_missing_key" if repo_name in missing_key_repos else "error",
                         error_message=str(exc),
                         credential_name=_REQUIRED_CREDENTIALS.get(repo_name),
+                        zero_reason="retired" if retired_reason else None,
+                        zero_detail=(
+                            {"detail": retired_reason} if retired_reason else None
+                        ),
                     )
                     store.emit(exec_id, {
                         "type": "repo_error",
@@ -704,6 +783,7 @@ class SweepEngine:
                 "keywords": query_params.get("keywords"),
                 "repositories": list(repositories),
                 "missing_key_repos": list(missing_key_repos),
+                "zero_notes": list(zero_notes),
                 "date_from": query_params.get("date_from", "N/A"),
                 "date_to": query_params.get("date_to", "N/A"),
                 "total": dedup_stats["total"],
@@ -860,6 +940,8 @@ class SweepEngine:
         result_count: int = 0,
         error_message: Optional[str] = None,
         credential_name: Optional[str] = None,
+        zero_reason: Optional[str] = None,
+        zero_detail: Optional[dict] = None,
     ) -> None:
         """Persist one per-source outcome, and never let it break a sweep.
 
@@ -876,6 +958,11 @@ class SweepEngine:
                 result_count=result_count,
                 error_message=error_message,
                 credential_name=credential_name,
+                zero_reason=zero_reason,
+                zero_detail=(
+                    json.dumps(zero_detail, ensure_ascii=False)
+                    if zero_detail else None
+                ),
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning(
@@ -969,18 +1056,28 @@ class SweepEngine:
         exec_id: int,
         query_params: dict,
         heartbeat_interval: float = 2.0,
-    ) -> list:
+    ) -> tuple[list, dict | None]:
         """Run ``client.search()`` in a worker thread while emitting heartbeat
         progress events every ``heartbeat_interval`` seconds.
 
         This guarantees that a slow repository query (e.g. paginated bioRxiv
         fetches) still produces visible live-log activity for the frontend
         poller even though the underlying HTTP calls are synchronous.
+
+        Returns the results **and** the search's outcome channel snapshot,
+        because the channel is thread-local to the worker and this is the only
+        place both are in scope at once.
         """
         store = progress_store
         result_holder: dict = {}
 
         def _worker() -> None:
+            # The outcome channel is thread-local and this thread is fresh per
+            # source, but it is reset explicitly rather than relied upon:
+            # lifecycle.py also calls safe_request, outside any search, and a
+            # thread this pool ever reuses would carry that value in as if it
+            # were this source's answer.
+            reset_search_outcome()
             try:
                 result_holder["results"] = client.search(
                     query=query_params.get("query", ""),
@@ -990,6 +1087,11 @@ class SweepEngine:
                 )
             except BaseException as exc:  # re-raised in caller
                 result_holder["error"] = exc
+            finally:
+                # Snapshotted here, on the thread that owns the channel. The
+                # caller cannot read it: by the time it runs, this thread's
+                # thread-local is out of reach.
+                result_holder["outcome"] = search_outcome().snapshot()
 
         t = threading.Thread(
             target=_worker, daemon=True, name=f"search-{repo_name}-{exec_id}"
@@ -1019,7 +1121,7 @@ class SweepEngine:
 
         if "error" in result_holder:
             raise result_holder["error"]
-        return result_holder.get("results", [])
+        return result_holder.get("results", []), result_holder.get("outcome")
 
     def _maybe_auto_backup(
         self,

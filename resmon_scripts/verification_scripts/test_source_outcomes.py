@@ -478,3 +478,223 @@ def test_a_transport_failure_is_not_reported_as_an_unreadable_body(
 
 # P4 (NDL's rights gate) and P3 (ERIC and Open Library refusing a sub-year
 # window) live in ``test_api_tier1.py``, beside those clients' own fixtures.
+
+
+# ---------------------------------------------------------------------------
+# The engine, the row, the record and the report
+# ---------------------------------------------------------------------------
+#
+# From here down the boundary is the sweep engine driving a real client
+# against a real loopback server, and the row it writes being read back out
+# through the search record and the report. Nothing between the HTTP call and
+# the rendered sentence is stubbed.
+
+
+import json
+import sqlite3
+
+from resmon_scripts.implementation_scripts import (
+    credential_manager as cm,
+    search_record,
+    sweep_engine as se,
+)
+from resmon_scripts.implementation_scripts.api_base import BaseAPIClient
+from resmon_scripts.implementation_scripts.database import (
+    get_execution_sources,
+    init_db,
+)
+
+
+class _RealHTTPClient(BaseAPIClient):
+    """A client that actually goes through safe_request, like every real one."""
+
+    def __init__(self, url):
+        self._url = url
+
+    def get_name(self) -> str:
+        return "arxiv"
+
+    def search(self, query, date_from=None, date_to=None, max_results=100, **kwargs):
+        try:
+            response = api_base.safe_request("GET", self._url)
+        except Exception:
+            return []
+        if response.status_code != 200:
+            return []
+        return []
+
+
+class _SilentClient(BaseAPIClient):
+    """A client that never makes an HTTP call — the not_recorded path."""
+
+    def get_name(self) -> str:
+        return "arxiv"
+
+    def search(self, query, date_from=None, date_to=None, max_results=100, **kwargs):
+        return []
+
+
+def _run_dive(monkeypatch, client):
+    conn = sqlite3.connect(":memory:")
+    init_db(conn=conn)
+    monkeypatch.setattr(se, "get_client", lambda _name: client)
+    monkeypatch.setattr(cm, "get_credential", lambda _name: "a-key")
+    engine = se.SweepEngine(db_conn=conn, config={})
+    result = engine.execute_dive("arxiv", {"query": "x", "max_results": 1})
+    return conn, result
+
+
+def test_engine_records_an_outage_as_upstream_failure(
+    monkeypatch, http_server, fast_retries,
+):
+    """P1, through the whole product: 503 → row, task log, record, report.
+
+    Status stays ``ok`` and the result stays ``[]`` — resmon's degrade-don't-
+    raise contract is unchanged — but the row now says why.
+    """
+    http_server.reply = (503, "unavailable")
+    conn, result = _run_dive(monkeypatch, _RealHTTPClient(http_server.url))
+
+    row = get_execution_sources(conn, result["execution_id"])[0]
+    assert row["status"] == "ok"
+    assert row["result_count"] == 0
+    assert row["zero_reason"] == "upstream_failure"
+    detail = json.loads(row["zero_detail"])
+    assert detail["status"] == 503
+    assert detail["attempts"] == 3
+
+    expected = (
+        "arXiv could not be queried: HTTP 503 after 3 attempts. This is not a "
+        "zero — the source did not answer."
+    )
+    from pathlib import Path
+
+    assert expected in Path(result["log_path"]).read_text(encoding="utf-8")
+    assert expected in Path(result["report_path"]).read_text(encoding="utf-8")
+
+    record = search_record.build(conn, result["execution_id"])
+    assert record["sources"][0]["note"] == expected
+    assert record["identification"]["sources_that_answered"] == 0
+    assert any("could not answer" in c for c in record["caveats"])
+    conn.close()
+
+
+def test_engine_records_an_unobserved_zero_as_not_recorded(monkeypatch):
+    """P5, through the engine. Mutation: default the reason to answered_empty.
+
+    A client that never called safe_request leaves nothing on the channel, and
+    resmon says exactly that rather than inventing an answer for it.
+    """
+    conn, result = _run_dive(monkeypatch, _SilentClient())
+
+    row = get_execution_sources(conn, result["execution_id"])[0]
+    assert row["zero_reason"] == "not_recorded"
+    assert row["zero_detail"] is None
+
+    record = search_record.build(conn, result["execution_id"])
+    assert record["sources"][0]["note"] == (
+        "resmon did not record whether arXiv answered on this run."
+    )
+    assert record["identification"]["sources_that_answered"] == 0
+    assert any("unexplained, not measured" in c for c in record["caveats"])
+    conn.close()
+
+
+def test_a_source_that_answered_with_records_carries_no_reason(
+    monkeypatch, http_server, fast_retries,
+):
+    """The reason is derived only when there is a zero to explain."""
+
+    class _ProductiveClient(BaseAPIClient):
+        def get_name(self):
+            return "arxiv"
+
+        def search(self, query, date_from=None, date_to=None, max_results=100, **kw):
+            api_base.safe_request("GET", self._url)
+            from resmon_scripts.implementation_scripts.api_base import (
+                NormalizedResult,
+            )
+            return [NormalizedResult(
+                source_repository="arxiv", external_id="1", doi=None,
+                title="A paper", authors=["A"], abstract=None,
+                publication_date="2024-01-01", url="https://example.org/1",
+            )]
+
+    client = _ProductiveClient()
+    client._url = http_server.url
+    conn, result = _run_dive(monkeypatch, client)
+
+    row = get_execution_sources(conn, result["execution_id"])[0]
+    assert row["result_count"] == 1
+    assert row["zero_reason"] is None
+
+    record = search_record.build(conn, result["execution_id"])
+    assert record["sources"][0]["note"] is None
+    assert record["identification"]["sources_that_answered"] == 1
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# P7 — rows written before the migration
+# ---------------------------------------------------------------------------
+
+
+def test_rows_written_at_schema_9_read_as_not_recorded(tmp_path):
+    """A database that predates the columns, migrated, then read.
+
+    The columns are added and the historical rows stay NULL. Nothing is
+    backfilled: a reason invented now for a run nobody observed would be the
+    exact fabrication this phase exists to prevent.
+    """
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    # The schema-9 shape of the two tables this test touches.
+    conn.executescript(
+        """
+        CREATE TABLE executions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            execution_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT,
+            parameters TEXT,
+            result_count INTEGER DEFAULT 0,
+            new_result_count INTEGER DEFAULT 0,
+            result_path TEXT,
+            log_path TEXT,
+            routine_id INTEGER
+        );
+        CREATE TABLE execution_sources (
+            execution_id INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            result_count INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            credential_name TEXT,
+            recorded_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (execution_id, source)
+        );
+        INSERT INTO executions (id, execution_type, status, start_time, parameters)
+            VALUES (7, 'deep_dive', 'completed', '2026-01-01T00:00:00Z', '{}');
+        INSERT INTO execution_sources (execution_id, source, status, result_count)
+            VALUES (7, 'arxiv', 'ok', 0);
+        """
+    )
+    conn.commit()
+
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(execution_sources)")}
+    assert "zero_reason" not in columns
+
+    init_db(conn=conn)
+
+    row = get_execution_sources(conn, 7)[0]
+    assert row["zero_reason"] is None
+
+    record = search_record.build(conn, 7)
+    assert record["sources"][0]["zero_reason"] == "not_recorded"
+    assert record["sources"][0]["note"] == (
+        "resmon did not record whether arXiv answered on this run."
+    )
+    assert record["identification"]["sources_that_answered"] == 0
+    conn.close()

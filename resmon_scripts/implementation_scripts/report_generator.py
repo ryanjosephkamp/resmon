@@ -147,8 +147,29 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
             lines.extend(_format_paper_entry(doc))
             lines.append("")
 
-    # --- Footer: repositories skipped due to missing API keys ---
-    if missing_key_repos:
+    # --- Footer: every source that returned nothing, and why ---
+    #
+    # This used to name only the sources missing an API key, which was the one
+    # zero resmon could explain. Every other zero -- an outage, a window the
+    # source cannot answer, a reply that would not parse -- reached the report
+    # as silence, and the reader had no way to tell a quiet field from a
+    # broken one. Each line is a recorded fact or says the reason was not
+    # recorded; there is no third kind of line here.
+    zero_notes = metadata.get("zero_notes")
+    if isinstance(zero_notes, list) and zero_notes:
+        lines.append("---")
+        lines.append("")
+        lines.append("## Sources that returned nothing, and why")
+        lines.append("")
+        for note in zero_notes:
+            source = str(note.get("source", "")) if isinstance(note, dict) else ""
+            sentence = str(note.get("sentence", "")) if isinstance(note, dict) else ""
+            if source and sentence:
+                lines.append(f"- **{source}**: {sentence}")
+        lines.append("")
+    elif missing_key_repos:
+        # A report built without the per-source outcomes still says what it
+        # always said rather than saying nothing.
         lines.append("---")
         lines.append("")
         lines.append("## Repositories Skipped Due to Missing API Keys")

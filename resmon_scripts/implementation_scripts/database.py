@@ -196,6 +196,18 @@ CREATE INDEX IF NOT EXISTS idx_documents_first_seen
 -- results of which 0 are new is healthy, and conflating the two would make the
 -- watchdog alarm on a quiet field.
 
+-- ``zero_reason`` / ``zero_detail`` (schema 10) say **why** a row that
+-- returned nothing returned nothing, and they are additive on purpose: the
+-- ``status`` vocabulary is a CHECK constraint SQLite cannot alter in place,
+-- and rebuilding this table on every existing install to add a fifth status
+-- would be a migration with real risk for no gain.
+--
+-- ``zero_reason`` is one of the values in ``zero_reason.ZERO_REASONS`` and
+-- ``zero_detail`` is the JSON fact the user-facing sentence is built from --
+-- an HTTP status and attempt count, a matched/kept pair, a granularity. NULL
+-- means the reason was never captured, which is every row written before this
+-- column existed. Those read as "not recorded" and are **not** backfilled: a
+-- reason reconstructed after the fact is a guess wearing a fact's clothes.
 CREATE TABLE IF NOT EXISTS execution_sources (
     execution_id    INTEGER NOT NULL,
     source          TEXT NOT NULL,
@@ -204,6 +216,8 @@ CREATE TABLE IF NOT EXISTS execution_sources (
     result_count    INTEGER NOT NULL DEFAULT 0,
     error_message   TEXT,
     credential_name TEXT,
+    zero_reason     TEXT,
+    zero_detail     TEXT,
     recorded_at     TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (execution_id, source),
     FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE
@@ -338,7 +352,7 @@ CREATE TABLE IF NOT EXISTS document_lifecycle_checks (
 # preprint-to-published and version tracking; 8 promotes the per-run
 # deduplication figures out of the progress-events blob into columns, for the
 # reproducible search record.
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -393,6 +407,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_search_index(conn)
     _migrate_execution_sources(conn)
     _migrate_dedup_columns(conn)
+    _migrate_execution_sources_columns(conn)
     _migrate_schema_version(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
@@ -443,6 +458,24 @@ def _migrate_executions_columns(conn: sqlite3.Connection) -> None:
                    "dedup_invalid", "dedup_cross_source"):
         if column not in existing:
             conn.execute(f"ALTER TABLE executions ADD COLUMN {column} INTEGER")
+    conn.commit()
+
+
+def _migrate_execution_sources_columns(conn: sqlite3.Connection) -> None:
+    """Add ``zero_reason`` / ``zero_detail`` (schema 10) if missing.
+
+    Both nullable, in the ``_migrate_executions_columns`` pattern. Existing
+    rows stay NULL and read as "not recorded" everywhere they are rendered.
+    There is no backfill and there must not be one: nothing observed those
+    runs, so any reason written now would be invented.
+    """
+    cursor = conn.execute("PRAGMA table_info(execution_sources)")
+    existing = {row[1] for row in cursor.fetchall()}
+    for column in ("zero_reason", "zero_detail"):
+        if column not in existing:
+            conn.execute(
+                f"ALTER TABLE execution_sources ADD COLUMN {column} TEXT"
+            )
     conn.commit()
 
 
@@ -1381,6 +1414,8 @@ def record_execution_source(
     result_count: int = 0,
     error_message: str | None = None,
     credential_name: str | None = None,
+    zero_reason: str | None = None,
+    zero_detail: str | None = None,
 ) -> None:
     """Record what one source did on one execution.
 
@@ -1394,11 +1429,11 @@ def record_execution_source(
         """
         INSERT OR REPLACE INTO execution_sources
             (execution_id, source, status, result_count,
-             error_message, credential_name)
-        VALUES (?, ?, ?, ?, ?, ?)
+             error_message, credential_name, zero_reason, zero_detail)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (int(exec_id), source, status, int(result_count or 0),
-         error_message, credential_name),
+         error_message, credential_name, zero_reason, zero_detail),
     )
     conn.commit()
 
@@ -1408,7 +1443,7 @@ def get_execution_sources(conn: sqlite3.Connection, exec_id: int) -> list[dict]:
     rows = conn.execute(
         """
         SELECT source, status, result_count, error_message,
-               credential_name, recorded_at
+               credential_name, zero_reason, zero_detail, recorded_at
         FROM execution_sources
         WHERE execution_id = ?
         ORDER BY source

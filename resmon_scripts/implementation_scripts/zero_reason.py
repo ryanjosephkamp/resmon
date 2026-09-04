@@ -55,6 +55,25 @@ DID_NOT_ANSWER = frozenset({
 })
 
 
+def answered(status: str, result_count: int, reason: str | None) -> bool:
+    """Did this source reply to the query resmon sent it?
+
+    The one rule, shared by the search record and the executions API so the
+    two cannot disagree. A non-``ok`` status never answered. An ``ok`` row
+    that returned records did. An ``ok / 0`` row depends entirely on why it is
+    zero -- and a zero with no reason on record is **not** counted as an
+    answer, because "resmon did not observe this" must never be rendered as
+    "the source answered".
+    """
+    if status != "ok":
+        return False
+    if int(result_count or 0) > 0:
+        return True
+    if not reason or reason == "not_recorded":
+        return False
+    return reason not in DID_NOT_ANSWER
+
+
 def _attempts(detail: dict) -> str:
     n = int(detail.get("attempts") or 0)
     return f"{n} attempt{'s' if n != 1 else ''}"
