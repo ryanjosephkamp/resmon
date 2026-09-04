@@ -430,4 +430,32 @@ def safe_request(
                 outcome.note_failure(exc, url)
                 raise
 
+        except httpx.HTTPError as exc:
+            # Every *other* transport failure, and this clause exists because
+            # its absence made resmon lie.
+            #
+            # The two above are the ones worth retrying, and they were the only
+            # ones recorded. But ``httpx`` raises a wider family: a connection
+            # reset mid-reply is ``ReadError``, a server that hangs up without a
+            # response is ``RemoteProtocolError``, a proxy that refuses the
+            # tunnel is ``ProxyError``. None of those is a timeout and none is a
+            # connect error, so none reached ``note_failure``. The channel then
+            # held one attempt and zero failures, ``zero_reason.derive`` read
+            # that as "at least one call, all of which answered", and the search
+            # record told the user *"<source> answered (HTTP 200) and resmon
+            # found no records in the reply"* about a source that never
+            # answered at all.
+            #
+            # Measured, not reasoned: with a loopback proxy that accepts the
+            # connection and closes it, ``api_arxiv`` came back with
+            # ``('answered_empty', {'attempts': 1})``. See
+            # ``test_zero_reason_transport.py``, which drives a real socket.
+            #
+            # The retry policy is deliberately unchanged: these were not
+            # retried before and are not retried now. What changes is only what
+            # the run *records*, which is the whole of the defect.
+            logger.error("safe_request: transport failure for %s: %s", url, exc)
+            outcome.note_failure(exc, url)
+            raise
+
     raise last_exc  # type: ignore[misc]
