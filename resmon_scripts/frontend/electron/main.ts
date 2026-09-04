@@ -566,13 +566,21 @@ function installApplicationMenu(): void {
     { role: 'editMenu' },
     {
       label: 'History',
+      // The ids are how `e2e/main-window.spec.ts` reaches these items: it looks
+      // them up with `Menu.getApplicationMenu().getMenuItemById()` and calls
+      // `click()`, which runs the same handler a user's click runs. Matching on
+      // the label would work today and break the day one is reworded, and a
+      // test that stops finding what it drives usually stops testing quietly.
+      id: 'history-menu',
       submenu: [
         {
+          id: 'history-back',
           label: 'Back',
           accelerator: isMac ? 'Cmd+[' : 'Alt+Left',
           click: () => navigateHistory('back'),
         },
         {
+          id: 'history-forward',
           label: 'Forward',
           accelerator: isMac ? 'Cmd+]' : 'Alt+Right',
           click: () => navigateHistory('forward'),
@@ -581,12 +589,14 @@ function installApplicationMenu(): void {
         // The other pair macOS users reach for. Electron allows one accelerator
         // per item, so the alternates are their own hidden entries.
         {
+          id: 'history-back-alt',
           label: 'Back',
           accelerator: isMac ? 'Cmd+Left' : 'Backspace',
           visible: false,
           click: () => navigateHistory('back'),
         },
         {
+          id: 'history-forward-alt',
           label: 'Forward',
           accelerator: isMac ? 'Cmd+Right' : 'Shift+Backspace',
           visible: false,
