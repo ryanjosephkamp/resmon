@@ -2066,6 +2066,10 @@ class ExplorerFilters(BaseModel):
 class ExplorerSearchBody(ExplorerFilters):
     cursor: Optional[str] = None
     limit: int = explorer.DEFAULT_PAGE_SIZE
+    # 1.9 — "newest" or "similarity". Not an enum, because an unknown value is
+    # answered with the default rather than a 422: a renderer from a newer build
+    # talking to an older backend should get papers, not a validation error.
+    sort: str = "newest"
 
 
 class ExplorerExportBody(ExplorerFilters):
@@ -2083,15 +2087,87 @@ def _filter_kwargs(body: ExplorerFilters) -> dict:
     }
 
 
+def _embed_query(conn, text: str) -> tuple[Optional[bytes], Optional[str], Optional[str]]:
+    """Embed a search phrase with the configured lane. ``(vector, model, reason)``.
+
+    The reason is what the interface shows when a similarity sort could not
+    rank, and it is never a bare failure: "no lane configured", "the model
+    refused" and "the extension will not load" send a user to three different
+    places.
+    """
+    lane = _current_embedding_lane(conn)
+    if lane is None:
+        return None, None, (
+            "No embedding model is configured, so resmon cannot rank by meaning. "
+            "Set one up in Settings → AI → Embeddings."
+        )
+    if not (text or "").strip():
+        return None, None, "Ranking by meaning needs a search phrase."
+    try:
+        vectors = embeddings.embed_texts(lane, [text])
+    except embeddings.EmbeddingUnavailable as exc:
+        return None, None, exc.reason
+    except Exception as exc:
+        message = getattr(exc, "message", None) or str(exc)
+        return None, None, f"The embedding call failed: {message}"
+    if not vectors:
+        return None, None, "The embedding model returned nothing for that phrase."
+    return vector_index.pack_vector(vectors[0]), lane.model, None
+
+
 @app.post("/api/explorer/search")
 def explorer_search(body: ExplorerSearchBody):
-    """Search the whole corpus. POST because the filter set is a structure."""
+    """Search the whole corpus. POST because the filter set is a structure.
+
+    ``sort="similarity"`` embeds the search phrase and re-orders the same
+    filtered set by distance from it. The filters still decide *which* papers;
+    the sort decides only their order, so switching sorts cannot change what a
+    user is looking at.
+    """
     conn = _get_db()
     try:
-        return explorer.search(conn, cursor=body.cursor, limit=body.limit,
-                               **_filter_kwargs(body))
+        vector = model = reason = None
+        if body.sort == "similarity":
+            vector, model, reason = _embed_query(conn, body.query or "")
+        result = explorer.search(
+            conn, cursor=body.cursor, limit=body.limit, sort=body.sort,
+            query_vector=vector, model=model, **_filter_kwargs(body),
+        )
+        if reason:
+            # The request asked for a ranking and did not get one. Saying so is
+            # the difference between a list a user can trust and a control that
+            # appears to do nothing.
+            result["similarity_unavailable"] = reason
+        return result
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/documents/{document_id}/similar")
+def document_similar(document_id: int, k: int = 10):
+    """The papers nearest this one, with distances and their sources.
+
+    Costs one index query and nothing at the provider: the document's vector is
+    already stored, so "more like this" never calls an embedding model.
+    """
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        index_model = vector_index.index_state(conn)["model"]
+        model = index_model or (lane.model if lane else None)
+        if not model:
+            return {
+                "document_id": document_id,
+                "model": None,
+                "neighbours": [],
+                "reason": (
+                    "Nothing is embedded yet, so resmon has nothing to compare this "
+                    "paper against. Set up an embedding model in Settings → AI."
+                ),
+            }
+        return explorer.similar_to(conn, document_id, model, k=max(1, min(int(k), 50)))
     finally:
         _close_db(conn)
 

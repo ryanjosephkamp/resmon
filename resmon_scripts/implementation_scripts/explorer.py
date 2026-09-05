@@ -33,12 +33,37 @@ list and is why the interface is built that way.
 Result counts are capped (:data:`COUNT_CAP`). Counting an unbounded match set
 is the one remaining full scan, and "10,000+" is as useful to a person as an
 exact five-digit number.
+
+Sorting by meaning (1.9)
+------------------------
+``sort="similarity"`` re-orders **the same filtered set** that ``sort="newest"``
+returns. It is a sort, not a search: the filters choose the papers and the
+ranking chooses their order, so the two sorts answer with the same ``total`` and
+the same set of ids. Anything else would make a sort control silently change what
+a user is looking at.
+
+Two consequences follow, and both are deliberate.
+
+**Papers with no vector are appended, not dropped.** A corpus mid-backfill, or
+one holding papers whose sources' terms permitted no abstract, would otherwise
+lose rows the moment somebody changed the sort. They come last, in the newest
+order, and the response counts them so the interface can say how many are
+unranked.
+
+**Pagination becomes an offset.** Keyset pagination needs a sort key stored in an
+index; a ranking is computed per query and has none. The cursor in this mode is
+the number of rows already returned. That is the thing keyset pagination exists
+to avoid, and it is affordable here for a reason the newest sort cannot rely on:
+the ranking is bounded by :data:`COUNT_CAP`, already materialised in memory, and
+walking to row 9,000 of a Python list costs nothing.
 """
 
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
+from typing import Any, Optional
+
+from . import vector_index
 
 # Above this, the total is reported as "N+" rather than counted exactly. The
 # exact number of matches beyond ten thousand changes no decision a user makes,
@@ -164,6 +189,9 @@ def search(
     date_to: str | None = None,
     cursor: str | None = None,
     limit: int = DEFAULT_PAGE_SIZE,
+    sort: str = "newest",
+    query_vector: Optional[bytes] = None,
+    model: Optional[str] = None,
 ) -> dict:
     """Search the corpus. Returns one page plus a cursor for the next.
 
@@ -171,8 +199,25 @@ def search(
     previous page. Ordering is (publication_date DESC, id DESC), which the
     ``idx_documents_pubdate`` index matches exactly, so the seek is a
     logarithmic descent rather than a walk.
+
+    With ``sort="similarity"`` the same filtered set comes back ranked by
+    distance from *query_vector*, and **the cursor is an offset** — a decimal
+    count of rows already returned, not a sort key. A ranking is computed per
+    query and has no stored key to seek on, so there is nothing for a keyset
+    cursor to compare against. The caller does not have to know which shape it
+    holds; it round-trips whatever ``next_cursor`` it was given.
+
+    *query_vector* and *model* are supplied by the caller rather than resolved
+    here. This module knows about the corpus and nothing about lanes, settings or
+    credentials, and it stays that way.
     """
     limit = max(1, min(int(limit), MAX_PAGE_SIZE))
+    if sort == "similarity":
+        return _search_by_similarity(
+            conn, query=query, sources=sources, authors=authors,
+            categories=categories, date_from=date_from, date_to=date_to,
+            cursor=cursor, limit=limit, query_vector=query_vector, model=model,
+        )
     where, params, used_fts = _build_where(
         conn, query=query, sources=sources, authors=authors,
         categories=categories, date_from=date_from, date_to=date_to,
@@ -228,6 +273,197 @@ def search(
         "count_cap": COUNT_CAP,
         "used_full_text_index": used_fts,
         "page_size": limit,
+        "sort": "newest",
+    }
+
+
+def _search_by_similarity(
+    conn: sqlite3.Connection,
+    *,
+    query: str | None,
+    sources: list[str] | None,
+    authors: list[str] | None,
+    categories: list[str] | None,
+    date_from: str | None,
+    date_to: str | None,
+    cursor: str | None,
+    limit: int,
+    query_vector: Optional[bytes],
+    model: Optional[str],
+) -> dict:
+    """The same filtered set, re-ordered by distance. See the module docstring.
+
+    The invariant this function exists to keep (P4) is that ``total`` and the id
+    set are **identical** to the newest sort for the same filters. It is kept by
+    construction rather than by care: the candidate set is
+    :func:`matching_ids`, which is the same ``_build_where`` the other sort uses,
+    and everything after that is a permutation of it plus an append of whatever
+    the ranking did not cover.
+    """
+    if not query_vector or not model:
+        # A similarity sort with nothing to be similar to. Rather than silently
+        # falling back to newest -- which would leave a user looking at a list
+        # labelled by a sort it is not in -- the response says the ranking did
+        # not happen and carries the filtered set in the default order.
+        page = search(
+            conn, query=query, sources=sources, authors=authors,
+            categories=categories, date_from=date_from, date_to=date_to,
+            cursor=cursor, limit=limit,
+        )
+        page["sort"] = "newest"
+        page["similarity_unavailable"] = (
+            "Ranking by meaning needs a search phrase and an embedding model. "
+            "Showing the newest first."
+        )
+        return page
+
+    # The candidate set, in the default order and bounded by the same cap the
+    # newest sort counts to. This is the whole of the P4 guarantee: everything
+    # below permutes this list.
+    candidates = matching_ids(
+        conn, query=query, sources=sources, authors=authors,
+        categories=categories, date_from=date_from, date_to=date_to,
+        limit=COUNT_CAP,
+    )
+    total_is_capped = len(candidates) >= COUNT_CAP
+
+    ranked = vector_index.nearest(
+        conn, model, query_vector, k=max(1, len(candidates)), within_ids=candidates
+    )
+    distances = {doc_id: distance for doc_id, distance in ranked}
+
+    # Unembedded ids keep their default-order position relative to each other and
+    # go last as a block. A paper without a vector has not been judged distant --
+    # it has not been judged -- and the response distinguishes the two by carrying
+    # ``distance: None`` rather than a large number.
+    ordered_ids = [doc_id for doc_id, _ in ranked]
+    unranked_ids = [doc_id for doc_id in candidates if doc_id not in distances]
+    ordered_ids.extend(unranked_ids)
+
+    offset = _offset_from(cursor)
+    window = ordered_ids[offset : offset + limit]
+    rows = _rows_in_order(conn, window)
+    for row in rows:
+        row["distance"] = distances.get(row["id"])
+
+    has_more = offset + limit < len(ordered_ids)
+    return {
+        "results": rows,
+        "next_cursor": str(offset + len(window)) if has_more else None,
+        "has_more": has_more,
+        "total": min(len(ordered_ids), COUNT_CAP),
+        "total_is_capped": total_is_capped,
+        "count_cap": COUNT_CAP,
+        # The filters ran through the same ``_build_where``; whether FTS served
+        # them is a property of the filter, not of the sort.
+        "used_full_text_index": _fts_available(conn) and bool(query and query.strip()),
+        "page_size": limit,
+        "sort": "similarity",
+        "ranked_count": len(ranked),
+        # Reported so the interface can say "312 of 400 ranked; 88 not yet
+        # embedded" rather than presenting a partial ranking as a whole one.
+        "unranked_count": len(unranked_ids),
+        "model": model,
+    }
+
+
+def _offset_from(cursor: str | None) -> int:
+    """A similarity cursor is a decimal offset. Anything else starts from zero.
+
+    Deliberately forgiving rather than raising: a user who switches sort with a
+    keyset cursor in hand should get the first page of the new ranking, not a
+    400. The newest sort's cursor still raises on a malformed value, because
+    there a bad cursor means a page silently skipped.
+    """
+    if not cursor:
+        return 0
+    try:
+        return max(0, int(cursor))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _rows_in_order(conn: sqlite3.Connection, ids: list[int]) -> list[dict]:
+    """Fetch *ids* and return them in the order given, not the order SQLite likes."""
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    rows = {
+        int(row["id"]): dict(row)
+        for row in conn.execute(
+            f"SELECT documents.* FROM documents WHERE documents.id IN ({placeholders})",
+            ids,
+        )
+    }
+    return [rows[doc_id] for doc_id in ids if doc_id in rows]
+
+
+def similar_to(
+    conn: sqlite3.Connection, document_id: int, model: str, k: int = 10
+) -> dict:
+    """The *k* nearest neighbours of one document. Self excluded.
+
+    No embedding call: the document's own vector is already stored, so
+    "more like this" costs one index query and nothing at the provider.
+
+    Returns ``{"document_id", "model", "neighbours", "reason"}``. ``reason`` is
+    a sentence when the list is empty and ``None`` when it is not — an empty
+    neighbour list has three quite different causes (this paper is not embedded,
+    nothing else is, the extension will not load) and a bare ``[]`` would say
+    none of them.
+    """
+    k = max(1, int(k))
+    row = conn.execute(
+        "SELECT vector FROM document_embeddings WHERE document_id = ? AND model = ?",
+        (document_id, model),
+    ).fetchone()
+    if row is None:
+        return {
+            "document_id": document_id,
+            "model": model,
+            "neighbours": [],
+            "reason": (
+                "This paper has no vector for the current model, so resmon cannot say "
+                "what it is like. Run the backfill in Settings to include it."
+            ),
+        }
+
+    # k + 1 because the document is its own nearest neighbour at distance 0 and
+    # is dropped below. Asking for k and then removing one would quietly return
+    # k-1 every time.
+    ranked = vector_index.nearest(conn, model, row["vector"], k=k + 1)
+    neighbours = [(doc_id, distance) for doc_id, distance in ranked if doc_id != document_id][:k]
+    if not neighbours:
+        state = vector_index.extension_status(conn)
+        return {
+            "document_id": document_id,
+            "model": model,
+            "neighbours": [],
+            "reason": (
+                state["reason"]
+                or "Nothing else in the corpus is embedded with this model yet."
+            ),
+        }
+
+    rows = _rows_in_order(conn, [doc_id for doc_id, _ in neighbours])
+    by_id = {row["id"]: row for row in rows}
+    return {
+        "document_id": document_id,
+        "model": model,
+        "neighbours": [
+            {
+                **by_id[doc_id],
+                "distance": distance,
+                # Named on every neighbour because "the same paper from another
+                # source" and "a different paper on the same subject" look
+                # identical in a list of titles, and the source is what tells
+                # them apart.
+                "source_repository": by_id[doc_id]["source_repository"],
+            }
+            for doc_id, distance in neighbours
+            if doc_id in by_id
+        ],
+        "reason": None,
     }
 
 

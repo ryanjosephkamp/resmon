@@ -110,12 +110,16 @@ def test_tools_list_matches_the_contract():
     resp = mcp.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     names = {t["name"] for t in resp["result"]["tools"]}
     assert names == {
-        "health", "search_corpus", "list_sources", "list_routines", "get_routine",
-        "list_executions", "get_execution", "get_execution_results",
+        "health", "search_corpus", "find_similar", "list_sources", "list_routines",
+        "get_routine", "list_executions", "get_execution", "get_execution_results",
         "get_search_record", "explain_match", "get_paper_lifecycle",
         "get_analytics", "get_watchdog_findings", "export_references",
         "run_sweep", "create_routine", "run_routine",
     }
+    # 18 since contract v1.2 (1.9a): ``find_similar`` is new and ``search_corpus``
+    # gained ``mode``. Both additive, so the major version is unchanged.
+    assert len(names) == 18
+    assert mcp.CONTRACT_VERSION == "1.2"
 
 
 def test_every_tool_advertises_a_schema_and_description():

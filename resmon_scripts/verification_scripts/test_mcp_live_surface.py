@@ -96,6 +96,7 @@ def _payload(result: dict) -> dict:
 _ARGS: dict[str, dict] = {
     "health": {},
     "search_corpus": {"query": "neural"},
+    "find_similar": {"doc_id": 999999},
     "list_sources": {},
     "list_routines": {},
     "get_routine": {"routine_id": 999999},
@@ -140,6 +141,147 @@ def test_tool_reaches_the_backend(backend, name):
         )
     else:
         assert isinstance(body, (dict, list, str))
+
+
+def test_search_corpus_semantic_mode_reaches_the_backend_and_says_what_it_served(backend):
+    """1.9 / P10. A mode the backend cannot serve must be *reported*, not faked.
+
+    This backend has an empty corpus and no embedding lane, so the honest answer
+    is keyword order with the reason attached. The failure this rules out is the
+    plausible one: semantic mode silently degrading to a date sort while still
+    labelling itself semantic, so a harness reports a relevance ranking that is
+    a chronology.
+    """
+    body = _payload(mcp.call_tool("search_corpus", {"query": "neural", "mode": "semantic"}))
+    assert body["mode"] in ("keyword", "semantic")
+    if body["mode"] == "keyword":
+        assert body["mode_unavailable"], (
+            "semantic was requested and keyword was served with no reason given"
+        )
+    else:
+        assert "ranked_count" in body and "model" in body
+
+
+def test_search_corpus_rejects_a_mode_it_does_not_have(backend):
+    result = mcp.call_tool("search_corpus", {"query": "x", "mode": "telepathic"})
+    assert result["isError"]
+    assert _payload(result)["error"] == "invalid_argument"
+
+
+def test_find_similar_answers_with_a_reason_rather_than_a_bare_empty_list(backend):
+    """1.9 / P10. "Nothing similar" and "nothing embedded" are different claims."""
+    result = mcp.call_tool("find_similar", {"doc_id": 999999})
+    body = _payload(result)
+    if result["isError"]:
+        assert body["error"] in _ACCEPTABLE_ERRORS
+    else:
+        assert body["papers"] == []
+        assert body["reason"], "an empty neighbour list with no reason is an overclaim"
+
+
+def test_semantic_search_and_find_similar_over_a_really_embedded_corpus(backend):
+    """P10, the success path — the one the two declining tests above cannot reach.
+
+    Everything here is out of process: a real backend on a real socket, a real
+    embedding server on another, a real sqlite-vec index, and both tools called
+    through ``mcp.call_tool``. The only stand-in is the model, which returns a
+    deterministic vector so the expected order is a fact rather than a guess.
+
+    Written because "the tool reached the backend" and "the tool returns a
+    ranking" are different claims, and v1.8.2 shipped two tools that satisfied
+    the first for every input and the second for none.
+    """
+    pytest.importorskip("sqlite_vec")
+    from embedding_server import EmbeddingServer, deterministic_vector  # noqa: PLC0415
+
+    with EmbeddingServer() as model:
+        configured = httpx.put(
+            f"{backend}/api/settings/embeddings",
+            json={"settings": {
+                "embedding_enabled": "true",
+                "embedding_provider": "local",
+                "embedding_model": "live-surface-model",
+                "embedding_endpoint": model.base_url,
+            }},
+            timeout=30,
+        )
+        assert configured.status_code == 200, configured.text
+
+        # Two papers, deliberately unalike, inserted through a real sweep so the
+        # backend's own pipeline embeds them.
+        seeded = httpx.post(
+            f"{backend}/api/search/sweep",
+            json={"repositories": ["arxiv"], "query": "quantum error correction",
+                  "max_results": 5},
+            timeout=60,
+        )
+        if seeded.status_code != 200:
+            pytest.skip(f"could not seed a corpus: {seeded.status_code} {seeded.text[:200]}")
+
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            status = httpx.get(f"{backend}/api/embeddings/status", timeout=10).json()
+            if status["coverage"]["embedded"] > 0:
+                break
+            time.sleep(0.5)
+        else:
+            pytest.skip("the seeded sweep returned no papers to embed")
+
+        # The search phrase is taken from a paper the sweep actually stored, not
+        # from the sweep's own query. arXiv is relevance-ranked and answers a
+        # multi-word query with papers containing none of its words -- measured:
+        # "quantum error correction" returned five papers, none matching the
+        # corpus filter. A test that assumed otherwise would skip or fail for a
+        # reason that has nothing to do with what it checks.
+        stored = httpx.post(
+            f"{backend}/api/explorer/search", json={"limit": 5}, timeout=30
+        ).json()["results"]
+        phrase = next(
+            (w for w in str(stored[0]["title"]).split() if len(w) > 5 and w.isalpha()),
+            None,
+        )
+        if not phrase:
+            pytest.skip("no usable search term in the seeded corpus")
+
+        # Semantic mode, served rather than declined.
+        body = _payload(mcp.call_tool(
+            "search_corpus", {"query": phrase, "mode": "semantic"}
+        ))
+        assert body["mode"] == "semantic", body.get("mode_unavailable")
+        assert body["model"] == "live-surface-model"
+        assert body["papers"], f"a semantic search for {phrase!r} returned nothing"
+        assert body["ranked_count"] >= 1
+        distances = [p["distance"] for p in body["papers"] if p["distance"] is not None]
+        assert distances == sorted(distances), "the ranking is not ordered by distance"
+
+        # And the same set as keyword mode: a sort, not a search.
+        keyword = _payload(mcp.call_tool(
+            "search_corpus", {"query": phrase, "mode": "keyword", "limit": 100}
+        ))
+        semantic = _payload(mcp.call_tool(
+            "search_corpus", {"query": phrase, "mode": "semantic", "limit": 100}
+        ))
+        assert {p["id"] for p in keyword["papers"]} == {p["id"] for p in semantic["papers"]}
+        assert keyword["total"] == semantic["total"]
+
+        # find_similar, on a paper that really has a vector.
+        doc_id = body["papers"][0]["id"]
+        similar = _payload(mcp.call_tool("find_similar", {"doc_id": doc_id, "limit": 5}))
+        assert similar["model"] == "live-surface-model"
+        assert doc_id not in [p["id"] for p in similar["papers"]], "self was not excluded"
+        if similar["papers"]:
+            assert similar["reason"] is None
+            assert all(p["distance"] is not None for p in similar["papers"])
+        else:
+            assert similar["reason"], "an empty neighbour list must say why"
+
+    # The embedding server is gone once this block exits, so the lane is switched
+    # off again rather than left pointing at a dead port for the rest of the
+    # module's tests to trip over.
+    httpx.put(
+        f"{backend}/api/settings/embeddings",
+        json={"settings": {"embedding_enabled": "false"}}, timeout=30,
+    )
 
 
 def test_get_execution_results_works_for_a_real_execution(backend):

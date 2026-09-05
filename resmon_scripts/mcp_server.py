@@ -37,7 +37,10 @@ from typing import Any, Callable, Optional
 
 import httpx
 
-CONTRACT_VERSION = "1"
+# The contract this server implements: docs/api-contract/mcp.md.
+# v1.2 adds ``search_corpus(mode="semantic")`` and ``find_similar`` -- additive,
+# so the major version is unchanged and no caller's return shape moved.
+CONTRACT_VERSION = "1.2"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
 
@@ -336,7 +339,7 @@ def t_health(args: dict) -> Any:
 
 
 def t_search_corpus(args: dict) -> Any:
-    """Search the stored corpus.
+    """Search the stored corpus, by keyword or by meaning.
 
     Paginated by **cursor**, not offset. The contract specifies `offset`, but
     the endpoint behind it seeks on ``(publication_date DESC, id DESC)`` using
@@ -345,6 +348,18 @@ def t_search_corpus(args: dict) -> Any:
     each call and charging the caller for it. An explicit `offset` is refused
     rather than silently ignored -- a harness that thinks it is paging and is
     not would report the first page repeatedly as though it were the corpus.
+
+    ``mode="semantic"`` (contract v1.2) ranks by distance from the query rather
+    than by date. **The filters still choose the papers**: both modes return the
+    same set for the same arguments, so a harness switching mode is re-ordering
+    and never re-selecting.
+
+    Semantic mode can decline. When it does -- no embedding model configured,
+    the model refused, the extension will not load -- the answer carries
+    ``mode: "keyword"`` and a ``mode_unavailable`` sentence rather than silently
+    serving a date order under a semantic label. A harness told it received a
+    ranking it did not receive would report a relevance order that is a date
+    order, which is exactly the class of claim this project refuses to make.
     """
     if args.get("offset"):
         raise ToolError(
@@ -352,9 +367,16 @@ def t_search_corpus(args: dict) -> Any:
             "The corpus paginates by cursor, not offset. Pass the 'next_cursor' "
             "from the previous call as 'cursor'.",
         )
+    mode = str(args.get("mode") or "keyword").strip().lower()
+    if mode not in ("keyword", "semantic"):
+        raise ToolError(
+            "invalid_argument",
+            f"Unknown mode {mode!r}. Use 'keyword' or 'semantic'.",
+        )
     body: dict[str, Any] = {
         "query": _require(args, "query"),
         "limit": _limit(args),
+        "sort": "similarity" if mode == "semantic" else "newest",
     }
     if args.get("cursor"):
         body["cursor"] = args["cursor"]
@@ -364,8 +386,16 @@ def t_search_corpus(args: dict) -> Any:
     data = backend.request("POST", "/api/explorer/search", json=body) or {}
     rows = data.get("results") if isinstance(data, dict) else None
     rows = rows if isinstance(rows, list) else []
-    return {
-        "papers": [_paper(r) for r in rows],
+    served = "semantic" if data.get("sort") == "similarity" else "keyword"
+    out: dict[str, Any] = {
+        "papers": [
+            # The distance travels with the paper in semantic mode. A harness
+            # ranking papers for a person should be able to say how close they
+            # actually were, not merely what order they came in.
+            {**_paper(r), "distance": r.get("distance")} if served == "semantic"
+            else _paper(r)
+            for r in rows
+        ],
         "count": len(rows),
         "next_cursor": data.get("next_cursor"),
         "has_more": data.get("has_more"),
@@ -373,6 +403,47 @@ def t_search_corpus(args: dict) -> Any:
         # harness cannot mistake "at least this many" for an exact total.
         "total": data.get("total"),
         "total_is_capped": data.get("total_is_capped"),
+        "mode": served,
+    }
+    if served == "semantic":
+        # How much of the answer is actually ranked. Papers with no vector are
+        # appended rather than dropped, so a harness that assumed the whole list
+        # was ordered by relevance would be wrong about the tail.
+        out["ranked_count"] = data.get("ranked_count")
+        out["unranked_count"] = data.get("unranked_count")
+        out["model"] = data.get("model")
+    if mode == "semantic" and served != "semantic":
+        out["mode_unavailable"] = data.get("similarity_unavailable") or (
+            "This resmon cannot rank by meaning; the results are newest first."
+        )
+    return out
+
+
+def t_find_similar(args: dict) -> Any:
+    """The papers nearest a given one, with distances and their sources.
+
+    Costs nothing at any embedding provider: the paper's vector is already
+    stored, so this is one index query.
+
+    An empty list always carries a reason. "This paper is not embedded",
+    "nothing else is" and "this build cannot load the vector extension" are
+    three different situations, and a bare empty list would let a harness report
+    "resmon found nothing similar" for any of them -- a claim about the corpus
+    made from a fact about the configuration.
+    """
+    doc_id = _require_int(args, "doc_id")
+    limit = _limit(args, "limit")
+    data = backend.request(
+        "GET", f"/api/documents/{doc_id}/similar", params={"k": limit}
+    ) or {}
+    neighbours = data.get("neighbours") if isinstance(data, dict) else None
+    neighbours = neighbours if isinstance(neighbours, list) else []
+    return {
+        "document_id": data.get("document_id", doc_id),
+        "model": data.get("model"),
+        "papers": [{**_paper(n), "distance": n.get("distance")} for n in neighbours],
+        "count": len(neighbours),
+        "reason": data.get("reason"),
     }
 
 
@@ -607,14 +678,34 @@ TOOLS: list[dict] = [
      "schema": {"type": "object", "properties": {}}},
 
     {"name": "search_corpus", "fn": t_search_corpus,
-     "description": "Search the papers resmon has already collected.",
+     "description": (
+         "Search the papers resmon has already collected. mode='semantic' ranks "
+         "by meaning instead of date, over the same filtered set; the answer says "
+         "which mode was actually served."
+     ),
      "schema": {"type": "object", "required": ["query"], "properties": {
          "query": {"type": "string"},
+         "mode": {"type": "string", "enum": ["keyword", "semantic"],
+                  "default": "keyword",
+                  "description": (
+                      "'semantic' needs an embedding model configured in resmon. "
+                      "When one is not, the reply is keyword order and says so in "
+                      "'mode_unavailable'."
+                  )},
          "sources": {"type": "array", "items": {"type": "string"}},
          "date_from": {"type": "string"}, "date_to": {"type": "string"},
          "limit": {"type": "integer", "default": DEFAULT_LIMIT},
          "cursor": {"type": "string",
                     "description": "next_cursor from the previous call"}}}},
+
+    {"name": "find_similar", "fn": t_find_similar,
+     "description": (
+         "The papers in the corpus nearest a given one, with distances. An empty "
+         "answer carries the reason it is empty."
+     ),
+     "schema": {"type": "object", "required": ["doc_id"], "properties": {
+         "doc_id": {"type": "integer"},
+         "limit": {"type": "integer", "default": DEFAULT_LIMIT}}}},
 
     {"name": "list_sources", "fn": t_list_sources,
      "description": "The scholarly sources resmon can query, and whether a key is stored.",

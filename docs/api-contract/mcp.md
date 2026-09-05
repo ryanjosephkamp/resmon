@@ -111,7 +111,8 @@ called out explicitly.
 | Tool | Arguments | Returns | Backed by |
 |---|---|---|---|
 | `health` | — | version, schema version, scheduler state, daemon state | `GET /api/health` |
-| `search_corpus` | `query`, `sources?`, `date_from?`, `date_to?`, `limit=25`, `cursor?` | matching papers: id, title, authors, date, source, doi, url, plus `next_cursor` | `POST /api/explorer/search` |
+| `search_corpus` | `query`, `mode?` (keyword \| semantic), `sources?`, `date_from?`, `date_to?`, `limit=25`, `cursor?` | matching papers: id, title, authors, date, source, doi, url, plus `next_cursor`, `mode`, and in semantic mode `distance` per paper, `ranked_count`, `unranked_count`, `model` | `POST /api/explorer/search` |
+| `find_similar` | `doc_id`, `limit=25` | the nearest papers with distances and sources; `reason` when the list is empty | `GET /api/documents/{doc_id}/similar` |
 | `list_sources` | — | slug, name, coverage, whether a key is required and whether one is present | `GET /api/repositories/catalog` + `GET /api/credentials` |
 | `list_routines` | `active_only?` | id, name, schedule, sources, keywords, last run, active | `GET /api/routines` |
 | `get_routine` | `routine_id` | the full routine record | `GET /api/routines/{id}` |
@@ -190,6 +191,24 @@ Listed so the omissions are visible and arguable rather than silently missing.
 
 ## Amendments
 
+### v1.2 — 5 September 2026, phase 1.9a
+
+Additive. `search_corpus` gains `mode`, and `find_similar` is new. No tool was removed and
+no return shape moved, so the major version is unchanged and existing callers are
+unaffected.
+
+| Change | Detail |
+|---|---|
+| `search_corpus` gains `mode` (`keyword` default, `semantic`) | Semantic mode ranks by distance from the query **over the same filtered set**. The filters choose the papers; the mode chooses their order. Both modes return the same `total` and the same ids for the same arguments, so a harness switching mode is re-ordering and never re-selecting. |
+| The answer always reports the mode it **served** | Semantic mode can decline — no embedding model configured, the model refused, the extension will not load. When it does, the reply carries `mode: "keyword"` and a `mode_unavailable` sentence. A harness told it received a ranking it did not receive would report a relevance order that is a chronology; that is the overclaim this contract exists to prevent, arriving through an integration. |
+| Semantic replies carry `ranked_count` and `unranked_count` | Papers with no vector are appended rather than dropped, so part of a semantic answer may be unordered. The counts say how much. |
+| `find_similar` is new | One index query, no call to any embedding provider: the paper's vector is already stored. An empty list **always** carries a `reason`, because "this paper is not embedded", "nothing else is" and "this build cannot load the extension" are three different situations and a bare `[]` would let a harness report "resmon found nothing similar" for any of them. |
+
+**Every route in the table above was re-checked against the running app while this
+amendment was written**, not only the two being changed — that is the v1.1 lesson applied
+rather than recorded. All 17 paths `mcp_server.py` calls resolve to a live route, including
+the six analytics paths behind `get_analytics`'s view names.
+
 ### v1.1 — 31 August 2026, from implementing it
 
 Three items in v1 named endpoints or arguments that do not exist as written. Found by
@@ -211,12 +230,15 @@ These are additive and clarifying rather than breaking: no tool was removed and 
 shape a caller depended on changed, because there were no callers yet. The contract stays
 **v1**; this is its first amendment.
 
+*(Superseded in numbering by v1.2 above, which formalises the minor-version scheme this
+section describes. The three corrections here still stand.)*
+
 ---
 
 ## Versioning
 
-This document is contract **v1**. The server reports it in its MCP initialisation
-response. Additive changes — new tools, new optional arguments — bump the minor version and
+This document is contract **v1.2**. The server reports it in its MCP initialisation
+response (`mcp_server.CONTRACT_VERSION`). Additive changes — new tools, new optional arguments — bump the minor version and
 do not require a new contract document. Removing a tool, renaming an argument, or changing
 a return shape is a **breaking** change: new major version, new document, and the 2.0
 assistant is updated in the same pull request, because it is the other consumer.
