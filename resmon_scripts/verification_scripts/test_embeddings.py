@@ -16,6 +16,7 @@ from __future__ import annotations
 import sqlite3
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -420,17 +421,30 @@ def test_backfill_cancelled_mid_run_and_restarted_finishes_with_exactly_m_rows(
         c.row_factory = sqlite3.Row
         return c
 
+    # The cancel is landed **deterministically**, not raced against a clock.
+    #
+    # The first version let batches through and polled the coverage until four
+    # papers were in, then cancelled. On a fast runner all twenty finished
+    # between two polls, and CI went red on the guard below -- which is the
+    # guard doing its job, but a flaky test is not evidence of anything.
+    #
+    # This holds the server's gate shut, waits until the first batch has
+    # *arrived* (the handler records the call before it blocks, so one entry in
+    # `server.calls` means one request is parked mid-flight), requests the
+    # cancel while that batch cannot finish, and only then opens the gate. The
+    # in-flight batch completes -- cancellation is deliberately between batches,
+    # never mid-request -- and the loop stops before the second. Exactly
+    # `batch_size` papers are embedded, on any machine at any speed.
     gate = threading.Event()
     server.gate = gate
     job = embedding_job.BackfillJob()
     job.start(_factory, lane)
 
-    # Let two batches through, then cancel while the third is blocked.
-    gate.set()
-    tick = threading.Event()
-    while not tick.wait(0.05):
-        if job.status(conn, lane.model)["coverage"]["embedded"] >= 4:
-            break
+    deadline = time.monotonic() + 30
+    while not server.calls and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert server.calls, "the backfill never reached the embedding server"
+
     job.cancel()
     server.gate = None
     gate.set()
@@ -438,6 +452,9 @@ def test_backfill_cancelled_mid_run_and_restarted_finishes_with_exactly_m_rows(
 
     state = job.status(conn, lane.model)
     embedded_after_cancel = state["coverage"]["embedded"]
+    # Still asserted as a range rather than as ``== 2``: the point is that the
+    # run stopped part-way, and pinning the exact number would make the test
+    # fail on a change to the batch size that broke nothing.
     assert 0 < embedded_after_cancel < total, (
         f"the cancel did not land mid-run (embedded={embedded_after_cancel}); "
         "the test cannot establish what it is for"
