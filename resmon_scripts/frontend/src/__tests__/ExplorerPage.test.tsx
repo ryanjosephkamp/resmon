@@ -226,6 +226,17 @@ describe('Explorer page — ranking by meaning', () => {
     expect(screen.queryByTestId('rank-note')).toBeNull();
   });
 
+  test('an empty ranked result explains that the text filter is what emptied it', async () => {
+    // Measured on the real corpus: 11 of 20 natural-language queries match no
+    // paper on the AND-over-words text filter, so this is the common case, not
+    // the edge one. "No papers match" alone hides both the reason and the fact
+    // that a corpus-wide ranking would have had an answer.
+    mockApi({ ...RESULTS, results: [], total: 0, sort: 'similarity' }, CAN_RANK);
+    await renderAt('/explorer?q=how+do+cells+decide+to+divide&sort=similarity');
+    const note = screen.getByTestId('similarity-empty-note').textContent || '';
+    expect(note).toContain('Ranking by meaning still searches inside your text filter');
+  });
+
   test('asking to rank with no search phrase says what is missing', async () => {
     mockApi(RESULTS, CAN_RANK);
     await renderAt('/explorer?sort=similarity');
