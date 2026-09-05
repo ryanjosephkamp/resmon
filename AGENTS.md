@@ -2,7 +2,10 @@
 
 resmon is a desktop application that watches scholarly literature for a researcher and
 tells them when their monitoring has broken. It is a FastAPI/SQLite backend and an
-Electron/React renderer, distributed as an installer for seven platform targets.
+Electron/React renderer, built for four platform targets — `macos-14`, `macos-15-intel`,
+`windows-latest`, `ubuntu-latest` — which produce seven published release assets (four
+installers, two updater feeds and a blockmap). This line said "seven platform targets"
+until 1.9a; the seven was the asset count.
 
 Two harnesses work this repository: **Claude Code** and **Codex**. This file is the
 contract both read. Claude Code additionally carries a private workspace `CLAUDE.md`
@@ -27,7 +30,7 @@ implies more certainty than it earns is rejected even when the code is correct.
 
 ```
 resmon_scripts/
-├── resmon.py                       FastAPI app — 88 routes, the API seam
+├── resmon.py                       FastAPI app — 99 routes, the API seam
 ├── implementation_scripts/         backend modules
 │   ├── api_base.py                 BaseAPIClient, NormalizedResult, RateLimiter, safe_request
 │   ├── api_<slug>.py               one source client each; self-registering
@@ -46,12 +49,12 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 1030 pass, 45 deselected
-.venv/bin/python -m pytest -m live_network   # the 45 — real scholarly APIs and CLIs
+.venv/bin/python -m pytest -q          # hermetic suite: 1137 pass, 52 deselected
+.venv/bin/python -m pytest -m live_network   # the 52 — real scholarly APIs, CLIs and sockets
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 190 tests across 26 suites
-npm run e2e                                      # the real Electron app — 60 checks, 24 routes
+npm run typecheck && npm test && npm run build   # 204 tests across 27 suites
+npm run e2e                                      # the real Electron app — 63 checks, 24 routes
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
