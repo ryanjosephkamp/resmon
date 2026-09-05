@@ -3,8 +3,10 @@ import { useSearchParams } from 'react-router-dom';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import PageHelp from '../components/Help/PageHelp';
 import WhyThisPaper from '../components/Explain/WhyThisPaper';
+import SimilarPapers from '../components/Explain/SimilarPapers';
 import LifecycleBadge, { LifecycleEvent } from '../components/Explain/LifecycleBadge';
 import { apiClient, getBaseUrl } from '../api/client';
+import { useEmbeddingCapability } from '../hooks/useEmbeddingCapability';
 
 /**
  * Corpus-wide explorer: every paper resmon has collected, in one place.
@@ -17,6 +19,12 @@ import { apiClient, getBaseUrl } from '../api/client';
  * Paging is a cursor, not a page number, because the backend seeks by sort key
  * rather than counting rows. That makes "load more" the natural control and
  * "jump to page 40" impossible; at this scale nobody wants the latter.
+ *
+ * Sorting by meaning (1.9) is offered **only when this resmon can actually do
+ * it** — a loadable vector extension and something in the index. A control that
+ * appears and then explains why it does nothing is worse than one that was
+ * never there, so the whole thing is absent otherwise, the way a missing agent
+ * CLI reads. `useEmbeddingCapability` is the single gate.
  */
 
 interface Doc {
@@ -29,6 +37,8 @@ interface Doc {
   url: string | null;
   source_repository: string;
   categories: string | null;
+  /** Present in similarity order; null for a paper with no vector yet. */
+  distance?: number | null;
 }
 
 interface SearchResponse {
@@ -38,6 +48,13 @@ interface SearchResponse {
   total: number;
   total_is_capped: boolean;
   used_full_text_index: boolean;
+  /** The sort actually served, which is not always the one requested. */
+  sort?: string;
+  ranked_count?: number;
+  unranked_count?: number;
+  model?: string | null;
+  /** Set when similarity was asked for and could not be given. */
+  similarity_unavailable?: string;
 }
 
 interface LifecycleMap {
@@ -71,6 +88,10 @@ const ExplorerPage: React.FC = () => {
   const dateFrom = params.get('from') || '';
   const dateTo = params.get('to') || '';
   const urlQuery = params.get('q') || '';
+  // In the URL like every other filter, so a ranked view is bookmarkable and
+  // survives Back. Anything but 'similarity' reads as newest, so a stale link
+  // from a build that had a sort this one does not still opens.
+  const sort = params.get('sort') === 'similarity' ? 'similarity' : 'newest';
 
   // The text box is the one exception: it needs local state so typing is
   // responsive, and is debounced into the URL below.
@@ -84,6 +105,7 @@ const ExplorerPage: React.FC = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
+  const { capability, loaded: capabilityLoaded } = useEmbeddingCapability();
 
   // Debounce the free-text box so a query is not issued per keystroke.
   const debounceRef = useRef<number | undefined>(undefined);
@@ -119,6 +141,11 @@ const ExplorerPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [filterKey]);
 
+  // Ranking needs something to be close *to*, and the free-text box is it.
+  // Offering the control with an empty box would be offering an action that
+  // cannot run.
+  const canRankNow = capability.available && Boolean(urlQuery.trim());
+
   // One request per page of results, not one per row. Failure is silent: a
   // retraction badge is valuable, but a red error banner because the badge
   // lookup failed would be worse than the missing badge.
@@ -140,7 +167,8 @@ const ExplorerPage: React.FC = () => {
     setError('');
     try {
       const [page, f] = await Promise.all([
-        apiClient.post<SearchResponse>('/api/explorer/search', { ...filters, limit: PAGE }),
+        apiClient.post<SearchResponse>('/api/explorer/search',
+          { ...filters, limit: PAGE, sort }),
         apiClient.post<FacetResponse>('/api/explorer/facets', filters),
       ]);
       const { results, ...rest } = page;
@@ -153,7 +181,7 @@ const ExplorerPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [filters, loadLifecycle]);
+  }, [filters, sort, loadLifecycle]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -162,7 +190,7 @@ const ExplorerPage: React.FC = () => {
     setLoadingMore(true);
     try {
       const page = await apiClient.post<SearchResponse>('/api/explorer/search', {
-        ...filters, cursor: meta.next_cursor, limit: PAGE,
+        ...filters, cursor: meta.next_cursor, limit: PAGE, sort,
       });
       const { results, ...rest } = page;
       setDocs((prev) => [...prev, ...results]);
@@ -173,7 +201,7 @@ const ExplorerPage: React.FC = () => {
     } finally {
       setLoadingMore(false);
     }
-  }, [filters, meta, loadingMore, loadLifecycle]);
+  }, [filters, sort, meta, loadingMore, loadLifecycle]);
 
   const toggle = (key: string, list: string[], value: string) =>
     setParam(key, list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
@@ -325,6 +353,38 @@ const ExplorerPage: React.FC = () => {
             ),
           },
           {
+            heading: 'Sorting by meaning',
+            body: (
+              <p>
+                When an embedding model is set up in <strong>Settings &rarr; AI &rarr;
+                Embeddings</strong>, a <strong>Sort</strong> control appears and can
+                order results by how close each paper is to what you typed, rather than
+                by date. It is a <em>sort</em>, not a second search: the same papers come
+                back, in a different order, so switching it never changes which papers
+                you are looking at. Each row shows its distance — smaller is closer — and
+                papers resmon has not embedded yet are listed last and marked{' '}
+                <em>not ranked</em>, because they have not been judged distant, they have
+                not been judged. If the control is not there, this build has no embedding
+                model configured or cannot load the vector extension; the Embeddings
+                section says which.
+              </p>
+            ),
+          },
+          {
+            heading: 'Papers like this one',
+            body: (
+              <p>
+                With embeddings set up, every result also carries a{' '}
+                <strong>Papers like this one</strong> link showing its nearest neighbours
+                in your corpus, with the distance and the source of each. The source
+                matters: the same paper arriving from two repositories and two different
+                papers on one subject look identical in a list of titles. Distances
+                compare the title and abstract resmon stored, not full text, which resmon
+                does not have.
+              </p>
+            ),
+          },
+          {
             heading: 'Exporting what you filtered',
             body: (
               <p>
@@ -407,7 +467,63 @@ const ExplorerPage: React.FC = () => {
                     }${activeCount ? ' matching your filters' : ' in your corpus'}`}
               </p>
             )}
+
+            {/*
+              Rendered only once the capability answer is in, and only when it
+              says yes. Not disabled-with-a-tooltip: a control that is present
+              and inert is a promise the app is not keeping (phase 1.9,
+              decision 4).
+            */}
+            {capabilityLoaded && capability.available && (
+              <label className="explorer-sort" data-testid="explorer-sort">
+                <span>Sort</span>
+                <select
+                  value={sort}
+                  aria-label="Sort results"
+                  onChange={(e) => setParam(
+                    'sort', e.target.value === 'similarity' ? ['similarity'] : [],
+                  )}
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="similarity" disabled={!urlQuery.trim()}>
+                    Closest to your search
+                  </option>
+                </select>
+              </label>
+            )}
           </div>
+
+          {/*
+            What the list is actually ordered by, stated rather than implied.
+            Three cases and they are genuinely different: a ranking happened; a
+            ranking was asked for and declined; a ranking is available but has
+            nothing to rank against yet.
+          */}
+          {!loading && meta?.sort === 'similarity' && (
+            <p className="explorer-rank-note" data-testid="rank-note">
+              Closest to: <strong>{urlQuery}</strong>
+              {meta.model && <> — using <strong>{meta.model}</strong></>}
+              {typeof meta.unranked_count === 'number' && meta.unranked_count > 0 && (
+                <>
+                  {' '}· {nf.format(meta.ranked_count || 0)} ranked,{' '}
+                  {nf.format(meta.unranked_count)} not embedded yet and listed last
+                </>
+              )}
+            </p>
+          )}
+
+          {!loading && meta?.similarity_unavailable && (
+            <p className="explorer-rank-note" role="status" data-testid="rank-unavailable">
+              {meta.similarity_unavailable}
+            </p>
+          )}
+
+          {capabilityLoaded && capability.available && sort === 'similarity'
+            && !urlQuery.trim() && (
+            <p className="explorer-rank-note" data-testid="rank-needs-query">
+              Type a search phrase to rank by how close each paper is to it.
+            </p>
+          )}
 
           {!loading && meta?.total === 0 && activeCount > 0 && (
             <div className="card">
@@ -439,6 +555,24 @@ const ExplorerPage: React.FC = () => {
                   <span className="explorer-source">{d.source_repository}</span>
                   {d.publication_date && <span>{d.publication_date}</span>}
                   {d.doi && <span className="explorer-doi">{d.doi}</span>}
+                  {/*
+                    Shown only in the sort that produced it, and a paper with no
+                    vector says so rather than showing a large number. It has not
+                    been judged distant; it has not been judged.
+                  */}
+                  {meta?.sort === 'similarity' && (
+                    typeof d.distance === 'number' ? (
+                      <span className="explorer-distance"
+                            title="Vector distance from your search — smaller is closer">
+                        {d.distance.toFixed(3)}
+                      </span>
+                    ) : (
+                      <span className="explorer-distance explorer-distance-none"
+                            title="This paper has no vector yet, so it could not be ranked">
+                        not ranked
+                      </span>
+                    )
+                  )}
                 </p>
                 {d.authors && <p className="explorer-authors">{d.authors}</p>}
                 {d.abstract && <p className="explorer-abstract">{d.abstract}</p>}
@@ -452,7 +586,10 @@ const ExplorerPage: React.FC = () => {
                     ))}
                   </p>
                 )}
-                <WhyThisPaper documentId={d.id} />
+                <div className="explorer-explain">
+                  <WhyThisPaper documentId={d.id} />
+                  {capability.available && <SimilarPapers documentId={d.id} />}
+                </div>
               </li>
             ))}
           </ul>

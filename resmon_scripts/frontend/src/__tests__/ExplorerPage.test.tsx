@@ -29,14 +29,46 @@ const RESULTS = {
   total_is_capped: false, used_full_text_index: true,
 };
 
-function mockApi(results = RESULTS) {
+/** No embedding lane, no vector extension: the shape most installs are in. */
+const NO_EMBEDDINGS = {
+  run: { running: false, model: null, processed: 0, total: 0, skipped_no_text: 0,
+         cancelled: false, reason: null },
+  coverage: { embedded: 0, total: 0, model: null },
+  extension: { extension: null, reason: 'not installed' },
+  index: { model: null, dims: null, rows: 0 },
+  capability: { available: false, extension: null, reason: 'not installed',
+                model: null, indexed: 0 },
+};
+
+function mockApi(results: unknown = RESULTS, embeddings: unknown = NO_EMBEDDINGS) {
   (global as any).fetch = jest.fn(async (url: string) => ({
     ok: true,
     status: 200,
     headers: { get: () => 'application/json' },
-    json: async () => (String(url).includes('/facets') ? FACETS : results),
+    json: async () => {
+      const u = String(url);
+      if (u.includes('/api/embeddings/status')) return embeddings;
+      if (u.includes('/facets')) return FACETS;
+      return results;
+    },
     text: async () => '',
   }));
+}
+
+/**
+ * The body of the corpus-search call, found rather than indexed.
+ *
+ * It used to be `mock.calls[0]`, which broke the moment the page gained a
+ * second request on mount -- and broke with "undefined is not valid JSON"
+ * rather than with anything that named the cause. A test that depends on the
+ * order of unrelated requests is a test that fails for unrelated reasons.
+ */
+function searchBody(): any {
+  const calls = ((global as any).fetch as jest.Mock).mock.calls;
+  const call = calls.find(([url, init]: [string, any]) =>
+    String(url).includes('/api/explorer/search') && init?.body);
+  if (!call) throw new Error('the page never searched the corpus');
+  return JSON.parse(call[1].body);
 }
 
 async function renderAt(path: string) {
@@ -74,7 +106,7 @@ describe('Explorer page', () => {
     const checked = boxes.filter((b) => b.checked);
     expect(checked.length).toBe(2);
 
-    const body = JSON.parse(((global as any).fetch as jest.Mock).mock.calls[0][1].body);
+    const body = searchBody();
     expect(body.sources).toEqual(['arxiv']);
     expect(body.categories).toEqual(['cs.LG']);
   });
@@ -83,7 +115,7 @@ describe('Explorer page', () => {
     mockApi();
     await renderAt('/explorer?from=2026-01-01&to=2026-06-30');
 
-    const body = JSON.parse(((global as any).fetch as jest.Mock).mock.calls[0][1].body);
+    const body = searchBody();
     expect(body.date_from).toBe('2026-01-01');
     expect(body.date_to).toBe('2026-06-30');
   });
@@ -108,5 +140,95 @@ describe('Explorer page', () => {
 
     expect(screen.getByText(/Nothing collected yet/i)).toBeInTheDocument();
     expect(screen.getByText(/Deep Dive or Deep Sweep/i)).toBeInTheDocument();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Ranking by meaning (1.9)
+// ---------------------------------------------------------------------------
+
+/** A build that can rank: extension loaded, vectors in the index. */
+const CAN_RANK = {
+  run: { running: false, model: 'nomic-embed-text', processed: 0, total: 0,
+         skipped_no_text: 0, cancelled: false, reason: null },
+  coverage: { embedded: 400, total: 400, model: 'nomic-embed-text' },
+  extension: { extension: 'v0.1.9', reason: null },
+  index: { model: 'nomic-embed-text', dims: 768, rows: 400 },
+  capability: { available: true, extension: 'v0.1.9', reason: null,
+                model: 'nomic-embed-text', indexed: 400 },
+};
+
+const RANKED_RESULTS = {
+  ...RESULTS,
+  results: [
+    { ...RESULTS.results[0], id: 1, distance: 0.123 },
+    { ...RESULTS.results[0], id: 2, title: 'Not embedded yet', distance: null },
+  ],
+  total: 2,
+  sort: 'similarity',
+  ranked_count: 1,
+  unranked_count: 1,
+  model: 'nomic-embed-text',
+};
+
+describe('Explorer page — ranking by meaning', () => {
+  test('the sort control is absent when this build cannot rank', async () => {
+    // P5's renderer half. Not disabled and explained: absent. A control that is
+    // present and inert is a promise the app is not keeping.
+    mockApi(RESULTS, NO_EMBEDDINGS);
+    await renderAt('/explorer?q=diffusion');
+    expect(screen.queryByTestId('explorer-sort')).toBeNull();
+    expect(screen.queryByText('Papers like this one')).toBeNull();
+  });
+
+  test('the sort control appears when it can, and the similar panel with it', async () => {
+    mockApi(RESULTS, CAN_RANK);
+    await renderAt('/explorer?q=diffusion');
+    expect(screen.getByTestId('explorer-sort')).toBeTruthy();
+    expect(screen.getAllByText('Papers like this one').length).toBeGreaterThan(0);
+  });
+
+  test('the similarity sort reaches the request', async () => {
+    mockApi(RANKED_RESULTS, CAN_RANK);
+    await renderAt('/explorer?q=diffusion&sort=similarity');
+    expect(searchBody().sort).toBe('similarity');
+  });
+
+  test('a ranked list says what it is closest to, and how much is unranked', async () => {
+    mockApi(RANKED_RESULTS, CAN_RANK);
+    await renderAt('/explorer?q=diffusion&sort=similarity');
+    const note = screen.getByTestId('rank-note').textContent || '';
+    expect(note).toContain('Closest to:');
+    expect(note).toContain('diffusion');
+    expect(note).toContain('nomic-embed-text');
+    // The count is stated rather than left to be inferred from a short list.
+    expect(note).toContain('1 not embedded yet');
+  });
+
+  test('an unranked paper reads as not ranked, not as a large distance', async () => {
+    mockApi(RANKED_RESULTS, CAN_RANK);
+    await renderAt('/explorer?q=diffusion&sort=similarity');
+    expect(screen.getByText('0.123')).toBeTruthy();
+    expect(screen.getByText('not ranked')).toBeTruthy();
+  });
+
+  test('a similarity request the backend declined is reported, not hidden', async () => {
+    // The failure this rules out: a date order presented under a "closest to"
+    // label. The list must be labelled by the sort it is actually in.
+    mockApi(
+      { ...RESULTS, sort: 'newest', similarity_unavailable: 'No embedding model is configured.' },
+      CAN_RANK,
+    );
+    await renderAt('/explorer?q=diffusion&sort=similarity');
+    expect(screen.getByTestId('rank-unavailable').textContent)
+      .toContain('No embedding model is configured.');
+    expect(screen.queryByTestId('rank-note')).toBeNull();
+  });
+
+  test('asking to rank with no search phrase says what is missing', async () => {
+    mockApi(RESULTS, CAN_RANK);
+    await renderAt('/explorer?sort=similarity');
+    expect(screen.getByTestId('rank-needs-query')).toBeTruthy();
   });
 });
