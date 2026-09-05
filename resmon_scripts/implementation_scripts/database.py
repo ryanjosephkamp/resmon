@@ -73,6 +73,13 @@ CREATE TABLE IF NOT EXISTS routines (
     notify_on_complete INTEGER NOT NULL DEFAULT 0,
     ai_settings TEXT,
     storage_settings TEXT,
+    -- Free text: what this routine is actually looking for, in the user's own
+    -- words. The keyword string is what resmon *sends*; this is what the user
+    -- *means*, and the coverage audit needs the second to judge the first. It
+    -- is optional and defaults to nothing rather than to the keyword string,
+    -- because "the user wrote this" and "we reused the query" are different
+    -- facts and the audit says which one it is working from.
+    intent TEXT,
     execution_location TEXT NOT NULL DEFAULT 'local'
         CHECK (execution_location IN ('local', 'cloud')),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -340,6 +347,82 @@ CREATE TABLE IF NOT EXISTS document_lifecycle_checks (
     FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 );
 
+-- ---------------------------------------------------------------------------
+-- Embeddings (schema 11, phase 1.9)
+-- ---------------------------------------------------------------------------
+--
+-- This is the canonical store, and it is a plain table on purpose. sqlite-vec's
+-- ``vec0`` virtual table is faster to query and is what ranking actually reads,
+-- but it is an *index*: it lives or dies with a loadable extension, and a
+-- database whose only copy of the vectors sat inside one would be unreadable by
+-- any tool that could not load it -- including a future resmon on a platform the
+-- extension has not been built for. Everything here can be read with a bare
+-- ``sqlite3`` shell, and ``vector_index.rebuild`` reconstructs the index from it.
+-- Dropping the index costs a rebuild; it never costs a vector.
+--
+-- ``model`` and ``dims`` are on the row rather than in a settings key because two
+-- models produce numbers that are not comparable, and a mixed table with one
+-- global "current model" would silently rank across both. The primary key is
+-- (document_id, model), so re-embedding under a new model adds a row rather than
+-- destroying the old one and switching back does not mean re-embedding.
+--
+-- ``fields`` records what text actually went in -- "title+abstract", or "title"
+-- for a paper whose abstract the source's terms did not let resmon keep. Two
+-- vectors built from different amounts of text are not equally informative, and
+-- the row says which is which rather than leaving it to be inferred.
+--
+-- ``vector`` is little-endian float32, the layout ``vec0`` expects, so the
+-- rebuild is a copy rather than a conversion.
+
+CREATE TABLE IF NOT EXISTS document_embeddings (
+    document_id INTEGER NOT NULL,
+    model       TEXT NOT NULL,
+    dims        INTEGER NOT NULL,
+    vector      BLOB NOT NULL,
+    fields      TEXT NOT NULL,
+    embedded_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (document_id, model),
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_embeddings_model
+    ON document_embeddings(model);
+
+-- ---------------------------------------------------------------------------
+-- Document links (schema 11, phase 1.9)
+-- ---------------------------------------------------------------------------
+--
+-- A near-duplicate is a *link*, never a merge. The same paper reaching resmon
+-- from arXiv and from Crossref is two records with two provenances, two sets of
+-- terms and two external ids, and collapsing them would throw away the thing the
+-- corpus is for: what each source actually said. Nothing in 1.9 deletes or hides
+-- a row. A link is an assertion laid beside two records, and the interface offers
+-- a per-view collapse the user turns on.
+--
+-- ``method`` names how the pair was found, because "these vectors are close" and
+-- "these two share a DOI" are different kinds of claim and the interface says
+-- which one it is making. ``score`` is only meaningful within a method.
+--
+-- The pair is stored once, with ``document_a < document_b`` enforced by the
+-- CHECK, so a lookup for either side is one query against a symmetric index
+-- rather than two rows that can disagree.
+
+CREATE TABLE IF NOT EXISTS document_links (
+    document_a  INTEGER NOT NULL,
+    document_b  INTEGER NOT NULL,
+    kind        TEXT NOT NULL,
+    score       REAL,
+    method      TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (document_a, document_b, kind),
+    CHECK (document_a < document_b),
+    FOREIGN KEY (document_a) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (document_b) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_links_b
+    ON document_links(document_b);
+
 """
 
 # Schema version constants. Bumped by IMPL-36 (→2), IMPL-37 (→3), and
@@ -351,8 +434,10 @@ CREATE TABLE IF NOT EXISTS document_lifecycle_checks (
 # ``document_lifecycle`` and ``document_lifecycle_checks`` for retraction,
 # preprint-to-published and version tracking; 8 promotes the per-run
 # deduplication figures out of the progress-events blob into columns, for the
-# reproducible search record.
-SCHEMA_VERSION = 10
+# reproducible search record. 9 adds ``execution_ai``; 10 adds the per-source
+# zero reason. 11 is the 1.9 embeddings platform: ``document_embeddings``,
+# ``document_links`` and ``routines.intent``, in one migration.
+SCHEMA_VERSION = 11
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -408,6 +493,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_execution_sources(conn)
     _migrate_dedup_columns(conn)
     _migrate_execution_sources_columns(conn)
+    _migrate_embeddings_and_links(conn)
     _migrate_schema_version(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
@@ -831,6 +917,34 @@ def _migrate_dedup_columns(conn: sqlite3.Connection) -> None:
         "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')",
         (_DEDUP_BACKFILL_KEY,),
     )
+    conn.commit()
+
+
+def _migrate_embeddings_and_links(conn: sqlite3.Connection) -> None:
+    """Schema 11 — the 1.9 embeddings platform, on an existing database.
+
+    ``document_embeddings`` and ``document_links`` are created by
+    ``_SCHEMA_SQL`` above (both are ``CREATE TABLE IF NOT EXISTS``), so the only
+    thing an upgrade needs here is the column that cannot be added that way:
+    ``routines.intent``.
+
+    There is deliberately **no backfill of ``intent``** from the keyword string.
+    The coverage audit falls back to the keywords when the column is NULL and
+    says in its output that it did so; writing the keywords into the column
+    instead would make every pre-1.9 routine claim the user had stated an intent
+    they never typed. Same rule as schema 10's zero reasons: "not recorded" and
+    "recorded as this" are different facts.
+
+    The ``vec0`` index is **not** created here. It is an index over the table
+    above, it needs a loadable extension this process may not have, and
+    ``vector_index`` builds it on demand. A migration that failed because an
+    extension would not load would be a database upgrade broken by an optional
+    feature.
+    """
+    cursor = conn.execute("PRAGMA table_info(routines)")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "intent" not in existing:
+        conn.execute("ALTER TABLE routines ADD COLUMN intent TEXT")
     conn.commit()
 
 

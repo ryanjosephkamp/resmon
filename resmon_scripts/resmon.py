@@ -95,7 +95,7 @@ from implementation_scripts.api_registry import list_repositories
 from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
     analytics, explorer, lifecycle, match_explain, reference_export,
-    search_record, watchdog,
+    search_record, vector_index, watchdog,
 )
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import admission
@@ -400,12 +400,34 @@ _STARTED_AT = datetime.now(timezone.utc).isoformat()
 
 @app.get("/api/health")
 def health():
-    """Liveness endpoint. Returns process identity so clients can attach-or-spawn."""
+    """Liveness endpoint. Returns process identity so clients can attach-or-spawn.
+
+    ``embeddings`` reports whether *this* backend can load the vector extension,
+    and why not when it cannot. It is here rather than on a route of its own
+    because the renderer already reads health on startup to decide what to show,
+    and phase 1.9's rule is that a feature whose dependency is missing is
+    **absent** rather than present-and-broken: the Explorer's similarity sort and
+    the similar-papers panel are not rendered when this says ``null``. A user is
+    told the reason in Settings, not by a control that does nothing.
+
+    The load is attempted against a real connection on every call rather than
+    read from a cached probe. It is a ``dlopen`` of a 165 KB library, and a
+    health endpoint that answered from memory would keep reporting a capability
+    the process had lost.
+    """
+    conn = _get_db()
+    try:
+        embeddings = vector_index.extension_status(conn)
+    except Exception as exc:  # pragma: no cover - defence; the status call catches its own
+        embeddings = {"extension": None, "reason": f"{type(exc).__name__}: {exc}"}
+    finally:
+        _close_db(conn)
     return {
         "status": "ok",
         "pid": os.getpid(),
         "started_at": _STARTED_AT,
         "version": APP_VERSION,
+        "embeddings": embeddings,
     }
 
 
