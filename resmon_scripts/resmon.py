@@ -94,8 +94,8 @@ from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
 from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
-    analytics, explorer, lifecycle, match_explain, reference_export,
-    search_record, vector_index, watchdog,
+    analytics, embedding_job, embeddings, explorer, lifecycle, match_explain,
+    reference_export, search_record, vector_index, watchdog,
 )
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import admission
@@ -589,6 +589,36 @@ def _build_prompt_params(merged: dict) -> dict:
     return params
 
 
+def _apply_embedding_settings_to_engine(engine: SweepEngine, exec_id: int, conn) -> None:
+    """Attach ``engine.embedding_lane``, or record why there is none.
+
+    Mirrors :func:`_apply_ai_settings_to_engine`. Separate from it on purpose:
+    the two lanes are configured independently, and a user who wants semantic
+    search without AI summaries — or the reverse — must not have to enable both.
+
+    **The extension is checked here rather than inside the engine**, because
+    that is where the honest message differs. Vectors are still written when the
+    index will not load; what is unavailable is *ranking*, and telling the user
+    that once per run beats a sweep that looks like it did nothing.
+    """
+    lane = _current_embedding_lane(conn)
+    engine.embedding_lane = lane
+    if lane is None:
+        return
+    extension = vector_index.extension_status(conn)
+    if extension["extension"] is None:
+        progress_store.emit(exec_id, {
+            "type": "log_entry",
+            "level": "warn",
+            "message": (
+                "Embedding will run, but this build cannot rank by meaning: "
+                f"{extension['reason']} The vectors are stored and will be usable "
+                "once the extension loads."
+            ),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+
 def _apply_ai_settings_to_engine(
     engine: SweepEngine,
     exec_id: int,
@@ -833,6 +863,10 @@ def _launch_execution(
             _apply_ai_settings_to_engine(
                 engine, exec_id, conn, ephemeral_credentials,
             )
+            # 1.9 — the embedding lane, resolved the same way and at the same
+            # point. It is independent of ``ai_enabled``: semantic search and AI
+            # summaries are separate features and a user may want either alone.
+            _apply_embedding_settings_to_engine(engine, exec_id, conn)
             try:
                 engine.run_prepared(exec_id)
             except Exception:
@@ -2769,6 +2803,13 @@ _SETTINGS_GROUPS = {
         "ai_subscription_doc_cap",
         "ai_effort",
     ],
+    # 1.9 — the embedding lane. Its key list is owned by
+    # ``embeddings.EMBEDDING_SETTING_KEYS`` rather than written out here, and the
+    # same tuple is spliced into the engine loader's read list below. Ledger 33
+    # was a setting that appeared in one of those two places and not the other:
+    # the PUT stored it and no run ever read it, for a whole release. One tuple,
+    # two uses, and ``test_embeddings_settings.py`` asserts both against it.
+    "embeddings": list(embeddings.EMBEDDING_SETTING_KEYS),
     "cloud": ["cloud_provider", "cloud_auto_backup"],
     "storage": ["pdf_policy", "txt_policy", "archive_after_days", "export_directory"],
     "notifications": ["notify_manual", "notify_automatic_mode"],
@@ -2919,6 +2960,279 @@ def get_ai_cli_status():
         providers.append(entry)
 
     return {"providers": providers}
+
+
+# ---------------------------------------------------------------------------
+# Embeddings (1.9)
+# ---------------------------------------------------------------------------
+
+
+def _load_embedding_settings(conn) -> dict:
+    """Read the persisted ``embedding_*`` settings.
+
+    Reads the **same tuple** ``_SETTINGS_GROUPS["embeddings"]`` is built from, so
+    a key cannot be storable and unreadable. Ledger 33 was that gap on the
+    subscription lane, and it survived a release because the test for it
+    monkeypatched the read path. ``test_embeddings_settings.py`` goes through
+    the real endpoints instead.
+    """
+    out: dict = {}
+    for key in embeddings.EMBEDDING_SETTING_KEYS:
+        try:
+            value = get_setting(conn, key)
+        except Exception:
+            value = None
+        if value is not None:
+            out[key] = value
+    return out
+
+
+def _current_embedding_lane(conn):
+    """The configured lane, or ``None``. ``None`` means the feature is off."""
+    return embeddings.build_lane(_load_embedding_settings(conn))
+
+
+def _embedding_capability(conn) -> dict:
+    """Whether this backend can rank at all, and what by.
+
+    ``available`` is the single answer the renderer gates on: it needs both a
+    loadable extension **and** vectors in the index. Either missing means the
+    sort option and the similar panel are absent rather than present and empty.
+    """
+    extension = vector_index.extension_status(conn)
+    lane = _current_embedding_lane(conn)
+    index = vector_index.index_state(conn)
+    reason = extension["reason"]
+    if extension["extension"] and index["rows"] == 0:
+        reason = (
+            "The vector extension is loaded, but nothing is embedded yet. "
+            "Configure an embedding model in Settings → AI and run the backfill."
+        )
+    return {
+        "available": bool(extension["extension"]) and index["rows"] > 0,
+        "extension": extension["extension"],
+        "reason": reason,
+        "model": index["model"] or (lane.model if lane else None),
+        "indexed": index["rows"],
+    }
+
+
+@app.get("/api/settings/embeddings")
+def get_embedding_settings():
+    """The stored settings, plus everything the tab needs to render honestly.
+
+    ``providers`` carries a *can embed* answer for every provider resmon lists,
+    including the ones that cannot, so the interface states the limitation rather
+    than quietly omitting the option. The evidence string travels with it: a user
+    reading "Anthropic does not offer an embeddings API" can see what that rests
+    on.
+    """
+    conn = _get_db()
+    try:
+        stored = _get_settings_group(conn, "embeddings")
+        lane = _current_embedding_lane(conn)
+        providers = [
+            {
+                "provider": name,
+                "state": answer.state,
+                "reason": answer.reason,
+                "evidence": answer.evidence,
+                "offered": answer.offered,
+                "default_model": answer.default_model,
+                "suggested_models": embeddings.suggested_models(name),
+            }
+            for name, answer in sorted(embeddings.PROVIDER_EMBEDDING.items())
+        ]
+        return {
+            "settings": stored,
+            "providers": providers,
+            "lane": lane.to_dict() if lane else None,
+            "capability": _embedding_capability(conn),
+            "status": embedding_job.backfill_job.status(
+                conn, lane.model if lane else None
+            ),
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/embeddings")
+def update_embedding_settings(body: SettingsBody):
+    """Store the settings, refusing a provider that cannot embed.
+
+    The refusal is **here**, at configuration, and not at backfill: P8. A user
+    who picks Anthropic learns it when they pick it, with the reason, rather than
+    after waiting for a run that was never going to produce anything.
+    """
+    provider = str(body.settings.get("embedding_provider") or "").strip().lower()
+    if provider:
+        answer = embeddings.can_embed(provider)
+        if answer.state == "no":
+            raise HTTPException(400, answer.reason)
+    conn = _get_db()
+    try:
+        previous = _current_embedding_lane(conn)
+        _set_settings_group(conn, "embeddings", body.settings)
+        current = _current_embedding_lane(conn)
+        # A model change invalidates the index, not the vectors. Rebuilding here
+        # rather than at the next query means the Settings page can say what the
+        # index now holds, and a user who switches back to a model they already
+        # embedded gets their ranking back without re-embedding anything.
+        if current and (previous is None or previous.model != current.model):
+            vector_index.rebuild(conn, current.model)
+        return {"success": True, "capability": _embedding_capability(conn)}
+    finally:
+        _close_db(conn)
+
+
+class EmbeddingProbeBody(BaseModel):
+    """An unsaved lane to probe, so a user can test before committing to it."""
+
+    settings: Optional[dict] = None
+
+
+@app.post("/api/embeddings/probe")
+def probe_embedding_lane(body: EmbeddingProbeBody | None = None):
+    """Ask the configured (or supplied) lane to embed one short string.
+
+    This is what turns a claim about a provider into a fact about this machine.
+    ``PROVIDER_EMBEDDING`` says what a vendor serves; only a probe says whether
+    this endpoint, this key and this model answer — and for a local server that
+    lists models and still refuses to embed, the probe is the entire difference
+    between a usable lane and a corpus with nothing to rank (P9).
+    """
+    conn = _get_db()
+    try:
+        if body is not None and body.settings:
+            merged = {**_load_embedding_settings(conn), **body.settings}
+            lane = embeddings.build_lane(merged)
+            if lane is None:
+                provider = str(merged.get("embedding_provider") or "").strip().lower()
+                answer = embeddings.can_embed(provider) if provider else None
+                return {
+                    "ok": False,
+                    "dims": None,
+                    "model": merged.get("embedding_model"),
+                    "reason": answer.reason if answer and answer.state == "no" else (
+                        "That is not a complete embedding lane: it needs to be enabled, "
+                        "with a provider and a model."
+                    ),
+                }
+        else:
+            lane = _current_embedding_lane(conn)
+        result = embeddings.probe_lane(lane)
+        # A successful probe is the only place resmon learns the width, so it is
+        # persisted: the interface can then say "768-dimensional" before a
+        # backfill rather than after.
+        if result["ok"] and lane is not None and result["dims"]:
+            set_setting(conn, "embedding_dims", str(result["dims"]))
+        return result
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/embeddings/status")
+def embedding_status():
+    """N of M embedded with model X, the run, the index, and the extension."""
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        payload = embedding_job.backfill_job.status(conn, lane.model if lane else None)
+        payload["lane"] = lane.to_dict() if lane else None
+        payload["capability"] = _embedding_capability(conn)
+        return payload
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/embeddings/estimate")
+def embedding_estimate():
+    """What a backfill would cost, before it starts.
+
+    Built from the real pending set and the real text builder, not from an
+    average: the number a user is shown is computed from the documents that will
+    actually be sent.
+    """
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        if lane is None:
+            raise HTTPException(400, "No embedding lane is configured.")
+        todo = embedding_job.pending_ids(conn, lane.model)
+        texts: list[str] = []
+        for start in range(0, len(todo), 500):
+            chunk = todo[start:start + 500]
+            rows = conn.execute(
+                f"SELECT title, abstract FROM documents WHERE id IN "
+                f"({','.join('?' for _ in chunk)})",
+                chunk,
+            ).fetchall()
+            for row in rows:
+                text, _fields = embeddings.build_text(
+                    row["title"], row["abstract"], lane.input_limit
+                )
+                if text.strip():
+                    texts.append(text)
+        return embeddings.estimate_cost(lane, texts)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/embeddings/backfill")
+def start_embedding_backfill():
+    """Embed every document lacking a vector for the active model.
+
+    Returns immediately; poll ``GET /api/embeddings/status``. Resumable by
+    construction — the work remaining is a query, not a stored cursor — so a
+    cancelled run restarts where the corpus is, not where the last run thought
+    it was.
+    """
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        if lane is None:
+            raise HTTPException(
+                400,
+                "No embedding lane is configured. Choose a provider and model in "
+                "Settings → AI → Embeddings first.",
+            )
+        probe = embeddings.probe_lane(lane)
+        if not probe["ok"]:
+            # Refused before the run rather than during it. A thousand documents
+            # against a model that cannot embed is a thousand identical
+            # refusals, and on a metered provider it is a thousand charges.
+            raise HTTPException(400, probe["reason"])
+        try:
+            started = embedding_job.backfill_job.start(_open_connection, lane)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from None
+        return {"status": "started", "run": started}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/embeddings/backfill/cancel")
+def cancel_embedding_backfill():
+    """Stop after the batch in flight. Vectors already written are kept."""
+    return embedding_job.backfill_job.cancel()
+
+
+@app.post("/api/embeddings/rebuild")
+def rebuild_embedding_index():
+    """Rebuild the vector index from the canonical table.
+
+    Exposed because the index is derived and the table is not: a database copied
+    from a machine that could not load the extension arrives with every vector
+    and no index, and this is the one action that fixes it.
+    """
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        if lane is None:
+            raise HTTPException(400, "No embedding lane is configured.")
+        return vector_index.rebuild(conn, lane.model)
+    finally:
+        _close_db(conn)
 
 
 @app.get("/api/settings/cloud")
