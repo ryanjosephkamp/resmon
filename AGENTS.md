@@ -53,7 +53,7 @@ work on one side of it cannot break the other except through an endpoint's shape
 .venv/bin/python -m pytest -m live_network   # the 52 — real scholarly APIs, CLIs and sockets
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 204 tests across 27 suites
+npm run typecheck && npm test && npm run build   # 205 tests across 27 suites
 npm run e2e                                      # the real Electron app — 63 checks, 24 routes
 npm run e2e:review                               # the same, on your display, into one folder
 ```

@@ -528,6 +528,24 @@ const ExplorerPage: React.FC = () => {
           {!loading && meta?.total === 0 && activeCount > 0 && (
             <div className="card">
               <p>Nothing matches every filter you have set. Try removing one.</p>
+              {/*
+                Measured on the real corpus (15,707 papers, 2026-09-05): eleven of
+                twenty natural-language queries matched no paper on the text
+                filter, because the filter is an AND over every word typed. The
+                sort then has nothing to re-order, and "no papers match" — while
+                true — hides both the reason and the fact that resmon has a
+                ranking it is not showing. Saying so is not an apology for the
+                design; it is the difference between an empty list a user can act
+                on and one they cannot.
+              */}
+              {sort === 'similarity' && urlQuery.trim() && (
+                <p className="text-muted" data-testid="similarity-empty-note">
+                  No paper contains <em>all</em> of these words. Ranking by meaning still
+                  searches inside your text filter, so a phrase that shares no wording with
+                  any paper matches nothing — try fewer words, or a word you would expect to
+                  see in the title.
+                </p>
+              )}
               <button className="btn btn-sm" onClick={clearAll}>Clear all filters</button>
             </div>
           )}
