@@ -56,7 +56,10 @@ Measured on a copy of a real 15,707-paper corpus:
 | Cost, OpenAI `text-embedding-3-small` | about **$0.09** for the same corpus |
 | Database growth | 33 MB → 174 MB — about **9 KB per paper** |
 
-That last row is the real price and it is worth knowing before you press the button. The
+That last row is the real price and it is worth knowing before you press the button — so
+**Settings shows it before you start**, beside the token cost, computed from the model's own
+vector width. A local model is free to call and still fills the disk, and the panel says
+both. The
 vectors are stored **twice**: once in a plain table any SQLite can read, and once in the
 search index. That is deliberate. An index needs a loadable extension, and a database whose
 only copy of the vectors lived inside one would be unreadable by anything that could not
@@ -83,14 +86,20 @@ wrong answer rather than a degraded one.
 
 ## Where the limits are, stated plainly
 
-**Sorting by meaning searches inside your text filter.** The Explorer's Closest sort
-re-orders the papers your filters already matched — it does not go looking for new ones. The
-text box is an AND over every word you type, so a plain-English question that shares no
-wording with any paper title matches nothing, and there is nothing left to rank. Tested
-against the real corpus with twenty queries, **eleven matched no paper this way** even
-though the corpus held relevant work for almost all of them. Fewer words, or a word you
-would expect to see in a title, is the workaround today. The empty state says so rather than
-leaving you to guess.
+**Closest and Newest can return different numbers of papers, and that is the feature.**
+Newest matches on the words you type. Closest instead ranks everything your *other* filters
+allow — source, category, author, date — by how near it is to your phrase, so it will show
+you a paper that contains none of your words. Ask it *how do cells decide to divide* and it
+answers with work on asymmetric division; a word-match returns nothing at all, because no
+title contains that sentence.
+
+This is the one thing in the release that was designed one way and shipped another. The
+first build ranked *inside* the word filter, which sounds safer and is: switching the sort
+could never change which papers you were looking at. Then it was measured against a real
+15,707-paper corpus with twenty ordinary questions, and **eleven of them returned an empty
+page** while the vectors, asked directly, found a relevant paper for nearly every one. A
+control that says "Closest to" and answers from a keyword match is not doing what it says,
+so it was changed before this shipped.
 
 **Distances compare titles and abstracts, not full text.** resmon does not store full text
 and does not pretend to. And 19% of this corpus has no abstract at all — mostly sources

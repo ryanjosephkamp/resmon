@@ -36,19 +36,30 @@ exact five-digit number.
 
 Sorting by meaning (1.9)
 ------------------------
-``sort="similarity"`` re-orders **the same filtered set** that ``sort="newest"``
-returns. It is a sort, not a search: the filters choose the papers and the
-ranking chooses their order, so the two sorts answer with the same ``total`` and
-the same set of ids. Anything else would make a sort control silently change what
-a user is looking at.
+``sort="similarity"`` ranks the corpus by distance from the search phrase,
+**within the structured filters** — sources, authors, categories, dates. Those
+still choose which papers are in scope and switching sort never changes them.
+The free-text phrase is the exception: in this sort it is what the ranking is
+measured against, not a filter.
 
-Two consequences follow, and both are deliberate.
+That exception was bought with a measurement. The text filter is an ``AND`` over
+every word typed, so a plain-English query matches no paper and the sort has
+nothing to re-order. On the real 15,707-paper corpus, **eleven of twenty natural
+queries returned an empty page** while the same vectors, unfiltered, found a
+relevant paper for almost every one. A control labelled "Closest to" that
+answers from a keyword slice is not doing what it says.
+
+Three consequences follow, and all are deliberate.
 
 **Papers with no vector are appended, not dropped.** A corpus mid-backfill, or
 one holding papers whose sources' terms permitted no abstract, would otherwise
 lose rows the moment somebody changed the sort. They come last, in the newest
 order, and the response counts them so the interface can say how many are
 unranked.
+
+**The two sorts can return different totals, and that is the point.** ``newest``
+answers the text filter; ``similarity`` answers the phrase. A caller that needs
+the keyword set asks for ``newest``.
 
 **Pagination becomes an offset.** Keyset pagination needs a sort key stored in an
 index; a ranking is computed per query and has none. The cursor in this mode is
@@ -291,14 +302,27 @@ def _search_by_similarity(
     query_vector: Optional[bytes],
     model: Optional[str],
 ) -> dict:
-    """The same filtered set, re-ordered by distance. See the module docstring.
+    """The corpus, ranked by distance, within the structured filters.
 
-    The invariant this function exists to keep (P4) is that ``total`` and the id
-    set are **identical** to the newest sort for the same filters. It is kept by
-    construction rather than by care: the candidate set is
-    :func:`matching_ids`, which is the same ``_build_where`` the other sort uses,
-    and everything after that is a permutation of it plus an append of whatever
-    the ranking did not cover.
+    **The free-text phrase is the ranking query and not a filter here** — the one
+    thing that separates this from the newest sort, and the change 1.9a's field
+    test forced. Sources, authors, categories and dates still apply exactly as
+    they do everywhere else; the phrase does not.
+
+    Why: the text filter is an ``AND`` over every word typed, so a plain-English
+    query shares no wording with any title and matches nothing, leaving the sort
+    with nothing to re-order. Measured on the real 15,707-paper corpus,
+    **eleven of twenty natural queries returned an empty page** while the same
+    vectors, unfiltered, found a relevant paper for almost all of them. The
+    control says "Closest to", and a control that says that and then answers
+    from a keyword slice is not doing what its label promises.
+
+    The invariant that survives, and that P4 now states, is about the
+    *structured* filters: switching sort never changes which sources, authors,
+    categories or dates are in scope. It is kept by construction — the candidate
+    set is :func:`matching_ids` with ``query=None``, the same ``_build_where``
+    the other sort uses minus the one clause — and everything after is a
+    permutation of it plus an append of whatever the ranking did not cover.
     """
     if not query_vector or not model:
         # A similarity sort with nothing to be similar to. Rather than silently
@@ -317,11 +341,10 @@ def _search_by_similarity(
         )
         return page
 
-    # The candidate set, in the default order and bounded by the same cap the
-    # newest sort counts to. This is the whole of the P4 guarantee: everything
-    # below permutes this list.
+    # ``query=None`` is the whole of R1. Everything else the user set still
+    # narrows the corpus; the phrase they typed only orders what is left.
     candidates = matching_ids(
-        conn, query=query, sources=sources, authors=authors,
+        conn, query=None, sources=sources, authors=authors,
         categories=categories, date_from=date_from, date_to=date_to,
         limit=COUNT_CAP,
     )
@@ -354,9 +377,10 @@ def _search_by_similarity(
         "total": min(len(ordered_ids), COUNT_CAP),
         "total_is_capped": total_is_capped,
         "count_cap": COUNT_CAP,
-        # The filters ran through the same ``_build_where``; whether FTS served
-        # them is a property of the filter, not of the sort.
-        "used_full_text_index": _fts_available(conn) and bool(query and query.strip()),
+        # False, always, and not an oversight: this sort does not run the phrase
+        # through FTS at all. Reporting True because an index exists would tell
+        # a caller the text index shaped this result set when it did not.
+        "used_full_text_index": False,
         "page_size": limit,
         "sort": "similarity",
         "ranked_count": len(ranked),

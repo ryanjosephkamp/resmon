@@ -226,15 +226,22 @@ describe('Explorer page — ranking by meaning', () => {
     expect(screen.queryByTestId('rank-note')).toBeNull();
   });
 
-  test('an empty ranked result explains that the text filter is what emptied it', async () => {
-    // Measured on the real corpus: 11 of 20 natural-language queries match no
-    // paper on the AND-over-words text filter, so this is the common case, not
-    // the edge one. "No papers match" alone hides both the reason and the fact
-    // that a corpus-wide ranking would have had an answer.
-    mockApi({ ...RESULTS, results: [], total: 0, sort: 'similarity' }, CAN_RANK);
-    await renderAt('/explorer?q=how+do+cells+decide+to+divide&sort=similarity');
-    const note = screen.getByTestId('similarity-empty-note').textContent || '';
-    expect(note).toContain('Ranking by meaning still searches inside your text filter');
+  test('the two sorts are explained as answering different questions', async () => {
+    // Revision 1. Newest filters on the words; Closest ranks the corpus within
+    // the other filters. A user who does not know that reads a changed result
+    // count as a bug, so it is said once, beside the control.
+    mockApi(RESULTS, CAN_RANK);
+    await renderAt('/explorer?q=diffusion');
+    const note = screen.getByTestId('sort-explainer').textContent || '';
+    expect(note).toContain('matches on the words you type');
+    expect(note).toContain('do not contain your words');
+    expect(note).toContain('different numbers of papers');
+  });
+
+  test('the explainer is absent when the sort control is', async () => {
+    mockApi(RESULTS, NO_EMBEDDINGS);
+    await renderAt('/explorer?q=diffusion');
+    expect(screen.queryByTestId('sort-explainer')).toBeNull();
   });
 
   test('asking to rank with no search phrase says what is missing', async () => {

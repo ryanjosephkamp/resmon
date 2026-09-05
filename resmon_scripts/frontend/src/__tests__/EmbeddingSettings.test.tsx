@@ -161,3 +161,47 @@ test('a run that stopped early says why', async () => {
   expect(text).toContain('cannot produce embeddings');
   expect(text).toContain('3 paper(s) had no title or abstract');
 });
+
+test('the disk estimate is shown beside the cost, and says so for a free lane', async () => {
+  // R2. Free to call is not free to store. The panel must not let a user infer
+  // that a local model costs nothing at all.
+  mockApi();
+  (global as any).fetch = jest.fn(async (url: string) => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => 'application/json' },
+    json: async () => {
+      const u = String(url);
+      if (u.includes('/api/embeddings/estimate')) {
+        return {
+          documents: 15707, estimated_tokens: 4704204, cost_usd: 0.0,
+          disk_bytes: 140_599_296,
+          disk_note: 'About 134 MiB of database growth (768-dimensional vectors, stored '
+            + 'once in a plain table and once in the search index).',
+          note: 'A local model runs on your machine and costs nothing to call.',
+        };
+      }
+      if (u.includes('/api/embeddings/status')) return STATUS;
+      return {
+        settings: { embedding_enabled: 'true', embedding_provider: 'local',
+                    embedding_model: 'nomic-embed-text', embedding_endpoint: '',
+                    embedding_base_url: '' },
+        providers: PROVIDERS, lane: { model: 'nomic-embed-text', kind: 'local' },
+        capability: { available: true, extension: 'v0.1.9', reason: null,
+                      model: 'nomic-embed-text', indexed: 120 },
+        status: STATUS,
+      };
+    },
+    text: async () => '',
+  }));
+
+  await act(async () => { render(<EmbeddingSettings />); });
+  await act(async () => { fireEvent.click(screen.getByText('Estimate first')); });
+
+  const disk = screen.getByTestId('embedding-disk-estimate').textContent || '';
+  expect(disk).toContain('134 MiB');
+  expect(disk).toContain('database growth');
+  // And the money line still says the calls are free — the two are separate claims.
+  expect(screen.getByTestId('embedding-estimate').textContent)
+    .toContain('costs nothing to call');
+});

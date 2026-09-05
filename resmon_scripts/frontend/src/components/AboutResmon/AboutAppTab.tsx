@@ -72,7 +72,11 @@ const socialLinks: SocialLink[] = [
 ];
 
 const AboutAppTab: React.FC = () => {
-  const [backendVersion, setBackendVersion] = useState<string>('1.5.0');
+  // Empty, not a hardcoded number. A version the backend never reported is a
+  // version resmon does not know, and `1.5.0` was still the default here at
+  // 1.8.7 -- so an app that could not reach its own backend confidently
+  // displayed a release from four months earlier.
+  const [backendVersion, setBackendVersion] = useState<string>('');
 
   useEffect(() => {
     let cancelled = false;
@@ -81,11 +85,18 @@ const AboutAppTab: React.FC = () => {
         const h = await apiClient.get<HealthResponse>('/api/health');
         if (!cancelled && h?.version) setBackendVersion(h.version);
       } catch {
-        // Keep the default version when daemon health is unavailable.
+        // Leave it empty; the card says "not reported yet" rather than guessing.
       }
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // "1.9.0" -> "1.9.x". Empty while the version is unknown, so the card omits
+  // the line rather than showing a half-built one.
+  const releaseLine = (() => {
+    const parts = backendVersion.split('.');
+    return parts.length >= 2 ? `${parts[0]}.${parts[1]}.x` : '';
+  })();
 
   return (
     <div className="settings-panel about-app-panel">
@@ -111,36 +122,44 @@ const AboutAppTab: React.FC = () => {
       <div className="about-grid">
         <section className="about-card">
           <h3>Version</h3>
-          <p><strong>resmon</strong> version <strong>{backendVersion || '1.5.0'}</strong></p>
-          <p className="text-muted">Current release line: 1.5.x</p>
+          <p>
+            <strong>resmon</strong> version{' '}
+            <strong>{backendVersion || 'not reported yet'}</strong>
+          </p>
+          {/*
+            Derived from the version the backend actually reported, never
+            written down. This line read "Current release line: 1.5.x" from
+            1.5.0 until 1.9.0 -- through eleven releases -- because it was a
+            literal, and Delegation 09 found it on the published v1.8.7
+            installer. A fact a person has to remember to update is a fact that
+            will be wrong.
+          */}
+          {releaseLine && (
+            <p className="text-muted">Current release line: {releaseLine}</p>
+          )}
         </section>
 
+        {/*
+          This card used to carry a hand-written copy of one release's notes. It
+          said **Update 7 — Explorer** from 1.5.0 until 1.9.0, describing a
+          four-month-old feature as the recent one, and Delegation 09 found it
+          that way on the published v1.8.7 installer. The fix is not to rewrite
+          it: a second copy of the release notes, maintained by hand, is a copy
+          that goes stale again. The Blog tab already renders the real feed.
+        */}
         <section className="about-card">
           <h3>Recent Update</h3>
           <p>
-            <strong>Update 7</strong> — Explorer: Every Paper You Have Ever Collected, in One Place.
+            Every release is written up on the <strong>Blog</strong> tab, which reads the
+            published feed rather than a copy kept here — so it is the current one, not
+            whichever one somebody last remembered to paste in.
           </p>
           <p className="text-muted">
-            A new <strong>Explorer</strong> page searches your whole corpus rather than one
-            execution at a time. Filter by author, source, subject category and publication
-            date, or search titles and abstracts together; every filter value shows how many
-            papers carry it, and filters combine, so a paper has to satisfy all of them.
-            Your filters live in the address bar, so a filtered view can be bookmarked,
-            reloaded or shared — and clicking a source or a category on the Analytics page
-            opens the Explorer already narrowed to it. That link is the point: noticing
-            something in a chart is only useful if you can go and read the papers behind it.
-          </p>
-          <p className="text-muted">
-            <strong>BibTeX</strong>, <strong>RIS</strong> and <strong>CSV</strong> export
-            everything matching your filters, not just the papers on screen.
-          </p>
-          <p className="text-muted">
-            Underneath, resmon gained the indexes it never had. Free-text search runs against
-            a full-text index instead of reading every abstract; authors and categories are
-            filtered through indexed tables instead of being parsed out of text at query time;
-            and paging through results seeks by sort key rather than counting rows. Measured
-            on a hundred thousand papers, every query completes in well under a tenth of a
-            second, and a page deep in the results takes a third of a millisecond.
+            About resmon &rarr; Blog, or{' '}
+            <a href="https://ryanjosephkamp.github.io/resmon/" target="_blank" rel="noreferrer noopener">
+              ryanjosephkamp.github.io/resmon
+            </a>{' '}
+            in a browser.
           </p>
         </section>
 

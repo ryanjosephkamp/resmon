@@ -338,6 +338,45 @@ def test_a_priced_model_gives_a_number_with_the_date_it_was_read():
     assert "2026-09-05" in estimate["note"]
 
 
+def test_the_disk_estimate_is_derived_from_the_measured_cost_per_paper(server):
+    """R2. The number a user sees before pressing Backfill.
+
+    A 768-dimension vector is 3,072 bytes of float32 and is stored **twice** —
+    canonical table and search index. The real corpus grew 8,951 B/paper, so the
+    estimate is the payload times the measured overhead factor, not the payload.
+    """
+    lane = _lane(server, dims=768)
+    estimate = embeddings.estimate_cost(lane, ["a" * 400] * 1000)
+    assert estimate["disk_bytes"] is not None
+    per_paper = estimate["disk_bytes"] / 1000
+    # Within a byte of the field test's 8,951, because that is where it comes from.
+    assert 8_900 < per_paper < 9_000, per_paper
+    assert "MiB of database growth" in estimate["disk_note"]
+    assert "768-dimensional" in estimate["disk_note"]
+
+
+def test_an_unprobed_lane_says_it_cannot_estimate_disk_rather_than_guessing_a_width(server):
+    """``dims`` is only known after a probe. A default width would be a made-up number."""
+    estimate = embeddings.estimate_cost(_lane(server), ["a" * 400])
+    assert estimate["disk_bytes"] is None
+    assert "cannot estimate the disk cost" in estimate["disk_note"]
+
+
+def test_disk_is_estimated_for_a_free_local_lane_too():
+    """Free to call is not free to store, and the panel must not imply otherwise."""
+    lane = EmbeddingLane(kind="local", provider="local", model="m",
+                         endpoint="http://127.0.0.1:1", dims=768)
+    estimate = embeddings.estimate_cost(lane, ["x"] * 10)
+    assert estimate["cost_usd"] == 0.0
+    assert estimate["disk_bytes"] and estimate["disk_bytes"] > 0
+
+
+def test_estimate_disk_bytes_refuses_nonsense_rather_than_returning_zero():
+    assert embeddings.estimate_disk_bytes(None, 100) is None
+    assert embeddings.estimate_disk_bytes(0, 100) is None
+    assert embeddings.estimate_disk_bytes(768, 0) is None
+
+
 # ---------------------------------------------------------------------------
 # P3 — the backfill
 # ---------------------------------------------------------------------------
