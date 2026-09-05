@@ -31,6 +31,7 @@ from .database import (
     record_execution_source,
 )
 from .logger import TaskLogger
+from .embedding_job import embed_documents, pending_ids
 from .normalizer import normalize_result, validate_result, deduplicate_batch
 from .progress import progress_store
 from .report_generator import generate_report, save_report
@@ -476,6 +477,11 @@ class SweepEngine:
             update_current_stage(self.db, exec_id, "linking")
 
             new_count = 0
+            # The ids this run touched, for the embedding step below. Collected
+            # here rather than re-queried: this loop already knows them, and a
+            # second pass over the corpus to rediscover them would be a scan for
+            # no reason.
+            linked_ids: list[int] = []
             total_to_link = len(all_results)
             link_emit_every = max(1, total_to_link // 20) if total_to_link else 1
             for link_idx, result in enumerate(all_results):
@@ -488,6 +494,7 @@ class SweepEngine:
                 if doc_row:
                     is_new = doc_row.get("first_seen_at", "") >= start_time
                     link_execution_document(self.db, exec_id, doc_row["id"], is_new=is_new)
+                    linked_ids.append(int(doc_row["id"]))
                     if is_new:
                         new_count += 1
                 if total_to_link and (link_idx + 1) % link_emit_every == 0:
@@ -498,6 +505,15 @@ class SweepEngine:
                         "new_count": new_count,
                         "timestamp": now_iso(),
                     })
+
+            # 5b. Embed what this run touched (1.9).
+            #
+            # After linking rather than after dedup, because this is the first
+            # point at which the document ids exist; before reporting, so a
+            # sweep is finished when its papers are searchable. Never inside a
+            # source call: an embedding endpoint that is slow or down must not
+            # hold a rate-limited scholarly API's connection open.
+            self._embed_linked_documents(exec_id, store, task_log, linked_ids)
 
             # 6. Generate report
             store.emit(exec_id, {
@@ -906,6 +922,119 @@ class SweepEngine:
     # ------------------------------------------------------------------
     # Cancellation
     # ------------------------------------------------------------------
+
+    def _embed_linked_documents(
+        self, exec_id: int, store, task_log, linked_ids: list[int]
+    ) -> None:
+        """Embed this execution's documents, or record exactly why it did not (1.9).
+
+        The lane is attached by ``resmon._apply_embedding_settings_to_engine``,
+        the way ``ai_lanes`` is. ``None`` means the feature is off, which is the
+        state most installs are in and is not a failure.
+
+        **Three separate skip reasons, and each is recorded rather than
+        summarised.** No lane configured, the extension will not load, and the
+        lane refused are different conditions with different remedies, and a run
+        that said only "embedding skipped" would leave the user to guess which.
+        The extension case still writes vectors: they are in
+        ``document_embeddings`` and a later rebuild picks them up, so a machine
+        that cannot rank today is not a machine that has to re-embed tomorrow.
+
+        Nothing here can fail the sweep. A sweep's job is to find papers; an
+        embedding endpoint being down is a reason some of them are not yet
+        searchable by meaning, not a reason to discard the run.
+        """
+        lane = getattr(self, "embedding_lane", None)
+        if lane is None:
+            return
+        if not linked_ids:
+            return
+
+        try:
+            todo = pending_ids(self.db, lane.model, within=linked_ids)
+        except Exception as exc:  # pragma: no cover - defence around an optional step
+            logger.warning("could not determine what to embed: %s", exc)
+            return
+
+        # ``pending_ids`` rather than "the new ones". A document this run
+        # returned that is already in the corpus but has no vector -- because it
+        # predates the lane, or a backfill was cancelled -- is embedded here, and
+        # one that already has a vector is not re-embedded. The set is bounded by
+        # this execution either way, and it is self-healing rather than merely
+        # correct for new rows.
+        if not todo:
+            return
+
+        store.emit(exec_id, {
+            "type": "ai_progress",
+            "stage": "embedding",
+            "processed": 0,
+            "total": len(todo),
+            "model": lane.model,
+            "message": f"Embedding {len(todo)} document(s) with {lane.model}...",
+            "timestamp": now_iso(),
+        })
+        update_current_stage(self.db, exec_id, "embedding")
+
+        def _progress(done: int, total: int) -> None:
+            store.emit(exec_id, {
+                "type": "ai_progress",
+                "stage": "embedding",
+                "processed": done,
+                "total": total,
+                "model": lane.model,
+                "timestamp": now_iso(),
+            })
+
+        try:
+            outcome = embed_documents(
+                self.db, lane, todo,
+                should_cancel=lambda: store.should_cancel(exec_id),
+                on_batch=_progress,
+            )
+        except Exception as exc:  # pragma: no cover - embed_documents catches its own
+            task_log.log(f"Embedding failed and the run continued: {exc}")
+            store.emit(exec_id, {
+                "type": "log_entry",
+                "level": "warn",
+                "message": f"Embedding skipped: {exc}",
+                "timestamp": now_iso(),
+            })
+            return
+
+        # The count goes in the task log as well as the event stream, because
+        # the event stream is cleaned up after the run and the log is what a
+        # user reads afterwards to find out what happened.
+        task_log.log(
+            f"Embedded {outcome['embedded']} of {len(todo)} document(s) with "
+            f"{lane.model}"
+            + (f"; {outcome['skipped_no_text']} had no text to embed"
+               if outcome["skipped_no_text"] else "")
+            + (f"; stopped: {outcome['reason']}" if outcome["reason"] else "")
+        )
+        store.emit(exec_id, {
+            "type": "ai_progress",
+            "stage": "embedding",
+            "processed": outcome["embedded"],
+            "total": len(todo),
+            "model": lane.model,
+            "skipped_no_text": outcome["skipped_no_text"],
+            "reason": outcome["reason"],
+            "message": (
+                f"Embedded {outcome['embedded']} of {len(todo)} with {lane.model}."
+                if outcome["reason"] is None
+                else f"Embedding stopped after {outcome['embedded']} of "
+                     f"{len(todo)}: {outcome['reason']}"
+            ),
+            "timestamp": now_iso(),
+        })
+        if outcome["reason"] and not outcome["cancelled"]:
+            store.emit(exec_id, {
+                "type": "log_entry",
+                "level": "warn",
+                "message": f"Embedding stopped: {outcome['reason']}",
+                "timestamp": now_iso(),
+            })
 
     def _record_dedup(self, exec_id: int, stats: dict) -> None:
         """Persist the deduplication figures, and never let it break a sweep.
