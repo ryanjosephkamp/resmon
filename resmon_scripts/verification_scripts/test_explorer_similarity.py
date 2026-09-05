@@ -94,7 +94,6 @@ def _filter_field_names() -> list[str]:
 # corpus built below. ``None``/``[]`` would exercise the unfiltered path six
 # times over and prove nothing about the fields.
 _FILTER_CASES: dict[str, dict] = {
-    "query": {"query": "quantum"},
     "sources": {"sources": ["arxiv"]},
     "authors": {"authors": ["A. Author"]},
     "categories": {"categories": ["cs.AI"]},
@@ -102,10 +101,27 @@ _FILTER_CASES: dict[str, dict] = {
     "date_to": {"date_to": "2026-01-31"},
 }
 
+# ``query`` is deliberately **not** a P4 case, and this is the restatement
+# revision 1 asked for.
+#
+# In the similarity sort the free-text phrase is the *ranking query*, not a
+# filter. Requiring the two sorts to return the same set for the same ``query``
+# is exactly what made eleven of twenty real queries answer with an empty page:
+# the text filter is an AND over every word typed, so a plain-English phrase
+# matched nothing and there was nothing left to rank.
+#
+# The invariant that remains is about the **structured** filters, and it is the
+# one that protects a user: switching sort never changes which sources, authors,
+# categories or dates are in scope. ``query``'s own behaviour is asserted
+# positively below, in
+# ``test_the_phrase_ranks_rather_than_filters_in_similarity_mode`` — so the field
+# is covered by a stronger claim than the one it was removed from, not by none.
+_QUERY_IS_NOT_A_FILTER = "query"
+
 
 def test_the_filter_cases_cover_every_field_of_explorer_filters():
     """A filter added to the model without a case here fails, by construction."""
-    assert sorted(_FILTER_CASES) == _filter_field_names()
+    assert sorted([*_FILTER_CASES, _QUERY_IS_NOT_A_FILTER]) == _filter_field_names()
 
 
 @pytest.fixture
@@ -135,7 +151,11 @@ def mixed_corpus(conn):
 
 @pytest.mark.parametrize("field", sorted(_FILTER_CASES))
 def test_similarity_returns_the_same_total_and_id_set_as_newest(field, conn, mixed_corpus):
-    """P4, once per filter field. 6 of 6, from ``ExplorerFilters.model_fields``."""
+    """P4 (restated). 5 of 5 **structured** filter fields; ``query`` is not one.
+
+    The denominator is still ``ExplorerFilters.model_fields`` — the test above
+    asserts that these five plus ``query`` account for all of it.
+    """
     filters = _FILTER_CASES[field]
 
     newest = explorer.search(conn, limit=200, **filters)
@@ -150,6 +170,39 @@ def test_similarity_returns_the_same_total_and_id_set_as_newest(field, conn, mix
     )
     assert ranked["total_is_capped"] == newest["total_is_capped"]
     assert ranked["sort"] == "similarity" and newest["sort"] == "newest"
+
+
+def test_the_phrase_ranks_rather_than_filters_in_similarity_mode(conn, mixed_corpus):
+    """R1, the positive claim that replaces ``query``'s P4 row.
+
+    A phrase no paper contains returns the **whole** structured-filter scope,
+    ranked — where the newest sort correctly returns nothing, because there it
+    *is* a filter. This is the case the field test measured eleven times over.
+    """
+    phrase = "a phrase no paper in this corpus contains anywhere"
+
+    keyword = explorer.search(conn, limit=200, query=phrase)
+    assert keyword["total"] == 0, "the phrase must match nothing as a text filter"
+
+    ranked = explorer.search(
+        conn, limit=200, query=phrase, sort="similarity",
+        query_vector=_v(1.0, 0.0, 0.0), model=MODEL,
+    )
+    assert ranked["sort"] == "similarity"
+    assert ranked["total"] == 5, "the ranking covers the corpus, not the keyword slice"
+    assert ranked["ranked_count"] == 4 and ranked["unranked_count"] == 1
+    # And it is not claiming the text index shaped this.
+    assert ranked["used_full_text_index"] is False
+
+
+def test_the_structured_filters_still_bind_when_the_phrase_does_not(conn, mixed_corpus):
+    """The other half of R1: dropping the text filter drops *only* the text filter."""
+    ranked = explorer.search(
+        conn, limit=200, query="a phrase no paper contains", sort="similarity",
+        query_vector=_v(1.0, 0.0, 0.0), model=MODEL, sources=["pubmed"],
+    )
+    assert {r["source_repository"] for r in ranked["results"]} == {"pubmed"}
+    assert ranked["total"] == 2
 
 
 def test_the_order_actually_changes_or_the_test_above_proves_nothing(conn, mixed_corpus):

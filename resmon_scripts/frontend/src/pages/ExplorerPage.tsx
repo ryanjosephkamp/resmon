@@ -359,9 +359,13 @@ const ExplorerPage: React.FC = () => {
                 When an embedding model is set up in <strong>Settings &rarr; AI &rarr;
                 Embeddings</strong>, a <strong>Sort</strong> control appears and can
                 order results by how close each paper is to what you typed, rather than
-                by date. It is a <em>sort</em>, not a second search: the same papers come
-                back, in a different order, so switching it never changes which papers
-                you are looking at. Each row shows its distance — smaller is closer — and
+                by date. <strong>Closest ranks the whole corpus within your other
+                filters</strong> — source, category, author, date still apply and the sort
+                does not touch them — but the phrase itself stops being a word filter and
+                becomes the thing distance is measured from. So Closest will show you a
+                paper containing none of your words, which is the point of it, and the two
+                sorts can return different numbers of papers. Each row shows its
+                distance — smaller is closer — and
                 papers resmon has not embedded yet are listed last and marked{' '}
                 <em>not ranked</em>, because they have not been judged distant, they have
                 not been judged. If the control is not there, this build has no embedding
@@ -494,6 +498,23 @@ const ExplorerPage: React.FC = () => {
           </div>
 
           {/*
+            Said once, beside the control, because the two sorts answer
+            different questions and a user who does not know that will read a
+            changed result count as a bug. Newest filters on the words you
+            typed; Closest ranks everything the *other* filters allow by how
+            near it is to them, which is why it can show a paper containing
+            none of them -- and why it is the sort that finds a paraphrase.
+          */}
+          {capabilityLoaded && capability.available && (
+            <p className="explorer-rank-note" data-testid="sort-explainer">
+              <strong>Newest</strong> matches on the words you type.{' '}
+              <strong>Closest</strong> ranks every paper your other filters allow — source,
+              category, author, date — by how near it is to your phrase, so it finds papers
+              that do not contain your words. The two can return different numbers of papers.
+            </p>
+          )}
+
+          {/*
             What the list is actually ordered by, stated rather than implied.
             Three cases and they are genuinely different: a ranking happened; a
             ranking was asked for and declined; a ranking is available but has
@@ -528,24 +549,6 @@ const ExplorerPage: React.FC = () => {
           {!loading && meta?.total === 0 && activeCount > 0 && (
             <div className="card">
               <p>Nothing matches every filter you have set. Try removing one.</p>
-              {/*
-                Measured on the real corpus (15,707 papers, 2026-09-05): eleven of
-                twenty natural-language queries matched no paper on the text
-                filter, because the filter is an AND over every word typed. The
-                sort then has nothing to re-order, and "no papers match" — while
-                true — hides both the reason and the fact that resmon has a
-                ranking it is not showing. Saying so is not an apology for the
-                design; it is the difference between an empty list a user can act
-                on and one they cannot.
-              */}
-              {sort === 'similarity' && urlQuery.trim() && (
-                <p className="text-muted" data-testid="similarity-empty-note">
-                  No paper contains <em>all</em> of these words. Ranking by meaning still
-                  searches inside your text filter, so a phrase that shares no wording with
-                  any paper matches nothing — try fewer words, or a word you would expect to
-                  see in the title.
-                </p>
-              )}
               <button className="btn btn-sm" onClick={clearAll}>Clear all filters</button>
             </div>
           )}

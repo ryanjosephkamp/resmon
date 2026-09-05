@@ -70,6 +70,7 @@ __all__ = [
     "can_embed",
     "embed_texts",
     "estimate_cost",
+    "estimate_disk_bytes",
     "probe_lane",
     "suggested_models",
 ]
@@ -509,6 +510,35 @@ _PRICE_PER_MILLION_TOKENS: dict[tuple[str, str], float] = {
 _PRICES_READ_ON = "2026-09-05"
 
 
+# What one embedded paper costs on disk, measured rather than derived.
+#
+# The float32 payload is ``dims * 4`` bytes and it is stored **twice** — once in
+# ``document_embeddings``, which is canonical and readable without the extension,
+# and once in the ``vec0`` index built over it. On the real 15,707-paper corpus
+# at 768 dimensions the database grew 140,599,296 bytes, or 8,951 B/paper, against
+# a raw payload of 3,072: the table came to 4,105 B/paper (payload plus row and
+# page overhead) and the index to 3,232.
+#
+# So the estimate is ``dims * 4 * _DISK_BYTES_PER_PAYLOAD_BYTE``, with the factor
+# taken from that measurement rather than guessed. It is an estimate and the
+# interface says so; the point is that a user with 100,000 papers learns it will
+# cost most of a gigabyte *before* pressing the button, not after.
+_DISK_BYTES_PER_PAYLOAD_BYTE = 8951 / 3072  # ≈ 2.91, from the 1.9a field test
+_DISK_MEASURED_ON = "2026-09-05, 15,707 papers at 768 dimensions"
+
+
+def estimate_disk_bytes(dims: Optional[int], documents: int) -> Optional[int]:
+    """Bytes the database will grow by, or ``None`` when the width is unknown.
+
+    ``None`` rather than a default width: a lane that has not been probed has no
+    dimensionality on record, and inventing one would put a confident number in
+    front of a user for a model resmon has never called.
+    """
+    if not dims or dims <= 0 or documents <= 0:
+        return None
+    return int(dims * 4 * _DISK_BYTES_PER_PAYLOAD_BYTE * documents)
+
+
 def estimate_cost(lane: EmbeddingLane, texts: Sequence[str]) -> dict:
     """What a backfill will cost, before it starts. ``None`` where resmon cannot say.
 
@@ -518,11 +548,24 @@ def estimate_cost(lane: EmbeddingLane, texts: Sequence[str]) -> dict:
     than a confident zero.
     """
     tokens = sum(estimate_tokens(t) for t in texts)
+    # Disk is charged whatever the lane costs in money, so it is computed once,
+    # above the branch. A local model is free and still fills the disk.
+    disk = estimate_disk_bytes(lane.dims, len(texts))
+    disk_note = (
+        f"About {disk / 1_048_576:.0f} MiB of database growth "
+        f"({lane.dims}-dimensional vectors, stored once in a plain table and once in "
+        f"the search index). Estimated from a real corpus ({_DISK_MEASURED_ON})."
+        if disk is not None else
+        "resmon cannot estimate the disk cost until the lane has been probed and "
+        "reported how wide its vectors are."
+    )
     if lane.kind == "local":
         return {
             "documents": len(texts),
             "estimated_tokens": tokens,
             "cost_usd": 0.0,
+            "disk_bytes": disk,
+            "disk_note": disk_note,
             "note": "A local model runs on your machine and costs nothing to call.",
         }
     price = _PRICE_PER_MILLION_TOKENS.get((lane.provider, lane.model))
@@ -531,6 +574,8 @@ def estimate_cost(lane: EmbeddingLane, texts: Sequence[str]) -> dict:
             "documents": len(texts),
             "estimated_tokens": tokens,
             "cost_usd": None,
+            "disk_bytes": disk,
+            "disk_note": disk_note,
             "note": (
                 f"resmon has no price on record for {lane.provider} / {lane.model}, so it "
                 "cannot estimate the cost. The token figure above is an estimate at roughly "
@@ -541,6 +586,8 @@ def estimate_cost(lane: EmbeddingLane, texts: Sequence[str]) -> dict:
         "documents": len(texts),
         "estimated_tokens": tokens,
         "cost_usd": round(tokens / 1_000_000 * price, 4),
+        "disk_bytes": disk,
+        "disk_note": disk_note,
         "note": (
             f"At {price} USD per million input tokens, the price published for "
             f"{lane.model} as read on {_PRICES_READ_ON}. Tokens are estimated at roughly "

@@ -197,9 +197,16 @@ Additive. `search_corpus` gains `mode`, and `find_similar` is new. No tool was r
 no return shape moved, so the major version is unchanged and existing callers are
 unaffected.
 
+*Amended before release, 5 September 2026: the `mode="semantic"` row below described the
+ranking as covering "the same filtered set". The field test showed what that costs and the
+row is rewritten. v1.2 had not shipped, so this is an amendment to an unreleased contract
+rather than a version bump — but it is recorded rather than quietly edited, because a
+contract whose history can be rewritten is not one.*
+
 | Change | Detail |
 |---|---|
-| `search_corpus` gains `mode` (`keyword` default, `semantic`) | Semantic mode ranks by distance from the query **over the same filtered set**. The filters choose the papers; the mode chooses their order. Both modes return the same `total` and the same ids for the same arguments, so a harness switching mode is re-ordering and never re-selecting. |
+| `search_corpus` gains `mode` (`keyword` default, `semantic`) | Semantic mode ranks the corpus by distance from the query, **within the structured filters**. `sources`, `date_from` and `date_to` still narrow it and are untouched by the mode; `query` is the difference — a text filter in `keyword` mode, the thing distance is measured *from* in `semantic` mode. **The two modes can therefore return different sets**, and a harness that needs the keyword set asks for `keyword`. |
+| Why that is not "the same filtered set" | It was, in the first draft of this amendment, and a field test on a real 15,707-paper corpus retired it before the contract shipped. The text filter is an `AND` over every word in the query, so a plain-English question matches no paper and a ranking restricted to it has nothing to order: **eleven of twenty natural queries returned an empty answer**, while the same vectors unfiltered found a relevant paper for almost all of them. A `semantic` mode that can only re-order a keyword match is not one. |
 | The answer always reports the mode it **served** | Semantic mode can decline — no embedding model configured, the model refused, the extension will not load. When it does, the reply carries `mode: "keyword"` and a `mode_unavailable` sentence. A harness told it received a ranking it did not receive would report a relevance order that is a chronology; that is the overclaim this contract exists to prevent, arriving through an integration. |
 | Semantic replies carry `ranked_count` and `unranked_count` | Papers with no vector are appended rather than dropped, so part of a semantic answer may be unordered. The counts say how much. |
 | `find_similar` is new | One index query, no call to any embedding provider: the paper's vector is already stored. An empty list **always** carries a `reason`, because "this paper is not embedded", "nothing else is" and "this build cannot load the extension" are three different situations and a bare `[]` would let a harness report "resmon found nothing similar" for any of them. |

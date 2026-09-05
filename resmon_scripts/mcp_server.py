@@ -349,10 +349,18 @@ def t_search_corpus(args: dict) -> Any:
     rather than silently ignored -- a harness that thinks it is paging and is
     not would report the first page repeatedly as though it were the corpus.
 
-    ``mode="semantic"`` (contract v1.2) ranks by distance from the query rather
-    than by date. **The filters still choose the papers**: both modes return the
-    same set for the same arguments, so a harness switching mode is re-ordering
-    and never re-selecting.
+    ``mode="semantic"`` (contract v1.2) ranks the corpus by distance from the
+    query, **within the structured filters** — sources and dates still narrow it
+    and are unchanged by the mode. The `query` itself is the difference: in
+    keyword mode it is a text filter, in semantic mode it is what the ranking is
+    measured against. So **the two modes can return different sets**, and a
+    harness that needs the keyword set asks for `keyword`.
+
+    That is not a loosening. The text filter is an AND over every word, so a
+    plain-English question matches no paper and a ranking restricted to it has
+    nothing to order: measured on a real 15,707-paper corpus, eleven of twenty
+    natural queries came back empty. `ranked_count` and `unranked_count` say how
+    much of what did come back is actually ordered.
 
     Semantic mode can decline. When it does -- no embedding model configured,
     the model refused, the extension will not load -- the answer carries
@@ -679,17 +687,21 @@ TOOLS: list[dict] = [
 
     {"name": "search_corpus", "fn": t_search_corpus,
      "description": (
-         "Search the papers resmon has already collected. mode='semantic' ranks "
-         "by meaning instead of date, over the same filtered set; the answer says "
-         "which mode was actually served."
+         "Search the papers resmon has already collected. mode='semantic' ranks the "
+         "corpus by closeness to the query rather than filtering on its words, so it "
+         "finds papers that share no wording with it; the answer says which mode was "
+         "actually served."
      ),
      "schema": {"type": "object", "required": ["query"], "properties": {
          "query": {"type": "string"},
          "mode": {"type": "string", "enum": ["keyword", "semantic"],
                   "default": "keyword",
                   "description": (
-                      "'semantic' needs an embedding model configured in resmon. "
-                      "When one is not, the reply is keyword order and says so in "
+                      "'keyword' filters on the words in 'query'. 'semantic' instead "
+                      "ranks the corpus by closeness to 'query', within the other "
+                      "filters, so the two modes can return different sets. "
+                      "'semantic' needs an embedding model configured in resmon; when "
+                      "one is not, the reply is keyword order and says so in "
                       "'mode_unavailable'."
                   )},
          "sources": {"type": "array", "items": {"type": "string"}},

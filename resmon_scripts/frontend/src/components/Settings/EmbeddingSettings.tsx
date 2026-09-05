@@ -80,6 +80,9 @@ interface Estimate {
   documents: number;
   estimated_tokens: number;
   cost_usd: number | null;
+  /** Null until the lane has been probed and reported its width. */
+  disk_bytes: number | null;
+  disk_note: string;
   note: string;
 }
 
@@ -391,14 +394,33 @@ const EmbeddingSettings: React.FC = () => {
       )}
 
       {estimate && (
-        <p className="form-hint" data-testid="embedding-estimate">
-          {nf.format(estimate.documents)} papers, about{' '}
-          {nf.format(estimate.estimated_tokens)} tokens
-          {estimate.cost_usd !== null
-            ? <> — roughly <strong>${estimate.cost_usd.toFixed(2)}</strong>.</>
-            : <> — resmon cannot price this.</>}
-          {' '}{estimate.note}
-        </p>
+        <>
+          <p className="form-hint" data-testid="embedding-estimate">
+            {nf.format(estimate.documents)} papers, about{' '}
+            {nf.format(estimate.estimated_tokens)} tokens
+            {estimate.cost_usd !== null
+              ? <> — roughly <strong>${estimate.cost_usd.toFixed(2)}</strong>.</>
+              : <> — resmon cannot price this.</>}
+            {' '}{estimate.note}
+          </p>
+          {/*
+            Beside the money, not below it. A local model is free to call and
+            still fills the disk: the real corpus grew 140 MB for 15,707 papers,
+            which extrapolates to most of a gigabyte at 100,000. A user deserves
+            that number before they press the button rather than after.
+          */}
+          <p className="form-hint" data-testid="embedding-disk-estimate">
+            {estimate.disk_bytes !== null && (
+              <>
+                <strong>
+                  ~{(estimate.disk_bytes / 1_048_576).toFixed(0)} MiB
+                </strong>{' '}
+                of database growth.{' '}
+              </>
+            )}
+            {estimate.disk_note}
+          </p>
+        </>
       )}
 
       {/* A finished run reports what happened, including why it stopped. */}
