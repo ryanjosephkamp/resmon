@@ -145,6 +145,14 @@ test('P5: a build that cannot rank shows no sort control and no similar panel', 
     // and that is not the same thing as being able to rank. With an empty index
     // the capability is false and the controls must still be absent.
     console.log('P5 HEALTH EMBEDDINGS', JSON.stringify(health.body.embeddings));
+    if (!health.body.embeddings?.extension) {
+      // Printed rather than passed silently: on this machine the absence is
+      // real rather than an empty index, and a run summary should say which of
+      // the two branches it actually exercised.
+      console.log('P5 NOT VERIFIED (extension) — this machine cannot load '
+        + 'sqlite-vec at all, so the "loaded but empty" branch was not the one '
+        + `exercised here. Reason: ${health.body.embeddings?.reason}`);
+    }
     const status = await api(win, 'GET', '/api/embeddings/status');
     expect(status.body.capability.available).toBe(false);
     expect(status.body.capability.reason,
@@ -213,6 +221,23 @@ test('the sort control appears, ranks, and says what it ranked against', async (
   const model = await startEmbeddingServer();
   const { win, close } = await launch();
   try {
+    // A machine that cannot load the extension cannot rank, by design, and the
+    // arm above is the one that checks that. Skipping here rather than failing
+    // is not a convenience: **the macos-15 GitHub runner is such a machine.**
+    // Its `python3` is built without SQLite loadable-extension support, so
+    // `/api/health` answers `{"extension": null, "reason": "This Python was
+    // built without SQLite loadable-extension support…"}` — the product
+    // behaving exactly as phase 1.9 decided. Requiring the capability here made
+    // a correct app report as a red test.
+    const health = await api(win, 'GET', '/api/health');
+    test.skip(
+      !health.body.embeddings?.extension,
+      'NOT VERIFIED — this machine cannot load the vector extension '
+      + `(${health.body.embeddings?.reason}), so there is nothing to rank. The `
+      + 'absent-control arm above covers this machine; the ubuntu smoke job runs '
+      + 'this one.',
+    );
+
     const saved = await api(win, 'PUT', '/api/settings/embeddings', {
       settings: {
         embedding_enabled: 'true',
@@ -289,9 +314,19 @@ test('the sort control appears, ranks, and says what it ranked against', async (
 
     // The similar panel opens and either lists neighbours with distances, or
     // says why it cannot. A bare empty list is the thing being ruled out.
+    //
+    // Waiting for *content* rather than for the container: the panel fetches on
+    // first open and renders "Looking…" until the answer arrives, so
+    // `toBeVisible()` on the container is satisfied by an empty box. The xvfb
+    // job caught that — it read an empty string and failed on
+    // `toBeGreaterThan(0)`, a message that named nothing.
     await win.getByTestId('similar-toggle').first().click();
-    await expect(win.getByTestId('similar-body').first()).toBeVisible();
-    const body = await win.getByTestId('similar-body').first().innerText();
+    const panel = win.getByTestId('similar-body').first();
+    await expect(panel).toBeVisible();
+    await expect(
+      panel.locator('.similar-item, [data-testid="similar-reason"]').first(),
+    ).toBeVisible({ timeout: 20_000 });
+    const body = await panel.innerText();
     console.log('SIMILAR BODY', JSON.stringify(body.slice(0, 300)));
     expect(body.trim().length).toBeGreaterThan(0);
   } finally {
