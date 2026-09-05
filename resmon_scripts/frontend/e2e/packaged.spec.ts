@@ -157,6 +157,23 @@ test('Q6: the packaged app launches under Playwright and serves every route', as
     console.log('Q6 PACKAGED BACKEND PORT', port);
     expect(port).not.toBe('8742');
 
+    // P1, packaged half (1.9). The checkout can load sqlite-vec from a venv the
+    // developer pip-installed into; that says nothing about the bundle. This
+    // asks the *packaged* backend — its own standalone interpreter, its own
+    // copy of the native library, inside the app container — whether the
+    // extension loaded, and fails on the reason rather than on a boolean.
+    // Delegation 05 established the same thing by invoking the packaged
+    // interpreter directly; this is the half its report named as not
+    // established: Electron launching a backend that imports it.
+    const health = await win.evaluate(async (p: string) => {
+      const res = await fetch(`http://127.0.0.1:${p}/api/health`);
+      return res.json() as Promise<{ embeddings?: { extension: string | null; reason: string | null } }>;
+    }, port);
+    console.log('Q6 PACKAGED EMBEDDINGS', JSON.stringify(health.embeddings));
+    expect(health.embeddings, '/api/health must report the embeddings capability').toBeTruthy();
+    expect(health.embeddings!.reason).toBeNull();
+    expect(health.embeddings!.extension).toMatch(/^v?\d+\.\d+\.\d+/);
+
     const bounds = await app.evaluate(async ({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].getBounds());
     expect(bounds.width).toBe(WINDOW_WIDTH);

@@ -21,6 +21,13 @@ openai==2.31.0
 pydantic==2.12.4
 python-dateutil==2.9.0.post0
 python-multipart==0.0.26
+# Vector search (1.9). A loadable SQLite extension, not a Python library: the
+# wheel is ~165 KB of native binary that resmon dlopens through
+# implementation_scripts/vector_index.py. Optional at runtime by construction --
+# every feature that needs it is absent, with a reason, when it will not load.
+# MIT / Apache-2.0; the wheel ships no licence file, so the texts are reproduced
+# in docs/third-party-notices.md.
+sqlite-vec==0.1.9
 SQLAlchemy==2.0.49
 starlette==1.0.0
 tiktoken==0.12.0
