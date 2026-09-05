@@ -3,6 +3,7 @@ import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
 import InfoTooltip from '../Help/InfoTooltip';
+import EmbeddingSettings from './EmbeddingSettings';
 import FallbackChain, {
   FallbackLane, CliStatus, SubscriptionCatalog, SUBSCRIPTION_PROVIDERS,
   DEFAULT_DOC_CAP,
@@ -800,6 +801,43 @@ const AISettings: React.FC = () => {
             ),
           },
           {
+            heading: 'Embeddings — a separate model, for search rather than summaries',
+            body: (
+              <>
+                <p>
+                  The <strong>Embeddings</strong> section at the bottom of this tab
+                  configures a different kind of model: one that turns each paper&rsquo;s
+                  title and abstract into a vector. That is what lets the Explorer sort by{' '}
+                  <em>closest to what you meant</em> and show{' '}
+                  <strong>Papers like this one</strong>. It has nothing to do with
+                  summaries and can be used with or without them.
+                </p>
+                <p>
+                  <strong>An Anthropic key cannot do this</strong> — Anthropic does not
+                  offer an embeddings API — and <strong>neither agent CLI can either</strong>:
+                  the Claude Code and Codex commands have no embedding command, so a
+                  subscription that covers your summaries does not cover semantic search.
+                  Both are still listed in the provider menu, disabled, with the reason, so
+                  you can see why rather than wonder where they went.
+                </p>
+                <p>
+                  A local model is the recommended start: <code>ollama pull
+                  nomic-embed-text</code>, select <em>Ollama</em>, and probe. It costs
+                  nothing and nothing leaves your machine. Note that a server which lists
+                  models can still refuse to embed — an ordinary chat model is not an
+                  embedding model — and the probe reports that in as many words.
+                </p>
+                <p>
+                  Embedding happens automatically after each sweep for the papers it found.
+                  Everything already in your corpus needs the one-off{' '}
+                  <strong>backfill</strong>, which can be stopped and restarted freely: it
+                  always resumes from what is missing rather than from where it stopped, so
+                  nothing is embedded twice and nothing is skipped.
+                </p>
+              </>
+            ),
+          },
+          {
             heading: 'Per-execution override',
             body: (
               <p>
@@ -1370,6 +1408,14 @@ const AISettings: React.FC = () => {
         </div>
         {status && <div className={status.startsWith('Error') || status.includes('invalid') || status.includes('error') ? 'form-error' : 'form-success'}>{status}</div>}
       </div>
+
+      {/*
+        A separate card with its own save, because embeddings are a separate
+        feature with a separate lane. A user who wants semantic search and no AI
+        summaries -- or the reverse -- should not have to configure both, and
+        folding them into one form would imply they are one setting.
+      */}
+      <EmbeddingSettings />
     </div>
   );
 };
