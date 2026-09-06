@@ -245,11 +245,36 @@ def _recorded_model(conn: sqlite3.Connection) -> Optional[str]:
 
 
 def index_state(conn: sqlite3.Connection) -> dict:
-    """What the index currently is: ``{model, dims, rows}``, all ``None``/0 if absent."""
+    """What the index currently is: ``{model, dims, rows}``, all ``None``/0 if absent.
+
+    **Loads the extension first, and never raises.** Counting rows in a ``vec0``
+    table is a query against the extension's own virtual table, so a connection
+    that has not loaded it answers ``no such module: vec0`` — and this is called
+    from six places, several of them the *first* thing an endpoint does.
+
+    FastAPI runs sync endpoints on a thread pool and resmon holds one connection
+    per thread (BUG-020), so whether the extension is loaded on *this*
+    connection depends on which thread the request landed on. That made it
+    intermittent, and because the exception escaped before the CORS middleware
+    the browser reported a bare ``net::ERR_FAILED`` with no status code — the
+    same disguise the rebuild race wore.
+
+    The module docstring says there is exactly one function that loads the
+    extension and every caller routes through it. This one did not. It does now.
+    """
+    if load_extension(conn) is None:
+        return {"model": None, "dims": None, "rows": 0}
     dims = _index_dims(conn)
     if dims is None:
         return {"model": None, "dims": None, "rows": 0}
-    rows = conn.execute(f"SELECT COUNT(*) FROM {INDEX_TABLE}").fetchone()[0]
+    try:
+        rows = conn.execute(f"SELECT COUNT(*) FROM {INDEX_TABLE}").fetchone()[0]
+    except sqlite3.Error as exc:
+        # The table can go between the ``sqlite_master`` read above and this
+        # count -- a concurrent rebuild, a drop_index. Reporting "no index" is
+        # correct and is what the caller does something sensible with.
+        logger.warning("could not count the vector index: %s", exc)
+        return {"model": None, "dims": None, "rows": 0}
     return {"model": _recorded_model(conn), "dims": dims, "rows": int(rows)}
 
 

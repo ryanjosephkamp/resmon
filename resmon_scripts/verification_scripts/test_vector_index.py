@@ -331,6 +331,56 @@ def test_upsert_replaces_rather_than_duplicating(conn):
 # ---------------------------------------------------------------------------
 
 
+def test_every_public_entry_point_survives_a_connection_that_never_loaded_it(tmp_path):
+    """The second half of the same bug, and the one that outlived the first fix.
+
+    resmon holds one connection per thread (BUG-020) and FastAPI answers sync
+    endpoints on a thread pool, so whether the extension is loaded on *this*
+    connection depends on which thread took the request. ``index_state`` queried
+    the ``vec0`` table without going through the load site, so on a fresh thread
+    it raised ``no such module: vec0`` — before the CORS middleware, so the
+    browser saw ``net::ERR_FAILED`` with no status code rather than a 500.
+
+    Six call sites, several of them the first thing an endpoint does.
+
+    **Mutation:** delete the ``load_extension`` call at the top of
+    ``index_state``. This test raises ``sqlite3.OperationalError``.
+    """
+    path = tmp_path / "corpus.db"
+    setup = sqlite3.connect(str(path))
+    setup.row_factory = sqlite3.Row
+    init_db(conn=setup)
+    doc = _document(setup, "1")
+    _embed(setup, doc, "m1", [1.0, 0.0, 0.0, 0.0])
+    vector_index.rebuild(setup, "m1")
+    setup.close()
+
+    # A connection that has never loaded the extension — exactly what a request
+    # landing on a new worker thread gets.
+    fresh = sqlite3.connect(str(path))
+    fresh.row_factory = sqlite3.Row
+    try:
+        state = vector_index.index_state(fresh)
+        assert state["rows"] == 1 and state["model"] == "m1"
+    finally:
+        fresh.close()
+
+    # And the endpoints' other first-touch entry points, each on its own
+    # never-loaded connection.
+    for call in (
+        lambda c: vector_index.index_state(c),
+        lambda c: vector_index.extension_status(c),
+        lambda c: vector_index.nearest(c, "m1", vector_index.pack_vector([1.0, 0, 0, 0]), 3),
+        lambda c: vector_index.rebuild(c, "m1"),
+    ):
+        conn = sqlite3.connect(str(path))
+        conn.row_factory = sqlite3.Row
+        try:
+            call(conn)  # must not raise
+        finally:
+            conn.close()
+
+
 def test_concurrent_ranking_never_raises_while_another_thread_rebuilds(tmp_path):
     """The 1.9b bug, as a regression test.
 
