@@ -411,6 +411,7 @@ _FABRICATION_MARKERS = ("<invoke", "function_results", "<parameter name=")
 
 
 @pytest.mark.live_network
+@pytest.mark.needs_agent_cli
 @pytest.mark.parametrize("provider", SUBSCRIPTION_PROVIDERS)
 def test_real_cli_returns_a_summary_not_a_fabricated_tool_transcript(provider):
     from implementation_scripts.ai_cli import discover_cli

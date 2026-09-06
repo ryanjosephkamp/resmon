@@ -240,12 +240,15 @@ All four, before opening a pull request:
 
 ```bash
 .venv/bin/python -m pytest -q                    # hermetic suite
-.venv/bin/python -m pytest -m live_network -q    # real APIs — CI cannot run these
+.venv/bin/python -m pytest -m live_network -q    # real APIs; a weekly CI job runs these
 cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
 ```
 
 The hermeticity guard blocks any non-loopback socket from a test that is not marked
-`live_network`. A new test that needs the network carries the marker.
+`live_network`. A new test that needs the network carries the marker — and a source's
+live search test is then run every Monday by `.github/workflows/live-network.yml`,
+so a source that stops answering is heard about within a week rather than at the
+next time somebody happens to type the command.
 
 **Run the live tests yourself.** CI does not, so an unverified client reaches review with its
 central claim untested.

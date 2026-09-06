@@ -122,7 +122,10 @@ def test_tools_list_matches_the_contract():
     # caller that ignores that flag is running writes the contract says a person
     # approves first.
     assert len(names) == 21
-    assert mcp.CONTRACT_VERSION == "2.0"
+    # v2.1 (phase 2.0b) is additive and adds no tool: ``update_settings``'s
+    # group allowlist gains ``assistant``, a group v2.0 shipped unreachable and
+    # undecided. The count is unchanged and the version is not.
+    assert mcp.CONTRACT_VERSION == "2.1"
 
 
 def test_every_tool_declares_whether_it_needs_confirmation():

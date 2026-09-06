@@ -36,7 +36,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 import mcp_server  # noqa: E402
 from implementation_scripts import ai_cli  # noqa: E402
 
-pytestmark = pytest.mark.live_network
+# ``needs_agent_cli`` as well: this needs the CLI the *person* installed and
+# signed into. The weekly live job cannot run it and its summary says so.
+pytestmark = [pytest.mark.live_network, pytest.mark.needs_agent_cli]
 
 # A value no model could produce by accident and no other test uses. If this
 # string appears anywhere a person or a transcript can see, P4 has failed.
@@ -516,3 +518,60 @@ def test_the_constitution_reaches_a_resumed_turn(backend):
     assert any(phrase in answer for phrase in
                ("can't", "cannot", "won't", "will not", "tool", "guess", "don't know",
                 "do not know", "not going to")), answer
+
+
+# ---------------------------------------------------------------------------
+# P16 — the cannot-resume shape, against the binary
+# ---------------------------------------------------------------------------
+
+def test_the_real_cli_still_refuses_an_unknown_resume_the_way_the_double_does(
+    cli_path, tmp_path,
+):
+    """The one thing the hermetic double cannot establish about itself.
+
+    ``fixtures/fake_claude.py`` reproduces a *recorded* response: no init
+    message, no ``result`` text, the sentence in ``errors``, exit 1. Everything
+    P16 rests on is that reproduction being faithful, and a fixture cannot check
+    itself. This drives the installed binary and asserts the same three things,
+    so a CLI version that moves the sentence — into ``result``, into a different
+    subtype, out of ``errors`` — fails here rather than silently turning the
+    double into fiction and the recovery into dead code.
+
+    Deliberately **not** a check that the recovery works: that is asserted
+    hermetically, where it is deterministic. This checks only the shape.
+
+    Cheap and non-billing: the CLI refuses before it reaches a model
+    (`total_cost_usd: 0`, `num_turns: 0`), so this costs nothing and needs no
+    sign-in.
+    """
+    unknown = "11111111-2222-3333-4444-555555555555"
+    result = subprocess.run(
+        [cli_path, "-p", "--output-format", "stream-json", "--verbose",
+         "--tools", "", "--setting-sources", "", "--disable-slash-commands",
+         "--resume", unknown, "say hi"],
+        cwd=str(tmp_path), capture_output=True, text=True, timeout=180,
+    )
+    assert result.returncode != 0, result.stdout[:500]
+
+    lines = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    assert not [m for m in lines if m.get("type") == "system"], (
+        "the real CLI announces no session when it cannot resume; the double "
+        "must not either")
+
+    envelope = next(m for m in lines if m.get("type") == "result")
+    assert envelope["is_error"] is True
+    assert "result" not in envelope or envelope["result"] is None, (
+        "the failure text is not in `result`; a classifier reading only that "
+        "field has nothing to read")
+    assert envelope.get("errors"), "the sentence lives in the errors array"
+
+    from implementation_scripts import assistant_runtime as ar  # noqa: PLC0415
+
+    assert ar._is_cannot_resume(envelope.get("errors"), result.stderr), (
+        f"resmon no longer recognises what the CLI says: {envelope.get('errors')}"
+    )
+    # And the classifier turns it into the sentence a person reads, from what
+    # the binary actually said rather than from the fixture's copy of it.
+    (done,) = ar._normalise(json.dumps(envelope))
+    assert "no longer has this conversation" in ar._classify_failure(
+        done["subtype"], "", result.returncode, errors=done["errors"])

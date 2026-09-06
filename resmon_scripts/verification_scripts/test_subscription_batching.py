@@ -661,6 +661,7 @@ def test_the_canary_leak_detector_can_actually_detect_a_leak():
 # in CI. It spends the plan's usage window like any other lane call.
 
 @pytest.mark.live_network
+@pytest.mark.needs_agent_cli
 @pytest.mark.parametrize("provider", ["claude_code", "codex"])
 def test_the_real_cli_answers_a_batch_with_one_summary_per_document(provider):
     from implementation_scripts.ai_cli import discover_cli

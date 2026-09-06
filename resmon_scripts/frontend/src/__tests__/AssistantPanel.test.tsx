@@ -217,6 +217,32 @@ describe('a turn', () => {
     expect(document.body.textContent).toContain('active_only');
   });
 
+  it('shows a notice as a note about the conversation, not as the assistant talking', async () => {
+    /* P16a's renderer half. A lost CLI conversation is not an error — the turn
+       carries on underneath the notice — so it must not land in the error
+       banner, which the next event clears. */
+    mockBackend({ stream: [
+      { type: 'notice', code: 'cannot_resume',
+        message: 'The claude CLI no longer has this conversation, so resmon started a fresh one.' },
+      { type: 'text_delta', text: 'answered anyway' },
+      { type: 'done' },
+      { type: 'closed' },
+    ] });
+    await mount();
+    await openPanel();
+    await send('anything');
+
+    await waitFor(() => {
+      expect(screen.getByText(/no longer has this conversation/)).toBeInTheDocument();
+    });
+    expect(screen.getByText('answered anyway')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // Rendered as resmon's own line rather than as a reply from the assistant.
+    expect(
+      document.querySelector('.assistant-message--system'),
+    ).toHaveTextContent(/no longer has this conversation/);
+  });
+
   it('surfaces an error event as an error, not as silence', async () => {
     mockBackend({ stream: [
       { type: 'error', message: 'The claude CLI is not signed in.' },

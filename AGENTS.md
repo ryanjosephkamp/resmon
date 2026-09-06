@@ -50,7 +50,7 @@ work on one side of it cannot break the other except through an endpoint's shape
 ```bash
 # Backend — from the repo root
 .venv/bin/python -m pytest -q          # hermetic suite: 1362 pass, 2 skip, 70 deselected
-.venv/bin/python -m pytest -m live_network   # the 70 — real scholarly APIs, CLIs and sockets
+.venv/bin/python -m pytest -m live_network   # the 71 — real scholarly APIs, CLIs and sockets
 
 # Frontend — from resmon_scripts/frontend
 npm run typecheck && npm test && npm run build   # 252 tests across 30 suites
@@ -91,6 +91,15 @@ that column alone goes red, suspect a shared `sqlite3.Connection`.
 
 - **Hermeticity is enforced.** `conftest.py` blocks any non-loopback socket from a test
   not marked `live_network`. A new test that needs the network carries the marker.
+- **`live_network` is now two things, and the second marker draws the line.** Most live
+  tests need the internet and nothing else, and `.github/workflows/live-network.yml`
+  runs those **weekly** — because nothing ran them on a schedule and in 1.9 a live test
+  contradicting the shipped MCP contract stayed red on `main` for two releases unheard.
+  A live test that needs something belonging to the *person* — a signed-in agent CLI —
+  also carries `needs_agent_cli`, and the weekly run's summary names every one it could
+  not run. The selection lives in `verification_scripts/live_suite.py`, the workflow asks
+  that file for it, and `test_live_suite.py` fails when the two halves stop partitioning
+  the live suite exactly. **A new live test must fall in one half or the other.**
 - `conftest.py` installs an in-memory keyring and joins execution worker threads before
   fixture teardown. Both fixed real flakiness; both stay.
 - `_db_path = ":memory:"` is backed by a temp file, not a true in-memory database, so

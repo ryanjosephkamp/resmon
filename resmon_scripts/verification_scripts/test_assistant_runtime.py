@@ -23,6 +23,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -509,3 +510,110 @@ def test_the_status_reports_codex_even_when_it_is_installed():
     assert others["codex_cli"]["available"] is False
     assert others["codex_cli"]["reason"]
     assert status["kinds"] == list(ar.RUNTIME_KINDS)
+
+
+# ---------------------------------------------------------------------------
+# P16 — a session whose CLI id cannot be resumed says so
+# ---------------------------------------------------------------------------
+#
+# 2.0a left P10's second clause unproven and said so: nothing made a resume fail
+# and watched what the user was told. Deleting the CLI's own session file was
+# rightly refused — reaching into another program's private state proves
+# something about that program, not about resmon. The route taken instead is the
+# one the reconciliation named: establish the real shape once against the binary
+# (recorded in ``fixtures/fake_claude.py`` and re-established live by
+# ``test_assistant_live.py``), then make the double answer with exactly it.
+
+def test_the_cannot_resume_shape_is_recognised_from_the_errors_array():
+    """The sentence is in ``errors``, and there is no ``result`` text at all.
+
+    Matched on the errors array first because that is where the real CLI puts
+    it. A classifier reading only ``result`` would find an empty string here and
+    fall through to "exit code 1 and resmon cannot tell you more".
+    """
+    assert ar._is_cannot_resume(
+        ["No conversation found with session ID: abc"], "") is True
+    assert ar._is_cannot_resume([], "No conversation found with session ID: abc") is True
+    assert ar._is_cannot_resume([], "") is False
+    assert ar._is_cannot_resume(["Invalid API key"], "some other failure") is False
+
+
+def test_a_normalised_result_carries_the_clis_errors_array():
+    """2.0a dropped this field; the whole recovery hangs off it."""
+    (done,) = ar._normalise(json.dumps({
+        "type": "result", "subtype": "error_during_execution", "is_error": True,
+        "errors": ["No conversation found with session ID: zzz"], "usage": {},
+    }))
+    assert done["errors"] == ["No conversation found with session ID: zzz"]
+    assert done["result_text"] is None, "the real envelope has no result field"
+
+
+def test_a_lost_conversation_is_said_out_loud_and_answered_anyway(tmp_path):
+    """P16a and P16b, against a double reproducing the real cannot-resume shape.
+
+    The turn is launched as a resume; the CLI answers the way claude 2.1.258
+    really answers a session id it does not have; the person gets a notice
+    saying the earlier messages are no longer in front of the assistant, and
+    then gets their answer.
+    """
+    runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path))
+    events = list(runtime.run_turn(
+        7, "CANNOT_RESUME\nSAY:here is the answer",
+        cli_session_id="33333333-3333-3333-3333-333333333333", resume=True))
+    kinds = [e["type"] for e in events]
+
+    notice = next(e for e in events if e["type"] == "notice")
+    assert notice["code"] == "cannot_resume"
+    assert "no longer has this conversation" in notice["message"]
+    assert "not able to see them" in notice["message"], (
+        "the notice has to say the assistant cannot see the earlier messages; "
+        "the transcript is still on screen and would otherwise imply it can")
+
+    assert [e["text"] for e in events if e["type"] == "text_delta"] == [
+        "here is the answer"]
+    assert kinds[-1] == "done" and not events[-1]["is_error"]
+    assert "error" not in kinds, (
+        "the failed attempt's error event must not reach the panel: the turn "
+        "succeeded")
+    assert kinds.count("done") == 1, "the discarded attempt must not report a turn"
+
+
+def test_the_retry_is_a_new_cli_session_and_the_relay_can_see_its_id(tmp_path):
+    """P16b. The second launch carries --session-id, not --resume.
+
+    And the ``started`` event carries the fresh id, which is the only way the
+    store learns to stop resuming an id the CLI has already disowned.
+    """
+    runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path))
+    asked = "44444444-4444-4444-4444-444444444444"
+    events = list(runtime.run_turn(
+        8, "CANNOT_RESUME\nSAY:ok", cli_session_id=asked, resume=True))
+    started = next(e for e in events if e["type"] == "started")
+    assert started["cli_session_id"] != asked
+    assert uuid.UUID(started["cli_session_id"])      # a real uuid, not a marker
+
+
+def test_only_one_retry_and_only_for_this_failure(tmp_path):
+    """A failure that is not a lost conversation is reported, not retried."""
+    runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path))
+    events = list(runtime.run_turn(
+        9, "RESULT_ERROR:Not logged in · Please run /login",
+        cli_session_id="s", resume=True))
+    assert [e["type"] for e in events].count("done") == 1
+    assert events[-1]["type"] == "error"
+    assert "not signed in" in events[-1]["message"]
+    assert not any(e["type"] == "notice" for e in events)
+
+
+def test_a_direct_stream_still_gets_the_real_reason(tmp_path):
+    """The classifier says it even where the recovery is not in play.
+
+    ``_classify_failure`` is reachable from a turn that was not a resume and
+    from anything driving ``_stream`` itself. "exit code 1" would be true and
+    useless.
+    """
+    message = ar._classify_failure(
+        "error_during_execution", "", 1,
+        errors=["No conversation found with session ID: q"])
+    assert "no longer has this conversation" in message
+    assert "Start a new conversation" in message
