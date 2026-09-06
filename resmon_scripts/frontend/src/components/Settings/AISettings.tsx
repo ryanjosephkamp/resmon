@@ -829,7 +829,6 @@ const AISettings: React.FC = () => {
                   cloud storage are not in its tools at all.
                 </p>
                 <p>
-<<<<<<< HEAD
                   <strong>No CLI? Use a key instead.</strong> <em>Run it with</em>{' '}
                   chooses between the <code>claude</code> command and an API key of
                   your own. The API-key route is the same panel, the same tools and
@@ -841,8 +840,6 @@ const AISettings: React.FC = () => {
                   returned, so a long conversation does not re-send a corpus.
                 </p>
                 <p>
-=======
->>>>>>> upstream/main
                   <strong>Conversations live in two places, and they can drift
                   apart.</strong> resmon keeps the transcript; the{' '}
                   <code>claude</code> command keeps the conversation the model
