@@ -53,6 +53,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import struct
+import threading
 from typing import Iterable, Optional, Sequence
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,18 @@ INDEX_TABLE = "vec_document_embeddings"
 # table of its own: it is one string, ``app_settings`` is the store for exactly
 # that, and it is not in ``_SETTINGS_GROUPS`` so no endpoint exposes it.
 INDEX_MODEL_KEY = "vector_index_model"
+
+# Rebuilding drops and recreates a real table in the database file, so it is
+# **process-wide state** even though every thread has its own connection
+# (BUG-020). Two threads rebuilding at once is not hypothetical: the Explorer's
+# similarity search ranks, and every open similar-papers panel ranks too, so a
+# single page can put several ranking requests in flight together. Without this
+# lock one thread dropped ``vec_document_embeddings`` while another was querying
+# it, the exception escaped before FastAPI's CORS middleware could wrap it, and
+# the browser reported a bare `net::ERR_FAILED` -- a 500 with no
+# Access-Control-Allow-Origin header reads as a CORS failure, not as a server
+# error, which is why this took a network log to find rather than a stack trace.
+_REBUILD_LOCK = threading.Lock()
 
 # Set by the first ``load_extension`` in this process so a failure reads the
 # same on the tenth connection as on the first, and so the reason a user sees is
@@ -295,9 +308,19 @@ def rebuild(conn: sqlite3.Connection, model: str) -> dict:
     could load the extension and the other could not. The canonical rows are
     never touched.
 
+    **Serialised process-wide** (:data:`_REBUILD_LOCK`). The table lives in the
+    database file, so two threads rebuilding at once drop it out from under each
+    other; a caller that already holds the lock uses :func:`_rebuild_locked`.
+
     Returns ``{"ok", "rebuilt", "dims", "reason"}``. ``ok`` is ``False`` only
     when the extension will not load.
     """
+    with _REBUILD_LOCK:
+        return _rebuild_locked(conn, model)
+
+
+def _rebuild_locked(conn: sqlite3.Connection, model: str) -> dict:
+    """:func:`rebuild`'s body. The caller must hold :data:`_REBUILD_LOCK`."""
     if load_extension(conn) is None:
         return {"ok": False, "rebuilt": 0, "dims": None, "reason": _LOAD_REASON}
 
@@ -411,16 +434,31 @@ def nearest(
     if load_extension(conn) is None:
         return []
 
-    if _recorded_model(conn) != model or _index_dims(conn) is None:
-        # Self-healing rather than silently empty. A rebuild is a copy out of the
-        # canonical table: 16,000 768-dimension vectors in 0.20 s, measured, so
-        # doing it on the query that needs it is cheaper than any bookkeeping
-        # that would avoid it.
-        if not rebuild(conn, model)["ok"]:
-            return []
-        if _index_dims(conn) is None:
-            return []
+    # The whole check-and-query runs under the rebuild lock, not just the
+    # rebuild. Holding it only for the rebuild leaves the window this was written
+    # to close: thread A finds the index fine, thread B rebuilds -- dropping the
+    # table -- and A's query then hits a table that no longer exists. The lock is
+    # held for a few milliseconds in the common case (two metadata reads and a
+    # KNN), and a rebuild is a copy out of the canonical table measured at 0.20 s
+    # for 16,000 768-dimension vectors.
+    with _REBUILD_LOCK:
+        if _recorded_model(conn) != model or _index_dims(conn) is None:
+            # Self-healing rather than silently empty.
+            if not _rebuild_locked(conn, model)["ok"]:
+                return []
+            if _index_dims(conn) is None:
+                return []
+        return _nearest_locked(conn, model, vector, k, within_ids)
 
+
+def _nearest_locked(
+    conn: sqlite3.Connection,
+    model: str,
+    vector: bytes,
+    k: int,
+    within_ids: Optional[Sequence[int]],
+) -> list[tuple[int, float]]:
+    """:func:`nearest`'s query. The caller must hold :data:`_REBUILD_LOCK`."""
     k = max(1, int(k))
     query_dims = len(vector) // 4
     if query_dims != _index_dims(conn):
@@ -458,12 +496,20 @@ def nearest(
     """
     try:
         rows = conn.execute(sql, params).fetchall()
-    except sqlite3.OperationalError as exc:
-        # A configuration fault, not a crash: the caller renders "no ranking
-        # available" and the log carries the detail.
+    except sqlite3.Error as exc:
+        # ``sqlite3.Error``, not just ``OperationalError``. A ranking is an
+        # optional enrichment on every page that shows one, and **no failure of
+        # it may reach the ASGI layer**: an exception escaping here becomes a 500
+        # with no CORS headers, which a browser reports as a bare network failure
+        # rather than as a server error. That is what this looked like when a
+        # concurrent rebuild dropped the table mid-query, and it cost a network
+        # log to find because there was no stack trace to read.
         logger.warning("vector query failed: %s", exc)
         return []
     finally:
         if within_ids is not None:
-            conn.execute(f"DROP TABLE IF EXISTS {_CANDIDATE_TABLE}")
+            try:
+                conn.execute(f"DROP TABLE IF EXISTS {_CANDIDATE_TABLE}")
+            except sqlite3.Error:  # pragma: no cover - cleanup must not mask the result
+                logger.debug("could not drop the candidate table", exc_info=True)
     return [(int(r[0]), float(r[1])) for r in rows]

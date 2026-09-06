@@ -19,6 +19,7 @@ from __future__ import annotations
 import builtins
 import sqlite3
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -323,6 +324,81 @@ def test_upsert_replaces_rather_than_duplicating(conn):
         vector_index.upsert(conn, "m1", [(doc, vector_index.pack_vector([1.0, 0, 0, 0]))])
     conn.commit()
     assert vector_index.index_state(conn)["rows"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Concurrency
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_ranking_never_raises_while_another_thread_rebuilds(tmp_path):
+    """The 1.9b bug, as a regression test.
+
+    A rebuild drops and recreates a real table in the database file, so it is
+    process-wide state even though every thread has its own connection. One
+    thread dropping ``vec_document_embeddings`` while another queried it raised
+    out of the endpoint, and because the exception escaped before FastAPI's CORS
+    middleware the browser reported a bare ``net::ERR_FAILED`` rather than a 500
+    — no stack trace, no server error, just a panel that said "Failed to fetch".
+
+    It is reachable from one page: the Explorer's similarity search ranks, and
+    every open similar-papers panel ranks too.
+
+    **Mutation, performed:** remove ``with _REBUILD_LOCK:`` from ``nearest`` so
+    only the rebuild itself is serialised and the query is not. **69 of 150
+    rankings came back empty** — every one of them a query that landed between a
+    DROP and its CREATE and was swallowed by the handler below. Without that
+    handler they are exceptions instead, which is what shipped.
+
+    The window has to be wide enough to hit: at forty documents the mutation
+    passed and this test proved nothing, so the corpus here is 1,500.
+    """
+    path = tmp_path / "corpus.db"
+    setup = sqlite3.connect(str(path), check_same_thread=False)
+    setup.row_factory = sqlite3.Row
+    init_db(conn=setup)
+    # Enough rows that a rebuild takes long enough for another thread to land
+    # inside it. At forty the window was microseconds and the mutation below
+    # passed, which would have made this a test that proves nothing.
+    for i in range(1500):
+        doc = _document(setup, str(i))
+        _embed(setup, doc, "m1", [1.0, i * 0.001, 0.0, 0.0])
+    vector_index.rebuild(setup, "m1")
+    setup.close()
+
+    query = vector_index.pack_vector([1.0, 0.0, 0.0, 0.0])
+    errors: list[BaseException] = []
+    empties = [0]
+    barrier = threading.Barrier(6)
+
+    def worker(force_rebuild: bool) -> None:
+        conn = sqlite3.connect(str(path), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        try:
+            barrier.wait(timeout=30)
+            for _ in range(25):
+                if force_rebuild:
+                    # Ask for a model the index is not built for, which is what
+                    # sends ``nearest`` down the lazy-rebuild path.
+                    vector_index.rebuild(conn, "m1")
+                got = vector_index.nearest(conn, "m1", query, k=5)
+                if not got:
+                    empties[0] += 1
+        except BaseException as exc:  # noqa: BLE001 - the point is to catch everything
+            errors.append(exc)
+        finally:
+            conn.close()
+
+    threads = [threading.Thread(target=worker, args=(i % 2 == 0,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(60)
+
+    assert not errors, f"ranking raised under concurrency: {errors[:3]}"
+    # And it did not "succeed" by returning nothing every time, which would pass
+    # the assertion above while the feature was dead.
+    assert empties[0] == 0, f"{empties[0]} rankings came back empty under contention"
 
 
 # ---------------------------------------------------------------------------

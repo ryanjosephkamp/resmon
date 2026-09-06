@@ -320,14 +320,14 @@ test('the sort control appears, ranks, and says what it ranked against', async (
     // `toBeVisible()` on the container is satisfied by an empty box. The xvfb
     // job caught that — it read an empty string and failed on
     // `toBeGreaterThan(0)`, a message that named nothing.
-    // Let the page settle before opening the panel. Clicking straight after the
-    // sort change intermittently produced "Failed to fetch" in the panel: it
-    // mounts, fires its request, and the re-render that follows the new results
-    // abandons the request in flight. The product shows the error rather than an
-    // empty list, which is the right failure — but a test that races it is
-    // measuring the race. Recorded in the handback as an observation, because
-    // "it needs a settle" is not the same as "it is diagnosed".
-    await win.waitForTimeout(2000);
+    // This used to fail intermittently, and the cause turned out to be a real
+    // bug rather than a test race: opening the panel while the similarity search
+    // was still running put two ranking requests in flight, and one thread's
+    // lazy `vec0` rebuild dropped the table under the other's query. The
+    // exception escaped before FastAPI's CORS middleware, so the browser
+    // reported `net::ERR_FAILED` and the panel said "Failed to fetch" — no 500,
+    // no stack trace. Fixed in `vector_index` by serialising the rebuild across
+    // the whole check-and-query; `test_vector_index.py` carries the regression.
     await win.getByTestId('similar-toggle').first().click();
     const panel = win.getByTestId('similar-body').first();
     await expect(panel).toBeVisible();
