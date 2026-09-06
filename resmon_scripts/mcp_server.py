@@ -40,7 +40,7 @@ import httpx
 # The contract this server implements: docs/api-contract/mcp.md.
 # v1.2 adds ``search_corpus(mode="semantic")`` and ``find_similar`` -- additive,
 # so the major version is unchanged and no caller's return shape moved.
-CONTRACT_VERSION = "1.2"
+CONTRACT_VERSION = "1.3"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
 
@@ -527,8 +527,14 @@ def t_get_routine(args: dict) -> Any:
         "intent_source": audit.get("intent_source"),
         "results": audit.get("results"),
         "results_embedded": audit.get("results_embedded"),
-        "off_target_count": len(audit.get("off_target") or []),
-        "missed_in_corpus_count": len(audit.get("missed_in_corpus") or []),
+        # The totals, not the pages. Both lists are capped at 25 in the payload
+        # and a harness reading `len(off_target)` as "how many" would report 25
+        # for a routine with 312. The lists themselves are still not returned.
+        "off_target_count": audit.get("off_target_total"),
+        "missed_in_corpus_count": audit.get("missed_in_corpus_total"),
+        "missed_in_corpus_count_is_lower_bound": bool(
+            audit.get("missed_in_corpus_total_is_lower_bound")
+        ),
         "reason": audit.get("reason"),
         "cannot_see": audit.get("cannot_see"),
     }
@@ -703,6 +709,13 @@ def t_create_routine(args: dict) -> Any:
         "is_active": False,
         "ai_enabled": bool(args.get("ai_enabled", False)),
     }
+    # Optional, and never defaulted from the keywords. `get_routine`'s coverage
+    # summary reports which of the two it compared against, and a routine whose
+    # intent is its own keywords is being measured against itself -- filling this
+    # in from `keywords` would erase that distinction at the point it is created.
+    intent = str(args.get("intent") or "").strip()
+    if intent:
+        body["intent"] = intent
     created = backend.request("POST", "/api/routines", json=body)
     return {"routine": created,
             "detail": "Created inactive. Activate it in resmon to put it on its schedule."}
@@ -846,6 +859,11 @@ TOOLS: list[dict] = [
                     "keywords": {"type": "array", "items": {"type": "string"}},
                     "sources": {"type": "array", "items": {"type": "string"}},
                     "schedule": {"type": "string", "description": "cron expression"},
+                    "intent": {"type": "string", "description": (
+                        "Optional. What this routine is really looking for, in "
+                        "the user's own words. The coverage audit compares "
+                        "results against it; without one it falls back to the "
+                        "keywords, which measures the query against itself.")},
                     "ai_enabled": {"type": "boolean"}}}},
 
     {"name": "run_routine", "fn": t_run_routine,

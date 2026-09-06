@@ -337,3 +337,108 @@ def test_the_summary_of_an_unmeasurable_routine_is_its_reason(conn):
     routine = _routine(conn, "new", intent="something")
     audit = coverage_audit.audit_routine(conn, routine, MODEL, _v(1.0, 0, 0, 0))
     assert coverage_audit.summary_line(audit) == audit["reason"]
+
+
+# ---------------------------------------------------------------------------
+# Both lists are a page, and the payload says how big the whole is
+# ---------------------------------------------------------------------------
+
+
+def test_the_off_target_total_counts_every_result_beyond_the_cutoff(conn):
+    """R2. The list stops at ``max_off_target``; the total does not.
+
+    A routine with 300 off-target results shows 25 of them, and a reader given
+    25 rows and no count reads that as "25 results are off target" — a number
+    resmon never measured. **Mutation:** set ``off_target_total`` to
+    ``len(payload["off_target"])`` and this fails, because the two are
+    deliberately different.
+    """
+    routine = _routine(conn, "r", intent="on topic")
+    close = [_paper(conn, f"c{i}", [1.0, i * 0.0001, 0.0, 0.0]) for i in range(12)]
+    drifting = [_paper(conn, f"d{i}", [1.0, 0.5 + i * 0.01, 0.0, 0.0]) for i in range(8)]
+    vector_index.rebuild(conn, MODEL)
+    _returned_by(conn, int(routine["id"]), close + drifting)
+
+    audit = coverage_audit.audit_routine(
+        conn, routine, MODEL, _v(1.0, 0.0, 0.0, 0.0), max_off_target=3)
+    assert len(audit["off_target"]) == 3, "the page is capped"
+    assert audit["off_target_total"] == 5, "the quartile of twenty is five"
+
+
+def test_the_missed_total_counts_every_close_paper_the_routine_never_returned(conn):
+    """The same for the second list, and the same reason."""
+    routine = _routine(conn, "r", intent="on topic")
+    returned = [_paper(conn, f"got{i}", [1.0, 0.02 + i * 0.001, 0.0, 0.0])
+                for i in range(12)]
+    missed = [_paper(conn, f"miss{i}", [1.0, i * 0.0001, 0.0, 0.0]) for i in range(6)]
+    vector_index.rebuild(conn, MODEL)
+    _returned_by(conn, int(routine["id"]), returned)
+
+    audit = coverage_audit.audit_routine(
+        conn, routine, MODEL, _v(1.0, 0.0, 0.0, 0.0), max_missed=2)
+    assert len(audit["missed_in_corpus"]) == 2
+    assert audit["missed_in_corpus_total"] == len(missed)
+    # The index held every candidate, so the number is a count and not a floor.
+    # A flag that were always ``True`` would carry no information; this is the
+    # companion to the saturated case below.
+    assert audit["missed_in_corpus_total_is_lower_bound"] is False
+
+
+def test_a_missed_total_the_index_query_could_not_finish_is_marked_as_a_floor(conn):
+    """"25 of at least 63" when 63 is all resmon looked at.
+
+    The missed side is a bounded KNN, not a scan: its budget is
+    ``max_missed + len(returned) + 50``. When the query comes back full **and**
+    its furthest row is still inside the reference distance, papers beyond the
+    budget were never examined, so the total is a floor. Reporting it as an exact
+    count would be a number resmon did not measure — the same class of overclaim
+    as a truncated list with no caption at all.
+
+    Eighty unreturned papers, all nearer the intent than anything the routine
+    returned, against a budget of 63: the arithmetic is fixed, not incidental.
+    """
+    routine = _routine(conn, "r", intent="on topic")
+    returned = [_paper(conn, f"got{i}", [1.0, 0.05 + i * 0.001, 0.0, 0.0])
+                for i in range(12)]
+    for i in range(80):
+        _paper(conn, f"miss{i}", [1.0, i * 0.00001, 0.0, 0.0])
+    vector_index.rebuild(conn, MODEL)
+    _returned_by(conn, int(routine["id"]), returned)
+
+    audit = coverage_audit.audit_routine(
+        conn, routine, MODEL, _v(1.0, 0.0, 0.0, 0.0), max_missed=1)
+    budget = 1 + len(returned) + 50
+    assert audit["missed_in_corpus_total_is_lower_bound"] is True
+    assert audit["missed_in_corpus_total"] == budget
+    assert audit["missed_in_corpus_total"] < 80, "the floor is below the truth, as it must be"
+    assert len(audit["missed_in_corpus"]) == 1
+
+
+def test_the_summary_reports_the_totals_rather_than_the_page(conn):
+    """A one-sentence summary saying "25" for a routine with 312 is worse than
+    silence: it is precise and wrong, and the MCP surface repeats it verbatim."""
+    routine = _routine(conn, "r", intent="on topic")
+    close = [_paper(conn, f"c{i}", [1.0, i * 0.0001, 0.0, 0.0]) for i in range(12)]
+    drifting = [_paper(conn, f"d{i}", [1.0, 0.5 + i * 0.01, 0.0, 0.0]) for i in range(8)]
+    vector_index.rebuild(conn, MODEL)
+    _returned_by(conn, int(routine["id"]), close + drifting)
+
+    audit = coverage_audit.audit_routine(
+        conn, routine, MODEL, _v(1.0, 0.0, 0.0, 0.0), max_off_target=3)
+    line = coverage_audit.summary_line(audit)
+    assert "5 results sit furthest" in line
+    assert "3 results" not in line
+
+
+def test_a_floor_is_worded_as_at_least(conn, seeded):
+    """The summary carries the qualifier the payload carries.
+
+    (``summary_line`` runs ``capitalize()`` over the joined clauses, so the
+    sentence opens "At least"; the comparison is case-insensitive rather than
+    pinning a capitalisation this test does not care about.)
+    """
+    audit = coverage_audit.audit_routine(
+        conn, seeded["routine"], MODEL, _v(1.0, 0.0, 0.0, 0.0))
+    audit["missed_in_corpus_total_is_lower_bound"] = True
+    line = coverage_audit.summary_line(audit).lower()
+    assert "at least 2 papers already in the corpus" in line

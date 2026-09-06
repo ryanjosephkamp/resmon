@@ -151,6 +151,7 @@ const sections: TutorialSection[] = [
     youtubeId: 'ZcR-eEw--ho',
     instructions: [
       'Click `Create Routine` to open the editor: pick repositories, keywords, optional date range, max results, flags (AI / Email / Results-in-Email / Notify-on-Completion), and a 5-field cron expression.',
+      '`What this routine is really looking for` is optional and is the sentence the coverage audit compares results against. Leave it blank and the audit falls back to the keywords, which is a circular reading — the panel says so when it does.',
       'Use `Edit` on any local row to reopen the editor pre-populated from the existing routine; saving issues `PUT /api/routines/{id}`.',
       'Toggle `Activate` / `Deactivate` to start or stop scheduling without deleting the row.',
     ],
@@ -158,11 +159,12 @@ const sections: TutorialSection[] = [
       'A coverage audit per routine: the results sitting furthest from what the routine is for, and papers already in your corpus that it never returned. Open it with `Is this finding what I meant?` under any routine.',
       'The audit compares against an intent you write for the routine, or its keywords if you have not — and it says which, because comparing a query against the results that query produced is measuring it against itself.',
       'What it refuses to claim: resmon can only compare against papers it already holds, so `missed` means missed by this routine and found by something else, never missed by resmon.',
+      'Both audit lists are a page of 25. When there are more, each says `Showing 25 of N` rather than letting a truncated list read as the whole answer.',
       'Per-row quick toggles for Email, AI, and Notify columns patch the matching flag in a single click.',
       'When a routine is currently firing, a `Cancel Run` button appears on its row and routes through the shared `ExecutionContext`.',
     ],
     tips: [
-      'Write an intent for each routine — one sentence describing what you actually want. It costs nothing and turns the coverage audit from a rough guide into a real check.',
+      'Write an intent for each routine — the optional box in the editor, one sentence describing what you actually want. It costs nothing and turns the coverage audit from a rough guide into a real check.',
       'The off-target cutoff comes from the routine\u2019s own spread of distances, not a fixed number, and below a dozen embedded results resmon declines to draw one at all.',
       'Routines fire via APScheduler in the local daemon.',
       'Deleting a routine preserves its historical execution rows on Results & Logs.',

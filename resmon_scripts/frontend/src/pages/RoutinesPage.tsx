@@ -15,6 +15,8 @@ interface Routine {
   id: number;
   name: string;
   schedule_cron: string;
+  /** ``routines.intent`` — hydrates the edit modal's intent field. */
+  intent?: string | null;
   is_active: number | boolean;
   email_enabled: number | boolean;
   email_ai_summary_enabled: number | boolean;
@@ -170,9 +172,16 @@ const RoutinesPage: React.FC = () => {
                 </p>
                 <p>
                   It compares against an <strong>intent</strong> you write for the
-                  routine — a sentence in your own words. Without one it falls back to
-                  the keyword string and says so, because comparing a query against the
-                  results that query produced is measuring it against itself.
+                  routine — the optional{' '}
+                  <em>What this routine is really looking for</em> box in the editor, a
+                  sentence in your own words. Without one it falls back to the keyword
+                  string and says so, because comparing a query against the results that
+                  query produced is measuring it against itself.
+                </p>
+                <p>
+                  Both lists are a page of 25. When there are more, each says{' '}
+                  <em>Showing 25 of N</em> — a list that stopped without saying so would
+                  read as the whole answer.
                 </p>
                 <p>
                   The cutoff comes from the routine&rsquo;s own spread of distances, not

@@ -117,9 +117,12 @@ def test_tools_list_matches_the_contract():
         "run_sweep", "create_routine", "run_routine",
     }
     # 18 since contract v1.2 (1.9a): ``find_similar`` is new and ``search_corpus``
-    # gained ``mode``. Both additive, so the major version is unchanged.
+    # gained ``mode``. v1.3 (1.9.2) adds no tool — ``create_routine`` gains the
+    # optional ``intent`` argument — so the count is unchanged and the minor
+    # version moves, which is what the contract's own versioning rule says an
+    # additive change does.
     assert len(names) == 18
-    assert mcp.CONTRACT_VERSION == "1.2"
+    assert mcp.CONTRACT_VERSION == "1.3"
 
 
 def test_every_tool_advertises_a_schema_and_description():
@@ -379,6 +382,64 @@ def test_create_routine_creates_it_inactive():
     # makes the string the tempting guess.
     assert isinstance(captured["parameters"], dict)
     assert captured["parameters"]["repositories"] == ["arxiv"]
+    # No intent was given, so none is sent -- never defaulted from the keywords.
+    # The coverage audit reports which of the two it compared against, and a
+    # silent fallback written into the column at creation would erase that.
+    assert "intent" not in captured
+
+
+def test_create_routine_passes_a_stated_intent_through():
+    """Contract v1.3's one addition, at the boundary it crosses.
+
+    ``routines.intent`` is what the coverage audit compares against; without this
+    a harness could create a routine but never say what it was for, and every
+    audit of it would be the circular keyword comparison.
+    """
+    captured = {}
+
+    def _request(method, url, **kwargs):
+        captured.update(kwargs.get("json") or {})
+        return httpx.Response(201, json={"id": 1, "is_active": False},
+                              request=httpx.Request(method, url))
+
+    mcp.backend._base = "http://127.0.0.1:8742"
+    with patch.object(mcp.httpx, "request", side_effect=_request):
+        mcp.call_tool("create_routine", {
+            "name": "n", "keywords": ["a"], "sources": ["arxiv"],
+            "schedule": "0 8 * * *",
+            "intent": "methods for irregular time series in astronomy"})
+
+    assert captured["intent"] == "methods for irregular time series in astronomy"
+
+
+def test_the_coverage_counts_on_get_routine_are_totals_not_page_lengths():
+    """A harness reading ``off_target_count`` gets the whole, not the page.
+
+    Both lists are capped at 25 in the payload. ``len(off_target)`` would report
+    25 for a routine with 312 -- precise, repeated verbatim by whatever consumes
+    it, and wrong.
+    """
+    audit = {
+        "summary": "s", "intent": "i", "intent_source": "stated",
+        "results": 400, "results_embedded": 400,
+        "off_target": [{"id": n} for n in range(25)], "off_target_total": 312,
+        "missed_in_corpus": [{"id": n} for n in range(25)],
+        "missed_in_corpus_total": 63,
+        "missed_in_corpus_total_is_lower_bound": True,
+        "reason": None, "cannot_see": "c",
+    }
+
+    def _request(method, url, **kwargs):
+        payload = audit if url.endswith("/coverage") else {"id": 4, "name": "r"}
+        return httpx.Response(200, json=payload, request=httpx.Request(method, url))
+
+    mcp.backend._base = "http://127.0.0.1:8742"
+    with patch.object(mcp.httpx, "request", side_effect=_request):
+        body = _payload(mcp.call_tool("get_routine", {"routine_id": 4}))
+
+    assert body["coverage"]["off_target_count"] == 312
+    assert body["coverage"]["missed_in_corpus_count"] == 63
+    assert body["coverage"]["missed_in_corpus_count_is_lower_bound"] is True
 
 
 def test_no_destructive_tool_is_exposed():

@@ -1214,10 +1214,10 @@ def insert_routine(conn: sqlite3.Connection, routine_dict: dict) -> int:
     """Create a new routine definition. Returns its ID."""
     sql = """\
         INSERT INTO routines
-            (name, schedule_cron, parameters, is_active, email_enabled,
+            (name, schedule_cron, parameters, intent, is_active, email_enabled,
              email_ai_summary_enabled, ai_enabled, ai_settings, storage_settings,
              notify_on_complete, execution_location)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     loc = routine_dict.get("execution_location", "local")
     if loc != "local":
@@ -1229,6 +1229,7 @@ def insert_routine(conn: sqlite3.Connection, routine_dict: dict) -> int:
         routine_dict["name"],
         routine_dict["schedule_cron"],
         routine_dict["parameters"],
+        routine_dict.get("intent"),
         routine_dict.get("is_active", 1),
         routine_dict.get("email_enabled", 0),
         routine_dict.get("email_ai_summary_enabled", 0),
@@ -1245,7 +1246,7 @@ def insert_routine(conn: sqlite3.Connection, routine_dict: dict) -> int:
 def update_routine(conn: sqlite3.Connection, routine_id: int, updates: dict) -> None:
     """Update routine fields from a dict of {column: value} pairs."""
     allowed = {
-        "name", "schedule_cron", "parameters", "is_active", "email_enabled",
+        "name", "schedule_cron", "parameters", "intent", "is_active", "email_enabled",
         "email_ai_summary_enabled", "ai_enabled", "ai_settings",
         "storage_settings", "last_executed_at", "notify_on_complete",
         "execution_location",

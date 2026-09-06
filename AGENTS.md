@@ -49,12 +49,12 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 1206 pass, 52 deselected
+.venv/bin/python -m pytest -q          # hermetic suite: 1224 pass, 52 deselected
 .venv/bin/python -m pytest -m live_network   # the 52 — real scholarly APIs, CLIs and sockets
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 220 tests across 28 suites
-npm run e2e                                      # the real Electron app — 65 checks, 24 routes
+npm run typecheck && npm test && npm run build   # 231 tests across 29 suites
+npm run e2e                                      # the real Electron app — 66 checks, 24 routes
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
