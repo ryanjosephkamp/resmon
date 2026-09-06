@@ -423,6 +423,51 @@ CREATE TABLE IF NOT EXISTS document_links (
 CREATE INDEX IF NOT EXISTS idx_document_links_b
     ON document_links(document_b);
 
+-- 2.0 — the embedded assistant's conversations.
+--
+-- One row per conversation, and one per turn. Two things about the shape are
+-- deliberate.
+--
+-- ``cli_session_id`` is the *agent runtime's own* session identifier, not
+-- resmon's. resmon generates it (a UUID it hands the CLI with --session-id) so
+-- there is exactly one id rather than a mapping to keep in step, and a later
+-- turn resumes the conversation by handing the same id back. It is nullable
+-- because a runtime that cannot resume is a real state: the panel then replays
+-- the transcript as context and says that is what it did, rather than pretending
+-- the model remembers.
+--
+-- ``tool_calls`` and ``tool_results`` are stored as returned. That is safe by
+-- construction rather than by care: no tool on the surface returns a credential
+-- value (contract v2 safety, asserted against a real backend), so there is no
+-- class of secret for a transcript to accumulate.
+CREATE TABLE IF NOT EXISTS assistant_sessions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    runtime         TEXT NOT NULL,
+    cli_session_id  TEXT,
+    model           TEXT,
+    title           TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS assistant_messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      INTEGER NOT NULL,
+    role            TEXT NOT NULL
+        CHECK (role IN ('user', 'assistant', 'system')),
+    content         TEXT NOT NULL DEFAULT '',
+    tool_calls      TEXT,
+    tool_results    TEXT,
+    input_tokens    INTEGER,
+    output_tokens   INTEGER,
+    cost_usd        REAL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES assistant_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_assistant_messages_session
+    ON assistant_messages(session_id, id);
+
 """
 
 # Schema version constants. Bumped by IMPL-36 (→2), IMPL-37 (→3), and
@@ -436,8 +481,9 @@ CREATE INDEX IF NOT EXISTS idx_document_links_b
 # deduplication figures out of the progress-events blob into columns, for the
 # reproducible search record. 9 adds ``execution_ai``; 10 adds the per-source
 # zero reason. 11 is the 1.9 embeddings platform: ``document_embeddings``,
-# ``document_links`` and ``routines.intent``, in one migration.
-SCHEMA_VERSION = 11
+# ``document_links`` and ``routines.intent``, in one migration. 12 adds the 2.0
+# assistant's ``assistant_sessions`` and ``assistant_messages``.
+SCHEMA_VERSION = 12
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
