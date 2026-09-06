@@ -133,9 +133,9 @@ def test_the_contract_states_the_right_number_of_pairs():
     the thing to correct.
     """
     pairs = sorted(set(_calls()))
-    assert len(pairs) == 39, (
-        f"{len(pairs)} distinct method-and-path pairs, and the v2.0 amendment "
-        f"says 39:\n" + "\n".join(f"  {m} {p}" for m, p in pairs)
+    assert len(pairs) == 41, (
+        f"{len(pairs)} distinct method-and-path pairs, and the v2.1 amendment "
+        f"says 41:\n" + "\n".join(f"  {m} {p}" for m, p in pairs)
     )
 
 

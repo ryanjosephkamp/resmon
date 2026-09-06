@@ -36,7 +36,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 import mcp_server  # noqa: E402
 from implementation_scripts import ai_cli  # noqa: E402
 
-pytestmark = pytest.mark.live_network
+# ``needs_agent_cli`` as well: this needs the CLI the *person* installed and
+# signed into. The weekly live job cannot run it and its summary says so.
+pytestmark = [pytest.mark.live_network, pytest.mark.needs_agent_cli]
 
 # A value no model could produce by accident and no other test uses. If this
 # string appears anywhere a person or a transcript can see, P4 has failed.
