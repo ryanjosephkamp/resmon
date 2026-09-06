@@ -32,6 +32,7 @@ from .database import (
 )
 from .logger import TaskLogger
 from .embedding_job import embed_documents, pending_ids
+from .near_duplicates import links_map
 from .normalizer import normalize_result, validate_result, deduplicate_batch
 from .progress import progress_store
 from .report_generator import generate_report, save_report
@@ -800,6 +801,12 @@ class SweepEngine:
                 "repositories": list(repositories),
                 "missing_key_repos": list(missing_key_repos),
                 "zero_notes": list(zero_notes),
+                # 1.9b. Links already stored for the papers this run touched --
+                # this does not scan, because a corpus-wide scan is minutes of
+                # work and a sweep must not silently grow one. A run before the
+                # first scan carries no section, which is correct: resmon has not
+                # looked, and an empty section would read as "none found".
+                "duplicate_links": self._duplicate_links_for(linked_ids),
                 "date_from": query_params.get("date_from", "N/A"),
                 "date_to": query_params.get("date_to", "N/A"),
                 "total": dedup_stats["total"],
@@ -1035,6 +1042,56 @@ class SweepEngine:
                 "message": f"Embedding stopped: {outcome['reason']}",
                 "timestamp": now_iso(),
             })
+
+    def _duplicate_links_for(self, linked_ids: list[int]) -> list[dict]:
+        """Near-duplicate pairs among this run's own documents, for the report.
+
+        Reads what a previous scan stored; it never scans. A corpus-wide scan
+        takes minutes on a real corpus and a sweep growing one silently would be
+        the opposite of the "never inside a source call" rule the embedding step
+        follows.
+
+        Each pair is emitted once. Both sides of a link are usually in the same
+        run, and a report listing "A also appears as B" and "B also appears as A"
+        would double what the reader has to check.
+        """
+        if not linked_ids:
+            return []
+        try:
+            mapped = links_map(self.db, linked_ids)
+        except Exception as exc:  # pragma: no cover - a report must not fail on this
+            logger.warning("could not read near-duplicate links for the report: %s", exc)
+            return []
+        if not mapped:
+            return []
+
+        titles = {
+            int(r["id"]): (r["title"], r["source_repository"])
+            for r in self.db.execute(
+                f"SELECT id, title, source_repository FROM documents WHERE id IN "
+                f"({','.join('?' for _ in linked_ids)})",
+                linked_ids,
+            )
+        }
+        seen: set[tuple[int, int]] = set()
+        out: list[dict] = []
+        for raw_id, entries in mapped.items():
+            doc_id = int(raw_id)
+            for entry in entries:
+                other_id = int(entry["id"])
+                pair = (min(doc_id, other_id), max(doc_id, other_id))
+                if pair in seen:
+                    continue
+                seen.add(pair)
+                title, source = titles.get(doc_id, (str(doc_id), "?"))
+                out.append({
+                    "title": title,
+                    "source": source,
+                    "other_title": entry.get("title") or str(other_id),
+                    "other_source": entry.get("source_repository") or "?",
+                    "method": entry.get("method"),
+                })
+        return out
 
     def _record_dedup(self, exec_id: int, stats: dict) -> None:
         """Persist the deduplication figures, and never let it break a sweep.

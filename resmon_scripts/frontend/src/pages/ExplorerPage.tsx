@@ -4,6 +4,7 @@ import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import PageHelp from '../components/Help/PageHelp';
 import WhyThisPaper from '../components/Explain/WhyThisPaper';
 import SimilarPapers from '../components/Explain/SimilarPapers';
+import DuplicateLinks, { DuplicateLink } from '../components/Explain/DuplicateLinks';
 import LifecycleBadge, { LifecycleEvent } from '../components/Explain/LifecycleBadge';
 import { apiClient, getBaseUrl } from '../api/client';
 import { useEmbeddingCapability } from '../hooks/useEmbeddingCapability';
@@ -57,6 +58,9 @@ interface SearchResponse {
   similarity_unavailable?: string;
 }
 
+/** Near-duplicate links for a page of results, keyed by document id as a string. */
+type LinksMap = Record<string, DuplicateLink[]>;
+
 interface LifecycleMap {
   events: Record<string, LifecycleEvent[]>;
   checked: Record<string, { checked_at: string; status: string }>;
@@ -106,6 +110,13 @@ const ExplorerPage: React.FC = () => {
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
   const { capability, loaded: capabilityLoaded } = useEmbeddingCapability();
+  const [links, setLinks] = useState<LinksMap>({});
+  // Off by default and kept in component state rather than the URL: a collapse
+  // is a way of looking at a list, not a filter on it, and putting it in the
+  // address bar would make a shared link hide rows from whoever opened it
+  // (P12). Nothing about the corpus or the totals changes either way.
+  const [collapse, setCollapse] = useState(false);
+  const [folded, setFolded] = useState<Record<string, number[]>>({});
 
   // Debounce the free-text box so a query is not issued per keystroke.
   const debounceRef = useRef<number | undefined>(undefined);
@@ -146,6 +157,17 @@ const ExplorerPage: React.FC = () => {
   // cannot run.
   const canRankNow = capability.available && Boolean(urlQuery.trim());
 
+  /** Links for a page, in one round trip. Silent on failure, like the badges. */
+  const loadLinks = useCallback(async (results: Doc[]) => {
+    if (results.length === 0) return;
+    try {
+      const payload = await apiClient.post<{ links: LinksMap }>(
+        '/api/links/for-documents', { document_ids: results.map((d) => d.id) },
+      );
+      setLinks((prev) => ({ ...prev, ...(payload.links || {}) }));
+    } catch { /* a missing badge is better than a banner about a missing badge */ }
+  }, []);
+
   // One request per page of results, not one per row. Failure is silent: a
   // retraction badge is valuable, but a red error banner because the badge
   // lookup failed would be worse than the missing badge.
@@ -175,13 +197,15 @@ const ExplorerPage: React.FC = () => {
       setDocs(results);
       setMeta(rest);
       setFacets(f);
+      setLinks({});
       void loadLifecycle(results);
+      void loadLinks(results);
     } catch (err: any) {
       setError(err?.message || 'Search failed.');
     } finally {
       setLoading(false);
     }
-  }, [filters, sort, loadLifecycle]);
+  }, [filters, sort, loadLifecycle, loadLinks]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -196,12 +220,55 @@ const ExplorerPage: React.FC = () => {
       setDocs((prev) => [...prev, ...results]);
       setMeta(rest);
       void loadLifecycle(results);
+      void loadLinks(results);
     } catch (err: any) {
       setError(err?.message || 'Failed to load more.');
     } finally {
       setLoadingMore(false);
     }
-  }, [filters, sort, meta, loadingMore, loadLifecycle]);
+  }, [filters, sort, meta, loadingMore, loadLifecycle, loadLinks]);
+
+  // Asked for only when the reader turns collapse on, and it returns a grouping
+  // rather than a filtered list — the rows are still all here, and turning the
+  // switch off restores them without another request.
+  useEffect(() => {
+    if (!collapse || docs.length === 0) { setFolded({}); return; }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const payload = await apiClient.post<{ keep: number[]; folded: Record<string, number[]> }>(
+          '/api/links/collapse-preview', { document_ids: docs.map((d) => d.id) },
+        );
+        if (!cancelled) setFolded(payload.folded || {});
+      } catch { if (!cancelled) setFolded({}); }
+    })();
+    return () => { cancelled = true; };
+  }, [collapse, docs]);
+
+  /**
+   * The rows to render, and how many each one stands for.
+   *
+   * Collapsing folds a group into its first member and says so on that row. The
+   * *total* is untouched — it comes from the backend's count of matching papers
+   * and this view cannot change it (P12) — so a collapsed list deliberately
+   * shows fewer rows than the number above it, and the row says why.
+   */
+  const visible = useMemo(() => {
+    if (!collapse || !Object.keys(folded).length) {
+      return docs.map((d) => ({ doc: d, stands_for: 1 }));
+    }
+    const hidden = new Set<number>();
+    const size = new Map<number, number>();
+    for (const [root, members] of Object.entries(folded)) {
+      size.set(Number(root), members.length);
+      for (const m of members) if (m !== Number(root)) hidden.add(m);
+    }
+    return docs
+      .filter((d) => !hidden.has(d.id))
+      .map((d) => ({ doc: d, stands_for: size.get(d.id) ?? 1 }));
+  }, [docs, collapse, folded]);
+
+  const foldedCount = docs.length - visible.length;
 
   const toggle = (key: string, list: string[], value: string) =>
     setParam(key, list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
@@ -478,6 +545,23 @@ const ExplorerPage: React.FC = () => {
               and inert is a promise the app is not keeping (phase 1.9,
               decision 4).
             */}
+            {/*
+              Off by default, always. The corpus is valuable because it keeps
+              what each source said, and a list that folded rows on arrival
+              would be trading that away before the reader had a say (P12).
+              Shown only once there is something to fold.
+            */}
+            {Object.keys(links).length > 0 && (
+              <label className="explorer-collapse" data-testid="collapse-toggle">
+                <input
+                  type="checkbox"
+                  checked={collapse}
+                  onChange={(e) => setCollapse(e.target.checked)}
+                />
+                <span>Collapse duplicates</span>
+              </label>
+            )}
+
             {capabilityLoaded && capability.available && (
               <label className="explorer-sort" data-testid="explorer-sort">
                 <span>Sort</span>
@@ -533,6 +617,15 @@ const ExplorerPage: React.FC = () => {
             </p>
           )}
 
+          {collapse && foldedCount > 0 && (
+            <p className="explorer-rank-note" data-testid="collapse-note">
+              {nf.format(foldedCount)} row{foldedCount === 1 ? '' : 's'} folded into
+              {' '}another that looks like the same work.{' '}
+              <strong>Nothing was removed</strong> — the count above is unchanged and
+              turning this off brings them straight back.
+            </p>
+          )}
+
           {!loading && meta?.similarity_unavailable && (
             <p className="explorer-rank-note" role="status" data-testid="rank-unavailable">
               {meta.similarity_unavailable}
@@ -564,7 +657,7 @@ const ExplorerPage: React.FC = () => {
           )}
 
           <ul className="explorer-list">
-            {docs.map((d) => (
+            {visible.map(({ doc: d, stands_for }) => (
               <li className="explorer-item" key={d.id}>
                 <h3>
                   {d.url ? (
@@ -572,6 +665,12 @@ const ExplorerPage: React.FC = () => {
                   ) : d.title}
                 </h3>
                 <LifecycleBadge events={lifecycle.events[String(d.id)] || []} />
+                <DuplicateLinks links={links[String(d.id)] || []} />
+                {stands_for > 1 && (
+                  <p className="explorer-stands-for">
+                    Standing in for {stands_for} records that look like the same work.
+                  </p>
+                )}
                 <p className="explorer-meta">
                   <span className="explorer-source">{d.source_repository}</span>
                   {d.publication_date && <span>{d.publication_date}</span>}
