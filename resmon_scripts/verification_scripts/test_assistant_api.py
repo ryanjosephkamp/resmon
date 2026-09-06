@@ -37,6 +37,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
+import mcp_server  # noqa: E402
 from implementation_scripts import assistant_runtime  # noqa: E402
 
 FAKE_CLAUDE = Path(__file__).resolve().parent / "fixtures" / "fake_claude.py"
@@ -203,7 +204,9 @@ def test_status_reports_the_runtime_and_why_codex_is_not_one(backend):
     status = httpx.get(f"{backend.base}/api/assistant/status", timeout=20).json()
     assert status["available"] is True
     assert status["runtime"]["kind"] == "claude_cli"
-    assert status["contract_version"] == "2.0"
+    # Read from the server rather than pinned to a literal a second time: the
+    # claim is that the endpoint reports the contract the server is serving.
+    assert status["contract_version"] == mcp_server.CONTRACT_VERSION
     codex = next(o for o in status["others"] if o["kind"] == "codex_cli")
     assert codex["available"] is False and "shell" in codex["reason"].lower()
 

@@ -45,7 +45,7 @@ import httpx
 # ``requires_confirmation``. A caller that ignored that flag would be running
 # writes the contract says a person approves first, so callers are not
 # unaffected and the major version says so.
-CONTRACT_VERSION = "2.0"
+CONTRACT_VERSION = "2.1"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
 
@@ -72,12 +72,27 @@ MAX_LIMIT = 100
 # denylist: a group added to the app later is *not* reachable through this tool
 # until someone puts it here and thinks about it.
 #
+# **``assistant`` is here because the app grew it and nobody noticed** —
+# contract v2.1. The group landed in ``resmon.py`` in 2.0a (PR #88) after this
+# list was frozen (PR #86), so v2.0 shipped with a settings group that was
+# neither reachable nor deliberately excluded. The test that exists to force
+# that decision, ``test_no_settings_group_the_app_has_is_silently_reachable``,
+# is ``live_network``, and nothing ran the live suite on a schedule — which is
+# the same gap the weekly job in ``.github/workflows/live-network.yml`` was
+# added to close, and this was its first finding.
+#
+# Reachable rather than excluded, deliberately: "use opus for the assistant" is
+# among the likeliest things a person will ask the assistant itself, it is
+# confirm-gated like every other write, and a runtime change takes effect on the
+# next turn because the runtime is built per turn. The credential-shaped guard
+# below still applies, and none of the group's three keys is one.
+#
 # There is no credential group to exclude, because credentials are not settings
 # -- they live behind ``/api/credentials`` and the keychain, and the contract
 # excludes those routes entirely. What is guarded here is the other direction:
 # a settings *key* that carries a secret. See ``_CREDENTIAL_SHAPED``.
 SETTINGS_GROUPS: tuple[str, ...] = (
-    "ai", "email", "embeddings", "cloud", "storage", "notifications",
+    "ai", "assistant", "email", "embeddings", "cloud", "storage", "notifications",
 )
 
 # A key whose name contains any of these is refused before the request is
