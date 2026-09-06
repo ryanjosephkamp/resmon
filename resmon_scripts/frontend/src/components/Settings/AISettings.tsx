@@ -829,6 +829,17 @@ const AISettings: React.FC = () => {
                   cloud storage are not in its tools at all.
                 </p>
                 <p>
+                  <strong>No CLI? Use a key instead.</strong> <em>Run it with</em>{' '}
+                  chooses between the <code>claude</code> command and an API key of
+                  your own. The API-key route is the same panel, the same tools and
+                  the same card; resmon runs the loop itself. Three things differ:
+                  it reports <strong>tokens rather than money</strong>, because a
+                  provider API reports tokens and resmon maintains no price list; a
+                  turn stops after eight tool steps or 100,000 tokens; and it
+                  remembers what was <em>said</em> rather than what the tools
+                  returned, so a long conversation does not re-send a corpus.
+                </p>
+                <p>
                   <strong>Conversations live in two places, and they can drift
                   apart.</strong> resmon keeps the transcript; the{' '}
                   <code>claude</code> command keeps the conversation the model
