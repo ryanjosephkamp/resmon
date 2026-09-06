@@ -92,7 +92,7 @@ MAX_LIMIT = 100
 # excludes those routes entirely. What is guarded here is the other direction:
 # a settings *key* that carries a secret. See ``_CREDENTIAL_SHAPED``.
 SETTINGS_GROUPS: tuple[str, ...] = (
-    "ai", "assistant", "email", "embeddings", "cloud", "storage", "notifications",
+    "ai", "email", "embeddings", "cloud", "storage", "notifications",
 )
 
 # A key whose name contains any of these is refused before the request is
