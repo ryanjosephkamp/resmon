@@ -423,6 +423,15 @@ A `Sidebar` + `Header` + `MainContent` layout wraps every route, and a `Floating
 
 ## Quick Start Guide
 
+**On a brand-new install the Dashboard opens with a *Getting started* card.** It lists
+three optional things — an agent CLI you already subscribe to, an AI provider key, and a
+key for one of the few sources that wants one — with a link to where each is set, and a
+mark showing what resmon can already see. None of them is required: resmon searches all
+25 sources with no AI and no keys at all. The card reports **found** and **configured**
+and never **working**, because resmon cannot tell whether a command is signed in or a key
+accepted until the first paper goes through it. `Skip` puts it away permanently, and it
+retires itself the moment you have run anything.
+
 The following walkthroughs cover the three core workflows. Each flow assumes the app is running and that any required API keys for keyed repositories (CORE, NASA ADS, Springer Nature) are either stored under **Repositories & API Keys** or provided as ephemeral per-execution keys.
 
 ### Run a Deep Dive
