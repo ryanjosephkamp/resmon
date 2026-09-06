@@ -87,8 +87,15 @@ jobs:
           PYCODE
           pwd
           git rev-parse HEAD > "$EVIDENCE/source-commit.txt"
-          pwd
-          git archive HEAD | tar -x -C "$RUNNER_TEMP/voice-source"
+          python - <<'PYCODE'
+          import os, pathlib, subprocess, tarfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          archive = root / 'voice-source.tar'
+          print(pathlib.Path.cwd(), flush=True)
+          subprocess.run(['git', 'archive', 'HEAD', '--format=tar', '--output=' + str(archive)], check=True)
+          with tarfile.open(archive) as source:
+              source.extractall(root / 'voice-source', filter='data')
+          PYCODE
 
       - name: Install build dependencies in scratch
         working-directory: ${{ runner.temp }}/voice-source/resmon_scripts/frontend
