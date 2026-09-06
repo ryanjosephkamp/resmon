@@ -4097,3 +4097,345 @@ button.duplicate-link-text:hover { color: var(--color-accent); }
   color: var(--color-accent-hover);
   text-decoration: underline;
 }
+
+/* ── The assistant (2.0) ──
+ *
+ * A second fixed element beside the floating widget, sharing its corner
+ * behaviour so there are not two floating things with two sets of manners.
+ * Both are `position: fixed`, so neither is in the layout flow and opening the
+ * panel cannot move the page — which `e2e/assistant.spec.ts` asserts on every
+ * route by comparing the main content's bounding box before and after.
+ *
+ * The panel sits at z-index 9998, one below the progress widget: when a sweep
+ * is running, what the app is *doing* outranks what the assistant is saying.
+ */
+.assistant-trigger {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.assistant-trigger:hover {
+  background: var(--hover-bg);
+}
+
+.assistant-trigger-label {
+  letter-spacing: 0.01em;
+}
+
+/* When a sweep is running the widget takes the corner, so the trigger steps
+ * left of it rather than under it. Sibling selector on the shell, because the
+ * widget is only in the tree while there is something to show. */
+.floating-widget ~ .assistant-trigger {
+  right: auto;
+  left: 24px;
+}
+
+.assistant-panel {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9998;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  height: 560px;
+  max-height: calc(100vh - 96px);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.assistant-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.assistant-header h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.assistant-header-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.assistant-header-actions button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 15px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.assistant-header-actions button:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.assistant-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.assistant-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.assistant-message--user {
+  align-items: flex-end;
+}
+
+.assistant-bubble {
+  padding: 8px 11px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 92%;
+  color: var(--text-primary);
+  background: var(--hover-bg);
+}
+
+.assistant-message--user .assistant-bubble {
+  background: var(--accent, #3b82f6);
+  color: #fff;
+}
+
+.assistant-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.assistant-thinking {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.assistant-empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.assistant-empty-note {
+  font-size: 12px;
+}
+
+/* Tool calls: collapsed by default. A transcript that unrolled every tool
+ * result would bury the answer under the machinery that produced it. */
+.assistant-tool {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.assistant-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 9px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.assistant-tool-name {
+  flex: 1;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.assistant-tool--error .assistant-tool-icon {
+  color: var(--danger, #ef4444);
+}
+
+.assistant-tool-body {
+  margin: 0;
+  padding: 8px 9px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  overflow-x: auto;
+  color: var(--text-secondary);
+}
+
+/* The permission card. It has Allow and Deny and no dismiss, because a real
+ * process is blocked behind it: closing the card without answering would leave
+ * the assistant waiting for the backend's timeout. */
+.assistant-permission {
+  border: 1px solid var(--accent, #3b82f6);
+  border-radius: 10px;
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assistant-permission-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.assistant-permission-call {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.assistant-permission-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.assistant-permission-note {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.assistant-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.assistant-btn--primary {
+  background: var(--accent, #3b82f6);
+  border-color: var(--accent, #3b82f6);
+  color: #fff;
+}
+
+.assistant-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.assistant-unavailable h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.assistant-unavailable p {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.assistant-error {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--danger, #ef4444);
+  border-top: 1px solid var(--border);
+}
+
+.assistant-composer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.assistant-composer textarea {
+  flex: 1;
+  resize: none;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text-primary);
+}
+
+.assistant-session-drawer {
+  border-bottom: 1px solid var(--border);
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+
+.assistant-sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.assistant-sessions li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.assistant-sessions li.is-current .assistant-session-open {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.assistant-session-open {
+  flex: 1;
+  background: none;
+  border: none;
+  padding: 5px 0;
+  text-align: left;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-session-delete {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 5px;
+}

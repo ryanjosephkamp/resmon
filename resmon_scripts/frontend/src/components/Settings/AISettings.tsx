@@ -3,6 +3,7 @@ import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
 import InfoTooltip from '../Help/InfoTooltip';
+import AssistantSettings from './AssistantSettings';
 import EmbeddingSettings from './EmbeddingSettings';
 import FallbackChain, {
   FallbackLane, CliStatus, SubscriptionCatalog, SUBSCRIPTION_PROVIDERS,
@@ -801,6 +802,43 @@ const AISettings: React.FC = () => {
             ),
           },
           {
+            heading: 'The assistant — the ✦ Ask panel in the corner',
+            body: (
+              <>
+                <p>
+                  The <strong>Assistant</strong> section configures the panel
+                  behind the <strong>✦ Ask</strong> button on every page. It runs
+                  the same <code>claude</code> command as the primary lane above,
+                  so setting the path once is enough, and adds a model and an
+                  effort level.
+                </p>
+                <p>
+                  It is given resmon's own tools and nothing else — no built-in
+                  tools, none of your own MCP servers or skills, an empty working
+                  directory. Everything it tells you came from a tool call it
+                  made in that conversation; it has no other source.
+                </p>
+                <p>
+                  <strong>Anything that changes something waits for you.</strong>{' '}
+                  A write appears as a card with the exact call on it and does
+                  not run until you press Allow. That is enforced outside the
+                  model: only the read tools are pre-approved, and every other
+                  call goes through a permission tool resmon serves and the
+                  assistant cannot invoke. Deleting, erasing, resetting, writing
+                  a credential, installing the background service and linking
+                  cloud storage are not in its tools at all.
+                </p>
+                <p>
+                  <strong>Codex is not offered here.</strong> resmon can give a
+                  Codex session its own tools but cannot take away Codex's shell,
+                  and <code>codex exec</code> has no way for you to approve a
+                  command before it runs. Codex is still a summarisation lane,
+                  where it is given no tools at all.
+                </p>
+              </>
+            ),
+          },
+          {
             heading: 'Embeddings — a separate model, for search rather than summaries',
             body: (
               <>
@@ -1415,6 +1453,7 @@ const AISettings: React.FC = () => {
         summaries -- or the reverse -- should not have to configure both, and
         folding them into one form would imply they are one setting.
       */}
+      <AssistantSettings />
       <EmbeddingSettings />
     </div>
   );
