@@ -4782,7 +4782,25 @@ def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
             session_id, prompt,
             cli_session_id=cli_session_id, resume=resume,
         ):
-            if event["type"] == "text_delta":
+            if event["type"] == "started":
+                # The id the CLI actually reports, which is normally the one it
+                # was handed and is *not* after a failed resume: the runtime
+                # starts a fresh CLI session and this is where resmon learns
+                # about it. Without this the next turn would resume the id the
+                # CLI has already said it does not have, for ever.
+                reported = str(event.get("cli_session_id") or "")
+                if reported and reported != cli_session_id:
+                    cli_session_id = reported
+                    assistant_store.set_cli_session_id(conn, session_id, reported)
+            elif event["type"] == "notice":
+                # Stored as it happens rather than folded into the turn's
+                # message, so the transcript keeps the order the person saw and
+                # re-opening the conversation shows the notice in place.
+                assistant_store.add_message(
+                    conn, session_id, role="system",
+                    content=str(event.get("message") or ""),
+                )
+            elif event["type"] == "text_delta":
                 text_parts.append(event["text"])
             elif event["type"] == "tool_call":
                 tool_calls.append({"name": event["tool_name"],
@@ -4846,8 +4864,15 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
     # conversation is wedged: every later turn would answer 409 for ever, and
     # only restarting the app would clear it.
     try:
-        resume = bool(assistant_store.list_messages(conn, session_id))
+        # Resume only when there is something to resume *and* a CLI session to
+        # resume it in. Those are two facts and this used to read only the
+        # first: a session whose ``cli_session_id`` was null but which had
+        # messages minted a brand-new id and then asked the CLI to *resume* it,
+        # which the CLI cannot do by construction. Nothing set that column null
+        # in 2.0a, so it was latent; the cannot-resume work makes it reachable.
         cli_session_id = session["cli_session_id"] or assistant_store.new_cli_session_id()
+        resume = bool(session["cli_session_id"]) and bool(
+            assistant_store.list_messages(conn, session_id))
         if not session["cli_session_id"]:
             assistant_store.set_cli_session_id(conn, session_id, cli_session_id)
 
