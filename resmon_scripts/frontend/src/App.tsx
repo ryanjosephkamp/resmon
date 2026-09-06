@@ -4,7 +4,9 @@ import Sidebar from './components/Layout/Sidebar';
 import Header from './components/Layout/Header';
 import MainContent from './components/Layout/MainContent';
 import FloatingWidget from './components/Monitor/FloatingWidget';
+import AssistantPanel from './components/Assistant/AssistantPanel';
 import { ExecutionProvider } from './context/ExecutionContext';
+import { AssistantProvider } from './context/AssistantContext';
 import { apiClient } from './api/client';
 import AnalyticsPage from './pages/AnalyticsPage';
 import WatchdogPage from './pages/WatchdogPage';
@@ -82,24 +84,31 @@ const App: React.FC = () => {
   return (
     <HashRouter>
         <ExecutionProvider>
-          <div className="app-shell">
-            <Sidebar />
-            <div className="app-main">
-              <Header />
-              <MainContent>
-                <Routes>
-                  {APP_ROUTES.map((route) => (
-                    <Route
-                      key={route.path}
-                      path={route.path}
-                      element={PAGE_ELEMENTS[route.path]}
-                    />
-                  ))}
-                </Routes>
-              </MainContent>
+          <AssistantProvider>
+            <div className="app-shell">
+              <Sidebar />
+              <div className="app-main">
+                <Header />
+                <MainContent>
+                  <Routes>
+                    {APP_ROUTES.map((route) => (
+                      <Route
+                        key={route.path}
+                        path={route.path}
+                        element={PAGE_ELEMENTS[route.path]}
+                      />
+                    ))}
+                  </Routes>
+                </MainContent>
+              </div>
+              <FloatingWidget />
+              {/* A second fixed element beside the widget, never in the layout
+                  flow: the panel must not move the page when it opens, and
+                  `e2e/assistant.spec.ts` asserts the main content's bounding box
+                  before and after on every route. */}
+              <AssistantPanel />
             </div>
-            <FloatingWidget />
-          </div>
+          </AssistantProvider>
         </ExecutionProvider>
     </HashRouter>
   );

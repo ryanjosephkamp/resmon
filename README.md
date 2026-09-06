@@ -79,6 +79,45 @@ The table below lists the 25 active sources registered in the repository catalog
 
 Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in `.ai:/prep/repos.md` and are not queried at runtime.
 
+### The assistant
+
+Every page has a **✦ Ask** button in the corner. It opens a panel that can do what you
+could do in the interface — set up and adjust routines, run a sweep, find papers in the
+corpus you already have, read what a run found and why, export references, change
+settings — by being asked in words.
+
+It runs the **`claude` command you already installed and signed into**, so it draws on
+your existing plan rather than a metered key, and resmon never sees your credential. If
+the command is not there, or is not signed in, the panel says so and says where to fix
+it; it does not quietly disappear.
+
+Four things about it are structural rather than promised:
+
+- **Everything it tells you came from a tool call it made.** It has no other source. When
+  a tool returns nothing, "nothing was returned" is the answer, with the recorded reason
+  or a statement that none was recorded — the same distinction the rest of resmon draws.
+- **Anything that changes something waits for you.** A write is shown as a card with the
+  exact call on it and does not run until you press Allow. That is enforced outside the
+  model: the assistant is given the read tools and no others, and every other call goes
+  through a permission tool resmon serves and the model cannot invoke.
+- **It cannot reach a credential.** No tool returns an API key, and no tool can name one.
+  Delete, erase, factory reset, credential writes, service install and cloud linking are
+  absent from its tools entirely; asked for one, it tells you to do it in the app.
+- **A turn has a spending ceiling** the CLI enforces on itself, set from measuring ten
+  canonical requests. A runaway answer is stopped and says so rather than quietly costing
+  a usage window.
+
+Paper text — titles, abstracts, anything fetched from the internet — is data it reports
+on, never an instruction it follows. Its own rules arrive above the conversation on the
+CLI's system channel rather than beside the text, and a test asserts that at the boundary
+the command is actually built.
+
+Conversations are kept, so closing resmon and coming back opens them where you left off.
+Codex is **not** offered for the assistant: resmon can give a Codex session its own tools
+but cannot take away Codex's shell, and there is no way for you to approve a command
+before it runs. Codex remains available for summarising papers, where it is given no
+tools at all.
+
 ### Driving resmon from your AI harness (MCP)
 
 resmon ships an **MCP server**, so a harness you already work in — Claude Code, Codex, or
