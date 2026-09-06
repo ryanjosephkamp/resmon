@@ -32,6 +32,41 @@ Driven by directives in the prompt, so a test says what the turn should do:
                         failure
     BUDGET              stop the way `--max-budget-usd` really stops: an error
                         result with subtype `error_max_budget_usd`, no text
+    CANNOT_RESUME       *when invoked with --resume*, answer the way the real
+                        CLI answers a session id it does not have, and exit 1 —
+                        with no init message, because the real one sends none.
+                        Ignored on a --session-id launch, exactly as the real
+                        binary ignores it: there is nothing to resume, so the
+                        same prompt answers normally on the retry.
+
+Set ``FAKE_CLAUDE_STATE`` to a directory and the double also refuses a
+``--resume`` for a session id it was never asked to start — the way the real
+CLI refuses one — without any directive at all.
+
+## The cannot-resume shape, transcribed
+
+``CANNOT_RESUME`` is the one directive here that reproduces a *recorded*
+response rather than a plausible one. Taken from claude 2.1.258 on
+2026-09-06, in an empty directory, resuming a syntactically valid session id
+it had never seen:
+
+    $ claude -p --output-format stream-json --verbose --tools "" \
+        --resume 11111111-2222-3333-4444-555555555555 "say hi"
+    {"type":"result","subtype":"error_during_execution","duration_ms":0,
+     "duration_api_ms":0,"is_error":true,"num_turns":0,"stop_reason":null,
+     "session_id":"11111111-2222-3333-4444-555555555555","total_cost_usd":0,
+     "usage":{...},"modelUsage":{},"permission_denials":[],
+     "uuid":"a3861068-...","errors":[
+       "No conversation found with session ID: 11111111-2222-3333-4444-555555555555"]}
+    exit 1, stderr: No conversation found with session ID: 11111111-...
+
+Three details are load-bearing and are reproduced rather than approximated:
+there is **no** ``result`` field, the subtype is the generic
+``error_during_execution``, and the sentence is in ``errors``. A double that
+put the sentence in ``result`` would let a classifier reading ``result`` pass
+while the real binary broke it. ``test_assistant_live.py`` re-establishes this
+shape against the installed binary, so a version that changes it fails a test
+instead of silently making this fixture fiction.
 """
 
 from __future__ import annotations
@@ -42,11 +77,46 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import assistant_permission_server as perm  # noqa: E402
 import mcp_server  # noqa: E402
+
+
+def _state_file() -> Optional[Path]:
+    """Where this double remembers the sessions it has been asked to start.
+
+    Opt-in through ``FAKE_CLAUDE_STATE`` rather than always on, because most
+    tests here drive one turn with an invented id and do not care. The tests
+    that do care — the ones about resuming — set it, and then the double fails a
+    resume the way the real CLI fails one: for an id it has never seen.
+
+    That faithfulness is the point. A double that cheerfully resumed anything
+    could not fail the way the real dependency fails, which is the recorded root
+    cause of two shipped defects (Ledger 23, 32) and of P10's unproven clause.
+    """
+    root = os.environ.get("FAKE_CLAUDE_STATE")
+    return Path(root) / "sessions.txt" if root else None
+
+
+def _remember_session(session_id: str) -> None:
+    path = _state_file()
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(session_id + "\n")
+
+
+def _session_is_known(session_id: str) -> bool:
+    path = _state_file()
+    if path is None:
+        return True          # not tracking: every resume succeeds, as before
+    if not path.exists():
+        return False
+    return session_id in path.read_text(encoding="utf-8").split()
 
 
 def emit(payload: dict) -> None:
@@ -62,6 +132,8 @@ def main() -> int:
         return argv[argv.index(name) + 1] if name in argv else default
 
     session_id = flag("--session-id") or flag("--resume") or str(uuid.uuid4())
+    if "--session-id" in argv:
+        _remember_session(session_id)
 
     # The permission server's environment comes from the MCP config resmon
     # wrote, exactly as the real CLI would start it.
@@ -71,6 +143,22 @@ def main() -> int:
         for server in ("resmon_permission", "resmon"):
             env = config.get("mcpServers", {}).get(server, {}).get("env", {})
             os.environ.update({k: str(v) for k, v in env.items()})
+
+    # Before the init message, because the real CLI sends **no** init message
+    # when it cannot resume — it writes the result envelope and exits. A double
+    # that announced a session and then failed would be telling the relay a
+    # session started when none did.
+    if ("CANNOT_RESUME" in prompt.split() and "--resume" in argv) or (
+            "--resume" in argv and not _session_is_known(session_id)):
+        sys.stderr.write(f"No conversation found with session ID: {session_id}\n")
+        sys.stderr.flush()
+        emit({"type": "result", "subtype": "error_during_execution",
+              "duration_ms": 0, "duration_api_ms": 0, "is_error": True,
+              "num_turns": 0, "stop_reason": None,
+              "session_id": session_id, "total_cost_usd": 0,
+              "usage": {}, "modelUsage": {}, "permission_denials": [],
+              "errors": [f"No conversation found with session ID: {session_id}"]})
+        return 1
 
     allowed = [t for t in (flag("--allowedTools") or "").split(" ") if t]
     emit({
@@ -95,6 +183,8 @@ def main() -> int:
             sys.stdout.flush()
         elif line.startswith("SLEEP:"):
             time.sleep(float(line[6:]))
+        elif line == "CANNOT_RESUME":
+            continue          # handled above, before the init message
         elif line == "BUDGET":
             emit({"type": "result", "subtype": "error_max_budget_usd",
                   "is_error": True, "result": None, "total_cost_usd": 0.75,

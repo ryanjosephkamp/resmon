@@ -4234,6 +4234,20 @@ button.duplicate-link-text:hover { color: var(--color-accent); }
   color: #fff;
 }
 
+/* resmon speaking about the conversation, not the assistant speaking in it.
+   Full width, no bubble, and visibly a note rather than a reply — a system
+   line that looked like the assistant's own words would be resmon putting
+   sentences in its mouth. */
+.assistant-message--system .assistant-bubble {
+  background: transparent;
+  border-left: 2px solid var(--border-color, #d0d5dd);
+  border-radius: 0;
+  max-width: 100%;
+  padding: 2px 0 2px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .assistant-meta {
   font-size: 11px;
   color: var(--text-secondary);

@@ -69,6 +69,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
@@ -89,6 +90,7 @@ __all__ = [
     "ClaudeCliRuntime",
     "RuntimeStatus",
     "TURN_BUDGET_USD",
+    "cannot_resume_notice",
     "codex_unavailable_reason",
     "get_runtime",
     "runtime_status",
@@ -104,6 +106,9 @@ EVENT_TYPES = (
     "tool_call",          # the model asked for a tool
     "tool_result",        # what the tool returned
     "permission_request", # a write is waiting for the panel (emitted by the broker)
+    "notice",             # resmon has something to say about the conversation
+                          # itself rather than about the research -- rendered as
+                          # a system line, stored as a system message
     "done",               # the turn finished; carries usage and cost
     "error",              # the turn failed; carries a sentence for a person
 )
@@ -138,6 +143,64 @@ DEFAULT_TURN_TIMEOUT = 300
 # that makes ordinary turns dearer fails a test rather than cutting off a user's
 # answer.
 TURN_BUDGET_USD = 0.75
+
+# What ``claude`` says when the conversation behind ``--resume`` is gone.
+#
+# **Established against the binary, not guessed.** claude 2.1.258, in an empty
+# directory, ``--resume`` with a syntactically valid session id it has never
+# seen:
+#
+#     exit code 1
+#     stdout: {"type":"result","subtype":"error_during_execution","is_error":true,
+#              "num_turns":0,"session_id":"<the id>","total_cost_usd":0,
+#              "errors":["No conversation found with session ID: <the id>"], ...}
+#     stderr: No conversation found with session ID: <the id>
+#
+# Three things in that shape matter. The envelope carries **no ``result``
+# field at all**, so a classifier reading only the result text has nothing to
+# read. The subtype is the generic ``error_during_execution``, so the subtype
+# alone cannot tell this apart from any other mid-run failure. The specific
+# sentence is in ``errors``, an array 2.0a's normaliser dropped on the floor --
+# which is why this is matched on ``errors`` first and on stderr only as a
+# fallback.
+#
+# Matched on the stable half of the sentence. The session id is interpolated
+# into it, so the whole string is never a constant; "no conversation found" is
+# the part that is.
+_CANNOT_RESUME_MARKERS = ("no conversation found",)
+
+
+def cannot_resume_notice() -> str:
+    """What the person is told when the CLI has lost their conversation.
+
+    It says three things and claims nothing else: the CLI no longer has it,
+    resmon carried on in a new one, and the assistant does not remember what
+    was said before. That last clause is the honest half — resmon's own record
+    of the conversation is still on screen, and it would be easy to let the
+    user infer the assistant can still see it.
+    """
+    return (
+        "The claude CLI no longer has this conversation, so resmon started a "
+        "fresh one to answer you. Your earlier messages are still here, but the "
+        "assistant is not able to see them any more."
+    )
+
+
+def _is_cannot_resume(errors: Any, stderr: str) -> bool:
+    """Whether a failed turn failed because the CLI could not resume.
+
+    ``errors`` first: it is the CLI's own structured account of what went
+    wrong. stderr is the fallback for a version that stops populating it.
+    """
+    haystacks = []
+    if isinstance(errors, (list, tuple)):
+        haystacks.extend(str(item).lower() for item in errors)
+    elif errors:
+        haystacks.append(str(errors).lower())
+    if stderr:
+        haystacks.append(stderr.lower())
+    return any(marker in text for text in haystacks
+               for marker in _CANNOT_RESUME_MARKERS)
 
 
 @dataclass(frozen=True)
@@ -347,6 +410,22 @@ class ClaudeCliRuntime(AssistantRuntime):
         Runs in an empty temporary directory that is removed when the turn ends,
         so the CLI has nothing of the user's to read and nothing of resmon's to
         find except the MCP config it is handed.
+
+        **A resume the CLI cannot honour is recovered from, once, and said out
+        loud.** ``claude`` keeps its conversations in its own storage, on its
+        own terms: a user who runs ``claude`` themselves, clears its history, or
+        moves to a machine that restored resmon's database but not the CLI's,
+        has a resmon conversation whose CLI session no longer exists. Before
+        this, that turn simply failed -- the user's message was stored, nothing
+        answered it, and the sentence they got was "exit code 1". Now the failed
+        resume is recognised from what the CLI actually said, a fresh CLI
+        session answers the same message, and a ``notice`` event tells the
+        person their earlier messages are still on screen but no longer in front
+        of the assistant.
+
+        Once, and only for this failure. A retry loop on an unrecognised failure
+        would double every real error, and a retry that did not say anything
+        would quietly turn "it remembers" into "it does not".
         """
         emit = on_event or (lambda _event: None)
         with tempfile.TemporaryDirectory(prefix="resmon-assistant-") as workdir:
@@ -354,12 +433,11 @@ class ClaudeCliRuntime(AssistantRuntime):
             with open(config_path, "w", encoding="utf-8") as handle:
                 json.dump(self.mcp_config(session_id, workdir), handle)
 
-            argv = self.build_argv(
-                prompt, mcp_config_path=config_path,
-                cli_session_id=cli_session_id, resume=resume,
-            )
             try:
-                yield from self._stream(session_id, argv, workdir, emit)
+                yield from self._turn_with_resume_recovery(
+                    session_id, prompt, config_path, workdir,
+                    cli_session_id=cli_session_id, resume=resume, emit=emit,
+                )
             except Exception as exc:                # noqa: BLE001 - see the docstring
                 # Nothing escapes into a half-written SSE response. A truncated
                 # stream is indistinguishable, in a panel, from a model that
@@ -370,9 +448,63 @@ class ClaudeCliRuntime(AssistantRuntime):
                     detail=type(exc).__name__,
                 )
 
+    def _turn_with_resume_recovery(
+        self, session_id: int, prompt: str, config_path: str, workdir: str,
+        *, cli_session_id: str, resume: bool, emit: Callable[[dict], None],
+    ) -> Iterator[dict]:
+        """One turn, retried once as a new CLI session if the resume was refused.
+
+        The failed attempt's own ``done`` and ``error`` events are **withheld**
+        rather than forwarded. They are true about a CLI invocation and false
+        about the turn: the panel would finalise the message, show a failure and
+        then start streaming an answer underneath it. What the person gets
+        instead is the ``notice``, then the answer.
+        """
+        outcome: dict = {}
+        argv = self.build_argv(
+            prompt, mcp_config_path=config_path,
+            cli_session_id=cli_session_id, resume=resume,
+        )
+        for event in self._stream(session_id, argv, workdir, emit, outcome=outcome):
+            if resume and event["type"] in ("done", "error"):
+                # Held back until the stream ends, because whether they are the
+                # turn's outcome or a discarded first attempt is not known yet.
+                outcome.setdefault("held", []).append(event)
+                continue
+            yield event
+
+        held = outcome.pop("held", [])
+        if not outcome.get("cannot_resume"):
+            for event in held:
+                emit(event)
+                yield event
+            return
+
+        logger.info(
+            "Assistant session %s could not be resumed; starting a fresh CLI session",
+            session_id,
+        )
+        notice = {
+            "type": "notice",
+            "code": "cannot_resume",
+            "message": cannot_resume_notice(),
+        }
+        emit(notice)
+        yield notice
+
+        fresh = str(uuid.uuid4())
+        argv = self.build_argv(
+            prompt, mcp_config_path=config_path,
+            cli_session_id=fresh, resume=False,
+        )
+        # No ``outcome`` on the retry: a second cannot-resume against an id the
+        # CLI has never seen would mean something other than a lost
+        # conversation, and one retry is the whole allowance either way.
+        yield from self._stream(session_id, argv, workdir, emit)
+
     def _stream(
         self, session_id: int, argv: list[str], workdir: str,
-        emit: Callable[[dict], None],
+        emit: Callable[[dict], None], outcome: Optional[dict] = None,
     ) -> Iterator[dict]:
         process = subprocess.Popen(
             argv, cwd=workdir, stdin=subprocess.DEVNULL,
@@ -395,22 +527,33 @@ class ClaudeCliRuntime(AssistantRuntime):
 
         final_error_text = ""
         failed_subtype = ""
+        reported_errors: list = []
         try:
             for line in _lines_with_timeout(process, self.timeout):
                 for event in _normalise(line):
                     if event["type"] == "done" and event.get("is_error"):
                         final_error_text = str(event.get("result_text") or "")
                         failed_subtype = str(event.get("subtype") or "")
+                        reported_errors = list(event.get("errors") or [])
                     emit(event)
                     yield event
 
             code = process.wait(timeout=15)
             if code != 0 or failed_subtype:
+                stderr_text = "".join(stderr_tail)
+                if outcome is not None:
+                    outcome["cannot_resume"] = _is_cannot_resume(
+                        reported_errors, stderr_text)
                 # The CLI's own last word first, then stderr. An auth failure
                 # arrives in the result envelope with nothing on stderr at all,
                 # and the budget stop arrives as a subtype with no text.
                 message = _classify_failure(
-                    failed_subtype, final_error_text or "".join(stderr_tail), code)
+                    failed_subtype,
+                    final_error_text or "; ".join(str(e) for e in reported_errors)
+                    or stderr_text,
+                    code,
+                    errors=reported_errors,
+                )
                 event = _error_event(message, detail=failed_subtype or f"exit {code}")
                 emit(event)
                 yield event
@@ -609,6 +752,11 @@ def _normalise(line: str) -> list[dict]:
             "result_text": message.get("result") if message.get("is_error") else None,
             "subtype": message.get("subtype"),
             "is_error": bool(message.get("is_error")),
+            # The CLI's structured account of what went wrong, which is where a
+            # failed ``--resume`` says so. 2.0a dropped this field; the result
+            # envelope for a lost conversation has no ``result`` text at all, so
+            # dropping it left the only description of the failure on stderr.
+            "errors": [str(e) for e in (message.get("errors") or [])],
             # ``None`` rather than 0 when the CLI did not report a figure. The
             # store keeps NULL and the panel says "not reported"; a zero here
             # would become a measured-looking number nobody measured.
@@ -659,12 +807,24 @@ def _error_event(message: str, detail: Optional[str] = None) -> dict:
     return {"type": "error", "message": message, "detail": detail}
 
 
-def _classify_failure(subtype: str, stderr: str, code: int) -> str:
+def _classify_failure(
+    subtype: str, stderr: str, code: int, *, errors: Optional[list] = None,
+) -> str:
     """One sentence a person can act on, built only from what the CLI said.
 
     Never a stack trace and never a guess: an unrecognised failure says the exit
     code and that resmon does not know, which is the honest answer.
+
+    The cannot-resume branch is reachable in normal running only when the retry
+    in ``_turn_with_resume_recovery`` is not in play -- a turn that was not a
+    resume, or a caller driving ``_stream`` directly. It is here so that a
+    caller who does not recover still gets the real reason rather than "exit 1".
     """
+    if _is_cannot_resume(errors, stderr):
+        return (
+            "The claude CLI no longer has this conversation, so it could not be "
+            "picked up where it left off. Start a new conversation to carry on."
+        )
     if subtype == "error_max_budget_usd":
         return (
             f"That turn reached resmon's per-answer spending limit of "

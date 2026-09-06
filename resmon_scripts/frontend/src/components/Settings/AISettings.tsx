@@ -829,6 +829,16 @@ const AISettings: React.FC = () => {
                   cloud storage are not in its tools at all.
                 </p>
                 <p>
+                  <strong>Conversations live in two places, and they can drift
+                  apart.</strong> resmon keeps the transcript; the{' '}
+                  <code>claude</code> command keeps the conversation the model
+                  can actually see. If that one goes — you cleared the CLI's
+                  history, or restored resmon's database onto a different
+                  machine — the next thing you send is answered in a fresh
+                  session, and the panel says so in place. Your earlier messages
+                  stay on screen; the assistant can no longer see them.
+                </p>
+                <p>
                   <strong>Codex is not offered here.</strong> resmon can give a
                   Codex session its own tools but cannot take away Codex's shell,
                   and <code>codex exec</code> has no way for you to approve a
