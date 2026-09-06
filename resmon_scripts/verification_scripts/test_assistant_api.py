@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -35,6 +36,8 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
+
+from implementation_scripts import assistant_runtime  # noqa: E402
 
 FAKE_CLAUDE = Path(__file__).resolve().parent / "fixtures" / "fake_claude.py"
 
@@ -60,17 +63,24 @@ class Backend:
         self.state = state
         self.port = _free_port()
         self.base = f"http://127.0.0.1:{self.port}"
+        self.db_path = str(state / "resmon.db")
         self.proc: subprocess.Popen | None = None
 
     def start(self) -> None:
         env = {
             **os.environ,
-            "RESMON_DB_PATH": str(self.state / "resmon.db"),
+            "RESMON_DB_PATH": self.db_path,
             "RESMON_REPORTS_DIR": str(self.state / "reports"),
             "RESMON_PORT_FILE": str(self.state / "resmon.port"),
             "RESMON_DISABLE_SCHEDULER": "1",
             "RESMON_PORT": str(self.port),
             "PYTHONPATH": str(PROJECT_ROOT / "resmon_scripts"),
+            # The double remembers which sessions it was asked to start, so a
+            # resume of one it never started fails the way the real CLI's does.
+            # Set here rather than globally because it is the resume tests that
+            # need the double to be faithful about it, and the env is inherited
+            # by the CLI the backend spawns (``_child_env`` strips only RESMON_*).
+            "FAKE_CLAUDE_STATE": str(self.state / "fake-claude"),
         }
         self.proc = subprocess.Popen(
             [sys.executable, str(PROJECT_ROOT / "resmon_scripts" / "resmon.py"),
@@ -281,8 +291,11 @@ def test_an_unknown_cli_event_never_reaches_the_panel(backend):
     assert "do-not-render" not in json.dumps(events)
 
 
-_PANEL_EVENTS = ("started", "text_delta", "tool_call", "tool_result",
-                 "permission_request", "done", "error")
+# The runtime's own vocabulary, not a copy of it. A hand-written list here went
+# stale the moment ``notice`` was added, and a stale list would have let a new
+# event type reach the panel unnoticed by the very test that exists to stop
+# exactly that.
+_PANEL_EVENTS = tuple(assistant_runtime.EVENT_TYPES)
 
 
 def test_a_second_turn_is_refused_while_one_is_running(backend):
@@ -489,3 +502,75 @@ def test_conversations_survive_a_backend_restart(backend):
     assert any(s["id"] == session["id"] for s in
                httpx.get(f"{backend.base}/api/assistant/sessions", timeout=20)
                .json()["sessions"])
+
+
+# ---------------------------------------------------------------------------
+# P16 — a session whose CLI id cannot be resumed says so, through the relay
+# ---------------------------------------------------------------------------
+
+def test_a_conversation_the_cli_has_lost_says_so_and_carries_on(backend):
+    """P16a and P16b end to end: SSE, the store, and the next turn's argv.
+
+    The double answers the resume the way claude 2.1.258 really answers one it
+    cannot honour — no init message, no ``result`` text, the sentence in
+    ``errors`` — which is transcribed in the fixture and re-established against
+    the binary by ``test_assistant_live.py``.
+    """
+    session = _session(backend.base)
+    _turn(backend.base, session["id"], "SAY:first turn")
+
+    events = _turn(backend.base, session["id"],
+                   "CANNOT_RESUME\nSAY:answered anyway")
+    notices = [e for e in events if e["type"] == "notice"]
+    assert len(notices) == 1, [e["type"] for e in events]
+    assert notices[0]["code"] == "cannot_resume"
+    assert "no longer has this conversation" in notices[0]["message"]
+    assert not [e for e in events if e["type"] == "error"], (
+        "a recovered turn is not a failed turn")
+    assert [e["text"] for e in events if e["type"] == "text_delta"] == [
+        "answered anyway"]
+
+    stored = httpx.get(f"{backend.base}/api/assistant/sessions/{session['id']}",
+                       timeout=20).json()
+    roles = [m["role"] for m in stored["messages"]]
+    assert roles == ["user", "assistant", "user", "system", "assistant"], roles
+    assert "no longer has this conversation" in stored["messages"][3]["content"]
+    assert stored["messages"][4]["content"] == "answered anyway"
+
+    # The store learned the fresh id, which is what stops the next turn asking
+    # the CLI to resume something it has already disowned.
+    assert stored["session"]["cli_session_id"] != session["cli_session_id"]
+
+    # And the next turn resumes the *new* one and answers normally.
+    again = _turn(backend.base, session["id"], "SAY:still here")
+    assert not [e for e in again if e["type"] == "notice"]
+    assert [e["text"] for e in again if e["type"] == "text_delta"] == ["still here"]
+
+
+def test_a_session_with_no_cli_id_starts_one_rather_than_resuming_it(backend):
+    """The latent half of the same defect, made reachable by the recovery.
+
+    ``resume`` used to be computed from "has this conversation any messages?"
+    alone. A session with history but no ``cli_session_id`` therefore minted a
+    fresh uuid and asked the CLI to *resume* it — which cannot succeed, by
+    construction, because the id had just been invented.
+    """
+    session = _session(backend.base)
+    _turn(backend.base, session["id"], "SAY:one")
+
+    conn = sqlite3.connect(backend.db_path)
+    conn.execute("UPDATE assistant_sessions SET cli_session_id = NULL WHERE id = ?",
+                 (session["id"],))
+    conn.commit()
+    conn.close()
+
+    events = _turn(backend.base, session["id"], "SAY:two")
+    assert [e["text"] for e in events if e["type"] == "text_delta"] == ["two"]
+    assert not [e for e in events if e["type"] == "notice"], (
+        "there was nothing to fail to resume, so there is nothing to announce")
+
+    # The double is what makes this bite: with ``FAKE_CLAUDE_STATE`` set it
+    # refuses a ``--resume`` for an id it was never asked to start, so a turn
+    # that wrongly resumed an invented id would come back with a notice — which
+    # is exactly what the real CLI would do and what the panel would have to
+    # explain, for every turn, for ever.

@@ -286,6 +286,16 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           };
         }));
         break;
+      case 'notice':
+        // Something resmon needs to say about the conversation itself — today,
+        // only that the CLI lost it and a fresh session answered instead. A
+        // system line in the transcript rather than the error banner, because
+        // it is not an error: the turn carries on underneath it, and the banner
+        // is cleared by the next thing that happens.
+        setMessages((current) => [...current, {
+          role: 'system', content: String(event.message || ''),
+        }]);
+        break;
       case 'permission_request':
         setPending((cards) => [...cards, {
           request_id: event.request_id,
