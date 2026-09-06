@@ -1,4 +1,4 @@
-# The resmon MCP tool surface — contract v1
+# The resmon MCP tool surface — contract v2
 
 **Status: frozen on merge.** Changing anything below takes its own pull request that says
 what changed and why. Implementation is built against this document, not the other way
@@ -139,8 +139,19 @@ would make an honest product dishonest through an integration.
 | `run_sweep` | `query`, `sources`, `date_from?`, `date_to?`, `max_results?`, `ai_enabled?` | `exec_id`, immediately | `POST /api/search/sweep` |
 | `create_routine` | `name`, `keywords`, `sources`, `schedule`, optional `intent`, plus optional notification and AI settings | the created routine | `POST /api/routines` |
 | `run_routine` | `routine_id` | `exec_id`, immediately | **needs a new endpoint — see below** |
+| `activate_routine` | `routine_id` | `id`, `is_active: true` | `POST /api/routines/{id}/activate` |
+| `deactivate_routine` | `routine_id` | `id`, `is_active: false` | `POST /api/routines/{id}/deactivate` |
+| `update_settings` | `group`, `settings` | `group`, `changed` (a per-key `{from, to}` diff), `requested`, `unchanged_key_count` | `GET` + `PUT /api/settings/{group}` |
 
-All three return as soon as the execution is admitted. Progress is polled with
+**Every write tool carries `requires_confirmation: true` in `tools/list`, and every
+read tool carries it as `false`.** The field is resmon's own, not part of MCP. It is
+emitted for both, because a harness that has to infer "no flag means safe" is one
+release away from inferring it about a tool that grew teeth. `mcp_server.WRITE_TOOLS`
+and `READ_TOOLS` are derived from the same table, and the embedded assistant builds
+its pre-approved `--allowedTools` list from `READ_TOOLS` — one source, so the set the
+model may call without asking cannot drift from the set this document calls safe.
+
+The three sweep-and-run tools return as soon as the execution is admitted. Progress is polled with
 `get_execution`; there is deliberately no streaming tool in v1, because a harness holding
 an SSE stream open is a poor fit for a request/response tool surface and polling is honest
 about what it costs.
@@ -180,7 +191,8 @@ Listed so the omissions are visible and arguable rather than silently missing.
 |---|---|
 | `/api/admin/*` — erase corpus, erase app data, factory reset, erase keys | Destructive and irreversible. No confirmation model a tool call can satisfy. |
 | `PUT` / `DELETE /api/credentials/{name}` | Writing credentials through a tool surface means a credential passing through a harness. Never. |
-| `PUT /api/settings/*` | Reconfiguring the app underneath a user is a 2.0 assistant concern, where there is a person in the conversation to confirm with. |
+| ~~`PUT /api/settings/*`~~ | **Lifted in v2.0** as `update_settings`, on the condition this row named: a person in the conversation confirms it. Four groups of settings are still out of reach — see the v2.0 amendment. |
+| `PUT /api/settings/execution` | Deliberately *not* in `update_settings`'s allowlist. Admission control — how many executions run at once, how deep the routine fire queue goes — is a decision about the machine rather than about the research, and the endpoint does not take `SettingsBody`. |
 | `DELETE /api/routines/{id}`, `DELETE /api/executions/{id}` | Destructive. Same reasoning. |
 | `/api/service/install`, `/api/service/uninstall` | Touches launchd / systemd on the user's machine. |
 | `/api/cloud/*` | Google Drive linking is an OAuth flow that needs a browser and a person. |
@@ -190,6 +202,43 @@ Listed so the omissions are visible and arguable rather than silently missing.
 ---
 
 ## Amendments
+
+### v2.0 — 6 September 2026, phase 2.0a
+
+**Breaking, and the break is the confirmation model rather than a return shape.** No
+tool was removed and no existing return shape moved; three tools arrive, and every
+write tool now declares `requires_confirmation`. A caller that ignores that flag is
+running writes this document says a person approves first, so callers are *not*
+unaffected — which is the test the versioning rule below applies, and it is why this
+is a major bump rather than v1.4.
+
+| Change | Detail |
+|---|---|
+| `activate_routine` / `deactivate_routine` are new | v1 created routines inactive and said an explicit `activate_routine` was what a later version should add. Both are confirm-gated. Deactivating keeps the routine and everything it has found; it comes off its schedule. |
+| `update_settings` is new | The `PUT /api/settings/*` exclusion is lifted on exactly the condition its own row stated. Four guards, all structural: the **group** is an allowlist (`ai`, `email`, `embeddings`, `cloud`, `storage`, `notifications`); a **credential-shaped key** (`key`, `token`, `secret`, `password`, `passphrase`, `credential`, `auth`) is refused **on its name, before any request is built**, so the tool cannot be *asked* for a secret; the legal key list is read from `GET /api/settings/{group}` rather than copied here, and an unknown key is **refused rather than dropped** — the backend's PUT ignores keys outside the group, which is right for a form and a lie for a tool; and the answer is a **before/after diff**, not "success". |
+| Every tool declares `requires_confirmation` | See the note under the Write table. |
+| `create_routine` now returns the routine it created | `POST /api/routines` answers with `{id, name}`; this document promised "the created routine". The tool reads the record back over one localhost `GET`, so the claim is true and `is_active: 0` is a fact the caller can see rather than a sentence resmon asserts about itself. |
+
+**No credential value crosses this surface in either direction**, and the guard is now
+two-sided: v1's rule that no tool *returns* a key, and v2's rule that no tool can
+*name* one. `test_the_credential_denylist_excludes_nothing_that_exists` asserts
+against a real backend that no legitimate settings key matches a denied word, so the
+denylist is a standing guard rather than a filter quietly doing nothing.
+
+**The route re-check is now a test, not a promise.** v1.1, v1.2 and v1.3 each carry a
+sentence saying every route was re-checked against the running app while the amendment
+was written — and it was, each time, by a person. A check performed at freeze time has
+to be performed again at the next freeze and can be quietly skipped, which is precisely
+the failure v1.1 exists to record. `verification_scripts/test_mcp_routes_resolve.py`
+drives every tool in `TOOLS` through a recording double and resolves every address it
+sends against `resmon.app.routes`, one test case per pair, on every run.
+
+`mcp_server.py`'s **21 tools** reach **39 distinct method-and-path pairs**, and all 39
+resolve. The jump from v1.3's 25 is `update_settings`, which reads and writes each of
+six groups. Two things were found by doing this rather than by trusting the document,
+and both are recorded above: `POST /api/routines`'s thin response, and
+`/api/settings/execution` — a settings route that is not a settings *group*, which the
+allowlist test excludes by name and with a reason.
 
 ### v1.3 — 6 September 2026, phase 1.9b revision 2
 
@@ -262,7 +311,7 @@ section describes. The three corrections here still stand.)*
 
 ## Versioning
 
-This document is contract **v1.3**. The server reports it in its MCP initialisation
+This document is contract **v2.0**. The server reports it in its MCP initialisation
 response (`mcp_server.CONTRACT_VERSION`). Additive changes — new tools, new optional arguments — bump the minor version and
 do not require a new contract document. Removing a tool, renaming an argument, or changing
 a return shape is a **breaking** change: new major version, new document, and the 2.0

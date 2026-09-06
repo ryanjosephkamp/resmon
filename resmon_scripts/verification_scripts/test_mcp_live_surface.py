@@ -112,6 +112,15 @@ _ARGS: dict[str, dict] = {
     "run_sweep": None,        # starts real work; covered separately
     "create_routine": None,   # writes; covered separately
     "run_routine": {"routine_id": 999999},
+    # v2.0. Two of the three reach the backend with an id that does not exist,
+    # which is a real answer and proves the call landed. ``update_settings`` is
+    # not one of those: an unknown *group* is refused in this file without a
+    # request, so it would pass this test having spoken to nothing. It gets a
+    # group that exists and a key that exists, and its own tests below.
+    "activate_routine": {"routine_id": 999999},
+    "deactivate_routine": {"routine_id": 999999},
+    "update_settings": {"group": "notifications",
+                        "settings": {"notify_manual": "true"}},
 }
 
 _ACCEPTABLE_ERRORS = {"not_found", "invalid_argument", "conflict"}
@@ -254,15 +263,36 @@ def test_semantic_search_and_find_similar_over_a_really_embedded_corpus(backend)
         distances = [p["distance"] for p in body["papers"] if p["distance"] is not None]
         assert distances == sorted(distances), "the ranking is not ordered by distance"
 
-        # And the same set as keyword mode: a sort, not a search.
+        # The two modes return *different sets*, and that is the contract.
+        #
+        # This block asserted they were equal -- "a sort, not a search" -- until
+        # 2.0a found it red on ``main``. It was written against the first draft
+        # of contract v1.2's amendment and never updated when the field test
+        # retired that draft before it shipped: semantic mode ranks the corpus
+        # within the structured filters, and ``query`` is the thing distance is
+        # measured *from* rather than a text filter, so keyword's set is a
+        # subset of semantic's. The contract says so in as many words. CI does
+        # not run ``live_network``, which is why a test contradicting the
+        # shipped contract stayed red without anyone hearing about it.
         keyword = _payload(mcp.call_tool(
             "search_corpus", {"query": phrase, "mode": "keyword", "limit": 100}
         ))
         semantic = _payload(mcp.call_tool(
             "search_corpus", {"query": phrase, "mode": "semantic", "limit": 100}
         ))
-        assert {p["id"] for p in keyword["papers"]} == {p["id"] for p in semantic["papers"]}
-        assert keyword["total"] == semantic["total"]
+        keyword_ids = {p["id"] for p in keyword["papers"]}
+        semantic_ids = {p["id"] for p in semantic["papers"]}
+        assert keyword_ids <= semantic_ids, (
+            "a paper matching the query's words was not in the ranking of the "
+            "corpus that query was measured against"
+        )
+        assert semantic["total"] >= keyword["total"]
+
+        # And semantic really is the whole corpus, not a widened keyword match:
+        # the unfiltered listing is the denominator.
+        everything = _payload(mcp.call_tool("search_corpus", {"query": "", "limit": 100}))
+        if everything.get("papers"):
+            assert semantic_ids == {p["id"] for p in everything["papers"]}
 
         # find_similar, on a paper that really has a vector.
         doc_id = body["papers"][0]["id"]
@@ -318,3 +348,116 @@ def test_export_references_works_for_a_real_execution(backend):
     for fmt in ("bibtex", "csv", "json"):
         result = mcp.call_tool("export_references", {"exec_id": exec_id, "format": fmt})
         assert not result["isError"], f"{fmt} export failed: {_payload(result)}"
+
+
+# ---------------------------------------------------------------------------
+# The v2.0 tools, against a real backend — P11, P12
+# ---------------------------------------------------------------------------
+
+def test_activate_and_deactivate_really_move_a_routine_on_and_off_its_schedule(backend):
+    """P12. Not "the call landed": the routine's own state, read back.
+
+    A stub cannot establish this. ``is_active`` is written by
+    ``update_routine`` and the scheduler is told separately, so the failure
+    worth ruling out is a 200 from an endpoint that changed nothing.
+    """
+    created = _payload(mcp.call_tool("create_routine", {
+        "name": "assistant-live-activation",
+        "keywords": ["graphene"], "sources": ["arxiv"],
+        "schedule": "0 9 * * 1",
+    }))
+    routine_id = created["routine"]["id"]
+    assert not created["routine"]["is_active"], (
+        "create_routine must still create inactive"
+    )
+
+    assert not mcp.call_tool("activate_routine", {"routine_id": routine_id})["isError"]
+    assert httpx.get(f"{backend}/api/routines/{routine_id}", timeout=10).json()["is_active"]
+
+    assert not mcp.call_tool("deactivate_routine", {"routine_id": routine_id})["isError"]
+    assert not httpx.get(f"{backend}/api/routines/{routine_id}", timeout=10).json()["is_active"]
+
+
+def test_update_settings_changes_exactly_the_keys_it_named(backend):
+    """P11. Every other key in the group is read before and after and compared.
+
+    The read path is the real one — no monkeypatched group — which is what
+    Ledger 33 was about: ``ai_cli_path`` rode one key list and not the other for
+    a whole release because the test that would have caught it patched the read.
+    """
+    before = httpx.get(f"{backend}/api/settings/ai", timeout=10).json()
+    assert "ai_effort" in before, "the group's real key list is what this checks against"
+    target = "low" if before.get("ai_effort") != "low" else "high"
+
+    body = _payload(mcp.call_tool(
+        "update_settings", {"group": "ai", "settings": {"ai_effort": target}}))
+    assert body["changed"] == {"ai_effort": {"from": before.get("ai_effort"), "to": target}}
+
+    after = httpx.get(f"{backend}/api/settings/ai", timeout=10).json()
+    assert after["ai_effort"] == target
+    assert {k: v for k, v in after.items() if k != "ai_effort"} == \
+           {k: v for k, v in before.items() if k != "ai_effort"}, (
+        "update_settings moved a key it was not given"
+    )
+
+
+def test_update_settings_reaches_every_group_on_its_allowlist(backend):
+    """Denominator: ``mcp_server.SETTINGS_GROUPS``, not a hand-written list.
+
+    A group named in the allowlist that the backend does not serve would be a
+    tool that fails for every input in that group — the v1.8.2 defect shape.
+    """
+    for group in mcp.SETTINGS_GROUPS:
+        current = httpx.get(f"{backend}/api/settings/{group}", timeout=10)
+        assert current.status_code == 200, f"{group}: {current.status_code}"
+        keys = current.json()
+        assert keys, f"the '{group}' group came back empty"
+        key = sorted(keys)[0]
+        result = mcp.call_tool(
+            "update_settings", {"group": group, "settings": {key: keys[key] or ""}})
+        assert not result["isError"], f"{group}/{key}: {_payload(result)}"
+
+
+def test_the_credential_denylist_excludes_nothing_that_exists(backend):
+    """The guard is a standing one, not a filter quietly doing nothing.
+
+    If a real settings key ever matches a credential-shaped word, this fails
+    and the choice — rename the key, or narrow the word — becomes deliberate
+    rather than a silently unreachable setting.
+    """
+    blocked: dict[str, list[str]] = {}
+    for group in mcp.SETTINGS_GROUPS:
+        keys = httpx.get(f"{backend}/api/settings/{group}", timeout=10).json()
+        hit = sorted(k for k in keys
+                     if any(w in k.lower() for w in mcp._CREDENTIAL_SHAPED))
+        if hit:
+            blocked[group] = hit
+    assert blocked == {}, f"real settings keys are unreachable through the tool: {blocked}"
+
+
+def test_no_settings_group_the_app_has_is_silently_reachable(backend):
+    """The complement: a group the app grows is *unreachable* until listed.
+
+    Read from the backend's own route table, so this is a denominator rather
+    than a second hand-written list. A new group appearing here is not a
+    failure of the app; it is a decision this test forces someone to make.
+    """
+    served = set()
+    for route in httpx.get(f"{backend}/openapi.json", timeout=10).json()["paths"]:
+        if route.startswith("/api/settings/") and route.count("/") == 3:
+            served.add(route.rsplit("/", 1)[1])
+
+    # Deliberately excluded. ``/api/settings/execution`` is admission control --
+    # how many executions may run at once, how deep the routine fire queue goes
+    # -- and it does not take ``SettingsBody`` at all, so ``update_settings``
+    # could not drive it if it were listed. It is also the wrong thing to hand
+    # an assistant: raising a concurrency ceiling is a decision about the
+    # machine rather than about the research, and the person who wants it
+    # changed is already in the Advanced tab.
+    deliberately_excluded = {"execution"}
+    unlisted = sorted(served - set(mcp.SETTINGS_GROUPS) - deliberately_excluded)
+    assert unlisted == [], (
+        "these settings groups exist in the app and are not on the tool's "
+        f"allowlist: {unlisted}. Add them deliberately or leave them out "
+        "deliberately, but do not leave the answer to this test."
+    )

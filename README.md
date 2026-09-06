@@ -103,14 +103,26 @@ To register it with Claude Code:
 claude mcp add resmon -- python3 /full/path/to/resmon_scripts/mcp_server.py
 ```
 
-Eighteen tools cover search (keyword and semantic), similar papers, sources, routines,
+Twenty-one tools cover search (keyword and semantic), similar papers, sources, routines,
 executions, match transparency, paper lifecycle, analytics, the watchdog and reference
-export, plus three that start work: `run_sweep`, `create_routine` and `run_routine`.
+export, plus six that change something: `run_sweep`, `create_routine`, `run_routine`,
+`activate_routine`, `deactivate_routine` and `update_settings`.
 `create_routine` takes an optional `intent` — the sentence the coverage audit compares
-against — and `get_routine` returns that audit's summary alongside the configuration. **Nothing destructive is exposed** — no
-delete, no erase, no factory reset, and no tool that reads or writes an API key. A routine
-created through a tool is created **inactive**; putting something on a schedule on your
-machine is not a side effect a tool call gets to have.
+against — and `get_routine` returns that audit's summary alongside the configuration.
+
+**Every tool says whether it needs a person.** `tools/list` carries
+`requires_confirmation` on all twenty-one — `true` on the six above, `false` on the
+fifteen reads — so a harness knows which calls to put in front of you before running
+them, rather than inferring that an unmarked tool is safe.
+
+**Nothing destructive is exposed** — no delete, no erase, no factory reset, and no tool
+that reads or writes an API key. A routine created through a tool is created
+**inactive**; putting something on a schedule on your machine is not a side effect a
+tool call gets to have, which is why turning one on is its own confirmed tool.
+`update_settings` can change six groups of preferences and **cannot name a credential**:
+a key called anything like `api_key`, `token`, `secret` or `password` is refused before a
+request is even built, because resmon's keys live in your system keychain and are not
+settings.
 
 Finding the right resmon matters more than it sounds: the server checks `RESMON_PORT`, then
 the port file the backend writes beside its database, and only falls back to the default port

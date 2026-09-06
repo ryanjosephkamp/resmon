@@ -38,9 +38,14 @@ from typing import Any, Callable, Optional
 import httpx
 
 # The contract this server implements: docs/api-contract/mcp.md.
-# v1.2 adds ``search_corpus(mode="semantic")`` and ``find_similar`` -- additive,
-# so the major version is unchanged and no caller's return shape moved.
-CONTRACT_VERSION = "1.3"
+#
+# v2.0 is a **major** bump, and the reason is the confirmation model rather
+# than a broken return shape: three tools arrive that can reconfigure the app
+# or put a routine on a schedule, and every write tool now carries
+# ``requires_confirmation``. A caller that ignored that flag would be running
+# writes the contract says a person approves first, so callers are not
+# unaffected and the major version says so.
+CONTRACT_VERSION = "2.0"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
 
@@ -62,6 +67,28 @@ MIN_BACKEND_VERSION = "1.8.0"
 # week" must not cost a five-hour usage window.
 DEFAULT_LIMIT = 25
 MAX_LIMIT = 100
+
+# The settings groups ``update_settings`` may touch. An allowlist rather than a
+# denylist: a group added to the app later is *not* reachable through this tool
+# until someone puts it here and thinks about it.
+#
+# There is no credential group to exclude, because credentials are not settings
+# -- they live behind ``/api/credentials`` and the keychain, and the contract
+# excludes those routes entirely. What is guarded here is the other direction:
+# a settings *key* that carries a secret. See ``_CREDENTIAL_SHAPED``.
+SETTINGS_GROUPS: tuple[str, ...] = (
+    "ai", "email", "embeddings", "cloud", "storage", "notifications",
+)
+
+# A key whose name contains any of these is refused before the request is
+# built. No key in any group above matches one today --
+# ``test_the_credential_denylist_excludes_nothing_that_exists`` asserts that
+# against a real backend, so this is a standing guard on future keys rather
+# than a filter that is quietly doing nothing. The point is that
+# ``update_settings`` cannot *name* a credential, whatever a caller asks for.
+_CREDENTIAL_SHAPED: tuple[str, ...] = (
+    "key", "token", "secret", "password", "passphrase", "credential", "auth",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -716,14 +743,151 @@ def t_create_routine(args: dict) -> Any:
     intent = str(args.get("intent") or "").strip()
     if intent:
         body["intent"] = intent
-    created = backend.request("POST", "/api/routines", json=body)
-    return {"routine": created,
-            "detail": "Created inactive. Activate it in resmon to put it on its schedule."}
+    created = backend.request("POST", "/api/routines", json=body) or {}
+
+    # ``POST /api/routines`` answers with ``{id, name}`` -- everything the
+    # endpoint's own caller (the routine form, which already has the rest)
+    # needs, and less than this contract promised. Reading the record back
+    # makes "the created routine" true, and it makes ``is_active: 0`` a fact
+    # the caller can see rather than a sentence resmon asserts about itself.
+    # One localhost GET, which is the cheapest way to stop a tool overclaiming.
+    routine = created
+    rid = created.get("id")
+    if rid is not None:
+        try:
+            routine = backend.request("GET", f"/api/routines/{rid}") or created
+        except ToolError:
+            routine = created
+
+    return {"routine": routine,
+            "detail": "Created inactive. Activate it — in resmon, or by asking "
+                      "to turn it on — to put it on its schedule."}
 
 
 def t_run_routine(args: dict) -> Any:
     rid = _require_int(args, "routine_id")
     return backend.request("POST", f"/api/routines/{rid}/run")
+
+
+def t_activate_routine(args: dict) -> Any:
+    """Put a saved routine on its schedule.
+
+    ``create_routine`` deliberately creates a routine inactive, and until v2.0
+    the only way to turn one on was to open the app. That was the right default
+    and the wrong dead end: the contract's own note said an explicit
+    ``activate_routine`` was what a later version should add. It is here now
+    because 2.0's assistant has a person in the conversation to confirm with --
+    which is what ``requires_confirmation`` on this tool records.
+    """
+    rid = _require_int(args, "routine_id")
+    return backend.request("POST", f"/api/routines/{rid}/activate")
+
+
+def t_deactivate_routine(args: dict) -> Any:
+    """Take a saved routine off its schedule. The routine itself is kept."""
+    rid = _require_int(args, "routine_id")
+    return backend.request("POST", f"/api/routines/{rid}/deactivate")
+
+
+def t_update_settings(args: dict) -> Any:
+    """Change named settings in one group, and report exactly what moved.
+
+    ``PUT /api/settings/*`` was excluded from v1 with a reason the contract
+    wrote down: "reconfiguring the app underneath a user is a 2.0 assistant
+    concern, where there is a person in the conversation to confirm with."
+    That person now exists, so the exclusion lifts -- and everything that made
+    it dangerous is answered structurally rather than by asking the model
+    nicely.
+
+    Four guards, in order:
+
+    1. **The group is an allowlist.** A group the app grows later is
+       unreachable here until someone adds it deliberately.
+    2. **No key may be credential-shaped.** Refused on the name, before a
+       request is built, so the tool cannot be *asked* for a secret.
+    3. **The legal key list comes from the backend**, not from a copy in this
+       file. ``GET /api/settings/<group>`` returns the group's keys, so a key
+       renamed in the app cannot silently become a no-op here -- and an
+       unknown key is refused rather than dropped. The backend's own PUT
+       ignores keys outside the group, which is the right behaviour for a
+       form and the wrong one for a tool: a caller told "success" for a key
+       that was discarded has been lied to.
+    4. **The answer is a before/after diff.** Not "success": the exact keys
+       that changed, from what to what, and the count of keys in the group
+       this call left alone. A confirmation card can render the diff, and a
+       write that touched more than it named is visible in the answer rather
+       than only in a test.
+    """
+    group = str(_require(args, "group")).strip()
+    if group not in SETTINGS_GROUPS:
+        raise ToolError(
+            "invalid_argument",
+            f"'{group}' is not a settings group this tool can change. "
+            f"Allowed: {', '.join(SETTINGS_GROUPS)}.",
+        )
+
+    settings = args.get("settings")
+    if not isinstance(settings, dict) or not settings:
+        raise ToolError("invalid_argument", "'settings' must be a non-empty object.")
+
+    named = [str(k) for k in settings]
+    forbidden = sorted(
+        k for k in named
+        if any(word in k.lower() for word in _CREDENTIAL_SHAPED)
+    )
+    if forbidden:
+        raise ToolError(
+            "invalid_argument",
+            "This tool cannot change a setting whose name looks like a "
+            f"credential ({', '.join(forbidden)}). resmon's API keys and "
+            "passwords are not settings; they are stored in the system "
+            "keychain and are changed in the app, never through a tool.",
+            {"refused_keys": forbidden},
+        )
+
+    before = backend.request("GET", f"/api/settings/{group}")
+    if not isinstance(before, dict):
+        raise ToolError(
+            "internal_error",
+            f"resmon did not return the '{group}' settings group.",
+        )
+
+    unknown = sorted(k for k in named if k not in before)
+    if unknown:
+        raise ToolError(
+            "invalid_argument",
+            f"The '{group}' group has no setting called "
+            f"{', '.join(repr(k) for k in unknown)}. Its keys are: "
+            f"{', '.join(sorted(before))}.",
+            {"unknown_keys": unknown, "group_keys": sorted(before)},
+        )
+
+    payload = {k: ("" if v is None else str(v)) for k, v in settings.items()}
+    backend.request("PUT", f"/api/settings/{group}", json={"settings": payload})
+
+    after = backend.request("GET", f"/api/settings/{group}")
+    if not isinstance(after, dict):
+        raise ToolError(
+            "internal_error",
+            f"resmon did not return the '{group}' settings group after the change.",
+        )
+
+    changed = {
+        key: {"from": before.get(key), "to": after.get(key)}
+        for key in sorted(set(before) | set(after))
+        if before.get(key) != after.get(key)
+    }
+    return {
+        "group": group,
+        "changed": changed,
+        "requested": sorted(named),
+        "unchanged_key_count": len([k for k in after if k not in changed]),
+        "detail": (
+            f"{len(changed)} setting(s) changed in '{group}'."
+            if changed else
+            f"Nothing changed in '{group}' — the values were already those."
+        ),
+    }
 
 
 TOOLS: list[dict] = [
@@ -842,7 +1006,7 @@ TOOLS: list[dict] = [
          "doc_ids": {"type": "array", "items": {"type": "integer"}},
          "format": {"type": "string", "enum": ["bibtex", "ris", "csv", "json"]}}}},
 
-    {"name": "run_sweep", "fn": t_run_sweep,
+    {"name": "run_sweep", "fn": t_run_sweep, "requires_confirmation": True,
      "description": "Search sources now and store what comes back. Returns immediately.",
      "schema": {"type": "object", "required": ["query", "sources"], "properties": {
          "query": {"type": "string"},
@@ -851,7 +1015,7 @@ TOOLS: list[dict] = [
          "max_results": {"type": "integer"},
          "ai_enabled": {"type": "boolean"}}}},
 
-    {"name": "create_routine", "fn": t_create_routine,
+    {"name": "create_routine", "fn": t_create_routine, "requires_confirmation": True,
      "description": "Create a monitoring routine. It is created INACTIVE; the user activates it in resmon.",
      "schema": {"type": "object", "required": ["name", "keywords", "sources", "schedule"],
                 "properties": {
@@ -866,13 +1030,56 @@ TOOLS: list[dict] = [
                         "keywords, which measures the query against itself.")},
                     "ai_enabled": {"type": "boolean"}}}},
 
-    {"name": "run_routine", "fn": t_run_routine,
+    {"name": "run_routine", "fn": t_run_routine, "requires_confirmation": True,
      "description": "Run a saved routine now, outside its schedule. Returns immediately.",
      "schema": {"type": "object", "required": ["routine_id"], "properties": {
          "routine_id": {"type": "integer"}}}},
+
+    {"name": "activate_routine", "fn": t_activate_routine, "requires_confirmation": True,
+     "description": ("Put a saved routine on its schedule so it runs by itself. "
+                     "The user confirms this before it takes effect."),
+     "schema": {"type": "object", "required": ["routine_id"], "properties": {
+         "routine_id": {"type": "integer"}}}},
+
+    {"name": "deactivate_routine", "fn": t_deactivate_routine, "requires_confirmation": True,
+     "description": ("Take a saved routine off its schedule. The routine and "
+                     "everything it has found are kept."),
+     "schema": {"type": "object", "required": ["routine_id"], "properties": {
+         "routine_id": {"type": "integer"}}}},
+
+    {"name": "update_settings", "fn": t_update_settings, "requires_confirmation": True,
+     "description": (
+         "Change settings in one group. Returns a before/after diff of exactly "
+         "what moved. It cannot change an API key, a password or anything else "
+         "credential-shaped: those are not settings, and are changed in the app."
+     ),
+     "schema": {"type": "object", "required": ["group", "settings"], "properties": {
+         "group": {"type": "string", "enum": list(SETTINGS_GROUPS)},
+         "settings": {
+             "type": "object", "additionalProperties": {"type": "string"},
+             "description": (
+                 "The keys to change and their new values. A key the group does "
+                 "not have is refused rather than ignored; call the tool once "
+                 "with a wrong key to be told the group's real key list."
+             )}}}},
 ]
 
 _BY_NAME: dict[str, Callable[[dict], Any]] = {t["name"]: t["fn"] for t in TOOLS}
+
+# The tools a person confirms before they run, and its complement. Derived from
+# ``TOOLS`` rather than written out, so a tool added without a decision about
+# confirmation lands in ``READ_TOOLS`` visibly, and
+# ``test_every_tool_declares_whether_it_needs_confirmation`` is what makes that
+# a decision rather than a default. ``assistant_runtime`` builds the CLI's
+# pre-approved ``--allowedTools`` list from ``READ_TOOLS``: one source, so the
+# set the model may call without asking cannot drift from the set this file
+# calls safe.
+WRITE_TOOLS: frozenset[str] = frozenset(
+    t["name"] for t in TOOLS if t.get("requires_confirmation")
+)
+READ_TOOLS: frozenset[str] = frozenset(
+    t["name"] for t in TOOLS if not t.get("requires_confirmation")
+)
 
 
 def call_tool(name: str, args: Optional[dict]) -> dict:
@@ -925,9 +1132,16 @@ def handle_message(msg: dict) -> Optional[dict]:
         return None
 
     if method == "tools/list":
+        # ``requires_confirmation`` is resmon's own field, not part of MCP.
+        # It is emitted for every tool -- true *and* false -- because a harness
+        # that has to infer "no flag means safe" is one release away from
+        # inferring it about a tool that grew teeth. It is the same list the
+        # assistant derives its pre-approved set from, so the panel and an
+        # external harness cannot disagree about which calls need a person.
         return _ok(msg_id, {"tools": [
             {"name": t["name"], "description": t["description"],
-             "inputSchema": t["schema"]}
+             "inputSchema": t["schema"],
+             "requires_confirmation": bool(t.get("requires_confirmation"))}
             for t in TOOLS
         ]})
 
