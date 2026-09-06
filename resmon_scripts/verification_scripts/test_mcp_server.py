@@ -115,14 +115,215 @@ def test_tools_list_matches_the_contract():
         "get_search_record", "explain_match", "get_paper_lifecycle",
         "get_analytics", "get_watchdog_findings", "export_references",
         "run_sweep", "create_routine", "run_routine",
+        "activate_routine", "deactivate_routine", "update_settings",
     }
-    # 18 since contract v1.2 (1.9a): ``find_similar`` is new and ``search_corpus``
-    # gained ``mode``. v1.3 (1.9.2) adds no tool — ``create_routine`` gains the
-    # optional ``intent`` argument — so the count is unchanged and the minor
-    # version moves, which is what the contract's own versioning rule says an
-    # additive change does.
-    assert len(names) == 18
-    assert mcp.CONTRACT_VERSION == "1.3"
+    # 18 through contract v1.3. v2.0 (phase 2.0a) adds the three above and marks
+    # every write tool ``requires_confirmation`` — a major bump, because a
+    # caller that ignores that flag is running writes the contract says a person
+    # approves first.
+    assert len(names) == 21
+    assert mcp.CONTRACT_VERSION == "2.0"
+
+
+def test_every_tool_declares_whether_it_needs_confirmation():
+    """The flag is emitted for every tool, true *and* false.
+
+    A harness that has to infer "no flag means safe" is one release away from
+    inferring it about a tool that grew teeth. And because the assistant builds
+    its pre-approved set from ``READ_TOOLS``, a tool that forgets to declare
+    lands in the pre-approved set — so this is the guard that makes
+    confirmation a decision rather than a default.
+    """
+    resp = mcp.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    for tool in resp["result"]["tools"]:
+        assert isinstance(tool["requires_confirmation"], bool), tool["name"]
+
+    flagged = {t["name"] for t in resp["result"]["tools"] if t["requires_confirmation"]}
+    assert flagged == mcp.WRITE_TOOLS
+    assert flagged == {
+        "run_sweep", "create_routine", "run_routine",
+        "activate_routine", "deactivate_routine", "update_settings",
+    }
+    assert mcp.READ_TOOLS | mcp.WRITE_TOOLS == {t["name"] for t in mcp.TOOLS}
+    assert not (mcp.READ_TOOLS & mcp.WRITE_TOOLS)
+
+
+def test_no_read_tool_reaches_the_backend_with_a_writing_method():
+    """The read/write split is a claim about HTTP verbs, so check the verbs.
+
+    ``READ_TOOLS`` is what the assistant pre-approves without asking anyone, so
+    "read" has to mean something the code enforces rather than something the
+    name suggests. Every read tool is called against a stub that answers
+    everything, and the methods it actually used are asserted.
+    """
+    calls_by_tool: dict[str, list[str]] = {}
+    for name in sorted(mcp.READ_TOOLS):
+        methods: list[str] = []
+        for args in _READ_TOOL_ARGS[name]:
+            stub = _stub({})        # 404s everything; the method is still recorded
+            with stub:
+                mcp.call_tool(name, args)
+            methods += [c["method"] for c in stub.seen]
+        calls_by_tool[name] = methods
+
+    for name, methods in calls_by_tool.items():
+        assert methods, f"{name} made no request at all"
+        offending = [m for m in methods if m not in ("GET", "POST")]
+        assert not offending, f"{name} used {offending}"
+
+    # The two read tools that POST do so because the backend's search and
+    # bulk-export routes take a body. Anything else POSTing would be a write
+    # wearing a read's name, so the exception is named rather than allowed.
+    # ``export_references`` reaches both of its endpoints here, which is why
+    # its entry below has two argument sets: the by-execution path is a GET and
+    # only the by-document-ids path posts.
+    posting = {n for n, ms in calls_by_tool.items() if "POST" in ms}
+    assert posting == {"search_corpus", "export_references"}
+
+
+# Arguments that make each read tool issue exactly one request. Derived
+# coverage: the test above iterates ``READ_TOOLS``, so a read tool with no
+# entry here raises a KeyError rather than being skipped.
+_READ_TOOL_ARGS: dict[str, list[dict]] = {
+    "health": [{}],
+    "search_corpus": [{"query": "x"}],
+    "find_similar": [{"doc_id": 1}],
+    "list_sources": [{}],
+    "list_routines": [{}],
+    "get_routine": [{"routine_id": 1}],
+    "list_executions": [{}],
+    "get_execution": [{"exec_id": 1}],
+    "get_execution_results": [{"exec_id": 1}],
+    "get_search_record": [{"exec_id": 1}],
+    "explain_match": [{"doc_id": 1}],
+    "get_paper_lifecycle": [{"doc_id": 1}],
+    "get_analytics": [{"view": "overview"}],
+    "get_watchdog_findings": [{}],
+    "export_references": [{"exec_id": 1, "format": "bibtex"},
+                          {"doc_ids": [1, 2], "format": "bibtex"}],
+}
+
+
+# ---------------------------------------------------------------------------
+# The v2.0 tools
+# ---------------------------------------------------------------------------
+
+def test_activate_and_deactivate_hit_the_endpoints_that_exist():
+    for tool, path in (("activate_routine", "/api/routines/4/activate"),
+                       ("deactivate_routine", "/api/routines/4/deactivate")):
+        stub = _stub({("POST", path): {"id": 4, "is_active": tool == "activate_routine"}})
+        with stub:
+            body = _payload(mcp.call_tool(tool, {"routine_id": 4}))
+        assert stub.seen[0] == {"method": "POST", "path": path, "params": {}}
+        assert body["id"] == 4
+
+
+def test_update_settings_sends_only_the_keys_it_was_given():
+    """P11. The PUT carries the named keys and nothing else.
+
+    The backend's own PUT is a partial update, so a tool that sent the whole
+    group back would still *look* correct — until a key the model had not
+    thought about was rewritten with a stale value read seconds earlier. What
+    is asserted is the request body, not the outcome.
+    """
+    group = {"ai_provider": "claude_cli", "ai_model": "opus", "ai_effort": "high"}
+    changed = dict(group, ai_effort="low")
+    stub = _stub({("GET", "/api/settings/ai"): group,
+                  ("PUT", "/api/settings/ai"): {"success": True}})
+    stub_get_after = changed
+
+    calls: list = []
+
+    def _sequence(method, url, **kwargs):
+        calls.append((method, url, kwargs.get("json")))
+        if method == "PUT":
+            return httpx.Response(200, json={"success": True},
+                                  request=httpx.Request(method, url))
+        body = group if len([c for c in calls if c[0] == "GET"]) == 1 else stub_get_after
+        return httpx.Response(200, json=body, request=httpx.Request(method, url))
+
+    mcp.backend._base = "http://127.0.0.1:8742"
+    with patch.object(mcp.httpx, "request", side_effect=_sequence):
+        body = _payload(mcp.call_tool(
+            "update_settings", {"group": "ai", "settings": {"ai_effort": "low"}}))
+
+    put = next(c for c in calls if c[0] == "PUT")
+    assert put[2] == {"settings": {"ai_effort": "low"}}
+    assert body["changed"] == {"ai_effort": {"from": "high", "to": "low"}}
+    assert body["unchanged_key_count"] == 2
+
+
+def test_update_settings_refuses_a_credential_shaped_key_before_any_request():
+    """Structural: the tool cannot be *asked* for a secret.
+
+    Refused on the key's name, before the group is even fetched — so this holds
+    for a credential key the app does not have yet as much as for one it does.
+    """
+    stub = _stub({("GET", "/api/settings/ai"): {"ai_provider": "x"}})
+    with stub:
+        result = mcp.call_tool("update_settings", {
+            "group": "ai", "settings": {"anthropic_api_key": "sk-real-value"}})
+    body = _payload(result)
+    assert result["isError"]
+    assert body["error"] == "invalid_argument"
+    assert body["detail"]["refused_keys"] == ["anthropic_api_key"]
+    assert stub.seen == [], "a refused key must not reach the backend at all"
+    assert "sk-real-value" not in json.dumps(body), (
+        "the refusal echoed the value it was refusing"
+    )
+
+
+@pytest.mark.parametrize("key", [
+    "api_key", "ANTHROPIC_TOKEN", "smtp_password", "client_secret",
+    "my_passphrase", "credential_store", "auth_header",
+])
+def test_every_credential_shaped_word_is_refused(key):
+    stub = _stub({})
+    with stub:
+        result = mcp.call_tool(
+            "update_settings", {"group": "ai", "settings": {key: "value"}})
+    assert result["isError"]
+    assert stub.seen == []
+
+
+def test_update_settings_refuses_a_group_that_is_not_on_the_allowlist():
+    for group in ("credentials", "advanced", "execution", ""):
+        stub = _stub({})
+        with stub:
+            result = mcp.call_tool(
+                "update_settings", {"group": group, "settings": {"a": "b"}})
+        assert result["isError"], group
+        assert stub.seen == [], group
+
+
+def test_update_settings_refuses_an_unknown_key_rather_than_dropping_it():
+    """The backend ignores keys outside the group. A tool must not.
+
+    Right for a form, wrong for a tool: a caller told "success" for a key that
+    was silently discarded has been lied to, and the assistant would report the
+    change to the user as done.
+    """
+    stub = _stub({("GET", "/api/settings/ai"): {"ai_provider": "x", "ai_model": "y"}})
+    with stub:
+        result = mcp.call_tool(
+            "update_settings", {"group": "ai", "settings": {"ai_provder": "z"}})
+    body = _payload(result)
+    assert result["isError"]
+    assert body["detail"]["unknown_keys"] == ["ai_provder"]
+    assert "ai_provider" in body["detail"]["group_keys"]
+    assert not [c for c in stub.seen if c["method"] == "PUT"]
+
+
+def test_update_settings_says_so_when_nothing_moved():
+    """A no-op write reported as a change is an overclaim like any other."""
+    group = {"ai_effort": "high"}
+    stub = _stub({("GET", "/api/settings/ai"): group,
+                  ("PUT", "/api/settings/ai"): {"success": True}})
+    with stub:
+        body = _payload(mcp.call_tool(
+            "update_settings", {"group": "ai", "settings": {"ai_effort": "high"}}))
+    assert body["changed"] == {}
+    assert "Nothing changed" in body["detail"]
 
 
 def test_every_tool_advertises_a_schema_and_description():
@@ -364,7 +565,10 @@ def test_create_routine_creates_it_inactive():
     """Scheduling something on a user's machine is not a tool call's side effect."""
     captured = {}
 
+    seen: list[tuple[str, str]] = []
+
     def _request(method, url, **kwargs):
+        seen.append((method, url))
         captured.update(kwargs.get("json") or {})
         return httpx.Response(201, json={"id": 1, "is_active": False},
                               request=httpx.Request(method, url))
@@ -376,7 +580,14 @@ def test_create_routine_creates_it_inactive():
             "schedule": "0 8 * * *"}))
 
     assert captured["is_active"] is False
-    assert "Activate it in resmon" in body["detail"]
+    assert "Activate it" in body["detail"]
+    # v2.0: the record is read back, because ``POST /api/routines`` answers with
+    # ``{id, name}`` and the contract promised "the created routine". The
+    # caller can now see ``is_active`` rather than take the detail sentence's
+    # word for it.
+    assert seen == [("POST", "http://127.0.0.1:8742/api/routines"),
+                    ("GET", "http://127.0.0.1:8742/api/routines/1")]
+    assert body["routine"]["is_active"] is False
     # A dict, not a JSON string: RoutineCreate declares `parameters: dict` and
     # rejects the string form with a 422. The column stores JSON text, which
     # makes the string the tempting guess.
