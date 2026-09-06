@@ -74,8 +74,10 @@ def test_schema_11_creates_the_three_additions(conn):
     """The migration's own contract, on a database ``init_db`` just built."""
     from implementation_scripts import database
 
-    assert database.SCHEMA_VERSION == 11
-    assert database.get_schema_version(conn) == 11
+    # 12 since 2.0a's assistant tables. The three additions this test names are
+    # still what schema 11 brought; the version constant has moved past it.
+    assert database.SCHEMA_VERSION >= 11
+    assert database.get_schema_version(conn) == database.SCHEMA_VERSION
 
     tables = {
         row[0]
