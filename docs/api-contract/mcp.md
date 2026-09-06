@@ -191,7 +191,7 @@ Listed so the omissions are visible and arguable rather than silently missing.
 |---|---|
 | `/api/admin/*` — erase corpus, erase app data, factory reset, erase keys | Destructive and irreversible. No confirmation model a tool call can satisfy. |
 | `PUT` / `DELETE /api/credentials/{name}` | Writing credentials through a tool surface means a credential passing through a harness. Never. |
-| ~~`PUT /api/settings/*`~~ | **Lifted in v2.0** as `update_settings`, on the condition this row named: a person in the conversation confirms it. Four groups of settings are still out of reach — see the v2.0 amendment. |
+| ~~`PUT /api/settings/*`~~ | **Lifted in v2.0** as `update_settings`, on the condition this row named: a person in the conversation confirms it. Settings outside the group allowlist are still out of reach — see the v2.0 and v2.1 amendments. |
 | `PUT /api/settings/execution` | Deliberately *not* in `update_settings`'s allowlist. Admission control — how many executions run at once, how deep the routine fire queue goes — is a decision about the machine rather than about the research, and the endpoint does not take `SettingsBody`. |
 | `DELETE /api/routines/{id}`, `DELETE /api/executions/{id}` | Destructive. Same reasoning. |
 | `/api/service/install`, `/api/service/uninstall` | Touches launchd / systemd on the user's machine. |
@@ -202,6 +202,29 @@ Listed so the omissions are visible and arguable rather than silently missing.
 ---
 
 ## Amendments
+
+### v2.1 — 6 September 2026, phase 2.0b
+
+Additive: no tool arrives, none is removed, and no return shape moves.
+`update_settings`'s group allowlist gains **`assistant`** — the group holding
+`assistant_runtime`, `assistant_model` and `assistant_effort`.
+
+**It is an amendment rather than a footnote because v2.0 shipped with that group
+unreachable and undecided.** The group landed in `resmon.py` during 2.0a, after this
+allowlist was frozen earlier in the same phase, so the app had a settings group that
+was neither on the list nor deliberately excluded. The test written to force exactly
+that decision — `test_no_settings_group_the_app_has_is_silently_reachable` — is
+`live_network`, and nothing ran the live suite on a schedule. It was the first finding
+of `.github/workflows/live-network.yml`, which now does, weekly.
+
+Reachable rather than excluded, deliberately: *"use opus for the assistant"* is among
+the likeliest things a person will ask the assistant itself; it is confirm-gated like
+every other write; a runtime change takes effect on the next turn, because the runtime
+is built per turn; and none of the three keys is credential-shaped, so the name guard
+still stands unchanged.
+
+**21 tools, 41 distinct method-and-path pairs** — the two new ones are the group's own
+`GET` and `PUT`. All 41 resolve; `test_mcp_routes_resolve.py` checks it on every run.
 
 ### v2.0 — 6 September 2026, phase 2.0a
 
@@ -215,7 +238,7 @@ is a major bump rather than v1.4.
 | Change | Detail |
 |---|---|
 | `activate_routine` / `deactivate_routine` are new | v1 created routines inactive and said an explicit `activate_routine` was what a later version should add. Both are confirm-gated. Deactivating keeps the routine and everything it has found; it comes off its schedule. |
-| `update_settings` is new | The `PUT /api/settings/*` exclusion is lifted on exactly the condition its own row stated. Four guards, all structural: the **group** is an allowlist (`ai`, `email`, `embeddings`, `cloud`, `storage`, `notifications`); a **credential-shaped key** (`key`, `token`, `secret`, `password`, `passphrase`, `credential`, `auth`) is refused **on its name, before any request is built**, so the tool cannot be *asked* for a secret; the legal key list is read from `GET /api/settings/{group}` rather than copied here, and an unknown key is **refused rather than dropped** — the backend's PUT ignores keys outside the group, which is right for a form and a lie for a tool; and the answer is a **before/after diff**, not "success". |
+| `update_settings` is new | The `PUT /api/settings/*` exclusion is lifted on exactly the condition its own row stated. Four guards, all structural: the **group** is an allowlist (`ai`, `email`, `embeddings`, `cloud`, `storage`, `notifications`; `assistant` was added in v2.1); a **credential-shaped key** (`key`, `token`, `secret`, `password`, `passphrase`, `credential`, `auth`) is refused **on its name, before any request is built**, so the tool cannot be *asked* for a secret; the legal key list is read from `GET /api/settings/{group}` rather than copied here, and an unknown key is **refused rather than dropped** — the backend's PUT ignores keys outside the group, which is right for a form and a lie for a tool; and the answer is a **before/after diff**, not "success". |
 | Every tool declares `requires_confirmation` | See the note under the Write table. |
 | `create_routine` now returns the routine it created | `POST /api/routines` answers with `{id, name}`; this document promised "the created routine". The tool reads the record back over one localhost `GET`, so the claim is true and `is_active: 0` is a fact the caller can see rather than a sentence resmon asserts about itself. |
 
@@ -311,7 +334,7 @@ section describes. The three corrections here still stand.)*
 
 ## Versioning
 
-This document is contract **v2.0**. The server reports it in its MCP initialisation
+This document is contract **v2.1**. The server reports it in its MCP initialisation
 response (`mcp_server.CONTRACT_VERSION`). Additive changes — new tools, new optional arguments — bump the minor version and
 do not require a new contract document. Removing a tool, renaming an argument, or changing
 a return shape is a **breaking** change: new major version, new document, and the 2.0

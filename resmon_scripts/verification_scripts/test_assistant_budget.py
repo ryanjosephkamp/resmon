@@ -45,7 +45,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
 from implementation_scripts import ai_cli, assistant_runtime  # noqa: E402
 
-pytestmark = pytest.mark.live_network
+# ``needs_agent_cli`` as well: this needs the CLI the *person* installed and
+# signed into. The weekly live job cannot run it and its summary says so.
+pytestmark = [pytest.mark.live_network, pytest.mark.needs_agent_cli]
 
 # Twice the dearest of the ten measured (create-routine, $0.1875).
 REGRESSION_CEILING_USD = 0.375

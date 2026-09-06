@@ -184,7 +184,7 @@ them, rather than inferring that an unmarked tool is safe.
 that reads or writes an API key. A routine created through a tool is created
 **inactive**; putting something on a schedule on your machine is not a side effect a
 tool call gets to have, which is why turning one on is its own confirmed tool.
-`update_settings` can change six groups of preferences and **cannot name a credential**:
+`update_settings` can change seven groups of preferences and **cannot name a credential**:
 a key called anything like `api_key`, `token`, `secret` or `password` is refused before a
 request is even built, because resmon's keys live in your system keychain and are not
 settings.
