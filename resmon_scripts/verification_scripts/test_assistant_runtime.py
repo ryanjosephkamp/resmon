@@ -116,6 +116,13 @@ def test_every_runtime_kind_has_a_transmission_test():
 
 _TRANSMISSION_TESTS = {
     "claude_cli": "test_the_constitution_arrives_on_the_system_channel_and_not_in_the_turn",
+    # 2.0b. In ``test_assistant_api_runtime.py``, parametrised over the three
+    # request families, against a loopback server that records what was actually
+    # sent — the argv equivalent for a runtime that speaks HTTP.
+    "api_key": (
+        "test_assistant_api_runtime.py::"
+        "test_the_constitution_arrives_on_the_system_channel_and_not_in_the_turn"
+    ),
 }
 
 

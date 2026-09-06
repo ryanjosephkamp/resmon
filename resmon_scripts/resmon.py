@@ -3056,6 +3056,11 @@ def calendar_events(
 # once.
 _ASSISTANT_SETTING_KEYS: tuple[str, ...] = (
     "assistant_runtime",
+    # 2.0b. Which BYOK provider the API-key runtime drives. Empty means "the one
+    # the summary lane already uses" -- ``assistant_runtime.assistant_provider``
+    # falls back to ``ai_provider``, and ``/api/assistant/status`` reports which
+    # of the two it read, so the fallback is visible rather than magic.
+    "assistant_provider",
     "assistant_model",
     "assistant_effort",
 )
@@ -4600,8 +4605,16 @@ class AssistantPermissionAnswer(BaseModel):
 
 
 def _assistant_settings(conn) -> dict:
+    """The assistant group, plus the three AI-group keys both runtimes read.
+
+    Read here rather than duplicated into the assistant group, so a user who has
+    told resmon where ``claude`` lives, or what their custom endpoint is, has
+    told it once. Ledger 33 was the opposite mistake -- a key in one of two
+    lists and not the other, stored by the PUT and never read by anything.
+    """
     settings = _get_settings_group(conn, "assistant")
-    settings["ai_cli_path"] = get_setting(conn, "ai_cli_path") or ""
+    for key in ("ai_cli_path", "ai_provider", "ai_custom_base_url"):
+        settings[key] = get_setting(conn, key) or ""
     return settings
 
 
@@ -4762,7 +4775,8 @@ async def answer_assistant_permission(request_id: str, body: AssistantPermission
 
 
 def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
-                        cli_session_id: str) -> None:
+                        cli_session_id: str,
+                        history: Optional[list] = None) -> None:
     """The worker thread: drive the CLI, publish events, store the turn.
 
     Runs on its own thread with its own database connection (``_get_db`` is
@@ -4778,9 +4792,13 @@ def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
     try:
         conn = _get_db()
         runtime = _assistant_runtime_for(conn)
+        # ``history`` is read by the API-key runtime and ignored by the CLI
+        # one, which keeps its own session. Passed always rather than
+        # conditionally: a caller that has to know which runtime it is talking
+        # to is a caller that will get it wrong when a third arrives.
         for event in runtime.run_turn(
             session_id, prompt,
-            cli_session_id=cli_session_id, resume=resume,
+            cli_session_id=cli_session_id, resume=resume, history=history,
         ):
             if event["type"] == "started":
                 # The id the CLI actually reports, which is normally the one it
@@ -4871,8 +4889,8 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
         # which the CLI cannot do by construction. Nothing set that column null
         # in 2.0a, so it was latent; the cannot-resume work makes it reachable.
         cli_session_id = session["cli_session_id"] or assistant_store.new_cli_session_id()
-        resume = bool(session["cli_session_id"]) and bool(
-            assistant_store.list_messages(conn, session_id))
+        history = assistant_store.list_messages(conn, session_id)
+        resume = bool(session["cli_session_id"]) and bool(history)
         if not session["cli_session_id"]:
             assistant_store.set_cli_session_id(conn, session_id, cli_session_id)
 
@@ -4882,7 +4900,7 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
 
         worker = threading.Thread(
             target=_run_assistant_turn,
-            args=(session_id, text, resume, cli_session_id),
+            args=(session_id, text, resume, cli_session_id, history),
             daemon=True,
         )
         worker.start()

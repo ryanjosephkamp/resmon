@@ -116,7 +116,14 @@ EVENT_TYPES = (
 # Every runtime kind resmon can drive. The denominator for the transmission
 # test: a kind added here with no test that watches its constitution arrive
 # fails ``test_every_runtime_kind_has_a_transmission_test``.
-RUNTIME_KINDS = ("claude_cli",)
+#
+# ``api_key`` (2.0b) is resmon's own loop over the same tools, for someone with
+# a provider key and no agent CLI. It has three request shapes and each one is a
+# separate place the constitution has to arrive, so the transmission test is
+# parametrised over families as well as kinds -- 1.8.4's defect was one lane of
+# three, and "the runtime sends it" was true of the runtime and false of two of
+# its paths.
+RUNTIME_KINDS = ("claude_cli", "api_key")
 
 # A turn that has produced nothing for this long is killed. Chosen against the
 # summary lane's own timeouts rather than invented: a single interactive turn
@@ -404,8 +411,14 @@ class ClaudeCliRuntime(AssistantRuntime):
         cli_session_id: str,
         resume: bool,
         on_event: Optional[Callable[[dict], None]] = None,
+        history: Optional[list[dict]] = None,
     ) -> Iterator[dict]:
         """Spawn the CLI for one turn and yield normalised events.
+
+        ``history`` is accepted and unused: the CLI keeps the conversation and
+        ``--resume`` is how it is reached. It is in the signature because the
+        API-key runtime needs it and a caller must not have to know which
+        runtime it is holding.
 
         Runs in an empty temporary directory that is removed when the turn ends,
         so the CLI has nothing of the user's to read and nothing of resmon's to
@@ -942,8 +955,39 @@ def _bundled_python() -> str:
 # Selection
 # ---------------------------------------------------------------------------
 
+def assistant_provider(settings: dict) -> str:
+    """Which provider the API-key runtime uses.
+
+    ``assistant_provider`` when it is set, and the summary lane's own
+    ``ai_provider`` when it is not. Falling back rather than requiring a second
+    choice: someone who has already told resmon which provider to summarise with
+    has answered this question, and asking twice is how the two drift apart.
+    ``/api/assistant/status`` reports which of the two was used, so the fallback
+    is visible rather than magic.
+    """
+    explicit = str(settings.get("assistant_provider") or "").strip().lower()
+    if explicit:
+        return explicit
+    return str(settings.get("ai_provider") or "").strip().lower()
+
+
 def get_runtime(settings: dict, *, backend_port: Optional[int] = None) -> AssistantRuntime:
-    """The configured runtime. Only ``claude_cli`` exists in 2.0a."""
+    """The configured runtime.
+
+    ``claude_cli`` unless the user has chosen ``api_key``. The CLI stays the
+    default because it spends a subscription the user already has rather than a
+    key they pay per token for -- decision 1's "but not first".
+    """
+    if str(settings.get("assistant_runtime") or "").strip().lower() == "api_key":
+        from .assistant_api_runtime import ApiKeyRuntime  # noqa: PLC0415
+
+        provider = assistant_provider(settings)
+        return ApiKeyRuntime(
+            provider=provider,
+            model=settings.get("assistant_model") or "",
+            custom_base_url=settings.get("ai_custom_base_url") or "",
+            backend_port=backend_port,
+        )
     return ClaudeCliRuntime(
         cli_path=settings.get("ai_cli_path") or "",
         model=settings.get("assistant_model") or "",
@@ -959,20 +1003,59 @@ def runtime_status(settings: dict, *, backend_port: Optional[int] = None) -> dic
     user who has Codex installed and sees no mention of it would reasonably
     conclude resmon had not noticed.
     """
+    from .assistant_api_runtime import ApiKeyRuntime  # noqa: PLC0415
+    from .assistant_tool_calling import tool_calling  # noqa: PLC0415
+
     runtime = get_runtime(settings, backend_port=backend_port)
     status = runtime.status()
     codex = ai_cli.discover_cli("codex", settings.get("ai_cli_path") or "")
+
+    # Both runtimes are reported, always, whichever is selected. A user whose
+    # CLI is missing needs to see that the other route exists, and a user on the
+    # API-key route needs to see that the CLI one is there -- the same reason
+    # codex is listed with its reason rather than omitted.
+    provider = assistant_provider(settings)
+    alternative = (
+        ClaudeCliRuntime(cli_path=settings.get("ai_cli_path") or "")
+        if runtime.kind == "api_key" else
+        ApiKeyRuntime(provider=provider,
+                      model=settings.get("assistant_model") or "",
+                      custom_base_url=settings.get("ai_custom_base_url") or "",
+                      backend_port=backend_port)
+    )
+    alternative_status = alternative.status()
+    answer = tool_calling(provider)
+
     return {
         "runtime": status.to_dict(),
         "available": status.available,
         "reason": status.reason,
-        "model": runtime.model,
-        "effort": runtime.effort,
+        "model": getattr(runtime, "model", None),
+        "effort": getattr(runtime, "effort", None),
         "kinds": list(RUNTIME_KINDS),
-        "others": [{
-            "kind": "codex_cli",
-            "installed": codex.found,
-            "available": False,
-            "reason": codex_unavailable_reason(),
-        }],
+        "provider": provider,
+        "provider_source": (
+            "assistant_provider" if str(settings.get("assistant_provider") or "").strip()
+            else "ai_provider"
+        ),
+        "tool_calling": {
+            "state": answer.state,
+            "reason": answer.reason,
+            "assistant": answer.assistant,
+            "assistant_reason": answer.assistant_reason,
+        },
+        "others": [
+            {
+                "kind": alternative.kind,
+                "installed": True,
+                "available": alternative_status.available,
+                "reason": alternative_status.reason,
+            },
+            {
+                "kind": "codex_cli",
+                "installed": codex.found,
+                "available": False,
+                "reason": codex_unavailable_reason(),
+            },
+        ],
     }

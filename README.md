@@ -113,10 +113,36 @@ CLI's system channel rather than beside the text, and a test asserts that at the
 the command is actually built.
 
 Conversations are kept, so closing resmon and coming back opens them where you left off.
+If the CLI itself has lost a conversation — you cleared its history, or restored resmon's
+database onto another machine — the next thing you send is answered in a fresh session and
+the panel says so in place; your earlier messages stay on screen, and the assistant can no
+longer see them.
+
 Codex is **not** offered for the assistant: resmon can give a Codex session its own tools
 but cannot take away Codex's shell, and there is no way for you to approve a command
 before it runs. Codex remains available for summarising papers, where it is given no
 tools at all.
+
+**No CLI? Use a key instead.** Under Settings → AI → Assistant you can run the assistant on
+an API key of your own — Anthropic, OpenAI, Google, xAI, Together, DeepSeek, Alibaba, or a
+custom OpenAI-compatible endpoint. It is the same panel, the same tools, the same
+confirmation card, and the same rules on the same system channel; resmon runs the tool loop
+itself rather than handing it to a CLI. Three things differ, and resmon says all three:
+
+- **It reports tokens, not money.** A provider API reports token counts and resmon does not
+  maintain anyone's price list, so a turn shows what it consumed and not what it cost. A
+  computed figure would be a number nobody measured.
+- **A turn stops after eight tool steps or 100,000 tokens.** The CLI enforces a dollar
+  ceiling on itself; here the ceiling is on the two things resmon can actually count. Both
+  numbers are twice the largest of the ten requests measured for v2.0.0.
+- **It remembers what was said, not what the tools returned.** A provider API keeps no
+  session, so resmon replays the conversation — your messages and its replies. The raw tool
+  output behind an earlier answer is not sent again, so a long conversation does not re-send
+  a corpus and text from a paper does not follow you from turn to turn.
+
+Whether each provider supports tool calling at all is recorded with the evidence that
+established it, and a provider resmon could not establish an answer for says so rather than
+guessing — the same three states the embedding lane uses.
 
 ### Driving resmon from your AI harness (MCP)
 
