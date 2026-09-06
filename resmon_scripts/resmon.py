@@ -313,6 +313,11 @@ class RoutineCreate(BaseModel):
     name: str
     schedule_cron: str
     parameters: dict
+    # What the owner is really looking for, in their own words. Optional, and
+    # deliberately not defaulted from the keywords: the coverage audit reports
+    # which of the two it compared against, and a silent fallback written into
+    # the column would make every routine claim a stated intent it never had.
+    intent: Optional[str] = None
     is_active: bool = True
     email_enabled: bool = False
     email_ai_summary_enabled: bool = False
@@ -325,6 +330,7 @@ class RoutineUpdate(BaseModel):
     name: Optional[str] = None
     schedule_cron: Optional[str] = None
     parameters: Optional[dict] = None
+    intent: Optional[str] = None
     is_active: Optional[bool] = None
     email_enabled: Optional[bool] = None
     email_ai_summary_enabled: Optional[bool] = None
@@ -1259,6 +1265,10 @@ def create_routine(body: RoutineCreate):
             "name": body.name,
             "schedule_cron": body.schedule_cron,
             "parameters": json.dumps(body.parameters),
+            # Blank is stored as NULL rather than "": ``intent_for`` treats both
+            # as absent, and one representation of absent keeps the column
+            # answerable with a plain ``IS NULL``.
+            "intent": (body.intent or "").strip() or None,
             "is_active": int(body.is_active),
             "email_enabled": int(body.email_enabled),
             "email_ai_summary_enabled": int(body.email_ai_summary_enabled),
@@ -1291,6 +1301,10 @@ def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
             updates["schedule_cron"] = body.schedule_cron
         if body.parameters is not None:
             updates["parameters"] = json.dumps(body.parameters)
+        if body.intent is not None:
+            # An empty string is a *clear*, not a no-op: the editor sends the
+            # whole form, so a user who deletes the sentence means to remove it.
+            updates["intent"] = body.intent.strip() or None
         if body.is_active is not None:
             updates["is_active"] = int(body.is_active)
         if body.email_enabled is not None:
@@ -2187,7 +2201,10 @@ def _coverage_for_routine(conn, routine_id: int) -> dict:
             "intent": "", "intent_source": intent_source,
             "model": None, "cannot_see": coverage_audit.CANNOT_SEE,
             "results": 0, "results_embedded": 0,
-            "off_target": [], "missed_in_corpus": [], "distribution": None,
+            "off_target": [], "off_target_total": 0,
+            "missed_in_corpus": [], "missed_in_corpus_total": 0,
+            "missed_in_corpus_total_is_lower_bound": False,
+            "distribution": None,
             "reason": (
                 "This routine has no intent and no keywords, so there is nothing to "
                 "compare its results against. Add a sentence describing what it is "
@@ -2205,7 +2222,10 @@ def _coverage_for_routine(conn, routine_id: int) -> dict:
             "intent": intent_text, "intent_source": intent_source,
             "model": None, "cannot_see": coverage_audit.CANNOT_SEE,
             "results": 0, "results_embedded": 0,
-            "off_target": [], "missed_in_corpus": [], "distribution": None,
+            "off_target": [], "off_target_total": 0,
+            "missed_in_corpus": [], "missed_in_corpus_total": 0,
+            "missed_in_corpus_total_is_lower_bound": False,
+            "distribution": None,
             "reason": (
                 "Nothing is embedded yet, so resmon cannot compare this routine's "
                 "results against its intent. Set up an embedding model in "
@@ -2221,7 +2241,10 @@ def _coverage_for_routine(conn, routine_id: int) -> dict:
             "intent": intent_text, "intent_source": intent_source,
             "model": model, "cannot_see": coverage_audit.CANNOT_SEE,
             "results": 0, "results_embedded": 0,
-            "off_target": [], "missed_in_corpus": [], "distribution": None,
+            "off_target": [], "off_target_total": 0,
+            "missed_in_corpus": [], "missed_in_corpus_total": 0,
+            "missed_in_corpus_total_is_lower_bound": False,
+            "distribution": None,
             "reason": reason,
         }
     audit = coverage_audit.audit_routine(

@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
+import { useRoutinesVersion } from '../../lib/routinesBus';
 
 /**
  * "Is this routine finding what I meant?" — the coverage audit, on one routine.
@@ -19,7 +20,11 @@ import { apiClient } from '../../api/client';
  * "looks unusual" rather than "broken".
  *
  * Fetched on demand. The audit runs two vector queries and embeds the intent, so
- * a Routines page with eight routines must not run eight of them on mount.
+ * a Routines page with eight routines must not run eight of them on mount. It is
+ * also cached once fetched, for the same reason — and **discarded when a routine
+ * changes**, because the routine's intent is the thing the audit compares against:
+ * a user who writes one, reopens the panel and reads the previous answer would
+ * conclude the field did nothing.
  */
 
 interface Row {
@@ -49,13 +54,37 @@ interface Coverage {
   results: number;
   results_embedded: number;
   off_target: Row[];
+  off_target_total?: number;
   missed_in_corpus: Row[];
+  missed_in_corpus_total?: number;
+  missed_in_corpus_total_is_lower_bound?: boolean;
   distribution: Distribution | null;
   reason: string | null;
   summary?: string | null;
 }
 
 const nf = new Intl.NumberFormat();
+
+/**
+ * "Showing 25 of 312" — said, rather than left to be inferred from a list that
+ * stops at 25. Both lists are a page; a truncated list with no count reads as
+ * the whole answer, and "no more than 25 results are off target" is a claim
+ * resmon never made.
+ *
+ * `atLeast` is the missed list's honest qualifier: its total comes from a
+ * bounded index query, so when that query came back full the number is a floor
+ * rather than a count, and the backend says which.
+ */
+const ShowingCount: React.FC<{
+  shown: number; total?: number; atLeast?: boolean; testId: string;
+}> = ({ shown, total, atLeast, testId }) => {
+  if (typeof total !== 'number' || total <= shown) return null;
+  return (
+    <p className="text-muted coverage-showing" data-testid={testId}>
+      Showing {nf.format(shown)} of {atLeast ? 'at least ' : ''}{nf.format(total)}.
+    </p>
+  );
+};
 
 const PaperList: React.FC<{ rows: Row[] }> = ({ rows }) => (
   <ul className="coverage-list">
@@ -99,6 +128,19 @@ const CoveragePanel: React.FC<{ routineId: number }> = ({ routineId }) => {
   useEffect(() => {
     if (open && !data && !loading && !error) void load();
   }, [open, data, loading, error, load]);
+
+  // Any routine mutation invalidates a cached audit: the edit modal broadcasts
+  // on save, and an intent saved there changes what the audit compares against.
+  // Skipped on mount so arriving at the page does not throw away a fetch that
+  // has not happened yet.
+  const routinesVersion = useRoutinesVersion();
+  const seenVersion = useRef(routinesVersion);
+  useEffect(() => {
+    if (seenVersion.current === routinesVersion) return;
+    seenVersion.current = routinesVersion;
+    setData(null);
+    setError(null);
+  }, [routinesVersion]);
 
   return (
     <div className="coverage-panel">
@@ -155,6 +197,11 @@ const CoveragePanel: React.FC<{ routineId: number }> = ({ routineId }) => {
                     These sit at the far end of this routine&rsquo;s own distribution. That
                     is a prompt to look, not a verdict — the model has not read them.
                   </p>
+                  <ShowingCount
+                    shown={data.off_target.length}
+                    total={data.off_target_total}
+                    testId="coverage-off-target-showing"
+                  />
                   <PaperList rows={data.off_target} />
                 </>
               )}
@@ -166,6 +213,12 @@ const CoveragePanel: React.FC<{ routineId: number }> = ({ routineId }) => {
                     Close to the intent, and found by some other routine or manual sweep.
                     A keyword gap is the usual explanation.
                   </p>
+                  <ShowingCount
+                    shown={data.missed_in_corpus.length}
+                    total={data.missed_in_corpus_total}
+                    atLeast={data.missed_in_corpus_total_is_lower_bound}
+                    testId="coverage-missed-showing"
+                  />
                   <PaperList rows={data.missed_in_corpus} />
                 </>
               )}

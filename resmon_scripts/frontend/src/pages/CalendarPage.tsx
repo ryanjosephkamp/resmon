@@ -47,6 +47,8 @@ interface Routine {
   notify_on_complete?: number | boolean;
   parameters?: string | Record<string, any>;
   ai_settings?: string | Record<string, any> | null;
+  /** ``routines.intent`` — hydrates the edit modal's intent field. */
+  intent?: string | null;
 }
 
 interface PopoverData {

@@ -3815,6 +3815,8 @@ button.duplicate-link-text:hover { color: var(--color-accent); }
 
 .coverage-intent { margin: 0 0 8px; font-size: 13px; }
 
+.coverage-showing { margin: 4px 0 0; font-size: 12px; }
+
 .coverage-list { list-style: none; margin: 6px 0 0; padding: 0; }
 
 .coverage-item {

@@ -79,7 +79,10 @@ MIN_RESULTS_FOR_DISTRIBUTION = 12
 _MISSED_MULTIPLIER = 1.0
 
 # A page of them. The point is to give the owner something to read, not to
-# enumerate a corpus.
+# enumerate a corpus. The payload carries the *total* beside each list
+# (``off_target_total``, ``missed_in_corpus_total``) so a surface can say it is
+# showing a page — a list silently truncated at 25 reads as the whole answer,
+# and "no more than 25 results are off target" is a claim resmon never made.
 _MAX_MISSED = 25
 _MAX_OFF_TARGET = 25
 
@@ -149,7 +152,10 @@ def audit_routine(
         "results": 0,
         "results_embedded": 0,
         "off_target": [],
+        "off_target_total": 0,
         "missed_in_corpus": [],
+        "missed_in_corpus_total": 0,
+        "missed_in_corpus_total_is_lower_bound": False,
         "distribution": None,
         "reason": None,
     }
@@ -210,6 +216,10 @@ def audit_routine(
         }
         far = [(doc_id, d) for doc_id, d in ranked if d > cutoff]
         payload["off_target"] = _rows(conn, far[-max_off_target:][::-1])
+        # Exact: ``ranked`` covers every result this routine returned (``k`` is
+        # its own length), so the quarter beyond the cutoff is counted, not
+        # sampled. A list that shows 25 of 312 has to be able to say 312.
+        payload["off_target_total"] = len(far)
 
     # --- missed in corpus ---------------------------------------------------
     # Papers at least as close to the intent as this routine's own median, that
@@ -218,15 +228,23 @@ def audit_routine(
     reference = statistics.median(distances)
     # Over-fetch, because the returned set is excluded afterwards and would
     # otherwise eat the whole budget on a routine that dominates the corpus.
-    neighbours = vector_index.nearest(
-        conn, model, intent_vector, k=max_missed + len(returned) + 50
-    )
+    budget = max_missed + len(returned) + 50
+    neighbours = vector_index.nearest(conn, model, intent_vector, k=budget)
     returned_set = set(returned)
-    missed = [
+    candidates = [
         (doc_id, d) for doc_id, d in neighbours
         if doc_id not in returned_set and d <= reference
-    ][:max_missed]
-    payload["missed_in_corpus"] = _rows(conn, missed)
+    ]
+    payload["missed_in_corpus"] = _rows(conn, candidates[:max_missed])
+    payload["missed_in_corpus_total"] = len(candidates)
+    # Unlike the off-target side, this one can be a floor rather than a count.
+    # The KNN is bounded by ``budget``, so when it came back full *and* its
+    # furthest row is still inside the reference distance, papers beyond the
+    # budget were never looked at. Saying "25 of 312" there would be a number
+    # resmon did not measure; "25 of at least 312" is what it knows.
+    payload["missed_in_corpus_total_is_lower_bound"] = bool(
+        len(neighbours) >= budget and neighbours and neighbours[-1][1] <= reference
+    )
     payload["missed_reference_distance"] = round(reference, 4)
     return payload
 
@@ -268,8 +286,14 @@ def summary_line(audit: dict) -> Optional[str]:
     rendered "300 off target" as a verdict would be overclaiming on resmon's
     behalf.
     """
-    off = len(audit.get("off_target") or [])
-    missed = len(audit.get("missed_in_corpus") or [])
+    # The *totals*, not the page. Both lists are capped at 25, and a summary
+    # that said "25 results sit furthest from the intent" for a routine with 312
+    # of them would understate by an order of magnitude while sounding precise.
+    off = int(audit.get("off_target_total") or len(audit.get("off_target") or []))
+    missed = int(
+        audit.get("missed_in_corpus_total") or len(audit.get("missed_in_corpus") or [])
+    )
+    missed_at_least = bool(audit.get("missed_in_corpus_total_is_lower_bound"))
     reason = audit.get("reason")
 
     # A reason and a finding are not mutually exclusive, and treating them as
@@ -293,6 +317,7 @@ def summary_line(audit: dict) -> Optional[str]:
         )
     if missed:
         parts.append(
+            f"{'at least ' if missed_at_least else ''}"
             f"{missed} paper{'s' if missed != 1 else ''} already in the corpus "
             f"look{'' if missed != 1 else 's'} close to it and "
             f"{'were' if missed != 1 else 'was'} never returned"

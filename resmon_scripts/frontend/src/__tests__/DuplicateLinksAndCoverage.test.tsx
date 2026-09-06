@@ -17,6 +17,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import ExplorerPage from '../pages/ExplorerPage';
 import CoveragePanel from '../components/Routines/CoveragePanel';
+import { notifyRoutinesChanged } from '../lib/routinesBus';
 
 const NO_EMBEDDINGS = {
   run: { running: false, model: null, processed: 0, total: 0, skipped_no_text: 0,
@@ -191,6 +192,16 @@ const COVERAGE = {
                        url: null }],
   distribution: { count: 40, min: 0.02, median: 0.31, p75_cutoff: 0.55, max: 0.9 },
   reason: null,
+  off_target_total: 1,
+  missed_in_corpus_total: 1,
+  missed_in_corpus_total_is_lower_bound: false,
+};
+
+/** One row of each list, standing for a page of 25 out of a much larger whole. */
+const CAPPED = {
+  ...COVERAGE,
+  off_target_total: 312,
+  missed_in_corpus_total: 63,
 };
 
 function mockCoverage(payload: unknown = COVERAGE) {
@@ -252,4 +263,76 @@ test('a routine that cannot be audited shows the reason rather than empty lists'
     expect(screen.getByTestId('coverage-reason').textContent)
       .toContain('has not returned any papers yet');
     expect(screen.queryByText('Furthest from the intent')).toBeNull();
+  });
+
+// ---------------------------------------------------------------------------
+// R2 — a page says it is a page
+// ---------------------------------------------------------------------------
+
+test('a capped list says how many there are in total', async () => {
+  /**
+   * Both lists stop at 25. A reader given 25 rows and no count reads that as
+   * "25 results are off target" — precise, and a number resmon never measured.
+   */
+  await openCoverage(CAPPED);
+  expect(screen.getByTestId('coverage-off-target-showing').textContent)
+    .toBe('Showing 1 of 312.');
+  expect(screen.getByTestId('coverage-missed-showing').textContent)
+    .toBe('Showing 1 of 63.');
+});
+
+test('an uncapped list says nothing, because there is nothing to say', async () => {
+  await openCoverage();
+  expect(screen.queryByTestId('coverage-off-target-showing')).toBeNull();
+  expect(screen.queryByTestId('coverage-missed-showing')).toBeNull();
+});
+
+test('a missed total the backend could only bound is worded as a floor', async () => {
+  /**
+   * The missed side comes from a bounded index query, so its total can be a
+   * floor rather than a count, and the backend says which. "63" and "at least
+   * 63" are different facts; rendering the first for the second would be the
+   * overclaim this feature exists to avoid, one layer down.
+   */
+  await openCoverage({ ...CAPPED, missed_in_corpus_total_is_lower_bound: true });
+  expect(screen.getByTestId('coverage-missed-showing').textContent)
+    .toBe('Showing 1 of at least 63.');
+  // The off-target total is exact and must not borrow the qualifier.
+  expect(screen.getByTestId('coverage-off-target-showing').textContent)
+    .toBe('Showing 1 of 312.');
+});
+
+test('a payload from an older backend renders without a caption rather than a wrong one',
+  async () => {
+    /**
+     * `off_target_total` did not exist before 1.9.2. A panel that fell back to
+     * the page length would print "Showing 1 of 1" and call a truncated list
+     * complete; absent is the honest rendering of absent.
+     */
+    const { off_target_total, missed_in_corpus_total,
+            missed_in_corpus_total_is_lower_bound, ...older } = CAPPED;
+    await openCoverage(older);
+    expect(screen.queryByTestId('coverage-off-target-showing')).toBeNull();
+    expect(screen.queryByTestId('coverage-missed-showing')).toBeNull();
+  });
+
+test('editing a routine discards a cached audit rather than showing the old one',
+  async () => {
+    /**
+     * The audit is cached after the first open, because it costs two vector
+     * queries and an embedding call. But the intent it compares against is
+     * edited on this same page — so a user who writes one, reopens the panel and
+     * reads the previous answer would conclude the field did nothing. The edit
+     * modal broadcasts on save; this listens.
+     */
+    await openCoverage();
+    expect((global as any).fetch).toHaveBeenCalledTimes(1);
+
+    // Re-opening without a change must not refetch: that is what the cache is for.
+    await act(async () => { fireEvent.click(screen.getByTestId('coverage-toggle')); });
+    await act(async () => { fireEvent.click(screen.getByTestId('coverage-toggle')); });
+    expect((global as any).fetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => { notifyRoutinesChanged(); });
+    expect((global as any).fetch).toHaveBeenCalledTimes(2);
   });

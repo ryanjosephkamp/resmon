@@ -29,6 +29,8 @@ export interface RoutineEditTarget {
   id: number;
   name: string;
   schedule_cron?: string;
+  /** ``routines.intent`` — what the owner says this routine is really for. */
+  intent?: string | null;
   email_enabled?: number | boolean;
   email_ai_summary_enabled?: number | boolean;
   ai_enabled?: number | boolean;
@@ -68,6 +70,7 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
   const [formDateFrom, setFormDateFrom] = useState('');
   const [formDateTo, setFormDateTo] = useState('');
   const [formKeywords, setFormKeywords] = useState<string[]>([]);
+  const [formIntent, setFormIntent] = useState('');
   const [formMaxResults, setFormMaxResults] = useState(100);
   const [formAi, setFormAi] = useState(false);
   const [formEmail, setFormEmail] = useState(false);
@@ -84,6 +87,7 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     setFormDateFrom('');
     setFormDateTo('');
     setFormKeywords([]);
+    setFormIntent('');
     setFormMaxResults(100);
     setFormAi(false);
     setFormEmail(false);
@@ -109,6 +113,7 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     setFormDateFrom(params.date_from || '');
     setFormDateTo(params.date_to || '');
     setFormKeywords(params.keywords || []);
+    setFormIntent(r.intent || '');
     setFormMaxResults(params.max_results || 100);
     setFormAi(!!r.ai_enabled);
     setFormEmail(!!r.email_enabled);
@@ -166,6 +171,9 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
           name: formName.trim(),
           schedule_cron: formCron,
           parameters,
+          // Sent on every save, blank included: a cleared box is a clear, and
+          // the backend stores blank as NULL rather than "".
+          intent: formIntent.trim(),
           is_active: true,
           email_enabled: formEmail,
           email_ai_summary_enabled: formEmailAi,
@@ -179,6 +187,9 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
           name: formName.trim(),
           schedule_cron: formCron,
           parameters,
+          // Sent on every save, blank included: a cleared box is a clear, and
+          // the backend stores blank as NULL rather than "".
+          intent: formIntent.trim(),
           is_active: true,
           email_enabled: formEmail,
           email_ai_summary_enabled: formEmailAi,
@@ -262,6 +273,32 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
         )}
         <DateRangePicker dateFrom={formDateFrom} dateTo={formDateTo} onDateFromChange={setFormDateFrom} onDateToChange={setFormDateTo} />
         <KeywordInput keywords={formKeywords} onChange={setFormKeywords} />
+        {/*
+          `routines.intent` — the coverage audit's other half. Optional, and the
+          copy says what its absence costs rather than pretending the fallback is
+          equivalent: an audit that compares a routine's keywords against results
+          those keywords produced is measuring a query against itself, which is
+          the same sentence the panel shows once it runs.
+        */}
+        <div className="form-field">
+          <label className="form-label" htmlFor="routine-intent">
+            What this routine is really looking for <span className="text-muted">(optional)</span>
+          </label>
+          <textarea
+            id="routine-intent"
+            className="form-input"
+            rows={2}
+            value={formIntent}
+            placeholder="e.g. methods for irregular time series in astronomy"
+            onChange={(e) => setFormIntent(e.target.value)}
+          />
+          <p className="form-hint text-muted" data-testid="routine-intent-hint">
+            The coverage audit (&ldquo;Is this finding what I meant?&rdquo; on the Routines
+            page) compares this routine&rsquo;s results against this sentence. Leave it blank
+            and it falls back to the keywords above &mdash; which measures the query against
+            results the query produced, so the reading is circular.
+          </p>
+        </div>
         <div className="form-field">
           <label className="form-label">Max Results (per repository)</label>
           <div className="range-row">

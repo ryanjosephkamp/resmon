@@ -137,7 +137,7 @@ would make an honest product dishonest through an integration.
 | Tool | Arguments | Returns | Backed by |
 |---|---|---|---|
 | `run_sweep` | `query`, `sources`, `date_from?`, `date_to?`, `max_results?`, `ai_enabled?` | `exec_id`, immediately | `POST /api/search/sweep` |
-| `create_routine` | `name`, `keywords`, `sources`, `schedule`, plus optional notification and AI settings | the created routine | `POST /api/routines` |
+| `create_routine` | `name`, `keywords`, `sources`, `schedule`, optional `intent`, plus optional notification and AI settings | the created routine | `POST /api/routines` |
 | `run_routine` | `routine_id` | `exec_id`, immediately | **needs a new endpoint — see below** |
 
 All three return as soon as the execution is admitted. Progress is polled with
@@ -190,6 +190,24 @@ Listed so the omissions are visible and arguable rather than silently missing.
 ---
 
 ## Amendments
+
+### v1.3 — 6 September 2026, phase 1.9b revision 2
+
+Additive. `create_routine` gains one optional argument and no tool changed shape, so the
+minor version moves and existing callers are unaffected — the rule this document's
+*Versioning* section already states.
+
+| Change | Detail |
+|---|---|
+| `create_routine` gains `intent` (optional) | The sentence the coverage audit compares a routine's results against, stored in `routines.intent`. **It is never defaulted from `keywords`.** A routine whose intent is its own keywords is being measured against itself, `get_routine` reports which of the two the audit used, and filling the column in at creation would erase that distinction at the one moment it can still be made honestly. Omitted when not given, rather than sent empty. |
+| `get_routine`'s `coverage.off_target_count` and `coverage.missed_in_corpus_count` are **totals** | They were the length of the returned page. Both audit lists are capped at 25, so a routine with 312 off-target results reported `25` — a number resmon never measured, arriving at a harness as a precise fact. No field was added or removed; the value is corrected. |
+| `coverage.missed_in_corpus_count_is_lower_bound` is new | The missed side is a bounded index query rather than a scan. When it comes back full with its furthest row still inside the reference distance, the total is a floor and this says so. "63" and "at least 63" are different facts. |
+
+**Every route the server calls was re-checked against the app while this amendment was
+written**, the v1.1 lesson applied for the third time — not only the two rows above.
+`mcp_server.py`'s 18 tools reach **25 distinct method-and-path pairs**, and all 25 resolve
+against `resmon.app.routes`, including the six analytics paths behind `get_analytics`'s
+view names. No endpoint was added this release; the count stays at 106.
 
 ### v1.2 — 5 September 2026, phase 1.9a
 
@@ -244,7 +262,7 @@ section describes. The three corrections here still stand.)*
 
 ## Versioning
 
-This document is contract **v1.2**. The server reports it in its MCP initialisation
+This document is contract **v1.3**. The server reports it in its MCP initialisation
 response (`mcp_server.CONTRACT_VERSION`). Additive changes — new tools, new optional arguments — bump the minor version and
 do not require a new contract document. Removing a tool, renaming an argument, or changing
 a return shape is a **breaking** change: new major version, new document, and the 2.0
