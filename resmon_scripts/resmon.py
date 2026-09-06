@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import queue
 import sqlite3
 import shutil
 import sys
@@ -94,10 +95,11 @@ from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
 from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
-    analytics, coverage_audit, embedding_job, embeddings, explorer, lifecycle,
-    match_explain, near_duplicates, reference_export, search_record, vector_index,
-    watchdog,
+    analytics, assistant_runtime, assistant_store, coverage_audit, embedding_job,
+    embeddings, explorer, lifecycle, match_explain, near_duplicates,
+    reference_export, search_record, vector_index, watchdog,
 )
+from implementation_scripts.assistant_permissions import broker as permission_broker
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import admission
 from implementation_scripts.scheduler import ResmonScheduler, set_dispatcher
@@ -3048,6 +3050,17 @@ def calendar_events(
 # Settings (email, ai, cloud, storage)
 # ---------------------------------------------------------------------------
 
+# The assistant's own settings. ``ai_cli_path`` is deliberately *not* here: the
+# assistant reuses the summary lane's discovered CLI path rather than keeping a
+# second one, so a user who has told resmon where `claude` lives has told it
+# once.
+_ASSISTANT_SETTING_KEYS: tuple[str, ...] = (
+    "assistant_runtime",
+    "assistant_model",
+    "assistant_effort",
+)
+
+
 _SETTINGS_GROUPS = {
     "email": ["smtp_server", "smtp_port", "smtp_username", "smtp_from", "smtp_to"],
     "ai": [
@@ -3086,6 +3099,11 @@ _SETTINGS_GROUPS = {
     # the PUT stored it and no run ever read it, for a whole release. One tuple,
     # two uses, and ``test_embeddings_settings.py`` asserts both against it.
     "embeddings": list(embeddings.EMBEDDING_SETTING_KEYS),
+    # 2.0 — the assistant. These three ride ``_ASSISTANT_SETTING_KEYS`` as well,
+    # which is the pair Ledger 33 was about: ``ai_cli_path`` appeared in one of
+    # the two lists and not the other, so the PUT stored nothing and the read
+    # could never return anything. One tuple, spliced into both.
+    "assistant": list(_ASSISTANT_SETTING_KEYS),
     "cloud": ["cloud_provider", "cloud_auto_backup"],
     "storage": ["pdf_policy", "txt_policy", "archive_after_days", "export_directory"],
     "notifications": ["notify_manual", "notify_automatic_mode"],
@@ -4535,8 +4553,383 @@ def close_db() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The embedded assistant (2.0)
+# ---------------------------------------------------------------------------
+#
+# The panel talks to these nine routes and nothing else. Three things about the
+# shape are worth stating before the code.
+#
+# **The permission endpoint is where a write waits.** ``POST /assistant/permissions``
+# is called by the MCP permission server that ``claude`` invokes before running a
+# tool it was not pre-approved for, and it does not answer until the person taps
+# a card or the wait times out. It is ``async`` because it holds a request open
+# for up to five minutes; a sync endpoint would hold a thread-pool thread instead,
+# and a handful of open panels would starve the rest of the API.
+#
+# **The turn endpoint streams, so nothing may escape from it.** 1.9a shipped two
+# bugs that both read as ``net::ERR_FAILED``, because an exception escaping before
+# the CORS middleware has no status code. In a *streaming* response it is worse:
+# the response has already begun, so the failure arrives as a conversation that
+# stopped mid-sentence with nothing in any log the panel can see. Every layer here
+# turns a failure into an ``error`` event instead.
+#
+# **The CLI runs on a worker thread and the stream is async.** They meet at
+# ``assistant_runtime.bus``, a plain ``queue.Queue`` per session, because the
+# permission endpoint (event loop) and the CLI reader (worker thread) both publish
+# to it and an asyncio queue is not legal from the thread.
+
+
+class AssistantSessionCreate(BaseModel):
+    title: Optional[str] = None
+
+
+class AssistantMessageBody(BaseModel):
+    text: str
+
+
+class AssistantPermissionOpen(BaseModel):
+    session_id: int
+    tool_name: str
+    input: dict = {}
+    tool_use_id: Optional[str] = None
+
+
+class AssistantPermissionAnswer(BaseModel):
+    allow: bool
+    reason: Optional[str] = None
+
+
+def _assistant_settings(conn) -> dict:
+    settings = _get_settings_group(conn, "assistant")
+    settings["ai_cli_path"] = get_setting(conn, "ai_cli_path") or ""
+    return settings
+
+
+def _assistant_runtime_for(conn):
+    return assistant_runtime.get_runtime(
+        _assistant_settings(conn), backend_port=serving_port(),
+    )
+
+
+@app.get("/api/settings/assistant")
+def get_assistant_settings():
+    conn = _get_db()
+    try:
+        return _get_settings_group(conn, "assistant")
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/assistant")
+def update_assistant_settings(body: SettingsBody):
+    conn = _get_db()
+    try:
+        _set_settings_group(conn, "assistant", body.settings)
+        return {"success": True}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/assistant/status")
+def assistant_status():
+    """Whether the assistant can run, and if not, the reason in one sentence.
+
+    Codex is reported as unavailable *with its reason* rather than omitted: a
+    user who has Codex installed and sees no mention of it would reasonably
+    conclude resmon had not noticed it.
+    """
+    conn = _get_db()
+    try:
+        status = assistant_runtime.runtime_status(
+            _assistant_settings(conn), backend_port=serving_port(),
+        )
+        status["contract_version"] = _mcp_contract_version()
+        return status
+    finally:
+        _close_db(conn)
+
+
+def _mcp_contract_version() -> str:
+    try:
+        import mcp_server  # noqa: PLC0415
+
+        return mcp_server.CONTRACT_VERSION
+    except Exception:                                # pragma: no cover - defensive
+        return "unknown"
+
+
+@app.post("/api/assistant/sessions", status_code=201)
+def create_assistant_session(body: AssistantSessionCreate):
+    conn = _get_db()
+    try:
+        runtime = _assistant_runtime_for(conn)
+        status = runtime.status()
+        if not status.available:
+            raise HTTPException(409, status.reason)
+        session_id = assistant_store.create_session(
+            conn,
+            runtime=runtime.kind,
+            cli_session_id=assistant_store.new_cli_session_id(),
+            model=runtime.model,
+            title=(body.title or "").strip() or None,
+        )
+        return assistant_store.get_session(conn, session_id)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/assistant/sessions")
+def list_assistant_sessions(limit: int = 50):
+    conn = _get_db()
+    try:
+        return {"sessions": assistant_store.list_sessions(conn, limit=limit)}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/assistant/sessions/{session_id}")
+def get_assistant_session(session_id: int):
+    conn = _get_db()
+    try:
+        session = assistant_store.get_session(conn, session_id)
+        if not session:
+            raise HTTPException(404, "That conversation does not exist.")
+        return {
+            "session": session,
+            "messages": assistant_store.list_messages(conn, session_id),
+            "totals": assistant_store.session_totals(conn, session_id),
+            "running": assistant_runtime.is_running(session_id),
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/assistant/sessions/{session_id}")
+def delete_assistant_session(session_id: int):
+    conn = _get_db()
+    try:
+        if not assistant_store.delete_session(conn, session_id):
+            raise HTTPException(404, "That conversation does not exist.")
+        return {"deleted": session_id}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/assistant/sessions/{session_id}/cancel")
+def cancel_assistant_turn(session_id: int):
+    """Stop the running turn. Idempotent, and it says which happened."""
+    killed = assistant_runtime.cancel_turn(session_id)
+    denied = permission_broker.cancel_session(session_id)
+    return {"cancelled": killed, "permissions_denied": denied}
+
+
+@app.post("/api/assistant/permissions")
+async def open_assistant_permission(body: AssistantPermissionOpen):
+    """Ask the person, and hold this request open until they answer.
+
+    Called by ``assistant_permission_server.py``, not by the renderer. The wait
+    is the point: ``claude`` is blocked on this reply and will not run the tool
+    until it arrives, so a write physically cannot precede the answer.
+
+    A card that nobody is listening for is denied immediately rather than left to
+    time out — if the panel has closed the stream, there is no one to ask.
+    """
+    request = permission_broker.open(
+        session_id=body.session_id,
+        tool_name=body.tool_name,
+        tool_input=body.input,
+        tool_use_id=body.tool_use_id,
+    )
+    if not assistant_runtime.bus.publish(body.session_id, request.to_event()):
+        permission_broker.answer(
+            request.id, allow=False,
+            reason="The panel was not open to ask, so resmon said no.",
+        )
+    decision, message = await permission_broker.wait(request)
+    return {"decision": decision, "message": message, "request_id": request.id}
+
+
+@app.post("/api/assistant/permissions/{request_id}")
+async def answer_assistant_permission(request_id: str, body: AssistantPermissionAnswer):
+    """The panel's Allow / Deny.
+
+    A second answer to the same request is refused rather than applied: two taps
+    on a card must not turn a deny into an allow.
+    """
+    if not permission_broker.answer(request_id, allow=body.allow, reason=body.reason):
+        raise HTTPException(409, "That request has already been answered or has expired.")
+    return {"request_id": request_id, "decision": "allow" if body.allow else "deny"}
+
+
+def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
+                        cli_session_id: str) -> None:
+    """The worker thread: drive the CLI, publish events, store the turn.
+
+    Runs on its own thread with its own database connection (``_get_db`` is
+    per-thread since BUG-020). Everything is inside one ``try``: a thread that
+    raises here would leave the SSE generator waiting for a ``done`` that never
+    comes, and the panel would show a spinner for ever.
+    """
+    logger = logging.getLogger(__name__)
+    text_parts: list[str] = []
+    tool_calls: list[dict] = []
+    tool_results: list[dict] = []
+    usage: dict = {}
+    try:
+        conn = _get_db()
+        runtime = _assistant_runtime_for(conn)
+        for event in runtime.run_turn(
+            session_id, prompt,
+            cli_session_id=cli_session_id, resume=resume,
+        ):
+            if event["type"] == "text_delta":
+                text_parts.append(event["text"])
+            elif event["type"] == "tool_call":
+                tool_calls.append({"name": event["tool_name"],
+                                   "input": event.get("input") or {},
+                                   "tool_use_id": event.get("tool_use_id")})
+            elif event["type"] == "tool_result":
+                tool_results.append({"tool_use_id": event.get("tool_use_id"),
+                                     "is_error": event.get("is_error"),
+                                     "content": event.get("content")})
+            elif event["type"] == "done":
+                usage = event
+            assistant_runtime.bus.publish(session_id, event)
+
+        assistant_store.add_message(
+            conn, session_id, role="assistant",
+            content="".join(text_parts),
+            tool_calls=tool_calls or None,
+            tool_results=tool_results or None,
+            input_tokens=usage.get("input_tokens"),
+            output_tokens=usage.get("output_tokens"),
+            cost_usd=usage.get("cost_usd"),
+        )
+        assistant_store.touch_session(conn, session_id)
+    except Exception as exc:                         # noqa: BLE001
+        logger.exception("Assistant turn thread failed")
+        assistant_runtime.bus.publish(session_id, {
+            "type": "error",
+            "message": "resmon could not finish that turn.",
+            "detail": type(exc).__name__,
+        })
+    finally:
+        # Always, so the stream ends even when the turn did not.
+        assistant_runtime.bus.publish(session_id, {"type": "stream_end"})
+
+
+@app.post("/api/assistant/sessions/{session_id}/messages")
+async def send_assistant_message(session_id: int, body: AssistantMessageBody):
+    conn = _get_db()
+    session = assistant_store.get_session(conn, session_id)
+    if not session:
+        raise HTTPException(404, "That conversation does not exist.")
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(400, "There is nothing to send.")
+
+    runtime = _assistant_runtime_for(conn)
+    status = runtime.status()
+    if not status.available:
+        raise HTTPException(409, status.reason)
+
+    # Claimed before anything is written, and before the worker starts. The
+    # tempting guard -- "is a process running for this session?" -- has a window:
+    # the subprocess is not registered until the worker thread reaches it, so a
+    # second request arriving in between was accepted and two CLIs resumed the
+    # same conversation.
+    events = assistant_runtime.bus.try_open(session_id)
+    if events is None:
+        raise HTTPException(409, "That conversation is already answering. Wait, or stop it.")
+
+    # From here on the claim must be released on any failure, or the
+    # conversation is wedged: every later turn would answer 409 for ever, and
+    # only restarting the app would clear it.
+    try:
+        resume = bool(assistant_store.list_messages(conn, session_id))
+        cli_session_id = session["cli_session_id"] or assistant_store.new_cli_session_id()
+        if not session["cli_session_id"]:
+            assistant_store.set_cli_session_id(conn, session_id, cli_session_id)
+
+        assistant_store.add_message(conn, session_id, role="user", content=text)
+        assistant_store.touch_session(conn, session_id,
+                                     title=assistant_store.title_from(text))
+
+        worker = threading.Thread(
+            target=_run_assistant_turn,
+            args=(session_id, text, resume, cli_session_id),
+            daemon=True,
+        )
+        worker.start()
+    except Exception:                                # noqa: BLE001
+        assistant_runtime.bus.close(session_id)
+        raise
+
+    async def _generator():
+        try:
+            while True:
+                try:
+                    event = events.get_nowait()
+                except queue.Empty:
+                    # 50 ms, not the progress stream's 300: this is a chat panel
+                    # and 300 ms of latency per chunk is visible as stutter.
+                    await asyncio.sleep(0.05)
+                    yield ": heartbeat\n\n"
+                    continue
+                if event.get("type") == "stream_end":
+                    break
+                yield f"event: assistant\ndata: {json.dumps(event, default=str)}\n\n"
+        except Exception:                            # noqa: BLE001
+            # The response has already started, so this cannot become a 500.
+            # An error event is the only thing the panel can be told.
+            logging.getLogger(__name__).exception("Assistant stream failed")
+            yield ('event: assistant\ndata: '
+                   + json.dumps({"type": "error",
+                                 "message": "The connection to resmon broke "
+                                            "part-way through that answer."})
+                   + "\n\n")
+        finally:
+            assistant_runtime.bus.close(session_id)
+            # Anything still waiting for a card belongs to a turn nobody is
+            # watching any more.
+            permission_broker.cancel_session(session_id)
+            yield "event: assistant\ndata: " + json.dumps({"type": "closed"}) + "\n\n"
+
+    return StreamingResponse(
+        _generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                 "X-Accel-Buffering": "no"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
+
+_serving_port: Optional[int] = None
+
+
+def serving_port() -> Optional[int]:
+    """The port this backend is actually answering on.
+
+    Set by ``main()``. The fallbacks exist for a backend started by a test or by
+    an embedder rather than by ``main`` — and they are read in the same order the
+    MCP server uses, so the two cannot disagree about which resmon is meant.
+    """
+    if _serving_port is not None:
+        return _serving_port
+    env = os.environ.get("RESMON_PORT")
+    if env:
+        try:
+            return int(env)
+        except ValueError:
+            pass
+    try:
+        return int(Path(PORT_FILE).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
 
 def write_port_file(port: int) -> None:
     """Record the port this process is serving on, for the MCP server to find.
@@ -4565,8 +4958,11 @@ def remove_port_file() -> None:
 
 
 def main():
+    global _serving_port
+
     import uvicorn
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8742
+    _serving_port = port
     create_app()
     print(f"{APP_NAME} v{APP_VERSION}")
     write_port_file(port)
