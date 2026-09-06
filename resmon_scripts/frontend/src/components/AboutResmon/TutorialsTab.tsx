@@ -155,10 +155,15 @@ const sections: TutorialSection[] = [
       'Toggle `Activate` / `Deactivate` to start or stop scheduling without deleting the row.',
     ],
     features: [
+      'A coverage audit per routine: the results sitting furthest from what the routine is for, and papers already in your corpus that it never returned. Open it with `Is this finding what I meant?` under any routine.',
+      'The audit compares against an intent you write for the routine, or its keywords if you have not — and it says which, because comparing a query against the results that query produced is measuring it against itself.',
+      'What it refuses to claim: resmon can only compare against papers it already holds, so `missed` means missed by this routine and found by something else, never missed by resmon.',
       'Per-row quick toggles for Email, AI, and Notify columns patch the matching flag in a single click.',
       'When a routine is currently firing, a `Cancel Run` button appears on its row and routes through the shared `ExecutionContext`.',
     ],
     tips: [
+      'Write an intent for each routine — one sentence describing what you actually want. It costs nothing and turns the coverage audit from a rough guide into a real check.',
+      'The off-target cutoff comes from the routine\u2019s own spread of distances, not a fixed number, and below a dozen embedded results resmon declines to draw one at all.',
       'Routines fire via APScheduler in the local daemon.',
       'Deleting a routine preserves its historical execution rows on Results & Logs.',
     ],
@@ -204,6 +209,8 @@ const sections: TutorialSection[] = [
       '`Papers like this one` on any result lists its nearest neighbours in your corpus, with the distance and the source of each.',
     ],
     features: [
+      'Records that look like the same work reaching resmon from two places are badged `also appears in \u2026`, with the evidence named: `same DOI` is an identifier, `likely duplicate` is an inference from near-identical titles and closely related text.',
+      'Nothing is merged and nothing is hidden. `Collapse duplicates` is a per-view switch that starts off, the count above the list never moves when you use it, and switching it off brings every row straight back.',
       'Searches your whole corpus across every execution and routine, rather than one execution at a time.',
       'Free text runs against a full-text index rather than a substring scan, so it stays fast on a large corpus.',
       'Facet counts update as you filter, and a facet never hides its own alternatives.',
