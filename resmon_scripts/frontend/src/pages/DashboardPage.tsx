@@ -6,6 +6,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { useExecution } from '../context/ExecutionContext';
 import PageHelp from '../components/Help/PageHelp';
+import FirstRunCard from '../components/Onboarding/FirstRunCard';
 import { useConfigurationsVersion } from '../lib/configurationsBus';
 
 interface WatchdogSummary {
@@ -195,6 +196,11 @@ const DashboardPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Above the page help and below the hero, because on a fresh install it
+          is the only thing on this page with anything to say — every table
+          under it is empty. It removes itself the moment there is history. */}
+      <FirstRunCard />
+
       <PageHelp
         storageKey="dashboard"
         title="Dashboard"
@@ -204,6 +210,7 @@ const DashboardPage: React.FC = () => {
             heading: 'What you see here',
             body: (
               <ul>
+                <li><strong>Getting started</strong> — on a brand-new install only. Three optional things and where to set each one; none of them is needed to search. It reports what resmon can see — a command found, a key slot filled — and never that a lane works, because that cannot be known until the first paper goes through it. <strong>Skip</strong> puts it away for good, and it retires itself as soon as you have run anything.</li>
                 <li><strong>Active Routines</strong> — every enabled scheduled sweep and its next/last fire.</li>
                 <li><strong>Recent Activity</strong> — the 10 most recent executions, with Type, Status, keywords, repositories, and result counts. The <strong>Name</strong> column resolves to the saved-configuration name when the run was launched from (or saved into) one, otherwise to the routine name for routine-fired runs, otherwise to <code>Execution #&lt;id&gt;</code>.</li>
               </ul>
