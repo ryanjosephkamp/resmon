@@ -158,6 +158,40 @@ const RoutinesPage: React.FC = () => {
             ),
           },
           {
+            heading: 'Is this finding what I meant?',
+            body: (
+              <>
+                <p>
+                  Each routine carries a <strong>coverage audit</strong>. It compares
+                  every paper the routine has ever returned against what the routine is{' '}
+                  <em>for</em>, and shows two lists: the results sitting furthest from
+                  that, and papers <strong>already in your corpus</strong> that this
+                  routine never returned — usually a keyword gap you can close.
+                </p>
+                <p>
+                  It compares against an <strong>intent</strong> you write for the
+                  routine — a sentence in your own words. Without one it falls back to
+                  the keyword string and says so, because comparing a query against the
+                  results that query produced is measuring it against itself.
+                </p>
+                <p>
+                  The cutoff comes from the routine&rsquo;s own spread of distances, not
+                  a fixed number, and below a dozen embedded results resmon declines to
+                  draw one rather than dressing up a guess. Distance is not relevance:
+                  the model has not read the papers, so the far end of the list is a
+                  prompt to look, never a verdict.
+                </p>
+                <p>
+                  <strong>resmon can only compare against papers it already holds.</strong>{' '}
+                  A paper missing from the second list may simply never have been
+                  collected by any routine — resmon has no idea what is out there and
+                  does not pretend to. The audit needs an embedding model
+                  (Settings &rarr; AI &rarr; Embeddings).
+                </p>
+              </>
+            ),
+          },
+          {
             heading: 'Tips',
             body: (
               <ul>
