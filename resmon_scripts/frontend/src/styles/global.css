@@ -3730,6 +3730,115 @@ html, body, #root {
 .similar-source { color: var(--color-accent); font-size: 11.5px; }
 .similar-date { color: var(--color-text-muted); font-size: 11.5px; }
 
+/* ---------------------------------------------------------------------------
+   Near-duplicate links and the coverage audit (1.9b)
+   ---------------------------------------------------------------------------
+   The badge is inline and quiet. It is telling a reader the list counts a paper
+   twice -- useful, and not an alarm: nothing is wrong with either record.
+*/
+
+.duplicate-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 0;
+  font-size: 11.5px;
+}
+
+.duplicate-link { display: inline-flex; align-items: baseline; gap: 6px; }
+
+.duplicate-badge {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* An identifier and an inference should not look like the same strength of
+   claim, so the DOI badge is the one that gets the accent. */
+.duplicate-badge-shared_doi {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.duplicate-link-text {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--color-text-muted);
+  text-align: left;
+}
+
+button.duplicate-link-text { cursor: pointer; text-decoration: underline dotted; }
+button.duplicate-link-text:hover { color: var(--color-accent); }
+
+.explorer-collapse {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  margin-left: auto;
+}
+
+/* Deliberately not styled as a warning. A folded row is a way of looking at the
+   list, not a problem with it. */
+.explorer-stands-for {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.routine-coverage-row > td { padding-top: 0; border-top: 0; }
+
+.coverage-panel { margin: 0; }
+
+.coverage-body {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+}
+
+.coverage-body h4 {
+  margin: 14px 0 4px;
+  font-size: 13px;
+  letter-spacing: -0.005em;
+}
+
+.coverage-intent { margin: 0 0 8px; font-size: 13px; }
+
+.coverage-list { list-style: none; margin: 6px 0 0; padding: 0; }
+
+.coverage-item {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 4px 0;
+  font-size: 12.5px;
+}
+
+.coverage-item + .coverage-item { border-top: 1px solid var(--color-border); }
+
+.coverage-distance {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-accent);
+  min-width: 3.6em;
+}
+
+.coverage-title { flex: 1 1 auto; }
+.coverage-title a { color: var(--color-text); text-decoration: none; }
+.coverage-title a:hover { color: var(--color-accent); text-decoration: underline; }
+.coverage-source { color: var(--color-accent); font-size: 11.5px; }
+.coverage-date { color: var(--color-text-muted); font-size: 11.5px; }
+
 .similar-limits {
   margin: 9px 0 0;
   padding-top: 9px;

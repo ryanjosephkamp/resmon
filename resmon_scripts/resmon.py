@@ -94,8 +94,9 @@ from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
 from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
-    analytics, embedding_job, embeddings, explorer, lifecycle, match_explain,
-    reference_export, search_record, vector_index, watchdog,
+    analytics, coverage_audit, embedding_job, embeddings, explorer, lifecycle,
+    match_explain, near_duplicates, reference_export, search_record, vector_index,
+    watchdog,
 )
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import admission
@@ -2170,6 +2171,178 @@ def document_similar(document_id: int, k: int = 10):
         return explorer.similar_to(conn, document_id, model, k=max(1, min(int(k), 50)))
     finally:
         _close_db(conn)
+
+
+def _coverage_for_routine(conn, routine_id: int) -> dict:
+    """Shared by the HTTP route and the MCP surface, so they cannot diverge."""
+    routine = get_routine_by_id(conn, routine_id)
+    if routine is None:
+        raise HTTPException(404, f"No routine with id {routine_id}.")
+
+    intent_text, intent_source = coverage_audit.intent_for(routine)
+    if not intent_text:
+        return {
+            "routine_id": routine_id,
+            "routine_name": routine.get("name"),
+            "intent": "", "intent_source": intent_source,
+            "model": None, "cannot_see": coverage_audit.CANNOT_SEE,
+            "results": 0, "results_embedded": 0,
+            "off_target": [], "missed_in_corpus": [], "distribution": None,
+            "reason": (
+                "This routine has no intent and no keywords, so there is nothing to "
+                "compare its results against. Add a sentence describing what it is "
+                "for in the routine's settings."
+            ),
+        }
+
+    model = vector_index.index_state(conn)["model"]
+    lane = _current_embedding_lane(conn)
+    model = model or (lane.model if lane else None)
+    if not model:
+        return {
+            "routine_id": routine_id,
+            "routine_name": routine.get("name"),
+            "intent": intent_text, "intent_source": intent_source,
+            "model": None, "cannot_see": coverage_audit.CANNOT_SEE,
+            "results": 0, "results_embedded": 0,
+            "off_target": [], "missed_in_corpus": [], "distribution": None,
+            "reason": (
+                "Nothing is embedded yet, so resmon cannot compare this routine's "
+                "results against its intent. Set up an embedding model in "
+                "Settings → AI → Embeddings."
+            ),
+        }
+
+    vector, embedded_model, reason = _embed_query(conn, intent_text)
+    if vector is None:
+        return {
+            "routine_id": routine_id,
+            "routine_name": routine.get("name"),
+            "intent": intent_text, "intent_source": intent_source,
+            "model": model, "cannot_see": coverage_audit.CANNOT_SEE,
+            "results": 0, "results_embedded": 0,
+            "off_target": [], "missed_in_corpus": [], "distribution": None,
+            "reason": reason,
+        }
+    audit = coverage_audit.audit_routine(
+        conn, routine, embedded_model or model, vector
+    )
+    # Composed once, here, so the Routines page, the report and the MCP surface
+    # all say the same sentence rather than three near-identical ones.
+    audit["summary"] = coverage_audit.summary_line(audit)
+    return audit
+
+
+@app.get("/api/routines/{routine_id}/coverage")
+def routine_coverage(routine_id: int):
+    """Is this routine finding what its owner meant, and what is it missing?
+
+    Two lists, both scoped to the corpus resmon already holds — which is the one
+    claim this endpoint is entitled to make, and it returns the sentence saying
+    so rather than leaving the interface to remember it.
+    """
+    conn = _get_db()
+    try:
+        return _coverage_for_routine(conn, routine_id)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/documents/{document_id}/links")
+def document_links(document_id: int):
+    """What else in the corpus looks like the same work as this paper.
+
+    A link is an assertion laid beside two records, never a merge: both rows stay,
+    both provenances stay, and nothing is hidden. Each link names the ``method``
+    that produced it, because "these two share a DOI" and "these two have
+    near-identical titles and nearby vectors" are different strengths of claim.
+    """
+    conn = _get_db()
+    try:
+        return near_duplicates.links_for(conn, document_id)
+    finally:
+        _close_db(conn)
+
+
+class DocumentIdsBody(BaseModel):
+    document_ids: list[int] = []
+
+
+@app.post("/api/links/for-documents")
+def links_for_documents(body: DocumentIdsBody):
+    """Links for a page of results in one round trip.
+
+    The same shape as ``/api/lifecycle/for-documents`` and for the same reason:
+    the Explorer renders fifty rows, and fifty requests to badge them is the
+    thing that endpoint exists to avoid.
+    """
+    conn = _get_db()
+    try:
+        ids = [int(i) for i in body.document_ids][:500]
+        return {"links": near_duplicates.links_map(conn, ids)}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/links/collapse-preview")
+def links_collapse_preview(body: DocumentIdsBody):
+    """Which of these ids a collapse *would* fold, without folding anything.
+
+    The interface asks for this only when the reader has switched collapse on.
+    It returns a grouping; the rows themselves are untouched and the totals a
+    page reports are computed without it.
+    """
+    conn = _get_db()
+    try:
+        ids = [int(i) for i in body.document_ids][:500]
+        return near_duplicates.collapse_groups(conn, ids)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/links/status")
+def links_status():
+    """How many links are stored, by method, and the scan's state."""
+    conn = _get_db()
+    try:
+        payload = near_duplicates.links_job.status(conn)
+        payload["capability"] = _embedding_capability(conn)
+        return payload
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/links/scan")
+def links_scan():
+    """Find near-duplicates across the corpus. Returns immediately.
+
+    Refused before it starts when there is nothing to compare, rather than
+    running and reporting zero — "no near-duplicates" and "nothing is embedded"
+    are different answers and only one of them is about the corpus.
+    """
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        model = vector_index.index_state(conn)["model"] or (lane.model if lane else None)
+        if not model:
+            raise HTTPException(
+                400,
+                "Nothing is embedded yet, so there are no vectors to compare. Set up "
+                "an embedding model in Settings → AI → Embeddings and run the backfill.",
+            )
+        try:
+            started = near_duplicates.links_job.start(_open_connection, model)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from None
+        return {"status": "started", "run": started}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/links/scan/cancel")
+def links_scan_cancel():
+    """Stop after the document in flight. Links already written are kept."""
+    return near_duplicates.links_job.cancel()
 
 
 @app.post("/api/explorer/facets")

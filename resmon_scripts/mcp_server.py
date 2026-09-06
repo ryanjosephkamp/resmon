@@ -499,7 +499,40 @@ def t_list_routines(args: dict) -> Any:
 
 
 def t_get_routine(args: dict) -> Any:
-    return backend.request("GET", f"/api/routines/{_require_int(args, 'routine_id')}")
+    """One routine's configuration, and how well it is doing its job.
+
+    The coverage summary rides along rather than living behind a second tool: an
+    assistant asked "how is my arXiv routine doing" should not have to know to
+    ask twice, and the summary is one sentence.
+
+    It is a *summary*, never the lists. The two lists are long, and a harness
+    that pasted them would present distances as verdicts — the audit's whole
+    caveat is that a distance is not relevance. ``coverage.cannot_see`` travels
+    with it for the same reason ``explain_match`` carries its refusals: stripping
+    them would make an honest product dishonest through an integration.
+    """
+    routine_id = _require_int(args, "routine_id")
+    routine = backend.request("GET", f"/api/routines/{routine_id}")
+    if not isinstance(routine, dict):
+        return routine
+    try:
+        audit = backend.request("GET", f"/api/routines/{routine_id}/coverage") or {}
+    except ToolError:
+        # A backend that cannot audit still has a routine to return. The
+        # configuration is the answer to the question that was asked.
+        return routine
+    routine["coverage"] = {
+        "summary": audit.get("summary"),
+        "intent": audit.get("intent"),
+        "intent_source": audit.get("intent_source"),
+        "results": audit.get("results"),
+        "results_embedded": audit.get("results_embedded"),
+        "off_target_count": len(audit.get("off_target") or []),
+        "missed_in_corpus_count": len(audit.get("missed_in_corpus") or []),
+        "reason": audit.get("reason"),
+        "cannot_see": audit.get("cannot_see"),
+    }
+    return routine
 
 
 def t_list_executions(args: dict) -> Any:
@@ -729,7 +762,11 @@ TOOLS: list[dict] = [
          "active_only": {"type": "boolean"}}}},
 
     {"name": "get_routine", "fn": t_get_routine,
-     "description": "One routine's full configuration.",
+     "description": (
+         "One routine's full configuration, plus a coverage summary: how many of "
+         "its results sit furthest from its stated intent and how many papers "
+         "already in the corpus it never returned."
+     ),
      "schema": {"type": "object", "required": ["routine_id"], "properties": {
          "routine_id": {"type": "integer"}}}},
 

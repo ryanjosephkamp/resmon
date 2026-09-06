@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import CoveragePanel from '../components/Routines/CoveragePanel';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient } from '../api/client';
 import { useExecution } from '../context/ExecutionContext';
@@ -191,7 +192,8 @@ const RoutinesPage: React.FC = () => {
               <tr><td colSpan={9} className="text-muted text-center">No routines configured.</td></tr>
             )}
             {routines.map((r) => (
-              <tr key={`local-${r.id}`}>
+              <React.Fragment key={`local-${r.id}`}>
+              <tr>
                 <td>{r.name}</td>
                 <td><code>{r.schedule_cron}</code></td>
                 <td>
@@ -256,6 +258,18 @@ const RoutinesPage: React.FC = () => {
                   </div>
                 </td>
               </tr>
+              {/*
+                A row of its own rather than a cell: the audit is two lists and a
+                caveat, and none of that fits a table cell. Collapsed, and fetched
+                only when opened — the audit embeds the intent and runs two vector
+                queries, so eight routines must not run eight of them on mount.
+              */}
+              <tr className="routine-coverage-row">
+                <td colSpan={9}>
+                  <CoveragePanel routineId={r.id} />
+                </td>
+              </tr>
+              </React.Fragment>
             ))}
           </tbody>
         </table>

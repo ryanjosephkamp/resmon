@@ -155,6 +155,40 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
     # as silence, and the reader had no way to tell a quiet field from a
     # broken one. Each line is a recorded fact or says the reason was not
     # recorded; there is no third kind of line here.
+    # Near-duplicate links (1.9b). A section rather than a note per paper: the
+    # reader wants to know "does this report count anything twice", and the
+    # answer is a short list they can scan, not a badge scattered through fifty
+    # entries. Nothing is removed from the report and no count changes -- the
+    # section says so in as many words, because a reader who sees "duplicates"
+    # in a heading will otherwise assume the numbers above were adjusted.
+    duplicate_links = metadata.get("duplicate_links")
+    if isinstance(duplicate_links, list) and duplicate_links:
+        lines.append("---")
+        lines.append("")
+        lines.append("## The same paper, from more than one source")
+        lines.append("")
+        lines.append(
+            f"{len(duplicate_links)} pair"
+            f"{'s' if len(duplicate_links) != 1 else ''} in this report look like the "
+            "same work reaching resmon twice. **Nothing has been removed and no count "
+            "above has been adjusted** — both records are kept, because each carries "
+            "what its own source actually said."
+        )
+        lines.append("")
+        for link in duplicate_links:
+            if not isinstance(link, dict):
+                continue
+            title = str(link.get("title", "")).strip()
+            other = str(link.get("other_title", "")).strip()
+            method = str(link.get("method", ""))
+            evidence = ("same DOI" if method == "shared_doi"
+                        else "near-identical title and closely related text")
+            lines.append(
+                f"- **{title}** ({link.get('source', '?')}) and "
+                f"**{other}** ({link.get('other_source', '?')}) — {evidence}."
+            )
+        lines.append("")
+
     zero_notes = metadata.get("zero_notes")
     if isinstance(zero_notes, list) and zero_notes:
         lines.append("---")
