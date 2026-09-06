@@ -30,7 +30,7 @@ implies more certainty than it earns is rejected even when the code is correct.
 
 ```
 resmon_scripts/
-├── resmon.py                       FastAPI app — 117 routes, the API seam
+├── resmon.py                       FastAPI app — 119 routes, the API seam
 ├── implementation_scripts/         backend modules
 │   ├── api_base.py                 BaseAPIClient, NormalizedResult, RateLimiter, safe_request
 │   ├── api_<slug>.py               one source client each; self-registering
@@ -49,12 +49,13 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 1362 pass, 2 skip, 70 deselected
-.venv/bin/python -m pytest -m live_network   # the 71 — real scholarly APIs, CLIs and sockets
+.venv/bin/python -m pytest -q          # hermetic suite: 1496 pass, 4 skip, 72 deselected
+.venv/bin/python -m pytest -m live_network   # the 72 — real scholarly APIs, CLIs and sockets
+                                             # 56 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 252 tests across 30 suites
-npm run e2e                                      # the real Electron app — 70 checks, 24 routes
+npm run typecheck && npm test && npm run build   # 269 tests across 31 suites
+npm run e2e                                      # the real Electron app — 71 checks, 24 routes
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
