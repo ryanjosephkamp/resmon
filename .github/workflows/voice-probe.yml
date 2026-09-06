@@ -45,7 +45,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ${{ env.VOICE_FRONTEND }}
+        working-directory: ${{ github.workspace }}
     env:
       PROBE: ${{ github.workspace }}/resmon_scripts/verification_scripts/probe_transcriber.py
       TARGET: ${{ matrix.target }}
@@ -91,13 +91,16 @@ jobs:
           git archive HEAD | tar -x -C "$RUNNER_TEMP/voice-source"
 
       - name: Install build dependencies in scratch
+        working-directory: ${{ runner.temp }}/voice-source/resmon_scripts/frontend
         run: npm install --package-lock=false --no-audit --no-fund
 
       - name: Build the unchanged baseline installer
+        working-directory: ${{ runner.temp }}/voice-source/resmon_scripts/frontend
         if: runner.os != 'Windows'
         run: npm run dist 2>&1 | tee "$EVIDENCE/baseline-build.log"
 
       - name: Build the unchanged baseline installer on Windows
+        working-directory: ${{ runner.temp }}/voice-source/resmon_scripts/frontend
         # Node's runtime staging invokes tar with drive-letter paths. Git Bash
         # GNU tar treats these as remote hosts; release.yml uses PowerShell.
         if: runner.os == 'Windows'
@@ -107,15 +110,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Measure baseline and install hash-pinned wheels and model
+        working-directory: ${{ runner.temp }}/voice-source/resmon_scripts/frontend
         run: |
           python "$PROBE" measure --target "$TARGET" --release release --evidence "$EVIDENCE" --output "$EVIDENCE/baseline.json"
           python "$PROBE" prepare --target "$TARGET" --runtime build-resources/backend/python --evidence "$EVIDENCE" --output "$EVIDENCE/prepare.json" 2>&1 | tee "$EVIDENCE/prepare.log"
 
       - name: Build the probe installer using the unchanged release configuration
+        working-directory: ${{ runner.temp }}/voice-source/resmon_scripts/frontend
         if: runner.os != 'Windows'
         run: npm run dist 2>&1 | tee "$EVIDENCE/voice-build.log"
 
       - name: Build the probe installer on Windows
+        working-directory: ${{ runner.temp }}/voice-source/resmon_scripts/frontend
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -123,10 +129,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Measure paired installer growth
+        working-directory: ${{ runner.temp }}/voice-source/resmon_scripts/frontend
         run: |
           python "$PROBE" measure --target "$TARGET" --release release --baseline "$EVIDENCE/baseline.json" --evidence "$EVIDENCE" --output "$EVIDENCE/growth.json"
 
       - name: Transcribe from a read-only mounted DMG and corrupt a runtime copy
+        working-directory: ${{ runner.temp }}/voice-source/resmon_scripts/frontend
         if: runner.os == 'macOS'
         run: |
           mountpoint="$RUNNER_TEMP/voice-volume"
@@ -140,6 +148,7 @@ jobs:
           python "$PROBE" negative --target "$TARGET" --resources "$resources" --evidence "$EVIDENCE" --output "$EVIDENCE/negative.json"
 
       - name: Transcribe from extracted AppImage and corrupt a runtime copy
+        working-directory: ${{ runner.temp }}/voice-source/resmon_scripts/frontend
         if: runner.os == 'Linux'
         run: |
           images=("$PWD"/release/*.AppImage)
@@ -152,6 +161,7 @@ jobs:
           python "$PROBE" negative --target "$TARGET" --resources "$resources" --evidence "$EVIDENCE" --output "$EVIDENCE/negative.json"
 
       - name: Transcribe from a silent NSIS installation and corrupt a runtime copy
+        working-directory: ${{ runner.temp }}/voice-source/resmon_scripts/frontend
         if: runner.os == 'Windows'
         run: |
           python - <<'PY'
