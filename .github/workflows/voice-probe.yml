@@ -1,0 +1,185 @@
+name: Voice packaging probe
+
+on:
+  push:
+    branches: ['codex/voice-spike']
+    paths:
+      - '.github/workflows/voice-probe.yml'
+      - 'resmon_scripts/verification_scripts/probe_transcriber.py'
+  pull_request:
+    paths:
+      - '.github/workflows/voice-probe.yml'
+      - 'resmon_scripts/verification_scripts/probe_transcriber.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: voice-probe-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    if: github.repository == 'ryanjosephkamp/resmon'
+    name: Voice (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      # Matches release.yml at d4ff2c5; each runner tests its native architecture.
+      matrix:
+        include:
+          - target: macos-arm64
+            os: macos-14
+            python: bin/python3
+          - target: macos-x64
+            os: macos-15-intel
+            python: bin/python3
+          - target: windows-x64
+            os: windows-latest
+            python: python.exe
+          - target: linux-x64
+            os: ubuntu-latest
+            python: bin/python3
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.VOICE_FRONTEND }}
+    env:
+      PROBE: ${{ github.workspace }}/resmon_scripts/verification_scripts/probe_transcriber.py
+      TARGET: ${{ matrix.target }}
+      RESMON_REUSE_VENV: '1'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # Even an unexpected installer launch cannot discover a user's daemon.
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Snapshot source into scratch and record its commit
+        working-directory: ${{ github.workspace }}
+        run: |
+          export EVIDENCE="$RUNNER_TEMP/voice-evidence"
+          mkdir -p "$EVIDENCE" "$RUNNER_TEMP/voice-source"
+          python - <<'PYCODE'
+          import os, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          paths = {
+              'EVIDENCE': root / 'voice-evidence',
+              'VOICE_FRONTEND': root / 'voice-source/resmon_scripts/frontend',
+              'RESMON_STATE_DIR': root / 'voice-state',
+              'RESMON_DB_PATH': root / 'voice-state/resmon.db',
+              'RESMON_REPORTS_DIR': root / 'voice-state/reports',
+              'RESMON_PORT_FILE': root / 'voice-state/resmon.port',
+              'PIP_CACHE_DIR': root / 'voice-pip-cache',
+              'ELECTRON_CACHE': root / 'voice-electron-cache',
+              'ELECTRON_BUILDER_CACHE': root / 'voice-builder-cache',
+          }
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as out:
+              for name, path in paths.items():
+                  out.write(f'{name}={path}\n')
+          PYCODE
+          pwd
+          git rev-parse HEAD > "$EVIDENCE/source-commit.txt"
+          pwd
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/voice-source"
+
+      - name: Install build dependencies in scratch
+        run: npm install --package-lock=false --no-audit --no-fund
+
+      - name: Build the unchanged baseline installer
+        if: runner.os != 'Windows'
+        run: npm run dist 2>&1 | tee "$EVIDENCE/baseline-build.log"
+
+      - name: Build the unchanged baseline installer on Windows
+        # Node's runtime staging invokes tar with drive-letter paths. Git Bash
+        # GNU tar treats these as remote hosts; release.yml uses PowerShell.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          npm run dist *> "$env:EVIDENCE/baseline-build.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Measure baseline and install hash-pinned wheels and model
+        run: |
+          python "$PROBE" measure --target "$TARGET" --release release --evidence "$EVIDENCE" --output "$EVIDENCE/baseline.json"
+          python "$PROBE" prepare --target "$TARGET" --runtime build-resources/backend/python --evidence "$EVIDENCE" --output "$EVIDENCE/prepare.json" 2>&1 | tee "$EVIDENCE/prepare.log"
+
+      - name: Build the probe installer using the unchanged release configuration
+        if: runner.os != 'Windows'
+        run: npm run dist 2>&1 | tee "$EVIDENCE/voice-build.log"
+
+      - name: Build the probe installer on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          npm run dist *> "$env:EVIDENCE/voice-build.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Measure paired installer growth
+        run: |
+          python "$PROBE" measure --target "$TARGET" --release release --baseline "$EVIDENCE/baseline.json" --evidence "$EVIDENCE" --output "$EVIDENCE/growth.json"
+
+      - name: Transcribe from a read-only mounted DMG and corrupt a runtime copy
+        if: runner.os == 'macOS'
+        run: |
+          mountpoint="$RUNNER_TEMP/voice-volume"
+          mkdir -p "$mountpoint"
+          images=(release/*.dmg)
+          test "${#images[@]}" -eq 1
+          hdiutil attach "${images[0]}" -readonly -nobrowse -mountpoint "$mountpoint"
+          trap 'hdiutil detach "$mountpoint"' EXIT
+          resources="$mountpoint/resmon.app/Contents/Resources"
+          "$resources/backend/python/bin/python3" -I "$PROBE" transcribe --target "$TARGET" --resources "$resources" --evidence "$EVIDENCE" --output "$EVIDENCE/installer.json" 2>&1 | tee "$EVIDENCE/transcription.log"
+          python "$PROBE" negative --target "$TARGET" --resources "$resources" --evidence "$EVIDENCE" --output "$EVIDENCE/negative.json"
+
+      - name: Transcribe from extracted AppImage and corrupt a runtime copy
+        if: runner.os == 'Linux'
+        run: |
+          images=("$PWD"/release/*.AppImage)
+          test "${#images[@]}" -eq 1
+          mkdir -p "$RUNNER_TEMP/voice-appimage"
+          cd "$RUNNER_TEMP/voice-appimage"
+          "${images[0]}" --appimage-extract > "$EVIDENCE/appimage-extract.log"
+          resources="$PWD/squashfs-root/resources"
+          "$resources/backend/python/bin/python3" -I "$PROBE" transcribe --target "$TARGET" --resources "$resources" --evidence "$EVIDENCE" --output "$EVIDENCE/installer.json" 2>&1 | tee "$EVIDENCE/transcription.log"
+          python "$PROBE" negative --target "$TARGET" --resources "$resources" --evidence "$EVIDENCE" --output "$EVIDENCE/negative.json"
+
+      - name: Transcribe from a silent NSIS installation and corrupt a runtime copy
+        if: runner.os == 'Windows'
+        run: |
+          python - <<'PY'
+          import os, pathlib, subprocess, sys
+          evidence = pathlib.Path(os.environ['EVIDENCE'])
+          installers = list(pathlib.Path('release').glob('*-setup-x64.exe'))
+          destination = pathlib.Path(os.environ['RUNNER_TEMP']) / 'voice-installed'
+          if len(installers) != 1 or destination.exists() or ' ' in str(destination):
+              raise SystemExit('Need exactly one NSIS artifact and a fresh path without spaces')
+          subprocess.run([str(installers[0].resolve()), '/S', '/D=' + str(destination)], check=True, timeout=240)
+          resources = destination / 'resources'
+          common = ['--target', os.environ['TARGET'], '--resources', str(resources), '--evidence', str(evidence)]
+          with (evidence / 'transcription.log').open('w') as output:
+              subprocess.run([str(resources / 'backend/python/python.exe'), '-I', os.environ['PROBE'], 'transcribe',
+                              *common, '--output', str(evidence / 'installer.json')],
+                             stdout=output, stderr=subprocess.STDOUT, check=True, timeout=300)
+          subprocess.run([sys.executable, os.environ['PROBE'], 'negative', *common,
+                          '--output', str(evidence / 'negative.json')], check=True, timeout=240)
+          PY
+
+      - name: Upload receipts and verbatim licenses even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/voice-evidence/
+            !${{ runner.temp }}/voice-evidence/wheels/
+            !${{ runner.temp }}/voice-evidence/broken-runtime/
+          if-no-files-found: error
+          retention-days: 30
