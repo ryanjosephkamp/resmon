@@ -1,6 +1,8 @@
 # Local transcription feasibility — Delegation 10
 
-Status: measurement in progress; this report does not decide whether phase 2.0b ships voice.
+Status: **P1, P2 and P3 established on 4 of 4 native CI targets** for the probe
+configuration below. Q6 redistribution/provenance limits remain explicit. This
+report does not decide whether phase 2.0b ships voice.
 Baseline: `d4ff2c5b2e99e943d09b9fe4eb0d5b044d96b884` (current upstream main, v2.0.0),
 six commits after the brief's `adf54f4`. The four runner labels and standalone
 CPython pin remain unchanged. Only this report, the new voice workflow and the probe
@@ -13,7 +15,7 @@ The spike selects **pywhispercpp**, using **1.5.1** on macOS ARM64, Windows x64 
 Linux x64; **1.2.0** on macOS Intel. This is a version split, not one universally
 available release. PyPI's current 1.5.1 wheel set has no CPython 3.11 Intel macOS
 wheel. The old 1.2.0 Windows wheel imports `whisper.dll` but contains no such DLL;
-it was inspected, not executed. It is not the Windows candidate in the workflow.
+its PE import directory and ZIP members were inspected, not executed. It is not the Windows candidate in the workflow.
 
 [1.5.1 metadata](https://pypi.org/pypi/pywhispercpp/1.5.1/json),
 [1.2.0 metadata](https://pypi.org/pypi/pywhispercpp/1.2.0/json), and
@@ -49,11 +51,35 @@ probe copies that runtime, corrupts its Python extension, and requires exit 1 an
 an `ImportError` from the native import; the original binary must remain unchanged.
 Evidence is uploaded even if a job fails; no installer is published or uploaded.
 
-Current CI verdict: **0 of 4 established pending native runner receipts**.
-Local ARM Mac: read-only DMG transcription and the broken-binary control passed.
-The first local build produced 0/22 word edits, with a 0.10 maximum word-error rate.
-This familiar English fixture establishes a functional smoke test, not scientific
+**Final verdict: 4 of 4 passed**, including each deliberate broken-binary control,
+in [run 34052036876](https://github.com/ryanjosephkamp/resmon/actions/runs/34052036876)
+at source commit `8f5560b38b218d05bcabe33046b014385dd0b7bb`. Downloaded receipts
+were checked against the committed wheel/member hashes, pip's selected wheel hashes,
+source commit, runtime marker, transcription and specific negative-control exception.
+Later report-only edits do not change the tested workflow or probe.
+
+| Native target | Installer contents tested | Binding | P1 load/transcribe + broken control | P2 native members / bytes | P3 edits / reference words |
+| --- | --- | --- | --- | ---: | ---: |
+| macos-arm64 | read-only DMG | 1.5.1 | Pass; broken import exits 1 | 48 / 47331266 | 0 / 22 |
+| macos-x64 | read-only DMG | 1.2.0 | Pass; broken import exits 1 | 26 / 90629800 | 0 / 22 |
+| windows-x64 | installed NSIS | 1.5.1 | Pass; broken import exits 1 | 27 / 49791136 | 0 / 22 |
+| linux-x64 | extracted AppImage | 1.5.1 | Pass; broken import exits 1 | 40 / 65685264 | 0 / 22 |
+
+All four report `ImportError` from the deliberately invalid extension; the
+original packaged binary remains unchanged. Native-member bytes count every file
+present in the wheel, including duplicated library copies. They do not measure
+unique machine code or marginal installed disk allocation.
+
+The local ARM Mac also passed from a read-only DMG with the broken control. This
+familiar English fixture establishes a functional smoke test, not scientific
 recognition quality, accents, languages, noisy speech or scholarly terminology.
+
+The earlier [run 34051710392](https://github.com/ryanjosephkamp/resmon/actions/runs/34051710392)
+at `5a3815d9aea056c87bca91ab7b3a9d334382c2c7` passed both Macs and Linux;
+Windows failed in snapshot extraction before packaging. The final run supersedes
+that incomplete matrix. The job-setup failure in
+[run 34051638387](https://github.com/ryanjosephkamp/resmon/actions/runs/34051638387)
+likewise provides no engine compatibility evidence.
 
 ## Q3 — model weights and fixture
 
@@ -87,7 +113,11 @@ Direct read-only-DMG invocation: imports/model load **8.989093 s**,
 transcription **0.147382 s**, total probe
 **9.238275 s**, four threads, CPU mode, **0/22 word edits**.
 The native inventory verified **48 binary members / 47,331,266 bytes** against
-their wheels; these are uncompressed native members, not installer growth.
+their wheels; these are uncompressed native members, not installer growth. The macOS wheel
+still initializes an embedded Metal library during model loading even with
+`use_gpu=0`: the final local log assigns **8.436 seconds** to that initialization,
+then reports CPU model storage and BLAS execution. The 0.147-second transcription
+therefore does not imply subsecond cold-start readiness.
 
 Timing includes no microphone capture, renderer transport or endpoint. It includes
 host cache state and is a single execution, not a benchmark distribution. The first
@@ -97,12 +127,111 @@ additional notices: the second pip invocation can remove generated bytecode,
 and archive timestamps/compression also vary. The cause of that size difference
 was not independently isolated. Thus the exact paired deltas are
 observations, not a deterministic prediction of release growth. The workflow's
-fresh one-pass paired builds are the per-target experiment. Their numbers are pending.
+fresh one-pass paired builds are the per-target experiment. Their results follow below.
 
+
+Final CI paired measurements from the same run and source commit:
+
+| Target | Baseline installer bytes | Probe installer bytes | Exact delta bytes | Imports + model load (s) | Transcribe (s) | Total probe (s) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| macos-arm64 | 221060644 | 309002141 | 87941497 | 15.444113 | 7.652241 | 23.544819 |
+| macos-x64 | 222963958 | 314233572 | 91269614 | 1.038058 | 1.248725 | 2.875793 |
+| windows-x64 | 194850552 | 275062012 | 80211460 | 0.807529 | 0.725306 | 1.722808 |
+| linux-x64 | 250653714 | 341849026 | 91195312 | 0.448002 | 1.575107 | 2.139368 |
+
+The exact deltas measure the full pinned probe configuration; the shared-dependency
+replacements in Q6 confound an isolated additive-cost interpretation. Times are one
+invocation per host, four threads, English, greedy decoding, temperature 0, and no
+context reuse. `total` additionally includes input/native hash checks and WAV parsing.
+No confidence interval, cold-cache control or performance ranking is claimed.
+macOS ARM64's Metal-library initialization contributes to load time despite CPU mode.
+
+<details>
+<summary>Durable CI installer hashes and host observations</summary>
+
+```json
+{
+  "macos-x64": {
+    "runtime_pin": "3.11.16+20260814-x86_64-apple-darwin",
+    "python": "3.11.16 (main, Aug 14 2026, 15:25:17) [Clang 22.1.3 ]",
+    "platform": "macOS-15.7.9-x86_64-i386-64bit",
+    "logical_cpus": 4,
+    "baseline_sha256": "13bcab46466ed31ce3de1e4e7073d2fc27e4386cfa99b28601f960adb7196b64",
+    "probe_sha256": "45855d22e5d54f3b167b8890c42eed71ccec76a4bc1a1bbca2444b61736df448",
+    "transcription": "And so my fellow Americans ask not what your country can do for you ask what you can do for your country.",
+    "negative_import": {
+      "stage": "native_import",
+      "exception": "ImportError",
+      "error": "dlopen(/Users/runner/work/_temp/voice-evidence/broken-runtime/lib/python3.11/site-packages/_pywhispercpp.cpython-311-darwin.so, 0x0002): tried: '/Users/runner/work/_temp/voice-evidence/broken-runtime/lib/python3.11/site-packages/_pywhispercpp.cpython-311-darwin.so' (slice is not valid mach-o file), '/System/Volumes/Preboot/Cryptexes/OS/Users/runner/work/_temp/voice-evidence/broken-runtime/lib/python3.11/site-packages/_pywhispercpp.cpython-311-darwin.so' (no such file), '/Users/runner/work/_temp/voice-evidence/broken-runtime/lib/python3.11/site-packages/_pywhispercpp.cpython-311-darwin.so' (slice is not valid mach-o file)"
+    },
+    "original_binary": {
+      "bytes": 274176,
+      "sha256": "08761a3713618ad7faa716ccfbb76bdf59f97c81d2a6c02d4e563f4fd5be0ddc"
+    }
+  },
+  "macos-arm64": {
+    "runtime_pin": "3.11.16+20260814-aarch64-apple-darwin",
+    "python": "3.11.16 (main, Aug 14 2026, 15:24:25) [Clang 22.1.3 ]",
+    "platform": "macOS-14.8.9-arm64-arm-64bit",
+    "logical_cpus": 3,
+    "baseline_sha256": "5241e4d0fe39677320502cf72c9e00466bc65846647ca50964cc422c932b9560",
+    "probe_sha256": "4cd619cce859bc9c5065f83fd5c564985f51367fcd2130e91a1abcc9c2043330",
+    "transcription": "And so my fellow Americans ask not what your country can do for you ask what you can do for your country.",
+    "negative_import": {
+      "stage": "native_import",
+      "exception": "ImportError",
+      "error": "dlopen(/Users/runner/work/_temp/voice-evidence/broken-runtime/lib/python3.11/site-packages/_pywhispercpp.cpython-311-darwin.so, 0x0002): tried: '/Users/runner/work/_temp/voice-evidence/broken-runtime/lib/python3.11/site-packages/_pywhispercpp.cpython-311-darwin.so' (not a mach-o file), '/System/Volumes/Preboot/Cryptexes/OS/Users/runner/work/_temp/voice-evidence/broken-runtime/lib/python3.11/site-packages/_pywhispercpp.cpython-311-darwin.so' (no such file), '/Users/runner/work/_temp/voice-evidence/broken-runtime/lib/python3.11/site-packages/_pywhispercpp.cpython-311-darwin.so' (not a mach-o file)"
+    },
+    "original_binary": {
+      "bytes": 462064,
+      "sha256": "637433fe242d9932db2e3a3f490317abc757f907b8f5b28f8668668bc23c7c12"
+    }
+  },
+  "linux-x64": {
+    "runtime_pin": "3.11.16+20260814-x86_64-unknown-linux-gnu",
+    "python": "3.11.16 (main, Aug 14 2026, 15:35:36) [Clang 22.1.3 ]",
+    "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+    "logical_cpus": 4,
+    "baseline_sha256": "f3dc925924a376610b53768579e206009f390173c4ba4569231fd2c148938f7d",
+    "probe_sha256": "3de7bca002454e476d59bfad465f97989ca70a1eaf26cfd5b0ea8eebc764b91c",
+    "transcription": "And so my fellow Americans ask not what your country can do for you ask what you can do for your country.",
+    "negative_import": {
+      "stage": "native_import",
+      "exception": "ImportError",
+      "error": "/home/runner/work/_temp/voice-evidence/broken-runtime/lib/python3.11/site-packages/_pywhispercpp.cpython-311-x86_64-linux-gnu.so: file too short"
+    },
+    "original_binary": {
+      "bytes": 540649,
+      "sha256": "b09c33e75a352649be84fbb7efae484a149f95ac2f8c09ac7d77264ae8b938d0"
+    }
+  },
+  "windows-x64": {
+    "runtime_pin": "3.11.16+20260814-x86_64-pc-windows-msvc",
+    "python": "3.11.16 (main, Aug 14 2026, 15:34:35) [MSC v.1944 64 bit (AMD64)]",
+    "platform": "Windows-10-10.0.26100-SP0",
+    "logical_cpus": 4,
+    "baseline_sha256": "182d1540947cc06e2bc00b3aced660d5cc2d137599f04331caea3ddef8dee5be",
+    "probe_sha256": "448d43ce499456c536cfb461935cf8e3c4cd08ddbd80b93e20154370e9bc949c",
+    "transcription": "And so my fellow Americans ask not what your country can do for you ask what you can do for your country.",
+    "negative_import": {
+      "stage": "native_import",
+      "exception": "ImportError",
+      "error": "DLL load failed while importing _pywhispercpp: %1 is not a valid Win32 application."
+    },
+    "original_binary": {
+      "bytes": 394752,
+      "sha256": "1bfaa398c9cdb0777d6ac20ccc2062d6fbebf3439b65140d3909b9bb03bae4d6"
+    }
+  }
+}
+```
+
+</details>
 
 ## Q5 — microphone capture on this Mac
 
-Host: macOS **26.3.1 (a)**, build **25D771280a**, ARM64. A throwaway Electron
+Host: macOS **26.3.1 (a)**, build **25D771280a**, ARM64, Apple M3 Pro,
+12 logical CPUs and 19,327,352,832 bytes RAM (18 GiB). A throwaway Electron
 **41.10.6** app was built outside both checkouts, with a distinct bundle ID and
 profile. No resmon backend ran and no listening socket was created by its code.
 It opens an audio track for one second, inspects 2,048 samples in memory, stops the
@@ -173,8 +302,24 @@ clearance or a reproducible native build/SBOM attestation. In particular, the co
 provenance for libgomp and the Microsoft redistribution basis remain unestablished.
 Existing runtime dependencies also appear in the explicit probe lock (for example
 requests/tqdm); their pip versions before installation are recorded in `baseline-pip.txt`.
-The net installer delta therefore includes any changed dependency version, metadata,
-bytecode, the test fixture, notices and model; it is not solely the transcriber library.
+The net installer delta includes changed dependency versions, metadata, bytecode,
+the test fixture, notices and model. In all four final native receipts,
+the explicit probe lock replaces:
+
+| Existing dependency | Baseline | Probe lock |
+| --- | --- | --- |
+| requests | 2.34.2 | 2.32.5 |
+| tqdm | 4.70.0 | 4.67.1 |
+| charset-normalizer | 3.5.1 | 3.4.3 (pure Python wheel) |
+| idna | 3.19 | 3.10 |
+| urllib3 | 2.7.0 | 2.5.0 |
+
+This is an explicit compatibility experiment, not a proposed production downgrade.
+The exact paired size difference is **not an isolated additive transcriber cost**.
+A production integration retaining its current dependency versions needs a new
+compatibility run and paired installer measurement. The unchanged baseline and
+this probe configuration are the two measured objects; no unmeasured adjustment
+has been subtracted from the result.
 
 ## Fallback cost and remaining limits
 
@@ -197,15 +342,18 @@ the phase-2.0 checkout or connected to port 8742. The one explicitly requested
 brief was read from the sibling workspace plans directory.
 
 - `resmon_scripts/frontend/build-resources/backend/python/bin/python3 -m pytest -q`
-  from that snapshot: **1,364 passed, 71 deselected**, one deprecation warning.
+  from that snapshot: **1,364 passed, 71 deselected**, one deprecation warning, both before and after
+  installing the explicit probe dependency lock (84.16 s / 86.27 s).
 - `npm run typecheck`: passed.
 - `npm test -- --runInBand`: **252 passed, 30 suites**.
 - `CSC_IDENTITY_AUTO_DISCOVERY=false RESMON_REUSE_VENV=1 npm run dist`:
   renderer and Electron builds passed; unsigned DMGs generated, never published.
 - `RESMON_PYTHON=<scratch>/source/resmon_scripts/frontend/build-resources/backend/python/bin/python3 npm run e2e`:
-  final **69 passed, 1 skipped**. The packaged-app spec is explicitly skipped when
-  `RESMON_E2E_PACKAGED_APP` is absent; direct packaged transcription is verified
-  separately by this spike. The first run had 67 passed / 2 skipped / 1 failure:
+  final **69 passed, 1 skipped**. The packaged-app launch and every-route sweep
+  **passed** against the scratch v2.0.0 bundle. The skipped check was P10c's
+  “no CLI installed” case: Codex is actually installed on this Mac. P13c also printed
+  `NOT VERIFIED` for the Monitor's zero-result row because the execution ended before
+  its next poll. These limits are not hidden by the passing aggregate. The first run had 67 passed / 2 skipped / 1 failure:
   the final isolation check needed Git metadata that `git archive` does not copy.
   Initializing and tracking the unchanged e2e snapshot fixed that harness prerequisite;
   no application/test source was repaired. Window/frontmost observations vary with focus.
@@ -213,7 +361,14 @@ brief was read from the sibling workspace plans directory.
   passed with the existing actionlint binary. This disables shellcheck; it is not a
   claim that shellcheck ran. Python syntax and independent WER insertion, deletion,
   substitution and punctuation examples also passed.
+- [Regression CI 34052036900](https://github.com/ryanjosephkamp/resmon/actions/runs/34052036900):
+  all three backend Python jobs (3.10/3.11/3.12) and the frontend job passed.
+  [UI smoke 34052036853](https://github.com/ryanjosephkamp/resmon/actions/runs/34052036853):
+  both Ubuntu/xvfb and native macOS window jobs passed. Their explicit skip and
+  `NOT VERIFIED` observations remain narrower than a universal UI guarantee.
 - Read-only-DMG positive and copied-runtime negative controls: both passed.
+  Wrong host-interpreter and staging-as-app invocations each returned exit 1 with
+  the specific containment/app.asar failure, without reaching model loading.
 
 A direct reproduction invokes the probe with the interpreter inside the extracted
 installer, using `-I`, `transcribe --target <target> --resources <Resources>` plus
