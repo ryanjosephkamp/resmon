@@ -223,6 +223,7 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
             refreshKey={completionCounter}
             onLoad={(p) => {
               if (typeof p.schedule_cron === 'string') setFormCron(p.schedule_cron);
+              if (typeof p.intent === 'string') setFormIntent(p.intent);
               const nested = p.parameters && typeof p.parameters === 'object' ? p.parameters : {};
               if (Array.isArray(nested.repositories)) setFormRepos(nested.repositories);
               if (Array.isArray(nested.keywords)) setFormKeywords(nested.keywords);

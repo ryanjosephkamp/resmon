@@ -185,3 +185,28 @@ def test_the_cannot_see_sentence_is_the_modules_own():
     assert client.get(f"/api/routines/{rid}/coverage").json()["cannot_see"] == (
         coverage_audit.CANNOT_SEE
     )
+
+
+def test_the_saved_routine_configuration_mirrors_the_intent():
+    """A routine built from a saved configuration keeps what it was for.
+
+    Every routine endpoint mirrors the row into ``saved_configurations`` with
+    ``config_type='routine'``, and the editor's config loader hydrates a new
+    routine from that payload. An intent missing from the mirror would be a
+    second place the field appears not to work — the user writes one, duplicates
+    the routine, and the copy is back to the circular comparison.
+    """
+    import json
+
+    client = _client()
+    rid = client.post("/api/routines", json=_body(intent=INTENT)).json()["id"]
+    configs = [c for c in client.get("/api/configurations").json()
+               if c.get("config_type") == "routine"]
+    mirrors = []
+    for row in configs:
+        params = row.get("parameters")
+        params = json.loads(params) if isinstance(params, str) else (params or {})
+        if params.get("linked_routine_id") == rid:
+            mirrors.append(params)
+    assert mirrors, "the routine was not mirrored into saved_configurations"
+    assert mirrors[0]["intent"] == INTENT

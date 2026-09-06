@@ -1065,6 +1065,10 @@ def _serialize_routine_for_config(routine: dict) -> dict:
     return {
         "linked_routine_id": routine["id"],
         "schedule_cron": routine.get("schedule_cron", ""),
+        # The intent travels with the mirror, so a routine built by loading a
+        # saved routine configuration keeps what it was for. Dropping it here
+        # would be a second place the field appears not to work.
+        "intent": routine.get("intent") or "",
         "parameters": params or {},
         "is_active": bool(routine.get("is_active")),
         "email_enabled": bool(routine.get("email_enabled")),

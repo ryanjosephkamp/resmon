@@ -31,6 +31,19 @@ const ROUTES = {
   '/api/routines/7': {},
 };
 
+/** The routine mirror the Configurations page lists and the loader hydrates from. */
+const SAVED_ROUTINE_CONFIG = [{
+  id: 3, name: 'Saved sweep', config_type: 'routine',
+  parameters: JSON.stringify({
+    linked_routine_id: 7,
+    schedule_cron: '0 8 * * *',
+    intent: 'methods for irregular time series in astronomy',
+    parameters: { keywords: ['diffusion'], repositories: ['arxiv'] },
+    ai_enabled: false, email_enabled: false,
+    email_ai_summary_enabled: false, notify_on_complete: false,
+  }),
+}];
+
 const TARGET = {
   id: 7,
   name: 'Morning arXiv sweep',
@@ -135,5 +148,26 @@ test('clearing the field sends a clear rather than omitting the key', async () =
     expect(body).toBeDefined();
     expect('intent' in body).toBe(true);
     expect(body.intent).toBe('');
+  });
+});
+
+test('loading a saved routine configuration brings its intent with it', async () => {
+  /**
+   * Duplicating a routine from a saved configuration must not quietly drop what
+   * it was for — that would be a second place the field looks broken.
+   */
+  mockRoutedFetch({ ...ROUTES, '/api/configurations': SAVED_ROUTINE_CONFIG });
+  await renderWithProviders(
+    <RoutineEditModal open target={null} onClose={() => {}} />,
+  );
+
+  const select = await screen.findByRole('combobox') as HTMLSelectElement;
+  expect(select).toBeTruthy();
+  fireEvent.change(select, { target: { value: '3' } });
+
+  await waitFor(() => {
+    expect((screen.getByLabelText(/What this routine is really looking for/i) as
+      HTMLTextAreaElement).value)
+      .toBe('methods for irregular time series in astronomy');
   });
 });
