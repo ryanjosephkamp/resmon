@@ -87,6 +87,7 @@ const sections: TutorialSection[] = [
     youtubeId: 'O9v7-8IHZHw',
     instructions: [
       'Open the Dashboard from the sidebar (route `/`) to see the welcome hero, a feature grid, and two tables: Active Routines and Recent Activity.',
+      'On a brand-new install the Dashboard also shows a **Getting started** card listing three optional things — an agent CLI, an AI provider key, and a key for a source that wants one — each with a link to where you set it. `Skip` puts it away for good, and it retires itself the moment you run anything.',
       'Click `View Report` on a Recent Activity row to open that execution on the Results & Logs page.',
       'Click `Export` on a Recent Activity row to zip that single execution; use `Reveal in Finder` / `Reveal in File Explorer` from the success banner to open the bundle.',
     ],
@@ -97,6 +98,7 @@ const sections: TutorialSection[] = [
     tips: [
       'The Recent Activity table shows the 10 most recent executions; older runs live on the Results & Logs page.',
       'The Dashboard never launches new executions — start them from Deep Dive, Deep Sweep, or Routines.',
+      'The Getting started card reports only what resmon can see: a command found on your machine, a key slot with something in it. It never says a lane works — resmon cannot tell whether a CLI is signed in, or a key accepted, until the first paper goes through it.',
     ],
     destination: { path: '/', label: 'Go to Page' },
   },

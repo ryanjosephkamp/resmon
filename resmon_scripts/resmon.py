@@ -4929,6 +4929,128 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
 
 
 # ---------------------------------------------------------------------------
+# The first run (2.0b)
+# ---------------------------------------------------------------------------
+#
+# One card on the Dashboard, on a fresh install, and then never again.
+#
+# **It is a checklist of facts, not a wizard.** Each item reports something
+# resmon can actually see — a CLI on the PATH, a key slot with something in it —
+# and nothing here claims a lane *works*: resmon cannot tell whether a CLI is
+# signed in or a key is valid without spending one, and 1.8.5 already settled
+# that proposing is not promising. An item resmon cannot decide says so rather
+# than guessing, which is why ``done`` is nullable.
+#
+# **What makes a run "first" is history, not configuration.** Someone who has
+# added a key but never swept is still at the beginning; someone who has run a
+# sweep does not need to be told where to start, whatever their settings say.
+# So the card shows while the corpus, the executions and the routines are all
+# empty — and stops for ever once any of them is not, or once the person
+# dismisses it.
+
+_ONBOARDING_DISMISSED_KEY = "onboarding_dismissed"
+
+
+def _credential_present(names) -> Optional[bool]:
+    """Whether any of *names* holds a value. ``None`` when the keyring will not say.
+
+    An unreadable keyring is the case this exists for: an unsigned macOS build
+    is denied the items an earlier build stored, and reporting that as "no key"
+    would tell someone to add a key they already have.
+    """
+    if not names:
+        return False
+    statuses = [probe_credential(name) for name in sorted(names)]
+    if any(status == PRESENT for status in statuses):
+        return True
+    if not keyring_is_responsive():
+        return None
+    return False
+
+
+@app.get("/api/onboarding")
+def onboarding_state():
+    """What the first-run card renders, as facts rather than as prose."""
+    from implementation_scripts.ai_cli import (  # noqa: PLC0415
+        SUPPORTED_CLI_PROVIDERS, discover_cli,
+    )
+
+    conn = _get_db()
+    try:
+        counts = {
+            "documents": conn.execute(
+                "SELECT COUNT(*) FROM documents").fetchone()[0],
+            "executions": conn.execute(
+                "SELECT COUNT(*) FROM executions").fetchone()[0],
+            "routines": conn.execute(
+                "SELECT COUNT(*) FROM routines").fetchone()[0],
+        }
+        dismissed = str(get_setting(conn, _ONBOARDING_DISMISSED_KEY) or "").lower() in (
+            "1", "true", "yes")
+        ai_settings = _get_settings_group(conn, "ai")
+    finally:
+        _close_db(conn)
+
+    from implementation_scripts.ai_lanes import _PROVIDER_DISPLAY  # noqa: PLC0415
+
+    found = [_PROVIDER_DISPLAY.get(p, p)
+             for p in SUPPORTED_CLI_PROVIDERS if discover_cli(p).found]
+    repository_slots = sorted(catalog_credential_names())
+
+    return {
+        "show": not dismissed and not any(counts.values()),
+        "dismissed": dismissed,
+        "counts": counts,
+        "steps": [
+            {
+                "id": "agent_cli",
+                # Detection, never a login check: this endpoint does not run the
+                # binary, so "found" is the strongest true word available.
+                "done": bool(found),
+                "detail": (
+                    "resmon found " + " and ".join(found) + " on this machine."
+                    if found else
+                    "No agent CLI was found on this machine."
+                ),
+            },
+            {
+                "id": "ai_key",
+                "done": _credential_present(AI_CREDENTIAL_NAMES),
+                "detail": (
+                    "An AI provider is selected."
+                    if (ai_settings.get("ai_provider") or ai_settings.get("ai_chain"))
+                    else "No AI provider is configured."
+                ),
+            },
+            {
+                "id": "repository_key",
+                "done": _credential_present(repository_slots),
+                "detail": (
+                    f"{len(repository_slots)} of resmon's sources can take a key "
+                    "of their own. The rest need none."
+                ),
+            },
+        ],
+    }
+
+
+@app.post("/api/onboarding/dismiss")
+def dismiss_onboarding():
+    """Put the card away for good.
+
+    Deliberately not a settings *group*: a group is something the assistant's
+    ``update_settings`` reaches, and the assistant putting away the user's own
+    getting-started card is not a write anyone would ask for.
+    """
+    conn = _get_db()
+    try:
+        set_setting(conn, _ONBOARDING_DISMISSED_KEY, "true")
+        return {"dismissed": True}
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
 
