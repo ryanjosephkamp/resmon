@@ -30,6 +30,8 @@ Driven by directives in the prompt, so a test says what the turn should do:
     RESULT_ERROR:<msg>  answer with an error *result* and exit non-zero with an
                         empty stderr, which is how the real CLI reports an auth
                         failure
+    BUDGET              stop the way `--max-budget-usd` really stops: an error
+                        result with subtype `error_max_budget_usd`, no text
 """
 
 from __future__ import annotations
@@ -93,6 +95,11 @@ def main() -> int:
             sys.stdout.flush()
         elif line.startswith("SLEEP:"):
             time.sleep(float(line[6:]))
+        elif line == "BUDGET":
+            emit({"type": "result", "subtype": "error_max_budget_usd",
+                  "is_error": True, "result": None, "total_cost_usd": 0.75,
+                  "usage": {}})
+            return 1
         elif line.startswith("RESULT_ERROR:"):
             emit({"type": "result", "subtype": "error_during_execution",
                   "is_error": True, "result": line[13:], "usage": {}})

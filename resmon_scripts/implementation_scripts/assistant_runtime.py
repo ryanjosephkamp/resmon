@@ -88,6 +88,7 @@ __all__ = [
     "AssistantRuntime",
     "ClaudeCliRuntime",
     "RuntimeStatus",
+    "TURN_BUDGET_USD",
     "codex_unavailable_reason",
     "get_runtime",
     "runtime_status",
@@ -117,6 +118,26 @@ RUNTIME_KINDS = ("claude_cli",)
 # with a handful of localhost tool calls is far shorter work than a 50-document
 # batch summary, and a person watching a panel will not wait ten minutes.
 DEFAULT_TURN_TIMEOUT = 300
+
+# A hard stop the CLI enforces on itself, per turn, in dollars.
+#
+# Token efficiency is a *contract* term rather than an aspiration -- "a harness
+# asking what did my arXiv routine find this week must not cost a five-hour
+# usage window" -- and until now the only things holding it were the tool
+# surface's small page sizes and the constitution asking nicely. ``claude`` has
+# ``--max-budget-usd``, so it can be enforced, and it fails cleanly and
+# detectably (``subtype: error_max_budget_usd``, verified against 2.1.258).
+#
+# 0.75 is **four times the dearest of the ten canonical requests measured**
+# (create-routine, $0.1875 -- see
+# ``workspace/handbacks/2.0/evidence/assistant-cost.md``). Four rather than two,
+# because this is a runaway stop and not a quota: a turn costing twice the
+# dearest measured is a big question, and one costing four times it is a loop.
+# The regression *detector* is a different number in a different place --
+# ``test_assistant_budget.py`` holds the canonical requests to 2x -- so a change
+# that makes ordinary turns dearer fails a test rather than cutting off a user's
+# answer.
+TURN_BUDGET_USD = 0.75
 
 
 @dataclass(frozen=True)
@@ -299,6 +320,8 @@ class ClaudeCliRuntime(AssistantRuntime):
             # launch including a resumed one.
             "--append-system-prompt", load_assistant_constitution(),
             "--system-prompt-snapshot", "off",
+            # The turn's own hard stop. See TURN_BUDGET_USD.
+            "--max-budget-usd", str(TURN_BUDGET_USD),
         ]
         argv += ["--resume", cli_session_id] if resume else ["--session-id", cli_session_id]
         if self.model:
@@ -371,21 +394,24 @@ class ClaudeCliRuntime(AssistantRuntime):
         stderr_thread.start()
 
         final_error_text = ""
+        failed_subtype = ""
         try:
             for line in _lines_with_timeout(process, self.timeout):
                 for event in _normalise(line):
-                    if event["type"] == "done" and event.get("result_text"):
-                        final_error_text = str(event["result_text"])
+                    if event["type"] == "done" and event.get("is_error"):
+                        final_error_text = str(event.get("result_text") or "")
+                        failed_subtype = str(event.get("subtype") or "")
                     emit(event)
                     yield event
 
             code = process.wait(timeout=15)
-            if code != 0:
+            if code != 0 or failed_subtype:
                 # The CLI's own last word first, then stderr. An auth failure
-                # arrives in the result envelope with nothing on stderr at all.
-                message = _classify_exit(
-                    final_error_text or "".join(stderr_tail), code)
-                event = _error_event(message, detail=f"exit {code}")
+                # arrives in the result envelope with nothing on stderr at all,
+                # and the budget stop arrives as a subtype with no text.
+                message = _classify_failure(
+                    failed_subtype, final_error_text or "".join(stderr_tail), code)
+                event = _error_event(message, detail=failed_subtype or f"exit {code}")
                 emit(event)
                 yield event
         finally:
@@ -633,12 +659,18 @@ def _error_event(message: str, detail: Optional[str] = None) -> dict:
     return {"type": "error", "message": message, "detail": detail}
 
 
-def _classify_exit(stderr: str, code: int) -> str:
+def _classify_failure(subtype: str, stderr: str, code: int) -> str:
     """One sentence a person can act on, built only from what the CLI said.
 
     Never a stack trace and never a guess: an unrecognised failure says the exit
     code and that resmon does not know, which is the honest answer.
     """
+    if subtype == "error_max_budget_usd":
+        return (
+            f"That turn reached resmon's per-answer spending limit of "
+            f"${TURN_BUDGET_USD:.2f} and was stopped part-way. Ask for something "
+            f"narrower - a smaller page of results, or one question at a time."
+        )
     lowered = stderr.lower()
     if "unknown option" in lowered or "unknown argument" in lowered:
         return (

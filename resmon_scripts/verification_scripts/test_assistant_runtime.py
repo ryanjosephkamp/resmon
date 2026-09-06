@@ -339,6 +339,57 @@ def test_a_failing_cli_becomes_an_error_event_with_a_sentence(tmp_path):
     assert "not signed in" in error["message"]
 
 
+def test_the_turn_carries_a_spending_ceiling_the_cli_enforces_itself():
+    """Token efficiency is a contract term, so something has to enforce it.
+
+    Until 2.0 the only things holding it were small page sizes and a
+    constitution asking nicely. ``--max-budget-usd`` is a stop the CLI applies
+    to itself, and it fails detectably — verified against 2.1.258, which answers
+    ``subtype: error_max_budget_usd``.
+    """
+    argv = argv_for(ar.ClaudeCliRuntime())
+    assert float(flag_value(argv, "--max-budget-usd")) == ar.TURN_BUDGET_USD
+    # Four times the dearest of the ten measured requests ($0.1875). A runaway
+    # stop, not a quota: the regression detector is a different number, in
+    # ``test_assistant_budget.py``.
+    assert ar.TURN_BUDGET_USD == pytest.approx(0.75)
+
+
+def test_the_two_ceilings_are_derived_from_the_measurement():
+    """The arithmetic, so a ceiling cannot be raised to make a guard pass.
+
+    Two numbers from one table
+    (``workspace/handbacks/2.0/evidence/assistant-cost.md``): the runaway stop
+    the CLI enforces (4x the dearest request measured) and the regression
+    detector in ``test_assistant_budget.py`` (2x). That file is
+    ``live_network``, so this hermetic half lives here and runs on every job.
+    """
+    from test_assistant_budget import (  # noqa: PLC0415
+        DEAREST_MEASURED_USD, REGRESSION_CEILING_USD,
+    )
+
+    assert REGRESSION_CEILING_USD == pytest.approx(DEAREST_MEASURED_USD * 2)
+    assert ar.TURN_BUDGET_USD == pytest.approx(DEAREST_MEASURED_USD * 4)
+    assert ar.TURN_BUDGET_USD > REGRESSION_CEILING_USD, (
+        "the runaway stop must sit above the regression detector, or a turn "
+        "would be cut off before the test meant to warn about it ever failed"
+    )
+
+
+def test_hitting_the_budget_says_so_in_words_a_person_can_act_on(tmp_path):
+    """Not "exit code 1". The stop has a reason and a next step."""
+    runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path))
+    events = list(runtime.run_turn(1, "SAY:partial\nBUDGET",
+                                   cli_session_id="s", resume=False))
+    error = events[-1]
+    assert error["type"] == "error"
+    assert "spending limit" in error["message"]
+    assert "narrower" in error["message"]
+    assert error["detail"] == "error_max_budget_usd"
+    # And what the turn did produce is still delivered rather than discarded.
+    assert any(e.get("text") == "partial" for e in events)
+
+
 def test_the_clis_own_last_word_beats_a_bare_exit_code(tmp_path):
     """An auth failure arrives in the result envelope with an empty stderr.
 
