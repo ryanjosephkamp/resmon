@@ -217,6 +217,102 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
     return "\n".join(lines)
 
 
+_BASIS_SENTENCE = {
+    "identifier": "matched by identifier — the source returned this profile's ORCID",
+    "name+affiliation": ("matched by name and affiliation — not by identity; another "
+                         "researcher with this name at this institution would match too"),
+    "name_only": ("matched by name only — resmon can tell you this name is on the "
+                  "paper and nothing more"),
+}
+
+
+def generate_watch_report(profile: dict, findings: dict, check: dict) -> str:
+    """The report a ``retractions`` watch run leaves behind.
+
+    Its own function rather than a mode of ``generate_report`` because the two
+    documents answer different questions: that one lists papers a query found,
+    this one lists things that happened to papers already held. Reusing the
+    paper report would have meant a "Total Results" line counting retractions,
+    which reads as a find rather than as a warning.
+
+    **The basis is printed beside every finding, in a sentence.** A retraction
+    attached to a name is not a retraction attached to a person, and this report
+    is the one place a user may read that fact away from the interface — it is
+    saved to disk, and it can be mailed. The badge cannot travel; the sentence
+    can.
+    """
+    lines: list[str] = []
+    name = profile.get("display_name") or "this profile"
+    warning = profile.get("basis_warning")
+    rows = findings.get("findings") or []
+
+    lines.append(f"# Watch report — {name}")
+    lines.append(f"**Generated:** {now_iso()}  ")
+    lines.append(f"**Watching for:** retractions and other lifecycle events  ")
+    lines.append(f"**Papers matched to this profile:** "
+                 f"{findings.get('matched_documents', 0)}  ")
+    lines.append(f"**Checked this run:** {check.get('checked_now', 0)} of "
+                 f"{check.get('selected', 0)} due")
+    lines.append("")
+
+    if warning:
+        # The profile-level caveat travels with the document, because a report
+        # read a month later has no editor open beside it.
+        lines.append(f"> **About this profile.** {warning}")
+        lines.append("")
+
+    lines.append("## Coverage")
+    lines.append("")
+    lines.append(findings.get("coverage_note", ""))
+    lines.append("")
+    errors = check.get("errors") or []
+    if errors:
+        lines.append(f"{len(errors)} paper(s) could not be checked this run and "
+                     f"were left unchecked rather than recorded as clear.")
+        lines.append("")
+
+    lines.append("## Findings")
+    lines.append("")
+    if not rows:
+        # Never "no retractions" — that is a claim about the world. This is a
+        # claim about the record, which is all resmon has.
+        lines.append("Nothing has been recorded against the papers matched to "
+                     "this profile. That is a statement about what has been "
+                     "checked, above, and not a statement that nothing has "
+                     "happened.")
+        lines.append("")
+        return "\n".join(lines)
+
+    for row in rows:
+        label = row.get("label") or row.get("kind") or "Lifecycle event"
+        title = row.get("title") or "(untitled)"
+        lines.append(f"### {label} — {title}")
+        basis = row.get("basis")
+        sentence = _BASIS_SENTENCE.get(basis)
+        if sentence:
+            lines.append(f"- **Why this paper is in this report:** {sentence} "
+                         f"(`{row.get('matched_author') or ''}`).")
+        if row.get("doi"):
+            lines.append(f"- **Paper DOI:** {row['doi']}")
+        if row.get("source_repository"):
+            lines.append(f"- **Source:** {row['source_repository']}")
+        if row.get("notice_date"):
+            lines.append(f"- **Notice date:** {row['notice_date']}")
+        notice = row.get("notice_url") or row.get("notice_doi")
+        if notice:
+            lines.append(f"- **Notice:** {notice}")
+        provider = row.get("provider")
+        provider_source = row.get("provider_source")
+        if provider:
+            # Retraction Watch's provenance is kept verbatim wherever the
+            # finding goes; it is a condition of using the data, not a nicety.
+            lines.append(f"- **Recorded from:** {provider}"
+                         + (f" ({provider_source})" if provider_source else ""))
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def save_report(report_text: str, output_path: Path) -> Path:
     """Write the report to a .md file. Creates parent directories if needed.
 

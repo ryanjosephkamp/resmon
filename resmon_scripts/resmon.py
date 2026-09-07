@@ -1263,10 +1263,56 @@ def get_routine(routine_id: int):
         _close_db(conn)
 
 
+def _validated_entity(conn, parameters: dict) -> Optional[dict]:
+    """`parameters.entity`, normalised, or None when the routine is a keyword one.
+
+    Validated at the seam rather than at fire time (2.1). A routine's
+    ``parameters`` has always been an untyped JSON blob, so an entity naming a
+    profile that does not exist would be stored, scheduled, and then fire every
+    morning into a run that could not do anything — the plausible-and-wrong
+    shape this app refuses. ``watch_profiles`` owns the sentences.
+    """
+    if not isinstance(parameters, dict) or "entity" not in parameters:
+        return None
+    try:
+        return watch_profiles.validate_entity_parameters(conn, parameters["entity"])
+    except watch_profiles.ProfileError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+def _entity_source_warning(entity: Optional[dict], parameters: dict) -> Optional[str]:
+    """Whether the sources this routine names can be asked about a person at all.
+
+    Said **at creation**, not only after a run comes back empty. `new_papers`
+    over three sources none of which supports an author query is a routine that
+    will run correctly and find nothing for ever, and the run's own
+    ``entity_unsupported`` zero reason would explain it only to someone who went
+    looking. The routine is still created: it is the user's call, sources gain
+    capabilities, and refusing would be resmon deciding for them.
+    """
+    if not entity or entity["mode"] != "new_papers":
+        return None
+    slugs = [str(r) for r in (parameters.get("repositories") or [])]
+    if not slugs:
+        return None
+    askable = [
+        slug for slug in slugs
+        for entry in REPOSITORY_CATALOG
+        if entry.slug == slug and entry.entity_search.author_query != "none"
+    ]
+    if askable:
+        return None
+    return (
+        "None of the sources this routine names can be asked about an author, "
+        "so it will find nothing until you add one that can. Each run will say "
+        "so on the source's row.")
+
+
 @app.post("/api/routines", status_code=201)
 def create_routine(body: RoutineCreate):
     conn = _get_db()
     try:
+        entity = _validated_entity(conn, body.parameters)
         routine_dict = {
             "name": body.name,
             "schedule_cron": body.schedule_cron,
@@ -1288,7 +1334,13 @@ def create_routine(body: RoutineCreate):
         _sync_routine_config(conn, rid)
         if body.is_active:
             _sched_add_routine(rid)
-        return {"id": rid, "name": body.name}
+        response = {"id": rid, "name": body.name}
+        if entity:
+            response["entity"] = entity
+            warning = _entity_source_warning(entity, body.parameters)
+            if warning:
+                response["entity_warning"] = warning
+        return response
     finally:
         _close_db(conn)
 
@@ -1306,6 +1358,7 @@ def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
         if body.schedule_cron is not None:
             updates["schedule_cron"] = body.schedule_cron
         if body.parameters is not None:
+            _validated_entity(conn, body.parameters)
             updates["parameters"] = json.dumps(body.parameters)
         if body.intent is not None:
             # An empty string is a *clear*, not a no-op: the editor sends the
@@ -3737,6 +3790,31 @@ def _dispatch_routine_fire(
             params = {}
         repositories = list(params.get("repositories") or [])
 
+        # 2.1 — a watch routine's profile is resolved **here**, once, and travels
+        # inside the execution's stored parameters. Two reasons it is not looked
+        # up later: ``run_prepared`` recovers its parameters from the execution
+        # row when the preparing instance is gone, so anything the run needs has
+        # to be in that row; and the profile a run used is then a recorded fact
+        # rather than whatever the table says afterwards. A profile edited or
+        # deleted mid-run cannot silently change what the run was watching.
+        entity = params.get("entity")
+        if isinstance(entity, dict):
+            profile = None
+            try:
+                profile = watch_profiles.get_profile(
+                    conn, int(entity.get("profile_id")))
+            except (TypeError, ValueError):
+                profile = None
+            params["entity_mode"] = str(entity.get("mode") or "")
+            params["entity_profile_id"] = entity.get("profile_id")
+            params["entity_profile"] = profile
+            # `retractions` reads the corpus and queries no source. Leaving the
+            # routine's repository list in place would make the Monitor announce
+            # sources it never touches.
+            if params["entity_mode"] == "retractions":
+                repositories = []
+                params["repositories"] = []
+
         if not admission.try_admit(
             kind="routine", routine_id=routine_id, params_json=parameters,
         ):
@@ -5037,12 +5115,28 @@ def update_watch_profile(profile_id: int, body: WatchProfileBody):
 
 @app.delete("/api/profiles/{profile_id}")
 def delete_watch_profile(profile_id: int):
-    """Remove a profile and its matches. **The corpus is untouched.**"""
+    """Remove a profile and its matches. **The corpus is untouched.**
+
+    A routine pointing at this profile is *named* rather than silently orphaned.
+    There is no foreign key from a routine to a profile — a routine's
+    configuration is a JSON blob — so the deletion cannot cascade, and the next
+    fire of such a routine fails with a sentence saying the profile is gone.
+    Saying which routines those are here is the difference between that being a
+    surprise and being a consequence.
+    """
     conn = _get_db()
     try:
+        watching = watch_profiles.routines_watching(conn, profile_id)
         if not watch_profiles.delete_profile(conn, profile_id):
             raise HTTPException(404, "That profile does not exist.")
-        return {"deleted": profile_id}
+        response: dict = {"deleted": profile_id, "routines_watching": watching}
+        if watching:
+            names = ", ".join(f"'{r['name']}'" for r in watching)
+            response["detail"] = (
+                f"{len(watching)} routine(s) watched this profile: {names}. "
+                f"They are still saved and will now fail on their next run "
+                f"until you point them somewhere else or delete them.")
+        return response
     finally:
         _close_db(conn)
 
