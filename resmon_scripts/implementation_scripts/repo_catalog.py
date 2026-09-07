@@ -40,6 +40,101 @@ AttributionRequirement = Literal["none", "requested", "required"]
 DateGranularity = Literal["day", "month", "year"]
 
 
+# ---------------------------------------------------------------------------
+# entity_search (2.1) — what a source can be asked about a *person*
+# ---------------------------------------------------------------------------
+#
+# Phase 2.1 watches people, and the first thing that requires is knowing which
+# of these sources can be asked about one at all. Every client has exactly one
+# search shape — a keyword string in, records out — so an author query is either
+# a field syntax *inside* that string, a separate parameter the client does not
+# expose today, or a different endpoint entirely. Which, per source, was
+# established by ``verification_scripts/probe_entity_search.py`` on 2026-09-06
+# and each entry below carries what came back.
+#
+# **The probe has three controls, and it needed all three.** Asking a source for
+# ``au:Hinton`` and getting papers proves nothing: most of these endpoints
+# tolerate an unknown field prefix and keyword-search the whole string, which
+# returns plausible answers for a famous name. So each author query was run
+# against (A) a real author, (B) an author who does not exist, (C) the bare name
+# with no syntax, and (D) the same word under a *different* field of the same
+# source.
+#
+# Two of those controls changed an answer:
+#
+# * **OAPEN** looked like a keyword search under A-versus-C — the two share
+#   their first record — and is plainly a parsed field under D, where
+#   ``dc.title:"Suber"`` returns nothing for a word ``dc.contributor.author``
+#   finds twice. The field result is a *subset* of the keyword result, which is
+#   what a working field looks like.
+# * **arXiv, NDL and PubMed are XML**, and the first version of the comparison
+#   read JSON keys only — so for those three the controls ran and were compared
+#   to nothing. Their verdicts came from A and B alone until the comparison
+#   learned to read ``<id>``, ``<PMID>`` and ``<dcterms:identifier>``.
+#
+# ``unknown`` is a real answer and is used rather than a guess: four sources
+# need a key this machine does not hold and one has been answering HTTP 500
+# since it was added. Nothing about them is claimed.
+EntityQuery = Literal["none", "field", "param", "endpoint", "unknown"]
+EntityIdentifier = Literal["none", "orcid", "native", "unknown"]
+
+
+@dataclass(frozen=True)
+class EntitySearch:
+    """How a source answers a question about a person, and what it gives back.
+
+    ``returns_orcid`` and ``returns_affiliation`` are about what the record
+    **actually carries**, not about which keys exist in it. That distinction is
+    the whole point: Crossref puts an ``affiliation`` key on every author object
+    and leaves it empty on most of them, and DataCite and Zenodo carry an
+    ``orcid`` key that was populated on **none** of the 54 and 16 creators
+    measured. A capability read off key names would have claimed all three.
+    """
+
+    author_query: EntityQuery
+    identifier_query: EntityIdentifier = "none"
+    returns_orcid: bool = False
+    returns_affiliation: bool = False
+    # The exact syntax, with ``{name}`` where the author goes. Empty when the
+    # source cannot be asked.
+    author_syntax: str = ""
+    identifier_syntax: str = ""
+    # What was run and what came back. This is the citation; a capability
+    # without one fails ``test_repo_catalog.py``.
+    established: str = ""
+
+    @property
+    def supported(self) -> bool:
+        """Whether resmon will ask this source about a person at all."""
+        return self.author_query in ("field", "param", "endpoint")
+
+
+# The day every capability below was established. One constant, so a re-probe
+# that moves the answers moves the date with them.
+ENTITY_PROBED_ON = "2026-09-06"
+
+
+def _entity(
+    author_query: EntityQuery = "none",
+    *,
+    identifier_query: EntityIdentifier = "none",
+    returns_orcid: bool = False,
+    returns_affiliation: bool = False,
+    author_syntax: str = "",
+    identifier_syntax: str = "",
+    established: str = "",
+) -> EntitySearch:
+    return EntitySearch(
+        author_query=author_query,
+        identifier_query=identifier_query,
+        returns_orcid=returns_orcid,
+        returns_affiliation=returns_affiliation,
+        author_syntax=author_syntax,
+        identifier_syntax=identifier_syntax,
+        established=established,
+    )
+
+
 @dataclass(frozen=True)
 class RepoCatalogEntry:
     """Public, non-secret metadata for a single active repository."""
@@ -65,6 +160,7 @@ class RepoCatalogEntry:
     attribution_requirement: AttributionRequirement
     attribution_source: str
     date_granularity: DateGranularity
+    entity_search: EntitySearch
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -103,6 +199,7 @@ def _entry(
     attribution_requirement: AttributionRequirement = "none",
     attribution_source: str = "",
     date_granularity: DateGranularity = "day",
+    entity_search: EntitySearch | None = None,
 ) -> RepoCatalogEntry:
     return RepoCatalogEntry(
         slug=slug,
@@ -127,6 +224,11 @@ def _entry(
         attribution_requirement=attribution_requirement,
         attribution_source=attribution_source,
         date_granularity=date_granularity,
+        # No default that means "cannot be asked": a source added without an
+        # answer would then silently claim one. ``None`` becomes an explicit
+        # ``unknown`` and ``test_every_entry_has_an_established_entity_capability``
+        # fails on it, so the omission is loud.
+        entity_search=entity_search or _entity("unknown", established=""),
     )
 
 
@@ -158,6 +260,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Thank you to arXiv for use of its open access interoperability.',
         attribution_requirement="requested",
         attribution_source='https://info.arxiv.org/help/api/index.html',
+        entity_search=_entity(
+            "field", author_syntax='au:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `au:\"Hinton\"` returned 5 entries naming him; the nonsense author 0; "
+                "the bare `all:\"Hinton\"` and `ti:\"Hinton\"` controls returned different "
+                "id sets. No ORCID and no affiliation anywhere in the Atom record."),
+        ),
     ),
     _entry(
         slug="biorxiv",
@@ -177,6 +286,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="The /details endpoint has reported upstream outages; resmon surfaces those failures.",
         keyword_combination="Explicit OR",
         keyword_combination_notes="The documented /details API retrieves by date range or DOI rather than keyword; resmon filters the returned records and matches when any space-separated term appears in the title or abstract.",
+        entity_search=_entity(
+            "none",
+            established=(
+                f"{ENTITY_PROBED_ON}: the details endpoint takes a date window and a cursor and has no "
+                "query parameter of any kind — there is nothing to ask an author about. "
+                "Established from the endpoint's own shape, not from a failed call."),
+        ),
     ),
     _entry(
         slug="core",
@@ -199,6 +315,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Powered by CORE',
         attribution_requirement="required",
         attribution_source='https://core.ac.uk/faq',
+        entity_search=_entity(
+            "unknown",
+            identifier_query="unknown",
+            established=(
+                f"{ENTITY_PROBED_ON}: not established. CORE requires an API key and this machine holds "
+                "none, so nothing was asked and nothing is claimed."),
+        ),
     ),
     _entry(
         slug="crossref",
@@ -218,6 +341,16 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Set a contact email in the UA for priority.",
         keyword_combination="Relevance-ranked",
         keyword_combination_notes="CrossRef ranks by relevance, not strict boolean; documents containing more of the words rank higher but single-term matches can still surface.",
+        entity_search=_entity(
+            "param", author_syntax="query.author={name}",
+            returns_orcid=True, returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `query.author=Yoshua Bengio` returned 5 works naming him and the "
+                "nonsense author 0. Over a 50-work sample: **2 of 84 authors carried an "
+                "`ORCID` and 26 of 84 a non-empty `affiliation`** — the key is on every "
+                "author object and empty on most, which is why this was counted rather "
+                "than read off the key names."),
+        ),
     ),
     _entry(
         slug="datacite",
@@ -242,6 +375,15 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://support.datacite.org/docs/datacite-data-file-use-policy',
         # api_datacite.py:101-107 sends a whole-year `published` filter and keeps each record's own precision.
         date_granularity="year",
+        entity_search=_entity(
+            "field", author_syntax='creators.name:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `creators.name:\"Yoshua Bengio\"` returned 5, the nonsense author 0, "
+                "and the bare and `titles.title:` controls returned different id sets. "
+                "**No ORCID and no affiliation was populated on any of the 54 creators "
+                "measured**, although both keys appear in the document — the brief listed "
+                "DataCite as a fill candidate and the record says otherwise."),
+        ),
     ),
     _entry(
         slug="dblp",
@@ -266,6 +408,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://dblp.org/faq/1474677.html',
         # api_dblp.py:88-90 — DBLP has no date parameter; resmon filters the returned records on their year.
         date_granularity="year",
+        entity_search=_entity(
+            "field", author_syntax="author:{name}:",
+            established=(
+                f"{ENTITY_PROBED_ON}: `author:Geoffrey_Hinton:` returned a hit and the nonsense author 0. "
+                "DBLP carries neither an ORCID nor an affiliation in the publication "
+                "record."),
+        ),
     ),
     _entry(
         slug="doaj",
@@ -285,6 +434,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="",
         keyword_combination="Relevance-ranked (Lucene OR default)",
         keyword_combination_notes="DOAJ uses a Lucene-style URL path whose default operator is OR; results are returned in relevance-scored order.",
+        entity_search=_entity(
+            "field", author_syntax='bibjson.author.name:"{name}"',
+            returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: the author field returned 5 and the nonsense author 0, and the "
+                "`bibjson.title:` control a different set. **72 of 72 authors carried an "
+                "affiliation and none carried an ORCID.**"),
+        ),
     ),
     _entry(
         slug="dryad",
@@ -308,6 +465,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         ),
         keyword_combination="Implicit AND",
         keyword_combination_notes="Dryad's OpenAPI /search documentation says multiple q terms return only items containing all terms.",
+        entity_search=_entity(
+            "param", author_syntax="author={name}",
+            returns_orcid=True, returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `author=Michael Brown` returned 5 datasets and the nonsense author 0. "
+                "**191 of 191 authors carried an affiliation and 22 of 191 an ORCID.**"),
+        ),
     ),
     _entry(
         slug="eric",
@@ -329,6 +493,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="ERIC documents OR as the default between unmarked terms, with stemming. Explicit AND is required when every term must match.",
         # api_eric.py:168-172 — a window with no whole calendar year inside it is refused, not widened.
         date_granularity="year",
+        entity_search=_entity(
+            "field", author_syntax='author:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `author:\"John Hattie\"` returned 5, the nonsense author 0, and the "
+                "`title:` control a different set. No ORCID or affiliation in the record."),
+        ),
     ),
     _entry(
         slug="europepmc",
@@ -351,6 +521,16 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Data from Europe PMC',
         attribution_requirement="requested",
         attribution_source='https://www.ebi.ac.uk/about/terms-of-use/',
+        entity_search=_entity(
+            "field", author_syntax='AUTH:"{name}"',
+            returns_orcid=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `AUTH:\"Eric Topol\"` returned 5, the nonsense author 0, and the bare "
+                "and `TITLE:` controls different sets. **23 of 65 authors carried an "
+                "`authorId` of type ORCID; none carried an affiliation on the author "
+                "object** — Europe PMC keeps affiliation elsewhere in some result types "
+                "and resmon does not claim it from here."),
+        ),
     ),
     _entry(
         slug="govinfo", name="GovInfo",
@@ -379,6 +559,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             "https://www.govinfo.gov/features/search-service-overview "
             "API keys are sent in the X-Api-Key header: https://api.data.gov/docs/api-key/"
         ),
+        entity_search=_entity(
+            "unknown",
+            identifier_query="unknown",
+            established=(
+                f"{ENTITY_PROBED_ON}: not established. GovInfo requires an API key and this machine holds "
+                "none. Its client is Delegation 08's and was not touched."),
+        ),
     ),
     _entry(
         slug="hal",
@@ -401,6 +588,17 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Data from HAL, the French national open archive',
         attribution_requirement="requested",
         attribution_source='https://doc.hal.science/en/legal-aspects/',
+        entity_search=_entity(
+            "field", author_syntax='authFullName_s:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `authFullName_s:\"Jean-Pierre Serre\"` returned 4, the nonsense author "
+                "0, and the `title_s:` control 0 for the same words. **The field is an "
+                "exact string**: `authFullName_s:\"Yann LeCun\"` returns 0 where "
+                "`\"Yann Le Cun\"` returns 1, so a name that does not match HAL's spelling "
+                "finds nothing. **No affiliation is claimed from HAL**: `labStructName_s` "
+                "is a *document* field, and one record listed 2 authors against 1 lab "
+                "name, so resmon cannot say whose it is. No ORCID was populated either."),
+        ),
     ),
     _entry(
         slug="inspire_hep",
@@ -420,6 +618,16 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Author names remain in the upstream Surname, Given form. Abstracts are stored only where INSPIRE reports the abstract's own source as arXiv or CERN, which is the limit its terms of use set; records carrying only a publisher-supplied abstract are indexed without one. In a 100-record sample that was about a fifth of them.",
         keyword_combination="Implicit AND",
         keyword_combination_notes="Adjacent free-form terms currently return the same total as explicit AND in the live API; explicit OR broadens the result set. INSPIRE's help page documents the operators but not this default.",
+        entity_search=_entity(
+            "field", author_syntax="a {name}",
+            returns_orcid=True, returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `a Edward Witten` returned 5 and the nonsense author 0; `t` on the "
+                "same words returned a different set. **9 of 9 authors carried both an "
+                "identifier list including an ORCID and an affiliation.** Quoting breaks "
+                "it — `a \"Edward Witten\"` returns 0, which is the first thing the probe "
+                "got wrong."),
+        ),
     ),
     _entry(
         slug="medrxiv",
@@ -439,6 +647,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Shares the /details client implementation with bioRxiv while remaining a distinct selectable source.",
         keyword_combination="Explicit OR",
         keyword_combination_notes="The documented /details API retrieves by date range or DOI rather than keyword; resmon filters the returned records and matches when any space-separated term appears in the title or abstract.",
+        entity_search=_entity(
+            "none",
+            established=(
+                f"{ENTITY_PROBED_ON}: the same details endpoint as bioRxiv — a date window and a cursor, "
+                "no query of any kind."),
+        ),
     ),
     _entry(
         slug="nasa_ads",
@@ -460,6 +674,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="NASA ADS uses Solr-style q parsing; the default operator is OR and results are returned in relevance-scored order.",
         # api_nasa_ads.py:38-43 sends `pubdate:[YYYY-MM TO YYYY-MM]`.
         date_granularity="month",
+        entity_search=_entity(
+            "unknown",
+            identifier_query="unknown",
+            established=(
+                f"{ENTITY_PROBED_ON}: not established. NASA ADS requires a token and this machine holds "
+                "none. Its documented `author:` field is *not* recorded here, because a "
+                "documented field resmon has not exercised is a claim, not a capability."),
+        ),
     ),
     _entry(
         slug="ndl_search",
@@ -492,6 +714,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Powered by NDL Search API. Metadata provided by the National Diet Library and its contributing databases and institutions.',
         attribution_requirement="required",
         attribution_source='https://ndlsearch.ndl.go.jp/en/help/api/',
+        entity_search=_entity(
+            "field", author_syntax='creator="{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: SRU `creator=\"Haruki Murakami\"` returned 5 records and the nonsense "
+                "author 0; the `anywhere=` and `title=` controls returned different "
+                "identifier sets. No ORCID or affiliation in the dcndl record."),
+        ),
     ),
     _entry(
         slug="nist_rmm",
@@ -527,6 +756,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Data created by NIST (National Institute of Standards and Technology).',
         attribution_requirement="required",
         attribution_source='https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications',
+        entity_search=_entity(
+            "unknown",
+            established=(
+                f"{ENTITY_PROBED_ON}: not established, and not for want of asking — the endpoint answered "
+                "`{{\"message\":\"Certificate file not found\",\"httpStatus\":\"500\"}}`, "
+                "which is the same outage its catalog note has recorded since the source "
+                "was added."),
+        ),
     ),
     _entry(
         slug="oapen", name="OAPEN Library",
@@ -552,6 +789,16 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             "rounded up to a page, returning the retained prefix. Indexed dates often derive from year-only dc.date.issued: "
             "resmon retains only the year, queries years wholly within your window, and refuses a window containing no whole year."
         ),
+        entity_search=_entity(
+            "field", author_syntax='dc.contributor.author:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `dc.contributor.author:\"Suber\"` returned 2 items where the bare "
+                "keyword returned 100 and `dc.title:\"Suber\"` returned **0**. The first "
+                "reading of this probe called the prefix decoration because A and the "
+                "keyword control share their first record; they share it because the field "
+                "result is a subset. No ORCID or affiliation in the DSpace metadata. "
+                "Delegation 08 owns this client; only this catalog line is resmon's."),
+        ),
     ),
     _entry(
         slug="openaire",
@@ -574,6 +821,15 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Data from the OpenAIRE Graph, licensed CC BY 4.0. Changes: resmon stores a normalized subset of the returned metadata.',
         attribution_requirement="required",
         attribution_source='https://graph.openaire.eu/docs/apis/terms/',
+        entity_search=_entity(
+            "param", author_syntax="author={name}",
+            established=(
+                f"{ENTITY_PROBED_ON}: `author=Yoshua Bengio` returned 5 results of 877 and the nonsense "
+                "author 0; the echoed query shows OpenAIRE parsed it as "
+                "`resultauthor exact \"Yoshua Bengio\"`. **Neither ORCID nor a per-author "
+                "affiliation was established from the creator objects**, so nothing is "
+                "filled from here — the brief listed it as a candidate."),
+        ),
     ),
     _entry(
         slug="openalex",
@@ -593,6 +849,19 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Set mailto for stable performance.",
         keyword_combination="Relevance-ranked",
         keyword_combination_notes="OpenAlex's search ranks by relevance across title/abstract/fulltext; not a strict boolean.",
+        entity_search=_entity(
+            "param", author_syntax="filter=raw_author_name.search:{name}",
+            identifier_query="orcid",
+            identifier_syntax="filter=author.orcid:https://orcid.org/{orcid}",
+            returns_orcid=True, returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `raw_author_name.search:Yoshua Bengio` returned 1,495 works and the "
+                "nonsense author 0. **`author.orcid:` is a real identifier query** — the "
+                "same ORCID returned 1,294 works and OpenAlex echoed the parsed filter. "
+                "**9 of 17 authorships carried an ORCID and 14 of 17 a raw affiliation "
+                "string.** The anonymous pool sheds load with a rate-limit body, so the "
+                "polite-pool `mailto` is not optional."),
+        ),
     ),
     _entry(
         slug="openlibrary",
@@ -614,6 +883,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="Open Library documents q as a Solr query, but does not document how plain unfielded space-separated terms are combined. resmon forwards the query and does not claim strict local matching.",
         # api_openlibrary.py:162-166 — a window with no whole calendar year inside it is refused, not widened.
         date_granularity="year",
+        entity_search=_entity(
+            "param", author_syntax="author={name}",
+            established=(
+                f"{ENTITY_PROBED_ON}: `author=Ursula K. Le Guin` returned 5 and the nonsense author 0. A "
+                "book catalogue: no ORCID, no affiliation."),
+        ),
     ),
     _entry(
         slug="osti",
@@ -636,6 +911,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Courtesy of OSTI.GOV, U.S. Department of Energy',
         attribution_requirement="requested",
         attribution_source='https://www.osti.gov/disclaim',
+        entity_search=_entity(
+            "param", author_syntax="author={name}",
+            established=(
+                f"{ENTITY_PROBED_ON}: `author=Steven Chu` returned 5 records and the nonsense author 0. No "
+                "ORCID or affiliation in the record."),
+        ),
     ),
     _entry(
         slug="plos",
@@ -658,6 +939,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Data Provided by PLOS',
         attribution_requirement="required",
         attribution_source='https://api.plos.org/api-display-policy/',
+        entity_search=_entity(
+            "field", author_syntax='author:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `author:\"Eric Topol\"` returned 5, the nonsense author 0, and "
+                "`title:` on the same words 0. `author_affiliate` is a requestable field "
+                "but was not populated in the sample, so no affiliation is claimed."),
+        ),
     ),
     _entry(
         slug="pubmed",
@@ -677,6 +965,15 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Add an API key to raise the ceiling.",
         keyword_combination="Implicit AND",
         keyword_combination_notes="NCBI E-utilities default operator is AND; space-separated terms are joined with AND before submission to PubMed's search index.",
+        entity_search=_entity(
+            "field", author_syntax="{name}[au]",
+            returns_orcid=True, returns_affiliation=True,
+            established=(
+                f"{ENTITY_PROBED_ON}: `Eric Topol[au]` returned 5 ids and the nonsense author 0; the bare "
+                "term and `[ti]` controls returned different PMID sets. Over the fetched "
+                "records, **30 of 30 authors carried an `<Affiliation>` and 4 of 30 an "
+                "`<Identifier Source=\"ORCID\">`.**"),
+        ),
     ),
     _entry(
         slug="semantic_scholar",
@@ -701,6 +998,18 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://www.semanticscholar.org/product/api/license',
         # api_semantic_scholar.py:46-54 sends a `year` range.
         date_granularity="year",
+        entity_search=_entity(
+            "endpoint",
+            author_syntax="/author/search?query={name} then /author/{{id}}/papers",
+            identifier_query="native",
+            identifier_syntax="/author/{id}/papers",
+            established=(
+                f"{ENTITY_PROBED_ON}: the paper search has no author field; `/author/search` returned 17 "
+                "matches for Yoshua Bengio and `/author/{{id}}/papers` returned his papers. "
+                "The author objects carry a Semantic Scholar `authorId` and nothing else: "
+                "`authors.externalIds` and `authors.affiliations` are **rejected outright** "
+                "as unsupported fields, which is itself the answer about ORCID here."),
+        ),
     ),
     _entry(
         slug="springer",
@@ -720,6 +1029,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Daily quota is the binding limit.",
         keyword_combination="Relevance-ranked (Solr OR default)",
         keyword_combination_notes="Springer Nature's Meta API ranks by relevance with an OR-based default; documents matching more terms rank higher.",
+        entity_search=_entity(
+            "unknown",
+            identifier_query="unknown",
+            established=(
+                f"{ENTITY_PROBED_ON}: not established. Springer requires a key and this machine holds "
+                "none."),
+        ),
     ),
     _entry(
         slug="zenodo",
@@ -739,6 +1055,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Date bounds are expressed as a publication_date range inside the q query.",
         keyword_combination="Relevance-ranked (implicit OR)",
         keyword_combination_notes="Zenodo's search guide says space-separated terms match with OR by default and results are ranked against the query; explicit AND requires both terms.",
+        entity_search=_entity(
+            "field", author_syntax='creators.name:"{name}"',
+            established=(
+                f"{ENTITY_PROBED_ON}: `creators.name:\"Yoshua Bengio\"` returned 5, the nonsense author 0, "
+                "and the `title:` control 0. **No ORCID and no affiliation was populated on "
+                "any of the 16 creators measured**, though both keys exist in the schema — "
+                "the brief listed Zenodo as a fill candidate and the record says otherwise."),
+        ),
     ),
 ]
 
