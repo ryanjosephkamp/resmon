@@ -49,13 +49,13 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 1712 pass, 1 skip, 105 deselected
+.venv/bin/python -m pytest -q          # hermetic suite: 1716 pass, 4 skip, 105 deselected
 .venv/bin/python -m pytest -m live_network   # the 105 — real scholarly APIs, CLIs and sockets
                                              # 89 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
 npm run typecheck && npm test && npm run build   # 294 tests across 33 suites
-npm run e2e                                      # the real Electron app — 78 checks, 25 routes
+npm run e2e                                      # the real Electron app — 80 checks, 25 routes
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
