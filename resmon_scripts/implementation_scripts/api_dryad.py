@@ -4,7 +4,9 @@ import logging
 from html.parser import HTMLParser
 
 from .api_base import (
+    Author,
     BaseAPIClient,
+    bare_orcid,
     NormalizedResult,
     RateLimiter,
     note_parse_failure_unless_transport,
@@ -195,12 +197,21 @@ class DryadClient(BaseAPIClient):
         )
 
     @staticmethod
-    def _author_names(authors: object) -> list[str]:
-        """Return names only: Dryad search records can include author email."""
+    def _author_names(authors: object) -> list:
+        """Name, ORCID and affiliation — and **never the email**.
+
+        Dryad's author objects carry an email address, and the original version
+        of this method existed to leave it behind. That rule is unchanged and is
+        why the fields are read one at a time rather than copied wholesale: 2.1
+        adds two more fields to keep, not permission to keep everything.
+
+        Measured 2026-09-06 over one author query: **191 of 191 authors carried
+        an affiliation and 22 of 191 an ORCID.**
+        """
         if not isinstance(authors, list):
             return []
 
-        names: list[str] = []
+        out: list = []
         for author in authors:
             if not isinstance(author, dict):
                 continue
@@ -211,9 +222,17 @@ class DryadClient(BaseAPIClient):
                 for value in (first_name, last_name)
                 if isinstance(value, str) and value.strip()
             )
-            if name:
-                names.append(name)
-        return names
+            if not name:
+                continue
+            affiliation = author.get("affiliation")
+            out.append(Author(
+                name=name,
+                orcid=bare_orcid(author.get("orcid")),
+                affiliations=((affiliation.strip(),)
+                              if isinstance(affiliation, str) and affiliation.strip()
+                              else ()),
+            ))
+        return out
 
 
 def _register() -> None:

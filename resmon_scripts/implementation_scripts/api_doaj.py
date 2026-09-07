@@ -3,7 +3,7 @@
 
 import logging
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import Author, BaseAPIClient, NormalizedResult, RateLimiter, bare_orcid, safe_request
 
 logger = logging.getLogger(__name__)
 
@@ -92,11 +92,22 @@ class DoajClient(BaseAPIClient):
                 break
 
         # Authors
+        # 2.1 — DOAJ carries an affiliation on essentially every author (**72 of
+        # 72** in the 2026-09-06 sample) and an ORCID on none of them, so only
+        # the affiliation is read. `orcid_id` exists in the schema and was empty
+        # throughout; a client that filled it from an empty field would be
+        # claiming an identity DOAJ never sent.
         authors = []
         for author in bibjson.get("author", []):
             name = author.get("name", "").strip()
-            if name:
-                authors.append(name)
+            if not name:
+                continue
+            affiliation = (author.get("affiliation") or "").strip()
+            authors.append(Author(
+                name=name,
+                orcid=bare_orcid(author.get("orcid_id")),
+                affiliations=(affiliation,) if affiliation else (),
+            ))
 
         abstract = bibjson.get("abstract")
 

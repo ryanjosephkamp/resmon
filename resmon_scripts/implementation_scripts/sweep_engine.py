@@ -1436,7 +1436,11 @@ class SweepEngine:
                 continue
             docs.append({
                 "title": nr.title,
-                "authors": nr.authors,
+                # Names for the report, which renders them; the structured
+                # authors ride alongside for anything that needs the identity
+                # the names cannot carry.
+                "authors": nr.author_names,
+                "structured_authors": nr.authors,
                 "abstract": nr.abstract,
                 "publication_date": nr.publication_date,
                 "url": nr.url,

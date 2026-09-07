@@ -1,0 +1,61 @@
+{
+ "_embedded": {
+  "stash:datasets": [
+   {
+    "identifier": "doi:10.5061/dryad.msbcc2gds",
+    "title": "Data from: Effects of predator recovery and climate change on the long-term demography of a flagship herbivore",
+    "publicationDate": "2026-09-03",
+    "authors": [
+     {
+      "firstName": "Kenneth",
+      "lastName": "Loonam",
+      "email": "keloonam@gmail.com",
+      "affiliation": "Oregon State University",
+      "affiliationROR": "https://ror.org/00ysfqy60",
+      "affiliations": [
+       {
+        "name": "Oregon State University",
+        "ror_id": "https://ror.org/00ysfqy60"
+       }
+      ],
+      "orcid": "0000-0002-9503-2480",
+      "order": 0
+     },
+     {
+      "firstName": "Casey",
+      "lastName": "Brown",
+      "email": "",
+      "affiliation": "Oregon Department of Fish and Wildlife",
+      "affiliationROR": "https://ror.org/00w64gh11",
+      "affiliations": [
+       {
+        "name": "Oregon Department of Fish and Wildlife",
+        "ror_id": "https://ror.org/00w64gh11"
+       }
+      ],
+      "order": 1
+     },
+     {
+      "firstName": "Mary",
+      "lastName": "Rowland",
+      "email": "",
+      "affiliation": "United States Department of Agriculture",
+      "affiliationROR": "https://ror.org/01na82s61",
+      "affiliations": [
+       {
+        "name": "United States Department of Agriculture",
+        "ror_id": "https://ror.org/01na82s61"
+       }
+      ],
+      "order": 2
+     }
+    ],
+    "keywords": [
+     "integrated population model",
+     "elk",
+     "long-term"
+    ]
+   }
+  ]
+ }
+}

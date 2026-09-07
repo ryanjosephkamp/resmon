@@ -3,7 +3,7 @@
 
 import logging
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import Author, BaseAPIClient, NormalizedResult, RateLimiter, bare_orcid, safe_request
 
 logger = logging.getLogger(__name__)
 
@@ -91,14 +91,33 @@ class EuropepmcClient(BaseAPIClient):
 
         doi = item.get("doi")
 
+        # 2.1 — Europe PMC's `authorList` carries an `authorId` whose type is
+        # sometimes ORCID: **23 of 65 authors in the 2026-09-06 sample**. The
+        # author objects carry **no affiliation at all** (0 of 65), so none is
+        # claimed from here even though the word appears elsewhere in the
+        # document; that is what the catalog capability records.
+        #
+        # `authorString` remains the fallback, because it is present on every
+        # result type and `authorList` is not.
         authors = []
-        author_str = item.get("authorString", "")
-        if author_str:
-            # EuropePMC returns "Author A, Author B, Author C."
-            for name in author_str.rstrip(".").split(", "):
-                name = name.strip()
-                if name:
-                    authors.append(name)
+        structured = (item.get("authorList") or {}).get("author") or []
+        for entry in structured:
+            name = (entry.get("fullName") or "").strip()
+            if not name:
+                continue
+            identifier = entry.get("authorId") or {}
+            orcid = (bare_orcid(identifier.get("value"))
+                     if str(identifier.get("type") or "").upper() == "ORCID" else None)
+            authors.append(Author(name=name, orcid=orcid))
+
+        if not authors:
+            author_str = item.get("authorString", "")
+            if author_str:
+                # EuropePMC returns "Author A, Author B, Author C."
+                for name in author_str.rstrip(".").split(", "):
+                    name = name.strip()
+                    if name:
+                        authors.append(Author(name=name))
 
         abstract = item.get("abstractText")
 

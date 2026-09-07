@@ -3,7 +3,7 @@
 
 import logging
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import Author, BaseAPIClient, NormalizedResult, RateLimiter, bare_orcid, safe_request
 
 logger = logging.getLogger(__name__)
 
@@ -99,13 +99,27 @@ class CrossrefClient(BaseAPIClient):
         external_id = doi or ""
 
         # Authors
+        # 2.1 — Crossref carries both fields and populates them rarely.
+        # Measured 2026-09-06 over 50 works: **2 of 84 authors had an `ORCID`
+        # and 26 of 84 a non-empty `affiliation`**. The `affiliation` key is on
+        # every author object and is an empty list on most, which is why the
+        # catalog capability was counted rather than read off the key names.
         authors = []
         for author in item.get("author", []):
             given = author.get("given", "")
             family = author.get("family", "")
             name = f"{given} {family}".strip()
-            if name:
-                authors.append(name)
+            if not name:
+                continue
+            affiliations = tuple(
+                str(a.get("name")).strip() for a in (author.get("affiliation") or [])
+                if isinstance(a, dict) and a.get("name")
+            )
+            authors.append(Author(
+                name=name,
+                orcid=bare_orcid(author.get("ORCID")),
+                affiliations=affiliations,
+            ))
 
         # Abstract
         abstract = item.get("abstract")

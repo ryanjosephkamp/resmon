@@ -8,7 +8,9 @@ import time
 import httpx
 
 from .api_base import (
+    Author,
     BaseAPIClient,
+    bare_orcid,
     NormalizedResult,
     RateLimiter,
     note_parse_failure_unless_transport,
@@ -259,15 +261,33 @@ class InspireHepClient(BaseAPIClient):
             if isinstance(doi_value, str) and doi_value.strip():
                 doi = doi_value.strip()
 
-        authors: list[str] = []
+        # 2.1 — INSPIRE is the richest of the sources on both fields. Measured
+        # 2026-09-06: **9 of 9 authors carried an ORCID in `ids` and an
+        # `affiliations` list.** The ids array holds several schemes; only
+        # `ORCID` is read, because an INSPIRE BAI is not an ORCID and storing it
+        # in that column would make two different identifiers compare equal.
+        authors: list = []
         author_nodes = metadata.get("authors")
         if isinstance(author_nodes, list):
             for author in author_nodes:
                 if not isinstance(author, dict):
                     continue
                 full_name = author.get("full_name")
-                if isinstance(full_name, str) and full_name.strip():
-                    authors.append(full_name)
+                if not (isinstance(full_name, str) and full_name.strip()):
+                    continue
+                orcid = None
+                for identifier in author.get("ids") or []:
+                    if (isinstance(identifier, dict)
+                            and str(identifier.get("schema") or "").upper() == "ORCID"):
+                        orcid = bare_orcid(identifier.get("value"))
+                        break
+                affiliations = tuple(
+                    a["value"].strip() for a in (author.get("affiliations") or [])
+                    if isinstance(a, dict) and isinstance(a.get("value"), str)
+                    and a["value"].strip()
+                )
+                authors.append(Author(name=full_name, orcid=orcid,
+                                      affiliations=affiliations))
 
         abstract = _licensed_abstract(metadata.get("abstracts"))
 

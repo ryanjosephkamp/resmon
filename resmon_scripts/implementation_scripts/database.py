@@ -126,11 +126,24 @@ CREATE TABLE IF NOT EXISTS app_settings (
 -- still written there unchanged.
 
 CREATE TABLE IF NOT EXISTS document_authors (
-    document_id INTEGER NOT NULL,
-    author      TEXT NOT NULL,
+    document_id       INTEGER NOT NULL,
+    author            TEXT NOT NULL,
+    -- Schema 13 (2.1). All three are nullable and are NULL far more often than
+    -- not: measured on 2026-09-06, OpenAlex carried an ORCID on 9 of 17
+    -- authorships and Crossref on 2 of 84. NULL means **the source did not
+    -- say**, never "this person has no ORCID", and nothing downstream may read
+    -- it the second way.
+    orcid             TEXT,
+    affiliation       TEXT,
+    -- The source's own author id, prefixed with its slug so two sources' ids
+    -- can never be compared by accident: `semantic_scholar:1751762`.
+    source_author_id  TEXT,
     PRIMARY KEY (document_id, author),
     FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_document_authors_orcid
+    ON document_authors(orcid) WHERE orcid IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_document_authors_author
     ON document_authors(author);
@@ -483,7 +496,7 @@ CREATE INDEX IF NOT EXISTS idx_assistant_messages_session
 # zero reason. 11 is the 1.9 embeddings platform: ``document_embeddings``,
 # ``document_links`` and ``routines.intent``, in one migration. 12 adds the 2.0
 # assistant's ``assistant_sessions`` and ``assistant_messages``.
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -531,6 +544,19 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     ).fetchone():
         _migrate_pub_sort(conn)
 
+    # Schema 13's author columns must exist before ``_SCHEMA_SQL`` runs, for the
+    # same reason ``pub_sort`` must: the script creates an index **over
+    # `document_authors(orcid)`**, and on an existing corpus that table is
+    # already there without the column, so `CREATE INDEX` fails and the whole
+    # upgrade aborts. Found by
+    # ``test_an_upgraded_database_gains_the_columns_and_backfills_nothing``,
+    # which builds a pre-13 database rather than a fresh one — a fresh database
+    # gets the column from the script and never meets this.
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_authors'"
+    ).fetchone():
+        _migrate_author_identity(conn)
+
     conn.executescript(_SCHEMA_SQL)
     _migrate_executions_columns(conn)
     _migrate_routines_columns(conn)
@@ -540,6 +566,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_dedup_columns(conn)
     _migrate_execution_sources_columns(conn)
     _migrate_embeddings_and_links(conn)
+    _migrate_author_identity(conn)
     _migrate_schema_version(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
@@ -661,12 +688,39 @@ def _split_list_field(raw: str | None) -> list[str]:
 
 
 def index_document_facets(conn: sqlite3.Connection, document_id: int,
-                          authors: str | None, categories: str | None) -> None:
-    """Populate the normalized author/category rows for one document."""
-    conn.executemany(
-        "INSERT OR IGNORE INTO document_authors (document_id, author) VALUES (?, ?)",
-        [(document_id, a) for a in _split_list_field(authors)],
-    )
+                          authors: str | None, categories: str | None,
+                          structured=None) -> None:
+    """Populate the normalized author/category rows for one document.
+
+    ``structured`` is the list of ``api_base.Author`` the sweep actually
+    received, when there is one. It is preferred over the comma-joined
+    ``authors`` string because that string **cannot carry an identifier** —
+    which is the whole reason schema 13 exists — and because splitting it back
+    apart is lossy for any name that contains a comma.
+
+    Without it the behaviour is exactly what it was: names only, from the
+    string. Every caller that does not know about authors-with-identifiers keeps
+    working and keeps filling the name column.
+    """
+    if structured:
+        rows = [
+            (document_id, a.name,
+             a.orcid or None,
+             "; ".join(a.affiliations) or None,
+             (a.source_ids[0][0] + ":" + a.source_ids[0][1]) if a.source_ids else None)
+            for a in structured if getattr(a, "name", "")
+        ]
+        conn.executemany(
+            "INSERT OR IGNORE INTO document_authors "
+            "(document_id, author, orcid, affiliation, source_author_id) "
+            "VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+    else:
+        conn.executemany(
+            "INSERT OR IGNORE INTO document_authors (document_id, author) VALUES (?, ?)",
+            [(document_id, a) for a in _split_list_field(authors)],
+        )
     conn.executemany(
         "INSERT OR IGNORE INTO document_categories (document_id, category) VALUES (?, ?)",
         [(document_id, c) for c in _split_list_field(categories)],
@@ -994,6 +1048,32 @@ def _migrate_embeddings_and_links(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_author_identity(conn: sqlite3.Connection) -> None:
+    """Schema 13 — the three author columns, on an existing database.
+
+    **Nothing is backfilled, and that is the point.** Every author row already
+    in a corpus was written from a comma-joined string that never carried an
+    identifier, so there is nothing to recover: leaving the columns NULL says
+    "the source did not tell us", which is true, where any inferred value would
+    be resmon asserting an identity it did not receive. Same rule as schema 11's
+    refusal to backfill ``routines.intent`` from the keywords, and the reason
+    every match this phase records carries the *basis* it was made on.
+
+    Papers already in the corpus therefore match by name only until they are
+    seen again by a source that carries an identifier.
+    """
+    cursor = conn.execute("PRAGMA table_info(document_authors)")
+    existing = {row[1] for row in cursor.fetchall()}
+    for column in ("orcid", "affiliation", "source_author_id"):
+        if column not in existing:
+            conn.execute(f"ALTER TABLE document_authors ADD COLUMN {column} TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_document_authors_orcid "
+        "ON document_authors(orcid) WHERE orcid IS NOT NULL"
+    )
+    conn.commit()
+
+
 def _migrate_schema_version(conn: sqlite3.Connection) -> None:
     """Record / bump the schema_version in app_settings.
 
@@ -1053,7 +1133,8 @@ def insert_document(conn: sqlite3.Connection, doc: dict) -> int | None:
         # Keep the normalized facet tables in step. The FTS index maintains
         # itself through triggers; these two cannot, because they split a
         # comma-joined string that SQL has no clean way to parse.
-        index_document_facets(conn, doc_id, doc.get("authors"), doc.get("categories"))
+        index_document_facets(conn, doc_id, doc.get("authors"), doc.get("categories"),
+                              structured=doc.get("structured_authors"))
     conn.commit()
     return doc_id
 

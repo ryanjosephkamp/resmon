@@ -84,7 +84,8 @@ def test_oapen_query_year_precision_pagination_and_metadata(wire, monkeypatch):
                     (200, [oapen_record("20.500.12657/85023")])])
     rows = api_oapen.OapenClient().search("water AND fire", "2023-06-01", "2024-12-31", 3)
     assert [r.external_id for r in rows] == ["20.500.12657/100210", "20.500.12657/85023"]
-    assert rows[0].authors == ["A. Author", "B. Author"]
+    # 2.1: `authors` is `list[Author]`; the names are `author_names`.
+    assert rows[0].author_names == ["A. Author", "B. Author"]
     assert rows[0].abstract == "CC0 metadata abstract"
     assert rows[0].categories == ["Water"]
     assert rows[0].publication_date == "2024"
@@ -132,7 +133,8 @@ def test_govinfo_query_scoped_key_cursor_and_granule_identity(wire, monkeypatch)
     assert len({r.external_id for r in rows}) == 3
     assert rows[0].external_id == "CFR-2024-title33-vol3/CFR-2024-title33-vol3-sec203-61"
     assert rows[2].external_id == "CFR-2024-title33-vol3"
-    assert rows[0].authors == ["Office of the Federal Register"]
+    # 2.1: `authors` is `list[Author]`; the names are `author_names`.
+    assert rows[0].author_names == ["Office of the Federal Register"]
     assert rows[0].publication_date == "2024-07-01"
     assert rows[0].categories == ["CFR"]
     assert rows[0].url == "https://www.govinfo.gov/app/details/CFR-2024-title33-vol3/CFR-2024-title33-vol3-sec203-61"
