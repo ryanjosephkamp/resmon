@@ -308,3 +308,25 @@ def test_conflicting_orcid_is_visible_counterevidence_and_blocks_affiliation_pro
 def test_matching_orcid_retains_strongest_basis_for_a_mononym():
     found = match([Author("Plato", orcid=ORCID)], WITH_ORCID)
     assert found.basis == "identifier"
+
+
+@pytest.mark.parametrize("basis,positive", [
+    ("name_only", Author("Jane Doe")),
+    ("name+affiliation", Author("Jane Doe", affiliations=("MIT",))),
+    ("identifier", Author("Another Name", orcid=ORCID)),
+])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_other_authors_conflicts_stay_visible_without_supporting_selected_basis(basis, positive, reverse):
+    conflict = Author("Jane Doe", orcid="0000-0001-5109-3700", affiliations=("MIT",))
+    authors = [positive, conflict]
+    if reverse:
+        authors.reverse()
+    prof = profile(identifiers=WITH_ORCID["identifiers"], affiliations=["MIT"])
+    found = match(authors, prof)
+    assert found.basis == basis
+    assert "conflicting ORCID" in found.evidence
+    assert "0000-0001-5109-3700" in found.evidence
+    if basis == "identifier":
+        assert found.matched_author == "Another Name"
+        assert "other compatible-name author counterevidence" in found.evidence
+    assert found.evidence.count("Matching policy 2026-09-07: ") == 1

@@ -184,6 +184,7 @@ def match(authors, profile: dict) -> Optional[Match]:
     profile_affiliations = profile.get("affiliations") or []
 
     best: Optional[Match] = None
+    conflicts: list[tuple[str, str]] = []
     for author in authors or []:
         name = getattr(author, "name", "") or ""
         orcid = getattr(author, "orcid", None)
@@ -193,8 +194,10 @@ def match(authors, profile: dict) -> Optional[Match]:
         #    require the names to agree: a person who publishes under two
         #    spellings is one person, and the ORCID is what says so.
         if profile_orcid and orcid and orcid.upper() == profile_orcid.upper():
-            return Match("identifier", name,
-                         f"ORCID {profile_orcid} on the record equals the profile's")
+            if best is None or best.basis != "identifier":
+                best = Match("identifier", name,
+                             f"ORCID {profile_orcid} on the record equals the profile's")
+            continue
 
         matched_name, note = next(
             ((candidate, note) for candidate in profile_names
@@ -209,8 +212,10 @@ def match(authors, profile: dict) -> Optional[Match]:
         conflict = bool(profile_orcid and orcid and orcid.upper() != profile_orcid.upper())
         ambiguous = len(fold_name(name)) == 1
         if conflict:
-            note += (f"; conflicting ORCID: record {orcid} differs from profile "
-                     f"{profile_orcid}; counterevidence, not identity")
+            counterevidence = (f"conflicting ORCID: record {orcid} differs from profile "
+                               f"{profile_orcid}; counterevidence, not identity")
+            conflicts.append((name, counterevidence))
+            note += "; " + counterevidence
         hit = None if conflict or ambiguous else _affiliation_hit(affiliations, profile_affiliations)
         if hit:
             author_affiliation, profile_affiliation = hit
@@ -226,6 +231,17 @@ def match(authors, profile: dict) -> Optional[Match]:
 
         if best is None or candidate.rank < best.rank:
             best = candidate
+    if best is not None:
+        # Selecting the strongest author must not hide a different compatible
+        # name carrying a conflicting identifier. Keep the positive basis tied
+        # to its selected author; other authors' conflicts do not support it.
+        other_conflicts = [f"'{name}': {detail}" for name, detail in conflicts
+                           if detail not in best.evidence]
+        if other_conflicts:
+            best = Match(best.basis, best.matched_author,
+                         best.evidence[len(EVIDENCE_PREFIX):]
+                         + "; other compatible-name author counterevidence: "
+                         + "; ".join(other_conflicts))
     return best
 
 
