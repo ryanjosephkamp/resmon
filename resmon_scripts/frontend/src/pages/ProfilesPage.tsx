@@ -215,6 +215,45 @@ const ProfilesPage: React.FC = () => {
                   and the editor says so while you are filling it in rather than
                   after you save.
                 </p>
+                <p>
+                  <strong>What that is worth, measured.</strong> On 7 September
+                  2026 four profiles were run against every source resmon can ask
+                  about a person, producing <strong>1,369 matches</strong>, and a
+                  sample of them was graded by hand:
+                </p>
+                <ul>
+                  <li>
+                    <strong>ORCID match — 30 of 30 correct.</strong> Every one
+                    was the right person. This is the basis worth having.
+                  </li>
+                  <li>
+                    <strong>name + affiliation — 9 matches in all 1,369</strong>{' '}
+                    (0.7%). Two were a distinctive name and were correct. The
+                    other seven were one common name at one large institution and
+                    span <strong>at least five different researchers</strong>, all
+                    labelled the same way. The affiliation raises the evidence; it
+                    does not identify a person.
+                  </li>
+                  <li>
+                    <strong>name only — 90% of all matches</strong> (1,237 of
+                    1,369). Of the 30 graded, 17 named somebody whose identity
+                    could be checked: <strong>15 were right, one was wrong, one
+                    could not be settled</strong>. The wrong one was a library
+                    catalogue record that lists a molecular biologist as a
+                    co-author of a book on Coleridge. The other 13 came from
+                    profiles that name no particular person, and there is no
+                    answer to &ldquo;is this them&rdquo; for those — which is
+                    exactly why resmon does not claim one.
+                  </li>
+                </ul>
+                <p>
+                  <strong>6% of all matches came from initials alone</strong>{' '}
+                  (&ldquo;J. Smith&rdquo; against &ldquo;John Smith&rdquo;). Every
+                  one says so in its evidence. In the graded sample the initials
+                  rule was right every time it was checkable — but it is a guess
+                  by construction, and a name-only badge is the honest label for
+                  it.
+                </p>
               </>
             ),
           },
