@@ -51,15 +51,20 @@ __all__ = [
     "JSON_SCHEMA_VERSION",
     "ProfileError",
     "STARTER_DIRECTORY",
+    "AVAILABLE_ENTITY_MODES",
+    "ENTITY_MODES",
     "basis_warning_for",
     "create_profile",
     "delete_profile",
     "get_profile",
     "list_profiles",
     "load_starter_profiles",
+    "matched_document_ids",
     "profile_from_json",
     "profile_to_json",
+    "routines_watching",
     "update_profile",
+    "validate_entity_parameters",
     "validate_profile",
 ]
 
@@ -69,6 +74,17 @@ __all__ = [
 JSON_SCHEMA_VERSION = 1
 
 KINDS = ("person", "institution", "group")
+
+# The three things a routine can watch a profile for (decision 6). One routine,
+# one profile, one mode.
+ENTITY_MODES = ("new_papers", "retractions", "institution_output")
+
+# The two that 2.1a ships. ``institution_output`` needs affiliation matching and
+# institution profiles, which are 2.1b, and it is refused **by name** rather than
+# omitted from the list: a mode the plan has and the build has not is a
+# different fact from a typo, and the person asking for it deserves the first
+# sentence rather than "unknown mode".
+AVAILABLE_ENTITY_MODES = ("new_papers", "retractions")
 
 # The identifier schemes a profile may carry. Each is a *namespace*, and an id
 # is never compared across two of them.
@@ -302,6 +318,100 @@ def delete_profile(conn: sqlite3.Connection, profile_id: int) -> bool:
     cursor = conn.execute("DELETE FROM watch_profiles WHERE id = ?", (profile_id,))
     conn.commit()
     return cursor.rowcount > 0
+
+
+def matched_document_ids(conn: sqlite3.Connection, profile_id: int) -> list[int]:
+    """The corpus ids this profile has matched, oldest match first.
+
+    The ``retractions`` mode's input set. Ordered by ``first_seen_at`` so a
+    bounded check walks the profile's back catalogue rather than re-reading the
+    papers that arrived this morning.
+    """
+    rows = conn.execute(
+        "SELECT document_id FROM watch_profile_matches WHERE profile_id = ? "
+        "ORDER BY first_seen_at ASC, document_id ASC", (profile_id,)).fetchall()
+    return [int(r[0]) for r in rows]
+
+
+def routines_watching(conn: sqlite3.Connection, profile_id: int) -> list[dict]:
+    """Routines whose ``parameters.entity`` points at this profile.
+
+    There is no foreign key from a routine to a profile — a routine's
+    configuration is a JSON blob and always has been — so this reads the blobs.
+    It exists so deleting a profile can *say* what it is about to leave pointing
+    at nothing, rather than leaving a routine to fail on its next fire with the
+    user having had no warning.
+    """
+    out: list[dict] = []
+    for row in conn.execute(
+            "SELECT id, name, is_active, parameters FROM routines").fetchall():
+        try:
+            params = json.loads(row["parameters"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        entity = params.get("entity") if isinstance(params, dict) else None
+        if isinstance(entity, dict) and entity.get("profile_id") == profile_id:
+            out.append({"id": row["id"], "name": row["name"],
+                        "is_active": bool(row["is_active"]),
+                        "mode": entity.get("mode")})
+    return out
+
+
+def validate_entity_parameters(conn: sqlite3.Connection, entity: Any) -> dict:
+    """Refuse a routine that watches a person resmon cannot actually watch.
+
+    A routine's ``parameters`` is an untyped JSON blob, so ``entity`` is the
+    first thing in it resmon validates at the seam rather than at run time. The
+    reason is the failure it prevents: a routine naming a profile id that does
+    not exist would be accepted, scheduled, and then fire every morning into a
+    run that could not do anything — the silent-plausible-wrong shape this app
+    exists to refuse. Every refusal below is a sentence the person can act on.
+    """
+    if not isinstance(entity, dict):
+        raise ProfileError(
+            "A routine's 'entity' must be an object with 'profile_id' and "
+            "'mode' — for example {\"profile_id\": 1, \"mode\": \"new_papers\"}.")
+
+    raw_id = entity.get("profile_id")
+    try:
+        profile_id = int(raw_id)
+    except (TypeError, ValueError):
+        raise ProfileError(
+            "A watch routine needs 'entity.profile_id' — the id of the profile "
+            "it watches.") from None
+
+    profile = get_profile(conn, profile_id)
+    if profile is None:
+        raise ProfileError(
+            f"There is no watch profile with id {profile_id}. Create the "
+            f"profile first, then point the routine at it.")
+
+    mode = str(entity.get("mode") or "").strip()
+    if not mode:
+        raise ProfileError(
+            "A watch routine needs 'entity.mode' — one of: "
+            f"{', '.join(AVAILABLE_ENTITY_MODES)}.")
+    if mode not in ENTITY_MODES:
+        raise ProfileError(
+            f"'{mode}' is not a watch mode. Use one of: "
+            f"{', '.join(AVAILABLE_ENTITY_MODES)}.")
+    if mode not in AVAILABLE_ENTITY_MODES:
+        raise ProfileError(
+            f"'{mode}' is planned and not built yet. It needs affiliation "
+            f"matching and institution profiles, which arrive in resmon 2.1.1. "
+            f"Today a routine can watch a person for "
+            f"{' or '.join(AVAILABLE_ENTITY_MODES)}.")
+
+    # ``person`` only, and said as a fact about what is built rather than as a
+    # rule about what is possible: institution and group profiles can be stored
+    # and exported today, and neither mode above knows how to search for one.
+    if profile["kind"] != "person":
+        raise ProfileError(
+            f"'{profile['display_name']}' is a {profile['kind']} profile, and a "
+            f"routine can only watch a person today. Watching an institution "
+            f"arrives with affiliation matching in resmon 2.1.1.")
+
+    return {"profile_id": profile_id, "mode": mode}
 
 
 def profile_lifecycle_findings(conn: sqlite3.Connection, profile_id: int,

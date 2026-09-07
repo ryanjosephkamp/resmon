@@ -247,6 +247,31 @@ class SweepEngine:
         # sources were queried. Rendered into the report's footer.
         zero_notes: list[dict] = []
         try:
+            # 2.1 — a watch routine names a profile, and a routine that names one
+            # resmon no longer holds must **fail loudly**. The alternative was a
+            # run that quietly searched for nothing every morning: the profile is
+            # gone, so no candidate can match it, so the routine reports zero
+            # results for a reason nobody would ever see. A failed execution with
+            # this sentence on it is visible in Results and in the Monitor.
+            entity_mode = query_params.get("entity_mode")
+            if entity_mode and query_params.get("entity_profile") is None:
+                raise ValueError(
+                    f"The watch profile this routine follows (id "
+                    f"{query_params.get('entity_profile_id')}) no longer exists. "
+                    f"Point the routine at another profile, or delete it."
+                )
+            if entity_mode == "retractions":
+                return self._run_retractions(
+                    exec_id=exec_id,
+                    execution_type=execution_type,
+                    query_params=query_params,
+                    task_log=task_log,
+                    log_path=log_path,
+                    ts_slug=ts_slug,
+                    start_time=start_time,
+                    wall_start=wall_start,
+                )
+
             # 3. Query each repository
             store.emit(exec_id, {
                 "type": "stage",
@@ -1277,6 +1302,134 @@ class SweepEngine:
         if "error" in holder:
             raise holder["error"]
         return holder.get("results", [("", None)] * len(texts))
+
+    def _run_retractions(
+        self,
+        *,
+        exec_id: int,
+        execution_type: str,
+        query_params: dict,
+        task_log,
+        log_path,
+        ts_slug: str,
+        start_time: str,
+        wall_start: float,
+    ) -> dict:
+        """The ``retractions`` watch mode: a lifecycle check, then a join.
+
+        **No new provider, and no new claim.** A watch routine in this mode does
+        exactly two things a user could do by hand: it puts this profile's papers
+        through the ordinary lifecycle check, and it reports the findings
+        ``document_lifecycle`` already holds for them. Every finding keeps the
+        notice link it was recorded from, and the *match* keeps its basis — so a
+        retraction that arrived through a ``name_only`` match is visibly a
+        finding on a paper that merely has this person's name on it. A false
+        retraction attached to a named person is defamatory, which is why this
+        path invents nothing.
+
+        No source is queried and no document is stored, so the corpus is
+        untouched: this is the one execution type that reads and never writes a
+        paper.
+        """
+        from . import lifecycle as lifecycle_module
+        from . import watch_profiles as watch_profiles_module
+        from .report_generator import generate_watch_report
+
+        store = progress_store
+        profile = query_params["entity_profile"]
+        profile_id = int(profile["id"])
+        name = profile.get("display_name") or "this profile"
+
+        store.emit(exec_id, {
+            "type": "stage", "stage": "querying",
+            "message": f"Checking {name}'s papers for retractions...",
+            "timestamp": now_iso(),
+        })
+        update_current_stage(self.db, exec_id, "querying")
+
+        document_ids = watch_profiles_module.matched_document_ids(self.db, profile_id)
+        task_log.log(
+            f"Watch profile '{name}': {len(document_ids)} matched paper(s) in "
+            f"the corpus")
+
+        # Bounded, and bounded by the routine's own `max_results` so the same
+        # dial that limits a keyword sweep limits this. A daily routine over a
+        # large back catalogue walks it: `documents_due` orders never-checked
+        # first, so each run advances rather than re-reading the head.
+        limit = int(query_params.get("max_results") or 100)
+        check = lifecycle_module.check_documents(
+            self.db, document_ids, limit=limit)
+        task_log.log(
+            f"Lifecycle check: {check['checked_now']} of {check['selected']} "
+            f"due paper(s) checked ({check['eligible']} matched in total)")
+        for err in check["errors"]:
+            task_log.log(f"  could not check document {err['document_id']}: "
+                         f"{err['error']}")
+
+        store.emit(exec_id, {
+            "type": "stage", "stage": "reporting",
+            "message": "Collecting findings...",
+            "timestamp": now_iso(),
+        })
+        update_current_stage(self.db, exec_id, "reporting")
+
+        findings = watch_profiles_module.profile_lifecycle_findings(
+            self.db, profile_id, limit=500)
+        task_log.log(findings["coverage_note"])
+
+        report_text = generate_watch_report(profile, findings, check)
+        report_filename = f"report_{execution_type}_{exec_id}_{ts_slug}.md"
+        report_path = REPORTS_DIR / "markdowns" / report_filename
+        save_report(report_text, report_path)
+        task_log.log(f"Report saved: {report_path}")
+        store.emit(exec_id, {
+            "type": "report_saved", "report_path": str(report_path),
+            "timestamp": now_iso(),
+        })
+
+        # "New" is a finding this run was the first to record, read from the
+        # lifecycle row's own `first_seen_at` rather than from the count moving.
+        # A run that checked nothing and a run that found nothing new report the
+        # same zero here, which is why the task log carries the coverage sentence
+        # above and the report repeats it.
+        new_count = sum(
+            1 for f in findings["findings"]
+            if str(f.get("first_seen_at") or "") >= start_time
+        )
+
+        end_time = now_iso()
+        elapsed = time.monotonic() - wall_start
+        update_execution_status(
+            self.db, exec_id, "completed",
+            end_time=end_time,
+            result_count=len(findings["findings"]),
+            new_result_count=new_count,
+            log_path=str(log_path),
+            result_path=str(report_path),
+        )
+        task_log.finalize(status="COMPLETED", stats={
+            "findings": len(findings["findings"]),
+            "new": new_count,
+            "checked_now": check["checked_now"],
+            "matched_documents": findings["matched_documents"],
+        })
+        store.emit(exec_id, {
+            "type": "complete", "status": "completed",
+            "result_count": len(findings["findings"]),
+            "new_count": new_count,
+            "elapsed": round(elapsed, 2),
+            "timestamp": now_iso(),
+        })
+        store.mark_complete(exec_id)
+        self._maybe_auto_backup(exec_id, task_log, report_path, log_path)
+
+        return {
+            "execution_id": exec_id,
+            "result_count": len(findings["findings"]),
+            "new_count": new_count,
+            "report_path": str(report_path),
+            "log_path": str(log_path),
+        }
 
     def _record_entity_matches(self, matches: dict, profile) -> int:
         """Write one row per verified match, keyed to the stored document.

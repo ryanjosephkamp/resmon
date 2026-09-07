@@ -55,6 +55,7 @@ import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Optional, Sequence
 
 from .api_base import RateLimiter, safe_request
 from .database import (
@@ -431,13 +432,44 @@ class ArxivLifecycleProvider:
 
 def documents_due(
     conn: sqlite3.Connection, limit: int = DEFAULT_LIMIT,
+    document_ids: Optional[Sequence[int]] = None,
 ) -> list[dict]:
     """The papers most worth checking next.
 
     Never-checked papers first, then the least recently checked, and only those
     past the re-check interval. That ordering makes the bounded check resumable:
     running it repeatedly walks the corpus rather than re-reading its head.
+
+    ``document_ids`` narrows the same selection to a named set — 2.1's
+    ``retractions`` watch mode checks the papers matched to one profile rather
+    than the whole corpus. It is a *restriction* and never a widening: a paper
+    in the set that is not due is still not checked, so a watch routine firing
+    daily does not re-ask Crossref about the same paper every morning. An empty
+    set selects nothing, which is why the caller must distinguish "this profile
+    has no papers" from "this profile's papers are all up to date" — see
+    ``check_documents``.
     """
+    if document_ids is not None:
+        ids = [int(i) for i in document_ids]
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"""
+            SELECT d.id, d.doi, d.source_repository, d.external_id, d.title,
+                   c.checked_at AS checked_at
+            FROM documents d
+            LEFT JOIN document_lifecycle_checks c ON c.document_id = d.id
+            WHERE d.id IN ({placeholders})
+              AND (c.checked_at IS NULL
+                   OR julianday('now') - julianday(c.checked_at) >= ?)
+            ORDER BY (c.checked_at IS NOT NULL), c.checked_at ASC, d.id ASC
+            LIMIT ?
+            """,
+            (*ids, RECHECK_AFTER_DAYS, int(limit)),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     rows = conn.execute(
         """
         SELECT d.id, d.doi, d.source_repository, d.external_id, d.title,
@@ -553,15 +585,58 @@ def check_corpus(
     )
 
 
+def check_documents(
+    conn: sqlite3.Connection,
+    document_ids: Sequence[int],
+    *,
+    limit: int = DEFAULT_LIMIT,
+    crossref: CrossrefLifecycleProvider | None = None,
+    biorxiv: BiorxivLifecycleProvider | None = None,
+    arxiv: ArxivLifecycleProvider | None = None,
+) -> dict:
+    """Check a named set of papers, one bounded slice, through the same path.
+
+    2.1's ``retractions`` watch mode. It is deliberately ``check_corpus`` with a
+    narrower selection and **no new provider**: the rule that resmon never
+    asserts a lifecycle event on its own authority is at its most load-bearing
+    when the event is attached to a named person, so the retraction claims a
+    watch routine surfaces are exactly the ones ``document_lifecycle`` already
+    holds, recorded from a resolvable notice.
+
+    The two numbers a caller needs are separated here rather than left to be
+    inferred. ``selected`` is how many of the named papers were *due*;
+    ``eligible`` is how many were named at all. Nothing checked because nothing
+    was due and nothing checked because the profile has no papers look identical
+    in a bare zero, and only one of them means "come back later".
+    """
+    crossref = crossref or CrossrefLifecycleProvider()
+    biorxiv = biorxiv or BiorxivLifecycleProvider()
+    arxiv = arxiv or ArxivLifecycleProvider()
+
+    ids = [int(i) for i in document_ids]
+    due = documents_due(conn, limit=limit, document_ids=ids)
+    checked, errors = _check_one_pass(
+        conn, limit, crossref, biorxiv, arxiv, document_ids=ids,
+    )
+    return {
+        "checked_now": checked,
+        "eligible": len(ids),
+        "selected": len(due),
+        "errors": errors,
+        "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
 def _check_one_pass(
     conn: sqlite3.Connection,
     limit: int,
     crossref,
     biorxiv,
     arxiv,
+    document_ids: Optional[Sequence[int]] = None,
 ) -> tuple[int, list[dict]]:
     """One bounded slice: select, fetch in batches, record."""
-    documents = documents_due(conn, limit=limit)
+    documents = documents_due(conn, limit=limit, document_ids=document_ids)
     if not documents:
         return 0, []
 
