@@ -162,7 +162,11 @@ def test_the_pre_approved_tools_are_exactly_the_read_tools():
     assert allowed == {f"mcp__resmon__{n}" for n in mcp_server.READ_TOOLS}
     for name in mcp_server.WRITE_TOOLS:
         assert f"mcp__resmon__{name}" not in allowed, name
-    assert len(allowed) == 15
+    # 15 through contract v2.1; contract v2.2 adds three read tools
+    # (`list_watch_profiles`, `get_watch_profile`, `get_profile_matches`) and one
+    # write tool, and the write one is *not* here — which is the whole assertion
+    # above, stated as a number so a silent drift is a failure.
+    assert len(allowed) == 18
 
 
 def test_the_permission_tool_is_named_and_is_not_a_tool_the_model_has():

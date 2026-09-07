@@ -125,6 +125,15 @@ called out explicitly.
 | `get_analytics` | `view` (overview \| volume \| sources \| keywords \| routine-health \| discovery-lag), `window?` | the requested summary | `GET /api/analytics/{overview,publication-volume,source-contribution,keyword-contribution,routine-health,discovery-lag}` |
 | `get_watchdog_findings` | `include_muted?` | findings, each labeled `broken` or `unusual`, with what-to-do and the thresholds used | `GET /api/watchdog` |
 | `export_references` | `exec_id` or `doc_ids`, `format` (bibtex \| ris \| csv \| json) | the exported text | `POST /api/export/references` |
+| `list_watch_profiles` | `kind?` | id, kind, name, aliases, identifier schemes, ORCID, affiliations, and `basis_warning` where the profile has none | `GET /api/profiles` |
+| `get_watch_profile` | `profile_id` | the full profile, plus its match total and a per-basis count | `GET /api/profiles/{id}` + `GET /api/profiles/{id}/matches?limit=1` |
+| `get_profile_matches` | `profile_id`, `limit=25`, `offset=0` | the matched papers, **each with its `basis`, matched author and evidence**, plus `by_basis` and a `what_a_basis_means` glossary | `GET /api/profiles/{id}/matches` |
+
+**`get_profile_matches` has no argument that removes the basis, and there will not be one.**
+A list of a person's papers with no basis is exactly the claim resmon refuses to make, and a
+harness reading these tools is one paste away from "here are Jane Doe's retracted papers" —
+a sentence that is false and defamatory for a `name_only` match. The glossary travels with
+every answer, empty ones included.
 
 `explain_match` and `get_watchdog_findings` carry resmon's refusals with them: the
 watchdog's own list of what it cannot judge, and match transparency's statement that most
@@ -137,7 +146,8 @@ would make an honest product dishonest through an integration.
 | Tool | Arguments | Returns | Backed by |
 |---|---|---|---|
 | `run_sweep` | `query`, `sources`, `date_from?`, `date_to?`, `max_results?`, `ai_enabled?` | `exec_id`, immediately | `POST /api/search/sweep` |
-| `create_routine` | `name`, `keywords`, `sources`, `schedule`, optional `intent`, plus optional notification and AI settings | the created routine | `POST /api/routines` |
+| `create_routine` | `name`, `keywords`, `sources`, `schedule`, optional `intent`, optional `entity` (`profile_id` + `mode`), plus optional notification and AI settings | the created routine, plus `entity_warning` where none of the named sources can be asked about an author | `POST /api/routines` |
+| `create_watch_profile` | `name`, optional `orcid`, `orcid_cited`, `aliases`, `affiliations`, `field_hints` | the created profile, with `basis_warning` **lifted to the top of the answer** when it has no identifier | `POST /api/profiles` |
 | `run_routine` | `routine_id` | `exec_id`, immediately | **needs a new endpoint — see below** |
 | `activate_routine` | `routine_id` | `id`, `is_active: true` | `POST /api/routines/{id}/activate` |
 | `deactivate_routine` | `routine_id` | `id`, `is_active: false` | `POST /api/routines/{id}/deactivate` |
@@ -202,6 +212,49 @@ Listed so the omissions are visible and arguable rather than silently missing.
 ---
 
 ## Amendments
+
+### v2.2 — 7 September 2026, phase 2.1a′
+
+Additive: four tools arrive, one optional argument arrives, nothing is removed and no
+return shape moves.
+
+**The four tools** are `list_watch_profiles`, `get_watch_profile`, `get_profile_matches`
+(read) and `create_watch_profile` (write, confirm-gated like every other write).
+`create_routine` gains an optional `entity` object — `profile_id` and `mode`, the mode
+being `new_papers` or `retractions` — which makes a routine follow a person rather than a
+set of words.
+
+**The one rule this amendment exists to carry across the seam.** An author match is a
+string match unless the source gave an identifier, and the product says so. Inside the app
+that is a badge; through a tool surface it has to be a field, because a harness renders its
+own interface and cannot be handed a colour. So:
+
+- every row `get_profile_matches` returns carries `basis`, `matched_author` and `evidence`,
+  and there is no argument that omits them;
+- every answer carries `what_a_basis_means`, including an empty one, so a caller reading
+  the shape before there is data still learns what the field means;
+- `create_watch_profile` lifts `basis_warning` out of the created record and into the top
+  of its own answer, and repeats it inside `detail`. The API already returns it on every
+  read — this is placement, and placement is the whole of whether a caller repeats it;
+- `list_watch_profiles` keeps `basis_warning` on every row rather than only on the detail
+  view, because a list is what a harness summarises from.
+
+**`entity` is passed to the backend unexamined.** `POST /api/routines` validates the
+profile id, the mode and the profile's kind at the seam and answers a bad one with a 400,
+which this server surfaces as `invalid_argument`. Two validators for one rule is how the
+two drift apart, and the API's is the one that also governs the app's own routine editor.
+`entity_warning` — "none of these sources can be asked about an author" — is passed through
+into `detail` for the same reason: a watch routine that will find nothing for ever is
+exactly the thing a caller must repeat.
+
+**`institution_output` is deliberately not in the mode enum.** It is in the plan, it needs
+affiliation matching, and it arrives in 2.1.1. A tool schema offering a mode the backend
+refuses would be a promise the app does not keep.
+
+**25 tools, 45 distinct method-and-path pairs** — the four new ones are `GET /api/profiles`,
+`GET /api/profiles/{id}`, `GET /api/profiles/{id}/matches` and `POST /api/profiles`. All 45
+resolve; `test_mcp_routes_resolve.py` checks it on every run, and every one of the four new
+tools is called against a real backend in `test_mcp_live_surface.py`.
 
 ### v2.1 — 6 September 2026, phase 2.0b
 
@@ -334,7 +387,7 @@ section describes. The three corrections here still stand.)*
 
 ## Versioning
 
-This document is contract **v2.1**. The server reports it in its MCP initialisation
+This document is contract **v2.2**. The server reports it in its MCP initialisation
 response (`mcp_server.CONTRACT_VERSION`). Additive changes — new tools, new optional arguments — bump the minor version and
 do not require a new contract document. Removing a tool, renaming an argument, or changing
 a return shape is a **breaking** change: new major version, new document, and the 2.0

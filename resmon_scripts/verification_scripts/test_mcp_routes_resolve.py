@@ -59,9 +59,20 @@ TOOL_ARGS: dict[str, list[dict]] = {
     "get_watchdog_findings": [{}],
     "export_references": [{"exec_id": 1, "format": "bibtex"},
                           {"doc_ids": [1], "format": "bibtex"}],
+    # v2.2. `get_watch_profile` sends two requests, and both are listed by
+    # giving it one entry -- the recorder collects every call the tool makes,
+    # which is why the double answers 200 rather than 404.
+    "list_watch_profiles": [{}, {"kind": "person"}],
+    "get_watch_profile": [{"profile_id": 1}],
+    "get_profile_matches": [{"profile_id": 1}],
+    "create_watch_profile": [{"name": "Jane Doe"},
+                             {"name": "Jane Doe", "orcid": "0000-0002-1825-0097"}],
     "run_sweep": [{"query": "x", "sources": ["arxiv"]}],
     "create_routine": [{"name": "n", "keywords": ["a"], "sources": ["arxiv"],
-                        "schedule": "0 8 * * *"}],
+                        "schedule": "0 8 * * *"},
+                       {"name": "n", "keywords": ["a"], "sources": ["arxiv"],
+                        "schedule": "0 8 * * *",
+                        "entity": {"profile_id": 1, "mode": "new_papers"}}],
     "run_routine": [{"routine_id": 1}],
     "activate_routine": [{"routine_id": 1}],
     "deactivate_routine": [{"routine_id": 1}],
@@ -133,9 +144,9 @@ def test_the_contract_states_the_right_number_of_pairs():
     the thing to correct.
     """
     pairs = sorted(set(_calls()))
-    assert len(pairs) == 41, (
-        f"{len(pairs)} distinct method-and-path pairs, and the v2.1 amendment "
-        f"says 41:\n" + "\n".join(f"  {m} {p}" for m, p in pairs)
+    assert len(pairs) == 45, (
+        f"{len(pairs)} distinct method-and-path pairs, and the v2.2 amendment "
+        f"says 45:\n" + "\n".join(f"  {m} {p}" for m, p in pairs)
     )
 
 

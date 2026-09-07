@@ -116,16 +116,16 @@ def test_tools_list_matches_the_contract():
         "get_analytics", "get_watchdog_findings", "export_references",
         "run_sweep", "create_routine", "run_routine",
         "activate_routine", "deactivate_routine", "update_settings",
+        "list_watch_profiles", "get_watch_profile", "get_profile_matches",
+        "create_watch_profile",
     }
-    # 18 through contract v1.3. v2.0 (phase 2.0a) adds the three above and marks
-    # every write tool ``requires_confirmation`` — a major bump, because a
-    # caller that ignores that flag is running writes the contract says a person
-    # approves first.
-    assert len(names) == 21
-    # v2.1 (phase 2.0b) is additive and adds no tool: ``update_settings``'s
-    # group allowlist gains ``assistant``, a group v2.0 shipped unreachable and
-    # undecided. The count is unchanged and the version is not.
-    assert mcp.CONTRACT_VERSION == "2.1"
+    # 18 through contract v1.3. v2.0 (phase 2.0a) adds three and marks every
+    # write tool ``requires_confirmation`` — a major bump, because a caller that
+    # ignores that flag is running writes the contract says a person approves
+    # first. v2.1 adds none. v2.2 (phase 2.1a′) adds the four watch-profile
+    # tools, additively.
+    assert len(names) == 25
+    assert mcp.CONTRACT_VERSION == "2.2"
 
 
 def test_every_tool_declares_whether_it_needs_confirmation():
@@ -146,6 +146,9 @@ def test_every_tool_declares_whether_it_needs_confirmation():
     assert flagged == {
         "run_sweep", "create_routine", "run_routine",
         "activate_routine", "deactivate_routine", "update_settings",
+        # v2.2. Creating a profile writes a row and is confirm-gated like every
+        # other write; the three reads beside it are not.
+        "create_watch_profile",
     }
     assert mcp.READ_TOOLS | mcp.WRITE_TOOLS == {t["name"] for t in mcp.TOOLS}
     assert not (mcp.READ_TOOLS & mcp.WRITE_TOOLS)
@@ -204,6 +207,12 @@ _READ_TOOL_ARGS: dict[str, list[dict]] = {
     "get_watchdog_findings": [{}],
     "export_references": [{"exec_id": 1, "format": "bibtex"},
                           {"doc_ids": [1, 2], "format": "bibtex"}],
+    # v2.2. ``get_watch_profile`` deliberately issues two GETs — the profile and
+    # its match counts — and both are recorded; the assertion below is about the
+    # *methods*, so a second GET is not an exception to it.
+    "list_watch_profiles": [{}],
+    "get_watch_profile": [{"profile_id": 1}],
+    "get_profile_matches": [{"profile_id": 1}],
 }
 
 
