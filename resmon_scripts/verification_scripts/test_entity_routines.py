@@ -452,6 +452,45 @@ def test_a_retractions_report_never_says_nothing_has_happened(fired):
     assert "have been through a lifecycle check" in report
 
 
+def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeypatch):
+    """The Cancel button does something on this branch, and the log says what.
+
+    Everything before the checkpoint reads the local database; everything after
+    it is one bounded lifecycle pass that cannot be interrupted part-way, the
+    same shape `check_corpus` has. A cancel raised before the pass must stop the
+    run there rather than making the request anyway.
+    """
+    checked: list = []
+    from implementation_scripts import lifecycle as lifecycle_real  # noqa: PLC0415
+    monkeypatch.setattr(
+        lifecycle_real, "check_documents",
+        lambda *a, **k: checked.append(True) or {"checked_now": 0, "eligible": 0,
+                                                 "selected": 0, "errors": [],
+                                                 "checked_at": ""})
+
+    profile = _profile_over_api(fired, identifiers={"orcid": {"value": ORCID}})
+    routine = fired.post("/api/routines", json=_routine_body(
+        profile["id"], mode="retractions", repositories=["fixture"])).json()
+
+    from implementation_scripts.progress import progress_store  # noqa: PLC0415
+    original = progress_store.should_cancel
+    monkeypatch.setattr(progress_store, "should_cancel", lambda _exec_id: True)
+    try:
+        fired.post(f"/api/routines/{routine['id']}/run")
+    finally:
+        monkeypatch.setattr(progress_store, "should_cancel", original)
+
+    assert checked == [], "the run asked a provider after being cancelled"
+
+    conn = _conn(fired)
+    try:
+        status = conn.execute("SELECT status FROM executions "
+                              "ORDER BY id DESC LIMIT 1").fetchone()["status"]
+    finally:
+        resmon_mod._close_db(conn)
+    assert status == "cancelled"
+
+
 # ---------------------------------------------------------------------------
 # The lifecycle restriction the retractions mode rests on
 # ---------------------------------------------------------------------------

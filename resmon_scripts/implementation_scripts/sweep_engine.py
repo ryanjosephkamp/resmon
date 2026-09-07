@@ -1358,6 +1358,19 @@ class SweepEngine:
             f"Watch profile '{name}': {len(document_ids)} matched paper(s) in "
             f"the corpus")
 
+        # The one cancellation checkpoint this branch has, and it is honestly
+        # placed: everything above reads the local database, and everything below
+        # is a single bounded lifecycle pass that makes batched HTTP calls and
+        # cannot be interrupted part-way. `check_corpus` has the same shape.
+        # Cancelling after this point takes effect at the end of the pass, and
+        # the log says so rather than leaving a Cancel button that looks broken.
+        if store.should_cancel(exec_id):
+            return self._handle_cancellation(exec_id, task_log, [], wall_start)
+        task_log.log(
+            "Checking now. A cancel from here takes effect when this pass ends: "
+            "the lifecycle check runs in one bounded batch and is not "
+            "interruptible part-way.")
+
         # Bounded, and bounded by the routine's own `max_results` so the same
         # dial that limits a keyword sweep limits this. A daily routine over a
         # large back catalogue walks it: `documents_due` orders never-checked
