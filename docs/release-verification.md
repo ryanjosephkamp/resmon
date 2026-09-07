@@ -560,3 +560,173 @@ routine-before-first-Dashboard sequence, successful assistant answers/tool calls
 write approval/denial behavior, cost, video playback in the published app,
 source searches, summaries, notifications, email, backup, updating, a full x64
 walk, or Windows/Linux execution.
+
+## v2.0.2 run
+
+### Subject and launch conditions
+
+Observed on **2026-09-07**, macOS **26.3.1 (a)**, build **25D771280a**, arm64
+host. This is Delegation 12's bounded recheck of the assistant on
+[the published v2.0.2 release](https://github.com/ryanjosephkamp/resmon/releases/tag/v2.0.2),
+published at `2026-09-07T05:30:39Z`. Before verification, the clean Codex checkout
+was fetched from `upstream` and branch `codex/verify-v2.0.2` was created from
+`upstream/main`, commit `4551b52d40d4fbb0f4dadcbc228263c0808b8306` (PR #109).
+The checkout had been left on `fix/assistant-silent-in-packaged-app`, rather
+than the `main` named in the brief; no uncommitted changes needed preservation.
+
+All seven assets were downloaded with `gh release download v2.0.2 --repo
+ryanjosephkamp/resmon --dir /tmp/resmon-verify-v2.0.2-6qify9/assets`. The arm64
+DMG was mounted read-only and its app copied with `ditto` to that scratch tree,
+outside both checkouts. The published `app.asar` was inspected to confirm the
+state-directory override and daemon-lock lookup. LaunchServices used:
+
+```sh
+open -n -a /tmp/resmon-verify-v2.0.2-6qify9/arm64/resmon.app \
+  --env RESMON_STATE_DIR=/tmp/resmon-verify-v2.0.2-6qify9/arm64/state \
+  --stdout /tmp/resmon-verify-v2.0.2-6qify9/evidence/arm64-stdout.log \
+  --stderr /tmp/resmon-verify-v2.0.2-6qify9/evidence/arm64-stderr.log \
+  --args --user-data-dir=/tmp/resmon-verify-v2.0.2-6qify9/arm64/electron-user-data
+```
+
+State and Chromium profile were fresh. Neither `RESMON_PYTHON` nor
+`RESMON_E2E` was supplied; the published app used its bundled Python. About App
+displayed **2.0.2** (`02-published-version.png`). Native accessibility actions
+operated the actual window. This was an isolated LaunchServices launch, not a
+normal launch against the existing user's database. OS keyring and CLI login
+were not isolated or changed. The DMG and copied app root had provenance but no
+quarantine attribute; no warning appeared. Quarantined Gatekeeper launch remains
+unverified, and no attributes or security settings were changed.
+
+### Asset inventory against v2.0.1
+
+All **7/7** names matched the v2.0.1 matrix after substituting the version.
+Downloaded byte sizes and computed SHA-256 digests matched v2.0.2 release
+metadata **7/7**. Sizes below are bytes; the final column is the actual download.
+
+| Asset | v2.0.1 bytes | v2.0.2 release bytes | Downloaded bytes |
+|---|---:|---:|---:|
+| `latest-linux.yml` | 378 | 378 | 378 |
+| `latest.yml` | 349 | 349 | 349 |
+| `resmon-2.0.2-arm64.dmg` | 221,270,814 | 221,298,582 | 221,298,582 |
+| `resmon-2.0.2-setup-x64.exe` | 194,928,665 | 194,935,371 | 194,935,371 |
+| `resmon-2.0.2-setup-x64.exe.blockmap` | 204,366 | 204,542 | 204,542 |
+| `resmon-2.0.2-x64.dmg` | 223,212,602 | 223,223,188 | 223,223,188 |
+| `resmon-2.0.2-x86_64.AppImage` | 250,853,419 | 250,866,052 | 250,866,052 |
+
+The arm64 DMG SHA-256 was
+`f22567df8531501489e233b869e0a24a61bc98990ada378456d8b86fa6d56903`.
+All seven digests are in the attached asset receipt. Only arm64 was launched
+for this recheck; asset agreement does not establish other platforms' behavior.
+
+### Assistant outcome — P1 established for these two turns
+
+The direct Routines form created `Release verification v2.0.2 inactive routine`
+(routine **1**), with arXiv, keyword `release verification`, and First of month
+cron `0 0 1 * *`. As in v2.0.1, the form initially created it **Active**. It was
+immediately deactivated through the direct routine control before either
+assistant request. AI, email and notification flags were off
+(`03-routine-inactive-before.png`). No assistant card was approved.
+
+**Read.** The exact question was `what sources do I have?`. The panel answered
+through **`list_sources({})`**, with no approval card. It reported 27 sources,
+identified CORE, GovInfo, NASA ADS and Springer Nature as requiring missing keys,
+and distinguished PubMed and Semantic Scholar's optional keys. The stored tool
+result independently contains 27 source records and those key-status fields.
+The question and completed-answer database timestamps were `07:10:22` and
+`07:10:31` UTC, nine seconds apart; this is second-resolution persisted timing,
+not a measurement of the first streamed token. The displayed cost was
+**`$0.1297`**, with `cost_usd=0.1296855` in the stored message.
+
+`05-readonly-outcome.png`, `06-readonly-tool-call.png` and
+`07-readonly-answer-top.png` show the answer, expanded empty call arguments and
+cost. The full answer and returned data are preserved in the conversation
+receipt. The answer's phrase “usable without a key” describes catalog/key
+information: **no source search or upstream-health check was performed**.
+The answer's Markdown table and emphasis markers appeared as literal text in
+the panel; the Dashboard's initial onboarding text still said 25 sources while
+this tool returned 27. These are recorded observations, not repaired here.
+
+**Write and denial.** The next request in the same conversation was
+`Please activate the routine named Release verification v2.0.2 inactive routine.`
+The assistant called `list_routines({})`, then requested
+`activate_routine({"routine_id":1})`. A card appeared reading **“Put routine 1
+on its schedule”**, showing those exact arguments, **Allow**, **Deny**, and
+“Nothing runs until you answer. resmon is holding the assistant here.”
+`08-activation-card.png` captures the full card before the decision.
+
+**Deny was clicked.** The activation tool then showed a failure mark, and its
+persisted result was `is_error=true`, `The user did not allow this.` The final
+answer said **“Not activated — the confirmation was declined.”** and named the
+routine as still inactive (`09-activation-denied.png`, `10-denial-answer.png`).
+The displayed cost was **`$0.1058`**, with a stored value approximately
+`0.1058115`. These are the application's reported costs, not independently
+verified billing amounts.
+
+The panel was closed and Routines reloaded with Cmd-R. The row remained
+**Inactive**, with no last execution (`11-routine-inactive-after-reload.png`).
+A read-only connection to this run's isolated SQLite database confirmed
+`is_active=0` and **zero executions**. This establishes the requested card and
+denial behavior for routine 1; it does not establish approval/execution behavior.
+
+Both turns used the real `/Users/noir/.local/bin/claude`, with child PIDs
+**21105** and **21227** under bundled backend PID **20978**. To avoid losing
+diagnostics to the new 30-second startup deadline, a watcher captured `ps eww`,
+`lsof -nP -p <pid>`, and a two-second `sample` about seven seconds into each
+child's lifetime. Both turns succeeded, so those samples are **not evidence
+of a blocked CLI or a diagnosis of v2.0.1**. Raw diagnostics remain private;
+only process/capture receipts are included in public evidence. No runtime,
+authentication, environment or application repair was introduced to obtain
+these outcomes.
+
+### Isolation and cleanup — P2
+
+| App PID | Bundled backend PID | Backend port | Renderer port |
+|---:|---:|---:|---:|
+| 20972 | 20978 | 62191 | 62196 |
+
+The task app was quit, all four recorded app/backend/CLI PIDs were absent,
+and the task-mounted DMG was detached. Before/after
+`lsof -nP -iTCP:8742 -sTCP:LISTEN` snapshots were byte-for-byte identical:
+Python PID **1150**, FD **12u**, socket **0xaa26ce450f50da0e**,
+**127.0.0.1:8742**. No task launch bound or attached to 8742 and no HTTP probe
+was made to it. **This establishes unchanged listener identity at two times,
+not HTTP health, database invariance or uninterrupted service.**
+
+The explicitly named delegation brief was read; no other file in
+`~/Documents/resmon-upgrade` was accessed, and no file there was written.
+The pre-existing installed application and daemon were left running.
+
+### Repository checks, distinct from published-app evidence
+
+| Command | Observed result |
+|---|---|
+| `.venv/bin/python -m pytest -q` | **1,549 passed, 2 skipped, 74 deselected**, 150.04 s. |
+| `npm run typecheck` | Exit 0. |
+| `npm test` | **275 passed, 32 suites passed**, 10.561 s. |
+| `npm run build` | Exit 0; renderer and Electron builds completed. |
+| `RESMON_E2E_SCREENSHOT_DIR=/tmp/resmon-verify-v2.0.2-6qify9/e2e-screenshots npm run e2e` | **71 passed, 2 skipped**, 3.7 min on the macOS display. |
+
+Backend tests ran at the checkout root and frontend commands in
+`resmon_scripts/frontend`. E2E's packaged walk skipped because the existing
+local bundle is **1.8.4**, not 2.0.2; its no-CLI case skipped because Codex is
+installed. It also printed **`P13c MONITOR NOT VERIFIED`** because a no-HTTP
+execution ended before the Monitor poll adopted it. The hotfix's fake-CLI
+first-event and silent-startup checks passed, the latter in 30.6 seconds.
+Those local tests are separate from the real CLI/published DMG observations
+above. The **74 live-network backend tests were not run**.
+
+### Evidence and scope
+
+The PR attachments contain `resmon-v2.0.2-assistant-evidence.zip` and inline
+previews. The archive contains **11 native-window screenshots**, their SHA-256
+manifest, both release inventories, downloaded-asset verification, the complete
+two-turn assistant record, the reloaded routine-state receipt, listener/process
+receipts and test logs. Screenshots were reviewed before publication and are
+not committed. Evidence is retained outside the repository at
+`~/Documents/resmon-codex/release-evidence/v2.0.2-20260907/`.
+
+The sole repository change is this document. Delegation 12's explicit arm64
+assistant recheck is the scope; this run does not repeat Delegation 11's full
+route/onboarding/x64 walk or verify Windows/Linux, updating, source health,
+searches, summaries, notifications, email, backup or quarantined Gatekeeper
+launch. No application fix, dependency change or release judgment is included.
