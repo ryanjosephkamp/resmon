@@ -5082,6 +5082,26 @@ def import_watch_profiles(body: ProfileImportBody):
         _close_db(conn)
 
 
+@app.get("/api/profiles/{profile_id}/lifecycle")
+def get_watch_profile_lifecycle(profile_id: int, limit: int = 100):
+    """Retractions and other lifecycle findings on this profile's papers.
+
+    A **join** over findings resmon already holds, never a new claim: the rule
+    that resmon never asserts a lifecycle event on its own authority is at its
+    most load-bearing here, because a false retraction attached to a named
+    person is defamatory. Every finding carries its notice link and every match
+    carries its basis, so a finding on a `name_only` match is visibly a finding
+    on a paper that merely has this name on it.
+    """
+    conn = _get_db()
+    try:
+        if not watch_profiles.get_profile(conn, profile_id):
+            raise HTTPException(404, "That profile does not exist.")
+        return watch_profiles.profile_lifecycle_findings(conn, profile_id, limit)
+    finally:
+        _close_db(conn)
+
+
 @app.get("/api/profiles/{profile_id}/matches")
 def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0):
     """Papers matched to this profile, **each with the basis it was matched on**.

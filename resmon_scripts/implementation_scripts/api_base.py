@@ -20,6 +20,37 @@ logger = logging.getLogger(__name__)
 _TRANSIENT_CODES = {429, 500, 502, 503, 504}
 
 
+def _entity_capability(slug: str):
+    """The catalog's ``entity_search`` for *slug*, or None."""
+    if not slug:
+        return None
+    from .repo_catalog import REPOSITORY_CATALOG  # noqa: PLC0415
+
+    for entry in REPOSITORY_CATALOG:
+        if entry.slug == slug:
+            return entry.entity_search
+    return None
+
+
+def _profile_query_name(profile) -> str:
+    """The name to ask a source about.
+
+    The canonical name, not every alias: a source's author search takes one
+    string, and OR-ing the aliases together would turn a person query into a
+    keyword query on several sources. **Aliases still matter** — they are what
+    local verification matches against, so a paper filed under an alias is kept
+    when the source returns it for the canonical name, and is missed only when
+    the source itself indexes solely the alias. Recorded as a limitation rather
+    than papered over.
+    """
+    if isinstance(profile, dict):
+        names = profile.get("names") or []
+        if names:
+            return str(names[0].get("value") or "").strip()
+        return str(profile.get("display_name") or "").strip()
+    return str(profile or "").strip()
+
+
 class EntityUnsupported(RuntimeError):
     """This source has no way to be asked about a person.
 
@@ -201,8 +232,41 @@ class BaseAPIClient(ABC):
         is decision 6, and it is the reason this method's docstring says
         "candidates" rather than "papers by this person".
         """
-        raise EntityUnsupported(
-            f"{self.get_name()} cannot be asked about a person.")
+        capability = _entity_capability(getattr(self, "_slug", "") or self._catalog_slug())
+        if capability is None or capability.author_query != "field":
+            raise EntityUnsupported(
+                f"{self.get_name()} cannot be asked about a person by resmon.")
+
+        # The generic implementation, and it covers thirteen of the twenty
+        # sources that can be asked: where the author query is a **field inside
+        # the query string**, asking is exactly the ordinary search with a
+        # different string, and the catalog already records the syntax. A
+        # per-client override for each of those would be thirteen copies of one
+        # line, and each copy a place for the syntax to drift from its citation.
+        #
+        # A source asked through a *parameter* or a separate *endpoint* cannot
+        # come through here, because `search()` has nowhere to put it — those
+        # clients override this method.
+        name = _profile_query_name(profile)
+        if not name:
+            raise EntityUnsupported(
+                "That profile has no name to search with.")
+        return self.search(capability.author_syntax.format(name=name),
+                           date_from, date_to, max_results, **kwargs)
+
+    def _catalog_slug(self) -> str:
+        """This client's catalog slug, from the registry rather than a constant.
+
+        Clients do not carry their slug; the registry maps slug to class. Read
+        once, here, so the generic ``search_entity`` above can find the
+        capability that names its own syntax.
+        """
+        from .api_registry import _REGISTRY  # noqa: PLC0415
+
+        for slug, cls in _REGISTRY.items():
+            if isinstance(self, cls):
+                return slug
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +452,11 @@ class SearchOutcome:
 
     # -- written by clients, for what the status code cannot say -----------
 
+    def note_unanswerable_entity(self, why: str) -> None:
+        """This source was not asked about a person. See ``note_entity_unsupported``."""
+        self.explicit_reason = "entity_unsupported"
+        self.explicit_detail = {"detail": why}
+
     def note_unanswerable(self, why: str) -> None:
         """The source cannot answer this window at all, and was not asked."""
         self.explicit_reason = "window_unanswerable"
@@ -434,6 +503,21 @@ def search_outcome() -> SearchOutcome:
 
 def reset_search_outcome() -> None:
     search_outcome().reset()
+
+
+def note_entity_unsupported(why: str = "no_author_query") -> None:
+    """This source was not asked about a person, and it says which kind of not.
+
+    ``no_author_query`` — resmon checked and the source has none.
+    ``unestablished`` — resmon has not been able to check, because the source
+    needs a key this machine does not hold or its endpoint was down.
+
+    Two facts, and only the first is about the source. Recorded through the same
+    outcome channel every other zero reason uses, so it reaches the task log,
+    the monitor, the results row, the search record, the report and the MCP
+    surface with no per-caller edit.
+    """
+    search_outcome().note_unanswerable_entity(why)
 
 
 def note_unanswerable(why: str) -> None:

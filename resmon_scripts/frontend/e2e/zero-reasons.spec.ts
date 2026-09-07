@@ -342,7 +342,7 @@ test('P13c: not_recorded — resmon did not observe why, and says exactly that',
   }
 });
 
-test('P13d: the nine reasons, and which of them a real browser has now seen', async () => {
+test('P13d: the ten reasons, and which of them a real browser has now seen', async () => {
   // The denominator, taken from the code rather than counted here: a reason
   // added to `zero_reason.ZERO_REASONS` with no real-browser case shows up in
   // this list rather than being quietly absent.
@@ -364,14 +364,22 @@ test('P13d: the nine reasons, and which of them a real browser has now seen', as
     total: all.length, realBrowser: inRealBrowser, jsdomOnly,
   }));
 
-  expect(all.length).toBe(9);
+  expect(all.length).toBe(10);
   for (const reason of inRealBrowser) expect(all).toContain(reason);
-  // Named, not hidden: these five reach the renderer only through jsdom
+  // Named, not hidden: these six reach the renderer only through jsdom
   // fixtures. `missing_key` and `retired` need configuration state,
   // `rights_filtered` and `records_unusable` need a live source that really
   // drops records on rights, and `parse_failure` needs an upstream that
   // answers 200 with something unreadable.
+  //
+  // `entity_unsupported` is 2.1's, and it is here for a different reason from
+  // the other five: it is not hard to reach, it is **unreachable from the
+  // interface** — a watch routine is what produces it and the Profiles page and
+  // the routine's Watch mode were not built. This test is what refused to let a
+  // tenth reason be added without saying so, which is the whole point of taking
+  // the denominator from `ZERO_REASONS` rather than counting here.
   expect(jsdomOnly.sort()).toEqual([
-    'missing_key', 'parse_failure', 'records_unusable', 'retired', 'rights_filtered',
+    'entity_unsupported', 'missing_key', 'parse_failure', 'records_unusable',
+    'retired', 'rights_filtered',
   ]);
 });

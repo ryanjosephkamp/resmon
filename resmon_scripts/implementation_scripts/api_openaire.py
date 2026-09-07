@@ -38,6 +38,27 @@ class OpenAireClient(BaseAPIClient):
     def get_name(self) -> str:
         return "OpenAIRE"
 
+    def search_entity(
+        self,
+        profile,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        max_results: int = 100,
+        **kwargs,
+    ) -> list[NormalizedResult]:
+        """Ask this source about a person through its own **parameter**.
+
+        Not the generic implementation in ``BaseAPIClient``, which formats a
+        field into the query string: this source takes a separate parameter, and
+        ``search()`` is where the parameter is built.
+        """
+        from .api_base import EntityUnsupported, _profile_query_name  # noqa: PLC0415
+
+        name = _profile_query_name(profile)
+        if not name:
+            raise EntityUnsupported("That profile has no name to search with.")
+        return self.search("", date_from, date_to, max_results, author=name, **kwargs)
+
     def search(
         self,
         query: str,
@@ -61,6 +82,14 @@ class OpenAireClient(BaseAPIClient):
                 "page": page,
                 "format": "json",
             }
+            # 2.1 — the source's own `author` parameter, established
+            # 2026-09-06. The keyword query is dropped: ANDing text onto a
+            # person query hides most of their work.
+            author = kwargs.get("author")
+            if author:
+                params.pop("keywords", None)
+                params["author"] = author
+
             if date_from:
                 params["fromDateAccepted"] = date_from
             if date_to:

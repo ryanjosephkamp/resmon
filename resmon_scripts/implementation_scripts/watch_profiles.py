@@ -304,6 +304,61 @@ def delete_profile(conn: sqlite3.Connection, profile_id: int) -> bool:
     return cursor.rowcount > 0
 
 
+def profile_lifecycle_findings(conn: sqlite3.Connection, profile_id: int,
+                               limit: int = 100) -> dict:
+    """Lifecycle findings on the papers matched to this profile.
+
+    **A join, not a provider.** "Retractions by that person" is
+    ``document_lifecycle`` — which resmon already fills, and only ever from a
+    resolvable notice — restricted to the documents this profile matched. There
+    is no new source of retraction claims here and there must not be: the rule
+    in ``lifecycle.py`` is that resmon never asserts a lifecycle event on its
+    own authority, and a watch routine that inferred one from a name match would
+    break it in the worst possible place. A false retraction flag is defamatory.
+
+    Every finding therefore carries its notice link, unchanged, and the *match*
+    carries its basis — so a finding on a ``name_only`` match is visibly a
+    finding on a paper that merely has this name on it.
+
+    ``checked`` is the coverage half: a profile whose papers have never been
+    through a lifecycle check has **no findings because nothing looked**, which
+    is a different fact from having none, and the two are reported separately.
+    """
+    rows = conn.execute(
+        "SELECT l.document_id, l.kind, l.severity, l.label, l.notice_doi, "
+        "       l.notice_url, l.notice_date, l.provider, l.provider_source, "
+        "       l.first_seen_at, d.title, d.doi, d.source_repository, "
+        "       m.basis, m.matched_author "
+        "  FROM document_lifecycle l "
+        "  JOIN watch_profile_matches m ON m.document_id = l.document_id "
+        "  JOIN documents d ON d.id = l.document_id "
+        " WHERE m.profile_id = ? "
+        " ORDER BY l.severity = 'critical' DESC, l.first_seen_at DESC "
+        " LIMIT ?",
+        (profile_id, max(1, min(int(limit), 500))),
+    ).fetchall()
+
+    matched = conn.execute(
+        "SELECT COUNT(*) FROM watch_profile_matches WHERE profile_id = ?",
+        (profile_id,)).fetchone()[0]
+    checked = conn.execute(
+        "SELECT COUNT(*) FROM watch_profile_matches m "
+        "  JOIN document_lifecycle_checks c ON c.document_id = m.document_id "
+        " WHERE m.profile_id = ?", (profile_id,)).fetchone()[0]
+
+    return {
+        "findings": [dict(r) for r in rows],
+        "matched_documents": matched,
+        "checked_documents": checked,
+        # Said rather than left to be inferred from two numbers.
+        "coverage_note": (
+            f"{checked} of {matched} matched papers have been through a "
+            f"lifecycle check. The rest have not been looked at, which is not "
+            f"the same as having nothing to report."
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # The interchange format
 # ---------------------------------------------------------------------------

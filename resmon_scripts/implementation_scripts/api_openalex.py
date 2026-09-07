@@ -23,6 +23,38 @@ class OpenAlexClient(BaseAPIClient):
     def get_name(self) -> str:
         return "OpenAlex"
 
+    def search_entity(
+        self,
+        profile,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        max_results: int = 100,
+        **kwargs,
+    ) -> list[NormalizedResult]:
+        """Ask this source about a person through its own **parameter**.
+
+        Not the generic implementation in ``BaseAPIClient``, which formats a
+        field into the query string: this source takes a separate parameter, and
+        ``search()`` is where the parameter is built.
+        """
+        from .api_base import EntityUnsupported, _profile_query_name  # noqa: PLC0415
+
+        name = _profile_query_name(profile)
+        if not name:
+            raise EntityUnsupported("That profile has no name to search with.")
+
+        # The identifier query, where there is one. An ORCID search is a search
+        # for a *person*; a name search is a search for a string, and OpenAlex is
+        # the only source in the catalog that offers the first.
+        orcid = ""
+        if isinstance(profile, dict):
+            orcid = str(((profile.get("identifiers") or {})
+                         .get("orcid") or {}).get("value") or "")
+        if orcid:
+            return self.search("", date_from, date_to, max_results,
+                               author_orcid=orcid, **kwargs)
+        return self.search("", date_from, date_to, max_results, author=name, **kwargs)
+
     def search(
         self,
         query: str,
@@ -43,8 +75,26 @@ class OpenAlexClient(BaseAPIClient):
                 "mailto": self._mailto,
             }
 
-            # Date filtering
+            # 2.1 — OpenAlex is the only source with a real **identifier**
+            # query. `author.orcid:` returned 1,294 works for one ORCID on
+            # 2026-09-06 and OpenAlex echoed back the parsed filter, so this is
+            # an identity search and not a name search that happens to work.
+            #
+            # `raw_author_name.search:` is the name query, used when the profile
+            # has no ORCID. Both are *filters*, so the free-text `search` is
+            # dropped: leaving it in would AND a keyword query onto a person
+            # query and quietly hide most of their papers.
             filters = []
+            author_orcid = kwargs.get("author_orcid")
+            author_name = kwargs.get("author")
+            if author_orcid or author_name:
+                params.pop("search", None)
+                if author_orcid:
+                    filters.append(f"author.orcid:https://orcid.org/{author_orcid}")
+                else:
+                    filters.append(f"raw_author_name.search:{author_name}")
+
+            # Date filtering
             if date_from:
                 filters.append(f"from_publication_date:{date_from}")
             if date_to:
