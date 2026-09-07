@@ -468,6 +468,77 @@ def test_cancelling_nothing_says_so_rather_than_claiming_success():
     assert ar.cancel_turn(123456) is False
 
 
+def test_a_cli_that_never_says_anything_fails_fast_and_says_what_to_do(tmp_path):
+    """The v2.0.1 field defect, as a test.
+
+    A packaged install of 2.0.0 and 2.0.1 whose CLI hung before its first line
+    left the user watching a spinner for **five minutes** and then told them
+    "resmon could not finish that turn" — a sentence that names nothing and
+    suggests nothing.
+
+    Two things are asserted, and the first is the one that failed in the field:
+    the wait is bounded by the *startup* deadline rather than the silence one,
+    and the message is specific enough to act on.
+    """
+    runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path), timeout=300)
+    started = time.monotonic()
+    events = list(runtime.run_turn(
+        1, "SILENT:60", cli_session_id="s", resume=False))
+    elapsed = time.monotonic() - started
+
+    assert elapsed < ar.FIRST_OUTPUT_TIMEOUT + 15, (
+        f"waited {elapsed:.0f}s for a CLI that said nothing; the startup "
+        f"deadline is {ar.FIRST_OUTPUT_TIMEOUT}s and the old code waited "
+        f"{runtime.timeout}s"
+    )
+    assert [e["type"] for e in events] == ["error"]
+    message = events[0]["message"]
+    assert "said nothing" in message
+    assert "terminal" in message and "signed in" in message, (
+        "the message must tell the user what to do, not only that it failed"
+    )
+    assert events[0]["detail"] == "startup_timeout"
+    assert "could not finish that turn" not in message, (
+        "the generic sentence is what shipped; it must not be what a silent "
+        "CLI produces"
+    )
+    assert not ar.is_running(1)
+
+
+def test_the_startup_deadline_is_far_above_every_measured_first_line():
+    """30 s against a first line that has never taken more than 2.98 s.
+
+    The measurements are in the hotfix section of the 2.0 handback: shell,
+    packaged bundle, dev app, spawned by Node, spawned by Electron, with and
+    without MCP servers, cold and warm. Ten times the slowest is a deadline that
+    fires on a hang and never on a slow machine.
+    """
+    assert ar.FIRST_OUTPUT_TIMEOUT >= 10 * 3
+    assert ar.FIRST_OUTPUT_TIMEOUT < ar.DEFAULT_TURN_TIMEOUT, (
+        "a startup deadline at or above the silence timeout would never fire"
+    )
+
+
+def test_a_turn_that_starts_and_then_goes_quiet_still_gets_the_longer_wait(tmp_path):
+    """The complement: the two deadlines must not collapse into one.
+
+    A turn that has begun answering and then pauses is thinking, and killing it
+    at the startup deadline would be a new defect in the other direction.
+    """
+    runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path), timeout=2)
+    started = time.monotonic()
+    events = list(runtime.run_turn(
+        1, "SAY:thinking\nSLEEP:20\nSAY:done", cli_session_id="s", resume=False))
+    elapsed = time.monotonic() - started
+
+    # It produced a first line, so the 2 s *silence* timeout governs from there
+    # — not the 30 s startup one, which would have let it run far longer.
+    assert any(e.get("text") == "thinking" for e in events)
+    assert elapsed < 20, f"the silence timeout did not apply after the first line ({elapsed:.0f}s)"
+    assert events[-1]["type"] == "error"
+    assert events[-1]["detail"] != "startup_timeout"
+
+
 def test_a_silent_cli_is_killed_at_the_timeout(tmp_path):
     """An unbounded read would hang the worker thread until the app closed."""
     runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path), timeout=1)
