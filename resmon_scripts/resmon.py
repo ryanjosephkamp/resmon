@@ -5087,6 +5087,51 @@ def create_watch_profile(body: WatchProfileBody):
         _close_db(conn)
 
 
+class ProfileMatchesForDocumentsBody(BaseModel):
+    document_ids: list[int] = []
+
+
+@app.post("/api/profiles/matches/for-documents")
+def profile_matches_for_documents(body: ProfileMatchesForDocumentsBody):
+    """Which watch profiles matched a page of papers, and on what basis.
+
+    The Explorer and the Results list render fifty papers at a time and each
+    one may carry a basis badge. Asking per row would be fifty requests to
+    paint one screen; this is one — the same shape and the same reason as
+    ``/api/lifecycle/for-documents``.
+
+    Declared **above** ``/api/profiles/{profile_id}`` deliberately. FastAPI
+    matches in declaration order, and a path parameter declared first swallows
+    a literal segment after it: ``/api/profiles/starter`` was written below
+    ``/api/profiles/{profile_id}`` once and three tests failed on it.
+    """
+    ids = [int(i) for i in body.document_ids][:500]
+    if not ids:
+        return {"matches": {}}
+    placeholders = ",".join("?" for _ in ids)
+    conn = _get_db()
+    try:
+        rows = conn.execute(
+            f"SELECT m.document_id, m.profile_id, m.basis, m.matched_author, "
+            f"       m.evidence, p.display_name "
+            f"  FROM watch_profile_matches m "
+            f"  JOIN watch_profiles p ON p.id = m.profile_id "
+            f" WHERE m.document_id IN ({placeholders}) "
+            f" ORDER BY p.display_name", ids).fetchall()
+        matches: dict[str, list] = {}
+        for row in rows:
+            matches.setdefault(str(row["document_id"]), []).append({
+                "profile_id": row["profile_id"],
+                "display_name": row["display_name"],
+                "basis": row["basis"],
+                "matched_author": row["matched_author"],
+                "evidence": row["evidence"],
+            })
+        return {"matches": matches}
+    finally:
+        _close_db(conn)
+
+
 @app.get("/api/profiles/{profile_id}")
 def get_watch_profile(profile_id: int):
     conn = _get_db()

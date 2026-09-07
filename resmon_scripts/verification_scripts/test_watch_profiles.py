@@ -8,6 +8,7 @@ resmon will and will not store. The parts that need a real backend (the API's
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -287,3 +288,43 @@ def test_a_match_needs_a_basis_the_schema_recognises(conn):
             "INSERT INTO watch_profile_matches "
             "(document_id, profile_id, basis, matched_author) VALUES (?, ?, ?, ?)",
             (doc_id, profile["id"], "probably", "Jane Doe"))
+
+
+# ---------------------------------------------------------------------------
+# The renderer says the same thing the API does
+# ---------------------------------------------------------------------------
+
+def test_the_editor_previews_the_sentences_the_api_returns():
+    """The profile editor duplicates ``basis_warning_for``, and this closes it.
+
+    The duplication is deliberate: a warning that only appears *after* saving is
+    a warning about a decision already made, so the editor evaluates the same
+    rule while the user types. The risk of that is drift — two sentences saying
+    almost the same thing, one of them out of date — and drift in *this*
+    sentence is the phase's central claim going quietly wrong in the one place a
+    person actually reads it.
+
+    The guard lives in the backend suite rather than in jest because the backend
+    is where the sentence is decided. It compares with the markdown emphasis
+    stripped: ``**every match will be name-only**`` is a Markdown convention the
+    API's consumers render, and the editor would print the asterisks.
+    """
+    editor = (PROJECT_ROOT / "resmon_scripts" / "frontend" / "src" / "components"
+              / "Profiles" / "ProfileEditor.tsx")
+    assert editor.is_file(), "the profile editor moved; this guard must move with it"
+    source = editor.read_text(encoding="utf-8")
+    # The TSX wraps each sentence across several string literals, so the
+    # comparison is over the text with its line breaks and concatenation removed.
+    flattened = re.sub(r"'\s*\+\s*'", "", source)
+    flattened = re.sub(r"\s+", " ", flattened)
+
+    for profile in ({"display_name": "A Person"},
+                    {"display_name": "A Person", "affiliations": ["MIT"]}):
+        sentence = wp.basis_warning_for(wp.validate_profile(profile))
+        assert sentence, "both of these profiles must warn"
+        plain = re.sub(r"\s+", " ", sentence.replace("**", ""))
+        assert plain in flattened, (
+            "the editor no longer previews the sentence the API returns:\n"
+            f"  API:    {plain}\n"
+            "  editor: not found in ProfileEditor.tsx"
+        )

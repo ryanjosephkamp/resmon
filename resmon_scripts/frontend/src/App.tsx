@@ -11,6 +11,7 @@ import { apiClient } from './api/client';
 import AnalyticsPage from './pages/AnalyticsPage';
 import WatchdogPage from './pages/WatchdogPage';
 import ExplorerPage from './pages/ExplorerPage';
+import ProfilesPage from './pages/ProfilesPage';
 import DashboardPage from './pages/DashboardPage';
 import DeepDivePage from './pages/DeepDivePage';
 import DeepSweepPage from './pages/DeepSweepPage';
@@ -72,6 +73,7 @@ export const PAGE_ELEMENTS: Record<string, React.ReactElement> = {
   '/analytics': <AnalyticsPage />,
   '/watchdog': <WatchdogPage />,
   '/explorer': <ExplorerPage />,
+  '/profiles': <ProfilesPage />,
   '/configurations': <ConfigurationsPage />,
   '/monitor': <MonitorPage />,
   '/repositories': <RepositoriesPage />,

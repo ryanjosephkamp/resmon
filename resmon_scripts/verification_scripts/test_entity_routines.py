@@ -558,3 +558,137 @@ def test_a_mode_in_the_plan_but_not_the_build_is_in_exactly_one_of_the_lists():
     """The two tuples are a plan and a build, and the difference is deliberate."""
     planned = set(wp.ENTITY_MODES) - set(wp.AVAILABLE_ENTITY_MODES)
     assert planned == {"institution_output"}
+
+
+# ---------------------------------------------------------------------------
+# The query a client is handed is the query it sends
+# ---------------------------------------------------------------------------
+
+def test_arxiv_does_not_wrap_a_field_query_in_its_default_field():
+    """The defect the first live `search_entity` case found, guarded hermetically.
+
+    `api_base.search_entity` asks a source by putting the catalog's own syntax
+    into the query string, on the assumption that `search()` sends the string it
+    is given. arXiv's client did not: it wrapped `au:"Yoshua Bengio"` into
+    `all:au:"Yoshua Bengio"`, which arXiv answers **HTTP 400**. The client logs
+    the status and returns `[]`, so every watch routine over arXiv reported that
+    the person had published nothing — silent, plausible and wrong.
+
+    The live case in `test_entity_search_live.py` is what found it and is the
+    only thing that can find it *again* against a real arXiv. This guard is the
+    deterministic half: it asserts the string that leaves the client, with no
+    socket, so the regression cannot come back unnoticed between weekly runs.
+    """
+    from implementation_scripts import api_arxiv  # noqa: PLC0415
+
+    sent: list[dict] = []
+
+    class _Recorded:
+        status_code = 200
+        text = "<feed xmlns='http://www.w3.org/2005/Atom'></feed>"
+
+    def _record(method, url, **kwargs):
+        sent.append(dict(kwargs.get("params") or {}))
+        return _Recorded()
+
+    original = api_arxiv.safe_request
+    api_arxiv.safe_request = _record
+    try:
+        client = api_arxiv.ArxivClient()
+        client.search_entity(
+            {"kind": "person", "display_name": "Yoshua Bengio",
+             "names": [{"value": "Yoshua Bengio"}], "identifiers": {},
+             "affiliations": []}, max_results=5)
+        # A keyword search is unchanged, which is the other half of the property:
+        # the fix must not turn an ordinary search into a field search.
+        client.search("graph neural network", max_results=5)
+    finally:
+        api_arxiv.safe_request = original
+
+    assert sent, "the client made no request at all"
+    entity_query = sent[0]["search_query"]
+    assert entity_query == 'au:"Yoshua Bengio"', (
+        f"arXiv was asked {entity_query!r}; anything with 'all:' in front of a "
+        f"field prefix is the HTTP 400 this guard exists for"
+    )
+    assert sent[1]["search_query"] == "all:graph neural network"
+
+
+def test_no_askable_client_rewrites_the_query_it_is_handed():
+    """The general form of the same defect, across every source asked by field.
+
+    Thirteen sources are asked by putting a syntax into the query string, and
+    each of them is a client that could quietly transform it. The check is the
+    generic contract itself: the syntax the catalog cites must survive into the
+    request. arXiv was the one that did not, and one is enough to want the rest
+    under a check rather than under an assumption.
+
+    Hermetic, and it drives every one of the thirteen — the denominator is the
+    capability table.
+    """
+    from implementation_scripts import api_registry  # noqa: PLC0415
+    from implementation_scripts.repo_catalog import REPOSITORY_CATALOG  # noqa: PLC0415
+    from implementation_scripts import api_base  # noqa: PLC0415
+
+    by_field = [e for e in REPOSITORY_CATALOG
+                if e.entity_search.author_query == "field"]
+    assert len(by_field) >= 10, "the capability table lost its field-query sources"
+
+    profile = {"kind": "person", "display_name": "Ada Lovelace",
+               "names": [{"value": "Ada Lovelace"}], "identifiers": {},
+               "affiliations": []}
+
+    missing = []
+    for entry in by_field:
+        expected = entry.entity_search.author_syntax.format(name="Ada Lovelace")
+        seen: list[str] = []
+
+        class _Recorded:
+            status_code = 200
+            text = "{}"
+            def json(self):  # noqa: D102
+                return {}
+
+        def _record(method, url, **kwargs):
+            # The URL as well as the parameters: DOAJ puts the query in the path
+            # rather than in a query string, and a recorder that read only
+            # `params` would have reported it as dropping the syntax.
+            payload = {**(kwargs.get("params") or {}), **(kwargs.get("json") or {})}
+            seen.append(str(url))
+            seen.extend(str(v) for v in payload.values())
+            return _Recorded()
+
+        module = __import__(
+            f"implementation_scripts.api_{entry.slug}", fromlist=["x"])
+        original = getattr(module, "safe_request", None)
+        if original is None:
+            continue
+        module.safe_request = _record
+        try:
+            api_registry.get_client(entry.slug).search_entity(
+                profile, max_results=3)
+        except Exception:
+            # A client that raises on an empty body is not what this is about;
+            # what was sent has already been recorded.
+            pass
+        finally:
+            module.safe_request = original
+
+        # **The field and the name must both survive**, rather than the byte
+        # string. A client may legitimately reformat: INSPIRE parenthesises when
+        # a date is present, and NDL canonicalises `creator="X"` into CQL's
+        # `creator = "X"`. What must never happen is the arXiv and NDL defect —
+        # the field being swallowed, so the query silently becomes a search of
+        # some other field or of the whole record.
+        field = expected.split(":")[0].split("=")[0].strip()
+        wanted = [part for part in (field, "Ada Lovelace") if part]
+        if not any(all(part in value for part in wanted) for value in seen):
+            missing.append(
+                f"{entry.slug}: expected the field {field!r} and the name "
+                f"together in one value; sent {seen}")
+
+    assert not missing, (
+        "these clients did not send the author syntax their catalog entry "
+        "cites, which is the arXiv defect's general form:\n  "
+        + "\n  ".join(missing)
+    )

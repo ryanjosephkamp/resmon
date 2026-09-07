@@ -6,6 +6,8 @@ import WhyThisPaper from '../components/Explain/WhyThisPaper';
 import SimilarPapers from '../components/Explain/SimilarPapers';
 import DuplicateLinks, { DuplicateLink } from '../components/Explain/DuplicateLinks';
 import LifecycleBadge, { LifecycleEvent } from '../components/Explain/LifecycleBadge';
+import BasisBadge from '../components/Profiles/BasisBadge';
+import { DocumentMatch, profilesApi } from '../api/profiles';
 import { apiClient, getBaseUrl } from '../api/client';
 import { useEmbeddingCapability } from '../hooks/useEmbeddingCapability';
 
@@ -111,6 +113,10 @@ const ExplorerPage: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const { capability, loaded: capabilityLoaded } = useEmbeddingCapability();
   const [links, setLinks] = useState<LinksMap>({});
+  // 2.1 — which watch profiles claim each paper, and on what basis. Same shape
+  // and same reason as the lifecycle map: one request per page, never one per
+  // row, and a failure leaves the badge off rather than the list broken.
+  const [profileMatches, setProfileMatches] = useState<Record<string, DocumentMatch[]>>({});
   // Off by default and kept in component state rather than the URL: a collapse
   // is a way of looking at a list, not a filter on it, and putting it in the
   // address bar would make a shared link hide rows from whoever opened it
@@ -184,6 +190,14 @@ const ExplorerPage: React.FC = () => {
     } catch { /* badges are additive; the list still works without them */ }
   }, []);
 
+  const loadProfileMatches = useCallback(async (results: Doc[]) => {
+    if (results.length === 0) return;
+    try {
+      const map = await profilesApi.forDocuments(results.map((d) => d.id));
+      setProfileMatches((prev) => ({ ...prev, ...map }));
+    } catch { /* additive; the list still works without them */ }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -198,14 +212,16 @@ const ExplorerPage: React.FC = () => {
       setMeta(rest);
       setFacets(f);
       setLinks({});
+      setProfileMatches({});
       void loadLifecycle(results);
       void loadLinks(results);
+      void loadProfileMatches(results);
     } catch (err: any) {
       setError(err?.message || 'Search failed.');
     } finally {
       setLoading(false);
     }
-  }, [filters, sort, loadLifecycle, loadLinks]);
+  }, [filters, sort, loadLifecycle, loadLinks, loadProfileMatches]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -221,12 +237,13 @@ const ExplorerPage: React.FC = () => {
       setMeta(rest);
       void loadLifecycle(results);
       void loadLinks(results);
+      void loadProfileMatches(results);
     } catch (err: any) {
       setError(err?.message || 'Failed to load more.');
     } finally {
       setLoadingMore(false);
     }
-  }, [filters, sort, meta, loadingMore, loadLifecycle, loadLinks]);
+  }, [filters, sort, meta, loadingMore, loadLifecycle, loadLinks, loadProfileMatches]);
 
   // Asked for only when the reader turns collapse on, and it returns a grouping
   // rather than a filtered list — the rows are still all here, and turning the
@@ -665,6 +682,13 @@ const ExplorerPage: React.FC = () => {
                   ) : d.title}
                 </h3>
                 <LifecycleBadge events={lifecycle.events[String(d.id)] || []} />
+                {/*
+                  Above the metadata line, beside the retraction badge, because
+                  it answers the same kind of question — what does resmon
+                  actually know about this paper — and because a basis read after
+                  the author list is a basis read too late.
+                */}
+                <BasisBadge matches={profileMatches[String(d.id)] || []} />
                 <DuplicateLinks links={links[String(d.id)] || []} />
                 {stands_for > 1 && (
                   <p className="explorer-stands-for">

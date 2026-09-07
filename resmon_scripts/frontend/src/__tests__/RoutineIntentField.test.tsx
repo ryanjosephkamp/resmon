@@ -161,7 +161,10 @@ test('loading a saved routine configuration brings its intent with it', async ()
     <RoutineEditModal open target={null} onClose={() => {}} />,
   );
 
-  const select = await screen.findByRole('combobox') as HTMLSelectElement;
+  // Named rather than "the only combobox": 2.1 added the watch-mode picker to
+  // this modal, and an unnamed query would now be ambiguous.
+  const select = await screen.findByRole(
+    'combobox', { name: /Load Configuration/i }) as HTMLSelectElement;
   expect(select).toBeTruthy();
   fireEvent.change(select, { target: { value: '3' } });
 

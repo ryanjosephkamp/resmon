@@ -200,3 +200,7 @@ resmon_scripts/frontend/release/
 # images in general.
 resmon_scripts/frontend/e2e/screenshots/
 resmon_scripts/frontend/e2e/test-results/
+# Playwright's default output directory when a spec is run without the suite's
+# own config (`npx playwright test <file>` rather than `npm run e2e`). It holds
+# failure traces, and one of them reached a commit before this line existed.
+resmon_scripts/frontend/test-results/

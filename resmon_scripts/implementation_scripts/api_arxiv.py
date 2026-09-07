@@ -2,6 +2,7 @@
 """arXiv API client — Atom XML response parsing."""
 
 import logging
+import re
 import xml.etree.ElementTree as ET
 
 from .api_base import (
@@ -16,6 +17,12 @@ logger = logging.getLogger(__name__)
 
 _ARXIV_API_URL = "https://export.arxiv.org/api/query"
 _ATOM_NS = "{http://www.w3.org/2005/Atom}"
+# arXiv's own field prefixes, from its API user manual's *Query Interface*
+# table. A query opening with one of these already says which field it means,
+# and prefixing `all:` in front of it makes a query arXiv rejects outright.
+_FIELD_PREFIXED = re.compile(
+    r"^\s*(?:ti|au|abs|co|jr|cat|rn|id|all)\s*:", re.IGNORECASE)
+
 _ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 
 # arXiv guideline: 1 request per 3 seconds
@@ -36,7 +43,24 @@ class ArxivClient(BaseAPIClient):
         max_results: int = 100,
         **kwargs,
     ) -> list[NormalizedResult]:
-        search_query = f"all:{query}"
+        # `all:` is the default field, and it is wrong for a query that already
+        # names one.
+        #
+        # **This was a real defect, found by the first live case that drove
+        # `search_entity` against arXiv.** The generic `search_entity` in
+        # `api_base` asks a source by putting the catalog's own syntax into the
+        # query string — `au:"Yoshua Bengio"` for arXiv — on the reasonable
+        # assumption that `search()` sends the string it is given. This client
+        # did not: it wrapped it into `all:au:"Yoshua Bengio"`, which arXiv
+        # answers **HTTP 400**. The client logs the status and returns `[]`, so
+        # every watch routine over arXiv reported that the person had published
+        # nothing. Silent, plausible and wrong — the failure shape this app
+        # exists to refuse.
+        #
+        # A query that already opens with one of arXiv's own field prefixes is
+        # passed through unwrapped. This also fixes the same query typed into a
+        # Deep Dive box, which produced the same 400 for the same reason.
+        search_query = query if _FIELD_PREFIXED.match(query) else f"all:{query}"
 
         # Date filtering via submittedDate field. arXiv expects the literal
         # format YYYYMMDDHHMM, where HHMM must be a valid clock time. Padding

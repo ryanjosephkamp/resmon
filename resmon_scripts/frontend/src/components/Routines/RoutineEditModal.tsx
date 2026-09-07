@@ -18,6 +18,7 @@ import AIOverridePanel, {
 import AIDefaultsInfo from '../Forms/AIDefaultsInfo';
 import { notifyRoutinesChanged } from '../../lib/routinesBus';
 import { notifyConfigurationsChanged } from '../../lib/configurationsBus';
+import { WatchProfile, profilesApi } from '../../api/profiles';
 
 /**
  * Shape of a local routine row as returned by ``GET /api/routines``.
@@ -71,6 +72,14 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
   const [formDateTo, setFormDateTo] = useState('');
   const [formKeywords, setFormKeywords] = useState<string[]>([]);
   const [formIntent, setFormIntent] = useState('');
+  // 2.1 — a routine watches words or it watches a person. `''` is the keyword
+  // routine every install already has; the two modes below are the ones the
+  // backend accepts today. `institution_output` is deliberately absent: it is in
+  // the plan, it needs affiliation matching, and offering it here would be a
+  // promise the backend refuses.
+  const [formWatchMode, setFormWatchMode] = useState<'' | 'new_papers' | 'retractions'>('');
+  const [formProfileId, setFormProfileId] = useState<number | null>(null);
+  const [profiles, setProfiles] = useState<WatchProfile[]>([]);
   const [formMaxResults, setFormMaxResults] = useState(100);
   const [formAi, setFormAi] = useState(false);
   const [formEmail, setFormEmail] = useState(false);
@@ -88,6 +97,8 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     setFormDateTo('');
     setFormKeywords([]);
     setFormIntent('');
+    setFormWatchMode('');
+    setFormProfileId(null);
     setFormMaxResults(100);
     setFormAi(false);
     setFormEmail(false);
@@ -114,6 +125,11 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     setFormDateTo(params.date_to || '');
     setFormKeywords(params.keywords || []);
     setFormIntent(r.intent || '');
+    const entity = params.entity && typeof params.entity === 'object' ? params.entity : null;
+    setFormWatchMode(entity && (entity.mode === 'new_papers' || entity.mode === 'retractions')
+      ? entity.mode : '');
+    setFormProfileId(entity && typeof entity.profile_id === 'number'
+      ? entity.profile_id : null);
     setFormMaxResults(params.max_results || 100);
     setFormAi(!!r.ai_enabled);
     setFormEmail(!!r.email_enabled);
@@ -150,6 +166,20 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     if (target) hydrateFrom(target); else resetForm();
   }, [open, target, hydrateFrom, resetForm]);
 
+  // Fetched when the modal opens rather than once at mount: a user who creates a
+  // profile and comes straight back here must see it without reloading the app.
+  useEffect(() => {
+    if (!open) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await profilesApi.list();
+        if (!cancelled) setProfiles(rows.filter((p) => p.kind === 'person'));
+      } catch { /* the picker then says there are none, which is also true */ }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
+
   const handleSubmit = async () => {
     if (!formName.trim()) return;
     const parameters: Record<string, any> = {
@@ -162,6 +192,19 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     };
     if (formSchedule) {
       parameters._schedule = formSchedule;
+    }
+    if (formWatchMode) {
+      if (formProfileId === null) {
+        setError('Choose the person this routine watches.');
+        return;
+      }
+      parameters.entity = { profile_id: formProfileId, mode: formWatchMode };
+      // A watch routine follows a person, and narrowing that by topic would
+      // silently hide their other work — the opposite of what somebody watching
+      // a person wants. The keywords are cleared rather than sent and ignored,
+      // so what is stored is what runs.
+      parameters.keywords = [];
+      parameters.query = '';
     }
     const overrides = buildAIOverridePayload(formAiOverride);
     const aiSettings = Object.keys(overrides).length > 0 ? overrides : null;
@@ -245,6 +288,77 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
           schedule={formSchedule}
           onScheduleChange={setFormSchedule}
         />
+        {/*
+          2.1 — what this routine follows. Above the sources and the keywords
+          because it changes what both of them mean: a watch routine ignores
+          keywords entirely, and `retractions` queries no source at all.
+        */}
+        <div className="form-field" data-testid="routine-watch-mode">
+          <label className="form-label">What this routine follows</label>
+          <select
+            className="form-input"
+            value={formWatchMode}
+            aria-label="What this routine follows"
+            onChange={(e) => setFormWatchMode(e.target.value as '' | 'new_papers' | 'retractions')}
+          >
+            <option value="">Keywords — the words below</option>
+            <option value="new_papers">Watch a person — new papers</option>
+            <option value="retractions">Watch a person — retractions on their papers</option>
+          </select>
+        </div>
+        {formWatchMode !== '' && (
+          <div className="form-field" data-testid="routine-watch-profile">
+            <label className="form-label" htmlFor="routine-profile">Who to watch</label>
+            {profiles.length === 0 ? (
+              <p className="form-hint" data-testid="no-profiles-yet">
+                You have no watch profiles yet. Create one on the{' '}
+                <strong>Watch Profiles</strong> page, then come back here.
+              </p>
+            ) : (
+              <select
+                id="routine-profile"
+                className="form-input"
+                value={formProfileId === null ? '' : String(formProfileId)}
+                onChange={(e) => setFormProfileId(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">Choose a profile…</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.display_name}
+                    {p.basis_warning ? ' — name matches only' : ' — has an ORCID'}
+                  </option>
+                ))}
+              </select>
+            )}
+            {/*
+              The chosen profile's own warning, repeated at the moment a schedule
+              is being attached to it. This is the last point at which somebody
+              can decide to go and find an ORCID first, so it is worth the space.
+            */}
+            {(() => {
+              const chosen = profiles.find((p) => p.id === formProfileId);
+              if (!chosen) return null;
+              return (
+                <p
+                  className={`profile-basis-preview ${chosen.basis_warning ? 'profile-basis-weak' : 'profile-basis-strong'}`}
+                  data-testid="routine-basis-warning"
+                >
+                  {chosen.basis_warning
+                    || 'This profile carries an ORCID, so a paper returned with that '
+                       + 'identifier is matched on identity rather than on a string.'}
+                </p>
+              );
+            })()}
+            {formWatchMode === 'retractions' && (
+              <p className="form-hint" data-testid="retractions-hint">
+                This mode queries no source. It checks the papers already matched
+                to this profile against the retraction and correction notices
+                resmon holds, and reports what is on record — the sources below
+                are not used.
+              </p>
+            )}
+          </div>
+        )}
         <RepositorySelector mode="multi" value={formRepos} onChange={(v) => setFormRepos(v as string[])} />
         {formRepos.length > 0 && (
           <KeywordCombinationBanner
@@ -273,7 +387,15 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
           </div>
         )}
         <DateRangePicker dateFrom={formDateFrom} dateTo={formDateTo} onDateFromChange={setFormDateFrom} onDateToChange={setFormDateTo} />
-        <KeywordInput keywords={formKeywords} onChange={setFormKeywords} />
+        {formWatchMode === '' ? (
+          <KeywordInput keywords={formKeywords} onChange={setFormKeywords} />
+        ) : (
+          <p className="form-hint" data-testid="keywords-not-used">
+            Keywords are not used by a watch routine. Narrowing a person&rsquo;s
+            work by topic would silently hide the rest of it, so this routine
+            follows the person and nothing else.
+          </p>
+        )}
         {/*
           `routines.intent` — the coverage audit's other half. Optional, and the
           copy says what its absence costs rather than pretending the fallback is
