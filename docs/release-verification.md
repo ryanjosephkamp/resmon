@@ -515,9 +515,10 @@ The two task-mounted DMGs were detached. Before/after `lsof -nP -iTCP:8742
 or attached to that port and no HTTP probe was made to it. **This establishes
 listener identity at two times, not unchanged HTTP health or continuous service.**
 
-Screenshots and receipts are retained outside the repository. Downloaded assets,
-copied apps and temporary state remain in task scratch pending verification of
-the PR attachments, after which they will be removed.
+Screenshots and receipts are retained outside the repository at
+`~/Documents/resmon-codex/release-evidence/v2.0.1-20260906/`. Downloaded assets,
+all three copied apps, and their temporary state/profile directories were removed
+after attachment verification. The verification download was also removed.
 
 ### Repository checks, distinct from the release walk
 
@@ -539,11 +540,16 @@ replace them. The **74 live-network backend tests were not run**.
 
 ### Evidence and scope
 
-The PR attachment archive, `resmon-v2.0.1-launch-evidence.zip`, contains the
+The [PR evidence comment](https://github.com/ryanjosephkamp/resmon/pull/100#issuecomment-5563442522)
+attaches [resmon-v2.0.1-launch-evidence.zip](https://github.com/user-attachments/files/31891573/resmon-v2.0.1-launch-evidence.zip)
+and four inline previews. The archive contains **37 screenshots**: the
 numbered route screenshots and additional onboarding, assistant, console and
 x64 captures, a screenshot SHA-256 manifest, route denominator, rendered source
 list, release metadata, asset verification, and listener/process receipts.
-Screenshots were reviewed before publication and are not committed.
+Screenshots were reviewed before publication and are not committed. A signed-in
+Chrome download of the attachment matched the original archive byte-for-byte;
+all four inline previews loaded. Unauthenticated command-line requests to the
+archive returned 404, so anonymous download access was not established.
 
 The sole repository change is `docs/release-verification.md`. The procedure now
 makes the two onboarding states, actual initial route, and assistant failure/cost
