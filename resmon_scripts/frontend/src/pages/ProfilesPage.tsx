@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import PageHelp from '../components/Help/PageHelp';
+import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import ProfileEditor from '../components/Profiles/ProfileEditor';
 import { BASIS_LABEL, BASIS_MEANING } from '../components/Profiles/BasisBadge';
 import {
@@ -170,6 +171,7 @@ const ProfilesPage: React.FC = () => {
     <div className="page-content">
       <div className="page-header">
         <h1>Watch Profiles</h1>
+        <TutorialLinkButton anchor="profiles" />
       </div>
 
       <PageHelp

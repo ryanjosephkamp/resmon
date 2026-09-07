@@ -30,7 +30,7 @@ implies more certainty than it earns is rejected even when the code is correct.
 
 ```
 resmon_scripts/
-├── resmon.py                       FastAPI app — 119 routes, the API seam
+├── resmon.py                       FastAPI app — 130 routes, the API seam
 ├── implementation_scripts/         backend modules
 │   ├── api_base.py                 BaseAPIClient, NormalizedResult, RateLimiter, safe_request
 │   ├── api_<slug>.py               one source client each; self-registering
@@ -49,13 +49,13 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 1496 pass, 4 skip, 72 deselected
-.venv/bin/python -m pytest -m live_network   # the 72 — real scholarly APIs, CLIs and sockets
-                                             # 56 of them run weekly in CI; see below
+.venv/bin/python -m pytest -q          # hermetic suite: 1712 pass, 1 skip, 105 deselected
+.venv/bin/python -m pytest -m live_network   # the 105 — real scholarly APIs, CLIs and sockets
+                                             # 89 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 269 tests across 31 suites
-npm run e2e                                      # the real Electron app — 71 checks, 24 routes
+npm run typecheck && npm test && npm run build   # 294 tests across 33 suites
+npm run e2e                                      # the real Electron app — 78 checks, 25 routes
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -77,6 +77,18 @@ what passed, and what the run explicitly did not verify. That is the artifact a
 handback embeds. Screenshots are not committed: `e2e/screenshots/` is
 gitignored, because two branches that both run the suite both rewrite every
 file, and a committed screenshot is a merge conflict rather than evidence.
+
+**A source's `entity_search` capability is not a promise the client keeps.** The catalog
+records how a source can be asked about a *person* — `au:"{name}"` for arXiv,
+`creator="{name}"` for NDL — and `api_base.search_entity` asks by putting that syntax into
+the query string. A client that **rewrites** the string destroys it, and the failure is
+silent: arXiv answered `all:au:"…"` with HTTP 400 and NDL matched a literal
+`creator="…"` against nothing, so both reported that the person had published nothing for
+as long as the capability existed. `test_no_askable_client_rewrites_the_query_it_is_handed`
+drives all thirteen field-query clients hermetically and requires the field and the name to
+survive together into the request; `test_entity_search_live.py` drives every askable source
+against the real API, weekly. **A live weekly test is what found this; it is not what will
+catch it coming back.**
 
 **Adding a page means adding a row, not a route.** `frontend/src/routes.ts` is the one
 route table: `App.tsx` renders from it and `e2e/routes.ts` imports it, so a new page is
