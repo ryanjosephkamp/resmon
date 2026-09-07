@@ -384,3 +384,47 @@ def test_the_join_invents_no_finding_of_its_own(conn):
     theirs = _seed_paper(conn, "theirs", "Somebody else's retracted paper")
     _seed_finding(conn, theirs)
     assert wp.profile_lifecycle_findings(conn, profile["id"])["findings"] == []
+
+
+@pytest.mark.parametrize("name,orcid,affiliation,expected,evidence", [
+    ("Jane Doe", "0000-0001-5109-3700", "MIT", "name_only", "conflicting ORCID"),
+    ("Plato", None, "MIT", "name_only", "ambiguous single-token name"),
+    ("Jane Doe", None, "Summit Institute", "name_only", "exact name"),
+    ("Jane Doe", None, "MIT", "name+affiliation", "affiliation"),
+    ("J. Doe", None, "", "name_only", "initials only"),
+])
+def test_corrected_evidence_survives_the_actual_sweep_and_storage(
+        engine, conn, monkeypatch, name, orcid, affiliation, expected, evidence):
+    profile = _profile(conn, names=["Jane Doe", "Plato"], affiliations=["MIT"])
+
+    def candidates(self, *args, **kwargs):
+        return [NormalizedResult(source_repository="fixture", external_id="trust",
+                title="Synthetic trust candidate", doi=None, abstract=None, publication_date=None, url=None, authors=[Author(name, orcid=orcid,
+                affiliations=(affiliation,))])]
+
+    monkeypatch.setattr(_EntitySource, "search_entity", candidates)
+    engine.execute_dive("fixture", {"entity_profile": profile})
+    rows = _matches(conn)
+    assert len(rows) == 1
+    assert rows[0]["basis"] == expected
+    assert evidence in rows[0]["evidence"]
+    assert rows[0]["evidence"].startswith("Matching policy 2026-09-07: ")
+
+
+
+def test_new_sweep_does_not_rewrite_or_delete_a_rejected_historical_match(engine, conn, monkeypatch):
+    profile = _profile(conn, names=["B. Smith"])
+    doc = conn.execute("INSERT INTO documents (source_repository,external_id,title,metadata_hash) VALUES ('fixture','historical','Old candidate','old-hash')").lastrowid
+    conn.execute("INSERT INTO watch_profile_matches (document_id,profile_id,basis,matched_author,evidence) VALUES (?,?,'name_only','A. Smith','old policy evidence')", (doc, profile["id"]))
+    conn.commit()
+    before = tuple(conn.execute("SELECT * FROM watch_profile_matches").fetchone())
+
+    def candidates(self, *args, **kwargs):
+        return [NormalizedResult(source_repository="fixture", external_id="historical",
+                title="Old candidate", doi=None, abstract=None, publication_date=None,
+                url=None, authors=[Author("A. Smith")])]
+
+    monkeypatch.setattr(_EntitySource, "search_entity", candidates)
+    engine.execute_dive("fixture", {"entity_profile": profile})
+    assert tuple(conn.execute("SELECT * FROM watch_profile_matches").fetchone()) == before
+    assert conn.execute("SELECT count(*) FROM documents").fetchone()[0] == 1

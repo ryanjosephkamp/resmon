@@ -24,6 +24,7 @@
  * have network.
  */
 import * as fs from 'fs';
+import { execFileSync } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron } from '@playwright/test';
@@ -37,8 +38,15 @@ const ORCID = '0000-0002-1825-0097';
 
 interface Launched { app: ElectronApplication; win: Page; close: () => Promise<void>; }
 
-async function launch(): Promise<Launched> {
+async function launch(seedTrust = false): Promise<Launched> {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-watch-'));
+  if (seedTrust) {
+    const env = launchEnv(stateDir, true);
+    const seed = path.resolve(FRONTEND_ROOT, '../verification_scripts/test_trust_corrections.py');
+    // Synthetic existing-schema rows are prepared before app startup. Current
+    // rows carry output from the actual Python matcher, not renderer fixtures.
+    execFileSync(env.RESMON_PYTHON, [seed, env.RESMON_DB_PATH], { env });
+  }
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
     cwd: FRONTEND_ROOT, env: launchEnv(stateDir, true), timeout: 180_000,
@@ -323,3 +331,36 @@ test('P10: the routine editor offers Watch mode and repeats the profile’s warn
       await close();
     }
   });
+
+
+test('Trust: current counterevidence and historical rows render after existing DB startup', async () => {
+  const { win, close } = await launch(true);
+  try {
+    const response = await api(win, 'GET', '/api/profiles/1/matches');
+    expect(response.body.total).toBe(7);
+    await goto(win, '/profiles');
+    const list = win.getByTestId('profile-matches');
+    await expect(list.locator('li')).toHaveCount(7);
+    await expect(list.locator('.basis-history')).toHaveCount(3);
+    await expect(list).toContainText('Historical match — not rechecked');
+    for (const [title, evidence] of [
+      ['Ambiguous candidate', 'ambiguous single-token name'],
+      ['Conflicting identifier', 'conflicting ORCID'],
+    ]) {
+      const row = list.locator('li').filter({ hasText: title });
+      await expect(row.locator('.basis-chip')).toHaveText('name only');
+      await expect(row.locator('.basis-evidence')).toContainText(evidence);
+      await expect(row.locator('.basis-history')).toHaveCount(0);
+    }
+    await win.screenshot({ path: path.join(ensureScreenshotDir(), 'trust-profiles-evidence.png'), fullPage: true });
+    const after = await api(win, 'GET', '/api/profiles/1/matches');
+    expect(after.body).toEqual(response.body);
+    await goto(win, '/explorer');
+    await expect(win.locator('.basis-history')).toHaveCount(3);
+    await expect(win.locator('.basis-evidence').filter({ hasText: 'conflicting ORCID' })).toBeVisible();
+    await expect(win.locator('.basis-evidence').filter({ hasText: 'ambiguous single-token name' })).toBeVisible();
+    await win.screenshot({ path: path.join(ensureScreenshotDir(), 'trust-explorer-evidence.png'), fullPage: true });
+  } finally {
+    await close();
+  }
+});

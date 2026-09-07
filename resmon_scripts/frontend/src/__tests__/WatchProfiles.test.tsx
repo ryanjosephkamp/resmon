@@ -442,3 +442,24 @@ test('the page states the measured precision per basis, with its denominators',
     expect(copy).toContain('15 were right');  // the graded name-only sample
     expect(copy).toContain('6% of all matches');   // the initials rule's share
   });
+
+
+test('old evidence is visibly historical and is preserved verbatim', async () => {
+  await renderWithProviders(<BasisBadge showEvidence matches={[{
+    profile_id: 1, display_name: 'Smith', basis: 'name+affiliation',
+    matched_author: 'Smith', evidence: 'old affiliation claim',
+  }]} />);
+  expect(screen.getByText(/Historical match — not rechecked/)).toBeInTheDocument();
+  expect(screen.getByText('old affiliation claim')).toBeInTheDocument();
+});
+
+test.each(['ambiguous single-token name', 'conflicting ORCID'])(
+  'dense Explorer badges show %s counterevidence without expansion', async (reason) => {
+    await renderWithProviders(<BasisBadge matches={[{
+      profile_id: 1, display_name: 'Smith', basis: 'name_only',
+      matched_author: 'Smith', evidence: `Matching policy 2026-09-07: ${reason}; not identity`,
+    }]} />);
+    expect(screen.getByText(new RegExp(reason))).toBeInTheDocument();
+    expect(screen.queryByText(/Historical match/)).not.toBeInTheDocument();
+  },
+);

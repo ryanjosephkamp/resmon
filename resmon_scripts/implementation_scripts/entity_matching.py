@@ -30,9 +30,9 @@ evidence itself.
 
 ## Names, and why the initials rule is a caveat rather than a feature
 
-Folding reuses ``near_duplicates.normalise_title`` — the same accent, case and
-punctuation handling the corpus already trusts for titles, and the same refusal
-to discard non-Latin scripts.
+Name folding preserves every token, including initials and surname particles.
+It folds case and accents without discarding non-Latin scripts. Title stop words
+are not a name policy.
 
 ``J. Smith`` and ``John Smith`` are treated as a match **and recorded as a
 weaker one**, in the evidence, because that equivalence is a guess: initials
@@ -47,10 +47,10 @@ that basis separately.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+import unicodedata
+from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence
 
-from .near_duplicates import normalise_title
 from .normalizer import normalize_author_name
 
 __all__ = ["BASES", "Match", "fold_name", "match", "match_all", "name_matches"]
@@ -59,46 +59,43 @@ __all__ = ["BASES", "Match", "fold_name", "match", "match_all", "name_matches"]
 # the same three and enforces them with a CHECK.
 BASES = ("identifier", "name+affiliation", "name_only")
 
-_INITIAL = re.compile(r"^[a-z]$")
+_INITIAL = re.compile(r"^[^\W\d_]$", re.UNICODE)
+
+# Existing evidence is never rewritten. This prefix identifies newly evaluated
+# evidence without a schema migration or guessing from a timestamp.
+EVIDENCE_PREFIX = "Matching policy 2026-09-07: "
 
 
 @dataclass(frozen=True)
 class Match:
-    """One verified match, and why resmon believes it."""
+    """One candidate match with the evidence and its evaluation policy."""
 
     basis: str
     matched_author: str
     evidence: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "evidence", EVIDENCE_PREFIX + self.evidence)
 
     @property
     def rank(self) -> int:
         return BASES.index(self.basis)
 
 
+def _fold_tokens(text: str) -> list[str]:
+    """Case/accent folding with punctuation as boundaries and no stop words."""
+    folded = unicodedata.normalize("NFKD", (text or "").casefold())
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    return re.findall(r"[^\W_]+", folded, re.UNICODE)
+
+
 def fold_name(name: str) -> list[str]:
-    """A name as comparable tokens, surname last.
+    """Comparable name tokens, preserving initials and surname particles.
 
-    ``normalise_title`` does the folding, unchanged and imported rather than
-    copied: accents decomposed, case and punctuation dropped, non-Latin scripts
-    kept. Two things are added.
-
-    **"Last, First" is reordered first.** INSPIRE returns ``Witten, Edward``,
-    Crossref splits into given and family, and a user typing a profile may write
-    either. Without this the surname test below compares "witten" against
-    "edward" and a whole source's records stop matching — silently, because a
-    non-match is what "this is not that person" also looks like.
-
-    **Tokens are not stop-worded away.** ``normalise_title`` drops English stop
-    words, and "van", "de" and "der" matter in a surname.
+    Reorder ``Last, First`` before folding. Never reuse title normalization:
+    removing "A", "Will", "de" or "van" changes the written person's name.
     """
-    name = normalize_author_name(name)
-    tokens = normalise_title(name)
-    if tokens:
-        return tokens
-    # Every token was a stop word — "De La" and the like. Fall back to the
-    # unfiltered split rather than returning nothing, because a name that folds
-    # to zero tokens would match everything or nothing depending on the caller.
-    return [t for t in re.findall(r"\w+", (name or "").casefold()) if t]
+    return _fold_tokens(normalize_author_name(name))
 
 
 def _surname(tokens: Sequence[str]) -> str:
@@ -106,7 +103,7 @@ def _surname(tokens: Sequence[str]) -> str:
 
 
 def name_matches(candidate: str, target: str) -> tuple[bool, str]:
-    """Whether two written names are the same person's, and how confidently.
+    """Whether two written names are compatible, with an explicit caveat.
 
     Returns ``(matched, note)``; the note goes into a match's evidence so the
     weaker kinds of yes are visible rather than averaged away.
@@ -117,13 +114,15 @@ def name_matches(candidate: str, target: str) -> tuple[bool, str]:
     2. Same surname, and every given-name token on one side is either equal to
        or an **initial of** the corresponding token on the other. This is the
        ``J. Smith`` ↔ ``John Smith`` rule and it is recorded as weaker.
-    3. Otherwise no. A shared surname alone is not a match: "Smith" and "Smith"
-       is a coincidence in any corpus large enough to be worth watching.
+    3. Identical single-token names are ambiguous candidates, never identity.
+       A surname alone against a multi-token name is not a match.
     """
     left, right = fold_name(candidate), fold_name(target)
     if not left or not right:
         return False, ""
     if left == right:
+        if len(left) == 1:
+            return True, "ambiguous single-token name — may be a mononym or shared surname; not identity"
         return True, "exact name"
     if _surname(left) != _surname(right):
         return False, ""
@@ -149,20 +148,23 @@ def name_matches(candidate: str, target: str) -> tuple[bool, str]:
 
 def _affiliation_hit(author_affiliations: Iterable[str],
                      profile_affiliations: Iterable[str]) -> Optional[tuple[str, str]]:
-    """The first affiliation pair that shares a distinctive token run.
+    """The first nonempty affiliation pair sharing a complete token run.
 
-    Substring containment either way, on folded text: an author record says
-    "Dept. of Physics, University of Somewhere, 12345 City" and a profile says
-    "University of Somewhere". Requiring equality would match almost nothing;
-    requiring a single shared word would match on "university".
+    A department can contain an institution's name, but MIT is not SUMMIT.
+    Generic institution words alone and a one-character token are insufficient.
+    Acronyms and non-Latin names can match as whole tokens, never substrings.
     """
-    profiles = [(a, " ".join(fold_name(a))) for a in profile_affiliations if a]
-    authors = [(a, " ".join(fold_name(a))) for a in author_affiliations if a]
-    for raw_profile, folded_profile in profiles:
-        if len(folded_profile) < 4:
-            continue
-        for raw_author, folded_author in authors:
-            if folded_profile in folded_author or folded_author in folded_profile:
+    generic = {"university", "college", "institute", "institution", "department",
+               "dept", "school", "research", "center", "centre", "of", "the", "and"}
+    profiles = [(a, _fold_tokens(a)) for a in profile_affiliations if a]
+    authors = [(a, _fold_tokens(a)) for a in author_affiliations if a]
+    for raw_profile, profile_tokens in profiles:
+        for raw_author, author_tokens in authors:
+            shorter, longer = sorted((profile_tokens, author_tokens), key=len)
+            if not shorter or not any(len(t) >= 2 and t not in generic for t in shorter):
+                continue
+            if any(longer[i:i + len(shorter)] == shorter
+                   for i in range(len(longer) - len(shorter) + 1)):
                 return raw_author, raw_profile
     return None
 
@@ -201,8 +203,15 @@ def match(authors, profile: dict) -> Optional[Match]:
         if not matched_name:
             continue
 
-        # 2. Name and affiliation.
-        hit = _affiliation_hit(affiliations, profile_affiliations)
+        # A conflicting supplied identifier is counterevidence, never a reason
+        # to upgrade a name match. A single token remains ambiguous even when
+        # an institution string agrees. Keep these candidates visible to review.
+        conflict = bool(profile_orcid and orcid and orcid.upper() != profile_orcid.upper())
+        ambiguous = len(fold_name(name)) == 1
+        if conflict:
+            note += (f"; conflicting ORCID: record {orcid} differs from profile "
+                     f"{profile_orcid}; counterevidence, not identity")
+        hit = None if conflict or ambiguous else _affiliation_hit(affiliations, profile_affiliations)
         if hit:
             author_affiliation, profile_affiliation = hit
             candidate = Match(

@@ -884,6 +884,13 @@ def t_update_settings(args: dict) -> Any:
             f"resmon did not return the '{group}' settings group.",
         )
 
+    # Embeddings also returns capability metadata; only its nested settings
+    # are writable. Metadata is not a settings key and must never be accepted.
+    if group == "embeddings":
+        before = before.get("settings")
+        if not isinstance(before, dict):
+            raise ToolError("internal_error", "resmon did not return embedding settings.")
+
     unknown = sorted(k for k in named if k not in before)
     if unknown:
         raise ToolError(
@@ -894,7 +901,21 @@ def t_update_settings(args: dict) -> Any:
             {"unknown_keys": unknown, "group_keys": sorted(before)},
         )
 
-    payload = {k: ("" if v is None else str(v)) for k, v in settings.items()}
+    payload = {}
+    for key, value in settings.items():
+        if isinstance(before[key], bool):
+            # The advertised MCP values are strings. Parse only the two
+            # unambiguous spellings, and also preserve native JSON booleans.
+            # bool("False") is True: letting that string reach the notification
+            # PUT silently enabled a setting the caller had asked to disable.
+            if isinstance(value, bool):
+                payload[key] = value
+            elif isinstance(value, str) and value.strip().lower() in ("true", "false"):
+                payload[key] = value.strip().lower() == "true"
+            else:
+                raise ToolError("invalid_argument", f"'{key}' requires true or false.")
+        else:
+            payload[key] = "" if value is None else str(value)
     backend.request("PUT", f"/api/settings/{group}", json={"settings": payload})
 
     after = backend.request("GET", f"/api/settings/{group}")
@@ -903,6 +924,11 @@ def t_update_settings(args: dict) -> Any:
             "internal_error",
             f"resmon did not return the '{group}' settings group after the change.",
         )
+
+    if group == "embeddings":
+        after = after.get("settings")
+        if not isinstance(after, dict):
+            raise ToolError("internal_error", "resmon did not return embedding settings after the change.")
 
     changed = {
         key: {"from": before.get(key), "to": after.get(key)}

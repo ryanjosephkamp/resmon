@@ -392,3 +392,17 @@ response (`mcp_server.CONTRACT_VERSION`). Additive changes — new tools, new op
 do not require a new contract document. Removing a tool, renaming an argument, or changing
 a return shape is a **breaking** change: new major version, new document, and the 2.0
 assistant is updated in the same pull request, because it is the other consumer.
+
+
+### Settings boolean semantics (Trust corrections)
+
+The existing `update_settings` input shape is unchanged: setting values are
+advertised as strings. For a setting returned as a JSON boolean by its GET
+handler, send `"true"` or `"false"` (case-insensitive); the MCP function converts
+that value to a JSON boolean at the HTTP boundary. It also preserves a native
+boolean when called directly. Other values for boolean fields are refused
+before PUT. This prevents the nonempty string `"False"` from enabling a setting.
+The diff reports actual GET state before and after, rather than echoing input.
+Embeddings uses the GET response's nested `settings` object for its writable
+key list and diff; capability metadata is not writable. Group and credential
+refusals and confirmation requirements are unchanged.

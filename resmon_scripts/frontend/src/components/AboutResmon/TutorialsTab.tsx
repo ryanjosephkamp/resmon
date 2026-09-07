@@ -253,6 +253,8 @@ const sections: TutorialSection[] = [
       '`Export` writes one profile as JSON; `Import JSON` reads one or many back. A file with one bad entry still imports the good ones and says which line it could not read.',
     ],
     features: [
+      'Initials and surname particles are preserved. Affiliations match whole tokens: MIT does not match SUMMIT. Exact single-token names remain ambiguous candidates, and conflicting ORCIDs stay visible as counterevidence without raising the match basis.',
+      'Historical matches are kept and labeled as not rechecked under the current matching policy. Only newly evaluated evidence carries the current policy label; the field-test figures below describe the earlier policy.',
       'Every match records **how** it was made, and the badge says which: `ORCID match` means the source returned this profile\u2019s identifier; `name + affiliation` and `name only` are string matches and are not evidence of identity.',
       'A `name only` match is never presented as the person. The string the source actually returned is shown beside it, so `J. Smith` against a profile named `John Smith` tells you how weak the match is better than any summary could.',
       'The papers list is counted by basis before it is listed. `Forty-one papers` and `forty-one papers, thirty-eight of them name-only` are different facts, and the second is the one you need first.',
