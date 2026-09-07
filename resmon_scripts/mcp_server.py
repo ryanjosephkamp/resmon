@@ -45,7 +45,7 @@ import httpx
 # ``requires_confirmation``. A caller that ignored that flag would be running
 # writes the contract says a person approves first, so callers are not
 # unaffected and the major version says so.
-CONTRACT_VERSION = "2.1"
+CONTRACT_VERSION = "2.2"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
 
@@ -739,6 +739,15 @@ def t_create_routine(args: dict) -> Any:
         else _require(args, "keywords"),
         "repositories": list(_require(args, "sources")),
     }
+    # v2.2. A watch routine follows a person, and the backend validates the
+    # profile id and the mode at the seam -- an unknown profile comes back as a
+    # 400 with a sentence, which this server surfaces as `invalid_argument`
+    # rather than creating a routine that could never do anything. Passed
+    # through unexamined on purpose: two validators for one rule is how the two
+    # drift apart, and the API's is the one that also governs the app's editor.
+    entity = args.get("entity")
+    if entity is not None:
+        parameters["entity"] = entity
     # `parameters` is a dict on the wire, not a JSON string. The database column
     # stores JSON text, which makes the string form the obvious guess and the
     # wrong one -- RoutineCreate declares `parameters: dict` and rejects a
@@ -774,9 +783,17 @@ def t_create_routine(args: dict) -> Any:
         except ToolError:
             routine = created
 
-    return {"routine": routine,
-            "detail": "Created inactive. Activate it — in resmon, or by asking "
-                      "to turn it on — to put it on its schedule."}
+    answer = {"routine": routine,
+              "detail": "Created inactive. Activate it — in resmon, or by asking "
+                        "to turn it on — to put it on its schedule."}
+    # The creation reply carries a sentence when none of the named sources can be
+    # asked about an author. Passed on rather than dropped: a watch routine that
+    # will find nothing for ever is exactly the thing a caller must repeat.
+    warning = created.get("entity_warning")
+    if warning:
+        answer["entity_warning"] = warning
+        answer["detail"] = answer["detail"] + " " + warning
+    return answer
 
 
 def t_run_routine(args: dict) -> Any:
@@ -905,6 +922,153 @@ def t_update_settings(args: dict) -> Any:
     }
 
 
+# ---------------------------------------------------------------------------
+# Watch profiles (contract v2.2)
+# ---------------------------------------------------------------------------
+#
+# **The basis travels, and so does the warning.** A harness reading these tools
+# is one paste away from telling someone "here are Jane Doe's retracted papers",
+# and for a `name_only` match that sentence is false and defamatory. So the tools
+# below never return a match without its basis, and `create_watch_profile`
+# returns `basis_warning` in the same payload as the profile it created rather
+# than leaving the caller to fetch it. A field a caller has to ask for twice is a
+# field a caller does not print.
+
+
+def _profile_summary(profile: dict) -> dict:
+    """One profile, trimmed for a tool answer but never trimmed of its warning."""
+    return {
+        "id": profile.get("id"),
+        "kind": profile.get("kind"),
+        "display_name": profile.get("display_name"),
+        "names": [n.get("value") for n in (profile.get("names") or [])
+                  if isinstance(n, dict)],
+        "identifiers": sorted((profile.get("identifiers") or {}).keys()),
+        "orcid": ((profile.get("identifiers") or {}).get("orcid") or {}).get("value"),
+        "affiliations": profile.get("affiliations") or [],
+        "basis_warning": profile.get("basis_warning"),
+    }
+
+
+def t_list_watch_profiles(args: dict) -> Any:
+    params = {}
+    kind = str(args.get("kind") or "").strip()
+    if kind:
+        params["kind"] = kind
+    body = backend.request("GET", "/api/profiles", params=params) or {}
+    profiles = body.get("profiles") or []
+    return {
+        "profiles": [_profile_summary(p) for p in profiles],
+        "count": len(profiles),
+    }
+
+
+def t_get_watch_profile(args: dict) -> Any:
+    """One profile, in full, with its matches summarised by basis.
+
+    The per-basis counts ride along rather than living behind a second call, for
+    the same reason ``get_routine`` carries its coverage summary: the number a
+    caller needs in order to describe this profile honestly is *how many of its
+    papers are name matches*, and a tool that made that a second question would
+    be answered without it most of the time.
+    """
+    profile_id = _require_int(args, "profile_id")
+    profile = backend.request("GET", f"/api/profiles/{profile_id}") or {}
+    matches = backend.request(
+        "GET", f"/api/profiles/{profile_id}/matches", params={"limit": 1}) or {}
+    return {
+        "profile": profile,
+        "matches": {
+            "total": matches.get("total", 0),
+            "by_basis": matches.get("by_basis", {}),
+        },
+    }
+
+
+def t_create_watch_profile(args: dict) -> Any:
+    """Create a profile, and say in the same breath what it can ever prove.
+
+    ``basis_warning`` is lifted to the top of the answer rather than left inside
+    the created record. The API returns it on every read, so this is not new
+    information — it is placement, and placement is the whole of whether a
+    harness repeats it.
+    """
+    identifiers: dict = {}
+    orcid = str(args.get("orcid") or "").strip()
+    if orcid:
+        # ``cited`` is required of every identifier a person enters in the app,
+        # because an identifier nobody can trace is an assertion. A tool caller
+        # is a person too, one step removed, so the citation says where it came
+        # from rather than being left blank.
+        identifiers["orcid"] = {
+            "value": orcid,
+            "cited": str(args.get("orcid_cited") or "").strip()
+                     or "entered through an MCP client",
+        }
+    body = {
+        "kind": "person",
+        "display_name": _require(args, "name"),
+        "names": [{"value": _require(args, "name")}]
+                 + [{"value": a} for a in (args.get("aliases") or [])],
+        "identifiers": identifiers,
+        "affiliations": list(args.get("affiliations") or []),
+        "field_hints": list(args.get("field_hints") or []),
+    }
+    created = backend.request("POST", "/api/profiles", json=body) or {}
+    answer = {"profile": created}
+    warning = created.get("basis_warning")
+    if warning:
+        answer["basis_warning"] = warning
+        answer["detail"] = (
+            "Created. " + warning + " Add an ORCID with update in the app to "
+            "change that."
+        )
+    else:
+        answer["detail"] = (
+            "Created with an ORCID, so a paper can be matched by identity "
+            "rather than by name."
+        )
+    return answer
+
+
+def t_get_profile_matches(args: dict) -> Any:
+    """The papers matched to a profile, **each with its basis**.
+
+    ``basis`` is on every row and there is no argument that removes it. A list
+    of papers with no basis is exactly the claim resmon refuses to make, and a
+    tool that let a caller ask for the short version would be handing over the
+    means to make it.
+    """
+    profile_id = _require_int(args, "profile_id")
+    body = backend.request(
+        "GET", f"/api/profiles/{profile_id}/matches",
+        params={"limit": _limit(args), "offset": _offset(args)}) or {}
+    rows = body.get("matches") or []
+    return {
+        "matches": [{
+            "doc_id": r.get("document_id"),
+            "title": r.get("title"),
+            "basis": r.get("basis"),
+            "matched_author": r.get("matched_author"),
+            "evidence": r.get("evidence"),
+            "source": r.get("source_repository"),
+            "doi": r.get("doi"),
+            "url": r.get("url"),
+            "publication_date": r.get("publication_date"),
+            "first_seen_at": r.get("first_seen_at"),
+        } for r in rows],
+        "total": body.get("total", 0),
+        "by_basis": body.get("by_basis", {}),
+        "what_a_basis_means": {
+            "identifier": "the source returned this profile's ORCID on the paper",
+            "name+affiliation": ("a name matched and an affiliation on the record "
+                                 "matched one of the profile's — not identity"),
+            "name_only": ("this name is on the paper and nothing more; it is not "
+                          "evidence that this is the person"),
+        },
+    }
+
+
 TOOLS: list[dict] = [
     {"name": "health", "fn": t_health,
      "description": "Whether resmon is running, and which version.",
@@ -1014,6 +1178,33 @@ TOOLS: list[dict] = [
      "schema": {"type": "object", "properties": {
          "include_muted": {"type": "boolean"}}}},
 
+    {"name": "list_watch_profiles", "fn": t_list_watch_profiles,
+     "description": ("The people the user is watching. Each carries "
+                     "'basis_warning' when the profile has no identifier, which "
+                     "says what every match for it can ever be."),
+     "schema": {"type": "object", "properties": {
+         "kind": {"type": "string", "enum": ["person", "institution", "group"]}}}},
+
+    {"name": "get_watch_profile", "fn": t_get_watch_profile,
+     "description": ("One watch profile in full, with its matches counted by "
+                     "basis — so how many of this person's papers are name "
+                     "matches is part of the answer, not a second question."),
+     "schema": {"type": "object", "required": ["profile_id"], "properties": {
+         "profile_id": {"type": "integer"}}}},
+
+    {"name": "get_profile_matches", "fn": t_get_profile_matches,
+     "description": (
+         "The papers matched to a watch profile. EVERY row carries 'basis': "
+         "'identifier' means the source returned this profile's ORCID; "
+         "'name+affiliation' and 'name_only' are string matches and are NOT "
+         "evidence of identity. Never present a 'name_only' match as this "
+         "person's paper."
+     ),
+     "schema": {"type": "object", "required": ["profile_id"], "properties": {
+         "profile_id": {"type": "integer"},
+         "limit": {"type": "integer", "default": DEFAULT_LIMIT},
+         "offset": {"type": "integer", "default": 0}}}},
+
     {"name": "export_references", "fn": t_export_references,
      "description": "Export references as BibTeX, RIS, CSV or JSON.",
      "schema": {"type": "object", "properties": {
@@ -1043,7 +1234,52 @@ TOOLS: list[dict] = [
                         "the user's own words. The coverage audit compares "
                         "results against it; without one it falls back to the "
                         "keywords, which measures the query against itself.")},
+                    "entity": {"type": "object", "description": (
+                        "Optional. Makes this a watch routine: it follows a "
+                        "person rather than a set of words. 'keywords' is then "
+                        "ignored — a watch routine narrowed by topic would "
+                        "silently hide the person's other work."),
+                        "required": ["profile_id", "mode"],
+                        "properties": {
+                            "profile_id": {"type": "integer", "description": (
+                                "From list_watch_profiles or "
+                                "create_watch_profile.")},
+                            "mode": {"type": "string",
+                                     "enum": ["new_papers", "retractions"],
+                                     "description": (
+                                         "'new_papers' asks each source about "
+                                         "the person and checks every answer "
+                                         "locally. 'retractions' checks the "
+                                         "papers already matched to them and "
+                                         "reports what is on record — it asks "
+                                         "no source and invents no finding.")}}},
                     "ai_enabled": {"type": "boolean"}}}},
+
+    {"name": "create_watch_profile", "fn": t_create_watch_profile,
+     "requires_confirmation": True,
+     "description": (
+         "Create a profile for a person to watch. Without an ORCID every match "
+         "it can ever produce is a name match; the answer says so in "
+         "'basis_warning' and that sentence is part of the result, not a "
+         "footnote."
+     ),
+     "schema": {"type": "object", "required": ["name"], "properties": {
+         "name": {"type": "string", "description": "The person's name as published."},
+         "orcid": {"type": "string", "description": (
+             "Their ORCID, if the user has one. This is the only thing that "
+             "makes a match evidence of identity rather than of a string.")},
+         "orcid_cited": {"type": "string", "description": (
+             "Where the ORCID came from — a page, a paper, the user's own "
+             "knowledge. An identifier nobody can trace back is an assertion.")},
+         "aliases": {"type": "array", "items": {"type": "string"},
+                     "description": (
+                         "Other spellings. Used when resmon checks a source's "
+                         "answer; not sent to the source, which takes one name.")},
+         "affiliations": {"type": "array", "items": {"type": "string"}},
+         "field_hints": {"type": "array", "items": {"type": "string"},
+                         "description": (
+                             "Used only to tell two people apart. Never used to "
+                             "narrow the search — that would hide their work.")}}}},
 
     {"name": "run_routine", "fn": t_run_routine, "requires_confirmation": True,
      "description": "Run a saved routine now, outside its schedule. Returns immediately.",

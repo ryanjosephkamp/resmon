@@ -121,6 +121,14 @@ _ARGS: dict[str, dict] = {
     "deactivate_routine": {"routine_id": 999999},
     "update_settings": {"group": "notifications",
                         "settings": {"notify_manual": "true"}},
+    # v2.2. The three reads take an id that does not exist, which is a real
+    # answer from the backend and proves the call landed.
+    # ``create_watch_profile`` writes a row, so it is covered separately below
+    # for the same reason ``create_routine`` is.
+    "list_watch_profiles": {},
+    "get_watch_profile": {"profile_id": 999999},
+    "get_profile_matches": {"profile_id": 999999},
+    "create_watch_profile": None,
 }
 
 _ACCEPTABLE_ERRORS = {"not_found", "invalid_argument", "conflict"}
@@ -376,6 +384,114 @@ def test_activate_and_deactivate_really_move_a_routine_on_and_off_its_schedule(b
 
     assert not mcp.call_tool("deactivate_routine", {"routine_id": routine_id})["isError"]
     assert not httpx.get(f"{backend}/api/routines/{routine_id}", timeout=10).json()["is_active"]
+
+
+# ---------------------------------------------------------------------------
+# The v2.2 tools, against a real backend — P9
+# ---------------------------------------------------------------------------
+
+def test_creating_a_watch_profile_without_an_orcid_returns_the_warning(backend):
+    """P9. The sentence a harness must repeat, in the payload it actually reads.
+
+    Not "the endpoint returns it" — ``test_api_profiles`` establishes that. What
+    this establishes is that it survives the tool's own reshaping, which is the
+    layer that would drop it.
+    """
+    created = _payload(mcp.call_tool("create_watch_profile", {
+        "name": "A Person With No Identifier",
+    }))
+    assert created["basis_warning"], created
+    assert "name-only" in created["basis_warning"]
+    assert created["basis_warning"] in created["detail"]
+
+
+def test_an_orcid_retires_the_warning_over_the_tool_too(backend):
+    """The negative control. Without it the assertion above would also pass
+    against a tool that returned that sentence unconditionally."""
+    created = _payload(mcp.call_tool("create_watch_profile", {
+        "name": "A Person With An Identifier",
+        "orcid": "0000-0002-1825-0097",
+        "orcid_cited": "the live-surface test",
+    }))
+    assert "basis_warning" not in created
+    assert created["profile"]["identifiers"]["orcid"]["value"] == "0000-0002-1825-0097"
+
+
+def test_the_profile_a_tool_created_is_readable_through_the_other_three(backend):
+    """The four tools are one workflow, so they are exercised as one.
+
+    Every one of them speaks to the same real backend and the profile really
+    travels: created by the write tool, found by the list tool, read by the get
+    tool, and its (empty) match set fetched with its basis vocabulary intact.
+    """
+    name = "A Person The Live Surface Created"
+    created = _payload(mcp.call_tool("create_watch_profile", {"name": name}))
+    profile_id = created["profile"]["id"]
+
+    listed = _payload(mcp.call_tool("list_watch_profiles", {"kind": "person"}))
+    assert profile_id in [p["id"] for p in listed["profiles"]]
+    mine = next(p for p in listed["profiles"] if p["id"] == profile_id)
+    assert mine["basis_warning"], "the list must not drop the warning either"
+
+    fetched = _payload(mcp.call_tool("get_watch_profile", {"profile_id": profile_id}))
+    assert fetched["profile"]["display_name"] == name
+    assert fetched["matches"]["total"] == 0
+
+    matches = _payload(mcp.call_tool("get_profile_matches",
+                                     {"profile_id": profile_id}))
+    assert matches["matches"] == []
+    # The vocabulary travels even when the list is empty: a harness that reads
+    # the shape before there is data still learns what a basis means.
+    assert set(matches["what_a_basis_means"]) == {
+        "identifier", "name+affiliation", "name_only"}
+
+
+def test_a_watch_routine_can_be_created_through_the_tool(backend):
+    """`create_routine`'s new `entity` argument, against the real validator.
+
+    The backend refuses an unknown profile id at the seam, so the two halves of
+    this — an accepted one and a refused one — establish that the argument
+    really reaches that validator rather than being dropped on the way.
+    """
+    created = _payload(mcp.call_tool("create_watch_profile",
+                                     {"name": "Watched By A Routine"}))
+    profile_id = created["profile"]["id"]
+
+    made = _payload(mcp.call_tool("create_routine", {
+        "name": "live-surface-watch", "keywords": [], "sources": ["arxiv"],
+        "schedule": "0 9 * * 1",
+        "entity": {"profile_id": profile_id, "mode": "new_papers"},
+    }))
+    parameters = made["routine"]["parameters"]
+    if isinstance(parameters, str):
+        parameters = json.loads(parameters)
+    assert parameters["entity"] == {"profile_id": profile_id,
+                                    "mode": "new_papers"}
+
+    refused = mcp.call_tool("create_routine", {
+        "name": "live-surface-watch-broken", "keywords": [], "sources": ["arxiv"],
+        "schedule": "0 9 * * 1",
+        "entity": {"profile_id": 999999, "mode": "new_papers"},
+    })
+    assert refused["isError"]
+    assert _payload(refused)["error"] == "invalid_argument"
+
+
+def test_a_watch_routine_over_unaskable_sources_carries_the_warning_through(backend):
+    """The creation warning reaches the tool's caller rather than being dropped.
+
+    bioRxiv has no author query of any kind, so this routine would find nothing
+    for ever. The sentence is the only thing that would tell anyone.
+    """
+    created = _payload(mcp.call_tool("create_watch_profile",
+                                     {"name": "Watched Over Biorxiv"}))
+    made = _payload(mcp.call_tool("create_routine", {
+        "name": "live-surface-watch-unaskable", "keywords": [],
+        "sources": ["biorxiv"], "schedule": "0 9 * * 1",
+        "entity": {"profile_id": created["profile"]["id"], "mode": "new_papers"},
+    }))
+    assert made["entity_warning"]
+    assert made["entity_warning"] in made["detail"]
 
 
 def test_update_settings_changes_exactly_the_keys_it_named(backend):
