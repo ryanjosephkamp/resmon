@@ -47,6 +47,23 @@ export const BASIS_MEANING: Record<MatchBasis, string> = {
     + 'you it is this person.',
 };
 
+/** Old rows remain untouched; only freshly evaluated evidence has this prefix. */
+export const isHistoricalMatch = (evidence: string | null): boolean =>
+  !evidence?.startsWith('Matching policy 2026-09-07: ');
+
+export const MatchEvidence: React.FC<{ evidence: string | null; expanded?: boolean }> =
+  ({ evidence, expanded }) => (
+    <>
+      {isHistoricalMatch(evidence) && (
+        <span className="basis-history">Historical match — not rechecked under the current matching policy.</span>
+      )}
+      {evidence && (expanded || evidence.includes('ambiguous single-token name')
+        || evidence.includes('conflicting ORCID')) && (
+        <span className="basis-evidence">{evidence}</span>
+      )}
+    </>
+  );
+
 interface Props {
   matches: DocumentMatch[];
   /** Off in dense lists, where the profile name alone is enough. */
@@ -76,9 +93,7 @@ const BasisBadge: React.FC<Props> = ({ matches, showEvidence }) => {
             */
             <span className="basis-author">matched “{m.matched_author}”</span>
           )}
-          {showEvidence && m.evidence && (
-            <span className="basis-evidence">{m.evidence}</span>
-          )}
+          <MatchEvidence evidence={m.evidence} expanded={showEvidence} />
         </li>
       ))}
     </ul>

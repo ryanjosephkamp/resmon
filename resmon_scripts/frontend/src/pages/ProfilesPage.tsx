@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import PageHelp from '../components/Help/PageHelp';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import ProfileEditor from '../components/Profiles/ProfileEditor';
-import { BASIS_LABEL, BASIS_MEANING } from '../components/Profiles/BasisBadge';
+import { BASIS_LABEL, BASIS_MEANING, MatchEvidence } from '../components/Profiles/BasisBadge';
 import {
   MatchBasis, ProfileLifecycle, ProfileMatchPage, WatchProfile,
   WatchProfileDraft, profilesApi,
@@ -193,6 +193,12 @@ const ProfilesPage: React.FC = () => {
             heading: 'Why every match carries a basis',
             body: (
               <>
+                <p>Names keep initials and surname particles. Affiliations match whole tokens,
+                  so MIT does not match SUMMIT. Single-token names stay ambiguous candidates;
+                  conflicting ORCIDs are counterevidence and cannot raise a name match.
+                  Historical matches are labeled and kept, not automatically rechecked.
+                  The field-test figures below describe the earlier matching policy.</p>
+
                 <p>
                   Scholarly sources do not agree on who anybody is. Most of them
                   return an author&rsquo;s <em>name</em> and nothing else, so
@@ -475,6 +481,7 @@ const ProfilesPage: React.FC = () => {
                             </a>
                           ) : m.title}
                           <span className="text-muted">{m.source_repository}</span>
+                          <MatchEvidence evidence={m.evidence} expanded />
                           {m.matched_author && (
                             <span className="basis-author">matched &ldquo;{m.matched_author}&rdquo;</span>
                           )}
@@ -517,6 +524,7 @@ const ProfilesPage: React.FC = () => {
                             not a retraction attached to a person, and saying
                             otherwise about somebody named is defamatory.
                           */}
+                          <span className="basis-history">Saved match basis — identity has not been rechecked for this finding.</span>
                           <span className="basis-chip" title={BASIS_MEANING[f.basis]}>
                             {BASIS_LABEL[f.basis]}
                           </span>

@@ -246,3 +246,87 @@ def test_last_comma_first_is_reordered_before_matching():
     assert name_matches("Witten, Edward", "Edward Witten")[0]
     assert name_matches("Doe, J.", "Jane Doe")[0]
     assert fold_name("Müller, Hans") == fold_name("Hans Muller")
+
+
+@pytest.mark.parametrize("name,tokens", [
+    ("A. de la Cruz", ["a", "de", "la", "cruz"]),
+    ("Will van der Meer", ["will", "van", "der", "meer"]),
+    ("I. To", ["i", "to"]),
+    ("J.-P. Müller", ["j", "p", "muller"]),
+    ("李 明", ["李", "明"]),
+])
+def test_name_folding_preserves_every_meaningful_token(name, tokens):
+    assert fold_name(name) == tokens
+
+
+@pytest.mark.parametrize("candidate,target", [
+    ("A. Smith", "B. Smith"), ("Will Smith", "Smith"),
+    ("John de Vries", "John Vries"), ("I. To", "J. To"),
+])
+def test_dropped_title_words_do_not_create_name_matches(candidate, target):
+    assert not name_matches(candidate, target)[0]
+
+
+@pytest.mark.parametrize("author_aff,profile_aff,basis", [
+    ("!!!", "University of Somewhere", "name_only"),
+    ("University of Somewhere", "...", "name_only"),
+    ("University", "University of Somewhere", "name_only"),
+    ("Summit Institute", "MIT", "name_only"),
+    ("University of New Yorkshire", "University of New York", "name_only"),
+    ("MIT", "MIT", "name+affiliation"),
+    ("Department of Physics, MIT", "MIT", "name+affiliation"),
+    ("東京大学", "東京大学", "name+affiliation"),
+    ("東京大学院", "東京大学", "name_only"),
+    ("Université de Montréal", "Universite de Montreal", "name+affiliation"),
+])
+def test_affiliation_uses_nonempty_complete_token_runs(author_aff, profile_aff, basis):
+    found = match([Author("Jane Doe", affiliations=(author_aff,))],
+                  profile(affiliations=[profile_aff]))
+    assert found.basis == basis
+
+
+@pytest.mark.parametrize("name", ["Smith", "Plato", "村上春樹"])
+def test_exact_single_token_names_stay_ambiguous_even_with_affiliation(name):
+    found = match([Author(name, affiliations=("MIT",))],
+                  profile(names=[{"value": name}], affiliations=["MIT"]))
+    assert found.basis == "name_only"
+    assert "ambiguous single-token name" in found.evidence
+    assert "not identity" in found.evidence
+
+
+def test_conflicting_orcid_is_visible_counterevidence_and_blocks_affiliation_promotion():
+    found = match([Author("Jane Doe", orcid="0000-0001-5109-3700",
+                          affiliations=("University of Somewhere",))],
+                  profile(identifiers=WITH_ORCID["identifiers"],
+                          affiliations=WITH_AFFILIATION["affiliations"]))
+    assert found.basis == "name_only"
+    assert "conflicting ORCID" in found.evidence
+    assert "counterevidence" in found.evidence
+    assert ORCID in found.evidence
+
+
+def test_matching_orcid_retains_strongest_basis_for_a_mononym():
+    found = match([Author("Plato", orcid=ORCID)], WITH_ORCID)
+    assert found.basis == "identifier"
+
+
+@pytest.mark.parametrize("basis,positive", [
+    ("name_only", Author("Jane Doe")),
+    ("name+affiliation", Author("Jane Doe", affiliations=("MIT",))),
+    ("identifier", Author("Another Name", orcid=ORCID)),
+])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_other_authors_conflicts_stay_visible_without_supporting_selected_basis(basis, positive, reverse):
+    conflict = Author("Jane Doe", orcid="0000-0001-5109-3700", affiliations=("MIT",))
+    authors = [positive, conflict]
+    if reverse:
+        authors.reverse()
+    prof = profile(identifiers=WITH_ORCID["identifiers"], affiliations=["MIT"])
+    found = match(authors, prof)
+    assert found.basis == basis
+    assert "conflicting ORCID" in found.evidence
+    assert "0000-0001-5109-3700" in found.evidence
+    if basis == "identifier":
+        assert found.matched_author == "Another Name"
+        assert "other compatible-name author counterevidence" in found.evidence
+    assert found.evidence.count("Matching policy 2026-09-07: ") == 1

@@ -527,11 +527,18 @@ def test_update_settings_reaches_every_group_on_its_allowlist(backend):
         current = httpx.get(f"{backend}/api/settings/{group}", timeout=10)
         assert current.status_code == 200, f"{group}: {current.status_code}"
         keys = current.json()
+        if group == "embeddings":
+            keys = keys["settings"]
         assert keys, f"the '{group}' group came back empty"
         key = sorted(keys)[0]
+        value = str(keys[key]).lower() if isinstance(keys[key], bool) else (keys[key] or "")
         result = mcp.call_tool(
-            "update_settings", {"group": group, "settings": {key: keys[key] or ""}})
+            "update_settings", {"group": group, "settings": {key: value}})
         assert not result["isError"], f"{group}/{key}: {_payload(result)}"
+        after = httpx.get(f"{backend}/api/settings/{group}", timeout=10).json()
+        if group == "embeddings":
+            after = after["settings"]
+        assert after == keys, f"{group}/{key}: a no-op request changed settings"
 
 
 def test_the_credential_denylist_excludes_nothing_that_exists(backend):
@@ -544,6 +551,8 @@ def test_the_credential_denylist_excludes_nothing_that_exists(backend):
     blocked: dict[str, list[str]] = {}
     for group in mcp.SETTINGS_GROUPS:
         keys = httpx.get(f"{backend}/api/settings/{group}", timeout=10).json()
+        if group == "embeddings":
+            keys = keys["settings"]
         hit = sorted(k for k in keys
                      if any(w in k.lower() for w in mcp._CREDENTIAL_SHAPED))
         if hit:
