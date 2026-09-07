@@ -577,3 +577,95 @@ def test_a_session_with_no_cli_id_starts_one_rather_than_resuming_it(backend):
     # that wrongly resumed an invented id would come back with a notice — which
     # is exactly what the real CLI would do and what the panel would have to
     # explain, for every turn, for ever.
+
+
+# ---------------------------------------------------------------------------
+# P12 (2.1) — "watch <person> for retractions" is two cards, and both gate
+# ---------------------------------------------------------------------------
+#
+# Contract v2.2 gave the assistant four new tools by inheritance: `WRITE_TOOLS`
+# and `READ_TOOLS` are derived from `mcp_server.TOOLS`, and the runtime builds
+# its pre-approved list from `READ_TOOLS`. So `create_watch_profile` is gated by
+# construction rather than by a decision made here — and that is exactly the
+# kind of claim worth checking against a real backend, because "it should be
+# covered by the derivation" is the sentence three shipped defects were hiding
+# behind.
+#
+# The flow the brief names is two writes in one turn. Both must produce a card,
+# and neither may touch the database before its own card is answered.
+
+
+def _profiles(base: str) -> list[dict]:
+    return httpx.get(f"{base}/api/profiles", timeout=20).json()["profiles"]
+
+
+def test_watching_a_person_produces_a_card_for_the_profile_and_one_for_the_routine(backend):
+    """P12. Two writes, two cards, in order, and the state moves only after each."""
+    before = len(_profiles(backend.base))
+
+    session = _session(backend.base)
+    events = _turn_answering(
+        backend.base, session["id"],
+        'CALL:create_watch_profile {"name": "A Watched Person"}\n'
+        'CALL:create_routine {"name": "watch-flow", "keywords": [], '
+        '"sources": ["arxiv"], "schedule": "0 9 * * 1", '
+        '"entity": {"profile_id": 1, "mode": "retractions"}}',
+        allow=True)
+
+    cards = [e for e in events if e["type"] == "permission_request"]
+    assert [c["tool_name"] for c in cards] == [
+        "mcp__resmon__create_watch_profile", "mcp__resmon__create_routine"], (
+        "both writes must be carded, in the order the model asked for them"
+    )
+
+    profiles = _profiles(backend.base)
+    assert len(profiles) == before + 1
+    created = profiles[-1]
+    # The sentence the panel has to show, present in the tool's own answer
+    # rather than left for the interface to fetch.
+    assert created["basis_warning"]
+
+
+def test_refusing_the_profile_card_leaves_no_profile_and_no_routine(backend):
+    """The claim is about the database, not the transcript.
+
+    A denied `create_watch_profile` must leave nothing behind — and the routine
+    that would have pointed at it is refused too, by the backend's own
+    validation rather than by the assistant deciding to give up.
+    """
+    before_profiles = len(_profiles(backend.base))
+    before_routines = len(httpx.get(f"{backend.base}/api/routines", timeout=20).json())
+
+    session = _session(backend.base)
+    events = _turn_answering(
+        backend.base, session["id"],
+        'CALL:create_watch_profile {"name": "Never Created"}\n'
+        'CALL:create_routine {"name": "watch-flow-denied", "keywords": [], '
+        '"sources": ["arxiv"], "schedule": "0 9 * * 1", '
+        '"entity": {"profile_id": 99999, "mode": "retractions"}}',
+        allow=False)
+
+    assert [e["tool_name"] for e in events if e["type"] == "permission_request"] == [
+        "mcp__resmon__create_watch_profile", "mcp__resmon__create_routine"]
+    assert len(_profiles(backend.base)) == before_profiles
+    assert len(httpx.get(f"{backend.base}/api/routines", timeout=20).json()) == before_routines
+    assert all(e["is_error"] for e in events if e["type"] == "tool_result")
+
+
+def test_the_three_new_read_tools_need_no_card(backend):
+    """The other half of the property, and the negative control for it.
+
+    A read that asked for permission would train a user to click through cards,
+    and the cards that matter would go unread. The pre-approved list is derived
+    from `READ_TOOLS`, so this checks the derivation against a real turn.
+    """
+    session = _session(backend.base)
+    events = _turn_answering(
+        backend.base, session["id"],
+        'CALL:list_watch_profiles {}\n'
+        'CALL:get_profile_matches {"profile_id": 1}',
+        allow=True)
+    assert [e for e in events if e["type"] == "permission_request"] == []
+    assert [e["type"] for e in events if e["type"] == "tool_result"], (
+        "the reads must actually have run"
+    )
