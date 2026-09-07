@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "kind": "person",
+  "display_name": "Eric Topol",
+  "names": [
+    {
+      "value": "Eric Topol",
+      "script": "latin"
+    },
+    {
+      "value": "Eric J. Topol",
+      "script": "latin"
+    }
+  ],
+  "identifiers": {
+    "orcid": {
+      "value": "0000-0002-1478-4729",
+      "cited": "Verified 2026-09-06 against the public ORCID record: GET https://pub.orcid.org/v3.0/0000-0002-1478-4729/person returned this name."
+    }
+  },
+  "affiliations": [],
+  "field_hints": [],
+  "notes": "Digital medicine and genomics; Scripps Research."
+}

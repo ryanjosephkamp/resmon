@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kind": "person",
+  "display_name": "Yoshua Bengio",
+  "names": [
+    {
+      "value": "Yoshua Bengio",
+      "script": "latin"
+    }
+  ],
+  "identifiers": {
+    "orcid": {
+      "value": "0000-0002-9322-3515",
+      "cited": "Verified 2026-09-06 against the public ORCID record: GET https://pub.orcid.org/v3.0/0000-0002-9322-3515/person returned this name."
+    }
+  },
+  "affiliations": [],
+  "field_hints": [],
+  "notes": "Deep learning; Mila, Universite de Montreal."
+}
