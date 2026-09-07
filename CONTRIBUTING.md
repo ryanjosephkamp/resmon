@@ -30,12 +30,20 @@ more certainty than it earns is rejected even when the code is correct.**
 In practice that means an absent value beats an invented one, a measured figure beats an
 estimate, and "undocumented" is a correct answer.
 
+The clearest worked example in the codebase is 2.1's **basis rule**. An author match is a
+string match unless the source gave an identifier, so every match records *how* it was made
+and the product labels it — and the labels were then measured rather than asserted: across
+1,369 real matches, 90% were `name_only`, 9% carried an ORCID and 0.7% reached
+`name+affiliation`. The figures are stated in the interface itself, and a renderer test fails
+when they are removed. A feature that could not survive being measured is a feature that
+should not be described as if it had been.
+
 ## Before you open a pull request
 
 All five must pass:
 
 ```bash
-.venv/bin/python -m pytest -q                    # hermetic backend suite — 1551 pass
+.venv/bin/python -m pytest -q                    # hermetic backend suite — 1712 pass
 .venv/bin/python -m pytest -m live_network -q    # real APIs; CI runs the half that needs no CLI, weekly
 cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
 npm run e2e                                      # the real Electron app, every route
