@@ -11,12 +11,18 @@ from pathlib import Path
 from typing import Optional
 
 from . import zero_reason as zero_reason_module
-from .api_base import reset_search_outcome, search_outcome
+from .api_base import (
+    EntityUnsupported,
+    note_entity_unsupported,
+    reset_search_outcome,
+    search_outcome,
+)
 from .api_registry import (
     RETIRED_REPOSITORIES,
     get_client,
     list_repositories,
 )
+from . import entity_matching
 from .repo_catalog import REPOSITORY_CATALOG
 from .config import REPORTS_DIR
 from .credential_manager import get_credential_for
@@ -231,6 +237,10 @@ class SweepEngine:
         )
 
         all_results = []
+        # 2.1 — every candidate that survived verification, keyed by
+        # (source, external_id) so a paper returned by two sources is written
+        # once with the **strongest** basis either of them supports.
+        entity_matches: dict = {}
         missing_key_repos: list[str] = []
         repo_errors: list[dict] = []
         # One entry per source that came back with nothing, in the order the
@@ -312,6 +322,26 @@ class SweepEngine:
                         "timestamp": now_iso(),
                     })
                     task_log.log(f"  {repo_name}: {len(results)} results")
+
+                    # 2.1 — **local verification, on every candidate.** A
+                    # source's author search is a generator, not a verdict:
+                    # arXiv's `au:` is a text match over a field and Crossref's
+                    # `query.author` is relevance-ranked, and neither is a claim
+                    # about identity. Every record is re-checked here against the
+                    # profile, so a routine's results contain only what resmon
+                    # can evidence itself — and the count that did not survive is
+                    # recorded rather than silently dropped.
+                    entity_profile = query_params.get("entity_profile")
+                    if entity_profile is not None and results:
+                        verified, rejected = self._verify_entity_candidates(
+                            results, entity_profile)
+                        if rejected:
+                            task_log.log(
+                                f"    {rejected} of {len(results)} did not "
+                                f"survive verification against the profile")
+                        entity_matches.update(verified)
+                        results = [record for record, _m in verified.values()]
+
                     all_results.extend(results)
 
                     # Why nothing came back, derived only when nothing came
@@ -448,6 +478,20 @@ class SweepEngine:
             update_current_stage(self.db, exec_id, "dedup")
 
             dedup_stats = deduplicate_batch(self.db, all_results)
+
+            # 2.1 — the match rows, written **after** the documents exist
+            # because a match points at a document id. Written for every
+            # verified candidate, including the ones dedup recognised as
+            # already in the corpus: a paper you already had is still this
+            # person's paper, and a watch routine that only ever surfaced brand
+            # new documents would go quiet for anyone whose work you already
+            # collect.
+            if entity_matches:
+                written = self._record_entity_matches(
+                    entity_matches, query_params.get("entity_profile"))
+                task_log.log(
+                    f"Watch profile: {written} verified match(es) recorded")
+
             task_log.log(
                 f"Dedup stats: total={dedup_stats['total']}, "
                 f"new={dedup_stats['new']}, duplicates={dedup_stats['duplicates']}, "
@@ -1234,6 +1278,81 @@ class SweepEngine:
             raise holder["error"]
         return holder.get("results", [("", None)] * len(texts))
 
+    def _record_entity_matches(self, matches: dict, profile) -> int:
+        """Write one row per verified match, keyed to the stored document.
+
+        ``INSERT OR REPLACE`` rather than ``OR IGNORE``: a paper first matched
+        by name and later matched by identifier — because a source that carries
+        the ORCID has now seen it — should say ``identifier``, and a row that
+        never improved would leave the weaker claim on screen for ever.
+        ``first_seen_at`` is preserved across the upgrade, so "when did this
+        appear" stays true.
+        """
+        profile_id = (profile or {}).get("id")
+        if not profile_id:
+            return 0
+        written = 0
+        for (source, external_id), (_record, found) in matches.items():
+            row = self.db.execute(
+                "SELECT id FROM documents WHERE source_repository = ? AND "
+                "external_id = ?", (source, external_id)).fetchone()
+            if row is None:
+                continue
+            document_id = row["id"] if hasattr(row, "keys") else row[0]
+            existing = self.db.execute(
+                "SELECT first_seen_at FROM watch_profile_matches "
+                "WHERE document_id = ? AND profile_id = ?",
+                (document_id, profile_id)).fetchone()
+            first_seen = (existing["first_seen_at"] if existing else None)
+            self.db.execute(
+                "INSERT OR REPLACE INTO watch_profile_matches "
+                "(document_id, profile_id, basis, matched_author, evidence, "
+                " first_seen_at) VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
+                (document_id, profile_id, found.basis, found.matched_author,
+                 found.evidence, first_seen),
+            )
+            written += 1
+        self.db.commit()
+        return written
+
+    @staticmethod
+    def _verify_entity_candidates(results, profile) -> tuple[dict, int]:
+        """Keep only the candidates that match the profile locally.
+
+        Returns ``{(source, external_id): (record, Match)}`` and the number
+        rejected. A paper returned by two sources is kept once with the
+        strongest basis either supports, because the basis is a claim about
+        evidence and the better evidence is still true.
+        """
+        kept: dict = {}
+        rejected = 0
+        for record in results:
+            found = entity_matching.match(getattr(record, "authors", []), profile)
+            if found is None:
+                rejected += 1
+                continue
+            key = (record.source_repository, record.external_id)
+            previous = kept.get(key)
+            if previous is None or found.rank < previous[1].rank:
+                kept[key] = (record, found)
+        return kept, rejected
+
+    @staticmethod
+    def _entity_unsupported_detail(slug: str) -> str:
+        """Which kind of "not asked" this is, from the catalog's own capability.
+
+        `no_author_query` is a fact about the source; `unestablished` is a fact
+        about resmon's knowledge of it. Conflating them would tell a user their
+        source cannot do something when what is true is that resmon has not been
+        able to find out.
+        """
+        for entry in REPOSITORY_CATALOG:
+            if entry.slug == slug:
+                return ("unestablished"
+                        if entry.entity_search.author_query == "unknown"
+                        else "no_author_query")
+        return "no_author_query"
+
     def _search_with_heartbeat(
         self,
         *,
@@ -1265,12 +1384,35 @@ class SweepEngine:
             # were this source's answer.
             reset_search_outcome()
             try:
-                result_holder["results"] = client.search(
-                    query=query_params.get("query", ""),
-                    date_from=query_params.get("date_from"),
-                    date_to=query_params.get("date_to"),
-                    max_results=query_params.get("max_results", 100),
-                )
+                # 2.1 — a watch routine asks the source about a *person*, and a
+                # source that cannot be asked is not called at all. The zero
+                # reason is recorded on this thread's own channel, where every
+                # other reason is recorded, so it reaches the task log, the
+                # monitor, the results row, the search record, the report and
+                # the MCP surface with no per-caller edit.
+                #
+                # **What comes back is a candidate list, never a verdict.** Every
+                # record is re-checked against the profile downstream; a source's
+                # author search is a generator.
+                profile = query_params.get("entity_profile")
+                if profile is not None:
+                    try:
+                        result_holder["results"] = client.search_entity(
+                            profile,
+                            date_from=query_params.get("date_from"),
+                            date_to=query_params.get("date_to"),
+                            max_results=query_params.get("max_results", 100),
+                        )
+                    except EntityUnsupported:
+                        note_entity_unsupported(self._entity_unsupported_detail(repo_name))
+                        result_holder["results"] = []
+                else:
+                    result_holder["results"] = client.search(
+                        query=query_params.get("query", ""),
+                        date_from=query_params.get("date_from"),
+                        date_to=query_params.get("date_to"),
+                        max_results=query_params.get("max_results", 100),
+                    )
             except BaseException as exc:  # re-raised in caller
                 result_holder["error"] = exc
             finally:

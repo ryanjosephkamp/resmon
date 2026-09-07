@@ -38,6 +38,7 @@ ZERO_REASONS = (
     "parse_failure",
     "rights_filtered",
     "records_unusable",
+    "entity_unsupported",
     "answered_empty",
     "not_recorded",
 )
@@ -52,6 +53,12 @@ DID_NOT_ANSWER = frozenset({
     "window_unanswerable",
     "upstream_failure",
     "parse_failure",
+    # 2.1. A source that cannot be asked about a person did not answer the
+    # question, and a watch routine that listed it as searched would be
+    # overstating its coverage in exactly the way this set exists to prevent.
+    # It is not a failure either — seven of twenty-seven sources simply have no
+    # author query, which the catalog records with its evidence.
+    "entity_unsupported",
 })
 
 
@@ -159,6 +166,24 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
             f"{rights} were not kept because their rights statement is not one "
             f"resmon can store, and {incomplete} because the record was "
             "incomplete."
+        )
+
+    if reason == "entity_unsupported":
+        # 2.1. Two different cases share this sentence and it distinguishes
+        # them, because "we checked and it cannot" and "we have not been able to
+        # check" are different facts and only one of them is about the source.
+        why = str(detail.get("detail") or "")
+        if why == "unestablished":
+            return (
+                f"{source} was not asked about this person: resmon has not "
+                "established whether it can answer an author query — its API "
+                "needs a key resmon does not hold, or its endpoint was not "
+                "answering when this was checked."
+            )
+        return (
+            f"{source} was not asked about this person: it has no way to be "
+            "asked. Its API takes a keyword query and a date window and offers "
+            "no author search of any kind."
         )
 
     if reason == "answered_empty":
