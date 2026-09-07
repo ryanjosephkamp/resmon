@@ -88,6 +88,7 @@ __all__ = [
     "RUNTIME_KINDS",
     "AssistantRuntime",
     "ClaudeCliRuntime",
+    "AssistantStartupTimeout",
     "RuntimeStatus",
     "TURN_BUDGET_USD",
     "cannot_resume_notice",
@@ -130,6 +131,24 @@ RUNTIME_KINDS = ("claude_cli", "api_key")
 # with a handful of localhost tool calls is far shorter work than a 50-document
 # batch summary, and a person watching a panel will not wait ten minutes.
 DEFAULT_TURN_TIMEOUT = 300
+
+# How long the CLI may take to say its *first* word before resmon stops waiting.
+#
+# Separate from the silence timeout above, and much shorter, because the two are
+# different failures. A turn that has started and then goes quiet is thinking; a
+# turn that has said nothing at all has not started, and waiting five minutes to
+# tell someone that is indefensible.
+#
+# **Measured rather than chosen.** The CLI's ``init`` message is the first thing
+# it emits, and across every measurement taken while diagnosing the v2.0.1 field
+# defect -- shell, packaged bundle, dev app, spawned by Node, spawned by
+# Electron, with and without MCP servers, cold and warm -- it arrived in
+# **0.25 s to 2.98 s**. Thirty seconds is ten times the slowest ever seen.
+#
+# This is what turns the field defect from a five-minute spinner ending in
+# "resmon could not finish that turn" into a specific sentence in half a minute.
+# It does not stop the CLI hanging; it stops resmon pretending that is normal.
+FIRST_OUTPUT_TIMEOUT = 30
 
 # A hard stop the CLI enforces on itself, per turn, in dollars.
 #
@@ -208,6 +227,16 @@ def _is_cannot_resume(errors: Any, stderr: str) -> bool:
         haystacks.append(stderr.lower())
     return any(marker in text for text in haystacks
                for marker in _CANNOT_RESUME_MARKERS)
+
+
+class AssistantStartupTimeout(Exception):
+    """The CLI was spawned and never said anything.
+
+    Its own message reaches the panel, which is the point: ``run_turn``'s
+    catch-all turns every other failure into "resmon could not finish that
+    turn", and that sentence is what a user saw for five minutes in v2.0.0 and
+    v2.0.1 when the CLI hung before its first line.
+    """
 
 
 @dataclass(frozen=True)
@@ -451,6 +480,13 @@ class ClaudeCliRuntime(AssistantRuntime):
                     session_id, prompt, config_path, workdir,
                     cli_session_id=cli_session_id, resume=resume, emit=emit,
                 )
+            except AssistantStartupTimeout as exc:
+                # This one carries its own sentence. The catch-all below would
+                # flatten it to "resmon could not finish that turn", which is
+                # what a user saw for five minutes in v2.0.0 and v2.0.1 and
+                # could do nothing with.
+                logger.warning("Assistant turn: %s", exc)
+                yield _error_event(str(exc), detail="startup_timeout")
             except Exception as exc:                # noqa: BLE001 - see the docstring
                 # Nothing escapes into a half-written SSE response. A truncated
                 # stream is indistinguishable, in a panel, from a model that
@@ -873,12 +909,27 @@ def _drain(stream, sink: list) -> None:
         pass
 
 
-def _lines_with_timeout(process: subprocess.Popen, timeout: int) -> Iterator[str]:
-    """stdout lines, giving up if the process goes quiet for *timeout* seconds.
+def _lines_with_timeout(
+    process: subprocess.Popen, timeout: int,
+    first_timeout: int = FIRST_OUTPUT_TIMEOUT,
+) -> Iterator[str]:
+    """stdout lines, with two deadlines: one to start, a longer one to continue.
 
     ``Popen.stdout`` has no read timeout, so a hung CLI would block the worker
     thread until the app closed. A reader thread and a queue give the wait a
     bound; the sentinel tells the consumer the pipe closed rather than stalled.
+
+    **Two deadlines, because there are two failures.** A turn that has begun
+    answering and then goes quiet is thinking, and gets ``timeout``. A turn that
+    has said *nothing at all* has not begun, and gets ``first_timeout`` --
+    thirty seconds against a first line that has never taken longer than three
+    (see ``FIRST_OUTPUT_TIMEOUT``).
+
+    That distinction is the v2.0.1 field defect. The CLI hung before its first
+    line and resmon waited the full five minutes, then said "resmon could not
+    finish that turn" -- a sentence that names nothing and suggests nothing. The
+    startup deadline does not stop the CLI hanging. It stops resmon treating a
+    silent CLI as a slow one.
     """
     lines: queue.Queue = queue.Queue()
     sentinel = object()
@@ -895,16 +946,26 @@ def _lines_with_timeout(process: subprocess.Popen, timeout: int) -> Iterator[str
     reader = threading.Thread(target=_read, daemon=True)
     reader.start()
 
+    started = False
     while True:
+        wait = timeout if started else min(first_timeout, timeout)
         try:
-            item = lines.get(timeout=timeout)
+            item = lines.get(timeout=wait)
         except queue.Empty:
             process.kill()
+            if not started:
+                raise AssistantStartupTimeout(
+                    f"The claude command started but said nothing for "
+                    f"{wait} seconds, so resmon stopped waiting. It normally "
+                    f"answers within a second. Run `claude` once in a terminal "
+                    f"to check it works and is signed in, then try again."
+                ) from None
             raise TimeoutError(
-                f"The assistant produced nothing for {timeout} seconds."
+                f"The assistant produced nothing for {wait} seconds."
             ) from None
         if item is sentinel:
             return
+        started = True
         yield item
 
 

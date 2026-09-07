@@ -24,6 +24,8 @@ Driven by directives in the prompt, so a test says what the turn should do:
     CALL:<tool> <json>  ask permission for <tool>, and on allow really call it
                         against the real backend with <json> as its arguments
     SLEEP:<seconds>     stall, for the cancel and timeout tests
+    SILENT:<seconds>    say nothing at all for <seconds> — the v2.0.1 field
+                        defect's shape: a CLI that starts and never emits init
 
     RAW:<json>          emit a line verbatim, for the unknown-event test
     FAIL:<message>      write to stderr and exit non-zero
@@ -161,6 +163,15 @@ def main() -> int:
         return 1
 
     allowed = [t for t in (flag("--allowedTools") or "").split(" ") if t]
+
+    # Before the init line, because that is the whole point: the field defect is
+    # the *absence* of init, and a directive that only worked after it would be
+    # reproducing a different failure.
+    for line in prompt.splitlines():
+        if line.strip().startswith("SILENT:"):
+            time.sleep(float(line.strip()[7:]))
+            return 0
+
     emit({
         "type": "system", "subtype": "init", "session_id": session_id,
         "model": flag("--model") or "fake-model",
