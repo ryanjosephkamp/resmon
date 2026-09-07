@@ -392,8 +392,8 @@ const sections: TutorialSection[] = [
     mediaCaption: 'Repositories & API Keys demo.',
     youtubeId: 'QIcgil9JNU8',
     instructions: [
-      'Browse the catalog with one row per active repository; click a name (or caret) to expand a details panel showing subject coverage, endpoint, rate limit, credential requirement, and `Date Filtering`.',
-      '`Date Filtering` is the finest date precision resmon\u2019s own query to that source can express. Most take exact dates; NASA ADS takes whole months; DataCite, DBLP, ERIC, Open Library and Semantic Scholar take whole years. ERIC and Open Library refuse a window shorter than one calendar year rather than widening it, so a short-window search of those two comes back empty by construction \u2014 and the run\u2019s Search record says exactly that.',
+      'Browse the catalog of 27 active repositories; click a name (or caret) to expand a details panel showing subject coverage, endpoint, rate limit, credential requirement, and `Date Filtering`.',
+      '`Date Filtering` is the finest date precision resmon\u2019s own query to that source can express. Most take exact dates; NASA ADS takes whole months; DataCite, DBLP, ERIC, OAPEN, Open Library and Semantic Scholar take whole years. ERIC, OAPEN and Open Library refuse a window shorter than one calendar year rather than widening it, so a short-window search of those sources comes back empty by construction \u2014 and the run\u2019s Search record says exactly that.',
       'Use Expand All / Collapse All to reveal or hide every detail panel at once.',
       'For key-gated repositories, type a key into the inline input and press Enter to save it; click `Clear` on a row with a saved key to delete it.',
     ],

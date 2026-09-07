@@ -88,11 +88,11 @@ const RepositoriesPage: React.FC = () => {
                   Each repository&rsquo;s detail panel carries a <strong>Date
                   Filtering</strong> row saying the finest date precision resmon&rsquo;s
                   query to that source can express. Most take exact dates. NASA ADS
-                  takes whole months. DataCite, DBLP, ERIC, Open Library and Semantic
+                  takes whole months. DataCite, DBLP, ERIC, OAPEN, Open Library and Semantic
                   Scholar take whole years.
                 </p>
                 <p>
-                  That is not a footnote: ERIC and Open Library expose only a
+                  That is not a footnote: ERIC, OAPEN and Open Library use only a
                   publication year and <em>refuse</em> a window shorter than one whole
                   calendar year rather than widening it, because a record returned for
                   a two-week window would have unknowable in-window status. A search of

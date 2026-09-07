@@ -19,7 +19,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Key Features
 
-- **Multi-repository ingestion across 25 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DataCite, DBLP, DOAJ, Dryad, ERIC, EuropePMC, HAL, INSPIRE-HEP, medRxiv, NASA ADS, NDL Search, NIST Resource Metadata Management, OpenAIRE, OpenAlex, Open Library, OSTI.GOV, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
+- **Multi-repository ingestion across 27 scholarly sources** — unified metadata normalization over arXiv, bioRxiv, CORE, CrossRef, DataCite, DBLP, DOAJ, Dryad, ERIC, EuropePMC, GovInfo, HAL, INSPIRE-HEP, medRxiv, NASA ADS, NDL Search, NIST Resource Metadata Management, OAPEN Library, OpenAIRE, OpenAlex, Open Library, OSTI.GOV, PLOS, PubMed, Semantic Scholar, Springer Nature, and Zenodo. Each client enforces per-source rate limiting, exponential backoff, and graceful degradation when a single source fails mid-sweep.
 - **Three operational modes:**
   - *Targeted Deep Dive* — a focused, manual query against a single repository within a defined date range, with support for an ephemeral per-execution API key that never persists to disk.
   - *Broad Deep Sweep* — a cross-repository manual query that applies Deep Dive parameters across every selected repository in parallel.
@@ -47,7 +47,7 @@ resmon is an automated, customizable literature surveillance platform that monit
 
 ## Supported Repositories
 
-The table below lists the 25 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
+The table below lists the 27 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
 
 | Repository | API Type | API Key | Rate Limit (resmon) | Discipline Coverage |
 |---|---|---|---|---|
@@ -61,12 +61,14 @@ The table below lists the 25 active sources registered in the repository catalog
 | Dryad | REST (JSON) | Not required | 1.0 req/s (conservative; no published API limit) | Multi-disciplinary research data |
 | ERIC | REST (JSON served as text/plain) | Not required | 0.5 req/s | Education research, policy, and practice |
 | EuropePMC | REST (JSON) | Not required | 5.0 req/s | Biomedicine, Life sciences |
+| GovInfo | REST (JSON Search Service) | Required (API.data.gov) | 1.0 req/s | Official government publication metadata; no full text or teasers |
 | HAL | REST (Solr JSON) | Not required | 2.0 req/s | All disciplines (French-leaning) |
 | INSPIRE-HEP | REST (JSON) | Not required | 2.0 req/s | High-energy physics, Accelerators, Astroparticle physics |
 | medRxiv | REST (JSON) | Not required | 2.0 req/s | Medicine, Clinical research, Health sciences preprints |
 | NASA ADS | REST (Solr JSON) | Required (Bearer) | 1.0 req/s (≈5000/day cap) | Astronomy, Astrophysics, Planetary science |
 | NDL Search | SRU (DC-NDL v3 XML) | Not required | 0.5 req/s (conservative; no published numeric API limit) | Japanese national bibliography, Books, Articles, Cultural heritage metadata |
 | NIST Resource Metadata Management | REST (JSON) | Not required | 0.5 req/s (conservative; no published API limit) | Engineering, Government technical publications |
+| OAPEN Library | REST (JSON) | Not required | 0.5 req/s (conservative) | Books and chapters; whole publication years only |
 | OpenAIRE | REST (XML-derived JSON) | Not required | 0.0167 req/s (60/hour) | Multi-disciplinary publications, Research outputs |
 | OpenAlex | REST (JSON) | Not required | 10.0 req/s (polite pool via mailto) | All disciplines |
 | Open Library | REST (JSON) | Not required | 1.0 req/s (unidentified-client ceiling) | Books, Humanities, General bibliography |
@@ -427,7 +429,7 @@ A `Sidebar` + `Header` + `MainContent` layout wraps every route, and a `Floating
 three optional things — an agent CLI you already subscribe to, an AI provider key, and a
 key for one of the few sources that wants one — with a link to where each is set, and a
 mark showing what resmon can already see. None of them is required: resmon searches all
-25 sources with no AI and no keys at all. The card reports **found** and **configured**
+the unkeyed sources with no AI and no keys at all. The card reports **found** and **configured**
 and never **working**, because resmon cannot tell whether a command is signed in or a key
 accepted until the first paper goes through it. `Skip` puts it away permanently, and it
 retires itself the moment you have run anything.

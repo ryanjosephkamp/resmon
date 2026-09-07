@@ -18,7 +18,7 @@ def _reset_db():
     resmon_mod._db_initialized = False
 
 
-def test_catalog_endpoint_returns_twenty_five_entries():
+def test_catalog_endpoint_returns_twenty_seven_entries():
     _reset_db()
     from resmon import app
     client = TestClient(app)
@@ -27,7 +27,7 @@ def test_catalog_endpoint_returns_twenty_five_entries():
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
-    assert len(data) == 25
+    assert len(data) == 27
 
 
 def test_repository_endpoints_include_new_sources():

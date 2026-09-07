@@ -131,7 +131,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 25 active repositories.
+# Catalog — 27 active repositories.
 # Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
 # registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
@@ -353,6 +353,34 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://www.ebi.ac.uk/about/terms-of-use/',
     ),
     _entry(
+        slug="govinfo", name="GovInfo",
+        description="Official U.S. government publication and granule metadata",
+        subject_coverage="Legislation / Regulation / Courts / Government reports",
+        endpoint="https://api.govinfo.gov/search",
+        query_method="POST JSON; publishdate range; opaque offsetMark pagination",
+        rate_limit="1.0 req/s (below default key quotas)",
+        client_module="api_govinfo.py", requirement="required",
+        credential_name="govinfo_api_key", website="https://www.govinfo.gov",
+        registration_url="https://www.govinfo.gov/api-signup",
+        upstream_policy="Default key limits: 36,000/hour, 1,200/minute, 40/second. https://github.com/usgpo/api#keys",
+        parallel_safe="Yes; one shared limiter",
+        date_granularity="day",
+        keyword_combination="Implicit AND",
+        keyword_combination_notes="Spaces imply AND; proper names may become phrases. Explicit Boolean/field syntax is forwarded. https://www.govinfo.gov/help/search-operators",
+        notes=(
+            "Terms verdict: compatible for official bibliographic metadata. GPO permits local digital collections; "
+            "its copyright notice warns that embedded third-party content is not automatically public domain. "
+            "resmon retains title, government authors, IDs, dateIssued, collection and a link; no teasers, abstracts or document files. "
+            "No retention/refresh condition is stated for these fields; private backup is consistent with this metadata reuse. "
+            "https://www.govinfo.gov/about/policies "
+            "Search pageSize maximum 1000; resmon uses at most 100. The response offsetMark supplies the next cursor; "
+            "the client checks both publication-date bounds locally as well. "
+            "Each search scans at most max(10000, Max Results) rows, rounded up to a page, and returns the retained prefix. "
+            "https://www.govinfo.gov/features/search-service-overview "
+            "API keys are sent in the X-Api-Key header: https://api.data.gov/docs/api-key/"
+        ),
+    ),
+    _entry(
         slug="hal",
         name="HAL",
         description="French national open-access archive (CCSD)",
@@ -499,6 +527,31 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution='Data created by NIST (National Institute of Standards and Technology).',
         attribution_requirement="required",
         attribution_source='https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications',
+    ),
+    _entry(
+        slug="oapen", name="OAPEN Library",
+        description="Open-access book and chapter metadata",
+        subject_coverage="Books / Chapters / Humanities / Social sciences",
+        endpoint="https://library.oapen.org/rest/search",
+        query_method="GET Solr query; whole issued years; expand=metadata; limit/offset pagination",
+        rate_limit="0.5 req/s (conservative; no published numeric API limit)",
+        client_module="api_oapen.py", requirement="none", credential_name=None,
+        website="https://library.oapen.org", registration_url=None,
+        upstream_policy="No numeric limit in the REST guide; resmon spaces calls by two seconds. https://www.oapen.org/article/8185269-search-using-a-rest-api",
+        parallel_safe="Yes; one shared limiter", date_granularity="year",
+        keyword_combination="Undocumented",
+        keyword_combination_notes="The provider documents Solr queries and explicit AND examples, but not the default combination of bare space-separated terms. resmon forwards the query. https://www.oapen.org/article/8185269-search-using-a-rest-api",
+        notes=(
+            "Terms verdict: compatible for metadata under CC0, including indefinite local retention and private backup without re-fetching. "
+            "Book files follow their own licenses and are not retrieved. "
+            "https://www.oapen.org/oapen/posi-self-audit https://www.oapen.org/article/metadata "
+            "Pagination is documented: expand, limit, offset; dc.date.issued_dt takes Solr ranges and sort. "
+            "https://oapen.o172i.upcloudobjects.com/151b0a45669f429381cb46fe441f23b6.pdf "
+            "Live two-record pages at offsets 0 and 2 were distinct on 2026-09-06; no total ceiling is claimed. "
+            "resmon uses at most 100 records per page and scans at most max(10000, Max Results) rows, "
+            "rounded up to a page, returning the retained prefix. Indexed dates often derive from year-only dc.date.issued: "
+            "resmon retains only the year, queries years wholly within your window, and refuses a window containing no whole year."
+        ),
     ),
     _entry(
         slug="openaire",
