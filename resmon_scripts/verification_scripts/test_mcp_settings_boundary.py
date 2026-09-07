@@ -6,6 +6,7 @@ supply the denominator; no fake HTTP handler normalizes away the defect.
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime
 import os
 from pathlib import Path
@@ -23,6 +24,28 @@ import resmon
 
 pytestmark = pytest.mark.live_network
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _source_receipt(root: Path) -> dict:
+    """Identify the backend bytes under test without relying on Git metadata.
+
+    An archive can be outside Git or inside an unrelated enclosing repository.
+    Its enclosing HEAD is never an app revision. Hash the actual runtime source
+    with repository-relative names, so copied trees have comparable receipts.
+    This scope excludes frontend source, tests, dependencies and runtime data.
+    """
+    scripts = root / "resmon_scripts"
+    paths = [scripts / "resmon.py", scripts / "mcp_server.py"]
+    paths.extend(sorted((scripts / "implementation_scripts").rglob("*.py")))
+    hashes = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+              for path in paths}
+    manifest = json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {
+        "source_root": str(root.resolve()),
+        "backend_source_sha256": hashlib.sha256(manifest).hexdigest(),
+        "backend_source_file_count": len(hashes),
+        "backend_source_files_sha256": hashes,
+    }
 
 
 @pytest.fixture(scope="module")
@@ -63,7 +86,7 @@ def isolated_backend(tmp_path_factory):
                 assert conn.execute("SELECT display_name FROM watch_profiles WHERE id=?", (marker["id"],)).fetchone()[0] == "Trust synthetic marker"
             print("INSTANCE", json.dumps({"port": port, "pid": proc.pid, "launch_requested_at": started, "health_started_at": health["started_at"], "health_pid": health["pid"],
                   "state": str(state), "version": health.get("version"), "corpus_marker": marker["id"],
-                  "head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()}))
+                  "source": _source_receipt(ROOT)}))
             old_base = mcp.backend._base
             mcp.backend._base = base
             yield base, state

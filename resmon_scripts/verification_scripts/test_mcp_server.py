@@ -9,6 +9,7 @@ than defaults.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -263,6 +264,75 @@ def test_update_settings_sends_only_the_keys_it_was_given():
     assert put[2] == {"settings": {"ai_effort": "low"}}
     assert body["changed"] == {"ai_effort": {"from": "high", "to": "low"}}
     assert body["unchanged_key_count"] == 2
+
+
+@pytest.mark.parametrize("requested,target", [("false", False), ("true", True),
+                                               (False, False), (True, True)])
+def test_update_settings_preserves_boolean_type_at_the_http_boundary(requested, target):
+    """PR-CI guard for the wire type, with the backend's truthiness failure.
+
+    This double deliberately evaluates bool(value), as the notification PUT
+    does: bool("False") is True. It cannot turn the original regression into a
+    pass by parsing the string helpfully. The real HTTP/SQLite companion stays
+    in test_mcp_settings_boundary.py; this check claims no real socket/storage.
+    """
+    before = not target
+    state = {"notify_manual": before, "notify_automatic_mode": "selected"}
+    sent = []
+    methods = []
+    base = "http://127.0.0.1:1"
+
+    def request(method, url, **kwargs):
+        assert url == base + "/api/settings/notifications"
+        methods.append(method)
+        if method == "PUT":
+            sent.append(kwargs["json"])
+            state["notify_manual"] = bool(kwargs["json"]["settings"]["notify_manual"])
+            body = {"success": True}
+        else:
+            assert method == "GET"
+            body = dict(state)
+        return httpx.Response(200, json=body, request=httpx.Request(method, url))
+
+    mcp.backend._base = base
+    with patch.object(mcp.httpx, "request", side_effect=request):
+        result = mcp.call_tool("update_settings", {
+            "group": "notifications", "settings": {"notify_manual": requested}})
+    assert not result["isError"], result
+    assert methods == ["GET", "PUT", "GET"]
+    assert sent == [{"settings": {"notify_manual": target}}]
+    assert type(sent[0]["settings"]["notify_manual"]) is bool
+    assert state == {"notify_manual": target, "notify_automatic_mode": "selected"}
+    body = _payload(result)
+    assert body["changed"] == {"notify_manual": {"from": before, "to": target}}
+    assert body["unchanged_key_count"] == 1
+
+
+def test_settings_receipt_uses_source_bytes_independent_of_copy_location(tmp_path):
+    from test_mcp_settings_boundary import _source_receipt
+
+    def make_source(root):
+        scripts = root / "resmon_scripts"
+        (scripts / "implementation_scripts").mkdir(parents=True)
+        for name in ("resmon.py", "mcp_server.py", "implementation_scripts/config.py"):
+            (scripts / name).write_text("# synthetic source\n", encoding="utf-8")
+
+    standalone = tmp_path / "standalone"
+    enclosing = tmp_path / "unrelated"
+    archived = enclosing / "archive"
+    (enclosing / ".git").mkdir(parents=True)
+    (enclosing / ".git/HEAD").write_text("unrelated enclosing history\n")
+    make_source(standalone)
+    make_source(archived)
+    # Git is irrelevant, including on a machine without a Git executable.
+    with patch.object(subprocess, "check_output", side_effect=AssertionError("must not consult Git")):
+        first, second = _source_receipt(standalone), _source_receipt(archived)
+    assert first["backend_source_sha256"] == second["backend_source_sha256"]
+    assert first["backend_source_file_count"] == second["backend_source_file_count"] == 3
+    assert first["source_root"] != second["source_root"]
+    assert "head" not in first and "head" not in second
+    (archived / "resmon_scripts/implementation_scripts/config.py").write_text("# changed bytes\n")
+    assert _source_receipt(archived)["backend_source_sha256"] != first["backend_source_sha256"]
 
 
 def test_update_settings_refuses_a_credential_shaped_key_before_any_request():
