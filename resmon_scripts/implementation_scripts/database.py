@@ -148,6 +148,76 @@ CREATE INDEX IF NOT EXISTS idx_document_authors_orcid
 CREATE INDEX IF NOT EXISTS idx_document_authors_author
     ON document_authors(author);
 
+-- Schema 13 (2.1) — watch profiles: the people and places a routine watches.
+--
+-- **A profile is not a saved configuration**, and `saved_configurations` is
+-- deliberately not widened to hold one: a configuration is a search, a profile
+-- is an identity, and import/export is its own route with its own documented
+-- JSON shape.
+--
+-- Names, identifiers, affiliations and hints are JSON because they are lists a
+-- person edits, not things SQL joins on — with **one exception**. `orcid` is
+-- lifted into its own column and indexed, because that is the join the matcher
+-- makes against `document_authors.orcid`, and it is the only comparison in this
+-- phase that can produce an `identifier` basis.
+CREATE TABLE IF NOT EXISTS watch_profiles (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind          TEXT NOT NULL CHECK (kind IN ('person', 'institution', 'group')),
+    display_name  TEXT NOT NULL,
+    -- The canonical name plus aliases, as JSON: [{"value": ..., "script": ...}].
+    names         TEXT NOT NULL DEFAULT '[]',
+    -- {"orcid": {"value": ..., "cited": ...}, "openalex": {...}, ...}. Every
+    -- identifier carries where the user got it, because an identifier nobody
+    -- can trace is an assertion.
+    identifiers   TEXT NOT NULL DEFAULT '{}',
+    orcid         TEXT,
+    affiliations  TEXT NOT NULL DEFAULT '[]',
+    -- Keywords used **only** to disambiguate, never to search: a profile is a
+    -- person, and narrowing their papers by topic would silently hide their work.
+    field_hints   TEXT NOT NULL DEFAULT '[]',
+    notes         TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_profiles_orcid
+    ON watch_profiles(orcid) WHERE orcid IS NOT NULL;
+
+-- A lab is a *group*: a profile holding other profiles. A composition rather
+-- than a third matching algorithm — 2.1b's work, with the table here so the
+-- schema does not move again for it.
+CREATE TABLE IF NOT EXISTS watch_profile_members (
+    profile_id        INTEGER NOT NULL,
+    member_profile_id INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, member_profile_id),
+    FOREIGN KEY (profile_id) REFERENCES watch_profiles(id) ON DELETE CASCADE,
+    FOREIGN KEY (member_profile_id) REFERENCES watch_profiles(id) ON DELETE CASCADE
+);
+
+-- Every match records **how** it was made. `basis` is the whole honesty rule of
+-- phase 2.1 in one column: `identifier` when the source returned an ORCID equal
+-- to the profile's, `name+affiliation` when a name matched and an affiliation on
+-- the record matched one of the profile's, `name_only` otherwise. The interface
+-- labels every paper with it and never presents `name_only` as the person.
+--
+-- `evidence` is what was compared, kept so a user can see why resmon thinks
+-- this. A match resmon cannot evidence is not written.
+CREATE TABLE IF NOT EXISTS watch_profile_matches (
+    document_id     INTEGER NOT NULL,
+    profile_id      INTEGER NOT NULL,
+    basis           TEXT NOT NULL
+                    CHECK (basis IN ('identifier', 'name+affiliation', 'name_only')),
+    matched_author  TEXT NOT NULL,
+    evidence        TEXT,
+    first_seen_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (document_id, profile_id),
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (profile_id) REFERENCES watch_profiles(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_profile_matches_profile
+    ON watch_profile_matches(profile_id, first_seen_at DESC);
+
 CREATE TABLE IF NOT EXISTS document_categories (
     document_id INTEGER NOT NULL,
     category    TEXT NOT NULL,

@@ -97,7 +97,7 @@ from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
     analytics, assistant_runtime, assistant_store, coverage_audit, embedding_job,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
-    reference_export, search_record, vector_index, watchdog,
+    reference_export, search_record, vector_index, watch_profiles, watchdog,
 )
 from implementation_scripts.assistant_permissions import broker as permission_broker
 from implementation_scripts.progress import progress_store
@@ -4944,6 +4944,177 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
                  "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Watch profiles (2.1)
+# ---------------------------------------------------------------------------
+#
+# **The basis warning is returned by the API, not left to the interface.** A
+# profile with no identifier can only ever produce name matches, and the one
+# place that fact must never be lost is the moment a person creates one. Putting
+# it in the response means the renderer, the assistant and any harness driving
+# MCP all get the same sentence, and none of them has to remember to say it.
+#
+# Import and export are their own routes with their own documented JSON shape
+# rather than a widening of `saved_configurations`: a configuration is a search
+# and a profile is an identity, and `config_type`'s CHECK constraint stays as it
+# is (decision 10).
+
+
+class WatchProfileBody(BaseModel):
+    kind: str = "person"
+    display_name: str = ""
+    names: list = []
+    identifiers: dict = {}
+    affiliations: list[str] = []
+    field_hints: list[str] = []
+    notes: Optional[str] = None
+
+
+class ProfileImportBody(BaseModel):
+    """One exported profile, or a list of them."""
+
+    profiles: list[dict] = []
+
+
+@app.get("/api/profiles")
+def list_watch_profiles(kind: Optional[str] = None):
+    conn = _get_db()
+    try:
+        return {"profiles": watch_profiles.list_profiles(conn, kind)}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/profiles/starter")
+def list_starter_profiles():
+    """The curated set that ships with the app, not yet anybody's profile.
+
+    Served rather than bundled into the renderer so the files stay the one
+    source: the picker shows what is on disk, and a user who edits or removes
+    one sees that.
+    """
+    return {"profiles": watch_profiles.load_starter_profiles()}
+
+
+@app.post("/api/profiles", status_code=201)
+def create_watch_profile(body: WatchProfileBody):
+    conn = _get_db()
+    try:
+        return watch_profiles.create_profile(conn, body.model_dump())
+    except watch_profiles.ProfileError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/profiles/{profile_id}")
+def get_watch_profile(profile_id: int):
+    conn = _get_db()
+    try:
+        profile = watch_profiles.get_profile(conn, profile_id)
+        if not profile:
+            raise HTTPException(404, "That profile does not exist.")
+        return profile
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/profiles/{profile_id}")
+def update_watch_profile(profile_id: int, body: WatchProfileBody):
+    conn = _get_db()
+    try:
+        profile = watch_profiles.update_profile(conn, profile_id, body.model_dump())
+        if not profile:
+            raise HTTPException(404, "That profile does not exist.")
+        return profile
+    except watch_profiles.ProfileError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/profiles/{profile_id}")
+def delete_watch_profile(profile_id: int):
+    """Remove a profile and its matches. **The corpus is untouched.**"""
+    conn = _get_db()
+    try:
+        if not watch_profiles.delete_profile(conn, profile_id):
+            raise HTTPException(404, "That profile does not exist.")
+        return {"deleted": profile_id}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/profiles/{profile_id}/export")
+def export_watch_profile(profile_id: int):
+    conn = _get_db()
+    try:
+        profile = watch_profiles.get_profile(conn, profile_id)
+        if not profile:
+            raise HTTPException(404, "That profile does not exist.")
+        return watch_profiles.profile_to_json(profile)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/profiles/import")
+def import_watch_profiles(body: ProfileImportBody):
+    """Import one or more exported profiles.
+
+    Reports per profile rather than failing the batch: a file with one bad
+    entry should import the rest and say which one it could not read, because
+    the alternative is a user editing JSON to find out which line resmon
+    objected to.
+    """
+    conn = _get_db()
+    imported, failed = [], []
+    try:
+        for index, document in enumerate(body.profiles):
+            try:
+                profile = watch_profiles.profile_from_json(document)
+                imported.append(watch_profiles.create_profile(conn, profile))
+            except watch_profiles.ProfileError as exc:
+                failed.append({"index": index, "reason": str(exc)})
+        return {"imported": imported, "failed": failed}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/profiles/{profile_id}/matches")
+def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0):
+    """Papers matched to this profile, **each with the basis it was matched on**.
+
+    The basis rides on every row and is never omitted: a list of papers with no
+    basis is exactly the claim resmon refuses to make.
+    """
+    conn = _get_db()
+    try:
+        if not watch_profiles.get_profile(conn, profile_id):
+            raise HTTPException(404, "That profile does not exist.")
+        rows = conn.execute(
+            "SELECT m.document_id, m.basis, m.matched_author, m.evidence, "
+            "       m.first_seen_at, d.title, d.source_repository, d.doi, d.url, "
+            "       d.publication_date "
+            "  FROM watch_profile_matches m "
+            "  JOIN documents d ON d.id = m.document_id "
+            " WHERE m.profile_id = ? "
+            " ORDER BY m.first_seen_at DESC, m.document_id DESC LIMIT ? OFFSET ?",
+            (profile_id, max(1, min(int(limit), 200)), max(0, int(offset))),
+        ).fetchall()
+        total = conn.execute(
+            "SELECT COUNT(*) FROM watch_profile_matches WHERE profile_id = ?",
+            (profile_id,)).fetchone()[0]
+        by_basis = {
+            row[0]: row[1] for row in conn.execute(
+                "SELECT basis, COUNT(*) FROM watch_profile_matches "
+                "WHERE profile_id = ? GROUP BY basis", (profile_id,))
+        }
+        return {"matches": [dict(r) for r in rows], "total": total,
+                "by_basis": by_basis}
+    finally:
+        _close_db(conn)
 
 
 # ---------------------------------------------------------------------------
