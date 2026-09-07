@@ -406,3 +406,39 @@ test('editing a watch routine brings its profile and mode back', async () => {
     expect((screen.getByLabelText('Who to watch') as HTMLSelectElement).value).toBe('2');
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// The field test's numbers, in the interface
+// ---------------------------------------------------------------------------
+
+test('the page states the measured precision per basis, with its denominators',
+  async () => {
+    /**
+     * Decision 7 requires the field test's numbers to be *in the interface copy*,
+     * not only in a handback. This is the guard on that: the three figures a
+     * person needs in order to read a badge correctly must be on the page, with
+     * the denominator each was drawn from.
+     *
+     * It asserts the numbers rather than the prose, so the copy can be rewritten
+     * freely and a *changed measurement* still has to be a deliberate edit here.
+     */
+    mockRoutedFetch(PROFILE_ROUTES);
+    await renderWithProviders(<ProfilesPage />);
+    await screen.findByTestId('profiles-list');
+
+    // The panel is collapsed by default — help that interrupts is help nobody
+    // reads — so the copy is opened the way a person opens it.
+    fireEvent.click(screen.getByText('Watch Profiles', { selector: '.page-help-title' }));
+
+    const help = document.querySelector('.page-help-body') as HTMLElement;
+    expect(help).not.toBeNull();
+    const copy = help.textContent || '';
+
+    expect(copy).toContain('1,369');          // the population every figure is out of
+    expect(copy).toContain('30 of 30');       // identifier precision
+    expect(copy).toContain('0.7%');           // how rarely name+affiliation fires
+    expect(copy).toContain('five different researchers');
+    expect(copy).toContain('15 were right');  // the graded name-only sample
+    expect(copy).toContain('6% of all matches');   // the initials rule's share
+  });
