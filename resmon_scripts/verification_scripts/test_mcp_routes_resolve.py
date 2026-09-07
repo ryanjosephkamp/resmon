@@ -91,7 +91,13 @@ def _calls() -> list[tuple[str, str]]:
         # 200 with a shape each tool can walk far enough to keep going. What
         # matters is that the *next* request also gets recorded -- update_settings
         # sends three, and a double that 404'd would hide two of them.
-        return httpx.Response(200, json={"anything": "x", "id": 1},
+        body = {"anything": "x", "id": 1}
+        if path == "/api/settings/embeddings" and method == "GET":
+            # The real GET wraps writable settings alongside capability data.
+            # A flat double makes the corrected tool refuse before its PUT and
+            # silently drops a real route from this discovery denominator.
+            body = {"settings": {"anything": "x"}, "capability": {}}
+        return httpx.Response(200, json=body,
                               request=httpx.Request(method, url))
 
     mcp.backend._base = BASE
