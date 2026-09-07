@@ -54,7 +54,18 @@ const ConfigLoader: React.FC<Props> = ({ configType, onLoad, refreshKey, label }
   return (
     <div className="form-field">
       <label className="form-label">{label ?? 'Load Configuration'}</label>
-      <select className="form-select" value={value} onChange={handleChange}>
+      {/*
+        The label has never been associated with the control, which was harmless
+        while this was the only <select> in the routine modal and became an
+        ambiguity the moment 2.1 added a second one. Named rather than
+        associated because callers pass their own `label` text.
+      */}
+      <select
+        className="form-select"
+        aria-label={label ?? 'Load Configuration'}
+        value={value}
+        onChange={handleChange}
+      >
         <option value="">— Select a saved configuration —</option>
         {configs.map((c) => (
           <option key={c.id} value={c.id}>{c.name}</option>

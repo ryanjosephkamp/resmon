@@ -66,11 +66,17 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
     total = metadata.get("total", len(documents))
     new = metadata.get("new", total)
 
+    watch_profile = metadata.get("watch_profile")
     lines.append("# resmon Literature Report")
     lines.append(f"**Generated:** {generated_at}  ")
     if repos_display is not None:
         lines.append(f"**Repositories:** {repos_display}  ")
-    lines.append(f"**Query:** {query_display}  ")
+    if isinstance(watch_profile, str) and watch_profile.strip():
+        # A watch run followed a person, not a set of words. "Query: N/A" is
+        # true of the words and says nothing about what the run was for.
+        lines.append(f"**Watching:** {watch_profile.strip()}  ")
+    else:
+        lines.append(f"**Query:** {query_display}  ")
     lines.append(f"**Date Range:** {date_from} to {date_to}  ")
     lines.append(f"**Total Results:** {total} ({new} new)")
     ai_model = metadata.get("ai_model")
@@ -371,6 +377,16 @@ def _format_paper_entry(doc: dict) -> list[str]:
         author_str = str(authors)
     if author_str:
         lines.append(f"- **Authors:** {author_str}")
+
+    # 2.1 — why this paper is in a watch run's report, immediately under the
+    # authors, because that is the line it is a claim about. Absent from every
+    # keyword run, where there is no such claim to make.
+    basis = doc.get("match_basis")
+    sentence = _BASIS_SENTENCE.get(basis) if basis else None
+    if sentence:
+        matched = doc.get("matched_author") or ""
+        lines.append(f"- **Why this paper:** {sentence}"
+                     + (f" (`{matched}`)" if matched else "") + ".")
 
     # Source
     source = doc.get("source_repository", "")

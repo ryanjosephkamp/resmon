@@ -594,7 +594,7 @@ class SweepEngine:
             })
             update_current_stage(self.db, exec_id, "reporting")
 
-            report_docs = self._build_report_docs(all_results)
+            report_docs = self._build_report_docs(all_results, entity_matches)
 
             # 6b. Optional AI summarization — runs before report generation
             # so that per-document summaries (and the model identity) can
@@ -864,8 +864,14 @@ class SweepEngine:
                         "timestamp": now_iso(),
                     })
 
+            watched = query_params.get("entity_profile") or None
             report_metadata = {
                 "query": query_params.get("query", ""),
+                # A watch run's header says who it followed. Left to the query
+                # field it would read "Query: N/A", which is true of the words
+                # and says nothing about what the run was for.
+                "watch_profile": (watched or {}).get("display_name"),
+                "watch_basis_warning": (watched or {}).get("basis_warning"),
                 "keywords": query_params.get("keywords"),
                 "repositories": list(repositories),
                 "missing_key_repos": list(missing_key_repos),
@@ -1722,8 +1728,15 @@ class SweepEngine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_report_docs(results) -> list[dict]:
-        """Convert NormalizedResult list to dicts for report_generator."""
+    def _build_report_docs(results, entity_matches: dict | None = None) -> list[dict]:
+        """Convert NormalizedResult list to dicts for report_generator.
+
+        ``entity_matches`` carries the basis onto the page for a watch run. The
+        report is saved to disk and can be mailed, and a badge cannot travel —
+        so the sentence has to be in the document. A keyword run passes nothing
+        and every entry is unchanged.
+        """
+        matches = entity_matches or {}
         docs = []
         for r in results:
             nr = normalize_result(r)
@@ -1743,4 +1756,8 @@ class SweepEngine:
                 "external_id": nr.external_id,
                 "categories": nr.categories,
             })
+            found = matches.get((nr.source_repository, nr.external_id))
+            if found is not None:
+                docs[-1]["match_basis"] = found[1].basis
+                docs[-1]["matched_author"] = found[1].matched_author
         return docs

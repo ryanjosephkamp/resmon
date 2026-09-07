@@ -84,6 +84,12 @@ def _as_day(value: date) -> str:
     return value.isoformat()
 
 
+# A CQL index clause, as the catalog's `entity_search.author_syntax` writes one:
+# an index name, `=`, and a quoted value. Anything else is keyword text and goes
+# through `anywhere`.
+_INDEX_CLAUSE = re.compile(r'^([A-Za-z][A-Za-z0-9_.]*)\s*=\s*"(.*)"$', re.DOTALL)
+
+
 def _cql_quote(value: str) -> str:
     """Quote user text as a single CQL value without changing its semantics."""
     return value.replace("\\", "\\\\").replace('"', '\\"')
@@ -296,10 +302,30 @@ class NDLSearchClient(BaseAPIClient):
 
     @staticmethod
     def _build_cql(query: str, date_from: str | None, date_to: str | None) -> str:
-        clauses = [
-            'dpid = "open"',
-            f'anywhere = "{_cql_quote(query.strip())}"',
-        ]
+        """The CQL NDL is asked, and the one place a field query can be lost.
+
+        **This was a real defect, found by the first live case that drove
+        `search_entity` against NDL.** `api_base.search_entity` asks a source by
+        putting the catalog's own syntax into the query string —
+        `creator="夏目漱石"` for NDL — on the assumption that `search()` sends
+        what it is given. This method wrapped it into
+        `anywhere = "creator=\"夏目漱石\""`, a literal search for that whole
+        string, which NDL answers with a zero-match diagnostic. So NDL's author
+        query returned nothing for every name, and the run reported that the
+        person had published nothing. Silent, plausible and wrong.
+
+        A query that already *is* a CQL index clause becomes a clause of its own.
+        Ordinary keyword text still goes through `anywhere`, unchanged, which is
+        what a keyword sweep needs and what every existing test asserts.
+        """
+        text = query.strip()
+        clauses = ['dpid = "open"']
+        index_clause = _INDEX_CLAUSE.match(text)
+        if index_clause:
+            index, value = index_clause.group(1), index_clause.group(2)
+            clauses.append(f'{index} = "{_cql_quote(value)}"')
+        else:
+            clauses.append(f'anywhere = "{_cql_quote(text)}"')
         if date_from:
             clauses.append(f'from = "{date_from}"')
         if date_to:

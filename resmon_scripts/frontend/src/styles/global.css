@@ -4529,3 +4529,179 @@ button.duplicate-link-text:hover { color: var(--color-accent); }
   color: var(--text-secondary);
   line-height: 1.5;
 }
+
+/* ---------------------------------------------------------------------------
+   Watch profiles (2.1)
+
+   The basis chips are deliberately NOT a severity scale. `name_only` is the
+   common case and is not an error; colouring it like one would train a reader
+   to ignore the colour, and then the distinction that matters — that only
+   `identifier` is evidence of identity — goes unread too. So the strong basis
+   is the one that stands out and the weak ones are muted, which is the opposite
+   arrangement to `.lifecycle-*` above and is right for the opposite reason.
+   --------------------------------------------------------------------------- */
+
+.basis-matches {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.basis-match {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.basis-chip {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  cursor: help;
+}
+
+.basis-identifier > .basis-chip,
+li.basis-identifier .basis-chip {
+  background: rgba(34, 197, 94, 0.18);
+  color: #86efac;
+}
+
+.basis-name-affiliation > .basis-chip,
+li.basis-name-affiliation .basis-chip {
+  background: rgba(99, 102, 241, 0.16);
+  color: #a5b4fc;
+}
+
+.basis-profile { font-weight: 600; }
+
+.basis-author,
+.basis-evidence {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.profile-basis-preview {
+  margin: 8px 0 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  border-left: 3px solid var(--color-border);
+  background: var(--color-surface-hover);
+}
+
+.profile-basis-weak {
+  border-left-color: var(--color-warning);
+  color: var(--color-text);
+}
+
+.profile-basis-strong {
+  border-left-color: var(--color-success);
+  color: var(--color-text-muted);
+}
+
+.profiles-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.profiles-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .profiles-layout { grid-template-columns: 1fr; }
+}
+
+.profiles-list ul { list-style: none; margin: 0; padding: 0; }
+
+.profiles-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.profiles-list-item:hover { background: var(--color-surface-hover); }
+.profiles-list-item.active {
+  background: var(--color-surface-hover);
+  color: var(--color-accent);
+}
+
+.profiles-list-name { font-weight: 600; }
+
+.profiles-starter-list,
+.profiles-matches,
+.profiles-findings {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profiles-starter-list li,
+.profiles-matches li,
+.profiles-findings li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.profiles-basis-counts {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.profile-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.profile-fields dt { color: var(--color-text-muted); }
+.profile-fields dd { margin: 0; }
+
+.profiles-detail-actions { display: flex; gap: 6px; }
+
+.form-notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-surface-hover);
+  font-size: 13px;
+}
