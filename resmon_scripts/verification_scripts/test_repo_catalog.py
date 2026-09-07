@@ -91,6 +91,7 @@ def test_catalog_as_dicts_shape():
         "keyword_combination", "keyword_combination_notes",
         "attribution", "attribution_requirement", "attribution_source",
         "date_granularity",
+        "entity_search",
     }
     for d in dicts:
         assert set(d.keys()) == expected_keys
@@ -187,3 +188,95 @@ def test_osti_catalog_does_not_invent_upstream_limits_or_keyword_semantics():
     assert entry.rate_limit == "0.5 req/s (conservative; no published API limit)"
     assert entry.keyword_combination == "Combination semantics undocumented"
     assert "publication date" in entry.query_method.lower()
+
+
+# ---------------------------------------------------------------------------
+# P1 — every entry answers what it can be asked about a person, with a citation
+# ---------------------------------------------------------------------------
+#
+# The pattern ``date_granularity`` set, one field later: a capability nobody can
+# add a source without answering. `can_embed` and the tool-calling table are the
+# same shape, and all three exist because a capability read off a key name or a
+# vendor's documentation is a claim wearing a citation.
+
+def test_every_entry_has_an_established_entity_capability():
+    """P1, with `_CLIENT_MODULES` as the denominator rather than a hand count.
+
+    A source added without an `entity_search` gets `unknown` **and an empty
+    citation**, which fails here — so the omission is loud rather than a quiet
+    default that reads like an answer.
+    """
+    from implementation_scripts.api_registry import list_repositories  # noqa: PLC0415
+
+    for entry in REPOSITORY_CATALOG:
+        capability = entry.entity_search
+        assert capability.author_query in (
+            "none", "field", "param", "endpoint", "unknown"), entry.slug
+        assert capability.established.strip(), (
+            f"{entry.slug} claims '{capability.author_query}' with no record of how it "
+            "was established")
+        assert capability.established.startswith(("2", "20")), (
+            f"{entry.slug}'s citation does not begin with the date it was established")
+
+    # The denominator is the registry itself — every slug the app will actually
+    # offer — rather than a list in this file. A source that registers and has
+    # no catalog entry has no capability, and the app would ask it anyway.
+    registered = set(list_repositories())
+    covered = {entry.slug for entry in REPOSITORY_CATALOG}
+    assert registered <= covered, (
+        f"registered clients with no catalog entry: {sorted(registered - covered)}")
+    assert len(covered) == 27, f"the catalog is {len(covered)} entries, not 27"
+
+
+def test_a_source_that_can_be_asked_says_how():
+    """`supported` and a syntax are one fact, and half of it is useless."""
+    for entry in REPOSITORY_CATALOG:
+        capability = entry.entity_search
+        if capability.supported:
+            assert capability.author_syntax, (
+                f"{entry.slug} is asked about people with no recorded syntax")
+        else:
+            assert not capability.author_syntax, (
+                f"{entry.slug} carries a syntax it will never be asked with")
+
+
+def test_returning_a_field_is_never_claimed_without_a_count():
+    """`returns_orcid` is about what the record carried, not which keys exist.
+
+    Crossref puts an `affiliation` key on every author and leaves it empty on
+    most; DataCite and Zenodo carry an `orcid` key populated on none of the 54
+    and 16 creators measured. A capability read off key names would have claimed
+    all three, so a `True` here has to point at a number.
+    """
+    import re  # noqa: PLC0415
+
+    for entry in REPOSITORY_CATALOG:
+        capability = entry.entity_search
+        if capability.returns_orcid or capability.returns_affiliation:
+            assert re.search(r"\d+ of \d+", capability.established), (
+                f"{entry.slug} claims it returns an identifier or an affiliation "
+                "without a measured count in its citation")
+
+
+def test_the_two_sources_the_brief_named_that_the_record_refused():
+    """DataCite and Zenodo were fill candidates and are not fills.
+
+    Recorded as an assertion so that turning either on is a deliberate change
+    to this test, with a new measurement behind it, rather than a quiet edit.
+    """
+    by_slug = {entry.slug: entry.entity_search for entry in REPOSITORY_CATALOG}
+    for slug in ("datacite", "zenodo"):
+        assert by_slug[slug].supported, f"{slug} can still be asked about an author"
+        assert not by_slug[slug].returns_orcid, slug
+        assert not by_slug[slug].returns_affiliation, slug
+        assert "says otherwise" in by_slug[slug].established, slug
+
+
+def test_unknown_is_used_where_nothing_was_asked():
+    """Five sources are unestablished, and each says why in its own words."""
+    unknown = {e.slug: e.entity_search for e in REPOSITORY_CATALOG
+               if e.entity_search.author_query == "unknown"}
+    assert set(unknown) == {"core", "govinfo", "nasa_ads", "nist_rmm", "springer"}
+    for slug, capability in unknown.items():
+        assert "not established" in capability.established, slug
+        assert not capability.supported

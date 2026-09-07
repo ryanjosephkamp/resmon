@@ -211,6 +211,42 @@ Do **not** touch `resmon.py`, `implementation_scripts/database.py`,
 
 ---
 
+### `entity_search` — what the source can be asked about a person
+
+**Required since 2.1, and a source without one fails the suite.** The field says whether
+this source can answer a query about an *author*, how, and what the record gives back:
+an ORCID, an affiliation, neither.
+
+Establish it; do not read it off the documentation. Add a probe for your source to
+`verification_scripts/probe_entity_search.py` and put what came back in `established=`,
+dated. The probe runs four queries because the first two are not enough:
+
+| | |
+|---|---|
+| **A** | the documented author syntax, with a real author |
+| **B** | the same syntax with an author who does not exist |
+| **C** | the bare name as a plain keyword query, no syntax |
+| **D** | the same word under a *different* field of the same source |
+
+Most of these endpoints tolerate an unknown field prefix and keyword-search the whole
+string, so A looks identical for a source with an author field and a source without one
+— and B is empty either way, because a keyword search for an invented name also finds
+nothing. **D is the control that decides it**, and it caught OAPEN, whose author prefix
+looked ignored under A-versus-C and is plainly parsed under D.
+
+**`returns_orcid` and `returns_affiliation` are about what the record carried, not which
+keys it has.** Count them. Crossref puts an `affiliation` key on every author object and
+leaves it empty on most; DataCite and Zenodo carry an `orcid` key populated on **none**
+of the 54 and 16 creators measured. A capability read off key names would have claimed
+all three, and `test_returning_a_field_is_never_claimed_without_a_count` refuses a `True`
+whose citation has no `N of M` in it. HAL is the subtler case: it returns a lab name, but
+per *document* — one record listed two authors against one lab — so resmon claims no
+affiliation from it.
+
+**`unknown` is a real answer.** A source whose key this machine does not hold, or whose
+endpoint is down, gets `unknown` and a sentence saying which. Five entries are `unknown`
+today for exactly those two reasons.
+
 ## Retiring a source
 
 Removing a module from `_CLIENT_MODULES` does **not** retire a source, and discovering that
