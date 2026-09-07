@@ -4,8 +4,9 @@
 import logging
 import re
 import sqlite3
+from dataclasses import replace
 
-from .api_base import NormalizedResult
+from .api_base import Author, NormalizedResult, as_authors
 from .database import insert_document, find_duplicates_by_hash
 from .utils import compute_metadata_hash, now_iso
 
@@ -54,27 +55,38 @@ def validate_result(result: NormalizedResult) -> bool:
 # Normalization helpers
 # ---------------------------------------------------------------------------
 
-def normalize_authors(authors: list[str]) -> list[str]:
-    """Standardize author names to 'First Last' ordering.
+def normalize_author_name(name: str) -> str:
+    """One author name, standardised to 'First Last'.
 
-    Handles 'Last, First' format by reversing the components.
-    Strips extraneous whitespace from each name.
+    Handles 'Last, First' by reversing the components and collapses internal
+    whitespace. Returns "" for a name that is nothing but whitespace.
     """
-    normalized = []
-    for name in authors:
-        name = name.strip()
+    name = (name or "").strip()
+    if not name:
+        return ""
+    if "," in name:
+        parts = [p.strip() for p in name.split(",", 1)]
+        name = f"{parts[1]} {parts[0]}" if len(parts) == 2 and parts[1] else parts[0]
+    return re.sub(r"\s+", " ", name)
+
+
+def normalize_authors(authors) -> list:
+    """Standardise author names, **keeping whatever else the source gave**.
+
+    Accepts names or ``Author`` objects and returns the same kind it was given,
+    so the twenty-odd clients that still pass strings are unaffected and the
+    handful that now pass structured authors do not lose their ORCID to a
+    normalisation step. That last clause is the point: this function used to
+    take ``list[str]`` and return ``list[str]``, and running it over structured
+    authors would have quietly discarded exactly the fields phase 2.1 exists to
+    keep.
+    """
+    normalized: list = []
+    for entry in as_authors(authors):
+        name = normalize_author_name(entry.name)
         if not name:
             continue
-        # Handle "Last, First" format
-        if "," in name:
-            parts = [p.strip() for p in name.split(",", 1)]
-            if len(parts) == 2 and parts[1]:
-                name = f"{parts[1]} {parts[0]}"
-            else:
-                name = parts[0]
-        # Normalize internal whitespace
-        name = re.sub(r"\s+", " ", name)
-        normalized.append(name)
+        normalized.append(replace(entry, name=name) if name != entry.name else entry)
     return normalized
 
 
@@ -157,7 +169,12 @@ def normalize_result(result: NormalizedResult) -> NormalizedResult:
         categories=list(result.categories),
     )
     # Attach metadata hash as a transient attribute for dedup
-    normalized._metadata_hash = compute_metadata_hash(title, authors, pub_date)  # type: ignore[attr-defined]
+    # The hash is over the *names*, unchanged from before 2.1: adding an ORCID
+    # to a record must not make it a different paper from the same record
+    # without one, or every cross-source duplicate would stop matching the day a
+    # client learned to fill the field.
+    normalized._metadata_hash = compute_metadata_hash(  # type: ignore[attr-defined]
+        title, [a.name for a in normalized.authors], pub_date)
     return normalized
 
 
@@ -209,12 +226,16 @@ def deduplicate_batch(
             "external_id": normalized.external_id,
             "doi": normalized.doi,
             "title": normalized.title,
-            "authors": ", ".join(normalized.authors),
+            "authors": ", ".join(normalized.author_names),
             "abstract": normalized.abstract,
             "publication_date": normalized.publication_date,
             "url": normalized.url,
             "categories": ", ".join(normalized.categories),
             "metadata_hash": metadata_hash,
+            # Not a column. ``insert_document`` hands this to
+            # ``index_document_facets`` so the author rows carry whatever
+            # identity the source gave, which the joined string above cannot.
+            "structured_authors": normalized.authors,
         }
 
         row_id = insert_document(conn, doc)

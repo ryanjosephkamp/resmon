@@ -268,7 +268,9 @@ def _format_paper_entry(doc: dict) -> list[str]:
     if isinstance(authors, str):
         author_str = authors
     elif isinstance(authors, list):
-        author_str = ", ".join(authors)
+        # Names, whether the caller passed strings or ``api_base.Author``s. A
+        # report renders people, not identity records.
+        author_str = ", ".join(getattr(a, "name", a) for a in authors)
     else:
         author_str = str(authors)
     if author_str:

@@ -2,6 +2,7 @@
 """API client framework: NormalizedResult, BaseAPIClient, RateLimiter, retry, safe_request."""
 
 import logging
+import re
 import threading
 import time
 import functools
@@ -19,9 +20,105 @@ logger = logging.getLogger(__name__)
 _TRANSIENT_CODES = {429, 500, 502, 503, 504}
 
 
+class EntityUnsupported(RuntimeError):
+    """This source has no way to be asked about a person.
+
+    Raised by ``BaseAPIClient.search_entity``'s default. It is an ordinary
+    outcome, not a fault: 2 of 27 sources take a date window and a cursor and
+    have no query at all, and 5 more are unestablished because their key is
+    missing or their endpoint is down. The sweep records it as the
+    ``entity_unsupported`` zero reason and moves on.
+    """
+
+
 # ---------------------------------------------------------------------------
 # NormalizedResult
 # ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Author:
+    """One author on one record, with whatever the source actually gave.
+
+    **The identity fields are the whole of phase 2.1's honesty rule.** An author
+    match is a string match unless the source hands over an identifier, and
+    resmon cannot say which it was unless it kept the identifier. Until 2.1 the
+    corpus held author *strings* and nothing else, so "papers by Jane Doe" could
+    only ever have meant "papers with that name on them" — and nothing in the
+    product said so.
+
+    Every field but ``name`` is optional and **stays empty far more often than
+    it is filled**, which is a fact about the sources rather than about this
+    class. Measured on 2026-09-06: OpenAlex carried an ORCID on 9 of 17
+    authorships, PubMed on 4 of 30, Crossref on 2 of 84. A record with no ORCID
+    is the normal case, and code downstream treats ``None`` as "the source did
+    not say", never as "this person has none".
+    """
+
+    name: str
+    orcid: str | None = None
+    affiliations: tuple[str, ...] = ()
+    # The source's own author id, where it has one that is not an ORCID —
+    # Semantic Scholar's ``authorId``, OpenAlex's author key. Namespaced by the
+    # source slug so two sources' ids cannot be compared by accident.
+    source_ids: tuple[tuple[str, str], ...] = ()
+
+    def __str__(self) -> str:                        # pragma: no cover - trivial
+        return self.name
+
+
+_ORCID_RE = re.compile(r"(\d{4}-\d{4}-\d{4}-\d{3}[\dXx])")
+
+
+def bare_orcid(value) -> str | None:
+    """The 16-digit ORCID out of whatever shape a source wrapped it in.
+
+    Sources hand it over as a bare id, as `https://orcid.org/…`, as
+    `http://orcid.org/…`, and inside a longer identifier string. Stored bare and
+    upper-cased so two sources' ids for one person compare equal — an identifier
+    match that failed because one source used https and the other did not would
+    silently downgrade to a name match, which is the exact failure phase 2.1's
+    basis rule exists to make visible.
+
+    Returns ``None`` for anything that is not an ORCID, including the empty
+    string: "the source did not say" is a different fact from "this is their
+    ORCID" and only one of them may be stored.
+    """
+    match = _ORCID_RE.search(str(value or ""))
+    return match.group(1).upper() if match else None
+
+
+def as_authors(values) -> list[Author]:
+    """Accept a list of names or of Authors and return Authors.
+
+    The compatibility shim decision 4 asks for. Twenty-seven clients build
+    ``NormalizedResult`` and only a handful of them have anything but a name to
+    put in it; the rest keep passing strings and keep working.
+    """
+    out: list[Author] = []
+    # A bare string is one name, not a sequence of characters. Found by the
+    # sweep-hook tests, which pass a single author as a plain string — iterating
+    # it produced an Author per letter, which is the sort of quiet nonsense a
+    # shim exists to prevent rather than create.
+    if isinstance(values, (str, Author)):
+        values = [values]
+    for value in values or []:
+        if isinstance(value, Author):
+            out.append(value)
+        elif isinstance(value, str):
+            name = value.strip()
+            if name:
+                out.append(Author(name=name))
+        elif isinstance(value, dict):
+            name = str(value.get("name") or "").strip()
+            if name:
+                out.append(Author(
+                    name=name,
+                    orcid=value.get("orcid") or None,
+                    affiliations=tuple(value.get("affiliations") or ()),
+                    source_ids=tuple(tuple(p) for p in (value.get("source_ids") or ())),
+                ))
+    return out
+
 
 @dataclass
 class NormalizedResult:
@@ -30,11 +127,24 @@ class NormalizedResult:
     external_id: str
     doi: str | None
     title: str
-    authors: list[str]
+    # **Accepts strings and stores Authors.** ``__post_init__`` converts, so a
+    # client written before 2.1 — which is most of them — passes a list of names
+    # and gets structured authors without knowing it. That is the shim, and it
+    # is here rather than in the normalizer because a client that reads back
+    # ``result.authors`` should see one type, not two.
+    authors: list
     abstract: str | None
     publication_date: str | None
     url: str
     categories: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "authors", as_authors(self.authors))
+
+    @property
+    def author_names(self) -> list[str]:
+        """Just the names, for everything that only ever wanted those."""
+        return [a.name for a in self.authors]
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +178,31 @@ class BaseAPIClient(ABC):
     def get_name(self) -> str:
         """Return the human-readable repository name."""
         ...
+
+    def search_entity(
+        self,
+        profile,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        max_results: int = 100,
+        **kwargs,
+    ) -> list[NormalizedResult]:
+        """Ask this source about a *person*, if it can be asked at all.
+
+        **The default raises.** A client overrides this only where the catalog's
+        ``entity_search`` capability says the source can answer, and the sweep
+        engine asks only where the capability says yes — so a source that
+        cannot answer is never called and the run records ``entity_unsupported``
+        rather than an empty result that looks like "nobody published anything".
+
+        Two things this returns are *candidates*, not verdicts: the source's own
+        author matching is a generator, and every record it hands back is
+        verified locally against the profile before it counts as a match. That
+        is decision 6, and it is the reason this method's docstring says
+        "candidates" rather than "papers by this person".
+        """
+        raise EntityUnsupported(
+            f"{self.get_name()} cannot be asked about a person.")
 
 
 # ---------------------------------------------------------------------------

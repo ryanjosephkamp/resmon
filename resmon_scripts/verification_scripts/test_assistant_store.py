@@ -30,8 +30,10 @@ def conn(tmp_path):
 
 
 def test_schema_12_creates_the_assistant_tables(conn):
-    assert database.SCHEMA_VERSION == 12
-    assert database.get_schema_version(conn) == 12
+    # Named for the version that introduced these tables; the assertion tracks
+    # the current one, which is 13 since 2.1's author-identity columns.
+    assert database.SCHEMA_VERSION == 13
+    assert database.get_schema_version(conn) == 13
     tables = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"assistant_sessions", "assistant_messages"} <= tables

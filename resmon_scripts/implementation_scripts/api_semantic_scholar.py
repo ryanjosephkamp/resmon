@@ -3,7 +3,7 @@
 
 import logging
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import Author, BaseAPIClient, NormalizedResult, RateLimiter, bare_orcid, safe_request
 from .credential_manager import get_credential_for
 
 logger = logging.getLogger(__name__)
@@ -110,11 +110,21 @@ class SemanticScholarClient(BaseAPIClient):
         doi = ext_ids.get("DOI")
 
         # Authors
+        # 2.1 — Semantic Scholar returns its **own** author id and nothing else.
+        # `authors.externalIds` and `authors.affiliations` are rejected outright
+        # as unsupported fields (2026-09-06), so there is no ORCID to be had on
+        # this path and none is claimed. The id is namespaced by the source slug
+        # so it can never be compared against another source's.
         authors = []
         for author in paper.get("authors", []):
-            name = author.get("name", "").strip()
-            if name:
-                authors.append(name)
+            name = (author.get("name") or "").strip()
+            if not name:
+                continue
+            author_id = str(author.get("authorId") or "").strip()
+            authors.append(Author(
+                name=name,
+                source_ids=(("semantic_scholar", author_id),) if author_id else (),
+            ))
 
         abstract = paper.get("abstract")
         publication_date = paper.get("publicationDate")  # already YYYY-MM-DD

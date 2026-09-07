@@ -1,0 +1,64 @@
+{
+ "hits": {
+  "hits": [
+   {
+    "metadata": {
+     "control_number": 507982,
+     "titles": [
+      {
+       "title": "Heterotic string conformal field theory and A-D-E singularities"
+      },
+      {
+       "source": "arXiv",
+       "title": "Heterotic string conformal field theory and A-D-E singularities."
+      }
+     ],
+     "authors": [
+      {
+       "affiliations_identifiers": [
+        {
+         "schema": "ROR",
+         "value": "https://ror.org/05dxps055"
+        }
+       ],
+       "full_name_unicode_normalized": "witten, edward",
+       "full_name": "Witten, Edward",
+       "curated_relation": true,
+       "record": {
+        "$ref": "https://inspirehep.net/api/authors/983328"
+       },
+       "last_name": "Witten",
+       "ids": [
+        {
+         "schema": "INSPIRE ID",
+         "value": "INSPIRE-00136372"
+        },
+        {
+         "schema": "ORCID",
+         "value": "0000-0002-7752-6073"
+        },
+        {
+         "schema": "INSPIRE BAI",
+         "value": "Edward.Witten.1"
+        }
+       ],
+       "affiliations": [
+        {
+         "record": {
+          "$ref": "https://inspirehep.net/api/institutions/902711"
+         },
+         "value": "Caltech"
+        }
+       ],
+       "signature_block": "WATANe",
+       "first_name": "Edward",
+       "uuid": "5d4f6696-4797-4e6e-a9a3-88b6d7fd86be",
+       "recid": 983328
+      }
+     ],
+     "earliest_date": null
+    }
+   }
+  ]
+ }
+}
