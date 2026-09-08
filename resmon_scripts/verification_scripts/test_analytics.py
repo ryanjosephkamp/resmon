@@ -304,3 +304,15 @@ def test_execution_document_helpers(conn):
 
     assert [d["id"] for d in get_documents_by_ids(conn, [new_id])] == [new_id]
     assert get_documents_by_ids(conn, []) == []
+
+
+def test_json_identity_is_explicit_and_does_not_change_public_columns():
+    import json
+    doc = {"id": 91, "title": "Continuity"}
+    plain = json.loads(reference_export.to_json([doc]))[0]
+    identified = json.loads(reference_export.to_json([doc], include_ids=True))[0]
+    assert set(plain) == set(reference_export.CSV_COLUMNS)
+    assert identified == {**plain, "id": 91}
+    assert reference_export.to_csv([doc]).splitlines()[0] == ",".join(reference_export.CSV_COLUMNS)
+    with pytest.raises(ValueError, match="requires the json"):
+        reference_export.render([doc], "csv", include_ids=True)

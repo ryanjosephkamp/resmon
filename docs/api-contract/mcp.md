@@ -118,7 +118,7 @@ called out explicitly.
 | `get_routine` | `routine_id` | the full routine record | `GET /api/routines/{id}` |
 | `list_executions` | `routine_id?`, `status?`, `limit=25`, `offset=0` | id, type, status, started, finished, result count | `GET /api/executions` |
 | `get_execution` | `exec_id` | status, per-source counts, timings, AI lane used | `GET /api/executions/{id}` |
-| `get_execution_results` | `exec_id`, `limit=25`, `offset=0` | the papers that run found | `GET /api/executions/{id}/references?format=json` |
+| `get_execution_results` | `exec_id`, `limit=25`, `offset=0` | the papers that run found, with existing corpus `id` usable by `explain_match` | `GET /api/executions/{id}/references?format=json&include_ids=true` |
 | `get_search_record` | `exec_id` | the PRISMA-shaped reproducible record | `GET /api/executions/{id}/search-record` |
 | `explain_match` | `doc_id` | which keywords matched, in which field, and what resmon cannot verify | `GET /api/documents/{doc_id}/why` |
 | `get_paper_lifecycle` | `doc_id` | retraction, preprint→published, version changes, each with its notice link | `GET /api/documents/{doc_id}/lifecycle` |
@@ -406,3 +406,18 @@ The diff reports actual GET state before and after, rather than echoing input.
 Embeddings uses the GET response's nested `settings` object for its writable
 key list and diff; capability metadata is not writable. Group and credential
 refusals and confirmation requirements are unchanged.
+
+### Reading/export continuity amendment
+
+`get_execution_results` explicitly requests ID-bearing JSON. Each returned paper's
+`id` is the stored document ID in this corpus, usable unchanged as `explain_match`
+`doc_id`; it is not a cross-corpus identifier. Pagination, empty results and stale
+execution errors retain their existing behavior. Default reference JSON and CSV
+still expose their previous public columns; the opt-in ID does not change them.
+
+Results & Logs submits selected execution IDs to the existing reference export
+endpoint, which unions document IDs and renders once. Repeated IDs appear once;
+distinct records remain separate without fuzzy matching or corpus changes. Order
+is publication date then document ID descending, independent of run selection
+order. BibTeX keys are unique within the resulting file; suffixes depend on file
+contents/order and are not stable paper identifiers or an importer guarantee.

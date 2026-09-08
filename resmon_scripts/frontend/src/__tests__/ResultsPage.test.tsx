@@ -8,7 +8,7 @@
  */
 
 import React from 'react';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import ResultsPage from '../pages/ResultsPage';
 import { callsTo, mockRoutedFetch, renderWithProviders } from './testUtils';
 
@@ -60,4 +60,48 @@ describe('ResultsPage', () => {
     expect(screen.queryByText('Cloud')).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Execution location' })).not.toBeInTheDocument();
   });
+  test.each(['BibTeX', 'RIS', 'CSV'])('exports selected runs with one %s request', async (label) => {
+    const mock = mockRoutedFetch({ '/api/executions': ROWS, '/api/export/references': 'references' });
+    URL.createObjectURL = jest.fn(() => 'blob:continuity');
+    URL.revokeObjectURL = jest.fn();
+    const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      await renderWithProviders(<ResultsPage />);
+      fireEvent.click(screen.getAllByRole('checkbox')[0]);
+      fireEvent.click(screen.getByRole('button', { name: label }));
+      await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+      const calls = callsTo(mock, '/api/export/references');
+      expect(calls).toHaveLength(1);
+      expect(calls[0].init?.method).toBe('POST');
+      expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+        execution_ids: [11, 12], format: label.toLowerCase(),
+      });
+      expect(mock.mock.calls.filter(([url]) => /executions\/\d+\/references/.test(String(url)))).toHaveLength(0);
+    } finally {
+      click.mockRestore();
+    }
+  });
+
+  test.each([
+    ['stale execution', { detail: 'Execution 777 not found' }, 'Reference export failed (HTTP 404): Execution 777 not found'],
+    ['malformed JSON', new SyntaxError('invalid JSON'), 'Reference export failed (HTTP 404)'],
+    ['non-JSON response', new SyntaxError('<html>not JSON</html>'), 'Reference export failed (HTTP 404)'],
+    ['non-string detail', { detail: [{ msg: 'validation error' }] }, 'Reference export failed (HTTP 404)'],
+    ['empty detail', { detail: '   ' }, 'Reference export failed (HTTP 404)'],
+  ])('shows a useful export error for %s', async (_label, payload, expected) => {
+    const mock = mockRoutedFetch({ '/api/executions': ROWS });
+    const routed = mock.getMockImplementation()!;
+    mock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/api/export/references')) return {
+        ok: false, status: 404,
+        json: async () => { if (payload instanceof Error) throw payload; return payload; },
+      };
+      return routed(input, init);
+    });
+    await renderWithProviders(<ResultsPage />);
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'BibTeX' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(String(expected)));
+  });
+
 });

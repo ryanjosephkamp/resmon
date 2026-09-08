@@ -14,16 +14,15 @@
  *
  * | Reason | How it is really produced | Network |
  * |---|---|---|
- * | `upstream_failure` | the app is launched with `ALL_PROXY` pointing at a **closed loopback port**, so every outbound call from the backend is refused at connect | none |
- * | `answered_empty` | a live query for a term nothing matches — the source really does answer 200 with nothing | yes |
- * | `not_recorded` | Open Library returns `[]` for `max_results <= 0` **before making any HTTP call**, so the outcome channel holds nothing and `derive` reaches its honest floor | none |
+ * | `upstream_failure` | local source closes the real connection without replying; the actual HTTP stack records failed transport | loopback |
+ * | `answered_empty` | authored empty Atom feed over real HTTP 200, parsed by the actual arXiv client | loopback |
+ * | `not_recorded` | Open Library returns before HTTP for `max_results <= 0` | none |
  *
- * The proxy is the interesting one. `httpx.Client` is built with
- * `trust_env` at its default, so `ALL_PROXY` reaches every source client
- * without a line of production code knowing this test exists — and a *closed*
- * port produces `httpx.ConnectError`, which is a transport failure resmon
- * genuinely cannot distinguish from the upstream being down. `NO_PROXY` keeps
- * the renderer's own loopback traffic out of it.
+ * The first source response is held until Monitor shows the exact execution.
+ * This controls dependency timing, not backend progress or renderer state. A
+ * refused/failed transport cannot be silently skipped as an unavailable empty
+ * answer. These cases establish local parser/outcome handling, not availability
+ * of a public provider.
  *
  * **`not_recorded` and the Monitor.** `max_results: 0` is not reachable from
  * the Deep Dive form — its slider starts at 10 — so that run is seeded through
@@ -38,71 +37,13 @@
  * somebody's history** — a Results row and a search record, both asserted.
  */
 import * as fs from 'fs';
-import * as net from 'net';
-import * as os from 'os';
 import * as path from 'path';
-import { test, expect, _electron as electron } from '@playwright/test';
-import type { ElectronApplication, Page } from '@playwright/test';
-import { launchEnv, FRONTEND_ROOT, ensureScreenshotDir } from './fixtures/resmon-app';
+import { test, expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { FRONTEND_ROOT, ensureScreenshotDir } from './fixtures/resmon-app';
+import { launchSourceApp } from './fixtures/source-boundary';
 
 test.describe.configure({ mode: 'serial' });
-
-interface Launched {
-  app: ElectronApplication;
-  win: Page;
-  close: () => Promise<void>;
-}
-
-/** A loopback port with nothing listening on it. Refuses every connection. */
-async function closedPort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.on('error', reject);
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address() as net.AddressInfo;
-      srv.close(() => resolve(port));
-    });
-  });
-}
-
-async function launch(proxyPort: number | null): Promise<Launched> {
-  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-zero-'));
-  const env = launchEnv(stateDir, true);
-  const args = ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`];
-  if (proxyPort !== null) {
-    // Read by httpx through `trust_env`, which is on by default, so every
-    // source client goes through it with no production code involved.
-    env.ALL_PROXY = `http://127.0.0.1:${proxyPort}`;
-    env.HTTPS_PROXY = env.ALL_PROXY;
-    env.HTTP_PROXY = env.ALL_PROXY;
-    // The renderer talks to the backend over loopback and must not be routed
-    // into a dead port — that would break the app rather than one source.
-    env.NO_PROXY = '127.0.0.1,localhost';
-    env.no_proxy = env.NO_PROXY;
-    // Chromium on Linux reads the same variables. Belt and braces: the window
-    // itself never uses a proxy.
-    args.push('--no-proxy-server');
-  }
-  const app = await electron.launch({
-    args, cwd: FRONTEND_ROOT, env, timeout: 180_000,
-  });
-  const win = await app.firstWindow({ timeout: 180_000 });
-  await win.waitForLoadState('domcontentloaded');
-  await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
-  const port = await win.evaluate(
-    () => (window as unknown as { resmonAPI: { getBackendPort(): string } })
-      .resmonAPI.getBackendPort(),
-  );
-  expect(port).not.toBe('8742');
-  return {
-    app,
-    win,
-    close: async () => {
-      await app.close().catch(() => { /* already gone */ });
-      fs.rmSync(stateDir, { recursive: true, force: true });
-    },
-  };
-}
 
 async function goto(win: Page, hash: string): Promise<void> {
   await win.evaluate((h) => { window.location.hash = `#${h}`; }, hash);
@@ -116,7 +57,7 @@ async function goto(win: Page, hash: string): Promise<void> {
 async function runDiveFromTheForm(
   win: Page, repository: string, keyword: string,
   dates?: { from: string; to: string },
-): Promise<void> {
+): Promise<number> {
   await goto(win, '/dive');
   await win.locator('select.form-select')
     .filter({ has: win.locator(`option[value="${repository}"]`) })
@@ -127,7 +68,11 @@ async function runDiveFromTheForm(
   }
   await win.locator('.keyword-input-row input').fill(keyword);
   await win.locator('.keyword-input-row button', { hasText: 'Add' }).click();
+  const response = win.waitForResponse((r) => r.url().endsWith('/api/search/dive') && r.request().method() === 'POST');
   await win.locator('button', { hasText: 'Run Deep Dive' }).click();
+  const started = await response; expect(started.ok()).toBe(true);
+  const id = (await started.json()).execution_id as number;
+  expect(id).toBeGreaterThan(0); return id;
 }
 
 /** Wait for an execution to stop running, and return its API row. */
@@ -161,23 +106,29 @@ async function recordedReasons(win: Page, id: number): Promise<Record<string, st
   }, id);
 }
 
-/** Open the newest execution's search record from the Results page. */
-async function openNewestSearchRecord(win: Page): Promise<void> {
+/** Open this execution, not whichever row happens to be newest. */
+async function openSearchRecord(win: Page, id: number): Promise<void> {
   await goto(win, '/results');
-  await expect(win.locator('tr.clickable-row').first()).toBeVisible({ timeout: 30_000 });
-  await win.locator('tr.clickable-row').first().click();
+  const row = win.getByText(`Execution #${id}`, { exact: true }).locator('xpath=ancestor::tr');
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click();
   await win.locator('.tab-bar .tab-btn', { hasText: 'Search record' }).first().click();
   await expect(win.locator('.search-record')).toBeVisible({ timeout: 30_000 });
 }
 
 test('P13a: upstream_failure — the source did not answer, on all three surfaces', async () => {
-  const port = await closedPort();
-  const { win, close } = await launch(port);
+  const source = await launchSourceApp('failure');
+  const { win, close } = source;
   try {
-    await runDiveFromTheForm(win, 'arxiv', 'machine learning');
+    const id = await runDiveFromTheForm(win, 'arxiv', 'machine learning');
+    await source.waitForRequest();
 
     // --- the monitor, while it is happening -----------------------------
     await goto(win, '/monitor');
+    await expect(win.getByTestId(`mon-tab-${id}`)).toBeVisible();
+    await win.getByTestId(`mon-tab-${id}`).click();
+    expect(source.stored(id).execution[0].status).toBe('running');
+    source.release();
     const reason = win.locator('.mon-repo-zero-reason').first();
     await expect(reason).toContainText('could not be queried', { timeout: 90_000 });
     await expect(reason).toContainText('did not answer');
@@ -189,16 +140,15 @@ test('P13a: upstream_failure — the source did not answer, on all three surface
     });
 
     // --- what the backend actually recorded ------------------------------
-    const id = await win.evaluate(async () => {
-      const p = (window as unknown as { resmonAPI: { getBackendPort(): string } })
-        .resmonAPI.getBackendPort();
-      const rows = await (await fetch(`http://127.0.0.1:${p}/api/executions?limit=1`)).json();
-      return (rows.executions ?? rows)[0].id as number;
-    });
     await settled(win, id);
     const reasons = await recordedReasons(win, id);
     console.log('P13a RECORDED', JSON.stringify(reasons));
-    expect(Object.values(reasons)).toContain('upstream_failure');
+    expect(reasons.arxiv).toBe('upstream_failure');
+    const effect = source.evidence(id);
+    expect(effect.requests.length).toBeGreaterThan(0);
+    expect(effect.requests.every((r) => r.status === null && r.transport === 'closed-without-response')).toBe(true);
+    expect(effect.stored.sources[0].zero_reason).toBe('upstream_failure');
+    expect(effect.stored.documents).toHaveLength(0);
 
     // --- the results row --------------------------------------------------
     await goto(win, '/results');
@@ -206,7 +156,7 @@ test('P13a: upstream_failure — the source did not answer, on all three surface
       .toContainText('could not answer', { timeout: 30_000 });
 
     // --- the search record ------------------------------------------------
-    await openNewestSearchRecord(win);
+    await openSearchRecord(win, id);
     await expect(win.locator('.record-notes')).toContainText('did not answer');
     await expect(win.locator('.search-record .simple-table').first())
       .toContainText('did not answer');
@@ -220,37 +170,36 @@ test('P13a: upstream_failure — the source did not answer, on all three surface
 });
 
 test('P13b: answered_empty — the source answered and had nothing', async () => {
-  const { win, close } = await launch(null);
+  const source = await launchSourceApp('empty');
+  const { win, close } = source;
   try {
-    // A term nothing matches. The source really does reply, with an empty
-    // result set, which is the only honest way to produce this reason.
-    await runDiveFromTheForm(win, 'arxiv', 'zzqqxxjjkkvvwwyyplbb');
+    // The actual source parser consumes the authored empty Atom response.
+    const id = await runDiveFromTheForm(win, 'arxiv', 'zzqqxxjjkkvvwwyyplbb');
+    await source.waitForRequest();
 
     await goto(win, '/monitor');
+    await expect(win.getByTestId(`mon-tab-${id}`)).toBeVisible();
+    await win.getByTestId(`mon-tab-${id}`).click();
+    expect(source.stored(id).execution[0].status).toBe('running');
+    source.release();
     const reason = win.locator('.mon-repo-zero-reason').first();
     await expect(reason).toBeVisible({ timeout: 90_000 });
     const sentence = (await reason.innerText()).trim();
     console.log('P13b MONITOR', JSON.stringify(sentence));
 
-    if (sentence.includes('could not be queried')) {
-      // The machine could not reach the source. Say so; do not turn an outage
-      // into a claim about the wrong reason.
-      console.log('P13b NOT VERIFIED — arXiv was unreachable from this machine');
-      test.skip(true, 'arXiv unreachable — answered_empty needs a source that answers');
-    }
     expect(sentence).toContain('answered (HTTP 200)');
     expect(sentence).toContain('no records');
 
-    const id = await win.evaluate(async () => {
-      const p = (window as unknown as { resmonAPI: { getBackendPort(): string } })
-        .resmonAPI.getBackendPort();
-      const rows = await (await fetch(`http://127.0.0.1:${p}/api/executions?limit=1`)).json();
-      return (rows.executions ?? rows)[0].id as number;
-    });
     await settled(win, id);
     const reasons = await recordedReasons(win, id);
     console.log('P13b RECORDED', JSON.stringify(reasons));
-    expect(Object.values(reasons)).toContain('answered_empty');
+    expect(reasons.arxiv).toBe('answered_empty');
+    const effect = source.evidence(id);
+    expect(effect.requests).toHaveLength(1);
+    expect(effect.requests[0]).toMatchObject({ method: 'GET', status: 200, transport: 'http-response' });
+    expect(effect.requests[0].url).toContain('search_query=all%3Azzqqxxjjkkvvwwyyplbb');
+    expect(effect.stored.sources[0]).toMatchObject({ status: 'ok', result_count: 0, zero_reason: 'answered_empty' });
+    expect(effect.stored.documents).toHaveLength(0);
 
     // The results row deliberately says **nothing**. An answered zero is not a
     // coverage problem, and reporting it as one would be the mirror image of
@@ -259,7 +208,7 @@ test('P13b: answered_empty — the source answered and had nothing', async () =>
     await expect(win.locator('tr.clickable-row').first()).toBeVisible({ timeout: 30_000 });
     await expect(win.locator('.results-coverage')).toHaveCount(0);
 
-    await openNewestSearchRecord(win);
+    await openSearchRecord(win, id);
     await expect(win.locator('.search-record .simple-table').first())
       .toContainText('answered, zero');
     await expect(win.locator('.record-notes')).toContainText('answered (HTTP 200)');
@@ -272,7 +221,8 @@ test('P13b: answered_empty — the source answered and had nothing', async () =>
 });
 
 test('P13c: not_recorded — resmon did not observe why, and says exactly that', async () => {
-  const { win, close } = await launch(null);
+  const source = await launchSourceApp('empty');
+  const { win, close } = source;
   try {
     // Open Library returns [] for `max_results <= 0` before making any HTTP
     // call at all, so the outcome channel holds nothing and `derive` reaches
@@ -307,6 +257,9 @@ test('P13c: not_recorded — resmon did not observe why, and says exactly that',
     const reasons = await recordedReasons(win, id);
     console.log('P13c RECORDED', JSON.stringify(reasons));
     expect(reasons.openlibrary).toBe('not_recorded');
+    const effect = source.evidence(id);
+    expect(effect.requests).toHaveLength(0);
+    expect(effect.stored.sources[0].zero_reason).toBe('not_recorded');
 
     // --- the results row --------------------------------------------------
     await goto(win, '/results');
@@ -318,7 +271,7 @@ test('P13c: not_recorded — resmon did not observe why, and says exactly that',
     });
 
     // --- the search record ------------------------------------------------
-    await openNewestSearchRecord(win);
+    await openSearchRecord(win, id);
     await expect(win.locator('.search-record .simple-table').first())
       .toContainText('zero, reason not recorded');
     await expect(win.locator('.record-notes'))

@@ -2077,13 +2077,16 @@ async def import_configurations(files: list[UploadFile] = File(...)):
 
 
 class ReferenceExportBody(BaseModel):
-    document_ids: list[int]
+    document_ids: list[int] = []
+    execution_ids: list[int] | None = None
     format: str = "bibtex"
 
 
-def _reference_response(documents: list[dict], fmt: str, stem: str) -> Response:
+def _reference_response(
+    documents: list[dict], fmt: str, stem: str, *, include_ids: bool = False,
+) -> Response:
     try:
-        text, media_type, extension = reference_export.render(documents, fmt)
+        text, media_type, extension = reference_export.render(documents, fmt, include_ids=include_ids)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     return Response(
@@ -2098,26 +2101,42 @@ def _reference_response(documents: list[dict], fmt: str, stem: str) -> Response:
 
 @app.get("/api/executions/{exec_id}/references")
 def export_execution_references(
-    exec_id: int, format: str = "bibtex", only_new: bool = False,
+    exec_id: int, format: str = "bibtex", only_new: bool = False, include_ids: bool = False,
 ):
-    """Export one execution's papers as BibTeX, RIS or CSV."""
+    """Export one run; JSON can explicitly include corpus IDs for follow-up reads."""
     conn = _get_db()
     try:
         if get_execution_by_id(conn, exec_id) is None:
             raise HTTPException(404, "Execution not found")
         documents = get_execution_documents(conn, exec_id, only_new=only_new)
         suffix = "-new" if only_new else ""
-        return _reference_response(documents, format, f"resmon-execution-{exec_id}{suffix}")
+        return _reference_response(documents, format, f"resmon-execution-{exec_id}{suffix}",
+                                   include_ids=include_ids)
     finally:
         _close_db(conn)
 
 
 @app.post("/api/export/references")
 def export_selected_references(body: ReferenceExportBody):
-    """Export an explicit selection of papers, for a filtered view."""
+    """Render one selection, with one entry per stored document ID.
+
+    Execution selections are unioned before rendering. Publication date then ID
+    descending fixes order independently of selection order, so BibTeX keys are
+    allocated once for the complete file. This never merges corpus records.
+    """
     conn = _get_db()
     try:
-        documents = get_documents_by_ids(conn, body.document_ids)
+        ids = body.document_ids
+        if body.execution_ids is not None:
+            if ids:
+                raise HTTPException(400, "Choose document_ids or execution_ids, not both")
+            unique_ids: set[int] = set()
+            for exec_id in dict.fromkeys(body.execution_ids):
+                if get_execution_by_id(conn, exec_id) is None:
+                    raise HTTPException(404, f"Execution {exec_id} not found")
+                unique_ids.update(doc["id"] for doc in get_execution_documents(conn, exec_id))
+            ids = sorted(unique_ids)
+        documents = get_documents_by_ids(conn, ids)
         return _reference_response(documents, body.format, "resmon-selection")
     finally:
         _close_db(conn)

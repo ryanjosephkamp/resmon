@@ -621,7 +621,7 @@ def t_get_execution_results(args: dict) -> Any:
     """
     exec_id = _require_int(args, "exec_id")
     raw = backend.request(
-        "GET", f"/api/executions/{exec_id}/references", params={"format": "json"},
+        "GET", f"/api/executions/{exec_id}/references", params={"format": "json", "include_ids": True},
     )
     if isinstance(raw, str):
         try:
