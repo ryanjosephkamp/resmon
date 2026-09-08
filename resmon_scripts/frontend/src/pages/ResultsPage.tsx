@@ -127,32 +127,23 @@ const ResultsPage: React.FC = () => {
   /**
    * Download the selected executions' papers in a reference-manager format.
    *
-   * These endpoints return plain text with a Content-Disposition header rather
-   * than JSON, so they bypass apiClient. One request per selected execution,
-   * concatenated, so selecting three runs yields one file.
+   * The backend unions stored document IDs before rendering the entire file,
+   * including one shared BibTeX key namespace for every selected run.
    */
   const handleReferenceExport = async (fmt: 'bibtex' | 'ris' | 'csv') => {
     if (selected.size === 0) return;
     setExportError('');
     try {
       const ids = Array.from(selected);
-      const parts: string[] = [];
-      for (const id of ids) {
-        const resp = await fetch(
-          `${getBaseUrl()}/api/executions/${id}/references?format=${fmt}`,
-          { headers: { 'Cache-Control': 'no-store' } },
-        );
-        if (!resp.ok) {
-          throw new Error(`Export failed for execution ${id} (HTTP ${resp.status})`);
-        }
-        parts.push(await resp.text());
+      const resp = await fetch(`${getBaseUrl()}/api/export/references`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        body: JSON.stringify({ execution_ids: ids, format: fmt }),
+      });
+      if (!resp.ok) {
+        throw new Error(`Reference export failed (HTTP ${resp.status})`);
       }
-      // CSV: keep the first header row only, so the file opens as one table.
-      const text = fmt === 'csv'
-        ? parts
-            .map((part, i) => (i === 0 ? part : part.split('\n').slice(1).join('\n')))
-            .join('')
-        : parts.join('\n');
+      const text = await resp.text();
 
       const ext = fmt === 'bibtex' ? 'bib' : fmt;
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
@@ -164,8 +155,8 @@ const ResultsPage: React.FC = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setExportError(err?.message || 'Reference export failed.');
+    } catch (err: unknown) {
+      setExportError(err instanceof Error ? err.message : 'Reference export failed.');
     }
   };
 
@@ -293,7 +284,9 @@ const ResultsPage: React.FC = () => {
                   <li><strong>CSV</strong> — a spreadsheet, or your own scripts.</li>
                 </ul>
                 <p>
-                  Selecting several runs produces one file containing all of them. Papers with a
+                  Selecting several runs produces one file with each stored paper included once.
+                  Distinct stored records stay separate, even when their titles match. BibTeX
+                  keys are unique within that file; they are not permanent paper IDs. Papers with a
                   DOI are exported as journal articles; those without — usually preprints — are
                   exported as generic entries, because claiming a venue resmon does not know
                   would be worse than leaving it out.

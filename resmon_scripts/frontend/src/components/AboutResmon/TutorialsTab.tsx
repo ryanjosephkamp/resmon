@@ -357,7 +357,7 @@ const sections: TutorialSection[] = [
       'Browse executions in reverse-chronological order; filter by Type and Status.',
       'Click a row to open the viewer and switch between the Report, Log, Metadata, and Progress tabs.',
       'Select rows and click `Export Selected` to write a zip bundle, or `Delete Selected` to remove the selected local rows after a confirmation dialog.',
-      'Use `BibTeX`, `RIS`, or `CSV` to export the papers themselves in a format a reference manager reads, rather than the report about them.',
+      'Use `BibTeX`, `RIS`, or `CSV` to export the papers themselves. Selected runs form one file with each stored paper included once; distinct records stay separate. BibTeX keys are unique within that file, not permanent paper IDs.',
       'A run whose sources did not all answer says so under its Results count — `n of m sources could not answer` — with a link straight to the Search record, where each one carries the recorded reason. A zero resmon did not observe the reason for is named as unrecorded rather than being folded in with the rest; every run from before resmon 1.8.6 is in that state, because nothing was recording it.',
     ],
     features: [

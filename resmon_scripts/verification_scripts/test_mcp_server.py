@@ -834,6 +834,22 @@ def test_the_refusal_names_the_version_so_a_user_can_act(monkeypatch):
 # Format negotiation — the parameter the old double could not see
 # ---------------------------------------------------------------------------
 
+def test_execution_result_identity_crosses_the_real_json_projection():
+    from implementation_scripts import reference_export
+    docs = [{"id": 41, "title": "Continuity Alpha"}]
+    def request(method, url, **kwargs):
+        params = kwargs["params"]
+        text, media, _ = reference_export.render(
+            docs, params["format"], include_ids=params.get("include_ids", False))
+        return httpx.Response(200, text=text, headers={"Content-Type": media},
+                              request=httpx.Request(method, url))
+    mcp.backend._base = "http://127.0.0.1:49152"
+    with patch.object(mcp.httpx, "request", side_effect=request):
+        body = _payload(mcp.call_tool("get_execution_results", {"exec_id": 7}))
+    assert body["papers"][0]["id"] == 41
+    assert body["papers"][0]["title"] == docs[0]["title"]
+
+
 def test_execution_results_ask_for_a_format_the_backend_supports():
     """The v1.8.2 defect, pinned. It asked for json when json did not exist."""
     docs = [{"id": 1, "title": "A"}]

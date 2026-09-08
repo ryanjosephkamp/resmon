@@ -50,7 +50,7 @@ def _year_of(date: str | None) -> str:
 
 
 def _cite_key(doc: dict, used: set[str]) -> str:
-    """Build a stable, unique BibTeX key: firstauthor+year+firstword."""
+    """Build a file-local unique key; collision suffixes follow input order."""
     authors = _split_authors(doc.get("authors"))
     surname = ""
     if authors:
@@ -173,7 +173,7 @@ def to_csv(documents: Iterable[dict]) -> str:
     return buf.getvalue()
 
 
-def to_json(documents: Iterable[dict]) -> str:
+def to_json(documents: Iterable[dict], *, include_ids: bool = False) -> str:
     """Render documents as a JSON array, for a program rather than a person.
 
     Added because its absence was a shipped defect rather than a missing
@@ -183,14 +183,19 @@ def to_json(documents: Iterable[dict]) -> str:
     400 for *every* execution and the tool that answers "what did my last run
     find" never worked once.
 
-    The same field set as the CSV export, so the two cannot describe a
-    document differently. Values are passed through as stored: a missing field
+    By default the same field set as CSV. ``include_ids`` additionally carries
+    the existing corpus document ID for reading-to-explanation continuity; it
+    does not change CSV or the default JSON shape. Values are passed through
+    as stored: a missing field
     is ``null`` rather than an empty string, because for a machine-readable
     format "we do not have this" and "this is blank" are different facts.
     """
     rows = []
     for doc in documents:
-        rows.append({column: doc.get(column) for column in CSV_COLUMNS})
+        row = {column: doc.get(column) for column in CSV_COLUMNS}
+        if include_ids:
+            row["id"] = doc["id"]
+        rows.append(row)
     return json.dumps(rows, indent=2, ensure_ascii=False, default=str)
 
 
@@ -202,7 +207,7 @@ FORMATS = {
 }
 
 
-def render(documents: Iterable[dict], fmt: str) -> tuple[str, str, str]:
+def render(documents: Iterable[dict], fmt: str, *, include_ids: bool = False) -> tuple[str, str, str]:
     """Return ``(text, media_type, file_extension)`` for *fmt*."""
     try:
         renderer, media_type, extension = FORMATS[fmt]
@@ -210,4 +215,8 @@ def render(documents: Iterable[dict], fmt: str) -> tuple[str, str, str]:
         raise ValueError(
             f"Unknown export format {fmt!r}. Expected one of: {', '.join(sorted(FORMATS))}."
         ) from None
+    if include_ids:
+        if fmt != "json":
+            raise ValueError("include_ids requires the json format")
+        return to_json(documents, include_ids=True), media_type, extension
     return renderer(list(documents)), media_type, extension
