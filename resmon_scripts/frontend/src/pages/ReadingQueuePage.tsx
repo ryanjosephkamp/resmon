@@ -28,11 +28,13 @@ import { downloadReferences, ReferenceFormat } from '../lib/referenceDownload';
  * is worse than one that shows an error.
  *
  * **Selection is per page and says so.** Changing the filter or the page clears
- * it, and — the part a green suite missed — the selection is *derived from the
- * rows actually on screen* rather than remembered independently of them. Tick a
- * paper, mark it read, and it leaves the To read list: reconciliation found the
- * old code still counting it and still offering to export it. Deriving makes
- * that structurally impossible instead of dependent on remembering to prune.
+ * it, and — the part a green suite missed — the effective selection is *derived
+ * from the rows actually on screen* rather than remembered independently of
+ * them. Tick a paper, mark it read, and it leaves the To read list:
+ * reconciliation found the old code still counting it and still offering to
+ * export it. `selected` is now a record of what the user clicked, and
+ * `visibleSelected` is the only thing any control or request reads, so the two
+ * cannot disagree with the page.
  *
  * **A completing action refreshes the view that is current when it lands**, not
  * the one that was current when it was clicked. `viewRef` is the single source
@@ -95,13 +97,14 @@ const ReadingQueuePage: React.FC = () => {
       if (mine !== requestId.current) return;
       setPage(result);
       setOffset(result.offset);
-      // Drop anything that is no longer on the page. The render below derives
-      // the effective selection from the rows anyway, so this is hygiene
-      // rather than the guarantee — but it keeps the set from accumulating
-      // ids the user can never see again.
-      setSelected((prev) => new Set(
-        result.entries.map((e) => e.document_id).filter((id) => prev.has(id)),
-      ));
+      // Deliberately *not* pruning `selected` here. The first repair did both —
+      // pruned the stored set and derived the effective one — and a probe
+      // showed the suite could not tell them apart, because either alone
+      // satisfies every check: they were redundant, and an untested second
+      // mechanism is a liability rather than defence in depth. The derivation
+      // below is the one that is kept, because it also covers the cases a
+      // prune cannot: a list that is loading, errored or empty has no visible
+      // rows and therefore no honest selection.
     } catch (err: unknown) {
       if (mine !== requestId.current) return;
       setPage(null);
