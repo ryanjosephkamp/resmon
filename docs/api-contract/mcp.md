@@ -368,7 +368,7 @@ verified produces a confident error.
 
 | Was | Now | Why |
 |---|---|---|
-| `get_execution_results` ← `GET /api/executions/{id}/report` | ← `GET /api/executions/{id}/references?format=json&include_ids=true` | `/report` returns `{"report_text": ...}` — the entire rendered Markdown. Returning it would break this document's own token-efficiency guarantee, stated two sections above. |
+| `get_execution_results` ← `GET /api/executions/{id}/report` | ← `GET /api/executions/{id}/references?format=json` | `/report` returns `{"report_text": ...}` — the entire rendered Markdown. Returning it would break this document's own token-efficiency guarantee, stated two sections above. |
 | `search_corpus` takes `offset` | takes `cursor`, returns `next_cursor` | The corpus seeks on `(publication_date DESC, id DESC)` with an opaque cursor so the index descends rather than walks. Emulating an offset would re-walk every prior page per call. An explicit `offset` is refused rather than ignored. |
 | `get_analytics` ← `/api/analytics/*` | ← the six real paths, named | Three view names do not match their route: `volume`, `sources` and `keywords` are served by `publication-volume`, `source-contribution` and `keyword-contribution`. The view names stay as the tool's vocabulary. |
 
