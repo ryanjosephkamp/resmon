@@ -292,8 +292,11 @@ def test_the_paper_hash_does_not_change_when_a_source_learns_an_orcid(conn):
 
 
 def test_schema_13_is_the_version_and_its_columns_exist(conn):
-    assert database.SCHEMA_VERSION == 13
-    assert database.get_schema_version(conn) == 13
+    # 14 since 2.2's reading queue; 13's columns are still what this file is
+    # about, and they are asserted directly below rather than through the
+    # version number.
+    assert database.SCHEMA_VERSION == 14
+    assert database.get_schema_version(conn) == 14
     columns = {row[1] for row in conn.execute("PRAGMA table_info(document_authors)")}
     assert {"orcid", "affiliation", "source_author_id"} <= columns
 
@@ -334,7 +337,10 @@ def test_an_upgraded_database_gains_the_columns_and_backfills_nothing():
 
     columns = {row[1] for row in old.execute("PRAGMA table_info(document_authors)")}
     assert {"orcid", "affiliation", "source_author_id"} <= columns
-    assert database.get_schema_version(old) == 13
+    # A 12 -> current upgrade, so this tracks the constant: what the test is
+    # for is that the columns arrive and stay empty, not which number the
+    # marker reached.
+    assert database.get_schema_version(old) == database.SCHEMA_VERSION
     row = old.execute(
         "SELECT orcid, affiliation, source_author_id FROM document_authors "
         "WHERE author = 'Jane Doe'").fetchone()

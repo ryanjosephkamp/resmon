@@ -376,6 +376,31 @@ const sections: TutorialSection[] = [
     destination: { path: '/results', label: 'Go to Page' },
   },
   {
+    anchor: 'reading-queue',
+    title: 'Reading queue',
+    blurb: 'Save papers from a run and come back to them; two states, nothing else.',
+    mediaCaption: 'Reading queue demo — video not recorded yet.',
+    instructions: [
+      'Open a run in Results & Logs and switch to its `Papers` tab: every paper that run stored, 50 to a page, each with its own `Save to read` button.',
+      'Saved papers appear on the `Reading queue` page in the sidebar. It opens on `To read`; `Read` and `All` are the other two filters.',
+      'Use `Mark read` / `Mark unread` on a row to move it between the two states, and `Remove` to take it out of the queue.',
+      'Tick papers on the page and use `BibTeX`, `RIS` or `CSV` — the same exporter Results & Logs uses, over the papers you ticked.',
+      'Every row carries the same `Why this paper?` evidence the Explorer shows, because it is the same stored record.',
+    ],
+    features: [
+      'Saving is idempotent and never resets state: a later run that finds the same record again, saved a second time, keeps the paper marked Read.',
+      'Membership is keyed on the stored document ID, so two records that look like the same work stay two separate entries — resmon links near-duplicates, it never merges them.',
+      '`Remove` deletes the queue entry only. The paper, its authors and every run that found it are untouched, and it is still in the Explorer.',
+    ],
+    tips: [
+      'The queue holds no notes, no PDFs and no reminders, and ranks nothing. It is a list of what you meant to read.',
+      'Export covers the papers ticked on the page you are looking at; changing the page or the filter clears the ticks, so nothing invisible ends up in the file.',
+      'Saving a paper again after removing it starts a fresh entry at `To read` — the old dates are gone, because the entry was.',
+      'Upgrading an existing resmon starts the queue empty. resmon never observed which papers you meant to read before this existed, so it does not guess.',
+    ],
+    destination: { path: '/reading-queue', label: 'Go to Page' },
+  },
+  {
     anchor: 'configurations',
     title: 'Configurations',
     blurb: 'Manage saved manual-dive, manual-sweep, and routine parameter presets.',

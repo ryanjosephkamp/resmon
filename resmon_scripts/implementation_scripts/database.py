@@ -551,6 +551,59 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_session
     ON assistant_messages(session_id, id);
 
+-- ---------------------------------------------------------------------------
+-- The reading queue (schema 14)
+-- ---------------------------------------------------------------------------
+--
+-- Membership, and nothing else. A row here says "the user saved this paper to
+-- read", and the paper itself stays exactly where it was: no title, no
+-- abstract, no author list is copied in. Duplicating metadata would create a
+-- second answer to "what does resmon know about this paper", and the two would
+-- drift the moment a later run re-read the record.
+--
+-- ``document_id`` is the primary key, so membership is a property of the paper
+-- rather than of an event. Saving the same paper twice is one row, and a paper
+-- rediscovered by a later run keeps the state the user already gave it --
+-- which is the point of keying on the corpus-local id rather than on a title
+-- or a DOI. Two stored records with the same title are two papers here,
+-- because they are two papers everywhere else in resmon (schema 11's rule:
+-- a near-duplicate is a link, never a merge).
+--
+-- ``saved_at`` is when the user first saved it and never moves again;
+-- ``updated_at`` moves when the state actually changes. A read that changes
+-- nothing must not touch either, or "when did I add this" becomes "when did I
+-- last look at the list".
+--
+-- The CHECK makes "read_at is set exactly when the paper is read" a fact about
+-- the database rather than a promise the application keeps. Marking a paper
+-- unread clears it: the interface would otherwise show a date beside a paper
+-- that is not read, which is the kind of half-true rendering this app exists
+-- to avoid.
+--
+-- ON DELETE CASCADE is what keeps the owner-operated corpus erase honest --
+-- Settings -> Advanced deletes ``documents`` and this table has to go with it.
+-- It is the only route that removes a paper; removing an entry from the queue
+-- deletes this row and nothing else.
+
+CREATE TABLE IF NOT EXISTS reading_queue (
+    document_id INTEGER PRIMARY KEY,
+    status      TEXT NOT NULL DEFAULT 'to_read'
+        CHECK (status IN ('to_read', 'read')),
+    saved_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    read_at     TEXT,
+    CHECK ((status = 'read' AND read_at IS NOT NULL)
+           OR (status = 'to_read' AND read_at IS NULL)),
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+-- The list the page actually asks for: one status, newest save first, paged.
+-- ``document_id`` is in the key so the order is total -- two papers saved in
+-- the same second would otherwise be free to swap places between pages and a
+-- user would see one paper twice and another never.
+CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
+    ON reading_queue(status, saved_at DESC, document_id DESC);
+
 """
 
 # Schema version constants. Bumped by IMPL-36 (→2), IMPL-37 (→3), and
@@ -565,8 +618,12 @@ CREATE INDEX IF NOT EXISTS idx_assistant_messages_session
 # reproducible search record. 9 adds ``execution_ai``; 10 adds the per-source
 # zero reason. 11 is the 1.9 embeddings platform: ``document_embeddings``,
 # ``document_links`` and ``routines.intent``, in one migration. 12 adds the 2.0
-# assistant's ``assistant_sessions`` and ``assistant_messages``.
-SCHEMA_VERSION = 13
+# assistant's ``assistant_sessions`` and ``assistant_messages``. 13 adds the
+# author-identity columns on ``document_authors``. 14 adds ``reading_queue``:
+# one membership row per saved paper, additive, with nothing backfilled --
+# resmon never observed which papers a user meant to read before the queue
+# existed, so an upgraded database starts empty and says so.
+SCHEMA_VERSION = 14
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -1317,6 +1374,42 @@ def get_execution_documents(
         sql += " AND execution_documents.is_new = 1"
     sql += " ORDER BY documents.publication_date DESC, documents.id DESC"
     return [dict(row) for row in conn.execute(sql, params).fetchall()]
+
+
+def get_execution_documents_page(
+    conn: sqlite3.Connection,
+    execution_id: int,
+    *,
+    limit: int,
+    offset: int = 0,
+    only_new: bool = False,
+) -> tuple[list[dict], int]:
+    """One page of an execution's papers, and how many there are in total.
+
+    Same order as :func:`get_execution_documents`, which is the order the
+    reference export uses, so the page a user is looking at and the file they
+    export are in the same sequence. The total is counted rather than inferred
+    from the page, because "50 of 51" and "50" are different sentences and the
+    pager needs the first one.
+    """
+    where = "WHERE execution_documents.execution_id = ?"
+    if only_new:
+        where += " AND execution_documents.is_new = 1"
+    params: list = [execution_id]
+    total = conn.execute(
+        "SELECT COUNT(*) FROM execution_documents "
+        "JOIN documents ON documents.id = execution_documents.document_id " + where,
+        params,
+    ).fetchone()[0]
+    rows = conn.execute(
+        "SELECT documents.* FROM documents "
+        "JOIN execution_documents ON execution_documents.document_id = documents.id "
+        + where
+        + " ORDER BY documents.publication_date DESC, documents.id DESC "
+        "LIMIT ? OFFSET ?",
+        params + [int(limit), int(offset)],
+    ).fetchall()
+    return [dict(row) for row in rows], int(total)
 
 
 def get_documents_by_ids(conn: sqlite3.Connection, ids: list[int]) -> list[dict]:
