@@ -58,7 +58,9 @@ const ExecutionPapers: React.FC<Props> = ({ executionId }) => {
     } catch (err: unknown) {
       if (mine !== requestId.current) return;
       setPage(null);
-      setError(err instanceof Error ? err.message : 'Could not load this run’s papers.');
+      setError(err instanceof Error
+        ? `Could not load this run’s papers: ${err.message}`
+        : 'Could not load this run’s papers.');
     } finally {
       if (mine === requestId.current) setLoading(false);
     }

@@ -70,7 +70,9 @@ const ReadingQueuePage: React.FC = () => {
     } catch (err: unknown) {
       if (mine !== requestId.current) return;
       setPage(null);
-      setError(err instanceof Error ? err.message : 'Could not load your reading queue.');
+      setError(err instanceof Error
+        ? `Could not load your reading queue: ${err.message}`
+        : 'Could not load your reading queue.');
     } finally {
       if (mine === requestId.current) setLoading(false);
     }
@@ -268,7 +270,11 @@ const ReadingQueuePage: React.FC = () => {
           {FILTERS.map((f) => (
             <button
               key={f.key}
-              className={`btn btn-sm ${filter === f.key ? '' : 'btn-secondary'}`}
+              // `btn-secondary` and a bare `btn` are nearly the same colour, so
+              // the selected filter takes the accent the app uses for a live
+              // control. `aria-pressed` carries the same fact for a reader who
+              // is not looking at the colour.
+              className={`btn btn-sm ${filter === f.key ? 'btn-primary' : 'btn-secondary'}`}
               aria-pressed={filter === f.key}
               onClick={() => go(f.key, 0)}
               data-testid={`filter-${f.key}`}
