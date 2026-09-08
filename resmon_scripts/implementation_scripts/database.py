@@ -1323,11 +1323,14 @@ def get_documents_by_ids(conn: sqlite3.Connection, ids: list[int]) -> list[dict]
     """Return documents for an explicit selection of ids."""
     if not ids:
         return []
-    placeholders = ",".join("?" for _ in ids)
+    # Only normalized integer literals enter SQL, never caller text. One bind
+    # per ID failed for combined runs above SQLite's variable limit. Keeping
+    # this as one IN query preserves SQL ordering and ID union without a cap,
+    # per-batch citation namespaces, or a new SQLite extension requirement.
+    id_literals = ",".join(str(int(i)) for i in ids)
     rows = conn.execute(
-        f"SELECT * FROM documents WHERE id IN ({placeholders}) "
+        f"SELECT * FROM documents WHERE id IN ({id_literals}) "
         "ORDER BY publication_date DESC, id DESC",
-        [int(i) for i in ids],
     ).fetchall()
     return [dict(row) for row in rows]
 

@@ -141,7 +141,15 @@ const ResultsPage: React.FC = () => {
         body: JSON.stringify({ execution_ids: ids, format: fmt }),
       });
       if (!resp.ok) {
-        throw new Error(`Reference export failed (HTTP ${resp.status})`);
+        let message = `Reference export failed (HTTP ${resp.status})`;
+        try {
+          const error: unknown = await resp.json();
+          if (error && typeof error === 'object' && 'detail' in error
+              && typeof error.detail === 'string' && error.detail.trim()) {
+            message += `: ${error.detail.trim()}`;
+          }
+        } catch { /* An unreadable error body still has a useful HTTP status. */ }
+        throw new Error(message);
       }
       const text = await resp.text();
 

@@ -209,6 +209,127 @@ def test_export_empty_stale_mixed_and_id_option(boundary):
     assert httpx.get(route, params={"format": "csv", "include_ids": "true"}).status_code == 400
 
 
+def variable_limit(conn: sqlite3.Connection) -> int:
+    """Native compiled limit on 3.10; effective per-connection limit on 3.11+."""
+    if hasattr(conn, "getlimit"):
+        return conn.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
+    for row in conn.execute("PRAGMA compile_options"):
+        if row[0].startswith("MAX_VARIABLE_NUMBER="):
+            return int(row[0].split("=", 1)[1])
+    return 32766 if sqlite3.sqlite_version_info >= (3, 32, 0) else 999
+
+
+def seed_scale(path: Path, count: int) -> dict:
+    """Authored large-union fixture: two individually bounded overlapping runs."""
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    db.init_db(conn=conn)
+    middle = (count + 1) // 2
+    def letters(number: int) -> str:
+        value = ""
+        while number:
+            number, digit = divmod(number - 1, 26)
+            value = chr(97 + digit) + value
+        return value
+    conn.executemany(
+        "INSERT INTO documents (source_repository,external_id,title,authors,publication_date,url,metadata_hash) "
+        "VALUES (?,?,?,?,?,?,?)",
+        [("arxiv", f"synthetic-scale-{i}", f"Continuity scale record {i}",
+          "Ada Lovelace" if i in (1, middle, count) else f"Author {letters(i)}",
+          "2026-09-01", f"https://example.invalid/scale/{i}", f"scale-{i}")
+         for i in range(1, count + 1)],
+    )
+    conn.commit()
+    runs = []
+    for index, members in enumerate((range(1, middle + 1), range(middle, count + 1)), 1):
+        run = db.insert_execution(conn, {"execution_type": "deep_dive", "status": "completed",
+            "start_time": f"2026-09-01T12:0{index}:00",
+            "parameters": json.dumps({"keywords": ["Continuity"], "repositories": ["arxiv"]})})
+        conn.executemany("INSERT INTO execution_documents (execution_id,document_id,is_new) VALUES (?,?,?)",
+                         [(run, i, int(index == 1 or i != middle)) for i in members])
+        conn.commit()
+        db.update_execution_status(conn, run, "completed", result_count=len(members),
+                                   new_result_count=len(members) - (index == 2))
+        runs.append(run)
+    result = {"record_count": count, "authored_fixture_works": count,
+              "selected_execution_links": count + 1, "execution_ids": runs,
+              "first_middle_tail_ids": [count, middle, 1], "native_variable_limit": variable_limit(conn)}
+    conn.close()
+    return result
+
+
+def snapshot_digest(path: Path) -> dict:
+    """Hash every named field and ordered row without storing a huge receipt."""
+    result = {}
+    with sqlite3.connect(path) as conn:
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                  if r[0] == "documents" or r[0].startswith(("document_", "execution"))]
+        for table in sorted(tables):
+            columns = [row[1] for row in conn.execute(f'PRAGMA table_info("{table}")')]
+            digest = hashlib.sha256(json.dumps(columns).encode())
+            count = 0
+            for row in conn.execute(f'SELECT * FROM "{table}" ORDER BY rowid'):
+                digest.update(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode())
+                digest.update(b"\n")
+                count += 1
+            result[table] = {"columns": columns, "rows": count, "sha256": digest.hexdigest()}
+    return result
+
+
+def test_selection_exceeds_real_sqlite_variable_limit_without_losing_order(tmp_path):
+    path = tmp_path / "scale.db"
+    fixture = seed_scale(path, 37)
+    before = snapshot(path)
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        native = variable_limit(conn)
+        # Sparse IDs make the native-limit guard affordable even on builds with
+        # a 250,000-variable limit. The separate desktop evidence seeds >native
+        # existing records and crosses the actual HTTP/export boundary.
+        requested = list(range(1, native + 2))
+        with pytest.raises(sqlite3.OperationalError, match="too many SQL variables"):
+            conn.execute("SELECT id FROM documents WHERE id IN (" + ",".join("?" for _ in requested) + ")", requested)
+        rows = db.get_documents_by_ids(conn, requested)
+        assert [row["id"] for row in rows] == list(range(37, 0, -1))
+        if hasattr(conn, "setlimit"):
+            conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 16)
+            assert variable_limit(conn) == 16
+            with pytest.raises(sqlite3.OperationalError, match="too many SQL variables"):
+                conn.execute("SELECT id FROM documents WHERE id IN (" + ",".join("?" for _ in rows) + ")", list(range(1, 38)))
+            reduced = db.get_documents_by_ids(conn, list(range(1, 38)) + [1, 19, 37])
+            assert reduced == rows
+        text = reference_export.to_bibtex(rows)
+        keys = re.findall(r"^@\w+\{([^,]+),", text, re.M)
+        assert len(keys) == len(set(keys)) == 37
+        assert len([key for key in keys if key.startswith("lovelace2026continuity")]) == 3
+    assert snapshot(path) == before
+    print("SQL_LIMIT", json.dumps({"native_limit": native, "requested_unique_ids": len(requested),
+          "existing_records_returned": len(rows), "reduced_limit": 16 if hasattr(conn, "setlimit") else None,
+          "python310_native_guard_remains_active": True, "fixture": fixture}))
+
+
+def test_selection_normalizes_integers_before_constructing_sql(tmp_path):
+    path = tmp_path / "selection.db"
+    seed_scale(path, 3)
+    before = snapshot(path)
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        queries = []
+        conn.set_trace_callback(queries.append)
+        with pytest.raises(ValueError):
+            db.get_documents_by_ids(conn, [1, "2) OR 1=1 --"])
+        assert queries == [], "caller text reached SQL before integer normalization"
+        rows = db.get_documents_by_ids(conn, ["03", 1, 3, 999999])
+        assert [row["id"] for row in rows] == [3, 1]
+    assert snapshot(path) == before
+
+
 if __name__ == "__main__":
-    mode, target = sys.argv[1:]
-    print(json.dumps(seed(Path(target)) if mode == "seed" else snapshot(Path(target))))
+    mode, target, *extra = sys.argv[1:]
+    if mode == "seed-scale":
+        result = seed_scale(Path(target), int(extra[0]))
+    elif mode == "snapshot-digest":
+        result = snapshot_digest(Path(target))
+    else:
+        result = seed(Path(target)) if mode == "seed" else snapshot(Path(target))
+    print(json.dumps(result))
