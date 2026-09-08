@@ -378,6 +378,195 @@ describe('ReadingQueuePage', () => {
     }
   });
 
+  /* ------------------------------------------------------------------ *
+   * Continuity after a mutation — R1 and R2 from the reconciliation.
+   *
+   * Both defects survived a green suite, and both are about the same thing:
+   * the page kept believing something the backend had already changed. The
+   * checks below are written from the reconciliation's own reproductions, and
+   * each was confirmed to fail against the behaviour it describes before the
+   * repair landed.
+   * ------------------------------------------------------------------ */
+
+  /** A response whose *body* is withheld until released — the real request completes. */
+  function held<T>(value: T) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = () => resolve(); });
+    return { payload: gate.then(() => value), release };
+  }
+
+  test('R1: a paper that leaves the page stops being selected, counted or exported', async () => {
+    // To read holds two papers. Tick the first, then mark it read: the backend
+    // moves it to Read and it leaves this list. It must not remain an
+    // invisible member of the export.
+    let served = queuePage([entry(1), entry(2)]);
+    const mock = mockRoutedFetch({
+      ...WHY,
+      '/api/reading-queue': () => served,
+      '/api/reading-queue/1': () => {
+        served = queuePage([entry(2)], { counts: { to_read: 1, read: 1, all: 2 } });
+        return { document_id: 1, status: 'read', saved_at: '', updated_at: '', read_at: '' };
+      },
+      '/api/export/references': 'references',
+    });
+    await renderWithProviders(<ReadingQueuePage />);
+
+    fireEvent.click(screen.getByTestId('select-1'));
+    expect(screen.getByText(/selected on this page/)).toHaveTextContent('1 selected');
+    expect(screen.getByRole('button', { name: 'BibTeX' })).not.toBeDisabled();
+
+    await act(async () => { fireEvent.click(screen.getByTestId('toggle-1')); });
+
+    await waitFor(() => expect(screen.queryByTestId('paper-1')).not.toBeInTheDocument());
+    expect(screen.getByTestId('paper-2')).toBeInTheDocument();
+    expect(screen.getByText(/selected on this page/)).toHaveTextContent('0 selected');
+    expect(screen.getByRole('button', { name: 'BibTeX' })).toBeDisabled();
+    expect(callsTo(mock, '/api/export/references')).toHaveLength(0);
+  });
+
+  test('R1: what is exported is exactly what is ticked and on screen', async () => {
+    let served = queuePage([entry(1), entry(2)]);
+    const mock = mockRoutedFetch({
+      ...WHY,
+      '/api/reading-queue': () => served,
+      '/api/reading-queue/1': () => {
+        served = queuePage([entry(2)], { counts: { to_read: 1, read: 1, all: 2 } });
+        return { document_id: 1, status: 'read', saved_at: '', updated_at: '', read_at: '' };
+      },
+      '/api/export/references': 'references',
+    });
+    URL.createObjectURL = jest.fn(() => 'blob:queue');
+    URL.revokeObjectURL = jest.fn();
+    const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      await renderWithProviders(<ReadingQueuePage />);
+      fireEvent.click(screen.getByTestId('select-1'));
+      fireEvent.click(screen.getByTestId('select-2'));
+      await act(async () => { fireEvent.click(screen.getByTestId('toggle-1')); });
+      await waitFor(() => expect(screen.queryByTestId('paper-1')).not.toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'BibTeX' }));
+      await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+      const body = JSON.parse(String(callsTo(mock, '/api/export/references')[0].init?.body));
+      expect(body).toEqual({ document_ids: [2], format: 'bibtex' });
+    } finally {
+      click.mockRestore();
+    }
+  });
+
+  test('R1: removing the last visible paper leaves nothing selected and nothing to export', async () => {
+    let served = queuePage([entry(1)]);
+    mockRoutedFetch({
+      ...WHY,
+      '/api/reading-queue': () => served,
+      '/api/reading-queue/1': () => { served = queuePage([]); return { removed: true, document_id: 1 }; },
+    });
+    await renderWithProviders(<ReadingQueuePage />);
+    fireEvent.click(screen.getByTestId('select-1'));
+
+    await act(async () => { fireEvent.click(screen.getByTestId('remove-1')); });
+
+    await waitFor(() => expect(screen.getByTestId('queue-empty')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'BibTeX' })).toBeDisabled();
+    expect(screen.queryByTestId('queue-range')).not.toBeInTheDocument();
+    expect(screen.queryByText(/selected on this page/)).not.toBeInTheDocument();
+  });
+
+  test('R1: nothing is exportable while the page it belongs to is still loading', async () => {
+    // Two loads: the mount, and a page change whose response is held. The
+    // second is the one that matters — a tick made on page one must not be
+    // countable or exportable over a page that has not arrived.
+    const second = held(queuePage([entry(2)], { total: 51, offset: 50 }));
+    let first = true;
+    mockRoutedFetch({
+      ...WHY,
+      '/api/reading-queue': () => {
+        if (first) { first = false; return queuePage([entry(1)], { total: 51, offset: 0 }); }
+        return second.payload;
+      },
+    });
+    await renderWithProviders(<ReadingQueuePage />);
+    fireEvent.click(screen.getByTestId('select-1'));
+    expect(screen.getByRole('button', { name: 'BibTeX' })).not.toBeDisabled();
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Next' })); });
+
+    // Mid-flight: no rows are on screen, so no selection can be honest and no
+    // range can be stated.
+    expect(screen.getByRole('button', { name: 'BibTeX' })).toBeDisabled();
+    expect(screen.queryByTestId('queue-range')).not.toBeInTheDocument();
+    expect(screen.queryByText(/selected on this page/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('paper-1')).not.toBeInTheDocument();
+
+    await act(async () => { second.release(); });
+    await waitFor(() => expect(screen.getByTestId('paper-2')).toBeInTheDocument());
+    expect(screen.getByText(/selected on this page/)).toHaveTextContent('0 selected');
+    expect(screen.getByRole('button', { name: 'BibTeX' })).toBeDisabled();
+  });
+
+  test('R1: a failed load offers no range and no export', async () => {
+    const mock = mockRoutedFetch({});
+    mock.mockImplementation(async () => ({
+      ok: false, status: 500, statusText: 'Server Error', text: async () => 'boom',
+    }));
+    await renderWithProviders(<ReadingQueuePage />);
+    await waitFor(() => expect(screen.getByTestId('queue-error')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'BibTeX' })).toBeDisabled();
+    expect(screen.queryByTestId('queue-range')).not.toBeInTheDocument();
+  });
+
+  test('R2: a delayed mark-read completion refreshes the filter now in view', async () => {
+    // The PUT really succeeds; only the delivery of its response is held. The
+    // user switches to Read in the meantime. When the response lands, the
+    // action must not repaint the page with the filter it started under.
+    const put = held({ document_id: 1, status: 'read', saved_at: '', updated_at: '', read_at: '' });
+    const mock = mockRoutedFetch({
+      ...WHY,
+      '/api/reading-queue': (url: string) => (
+        url.includes('status=read')
+          ? queuePage([entry(2, 'read')], { counts: { to_read: 1, read: 1, all: 2 } })
+          : queuePage([entry(1)], { counts: { to_read: 1, read: 1, all: 2 } })
+      ),
+      '/api/reading-queue/1': () => put.payload,
+    });
+    await renderWithProviders(<ReadingQueuePage />);
+    fireEvent.click(screen.getByTestId('toggle-1'));
+    await act(async () => { fireEvent.click(screen.getByTestId('filter-read')); });
+    expect(screen.getByTestId('state-2')).toHaveTextContent('Read');
+
+    await act(async () => { put.release(); });
+
+    await waitFor(() => expect(
+      callsTo(mock, '/api/reading-queue?').slice(-1)[0].url).toContain('status=read'));
+    expect(screen.queryByTestId('state-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('state-2')).toHaveTextContent('Read');
+    expect(screen.getByTestId('filter-read')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('R2: a delayed removal refreshes the page now in view, not the one it started on', async () => {
+    const del = held({ removed: true, document_id: 1 });
+    const mock = mockRoutedFetch({
+      ...WHY,
+      '/api/reading-queue': (url: string) => (
+        url.includes('offset=50')
+          ? queuePage([entry(2)], { total: 51, offset: 50 })
+          : queuePage([entry(1)], { total: 51, offset: 0 })
+      ),
+      '/api/reading-queue/1': () => del.payload,
+    });
+    await renderWithProviders(<ReadingQueuePage />);
+    fireEvent.click(screen.getByTestId('remove-1'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Next' })); });
+    expect(screen.getByTestId('paper-2')).toBeInTheDocument();
+
+    await act(async () => { del.release(); });
+
+    await waitFor(() => expect(
+      callsTo(mock, '/api/reading-queue?').slice(-1)[0].url).toContain('offset=50'));
+    expect(screen.getByTestId('paper-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('paper-1')).not.toBeInTheDocument();
+  });
+
   test('the evidence panel asks about the paper, by its corpus id', async () => {
     // `WhyThisPaper` fetches on first open rather than on mount, so the click
     // is the point: it is what proves the queue handed it a document id.

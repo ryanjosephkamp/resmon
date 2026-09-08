@@ -9,10 +9,17 @@
 -- code produced. `test_reading_queue_upgrade.py` executes this file, fills the
 -- tables with rows, and upgrades it.
 --
--- The FTS5 shadow tables (`documents_fts_*`) and `sqlite_sequence` are omitted
--- because SQLite creates them itself — `CREATE VIRTUAL TABLE documents_fts`
--- below brings the first set with it, and the second appears with the first
--- AUTOINCREMENT insert. Everything else is byte-for-byte what version 13 held.
+-- **Only what SQLite creates for itself is omitted**: the fts5 shadow tables
+-- `documents_fts_{config,content,data,docsize,idx}`, which `CREATE VIRTUAL
+-- TABLE documents_fts` below brings with it, and `sqlite_sequence`, which
+-- appears with the first AUTOINCREMENT insert. The first version of this file
+-- dropped everything whose name began `documents_fts`, which silently took the
+-- three `documents_fts_insert` / `_delete` / `_update` **triggers** with it —
+-- those are resmon's own DDL and are what keeps the search index in step with
+-- the corpus. Reconciliation caught it; `test_the_fixture_holds_every_object_
+-- the_application_owns` now derives the shadow-name set at run time from a
+-- throwaway fts5 table instead of matching on a prefix, so the same mistake
+-- cannot be made silently again.
 --
 -- Committed rather than generated at test time so the check is portable: CI
 -- has no copy of the old code, and a fixture that has to be regenerated from
@@ -346,3 +353,20 @@ CREATE INDEX idx_watch_profile_matches_profile
 
 CREATE INDEX idx_watch_profiles_orcid
     ON watch_profiles(orcid) WHERE orcid IS NOT NULL;
+
+CREATE TRIGGER documents_fts_delete AFTER DELETE ON documents BEGIN
+            INSERT INTO documents_fts(documents_fts, rowid, title, abstract, authors)
+            VALUES ('delete', old.id, old.title, old.abstract, old.authors);
+        END;
+
+CREATE TRIGGER documents_fts_insert AFTER INSERT ON documents BEGIN
+            INSERT INTO documents_fts(rowid, title, abstract, authors)
+            VALUES (new.id, new.title, new.abstract, new.authors);
+        END;
+
+CREATE TRIGGER documents_fts_update AFTER UPDATE ON documents BEGIN
+            INSERT INTO documents_fts(documents_fts, rowid, title, abstract, authors)
+            VALUES ('delete', old.id, old.title, old.abstract, old.authors);
+            INSERT INTO documents_fts(rowid, title, abstract, authors)
+            VALUES (new.id, new.title, new.abstract, new.authors);
+        END;

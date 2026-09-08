@@ -14,6 +14,15 @@ before is there afterwards, field for field**, that the new table arrives
 empty, and that a migration which fails does not leave the marker claiming it
 succeeded.
 
+The fixture also carries resmon's own `documents_fts_insert` / `_update` /
+`_delete` triggers. The first version of this file did not: it filtered the
+dump on the prefix `documents_fts`, which is how SQLite names the shadow tables
+it creates for itself *and* how resmon names those three triggers, so all six
+were dropped together. Reconciliation found it by comparing against a database
+built by the old code. `test_the_fixture_holds_every_object_the_application_owns`
+now derives the shadow-name set at run time and compares against a fresh
+database, so the fixture cannot silently lose an object again.
+
 Boundary: a real SQLite database and the real `init_db`. Nothing is doubled.
 """
 
@@ -104,12 +113,11 @@ def build_schema_13(path: Path) -> sqlite3.Connection:
         "INSERT INTO document_categories (document_id, category) VALUES (?,?)",
         [(1, "cs.LG"), (1, "stat.ML"), (2, "q-bio")],
     )
-    conn.executemany(
-        "INSERT INTO documents_fts (rowid, title, abstract, authors) VALUES (?,?,?,?)",
-        [(1, "Legacy diffusion models", "About diffusion.", "Ada Lovelace, Alan Turing"),
-         (2, "Legacy protein folding", "About folding.", "Grace Hopper"),
-         (3, "Legacy protein folding", None, "Grace Hopper")],
-    )
+    # The search index is *not* seeded here. The fixture carries resmon's own
+    # `documents_fts_insert` trigger, so the three inserts above already
+    # populated it — writing the rows again by hand would index each paper
+    # twice, and a fixture that needs hand-feeding is a fixture whose triggers
+    # are missing. That is exactly what the first version of this file hid.
     conn.execute(
         "INSERT INTO saved_configurations (name, config_type, parameters, created_at, "
         "updated_at) VALUES ('Weekly arXiv', 'manual_sweep', ?, '2026-01-10 08:00:00', "
@@ -363,6 +371,117 @@ def test_a_fresh_database_gets_the_same_table_as_an_upgraded_one(tmp_path, legac
     assert shape(legacy) == shape(fresh)
     assert database.get_schema_version(fresh) == 14
     fresh.close()
+
+
+def fts5_shadow_suffixes() -> set:
+    """The table names SQLite invents for an fts5 virtual table, measured.
+
+    Derived from a throwaway index rather than written down, because the
+    written-down version is what went wrong: the fixture was filtered on the
+    prefix ``documents_fts``, which matched SQLite's shadow tables *and*
+    resmon's three triggers, and dropped all six.
+    """
+    probe = sqlite3.connect(":memory:")
+    try:
+        probe.execute("CREATE VIRTUAL TABLE probe_fts USING fts5(a)")
+        return {
+            row[0][len("probe_fts"):]
+            for row in probe.execute(
+                "SELECT name FROM sqlite_master WHERE name LIKE 'probe_fts%' "
+                "AND name != 'probe_fts'")
+        }
+    finally:
+        probe.close()
+
+
+def application_objects(conn: sqlite3.Connection) -> dict:
+    """Every schema object resmon itself declares, keyed by name.
+
+    Excludes only what the engine creates on its own: the fts5 shadow tables
+    for ``documents_fts`` and ``sqlite_sequence``.
+    """
+    generated = {"documents_fts" + suffix for suffix in fts5_shadow_suffixes()}
+    generated.add("sqlite_sequence")
+    return {
+        row["name"]: (row["type"], row["tbl_name"])
+        for row in conn.execute(
+            "SELECT type, name, tbl_name FROM sqlite_master WHERE sql IS NOT NULL")
+        if row["name"] not in generated and not row["name"].startswith("sqlite_")
+    }
+
+
+#: What schema 14 adds. Everything else in a fresh database must already be in
+#: the schema-13 fixture, or the fixture is not schema 13.
+SCHEMA_14_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved"}
+
+
+def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):
+    """The check reconciliation had to make by hand, now in the suite.
+
+    A fresh database built by the current code is the denominator: subtract
+    schema 14's own objects and what is left is precisely what an upgrading
+    schema-13 corpus must already have. Comparing against that, rather than
+    against a list in this file, is what makes a silently dropped trigger fail
+    here instead of passing for another phase.
+    """
+    fresh = sqlite3.connect(tmp_path / "fresh-for-compare.db")
+    fresh.row_factory = sqlite3.Row
+    try:
+        database.init_db(conn=fresh)
+        expected = {name: kind for name, kind in application_objects(fresh).items()
+                    if name not in SCHEMA_14_OBJECTS}
+    finally:
+        fresh.close()
+
+    assert application_objects(legacy) == expected
+
+    # Named explicitly as well, because these three are the ones that went
+    # missing and a set comparison alone would not say so in the failure.
+    triggers = {name for name, (kind, _) in application_objects(legacy).items()
+                if kind == "trigger"}
+    assert {"documents_fts_insert", "documents_fts_update",
+            "documents_fts_delete"} <= triggers
+
+
+def test_the_search_index_survives_the_upgrade_and_stays_live(legacy):
+    """Search worked before; it works after, and the triggers still fire.
+
+    Row preservation is not enough here. A migration could keep every
+    ``documents`` row and leave the full-text index stale or unmaintained, and
+    the user would find that their corpus had stopped being searchable — which
+    is the same class of failure as schema 13's index-over-a-missing-column.
+    """
+    def search(term):
+        return sorted(row[0] for row in legacy.execute(
+            "SELECT rowid FROM documents_fts WHERE documents_fts MATCH ?", (term,)))
+
+    assert search("diffusion") == [1]
+    assert search("folding") == [2, 3]
+
+    database.init_db(conn=legacy)
+
+    assert search("diffusion") == [1], "an existing paper stopped being searchable"
+    assert search("folding") == [2, 3]
+
+    # INSERT trigger
+    legacy.execute(
+        "INSERT INTO documents (source_repository, external_id, title, abstract, "
+        "metadata_hash) VALUES ('arxiv', 'post-upgrade', 'Post upgrade crystallography', "
+        "'About crystals.', 'post-h1')")
+    new_id = legacy.execute(
+        "SELECT id FROM documents WHERE external_id = 'post-upgrade'").fetchone()[0]
+    assert search("crystallography") == [new_id]
+
+    # UPDATE trigger: the old term goes, the new term arrives.
+    legacy.execute("UPDATE documents SET title = 'Post upgrade spectroscopy' WHERE id = ?",
+                   (new_id,))
+    assert search("crystallography") == []
+    assert search("spectroscopy") == [new_id]
+
+    # DELETE trigger
+    legacy.execute("DELETE FROM documents WHERE id = ?", (new_id,))
+    assert search("spectroscopy") == []
+    assert search("diffusion") == [1], "the other papers were not disturbed"
 
 
 def test_the_settings_a_user_had_survive_the_upgrade(legacy):

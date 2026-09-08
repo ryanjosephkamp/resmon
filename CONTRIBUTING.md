@@ -43,7 +43,7 @@ should not be described as if it had been.
 All five must pass:
 
 ```bash
-.venv/bin/python -m pytest -q                    # hermetic backend suite — 1797 pass
+.venv/bin/python -m pytest -q                    # hermetic backend suite — 1799 pass
 .venv/bin/python -m pytest -m live_network -q    # real APIs; CI runs the half that needs no CLI, weekly
 cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
 npm run e2e                                      # the real Electron app, every route

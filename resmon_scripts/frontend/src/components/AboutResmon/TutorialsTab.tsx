@@ -395,7 +395,7 @@ const sections: TutorialSection[] = [
     ],
     tips: [
       'The queue holds no notes, no PDFs and no reminders, and ranks nothing. It is a list of what you meant to read.',
-      'Export covers the papers ticked on the page you are looking at; changing the page or the filter clears the ticks, so nothing invisible ends up in the file.',
+      'Export covers the papers ticked on the page you are looking at; changing the page or the filter clears the ticks, and a paper that leaves the page after you mark it read or remove it stops being ticked, so nothing invisible ends up in the file.',
       'Saving a paper again after removing it starts a fresh entry at `To read` — the old dates are gone, because the entry was.',
       'Upgrading an existing resmon starts the queue empty. resmon never observed which papers you meant to read before this existed, so it does not guess.',
     ],

@@ -202,6 +202,13 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     const boxes = win.locator('.reading-item input[type="checkbox"]');
     await boxes.nth(0).check();
     await boxes.nth(1).check();
+    // Which two rows those are depends on the second the bulk save landed in,
+    // so the receipt names them. A hash over an unnamed selection is not a
+    // receipt: the first report logged three hashes that vary between runs.
+    const exportedIds = (await Promise.all(
+      [0, 1].map(async (n) => String(await win.locator('.reading-item').nth(n)
+        .getAttribute('data-testid')).replace('paper-', '')),
+    )).map(Number);
     await win.screenshot({ path: path.join(shots, '33-reading-queue-selected.png') });
 
     for (const [label, extension] of [['BibTeX', 'bib'], ['RIS', 'ris'], ['CSV', 'csv']]) {
@@ -224,7 +231,7 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
         expect(text.trim().split('\n')).toHaveLength(3);
       }
       console.log('READING_QUEUE_SAVED', JSON.stringify({
-        format: label, entries: 2, bytes: bytes.length,
+        format: label, entries: 2, documentIds: exportedIds, bytes: bytes.length,
         sha256: createHash('sha256').update(bytes).digest('hex') }));
     }
 
@@ -232,6 +239,88 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     // exported: the buttons go back to disabled.
     await win.getByRole('button', { name: 'Next', exact: true }).click();
     await expect(win.getByRole('button', { name: 'BibTeX', exact: true })).toBeDisabled();
+
+    /* ---------------------------------------------------------------- */
+    /* R1: a paper that leaves the page stops being exportable.          */
+    /*                                                                   */
+    /* Reconciliation reproduced this in exactly this app: tick a paper  */
+    /* under To read, mark it read, and the row leaves while the count   */
+    /* and the export buttons went on believing in it.                   */
+    /* ---------------------------------------------------------------- */
+    await win.getByTestId('filter-to_read').click();
+    await expect(win.getByTestId('queue-range')).toBeVisible();
+    const ticked = win.locator('.reading-item input[type="checkbox"]').first();
+    await ticked.check();
+    await expect(win.getByText(/selected on this page/)).toContainText('1 selected');
+    await expect(win.getByRole('button', { name: 'BibTeX', exact: true })).not.toBeDisabled();
+
+    const tickedId = await win.locator('.reading-item').first().getAttribute('data-testid');
+    const leavingId = Number(String(tickedId).replace('paper-', ''));
+    await win.getByTestId(`toggle-${leavingId}`).click();
+
+    await expect(win.getByTestId(`paper-${leavingId}`)).toHaveCount(0);
+    await expect(win.getByText(/selected on this page/)).toContainText('0 selected');
+    await expect(win.getByRole('button', { name: 'BibTeX', exact: true })).toBeDisabled();
+    const afterMark = await (await win.request.get(`${base}/api/reading-queue?status=read`)).json();
+    expect(afterMark.entries.map((e: { document_id: number }) => e.document_id))
+      .toContain(leavingId);
+    console.log('R1_HIDDEN_SELECTION_CLOSED', JSON.stringify({
+      leavingId, selectedOnPage: 0, exportEnabled: false }));
+    await win.screenshot({ path: path.join(shots, '35-reading-queue-selection-honest.png') });
+
+    /* ---------------------------------------------------------------- */
+    /* R2: a delayed completion refreshes the view that is current now.  */
+    /*                                                                   */
+    /* The PUT is really performed against the real backend; only the    */
+    /* delivery of its real response is held, which is the schedule      */
+    /* reconciliation used. Nothing is fabricated.                       */
+    /* ---------------------------------------------------------------- */
+    // Every list GET the renderer makes, so the release below can be waited on
+    // rather than raced. Asserting immediately after releasing passes while the
+    // stale refresh is still in flight — which is exactly how a defect like
+    // this survives a green suite.
+    const listRequests: string[] = [];
+    win.on('request', (request) => {
+      if (request.url().includes('/api/reading-queue?')) listRequests.push(request.url());
+    });
+
+    let releaseHeld: () => void = () => {};
+    const heldReply = new Promise<void>((resolve) => { releaseHeld = resolve; });
+    await win.route('**/api/reading-queue/*', async (route) => {
+      if (route.request().method() !== 'PUT') { await route.continue(); return; }
+      const response = await route.fetch();          // the real PUT happens here
+      const body = await response.body();
+      await heldReply;                               // ...its reply waits for us
+      await route.fulfill({ response, body });
+    });
+
+    const staleId = Number(String(await win.locator('.reading-item').first()
+      .getAttribute('data-testid')).replace('paper-', ''));
+    await win.getByTestId(`toggle-${staleId}`).click();
+    // The backend really has it before the renderer is told.
+    await expect.poll(async () => {
+      const read = await (await win.request.get(`${base}/api/reading-queue?status=read`)).json();
+      return read.entries.some((e: { document_id: number }) => e.document_id === staleId);
+    }).toBe(true);
+
+    await win.getByTestId('filter-read').click();
+    await expect(win.getByTestId(`state-${staleId}`)).toHaveText('Read');
+
+    const listsBeforeRelease = listRequests.length;
+    releaseHeld();
+
+    // Wait for the completion's own refresh to actually happen, then judge it.
+    await expect.poll(() => listRequests.length).toBeGreaterThan(listsBeforeRelease);
+    const refreshUrl = listRequests[listRequests.length - 1];
+    expect(refreshUrl).toContain('status=read');
+
+    // The held completion must not repaint To read over the Read page.
+    await expect(win.getByTestId('filter-read')).toHaveAttribute('aria-pressed', 'true');
+    await expect(win.getByTestId(`state-${staleId}`)).toHaveText('Read');
+    await expect(win.getByTestId(`state-${leavingId}`)).toHaveText('Read');
+    console.log('R2_STALE_REFRESH_CLOSED', JSON.stringify({
+      staleId, refreshUrl, filterAfterRelease: 'read' }));
+    await win.unroute('**/api/reading-queue/*');
 
     /* ---------------------------------------------------------------- */
     /* A failing request is an error on screen, never a silent success.  */

@@ -28,8 +28,17 @@ import { downloadReferences, ReferenceFormat } from '../lib/referenceDownload';
  * is worse than one that shows an error.
  *
  * **Selection is per page and says so.** Changing the filter or the page clears
- * it, because an export that quietly carries papers the user can no longer see
- * is an export they cannot check.
+ * it, and — the part a green suite missed — the selection is *derived from the
+ * rows actually on screen* rather than remembered independently of them. Tick a
+ * paper, mark it read, and it leaves the To read list: reconciliation found the
+ * old code still counting it and still offering to export it. Deriving makes
+ * that structurally impossible instead of dependent on remembering to prune.
+ *
+ * **A completing action refreshes the view that is current when it lands**, not
+ * the one that was current when it was clicked. `viewRef` is the single source
+ * of that answer. Reconciliation held a real, successful `PUT` until after the
+ * user had switched to Read, and the old closure then refreshed *To read* over
+ * the Read page while the Read button stayed selected.
  */
 
 const FILTERS: { key: ReadingFilter; label: string }[] = [
@@ -58,15 +67,41 @@ const ReadingQueuePage: React.FC = () => {
   /** Same stale-response guard as the Papers tab: the last request wins. */
   const requestId = useRef(0);
 
-  const load = useCallback(async (nextFilter: ReadingFilter, nextOffset: number) => {
+  /**
+   * Which view is current *right now*, readable from a callback that was
+   * created under a different one.
+   *
+   * React state is a snapshot of the render that closed over it, which is
+   * usually what you want and is exactly wrong for an action that finishes
+   * after the user has moved. Holding the answer in a ref is what lets a
+   * completing mutation ask "what is the user looking at?" instead of "what
+   * were they looking at when they clicked?".
+   */
+  const viewRef = useRef<{ filter: ReadingFilter; offset: number }>({
+    filter: 'to_read', offset: 0,
+  });
+
+  const load = useCallback(async (
+    nextFilter: ReadingFilter, nextOffset: number, options?: { background?: boolean },
+  ) => {
     const mine = ++requestId.current;
-    setLoading(true);
+    // A refresh after a state change keeps the list on screen: blanking it for
+    // a round trip makes every click flicker, and the row's own busy state
+    // already says work is happening.
+    if (!options?.background) setLoading(true);
     setError('');
     try {
       const result = await readingQueueApi.list(nextFilter, READING_PAGE_SIZE, nextOffset);
       if (mine !== requestId.current) return;
       setPage(result);
       setOffset(result.offset);
+      // Drop anything that is no longer on the page. The render below derives
+      // the effective selection from the rows anyway, so this is hygiene
+      // rather than the guarantee — but it keeps the set from accumulating
+      // ids the user can never see again.
+      setSelected((prev) => new Set(
+        result.entries.map((e) => e.document_id).filter((id) => prev.has(id)),
+      ));
     } catch (err: unknown) {
       if (mine !== requestId.current) return;
       setPage(null);
@@ -82,6 +117,7 @@ const ReadingQueuePage: React.FC = () => {
 
   /** Any move between views drops the selection along with the rows it named. */
   const go = (nextFilter: ReadingFilter, nextOffset: number) => {
+    viewRef.current = { filter: nextFilter, offset: nextOffset };
     setSelected(new Set());
     setExportError('');
     setFilter(nextFilter);
@@ -89,18 +125,18 @@ const ReadingQueuePage: React.FC = () => {
     void load(nextFilter, nextOffset);
   };
 
-  /**
-   * Re-read the current page after a change, so counts, paging and the row all
-   * come from the database rather than from an edit applied locally.
-   */
-  const refresh = () => load(filter, offset);
-
   const withBusy = async (documentId: number, work: () => Promise<void>) => {
     setActionError('');
     setBusy((prev) => new Set(prev).add(documentId));
     try {
       await work();
-      await refresh();
+      // Read the view at *completion* time. If the user changed filter or page
+      // while this was in flight, refreshing what they are looking at now is
+      // both correct and current; refreshing what they left is neither. The
+      // request-id guard then settles any race with the navigation's own load,
+      // and both target the same view, so either winner is right.
+      const { filter: currentFilter, offset: currentOffset } = viewRef.current;
+      await load(currentFilter, currentOffset, { background: true });
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : 'That did not go through.');
     } finally {
@@ -136,22 +172,34 @@ const ReadingQueuePage: React.FC = () => {
   };
 
   const entries = page?.entries ?? [];
-  const allOnPageSelected = entries.length > 0
-    && entries.every((e) => selected.has(e.document_id));
+  /**
+   * The list is on screen only when it is not loading, not in error, and not
+   * empty — and a selection is only honest while its rows are visible. Every
+   * count, control and export body below is derived from `visibleSelected`, so
+   * "what is exported" and "what you can see ticked" cannot come apart.
+   */
+  const listVisible = !loading && !error && entries.length > 0;
+  const visibleEntries = listVisible ? entries : [];
+  const visibleSelected = visibleEntries
+    .filter((e) => selected.has(e.document_id))
+    .map((e) => e.document_id);
+
+  const allOnPageSelected = visibleEntries.length > 0
+    && visibleEntries.every((e) => selected.has(e.document_id));
 
   const toggleAllOnPage = () => {
     setSelected(allOnPageSelected
       ? new Set()
-      : new Set(entries.map((e) => e.document_id)));
+      : new Set(visibleEntries.map((e) => e.document_id)));
   };
 
   const handleExport = async (fmt: ReferenceFormat) => {
-    if (selected.size === 0) return;
+    if (visibleSelected.length === 0) return;
     setExportError('');
     setExporting(true);
     try {
       await downloadReferences(
-        { document_ids: Array.from(selected) }, fmt, 'resmon-reading-queue',
+        { document_ids: visibleSelected }, fmt, 'resmon-reading-queue',
       );
     } catch (err: unknown) {
       setExportError(err instanceof Error ? err.message : 'Reference export failed.');
@@ -177,7 +225,7 @@ const ReadingQueuePage: React.FC = () => {
           <button
             className="btn btn-secondary"
             onClick={() => void handleExport('bibtex')}
-            disabled={selected.size === 0 || exporting}
+            disabled={visibleSelected.length === 0 || exporting}
             title="Export the papers selected on this page as BibTeX"
           >
             BibTeX
@@ -185,7 +233,7 @@ const ReadingQueuePage: React.FC = () => {
           <button
             className="btn btn-secondary"
             onClick={() => void handleExport('ris')}
-            disabled={selected.size === 0 || exporting}
+            disabled={visibleSelected.length === 0 || exporting}
             title="Export the papers selected on this page as RIS"
           >
             RIS
@@ -193,7 +241,7 @@ const ReadingQueuePage: React.FC = () => {
           <button
             className="btn btn-secondary"
             onClick={() => void handleExport('csv')}
-            disabled={selected.size === 0 || exporting}
+            disabled={visibleSelected.length === 0 || exporting}
             title="Export the papers selected on this page as CSV"
           >
             CSV
@@ -255,10 +303,12 @@ const ReadingQueuePage: React.FC = () => {
               <p>
                 Tick the papers you want and use <strong>BibTeX</strong>,{' '}
                 <strong>RIS</strong> or <strong>CSV</strong>. The export covers the
-                papers ticked <em>on the page you are looking at</em> — changing the
-                page or the filter clears the ticks, so nothing you cannot see ends up
-                in the file. It is the same exporter Results &amp; Logs uses, so the
-                formats and the citation keys behave identically.
+                papers ticked <em>on the page you are looking at</em>, and only those:
+                changing the page or the filter clears the ticks, and a paper that
+                leaves the page — because you marked it read, or removed it — stops
+                being ticked too. Nothing you cannot see ends up in the file. It is
+                the same exporter Results &amp; Logs uses, so the formats and the
+                citation keys behave identically.
               </p>
             ),
           },
@@ -289,7 +339,7 @@ const ReadingQueuePage: React.FC = () => {
             </button>
           ))}
         </div>
-        {entries.length > 0 && (
+        {listVisible && (
           <label className="reading-select-all">
             <input
               type="checkbox"
@@ -298,7 +348,7 @@ const ReadingQueuePage: React.FC = () => {
               aria-label="Select every paper on this page"
             />
             {' '}
-            Select this page ({selected.size} selected on this page)
+            Select this page ({visibleSelected.length} selected on this page)
           </label>
         )}
       </div>
