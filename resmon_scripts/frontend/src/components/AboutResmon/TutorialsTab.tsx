@@ -355,7 +355,8 @@ const sections: TutorialSection[] = [
     instructions: [
       'The `Search record` tab on any execution builds the complete, dated account of that search — exact terms, publication window, per-database record counts, deduplication figures, date and software version — in the shape a PRISMA flow diagram needs. `Download as Markdown` saves it for a methods section.',
       'Browse executions in reverse-chronological order; filter by Type and Status.',
-      'Click a row to open the viewer and switch between the Report, Log, Metadata, and Progress tabs.',
+      'Click a row to open the viewer and switch between the Report, Log, Metadata, Progress, Search record, and Papers tabs.',
+      'The `Papers` tab lists the papers that run stored — 50 to a page — each with a `Save to read` button that adds it to the Reading queue.',
       'Select rows and click `Export Selected` to write a zip bundle, or `Delete Selected` to remove the selected local rows after a confirmation dialog.',
       'Use `BibTeX`, `RIS`, or `CSV` to export the papers themselves. Selected runs form one file with each stored paper included once; distinct records stay separate. BibTeX keys are unique within that file, not permanent paper IDs.',
       'A run whose sources did not all answer says so under its Results count — `n of m sources could not answer` — with a link straight to the Search record, where each one carries the recorded reason. A zero resmon did not observe the reason for is named as unrecorded rather than being folded in with the rest; every run from before resmon 1.8.6 is in that state, because nothing was recording it.',

@@ -241,7 +241,8 @@ const ResultsPage: React.FC = () => {
             body: (
               <ul>
                 <li>Click any row to open its full report below the table.</li>
-                <li>The viewer tabs are: <strong>Report</strong> (the Markdown report), <strong>Log</strong> (the line-by-line execution log), <strong>Meta</strong> (parameters, timings, provenance), and <strong>Progress</strong> (structured progress events emitted during the run).</li>
+                <li>The viewer tabs are: <strong>Report</strong> (the Markdown report), <strong>Log</strong> (the line-by-line execution log), <strong>Meta</strong> (parameters, timings, provenance), <strong>Progress</strong> (structured progress events emitted during the run), <strong>Search record</strong>, and <strong>Papers</strong>.</li>
+                <li>The <strong>Papers</strong> tab lists the papers the run stored, 50 to a page, each with a <strong>Save to read</strong> button that puts it in your <strong>Reading queue</strong>. A paper already saved shows its state instead, and saving one again never moves a paper you have read back to <em>To read</em>.</li>
               </ul>
             ),
           },

@@ -317,34 +317,48 @@ def test_the_state_controls_do_what_they_say_and_nothing_more(clean_queue):
 def test_a_state_request_that_changes_nothing_writes_nothing(clean_queue):
     """No manufactured activity: `updated_at` records changes, not requests.
 
-    Measured at the database rather than by comparing timestamps, because
-    `datetime('now')` has one-second resolution and two writes inside the same
-    second would look identical to a timestamp comparison — exactly the failure
-    this is meant to catch.
+    The timestamps are **pinned to a date in the past** before the repeated
+    requests, and that is the whole point of the test. `datetime('now')` has
+    one-second resolution, so a rewrite with fresh values inside the same
+    second is indistinguishable from no write at all — the first version of
+    this check compared the row against itself and `sqlite3.Connection.
+    total_changes` on a connection that had made no changes, and a mutation
+    that deleted the no-op branch entirely left it green. Pinning the values
+    makes any write visible, because a write replaces 2020 with today.
+
+    `PRAGMA data_version` is the second half: it moves when *another*
+    connection commits, so a write that somehow preserved every value would
+    still be caught.
     """
     base, path, fixture = clean_queue
     doc = fixture["big_document_ids"][6]
     httpx.post(base + "/api/reading-queue", json={"document_id": doc})
     httpx.put(f"{base}/api/reading-queue/{doc}", json={"status": "read"})
 
+    pinned = ("2020-01-01 00:00:00", "2020-01-02 00:00:00", "2020-01-03 00:00:00")
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
+        conn.execute(
+            "UPDATE reading_queue SET saved_at = ?, updated_at = ?, read_at = ? "
+            "WHERE document_id = ?", pinned + (doc,))
+        conn.commit()
         before_row = dict(conn.execute(
             "SELECT * FROM reading_queue WHERE document_id = ?", (doc,)).fetchone())
-        before_changes = conn.total_changes
+        before_version = conn.execute("PRAGMA data_version").fetchone()[0]
+    assert (before_row["saved_at"], before_row["updated_at"], before_row["read_at"]) == pinned
 
     repeated = httpx.put(f"{base}/api/reading-queue/{doc}", json={"status": "read"}).json()
     resaved = httpx.post(base + "/api/reading-queue", json={"document_id": doc}).json()
-    assert repeated["updated_at"] == before_row["updated_at"]
-    assert resaved["saved_at"] == before_row["saved_at"]
+    assert repeated["updated_at"] == pinned[1]
+    assert repeated["read_at"] == pinned[2]
+    assert resaved["saved_at"] == pinned[0]
 
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         after_row = dict(conn.execute(
             "SELECT * FROM reading_queue WHERE document_id = ?", (doc,)).fetchone())
-        # A fresh connection's counter starts at zero; what is compared is that
-        # neither request left a changed row behind.
-        assert conn.total_changes == before_changes
+        assert conn.execute("PRAGMA data_version").fetchone()[0] == before_version, (
+            "another connection committed during two requests that change nothing")
     assert after_row == before_row
 
 
