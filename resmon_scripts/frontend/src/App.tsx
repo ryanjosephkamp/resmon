@@ -18,6 +18,7 @@ import DeepSweepPage from './pages/DeepSweepPage';
 import RoutinesPage from './pages/RoutinesPage';
 import CalendarPage from './pages/CalendarPage';
 import ResultsPage from './pages/ResultsPage';
+import ReadingQueuePage from './pages/ReadingQueuePage';
 import ConfigurationsPage from './pages/ConfigurationsPage';
 import MonitorPage from './pages/MonitorPage';
 import RepositoriesPage from './pages/RepositoriesPage';
@@ -70,6 +71,7 @@ export const PAGE_ELEMENTS: Record<string, React.ReactElement> = {
   '/routines': <RoutinesPage />,
   '/calendar': <CalendarPage />,
   '/results': <ResultsPage />,
+  '/reading-queue': <ReadingQueuePage />,
   '/analytics': <AnalyticsPage />,
   '/watchdog': <WatchdogPage />,
   '/explorer': <ExplorerPage />,

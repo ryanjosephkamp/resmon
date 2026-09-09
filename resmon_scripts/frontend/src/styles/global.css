@@ -4705,3 +4705,93 @@ li.basis-name-affiliation .basis-chip {
   background: var(--color-surface-hover);
   font-size: 13px;
 }
+
+/* ---------------------------------------------------------------------------
+   Reading queue (2.2)
+
+   The Papers tab of a run and the Reading queue page render one component, so
+   they share these rules. Metadata lines reuse the Explorer's `.explorer-*`
+   classes deliberately: the same stored fields should look the same wherever
+   resmon shows them.
+   --------------------------------------------------------------------------- */
+
+.reading-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.reading-item {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reading-item-head { display: flex; align-items: flex-start; gap: 10px; }
+.reading-item-title { margin: 0; font-size: 15px; line-height: 1.35; flex: 1; min-width: 0; }
+.reading-item-title a { color: var(--color-text); text-decoration: none; }
+.reading-item-title a:hover { color: var(--color-accent); text-decoration: underline; }
+.reading-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.reading-item-note {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0;
+  font-size: 11.5px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.reading-item-cats { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 0; }
+
+/* The state is a label rather than a control: the buttons beside it are what
+   changes it, and a badge that looks clickable invites a click that does
+   nothing. */
+.reading-state {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 11px;
+  opacity: 1;
+}
+.reading-state-read { border-color: var(--color-accent); color: var(--color-accent); }
+
+.reading-saved-badge {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  align-self: center;
+}
+
+.reading-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.reading-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.reading-count { opacity: 0.7; font-variant-numeric: tabular-nums; }
+
+.reading-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.reading-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
+.reading-pager p { margin: 0; }
+
+.reading-papers { display: flex; flex-direction: column; gap: 4px; }

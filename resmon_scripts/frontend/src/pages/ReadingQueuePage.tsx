@@ -1,0 +1,522 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
+import PageHelp from '../components/Help/PageHelp';
+import PaperCard from '../components/Reading/PaperCard';
+import {
+  READING_PAGE_SIZE, ReadingFilter, ReadingQueueEntry, ReadingQueuePage as QueuePage,
+  readingQueueApi,
+} from '../api/readingQueue';
+import { downloadReferences, ReferenceFormat } from '../lib/referenceDownload';
+
+/**
+ * The papers you meant to read.
+ *
+ * resmon could find a paper and could export a whole run, and had nowhere to
+ * put the four papers out of four hundred that were actually worth reading.
+ * This page is that place: membership over the corpus, with two states, and
+ * nothing else pretending to be a research workflow. There are no notes, no
+ * PDFs, no reminders and no ranking here, and each of those absences is a
+ * decision rather than an omission — a queue that quietly becomes a reference
+ * manager is a queue nobody trusts to be complete.
+ *
+ * **To read is the default view**, because that is the question the page
+ * answers: what is left. Read and All are there for going back to something.
+ *
+ * **State on screen is state the backend confirmed.** Every control waits for
+ * its response before the row changes, and a failure says so and leaves the
+ * row alone. A queue that shows a paper as read because a click was registered
+ * is worse than one that shows an error.
+ *
+ * **Selection is per page and says so.** Changing the filter or the page clears
+ * it, and — the part a green suite missed — the effective selection is *derived
+ * from the rows actually on screen* rather than remembered independently of
+ * them. Tick a paper, mark it read, and it leaves the To read list:
+ * reconciliation found the old code still counting it and still offering to
+ * export it. `selected` is now a record of what the user clicked, and
+ * `visibleSelected` is the only thing any control or request reads, so the two
+ * cannot disagree with the page.
+ *
+ * **A completing action refreshes the view that is current when it lands**, not
+ * the one that was current when it was clicked. `viewRef` is the single source
+ * of that answer, and it follows the page that actually arrived.
+ *
+ * **The range describes rows, never a total.** Removing the only paper on page
+ * two left the pager rendering `Showing 51–50 of 50` over an empty view,
+ * because it was gated on `total > 0` rather than on there being anything to
+ * count — and the previous handback claimed otherwise without checking. `load`
+ * now recovers to the last page that exists, and the pager renders only
+ * alongside rows. Reconciliation held a real, successful `PUT` until after the
+ * user had switched to Read, and the old closure then refreshed *To read* over
+ * the Read page while the Read button stayed selected.
+ */
+
+const FILTERS: { key: ReadingFilter; label: string }[] = [
+  { key: 'to_read', label: 'To read' },
+  { key: 'read', label: 'Read' },
+  { key: 'all', label: 'All' },
+];
+
+function dateOnly(stamp: string | null): string {
+  if (!stamp) return '';
+  return stamp.slice(0, 10);
+}
+
+const ReadingQueuePage: React.FC = () => {
+  const [filter, setFilter] = useState<ReadingFilter>('to_read');
+  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState<QueuePage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [busy, setBusy] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+
+  /** Same stale-response guard as the Papers tab: the last request wins. */
+  const requestId = useRef(0);
+
+  /**
+   * Which view is current *right now*, readable from a callback that was
+   * created under a different one.
+   *
+   * React state is a snapshot of the render that closed over it, which is
+   * usually what you want and is exactly wrong for an action that finishes
+   * after the user has moved. Holding the answer in a ref is what lets a
+   * completing mutation ask "what is the user looking at?" instead of "what
+   * were they looking at when they clicked?".
+   */
+  const viewRef = useRef<{ filter: ReadingFilter; offset: number }>({
+    filter: 'to_read', offset: 0,
+  });
+
+  const load = useCallback(async (
+    nextFilter: ReadingFilter, nextOffset: number, options?: { background?: boolean },
+  ) => {
+    const mine = ++requestId.current;
+    // A refresh after a state change keeps the list on screen: blanking it for
+    // a round trip makes every click flicker, and the row's own busy state
+    // already says work is happening.
+    if (!options?.background) setLoading(true);
+    setError('');
+    try {
+      let wanted = nextOffset;
+      let result = await readingQueueApi.list(nextFilter, READING_PAGE_SIZE, wanted);
+      if (mine !== requestId.current) return;
+
+      // **The page you are standing on can stop existing.** Remove the only
+      // paper on page two of 51 and the backend answers truthfully — no
+      // entries, total 50, offset 50 — but that offset is now past the end.
+      // Rendering it produced "Showing 51–50 of 50" over nothing. Recover to
+      // the last page that does exist and read *that*, so the range, the rows
+      // and the pager all describe one confirmed response.
+      //
+      // Guarded against looping: the correction is only followed when it
+      // actually moves, so a backend that answers an in-range offset with an
+      // empty page is rendered as it is rather than asked forever.
+      if (result.entries.length === 0 && result.total > 0 && wanted > 0) {
+        const lastPage = Math.floor((result.total - 1) / READING_PAGE_SIZE) * READING_PAGE_SIZE;
+        if (lastPage !== wanted) {
+          wanted = lastPage;
+          result = await readingQueueApi.list(nextFilter, READING_PAGE_SIZE, wanted);
+          if (mine !== requestId.current) return;
+        }
+      }
+
+      setPage(result);
+      setOffset(result.offset);
+      // Whatever page actually arrived is now the current view, so a mutation
+      // that completes later refreshes *this* one rather than the offset that
+      // stopped existing. A stale response returned above without touching it.
+      viewRef.current = { filter: nextFilter, offset: result.offset };
+      // Deliberately *not* pruning `selected` here. The first repair did both —
+      // pruned the stored set and derived the effective one — and a probe
+      // showed the suite could not tell them apart, because either alone
+      // satisfies every check: they were redundant, and an untested second
+      // mechanism is a liability rather than defence in depth. The derivation
+      // below is the one that is kept, because it also covers the cases a
+      // prune cannot: a list that is loading, errored or empty has no visible
+      // rows and therefore no honest selection.
+    } catch (err: unknown) {
+      if (mine !== requestId.current) return;
+      setPage(null);
+      setError(err instanceof Error
+        ? `Could not load your reading queue: ${err.message}`
+        : 'Could not load your reading queue.');
+    } finally {
+      if (mine === requestId.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load('to_read', 0); }, [load]);
+
+  /** Any move between views drops the selection along with the rows it named. */
+  const go = (nextFilter: ReadingFilter, nextOffset: number) => {
+    viewRef.current = { filter: nextFilter, offset: nextOffset };
+    setSelected(new Set());
+    setExportError('');
+    setFilter(nextFilter);
+    setOffset(nextOffset);
+    void load(nextFilter, nextOffset);
+  };
+
+  const withBusy = async (documentId: number, work: () => Promise<void>) => {
+    setActionError('');
+    setBusy((prev) => new Set(prev).add(documentId));
+    try {
+      await work();
+      // Read the view at *completion* time. If the user changed filter or page
+      // while this was in flight, refreshing what they are looking at now is
+      // both correct and current; refreshing what they left is neither. The
+      // request-id guard then settles any race with the navigation's own load,
+      // and both target the same view, so either winner is right.
+      const { filter: currentFilter, offset: currentOffset } = viewRef.current;
+      await load(currentFilter, currentOffset, { background: true });
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : 'That did not go through.');
+    } finally {
+      setBusy((prev) => {
+        const next = new Set(prev);
+        next.delete(documentId);
+        return next;
+      });
+    }
+  };
+
+  const handleToggleRead = (entry: ReadingQueueEntry) => withBusy(entry.document_id, async () => {
+    await readingQueueApi.setStatus(
+      entry.document_id, entry.status === 'read' ? 'to_read' : 'read',
+    );
+  });
+
+  const handleRemove = (entry: ReadingQueueEntry) => withBusy(entry.document_id, async () => {
+    await readingQueueApi.remove(entry.document_id);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.delete(entry.document_id);
+      return next;
+    });
+  });
+
+  const toggleSelected = (documentId: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(documentId)) next.delete(documentId); else next.add(documentId);
+      return next;
+    });
+  };
+
+  const entries = page?.entries ?? [];
+  /**
+   * The list is on screen only when it is not loading, not in error, and not
+   * empty — and a selection is only honest while its rows are visible. Every
+   * count, control and export body below is derived from `visibleSelected`, so
+   * "what is exported" and "what you can see ticked" cannot come apart.
+   */
+  const listVisible = !loading && !error && entries.length > 0;
+  const visibleEntries = listVisible ? entries : [];
+  const visibleSelected = visibleEntries
+    .filter((e) => selected.has(e.document_id))
+    .map((e) => e.document_id);
+
+  const allOnPageSelected = visibleEntries.length > 0
+    && visibleEntries.every((e) => selected.has(e.document_id));
+
+  const toggleAllOnPage = () => {
+    setSelected(allOnPageSelected
+      ? new Set()
+      : new Set(visibleEntries.map((e) => e.document_id)));
+  };
+
+  const handleExport = async (fmt: ReferenceFormat) => {
+    if (visibleSelected.length === 0) return;
+    setExportError('');
+    setExporting(true);
+    try {
+      await downloadReferences(
+        { document_ids: visibleSelected }, fmt, 'resmon-reading-queue',
+      );
+    } catch (err: unknown) {
+      setExportError(err instanceof Error ? err.message : 'Reference export failed.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const total = page?.total ?? 0;
+  const shown = entries.length;
+  const first = total === 0 ? 0 : offset + 1;
+  const last = offset + shown;
+  const hasPrev = offset > 0;
+  const hasNext = offset + shown < total;
+  const counts = page?.counts;
+
+  return (
+    <div className="page-content">
+      <div className="page-header">
+        <h1>Reading queue</h1>
+        <TutorialLinkButton anchor="reading-queue" />
+        <div className="form-actions">
+          <button
+            className="btn btn-secondary"
+            onClick={() => void handleExport('bibtex')}
+            disabled={visibleSelected.length === 0 || exporting}
+            title="Export the papers selected on this page as BibTeX"
+          >
+            BibTeX
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={() => void handleExport('ris')}
+            disabled={visibleSelected.length === 0 || exporting}
+            title="Export the papers selected on this page as RIS"
+          >
+            RIS
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={() => void handleExport('csv')}
+            disabled={visibleSelected.length === 0 || exporting}
+            title="Export the papers selected on this page as CSV"
+          >
+            CSV
+          </button>
+        </div>
+      </div>
+
+      <PageHelp
+        storageKey="reading-queue"
+        title="Reading queue"
+        summary="The papers you saved from a run, and whether you have read them."
+        sections={[
+          {
+            heading: 'What this is, and what it is not',
+            body: (
+              <>
+                <p>
+                  Save a paper from <strong>Results &amp; Logs → Papers</strong> and it
+                  appears here. Each paper is either <strong>To read</strong> or{' '}
+                  <strong>Read</strong>; that is the whole of the state resmon keeps.
+                </p>
+                <p>
+                  It holds no notes, no PDFs and no reminders, and it does not rank or
+                  score anything. It is a list of what you meant to read, kept beside
+                  the corpus rather than inside a second one.
+                </p>
+              </>
+            ),
+          },
+          {
+            heading: 'The paper, not a copy of it',
+            body: (
+              <p>
+                A saved paper is a pointer to the record resmon already stored, so the
+                metadata and the <strong>Why this paper?</strong> evidence you see here
+                are the same ones the Explorer shows. When a later run finds the same
+                record again, it keeps the state you gave it — saving it a second time
+                does not move a paper you have read back to <em>To read</em>. Two stored
+                records that look like the same work stay two papers here, because they
+                are two papers everywhere else in resmon.
+              </p>
+            ),
+          },
+          {
+            heading: 'Removing',
+            body: (
+              <p>
+                <strong>Remove</strong> takes the paper out of this list and does nothing
+                else: the paper, its authors, and every run that found it are untouched,
+                and it is still in the Explorer. Save it again later and it starts fresh
+                at <em>To read</em>. The only thing in resmon that deletes a paper is{' '}
+                <strong>Settings → Advanced</strong>, which you operate yourself. If it was
+                the last paper on the page you were reading, the list moves you back to a
+                page that still has papers on it.
+              </p>
+            ),
+          },
+          {
+            heading: 'Exporting',
+            body: (
+              <p>
+                Tick the papers you want and use <strong>BibTeX</strong>,{' '}
+                <strong>RIS</strong> or <strong>CSV</strong>. The export covers the
+                papers ticked <em>on the page you are looking at</em>, and only those:
+                changing the page or the filter clears the ticks, and a paper that
+                leaves the page — because you marked it read, or removed it — stops
+                being ticked too. Nothing you cannot see ends up in the file. It is
+                the same exporter Results &amp; Logs uses, so the formats and the
+                citation keys behave identically.
+              </p>
+            ),
+          },
+        ]}
+      />
+
+      <div className="card reading-controls">
+        <div className="reading-filters" role="group" aria-label="Filter the reading queue">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              // `btn-secondary` and a bare `btn` are nearly the same colour, so
+              // the selected filter takes the accent the app uses for a live
+              // control. `aria-pressed` carries the same fact for a reader who
+              // is not looking at the colour.
+              className={`btn btn-sm ${filter === f.key ? 'btn-primary' : 'btn-secondary'}`}
+              aria-pressed={filter === f.key}
+              onClick={() => go(f.key, 0)}
+              data-testid={`filter-${f.key}`}
+            >
+              {f.label}
+              {counts && (
+                <span className="reading-count">
+                  {' '}
+                  {f.key === 'all' ? counts.all : counts[f.key]}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        {listVisible && (
+          <label className="reading-select-all">
+            <input
+              type="checkbox"
+              checked={allOnPageSelected}
+              onChange={toggleAllOnPage}
+              aria-label="Select every paper on this page"
+            />
+            {' '}
+            Select this page ({visibleSelected.length} selected on this page)
+          </label>
+        )}
+      </div>
+
+      {error && <div className="form-error" role="alert" data-testid="queue-error">{error}</div>}
+      {actionError && (
+        <div className="form-error" role="alert" data-testid="queue-action-error">{actionError}</div>
+      )}
+      {exportError && (
+        <div className="form-error" role="alert" data-testid="queue-export-error">{exportError}</div>
+      )}
+
+      {loading && <p className="text-muted" role="status">Loading your reading queue…</p>}
+
+      {!loading && !error && total === 0 && (
+        <div className="card" data-testid="queue-empty">
+          {counts && counts.all === 0 ? (
+            <>
+              <h2>Nothing saved yet</h2>
+              <p>
+                Open a run in <strong>Results &amp; Logs</strong>, switch to its{' '}
+                <strong>Papers</strong> tab, and save the ones worth reading.
+              </p>
+            </>
+          ) : (
+            <p>
+              Nothing in <strong>{FILTERS.find((f) => f.key === filter)?.label}</strong>.
+              {' '}
+              {filter === 'to_read'
+                ? 'Everything you saved has been read.'
+                : 'Try another filter.'}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* A page of a non-empty queue that came back empty. With the recovery in
+          `load` this should be unreachable, so it is not styled as a normal
+          state — but "unreachable" is a belief about a backend, and rendering
+          nothing at all was the other half of what reconciliation found. */}
+      {!loading && !error && total > 0 && entries.length === 0 && (
+        <div className="card" data-testid="queue-page-empty">
+          <p>
+            This page of your queue came back empty, although it holds {total}{' '}
+            {total === 1 ? 'paper' : 'papers'}. Something changed it while you were
+            looking.
+          </p>
+          <button className="btn btn-sm" onClick={() => go(filter, 0)}>
+            Go to the first page
+          </button>
+        </div>
+      )}
+
+      {listVisible && (
+        <>
+          <div className="reading-pager">
+            <p className="text-muted" data-testid="queue-range">
+              Showing {first}–{last} of {total}
+            </p>
+            <div className="form-actions">
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={() => go(filter, Math.max(0, offset - READING_PAGE_SIZE))}
+                disabled={!hasPrev}
+              >
+                Previous
+              </button>
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={() => go(filter, offset + READING_PAGE_SIZE)}
+                disabled={!hasNext}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <ul className="reading-list">
+            {entries.map((entry) => (
+              <PaperCard
+                key={entry.document_id}
+                document={entry.document}
+                lead={(
+                  <input
+                    type="checkbox"
+                    checked={selected.has(entry.document_id)}
+                    onChange={() => toggleSelected(entry.document_id)}
+                    aria-label={`Select “${entry.document.title}” for export`}
+                    data-testid={`select-${entry.document_id}`}
+                  />
+                )}
+                note={(
+                  <>
+                    <span
+                      className={`reading-state reading-state-${entry.status}`}
+                      data-testid={`state-${entry.document_id}`}
+                    >
+                      {entry.status === 'read' ? 'Read' : 'To read'}
+                    </span>
+                    <span>Saved {dateOnly(entry.saved_at)}</span>
+                    {entry.read_at && <span>Read {dateOnly(entry.read_at)}</span>}
+                  </>
+                )}
+                actions={(
+                  <>
+                    <button
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => void handleToggleRead(entry)}
+                      disabled={busy.has(entry.document_id)}
+                      data-testid={`toggle-${entry.document_id}`}
+                    >
+                      {entry.status === 'read' ? 'Mark unread' : 'Mark read'}
+                    </button>
+                    <button
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => void handleRemove(entry)}
+                      disabled={busy.has(entry.document_id)}
+                      title="Take this paper out of the queue. The paper itself is kept."
+                      data-testid={`remove-${entry.document_id}`}
+                    >
+                      Remove
+                    </button>
+                  </>
+                )}
+              />
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+};
+
+export default ReadingQueuePage;

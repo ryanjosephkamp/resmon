@@ -5,6 +5,7 @@ import SaveConfigButton from '../SaveConfig/SaveConfigButton';
 import EditRoutineButton from '../Routines/EditRoutineButton';
 import { useConfigurationsVersion } from '../../lib/configurationsBus';
 import SearchRecord from './SearchRecord';
+import ExecutionPapers from './ExecutionPapers';
 
 /* ------------------------------------------------------------------ */
 /* Progress helpers                                                    */
@@ -123,14 +124,21 @@ const ProgressTimeline: React.FC<{ events: ProgressEvent[] }> = ({ events }) => 
 /* Main component                                                      */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The viewer's tabs, exported so `ResultsPage` and the deep-link parser cannot
+ * drift from this list. `papers` is 2.2's: the run's own results, individually
+ * saveable, which the Markdown report could only describe.
+ */
+export type ReportTab = 'report' | 'log' | 'meta' | 'progress' | 'record' | 'papers';
+
 interface Props {
   executionId: number;
   onClose: () => void;
-  initialTab?: 'report' | 'log' | 'meta' | 'progress' | 'record';
+  initialTab?: ReportTab;
 }
 
 const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => {
-  const [tab, setTab] = useState<'report' | 'log' | 'meta' | 'progress' | 'record'>(initialTab ?? 'report');
+  const [tab, setTab] = useState<ReportTab>(initialTab ?? 'report');
   const [report, setReport] = useState<string | null>(null);
   const [log, setLog] = useState<string | null>(null);
   const [meta, setMeta] = useState<Record<string, any> | null>(null);
@@ -282,6 +290,9 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
           Progress{isLive && <span className="sidebar-pulse" style={{ marginLeft: 6 }} />}
         </button>
         <button className={`tab-btn ${tab === 'record' ? 'tab-active' : ''}`} onClick={() => setTab('record')}>Search record</button>
+        {/* Last, so the five tabs that existed before 2.2 keep the order a
+            user's hand already knows. */}
+        <button className={`tab-btn ${tab === 'papers' ? 'tab-active' : ''}`} onClick={() => setTab('papers')}>Papers</button>
       </div>
       <div className="report-viewer-body">
         {tab === 'report' && (
@@ -309,6 +320,9 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
         )}
         {tab === 'record' && (
           <SearchRecord executionId={executionId} />
+        )}
+        {tab === 'papers' && (
+          <ExecutionPapers executionId={executionId} />
         )}
         {error && <div className="form-error">{error}</div>}
       </div>

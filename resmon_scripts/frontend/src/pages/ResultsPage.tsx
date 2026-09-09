@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
-import { apiClient, getBaseUrl } from '../api/client';
+import { apiClient } from '../api/client';
+import { downloadReferences, ReferenceFormat } from '../lib/referenceDownload';
 import { useExecution } from '../context/ExecutionContext';
 import { useExecutions } from '../hooks/useExecutions';
 import ResultsList from '../components/Results/ResultsList';
-import ReportViewer from '../components/Results/ReportViewer';
+import ReportViewer, { ReportTab } from '../components/Results/ReportViewer';
 import PageHelp from '../components/Help/PageHelp';
 
 interface Execution {
@@ -23,7 +24,7 @@ interface Execution {
 const ResultsPage: React.FC = () => {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [viewId, setViewId] = useState<number | null>(null);
-  const [viewTab, setViewTab] = useState<'report' | 'log' | 'meta' | 'progress' | 'record' | undefined>(undefined);
+  const [viewTab, setViewTab] = useState<ReportTab | undefined>(undefined);
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [error, setError] = useState('');
@@ -60,8 +61,8 @@ const ResultsPage: React.FC = () => {
     const hash = window.location.hash;
     const match = hash.match(/exec=(\d+)/);
     if (match) setViewId(Number(match[1]));
-    const tabMatch = hash.match(/tab=(report|log|meta|progress)/);
-    if (tabMatch) setViewTab(tabMatch[1] as any);
+    const tabMatch = hash.match(/tab=(report|log|meta|progress|papers)/);
+    if (tabMatch) setViewTab(tabMatch[1] as ReportTab);
   }, []);
 
   const handleToggle = (id: number) => {
@@ -128,41 +129,16 @@ const ResultsPage: React.FC = () => {
    * Download the selected executions' papers in a reference-manager format.
    *
    * The backend unions stored document IDs before rendering the entire file,
-   * including one shared BibTeX key namespace for every selected run.
+   * including one shared BibTeX key namespace for every selected run. The
+   * request, the error sentence and the saved bytes are `referenceDownload`'s,
+   * shared with the Reading queue's identical three buttons.
    */
-  const handleReferenceExport = async (fmt: 'bibtex' | 'ris' | 'csv') => {
+  const handleReferenceExport = async (fmt: ReferenceFormat) => {
     if (selected.size === 0) return;
     setExportError('');
     try {
       const ids = Array.from(selected);
-      const resp = await fetch(`${getBaseUrl()}/api/export/references`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-        body: JSON.stringify({ execution_ids: ids, format: fmt }),
-      });
-      if (!resp.ok) {
-        let message = `Reference export failed (HTTP ${resp.status})`;
-        try {
-          const error: unknown = await resp.json();
-          if (error && typeof error === 'object' && 'detail' in error
-              && typeof error.detail === 'string' && error.detail.trim()) {
-            message += `: ${error.detail.trim()}`;
-          }
-        } catch { /* An unreadable error body still has a useful HTTP status. */ }
-        throw new Error(message);
-      }
-      const text = await resp.text();
-
-      const ext = fmt === 'bibtex' ? 'bib' : fmt;
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `resmon-references-${ids.join('-')}.${ext}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      await downloadReferences({ execution_ids: ids }, fmt, `resmon-references-${ids.join('-')}`);
     } catch (err: unknown) {
       setExportError(err instanceof Error ? err.message : 'Reference export failed.');
     }
@@ -265,7 +241,8 @@ const ResultsPage: React.FC = () => {
             body: (
               <ul>
                 <li>Click any row to open its full report below the table.</li>
-                <li>The viewer tabs are: <strong>Report</strong> (the Markdown report), <strong>Log</strong> (the line-by-line execution log), <strong>Meta</strong> (parameters, timings, provenance), and <strong>Progress</strong> (structured progress events emitted during the run).</li>
+                <li>The viewer tabs are: <strong>Report</strong> (the Markdown report), <strong>Log</strong> (the line-by-line execution log), <strong>Meta</strong> (parameters, timings, provenance), <strong>Progress</strong> (structured progress events emitted during the run), <strong>Search record</strong>, and <strong>Papers</strong>.</li>
+                <li>The <strong>Papers</strong> tab lists the papers the run stored, 50 to a page, each with a <strong>Save to read</strong> button that puts it in your <strong>Reading queue</strong>. A paper already saved shows its state instead, and saving one again never moves a paper you have read back to <em>To read</em>.</li>
               </ul>
             ),
           },

@@ -44,6 +44,7 @@ from implementation_scripts.database import (
     get_executions,
     get_execution_by_id,
     get_execution_documents,
+    get_execution_documents_page,
     get_documents_by_ids,
     update_execution_status,
     set_execution_saved_configuration,
@@ -97,7 +98,8 @@ from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
     analytics, assistant_runtime, assistant_store, coverage_audit, embedding_job,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
-    reference_export, search_record, vector_index, watch_profiles, watchdog,
+    reading_queue, reference_export, search_record, vector_index, watch_profiles,
+    watchdog,
 )
 from implementation_scripts.assistant_permissions import broker as permission_broker
 from implementation_scripts.progress import progress_store
@@ -1868,6 +1870,54 @@ def get_execution_progress_events(exec_id: int, response: Response):
     return get_progress_events(conn, exec_id)
 
 
+@app.get("/api/executions/{exec_id}/documents")
+def get_execution_papers(
+    exec_id: int,
+    limit: int = reading_queue.DEFAULT_PAGE_SIZE,
+    offset: int = 0,
+    only_new: bool = False,
+):
+    """One page of the papers this run found, each with its stored id.
+
+    Results & Logs listed runs and rendered a Markdown report; the papers
+    inside a run were reachable only by reading that text or by exporting the
+    whole file. Neither gives a user something to click, and an execution id is
+    not a paper id -- so the Papers tab needed a route that hands back the
+    corpus-local document ids the rest of the app is keyed on (the same ids
+    ``include_ids`` carries into a JSON export, phase 2.1a).
+
+    Paged rather than whole: a sweep can return thousands, and a renderer that
+    holds all of them is a renderer that stops responding on the run that
+    matters most. ``queue_status`` rides along so the Save control can show the
+    state the database actually holds instead of guessing from what the user
+    last clicked.
+    """
+    if limit < 1 or limit > reading_queue.MAX_PAGE_SIZE:
+        raise HTTPException(
+            400, f"limit must be between 1 and {reading_queue.MAX_PAGE_SIZE}")
+    if offset < 0:
+        raise HTTPException(400, "offset must not be negative")
+    conn = _get_db()
+    try:
+        if get_execution_by_id(conn, exec_id) is None:
+            raise HTTPException(404, "Execution not found")
+        papers, total = get_execution_documents_page(
+            conn, exec_id, limit=limit, offset=offset, only_new=only_new,
+        )
+        saved = reading_queue.statuses_for(conn, [p["id"] for p in papers])
+        for paper in papers:
+            paper["queue_status"] = saved.get(paper["id"])
+        return {
+            "papers": papers,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "only_new": only_new,
+        }
+    finally:
+        _close_db(conn)
+
+
 # ---------------------------------------------------------------------------
 # Configurations
 # ---------------------------------------------------------------------------
@@ -2138,6 +2188,111 @@ def export_selected_references(body: ReferenceExportBody):
             ids = sorted(unique_ids)
         documents = get_documents_by_ids(conn, ids)
         return _reference_response(documents, body.format, "resmon-selection")
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# The reading queue (2.2)
+# ---------------------------------------------------------------------------
+#
+# Saving a paper is membership and nothing else: no copy of the metadata, no
+# second corpus, and no route here deletes a document. Removing an entry drops
+# the membership row; the paper, its authors, its provenance and every run that
+# found it are untouched, and re-saving it afterwards starts a new entry rather
+# than resurrecting the old one.
+#
+# The rules the surface has to keep are in
+# ``implementation_scripts/reading_queue.py``: saving is idempotent and never
+# resets a paper the user has already read, and a state request that changes
+# nothing writes nothing.
+
+
+class ReadingQueueSaveBody(BaseModel):
+    document_id: int
+
+
+class ReadingQueueStatusBody(BaseModel):
+    status: str
+
+
+def _reading_queue_status(value: Optional[str]) -> Optional[str]:
+    """Validate an optional ``?status=`` filter into ``None`` or a real state."""
+    if value is None or value == "" or value == "all":
+        return None
+    if value not in reading_queue.STATUSES:
+        raise HTTPException(
+            400,
+            f"Unknown reading status {value!r}. Expected one of: "
+            + ", ".join(reading_queue.STATUSES) + ", or all.",
+        )
+    return value
+
+
+@app.get("/api/reading-queue")
+def list_reading_queue(
+    status: Optional[str] = None,
+    limit: int = reading_queue.DEFAULT_PAGE_SIZE,
+    offset: int = 0,
+):
+    """One page of saved papers. ``status`` omitted (or ``all``) means both."""
+    conn = _get_db()
+    try:
+        return reading_queue.list_entries(
+            conn, status=_reading_queue_status(status), limit=limit, offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/reading-queue", status_code=201)
+def save_to_reading_queue(body: ReadingQueueSaveBody):
+    """Save a stored paper. Saving one already saved returns it unchanged.
+
+    201 either way: the request's outcome -- this paper is in the queue -- is
+    the same, and the body carries the entry, so a second click cannot be
+    mistaken for a state change. ``saved_at`` in that body is the original save
+    time, which is how a caller can tell the two apart if it needs to.
+    """
+    conn = _get_db()
+    try:
+        return reading_queue.save(conn, body.document_id)
+    except reading_queue.UnknownDocument as exc:
+        raise HTTPException(404, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/reading-queue/{document_id}")
+def set_reading_queue_status(document_id: int, body: ReadingQueueStatusBody):
+    """Mark a saved paper read or unread."""
+    conn = _get_db()
+    try:
+        return reading_queue.set_status(conn, document_id, body.status)
+    except reading_queue.NotInQueue as exc:
+        raise HTTPException(404, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/reading-queue/{document_id}")
+def remove_from_reading_queue(document_id: int):
+    """Take a paper out of the queue. The paper itself is not touched.
+
+    404 when there was nothing to remove, because "it is gone" and "it was
+    never there" are different answers and the second one usually means the
+    interface is looking at a list somebody else already changed.
+    """
+    conn = _get_db()
+    try:
+        if not reading_queue.remove(conn, document_id):
+            raise HTTPException(
+                404, f"Document {document_id} is not in the reading queue")
+        return {"removed": True, "document_id": document_id}
     finally:
         _close_db(conn)
 

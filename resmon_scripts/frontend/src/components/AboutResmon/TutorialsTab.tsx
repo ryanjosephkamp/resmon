@@ -355,7 +355,8 @@ const sections: TutorialSection[] = [
     instructions: [
       'The `Search record` tab on any execution builds the complete, dated account of that search — exact terms, publication window, per-database record counts, deduplication figures, date and software version — in the shape a PRISMA flow diagram needs. `Download as Markdown` saves it for a methods section.',
       'Browse executions in reverse-chronological order; filter by Type and Status.',
-      'Click a row to open the viewer and switch between the Report, Log, Metadata, and Progress tabs.',
+      'Click a row to open the viewer and switch between the Report, Log, Metadata, Progress, Search record, and Papers tabs.',
+      'The `Papers` tab lists the papers that run stored — 50 to a page — each with a `Save to read` button that adds it to the Reading queue.',
       'Select rows and click `Export Selected` to write a zip bundle, or `Delete Selected` to remove the selected local rows after a confirmation dialog.',
       'Use `BibTeX`, `RIS`, or `CSV` to export the papers themselves. Selected runs form one file with each stored paper included once; distinct records stay separate. BibTeX keys are unique within that file, not permanent paper IDs.',
       'A run whose sources did not all answer says so under its Results count — `n of m sources could not answer` — with a link straight to the Search record, where each one carries the recorded reason. A zero resmon did not observe the reason for is named as unrecorded rather than being folded in with the rest; every run from before resmon 1.8.6 is in that state, because nothing was recording it.',
@@ -374,6 +375,31 @@ const sections: TutorialSection[] = [
       'Set Settings → Storage → Export directory to pin where exports land; otherwise a temporary file is used.',
     ],
     destination: { path: '/results', label: 'Go to Page' },
+  },
+  {
+    anchor: 'reading-queue',
+    title: 'Reading queue',
+    blurb: 'Save papers from a run and come back to them; two states, nothing else.',
+    mediaCaption: 'Reading queue demo — video not recorded yet.',
+    instructions: [
+      'Open a run in Results & Logs and switch to its `Papers` tab: every paper that run stored, 50 to a page, each with its own `Save to read` button.',
+      'Saved papers appear on the `Reading queue` page in the sidebar. It opens on `To read`; `Read` and `All` are the other two filters.',
+      'Use `Mark read` / `Mark unread` on a row to move it between the two states, and `Remove` to take it out of the queue.',
+      'Tick papers on the page and use `BibTeX`, `RIS` or `CSV` — the same exporter Results & Logs uses, over the papers you ticked.',
+      'Every row carries the same `Why this paper?` evidence the Explorer shows, because it is the same stored record.',
+    ],
+    features: [
+      'Saving is idempotent and never resets state: a later run that finds the same record again, saved a second time, keeps the paper marked Read.',
+      'Membership is keyed on the stored document ID, so two records that look like the same work stay two separate entries — resmon links near-duplicates, it never merges them.',
+      '`Remove` deletes the queue entry only. The paper, its authors and every run that found it are untouched, and it is still in the Explorer.',
+    ],
+    tips: [
+      'The queue holds no notes, no PDFs and no reminders, and ranks nothing. It is a list of what you meant to read.',
+      'Export covers the papers ticked on the page you are looking at; changing the page or the filter clears the ticks, and a paper that leaves the page after you mark it read or remove it stops being ticked, so nothing invisible ends up in the file.',
+      'Saving a paper again after removing it starts a fresh entry at `To read` — the old dates are gone, because the entry was.',
+      'Upgrading an existing resmon starts the queue empty. resmon never observed which papers you meant to read before this existed, so it does not guess.',
+    ],
+    destination: { path: '/reading-queue', label: 'Go to Page' },
   },
   {
     anchor: 'configurations',
