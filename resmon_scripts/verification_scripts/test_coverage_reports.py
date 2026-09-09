@@ -21,7 +21,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "resmon_scripts"))
 import mcp_server as mcp
-from implementation_scripts import database as db, search_record
+from implementation_scripts import database as db, reading_queue, search_record
 from test_reading_export_continuity import seed as seed_corpus, snapshot as corpus_snapshot
 
 
@@ -54,6 +54,10 @@ def seed(path: Path) -> dict:
     fixture["coverage_ids"] = {}
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
+    reading_queue.save(conn, fixture["document_ids"][0])
+    reading_queue.set_status(conn, fixture["document_ids"][0], "read")
+    conn.execute("INSERT OR REPLACE INTO document_authors (document_id,author,orcid,affiliation,source_author_id) VALUES (?,?,?,?,?)",
+                 (fixture["document_ids"][0], "Ada Fixture", "authored-orcid", "Authored institution", "arxiv:authored-author"))
     for name, params, sources in HISTORIES:
         params = {"query": "authored coverage", "max_results": 3, **params}
         eid = db.insert_execution(conn, {"execution_type": "deep_sweep", "status": "completed",
@@ -155,7 +159,7 @@ def test_history_account_arrives_in_http_markdown_list_and_detail(boundary):
         if name == "malformed":
             assert c["counts"]["unknown"] == 1
             assert "0 of 1 recorded sources answered" in md
-            assert "unknown / outcome not recorded" in md
+            assert "unknown / unsupported recorded outcome" in md
         if name == "hostile":
             assert "<img" not in md
             assert "\\|" in md and "&lt;img" in md

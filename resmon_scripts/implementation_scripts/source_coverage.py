@@ -76,7 +76,7 @@ def outcome(row: dict) -> dict:
                 category = "non_answer"
         except (ValueError, TypeError, OverflowError):
             note = "Recorded reason details are malformed; whether this source answered is unknown."
-    label = {"answered": "answered", "non_answer": "did not answer", "unknown": "unknown / outcome not recorded"}[category]
+    label = {"answered": "answered", "non_answer": "did not answer", "unknown": "unknown / unsupported recorded outcome"}[category]
     if valid and category == "unknown" and reason in (None, "not_recorded"):
         label = "zero, reason not recorded"
     if category == "answered" and count == 0:

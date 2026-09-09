@@ -17,6 +17,7 @@ test('coverage history opens with keyboard, exports and preserves source identit
   const snapshot = () => execFileSync(env.RESMON_PYTHON, [helper, 'snapshot', env.RESMON_DB_PATH], { env, encoding: 'utf8' });
   const before = snapshot();
   const app = await electron.launch({ args: ['.', `--user-data-dir=${path.join(state, 'electron-user-data')}`], cwd: FRONTEND_ROOT, env, timeout: 180_000 });
+  const ownedProcess = app.process();
   let backendPid = 0;
   try {
     const win = await app.firstWindow({ timeout: 180_000 });
@@ -98,7 +99,7 @@ test('coverage history opens with keyboard, exports and preserves source identit
   } finally {
     await app.close();
     if (backendPid) await expect.poll(() => { try { process.kill(backendPid, 0); return true; } catch { return false; } }).toBe(false);
-    console.log('COVERAGE_SHUTDOWN', JSON.stringify({ state, backendPid, appExitCode: app.process().exitCode, backendExited: true }));
+    console.log('COVERAGE_SHUTDOWN', JSON.stringify({ state, backendPid, appExitCode: ownedProcess.exitCode, backendExited: true }));
     fs.rmSync(state, { recursive: true, force: true });
   }
 });

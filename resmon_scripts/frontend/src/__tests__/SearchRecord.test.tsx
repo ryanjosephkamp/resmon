@@ -232,9 +232,9 @@ test('failed record has a retry and cannot become empty success', async () => {
 test('unsupported reason cannot appear answered through legacy compatibility fields', async () => {
   await renderRecord({ ...RECORD, coverage: { execution_id: 42, summary: '1 recorded source: unknown', counts: { genuine_empty: 0 }, notes: ['Full selection unknown'], sources: [], additional_sources: [] },
     sources: [{ source: 'legacy', records_identified: 0, status: 'ok', zero_reason: 'future', answered: true,
-      note: 'Unsupported recorded reason', coverage: { category: 'unknown', label: 'unknown / outcome not recorded' } }],
+      note: 'Unsupported recorded reason', coverage: { category: 'unknown', label: 'unknown / unsupported recorded outcome' } }],
     identification: { ...RECORD.identification, sources_that_answered: 1, sources_searched: 1 } });
   expect(screen.getByText(/0 of 1 sources answered/)).toBeInTheDocument();
-  expect(screen.getByText('unknown / outcome not recorded')).toBeInTheDocument();
+  expect(screen.getByText('unknown / unsupported recorded outcome')).toBeInTheDocument();
   expect(screen.queryByText(/1 of 1 sources answered/)).not.toBeInTheDocument();
 });
