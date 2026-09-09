@@ -30,6 +30,7 @@ from starlette.responses import Response, StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field
 
+from implementation_scripts import runtime_identity
 from implementation_scripts.config import (
     APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
 )
@@ -410,8 +411,20 @@ class ExecutionExport(BaseModel):
 _STARTED_AT = datetime.now(timezone.utc).isoformat()
 
 
+def _check_expected_runtime(expected_runtime_id: Optional[str]) -> None:
+    if expected_runtime_id is None:
+        return
+    if not runtime_identity.valid_runtime_id(expected_runtime_id):
+        raise HTTPException(422, "expected_runtime_id must be a canonical lowercase UUID4")
+    actual = runtime_identity.current_runtime_id()
+    if expected_runtime_id != actual:
+        raise HTTPException(409, {"code": "instance_mismatch",
+            "message": "This request reached a different running app.",
+            "expected_runtime_id": expected_runtime_id, "actual_runtime_id": actual})
+
+
 @app.get("/api/health")
-def health():
+def health(expected_runtime_id: Optional[str] = None):
     """Liveness endpoint. Returns process identity so clients can attach-or-spawn.
 
     ``embeddings`` reports whether *this* backend can load the vector extension,
@@ -427,7 +440,9 @@ def health():
     health endpoint that answered from memory would keep reporting a capability
     the process had lost.
     """
+    _check_expected_runtime(expected_runtime_id)
     conn = _get_db()
+    identity = runtime_identity.project(conn)
     try:
         embeddings = vector_index.extension_status(conn)
     except Exception as exc:  # pragma: no cover - defence; the status call catches its own
@@ -436,6 +451,7 @@ def health():
         _close_db(conn)
     return {
         "status": "ok",
+        "identity": identity,
         "pid": os.getpid(),
         "started_at": _STARTED_AT,
         "version": APP_VERSION,
@@ -1617,12 +1633,14 @@ def active_executions():
 
 
 @app.get("/api/executions/{exec_id}")
-def get_execution(exec_id: int):
+def get_execution(exec_id: int, expected_runtime_id: Optional[str] = None):
+    _check_expected_runtime(expected_runtime_id)
     conn = _get_db()
     try:
         row = get_execution_by_id(conn, exec_id)
         if not row:
             raise HTTPException(404, "Execution not found")
+        row["identity"] = runtime_identity.project(conn)
         row["coverage"] = source_coverage.build(row, get_execution_sources(conn, exec_id))
         _enrich_execution_row(row)
         row["source_outcomes"] = _source_outcomes(conn, [exec_id]).get(exec_id)

@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import httpx
+from implementation_scripts.runtime_identity import valid_runtime_id
 
 # The contract this server implements: docs/api-contract/mcp.md.
 #
@@ -45,7 +46,7 @@ import httpx
 # ``requires_confirmation``. A caller that ignored that flag would be running
 # writes the contract says a person approves first, so callers are not
 # unaffected and the major version says so.
-CONTRACT_VERSION = "2.2"
+CONTRACT_VERSION = "2.3"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
 
@@ -229,7 +230,12 @@ class Backend:
             {"tried": list(self._tried)},
         )
 
-    def request(self, method: str, path: str, **kwargs: Any) -> Any:
+    def request(self, method: str, path: str, *, expected_runtime_id: Optional[str] = None,
+                **kwargs: Any) -> Any:
+        if expected_runtime_id is not None:
+            if not valid_runtime_id(expected_runtime_id):
+                raise ToolError("invalid_argument", "expected_runtime_id must be a canonical lowercase UUID4")
+            kwargs["params"] = {**kwargs.get("params", {}), "expected_runtime_id": expected_runtime_id}
         base = self.base_url()
         try:
             resp = httpx.request(method, f"{base}{path}", timeout=_TIMEOUT, **kwargs)
@@ -248,6 +254,15 @@ class Backend:
         if resp.status_code in (400, 422):
             raise ToolError("invalid_argument", _detail_of(resp, "The request was rejected."))
         if resp.status_code == 409:
+            if expected_runtime_id is not None:
+                try:
+                    detail = resp.json().get("detail")
+                except (ValueError, AttributeError):
+                    detail = None
+                if isinstance(detail, dict) and detail.get("code") == "instance_mismatch":
+                    raise ToolError("instance_mismatch", "This request reached a different running app.", {
+                        "expected_runtime_id": expected_runtime_id,
+                        "actual_runtime_id": detail.get("actual_runtime_id")})
             raise ToolError("conflict", _detail_of(resp, "resmon could not accept that right now."))
         if resp.status_code == 429:
             raise ToolError("conflict", _detail_of(resp, "resmon is already at its execution limit."))
@@ -256,12 +271,20 @@ class Backend:
         if resp.status_code >= 400:
             raise ToolError("internal_error", _detail_of(resp, "Unexpected response from resmon."))
 
-        if not resp.content:
-            return None
         try:
-            return resp.json()
+            result = resp.json() if resp.content else None
         except ValueError:
-            return resp.text
+            result = resp.text
+        if expected_runtime_id is not None:
+            identity = result.get("identity") if isinstance(result, dict) else None
+            if (not isinstance(identity, dict) or identity.get("contract_version") != 1
+                    or not valid_runtime_id(identity.get("runtime_id"))):
+                raise ToolError("identity_unavailable", "The responding app did not supply a supported runtime identity.")
+            if identity["runtime_id"] != expected_runtime_id:
+                raise ToolError("instance_mismatch", "This request reached a different running app.", {
+                    "expected_runtime_id": expected_runtime_id,
+                    "actual_runtime_id": identity["runtime_id"]})
+        return result
 
 
 def _reported_version(resp: httpx.Response) -> Optional[str]:
@@ -376,8 +399,20 @@ def _require_int(args: dict, key: str) -> int:
 # Tools
 # ---------------------------------------------------------------------------
 
+def _expected_runtime(args: dict) -> Optional[str]:
+    if "expected_runtime_id" not in args:
+        return None
+    value = args["expected_runtime_id"]
+    if not valid_runtime_id(value):
+        raise ToolError("invalid_argument", "expected_runtime_id must be a canonical lowercase UUID4")
+    return value
+
+
 def t_health(args: dict) -> Any:
-    return backend.request("GET", "/api/health")
+    expected = _expected_runtime(args)
+    if expected is None:
+        return backend.request("GET", "/api/health")
+    return backend.request("GET", "/api/health", expected_runtime_id=expected)
 
 
 def t_search_corpus(args: dict) -> Any:
@@ -606,7 +641,14 @@ def t_list_executions(args: dict) -> Any:
 
 
 def t_get_execution(args: dict) -> Any:
-    return backend.request("GET", f"/api/executions/{_require_int(args, 'exec_id')}")
+    expected = _expected_runtime(args)
+    path = f"/api/executions/{_require_int(args, 'exec_id')}"
+    if expected is None:
+        return backend.request("GET", path)
+    # Refuse ordinary legacy servers before asking for execution content. The
+    # answering handler and returned-identity check still guard a later replacement.
+    backend.request("GET", "/api/health", expected_runtime_id=expected)
+    return backend.request("GET", path, expected_runtime_id=expected)
 
 
 def t_get_execution_results(args: dict) -> Any:
@@ -1098,7 +1140,8 @@ def t_get_profile_matches(args: dict) -> Any:
 TOOLS: list[dict] = [
     {"name": "health", "fn": t_health,
      "description": "Whether resmon is running, and which version.",
-     "schema": {"type": "object", "properties": {}}},
+     "schema": {"type": "object", "properties": {
+         "expected_runtime_id": {"type": "string", "description": "Optional canonical lowercase UUID4 of the running app to read."}}}},
 
     {"name": "search_corpus", "fn": t_search_corpus,
      "description": (
@@ -1162,7 +1205,8 @@ TOOLS: list[dict] = [
     {"name": "get_execution", "fn": t_get_execution,
      "description": "One execution: status, per-source counts, timings, the AI lane used.",
      "schema": {"type": "object", "required": ["exec_id"], "properties": {
-         "exec_id": {"type": "integer"}}}},
+         "exec_id": {"type": "integer"},
+         "expected_runtime_id": {"type": "string", "description": "Optional canonical lowercase UUID4; checked by health and the execution response."}}}},
 
     {"name": "get_execution_results", "fn": t_get_execution_results,
      "description": "The papers one execution found.",

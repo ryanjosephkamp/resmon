@@ -4804,3 +4804,18 @@ li.basis-name-affiliation .basis-chip {
 
 .coverage-table { width: 100%; border-collapse: collapse; text-align: left; }
 .coverage-table th, .coverage-table td { padding: 8px; border-bottom: 1px solid var(--border-color, #666); vertical-align: top; }
+
+/* Scoped header identity details: the full token stays selectable at narrow widths. */
+.connection-identity { position: relative; font-size: 0.8rem; }
+.connection-identity > summary { cursor: pointer; padding: 0.35rem; }
+.connection-details { position: absolute; z-index: 100; right: 0; top: 100%;
+  width: min(26rem, calc(100vw - 2rem)); padding: 1rem;
+  background: var(--color-surface); color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: 8px; box-shadow: 0 6px 24px #0004;
+  max-height: 75vh; overflow-y: auto; }
+.connection-details dl { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: 0.5rem; }
+.connection-details dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
+.connection-details dt { color: var(--color-text-muted); }
+.connection-details p { line-height: 1.5; }
+.connection-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.connection-actions button { cursor: pointer; padding: 0.4rem 0.6rem; }
