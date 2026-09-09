@@ -13,7 +13,7 @@
  */
 
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import SearchRecord from '../components/Results/SearchRecord';
 
 const RECORD = {
@@ -109,7 +109,7 @@ describe('SearchRecord', () => {
     // number of records processed. Those are the same figure seen from two
     // stages, and collapsing either away would break the flow diagram.
     expect(screen.getAllByText('184')).toHaveLength(2);
-    expect(screen.getByText(/2 of 3 sources answered/)).toBeInTheDocument();
+    expect(screen.getByText(/2 of 3 sources answered \(recorded-source basis\)/)).toBeInTheDocument();
   });
 
   test('a database that contributed nothing is still listed, with why', async () => {
@@ -198,4 +198,43 @@ describe('SearchRecord', () => {
 
     expect(screen.getByText(/No execution with id 42/)).toBeInTheDocument();
   });
+});
+
+
+test.each(['success', 'failure'])('late %s from a previous execution cannot replace current details', async (mode) => {
+  let finish!: (value: unknown) => void;
+  const pending = new Promise<unknown>(resolve => { finish = resolve; });
+  const response = (payload: unknown, ok = true) => ({ ok, status: ok ? 200 : 503,
+    headers: { get: () => 'application/json' }, json: async () => payload,
+    text: async () => JSON.stringify(payload) });
+  global.fetch = jest.fn().mockImplementationOnce(() => pending)
+    .mockResolvedValue(response({ ...RECORD, search: { ...RECORD.search, execution_id: 43, run_at: 'RUN B' } }));
+  const view = render(<SearchRecord executionId={42} />);
+  await act(async () => { view.rerender(<SearchRecord executionId={43} />); });
+  expect(screen.getByText('RUN B')).toBeInTheDocument();
+  await act(async () => { finish(response(RECORD, mode === 'success')); });
+  expect(screen.getByText('RUN B')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Download as Markdown' })).toHaveAttribute('href', expect.stringContaining('/43/search-record'));
+});
+
+test('failed record has a retry and cannot become empty success', async () => {
+  global.fetch = jest.fn().mockRejectedValueOnce(new Error('authored outage')).mockResolvedValue({
+    ok: true, headers: { get: () => 'application/json' }, json: async () => RECORD });
+  await act(async () => { render(<SearchRecord executionId={42} />); });
+  expect(screen.getByRole('alert')).toHaveTextContent('authored outage');
+  expect(screen.queryByRole('link', { name: 'Download as Markdown' })).not.toBeInTheDocument();
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry search record' })); });
+  expect(screen.getByRole('link', { name: 'Download as Markdown' })).toBeInTheDocument();
+});
+
+
+test('unsupported reason cannot appear answered through legacy compatibility fields', async () => {
+  await renderRecord({ ...RECORD, coverage: { execution_id: 42, summary: '1 recorded source: unknown', counts: { genuine_empty: 0 }, notes: ['Full selection unknown'], sources: [], additional_sources: [] },
+    sources: [{ source: 'legacy', records_identified: 0, status: 'ok', zero_reason: 'future', answered: true,
+      note: 'Unsupported recorded reason', coverage: { category: 'unknown', label: 'unknown / unsupported recorded outcome' } }],
+    identification: { ...RECORD.identification, sources_that_answered: 1, sources_searched: 1 } });
+  expect(screen.getByText(/0 of 1 sources answered/)).toBeInTheDocument();
+  expect(screen.getByText('unknown / unsupported recorded outcome')).toBeInTheDocument();
+  expect(screen.queryByText(/1 of 1 sources answered/)).not.toBeInTheDocument();
 });

@@ -355,11 +355,13 @@ const sections: TutorialSection[] = [
     instructions: [
       'The `Search record` tab on any execution builds the complete, dated account of that search — exact terms, publication window, per-database record counts, deduplication figures, date and software version — in the shape a PRISMA flow diagram needs. `Download as Markdown` saves it for a methods section.',
       'Browse executions in reverse-chronological order; filter by Type and Status.',
+      'The coverage panel uses saved selected sources when established, otherwise recorded sources with the full selection unknown. Missing outcomes stay unknown. Genuine empty answers are included in answered; unreadable replies are recorded non-answers. Use View source details for the evidence.',
+      'Explicit report ZIP exports add search-record.json and search-record.md companions per execution, generated from saved facts now. Original report/log bytes and existing PDF behavior are unchanged; routine mail bundles keep their existing behavior.',
       'Click a row to open the viewer and switch between the Report, Log, Metadata, Progress, Search record, and Papers tabs.',
       'The `Papers` tab lists the papers that run stored — 50 to a page — each with a `Save to read` button that adds it to the Reading queue.',
       'Select rows and click `Export Selected` to write a zip bundle, or `Delete Selected` to remove the selected local rows after a confirmation dialog.',
       'Use `BibTeX`, `RIS`, or `CSV` to export the papers themselves. Selected runs form one file with each stored paper included once; distinct records stay separate. BibTeX keys are unique within that file, not permanent paper IDs.',
-      'A run whose sources did not all answer says so under its Results count — `n of m sources could not answer` — with a link straight to the Search record, where each one carries the recorded reason. A zero resmon did not observe the reason for is named as unrecorded rather than being folded in with the rest; every run from before resmon 1.8.6 is in that state, because nothing was recording it.',
+      'A run whose sources did not all answer says so under its Results count — `answered`, `recorded non-answer` and `unknown` with a named source basis — with a link straight to the Search record, where each one carries the recorded reason. A zero resmon did not observe the reason for is named as unrecorded rather than being folded in with the rest; every run from before resmon 1.8.6 is in that state, because nothing was recording it.',
     ],
     features: [
       'A reproducible search record per execution, mapped onto PRISMA 2020 identification-stage boxes — and explicitly labeled where resmon\u2019s figures have no honest PRISMA equivalent.',

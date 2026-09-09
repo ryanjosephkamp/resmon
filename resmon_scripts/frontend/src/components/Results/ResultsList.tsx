@@ -1,4 +1,5 @@
 import React from 'react';
+import { SourceCoverage } from '../../api/searchRecord';
 
 /**
  * How many of an execution's sources actually answered.
@@ -29,6 +30,7 @@ interface Execution {
   end_time?: string;
   total_results?: number;
   new_results?: number;
+  coverage?: SourceCoverage;
   source_outcomes?: SourceOutcomes | null;
 }
 
@@ -116,6 +118,11 @@ const CoverageNote: React.FC<{
   exec: Execution;
   onOpen?: (exec: Execution) => void;
 }> = ({ exec, onOpen }) => {
+  const c = exec.coverage;
+  if (c) {
+    if (c.selection_known && c.counts.unknown === 0 && c.counts.non_answer === 0 && c.additional_sources.length === 0 && exec.status === 'completed') return null;
+    return <div className="results-coverage">{c.counts.non_answer > 0 && `${c.counts.non_answer} of ${c.total} sources could not answer (${c.basis_label} basis). `}{c.summary}{!c.selection_known && ' Full selected set unknown.'}{onOpen && <> — <button type="button" className="link-button" onClick={ev => { ev.stopPropagation(); onOpen(exec); }}>see the search record</button></>}</div>;
+  }
   const o = exec.source_outcomes;
   if (!o || o.selected === 0) return null;
   if (o.could_not_answer === 0 && o.not_recorded === 0) return null;

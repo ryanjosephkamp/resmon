@@ -313,7 +313,7 @@ def test_every_source_appears_in_the_markdown_table(conn):
     text = search_record.to_markdown(search_record.build(conn, exec_id))
 
     for source in FULL_SOURCES:
-        assert source in text
+        assert source.replace("_", "\\_") in text
     assert "| **Total** | **184** |" in text
 
 

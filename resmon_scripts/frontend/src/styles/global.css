@@ -4795,3 +4795,12 @@ li.basis-name-affiliation .basis-chip {
 .reading-pager p { margin: 0; }
 
 .reading-papers { display: flex; flex-direction: column; gap: 4px; }
+
+/* Coverage stays adjacent to the opened run and its evidence. */
+.coverage-summary { padding: 12px 16px; border: 1px solid var(--border-color, #666); border-radius: 6px; margin: 12px 0; overflow-x: auto; }
+.coverage-summary h4 { margin: 0 0 8px; }
+.coverage-summary p { margin: 6px 0; }
+.coverage-counts { font-weight: 600; }
+
+.coverage-table { width: 100%; border-collapse: collapse; text-align: left; }
+.coverage-table th, .coverage-table td { padding: 8px; border-bottom: 1px solid var(--border-color, #666); vertical-align: top; }

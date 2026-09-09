@@ -62,6 +62,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 from . import zero_reason as zero_reason_module
+from . import source_coverage
 from .config import APP_NAME, APP_VERSION
 from .database import get_execution_sources
 from .repo_catalog import REPOSITORY_CATALOG
@@ -123,6 +124,7 @@ def build(conn: sqlite3.Connection, execution_id: int) -> dict:
     per_source = [
         {
             "source": s["source"],
+            "coverage": source_coverage.outcome(s),
             "records_identified": int(s["result_count"] or 0),
             "status": s["status"],
             # The reason a zero is a zero. NULL on every row written before
@@ -164,6 +166,7 @@ def build(conn: sqlite3.Connection, execution_id: int) -> dict:
             "routine_schedule": execution.get("routine_schedule"),
             "configuration_name": execution.get("configuration_name"),
         },
+        "coverage": source_coverage.build(execution, sources),
         "sources": per_source,
         "identification": {
             "records_identified": identified_total,
@@ -213,6 +216,9 @@ def _answered(source: dict) -> bool:
 
 
 def _source_note(source: dict) -> str | None:
+    projected = source_coverage.outcome(source)
+    if projected["category"] == "unknown" and "malformed" in projected["note"]:
+        return projected["note"]
     status = source["status"]
     if status == "ok":
         # A zero is now explained where the explanation was recorded, and
@@ -317,7 +323,7 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
     if unproductive:
         names = ", ".join(s["source"] for s in unproductive)
         caveats.append(
-            f"{len(unproductive)} of the {len(sources)} sources selected did not "
+            f"{len(unproductive)} of the {len(sources)} recorded sources did not "
             f"contribute records ({names}). A search strategy that lists them as "
             "searched would be overstating its coverage."
         )
@@ -337,7 +343,7 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
     if could_not_answer:
         names = ", ".join(s["source"] for s in could_not_answer)
         caveats.append(
-            f"{len(could_not_answer)} of the {len(sources)} sources selected "
+            f"{len(could_not_answer)} of the {len(sources)} recorded sources "
             f"returned zero because they could not answer, not because there "
             f"was nothing to find ({names}). Their notes below say why. They "
             "did not contribute to this search."
@@ -383,6 +389,8 @@ _OUTCOME_LABELS = {
 
 
 def _outcome_label(source: dict) -> str:
+    if source.get("coverage"):
+        return source["coverage"]["label"]
     if source["status"] == "ok":
         reason = source.get("zero_reason")
         if not reason:
@@ -391,6 +399,14 @@ def _outcome_label(source: dict) -> str:
     if source.get("zero_reason") == "retired":
         return _OUTCOME_LABELS["retired"]
     return source["status"].replace("_", " ")
+
+
+def _text(value: object) -> str:
+    text = str(value if value is not None else "not recorded")
+    text = " ".join(text.split())
+    for char in "\\`*_{}[]()#+-.!|>":
+        text = text.replace(char, "\\" + char)
+    return text.replace("&", "&amp;").replace("<", "&lt;")
 
 
 def to_markdown(record: dict) -> str:
@@ -410,6 +426,21 @@ def to_markdown(record: dict) -> str:
         f"{record['software']['citation']}."
     )
     lines.append("")
+
+    coverage = record.get("coverage")
+    if coverage:
+        lines.extend(["## Source coverage", "", _text(coverage["summary"]), "",
+                      f"Genuine empty answers (within answered): {coverage['counts']['genuine_empty']}.", ""])
+        for note in coverage["notes"]:
+            lines.append("- " + _text(note))
+        for title, rows in (("Coverage basis", coverage["sources"]),
+                            ("Additional recorded sources outside saved selection", coverage["additional_sources"])):
+            if not rows:
+                continue
+            lines.extend(["", "### " + title, "", "| Source | Category | Returned | Recorded at | Reason |", "|---|---|---:|---|---|"])
+            for row in rows:
+                lines.append("| " + " | ".join(_text(row[k]) for k in ("source", "category", "result_count", "recorded_at", "note")) + " |")
+        lines.append("")
 
     lines.append("## The search")
     lines.append("")
@@ -451,17 +482,19 @@ def to_markdown(record: dict) -> str:
     for source in record["sources"]:
         outcome = _outcome_label(source)
         lines.append(
-            f"| {source['source']} | {source['records_identified']:,} | {outcome} |"
+            f"| {_text(source['source'])} | {source['records_identified']:,} | {_text(outcome)} |"
         )
     ident = record["identification"]
+    recorded_answered = (sum(s["coverage"]["category"] == "answered" for s in record["sources"])
+                         if coverage else ident["sources_that_answered"])
     lines.append(f"| **Total** | **{ident['records_identified']:,}** | "
-                 f"{ident['sources_that_answered']} of "
-                 f"{ident['sources_searched']} sources answered |")
+                 f"{recorded_answered} of "
+                 f"{ident['sources_searched']} recorded sources answered |")
     lines.append("")
 
     for source in record["sources"]:
         if source["note"]:
-            lines.append(f"- **{source['source']}** — {source['note']}")
+            lines.append(f"- **{_text(source['source'])}** — {_text(source['note'])}")
     if any(s["note"] for s in record["sources"]):
         lines.append("")
 
@@ -498,7 +531,7 @@ def to_markdown(record: dict) -> str:
     lines.append("## What these numbers do not mean")
     lines.append("")
     for caveat in record["caveats"]:
-        lines.append(f"- {caveat}")
+        lines.append(f"- {_text(caveat)}")
     lines.append("")
 
     return "\n".join(lines)

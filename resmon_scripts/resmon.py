@@ -43,6 +43,7 @@ from implementation_scripts.database import (
     delete_routine,
     get_executions,
     get_execution_by_id,
+    get_execution_sources,
     get_execution_documents,
     get_execution_documents_page,
     get_documents_by_ids,
@@ -98,7 +99,7 @@ from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
     analytics, assistant_runtime, assistant_store, coverage_audit, embedding_job,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
-    reading_queue, reference_export, search_record, vector_index, watch_profiles,
+    reading_queue, reference_export, search_record, source_coverage, vector_index, watch_profiles,
     watchdog,
 )
 from implementation_scripts.assistant_permissions import broker as permission_broker
@@ -1602,6 +1603,7 @@ def list_executions(
         rows = get_executions(conn, limit=limit, offset=offset, execution_type=type)
         outcomes = _source_outcomes(conn, [int(r["id"]) for r in rows])
         for row in rows:
+            row["coverage"] = source_coverage.build(row, get_execution_sources(conn, int(row["id"])))
             _enrich_execution_row(row)
             row["source_outcomes"] = outcomes.get(int(row["id"]))
         return rows
@@ -1621,6 +1623,7 @@ def get_execution(exec_id: int):
         row = get_execution_by_id(conn, exec_id)
         if not row:
             raise HTTPException(404, "Execution not found")
+        row["coverage"] = source_coverage.build(row, get_execution_sources(conn, exec_id))
         _enrich_execution_row(row)
         row["source_outcomes"] = _source_outcomes(conn, [exec_id]).get(exec_id)
         return row
@@ -1704,13 +1707,15 @@ def export_executions(body: ExecutionExport):
             tmp.close()
             out_path = Path(tmp.name)
 
-        _build_execution_zip(rows, out_path)
+        companions = {int(row["id"]): search_record.build(conn, int(row["id"])) for row in rows}
+        _build_execution_zip(rows, out_path, companions=companions)
         return {"path": str(out_path), "count": len(rows)}
     finally:
         _close_db(conn)
 
 
-def _build_execution_zip(rows: list[dict], out_path: Path) -> Path:
+def _build_execution_zip(rows: list[dict], out_path: Path, *,
+                         companions: dict[int, dict] | None = None) -> Path:
     """Package report + logs + metadata for each execution row into *out_path*.
 
     Extracted from :func:`export_executions` so the same bundle can be
@@ -1756,6 +1761,20 @@ def _build_execution_zip(rows: list[dict], out_path: Path) -> Path:
             lpath = row.get("log_path")
             if lpath and Path(lpath).exists():
                 shutil.copy(lpath, exec_stage / Path(lpath).name)
+
+            if companions is not None:
+                record = companions[int(eid)]
+                if record["search"]["execution_id"] != int(eid):
+                    raise ValueError("Search record execution identity mismatch")
+                for name in ("search-record.json", "search-record.md"):
+                    if (exec_stage / name).exists():
+                        raise ValueError(f"Search record companion conflicts with original artifact: {name}")
+                (exec_stage / "search-record.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+                (exec_stage / "search-record.md").write_text(search_record.to_markdown(record), encoding="utf-8")
+                manifest[-1]["search_record"] = {
+                    "json": f"{folder}/search-record.json", "markdown": f"{folder}/search-record.md",
+                    "generated_at": record["generated_at"],
+                    "meaning": "Read-time coverage from saved facts; original report and PDF are unchanged."}
 
         (staging / "manifest.json").write_text(
             json.dumps(manifest, indent=2), encoding="utf-8",

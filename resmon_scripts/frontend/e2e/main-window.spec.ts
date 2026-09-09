@@ -82,46 +82,78 @@ test('P3: an external link opens in-app, titled with its URL, and never reaches 
   // than by position after it.
   const mainId = await app.evaluate(async ({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].id);
+  // Cancel this real attribution navigation before transport. The window is
+  // still created by the app; no successful remote page is fabricated.
+  const interception = await app.evaluateHandle(({ session }, target) => {
+    const facts = {
+      installed: false,
+      cancelled: [] as string[],
+      errors: [] as { url: string; error: string }[],
+    };
+    session.defaultSession.webRequest.onErrorOccurred({ urls: [target] }, (details) => {
+      facts.errors.push({ url: details.url, error: details.error });
+    });
+    session.defaultSession.webRequest.onBeforeRequest({ urls: [target] }, (details, callback) => {
+      facts.cancelled.push(details.url);
+      callback({ cancel: true });
+    });
+    facts.installed = true;
+    return facts;
+  }, href!);
   const before = app.windows().length;
-  await link.click();
+  try {
+    expect(await interception.jsonValue()).toEqual({ installed: true, cancelled: [], errors: [] });
+    await link.click();
+    await expect.poll(() => interception.evaluate((facts) => facts.cancelled)).toEqual([href]);
+    await expect.poll(() => interception.evaluate((facts) => facts.errors)).toEqual([
+      { url: href, error: 'net::ERR_BLOCKED_BY_CLIENT' },
+    ]);
+    console.log('ATTRIBUTION CANCELLED BEFORE TRANSPORT', JSON.stringify(await interception.jsonValue()));
 
-  // `setWindowOpenHandler` runs in the main process, so the new window is an
-  // Electron fact rather than a DOM one.
-  await expect.poll(() => app.windows().length, { timeout: 20_000 }).toBe(before + 1);
+    // `setWindowOpenHandler` runs in the main process, so the new window is an
+    // Electron fact rather than a DOM one.
+    await expect.poll(() => app.windows().length, { timeout: 20_000 }).toBe(before + 1);
 
-  const windows = await app.evaluate(async ({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows().map((w) => ({
-      id: w.id,
-      title: w.getTitle(),
-      background: w.getBackgroundColor(),
-    })));
-  console.log('P3 WINDOWS', JSON.stringify(windows));
-  const main = windows.find((w) => w.id === mainId);
-  const opened = windows.find((w) => w.id !== mainId);
-  expect(main).toBeTruthy();
-  expect(opened).toBeTruthy();
+    const windows = await app.evaluate(async ({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().map((w) => ({
+        id: w.id,
+        title: w.getTitle(),
+        background: w.getBackgroundColor(),
+      })));
+    console.log('P3 WINDOWS', JSON.stringify(windows));
+    const main = windows.find((w) => w.id === mainId);
+    const opened = windows.find((w) => w.id !== mainId);
+    expect(main).toBeTruthy();
+    expect(opened).toBeTruthy();
 
-  // The title bar carries the address. That is the whole reason this window
-  // exists rather than a plain popup: a licence page that sets its own title
-  // would otherwise hide where you are, and `page-title-updated` is prevented
-  // in `openLinkWindow` for exactly that reason.
-  expect((opened as { title: string }).title).toBe(href);
-  // Same background as the main window — the flash fix applies here too.
-  expect(rgbHex((opened as { background: string }).background))
-    .toBe(rgbHex((main as { background: string }).background));
+    // The title bar carries the address. That is the whole reason this window
+    // exists rather than a plain popup: a licence page that sets its own title
+    // would otherwise hide where you are, and `page-title-updated` is prevented
+    // in `openLinkWindow` for exactly that reason.
+    expect((opened as { title: string }).title).toBe(href);
+    // Same background as the main window — the flash fix applies here too.
+    expect(rgbHex((opened as { background: string }).background))
+      .toBe(rgbHex((main as { background: string }).background));
 
-  // And nothing was handed to the system browser. This is the assertion the
-  // v1.8.3 fix exists for, and it is a count rather than an inference.
-  const guards = await readGuards(app);
-  console.log('P3 GUARD COUNTS', JSON.stringify(guards.escaped));
-  expect(guards.escaped).toEqual(NOTHING_ESCAPED);
+    // And nothing was handed to the system browser. This is the assertion the
+    // v1.8.3 fix exists for, and it is a count rather than an inference.
+    const guards = await readGuards(app);
+    console.log('P3 GUARD COUNTS', JSON.stringify(guards.escaped));
+    expect(guards.escaped).toEqual(NOTHING_ESCAPED);
 
-  // Leave the app as it was found — a stray window would confuse every spec
-  // after this one about which window is which.
-  await app.evaluate(async ({ BrowserWindow }, keep) => {
-    for (const w of BrowserWindow.getAllWindows()) if (w.id !== keep) w.destroy();
-  }, mainId);
-  await expect.poll(() => app.windows().length, { timeout: 10_000 }).toBe(before);
+  } finally {
+    await app.evaluate(({ session }) => {
+      session.defaultSession.webRequest.onBeforeRequest(null);
+      session.defaultSession.webRequest.onErrorOccurred(null);
+    });
+    await interception.dispose();
+    // Leave the app as it was found — a stray window would confuse every spec
+    // after this one about which window is which.
+    await app.evaluate(async ({ BrowserWindow }, keep) => {
+      for (const w of BrowserWindow.getAllWindows()) if (w.id !== keep) w.destroy();
+    }, mainId);
+    await expect.poll(() => app.windows().length, { timeout: 10_000 }).toBe(before);
+  }
 });
 
 test('P3b: the OS-facing surface of main.ts is still the five that are guarded', async () => {
