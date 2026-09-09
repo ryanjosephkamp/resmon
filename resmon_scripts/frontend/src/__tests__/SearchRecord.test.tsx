@@ -109,7 +109,7 @@ describe('SearchRecord', () => {
     // number of records processed. Those are the same figure seen from two
     // stages, and collapsing either away would break the flow diagram.
     expect(screen.getAllByText('184')).toHaveLength(2);
-    expect(screen.getByText(/2 of 3 recorded sources answered/)).toBeInTheDocument();
+    expect(screen.getByText(/2 of 3 sources answered \(recorded-source basis\)/)).toBeInTheDocument();
   });
 
   test('a database that contributed nothing is still listed, with why', async () => {
@@ -226,4 +226,15 @@ test('failed record has a retry and cannot become empty success', async () => {
   expect(screen.queryByRole('link', { name: 'Download as Markdown' })).not.toBeInTheDocument();
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry search record' })); });
   expect(screen.getByRole('link', { name: 'Download as Markdown' })).toBeInTheDocument();
+});
+
+
+test('unsupported reason cannot appear answered through legacy compatibility fields', async () => {
+  await renderRecord({ ...RECORD, coverage: { execution_id: 42, summary: '1 recorded source: unknown', counts: { genuine_empty: 0 }, notes: ['Full selection unknown'], sources: [], additional_sources: [] },
+    sources: [{ source: 'legacy', records_identified: 0, status: 'ok', zero_reason: 'future', answered: true,
+      note: 'Unsupported recorded reason', coverage: { category: 'unknown', label: 'unknown / outcome not recorded' } }],
+    identification: { ...RECORD.identification, sources_that_answered: 1, sources_searched: 1 } });
+  expect(screen.getByText(/0 of 1 sources answered/)).toBeInTheDocument();
+  expect(screen.getByText('unknown / outcome not recorded')).toBeInTheDocument();
+  expect(screen.queryByText(/1 of 1 sources answered/)).not.toBeInTheDocument();
 });

@@ -152,6 +152,10 @@ def test_history_account_arrives_in_http_markdown_list_and_detail(boundary):
             assert c["counts"] == {"answered": 2, "non_answer": 2, "unknown": 2, "genuine_empty": 1}
             assert [r["source"] for r in c["sources"]] == ["positive", "empty", "503", "parse", "old", "missing"]
             assert "Recorded at" in md and "Outcome not recorded" in md
+        if name == "malformed":
+            assert c["counts"]["unknown"] == 1
+            assert "0 of 1 recorded sources answered" in md
+            assert "unknown / outcome not recorded" in md
         if name == "hostile":
             assert "<img" not in md
             assert "\\|" in md and "&lt;img" in md

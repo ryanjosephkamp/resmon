@@ -41,6 +41,7 @@ const OUTCOME_LABELS: { [reason: string]: string } = {
 };
 
 const outcomeLabel = (s: SourceRow): string => {
+  if (s.coverage) return s.coverage.label;
   if (s.status === 'ok') {
     if (!s.zero_reason) return 'answered';
     return OUTCOME_LABELS[s.zero_reason] ?? s.zero_reason.replace(/_/g, ' ');
@@ -64,6 +65,9 @@ const SearchRecord: React.FC<{ executionId: number; recordState?: SearchRecordSt
   if (!data || data.search.execution_id !== executionId) return <p className="text-muted">Building the record for execution #{executionId}…</p>;
 
   const { search, identification, deduplication: dd } = data;
+  const recordedAnswered = data.coverage
+    ? data.sources.filter(s => s.coverage?.category === 'answered').length
+    : identification.sources_that_answered;
   const window = [search.date_from, search.date_to].filter(Boolean).join(' to ');
 
   const rows: Array<{ label: string; block: DedupBlock }> = [
@@ -139,7 +143,7 @@ const SearchRecord: React.FC<{ executionId: number; recordState?: SearchRecordSt
         </thead>
         <tbody>
           {data.sources.map((s) => (
-            <tr key={s.source} className={s.answered ? '' : 'record-quiet'}>
+            <tr key={s.source} className={(s.coverage ? s.coverage.category === 'answered' : s.answered) ? '' : 'record-quiet'}>
               <td>{s.source}</td>
               <td>{nf.format(s.records_identified)}</td>
               <td>{outcomeLabel(s)}</td>
@@ -149,8 +153,8 @@ const SearchRecord: React.FC<{ executionId: number; recordState?: SearchRecordSt
             <td><strong>Total</strong></td>
             <td><strong>{nf.format(identification.records_identified)}</strong></td>
             <td>
-              {identification.sources_that_answered} of{' '}
-              {identification.sources_searched} recorded sources answered
+              {recordedAnswered} of{' '}
+              {identification.sources_searched} sources answered (recorded-source basis)
             </td>
           </tr>
         </tbody>

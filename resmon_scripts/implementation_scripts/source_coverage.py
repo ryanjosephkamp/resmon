@@ -76,7 +76,14 @@ def outcome(row: dict) -> dict:
                 category = "non_answer"
         except (ValueError, TypeError, OverflowError):
             note = "Recorded reason details are malformed; whether this source answered is unknown."
-    return {"source": source, "category": category, "note": note,
+    label = {"answered": "answered", "non_answer": "did not answer", "unknown": "unknown / outcome not recorded"}[category]
+    if valid and category == "unknown" and reason in (None, "not_recorded"):
+        label = "zero, reason not recorded"
+    if category == "answered" and count == 0:
+        label = "answered, zero" if reason == "answered_empty" else "answered; nothing storable"
+    if category == "non_answer" and reason == "parse_failure":
+        label = "reply unreadable"
+    return {"source": source, "category": category, "label": label, "note": note,
             "outcome_recorded": True, "status": status, "result_count": count,
             "zero_reason": reason, "recorded_at": row.get("recorded_at"),
             "genuine_empty": category == "answered" and status == "ok" and count == 0 and reason == "answered_empty"}
@@ -87,6 +94,7 @@ def build(execution: dict, rows: list[dict]) -> dict:
     recorded = {row["source"]: outcome(row) for row in rows}
     basis = selected if selected is not None else list(recorded)
     sources = [recorded.get(slug, {"source": slug, "category": "unknown",
+                "label": "unknown / outcome not recorded",
                 "note": "Outcome not recorded; no attempt, failure or empty answer can be inferred.",
                 "outcome_recorded": False, "status": None, "result_count": None,
                 "zero_reason": None, "recorded_at": None, "genuine_empty": False}) for slug in basis]
@@ -96,6 +104,10 @@ def build(execution: dict, rows: list[dict]) -> dict:
     label = "selected sources" if selected is not None else "recorded sources"
     summary = (f"{len(sources)} {label}: {counts['answered']} answered, "
                f"{counts['non_answer']} recorded non-answer (could not answer), {counts['unknown']} unknown.") if sources else "No source outcomes were recorded; the full selected set is unknown."
+    unexplained = sum(s["outcome_recorded"] and s["category"] == "unknown" and s["result_count"] == 0
+                      and s["zero_reason"] in (None, "not_recorded") for s in sources)
+    if unexplained:
+        summary += f" {unexplained} returned nothing for a reason resmon did not record."
     notes = [provenance]
     if extra:
         notes.append(f"{len(extra)} additional recorded sources fall outside the saved selection and are excluded from selected-source counts.")

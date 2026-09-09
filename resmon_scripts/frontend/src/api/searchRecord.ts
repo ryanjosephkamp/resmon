@@ -4,6 +4,7 @@ import { apiClient } from './client';
 export interface CoverageSource {
   source: string;
   category: 'answered' | 'non_answer' | 'unknown';
+  label: string;
   note: string;
   result_count: number | null;
   recorded_at: string | null;
@@ -23,6 +24,7 @@ export interface SourceCoverage {
   notes: string[];
 }
 interface SourceRow {
+  coverage?: CoverageSource;
   source: string;
   records_identified: number;
   status: string;

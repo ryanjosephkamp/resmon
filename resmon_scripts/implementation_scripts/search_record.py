@@ -124,6 +124,7 @@ def build(conn: sqlite3.Connection, execution_id: int) -> dict:
     per_source = [
         {
             "source": s["source"],
+            "coverage": source_coverage.outcome(s),
             "records_identified": int(s["result_count"] or 0),
             "status": s["status"],
             # The reason a zero is a zero. NULL on every row written before
@@ -388,6 +389,8 @@ _OUTCOME_LABELS = {
 
 
 def _outcome_label(source: dict) -> str:
+    if source.get("coverage"):
+        return source["coverage"]["label"]
     if source["status"] == "ok":
         reason = source.get("zero_reason")
         if not reason:
@@ -482,8 +485,10 @@ def to_markdown(record: dict) -> str:
             f"| {_text(source['source'])} | {source['records_identified']:,} | {_text(outcome)} |"
         )
     ident = record["identification"]
+    recorded_answered = (sum(s["coverage"]["category"] == "answered" for s in record["sources"])
+                         if coverage else ident["sources_that_answered"])
     lines.append(f"| **Total** | **{ident['records_identified']:,}** | "
-                 f"{ident['sources_that_answered']} of "
+                 f"{recorded_answered} of "
                  f"{ident['sources_searched']} recorded sources answered |")
     lines.append("")
 

@@ -53,7 +53,43 @@ test('coverage history opens with keyboard, exports and preserves source identit
     await expect(summary).toContainText(`Execution #${empty}`);
     await expect(win.getByText(/Export saved to:/)).toHaveCount(0);
     await win.getByRole('button', { name: 'Close', exact: true }).click();
+    // Hold the real request before delivery, then let another run own the viewer.
+    // Both eventual success and a real backend 404 must stay with the old run.
+    for (const fail of [false, true]) {
+      let release!: () => void;
+      let received!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const arrived = new Promise<void>(resolve => { received = resolve; });
+      const pattern = `**/api/executions/${mixed}/search-record`;
+      await win.route(pattern, async route => {
+        received(); await gate;
+        await route.continue(fail ? { url: `http://127.0.0.1:${port}/api/executions/999999/search-record` } : {});
+      });
+      await win.getByText(`Execution #${mixed}`, { exact: true }).locator('xpath=ancestor::tr').click();
+      await arrived;
+      await win.getByText(`Execution #${empty}`, { exact: true }).locator('xpath=ancestor::tr').click();
+      await expect(summary).toContainText(`Execution #${empty}`);
+      const response = win.waitForResponse(r => r.url().includes(fail ? '/999999/search-record' : `/${mixed}/search-record`));
+      release(); await response;
+      await expect(summary).toContainText('No source outcomes were recorded');
+      await expect(win.locator('.report-viewer [role="alert"]')).toHaveCount(0);
+      await win.unroute(pattern);
+      await win.getByRole('button', { name: 'Close', exact: true }).click();
+    }
+    // Retry crosses a real failed backend request and then the normal endpoint.
+    const pattern = `**/api/executions/${mixed}/search-record`;
+    await win.route(pattern, route => route.continue({ url: `http://127.0.0.1:${port}/api/executions/999999/search-record` }), { times: 1 });
+    await win.getByText(`Execution #${mixed}`, { exact: true }).locator('xpath=ancestor::tr').click();
+    await expect(win.locator('.report-viewer [role="alert"]')).toContainText('could not be loaded');
+    await win.getByRole('button', { name: 'Retry coverage' }).focus();
+    await win.keyboard.press('Enter');
+    await expect(summary).toContainText('6 selected sources');
+    await win.getByRole('button', { name: 'Close', exact: true }).click();
+    await win.evaluate(() => { window.location.hash = '#/dashboard'; });
+    await expect(win.locator('.report-viewer')).toHaveCount(0);
     await win.evaluate(id => { window.location.hash = `#/results?exec=${id}&tab=record`; }, mixed);
+    await expect(win.locator('.tab-bar .tab-active')).toHaveText('Search record');
+    await expect(win.locator('.search-record')).toContainText(`Execution #${mixed}`);
     // Missing record is an actual backend 404, not an empty-success response.
     const missing = await win.request.get(`http://127.0.0.1:${port}/api/executions/999999/search-record`);
     expect(missing.status()).toBe(404);

@@ -8,7 +8,7 @@ const coverage: SourceCoverage = {
   counts: { answered: 1, non_answer: 1, unknown: 1, genuine_empty: 0 },
   summary: '3 selected sources: 1 answered, 1 recorded non-answer, 1 unknown.',
   notes: ['Saved selection', 'Limits stay visible.'], additional_sources: [],
-  sources: [{ source: '<img src=x onerror=bad()>', category: 'unknown', note: '<script>bad()</script>|# forged',
+  sources: [{ source: '<img src=x onerror=bad()>', category: 'unknown', label: 'unknown', note: '<script>bad()</script>|# forged',
     result_count: null, recorded_at: null, outcome_recorded: false, genuine_empty: false }],
 };
 test('backend counts and hostile strings render as text; details opens accessibly', () => {
