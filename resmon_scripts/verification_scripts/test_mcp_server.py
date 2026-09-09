@@ -967,3 +967,11 @@ def test_precise_runtime_409_mapping(detail, code):
 def test_only_two_tools_offer_runtime_expectation():
     assert {t["name"] for t in mcp.TOOLS if "expected_runtime_id" in t["schema"]["properties"]} == {"health", "get_execution"}
     assert len(mcp.TOOLS) == 25 and len(mcp.WRITE_TOOLS) == 7
+
+
+@pytest.mark.parametrize("change", [{"contract_version": True}, {"schema_version": "14"}, {"corpus_id": "invented"}, {"build_id": "invented"}])
+def test_malformed_identity_shape_is_unavailable(change):
+    with _stub({"/api/health": {"identity": {**_identity(), **change}}}):
+        with pytest.raises(mcp.ToolError) as exc:
+            mcp.t_health({"expected_runtime_id": _RUNTIME_A})
+    assert exc.value.code == "identity_unavailable"

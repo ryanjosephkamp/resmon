@@ -76,6 +76,7 @@ test('connected header observes real runtime change, explicit keyboard reaccept 
     // removes unsupported metadata and ignores the query as older servers do.
     let legacyMode: 'legacy' | 'failure' = 'legacy';
     legacy = http.createServer((_request, reply) => {
+      reply.setHeader('Access-Control-Allow-Origin', '*');
       if (legacyMode === 'failure') { reply.writeHead(503); reply.end('{}'); return; }
       http.get(baseB + '/api/health', response => {
         let text = ''; response.on('data', chunk => { text += String(chunk); });

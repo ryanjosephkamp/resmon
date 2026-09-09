@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import httpx
-from implementation_scripts.runtime_identity import valid_runtime_id
+from implementation_scripts.runtime_identity import valid_runtime_id, valid_identity
 
 # The contract this server implements: docs/api-contract/mcp.md.
 #
@@ -277,8 +277,7 @@ class Backend:
             result = resp.text
         if expected_runtime_id is not None:
             identity = result.get("identity") if isinstance(result, dict) else None
-            if (not isinstance(identity, dict) or identity.get("contract_version") != 1
-                    or not valid_runtime_id(identity.get("runtime_id"))):
+            if not valid_identity(identity):
                 raise ToolError("identity_unavailable", "The responding app did not supply a supported runtime identity.")
             if identity["runtime_id"] != expected_runtime_id:
                 raise ToolError("instance_mismatch", "This request reached a different running app.", {

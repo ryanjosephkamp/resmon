@@ -25,7 +25,8 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 function identityOf(value: unknown): RuntimeIdentity | null {
   if (!record(value) || value.contract_version !== 1 || typeof value.runtime_id !== 'string'
-      || !uuid4.test(value.runtime_id)) return null;
+      || !uuid4.test(value.runtime_id) || value.corpus_id !== null || value.build_id !== null
+      || !(value.schema_version === null || (typeof value.schema_version === 'number' && Number.isInteger(value.schema_version)))) return null;
   return { contract_version: 1, runtime_id: value.runtime_id,
     schema_version: typeof value.schema_version === 'number' && Number.isInteger(value.schema_version)
       ? value.schema_version : null,

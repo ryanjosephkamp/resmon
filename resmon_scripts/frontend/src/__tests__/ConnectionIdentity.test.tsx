@@ -116,3 +116,9 @@ test('a pending poll labels the previous observation stale instead of claiming c
   expect(screen.getByRole('status')).toHaveTextContent('Checking running app');
   expect(screen.getByText(/Last observation is stale/)).toBeInTheDocument();
 });
+
+
+test.each([{ schema_version: '14' }, { corpus_id: 'invented' }, { build_id: 'invented' }])('unsupported identity shape is unavailable', async change => {
+  const valid = health(); fetchMock.mockResolvedValue(response({ ...valid, identity: { ...valid.identity, ...change } }));
+  mount(); await settle(); expect(screen.getByRole('status')).toHaveTextContent('Identity unavailable');
+});

@@ -30,6 +30,17 @@ def valid_runtime_id(value: object) -> bool:
         return False
 
 
+def valid_identity(value: object) -> bool:
+    """Require the v1 identity shape rather than treating one token as a contract."""
+    if not isinstance(value, dict):
+        return False
+    required = {"contract_version", "runtime_id", "schema_version", "corpus_id", "build_id"}
+    return (required <= value.keys() and type(value["contract_version"]) is int
+            and value["contract_version"] == 1 and valid_runtime_id(value["runtime_id"])
+            and (value["schema_version"] is None or type(value["schema_version"]) is int)
+            and value["corpus_id"] is None and value["build_id"] is None)
+
+
 def project(conn: sqlite3.Connection) -> dict:
     # Read saved metadata; a release version cannot tell us this database's schema.
     try:
