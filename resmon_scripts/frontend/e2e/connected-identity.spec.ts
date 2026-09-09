@@ -12,11 +12,11 @@ test('connected header observes real runtime change, explicit keyboard reaccept 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-connected-identity-'));
   const a = path.join(root, 'A'); const b = path.join(root, 'B');
   fs.mkdirSync(a); fs.mkdirSync(b);
-  const envA = { ...launchEnv(a, true), RESMON_DISABLE_SCHEDULER: '1', PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring' };
-  const envB = { ...launchEnv(b, true), RESMON_DISABLE_SCHEDULER: '1', PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring' };
+  const envA: Record<string, string> = { ...launchEnv(a, true), RESMON_DISABLE_SCHEDULER: '1', PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring' };
+  const envB: Record<string, string> = { ...launchEnv(b, true), RESMON_DISABLE_SCHEDULER: '1', PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring' };
   const helper = path.join(REPO_ROOT, 'resmon_scripts/verification_scripts/test_connected_identity_boundary.py');
   for (const env of [envA, envB]) execFileSync(env.RESMON_PYTHON, [helper, 'seed', env.RESMON_DB_PATH], { env });
-  const snapshot = (env: NodeJS.ProcessEnv & { RESMON_PYTHON: string; RESMON_DB_PATH: string }) =>
+  const snapshot = (env: Record<string, string>) =>
     execFileSync(env.RESMON_PYTHON, [helper, 'snapshot', env.RESMON_DB_PATH], { env, encoding: 'utf8' });
   const reservation = net.createServer();
   await new Promise<void>(resolve => reservation.listen(0, '127.0.0.1', resolve));
