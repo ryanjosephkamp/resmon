@@ -12,7 +12,7 @@ import { _electron as electron, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, launchEnv } from './resmon-app';
 
-type Mode = 'paper' | 'empty' | 'failure';
+type Mode = 'paper' | 'empty' | 'failure' | '503' | 'malformed';
 interface Stored { execution: Record<string, unknown>[]; sources: Record<string, unknown>[]; documents: Record<string, unknown>[] }
 interface SourceRequest { method: string; url: string; status: number | null; transport: string }
 const emptyFeed = '<feed xmlns="http://www.w3.org/2005/Atom"></feed>';
@@ -50,9 +50,9 @@ export async function launchSourceApp(mode: Mode) {
         record.transport = 'closed-without-response';
         req.socket.destroy();
       } else {
-        res.writeHead(200, { 'Content-Type': 'application/atom+xml' });
-        res.end(mode === 'paper' ? paperFeed : emptyFeed);
-        record.status = 200;
+        res.writeHead(mode === '503' ? 503 : 200, { 'Content-Type': 'application/atom+xml' });
+        res.end(mode === 'paper' ? paperFeed : mode === 'malformed' ? '<feed><broken' : mode === '503' ? 'Unavailable' : emptyFeed);
+        record.status = mode === '503' ? 503 : 200;
         record.transport = 'http-response';
       }
     });
@@ -73,8 +73,16 @@ export async function launchSourceApp(mode: Mode) {
   // renderer response changes. This scoped guard also makes accidental endpoint
   // drift fail closed even when the caller has not supplied an offline guard.
   fs.writeFileSync(path.join(hookDir, 'sitecustomize.py'), `
-import ipaddress, json, os, socket, sys
+import ipaddress, json, os, socket, sys, runpy
 from pathlib import Path
+# The scoped endpoint hook shadows sitecustomize; replay the caller's existing
+# guard unchanged before adding this fixture's stricter contact receipt.
+inherited_guards = []
+for entry in os.environ.get('PYTHONPATH', '').split(os.pathsep):
+    candidate = Path(entry) / 'sitecustomize.py'
+    if candidate.is_file() and candidate.resolve() != Path(__file__).resolve():
+        runpy.run_path(str(candidate))
+        inherited_guards.append(str(candidate))
 state = Path(${JSON.stringify(stateDir)})
 original_connect = socket.socket.connect
 original_connect_ex = socket.socket.connect_ex
@@ -103,7 +111,7 @@ socket.socket.connect_ex = connect_ex
 sys.path.insert(0, ${JSON.stringify(path.join(REPO_ROOT, 'resmon_scripts'))})
 from implementation_scripts import api_arxiv
 api_arxiv._ARXIV_API_URL = ${JSON.stringify(endpoint)}
-(state / 'source-hook.json').write_text(json.dumps({'pid': os.getpid(), 'parent_pid': os.getppid(), 'endpoint': api_arxiv._ARXIV_API_URL}))
+(state / 'source-hook.json').write_text(json.dumps({'pid': os.getpid(), 'parent_pid': os.getppid(), 'endpoint': api_arxiv._ARXIV_API_URL, 'inherited_guards': inherited_guards}))
 `);
   execFileSync(env.RESMON_PYTHON, ['-c', 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())', path.join(hookDir, 'sitecustomize.py')]);
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);

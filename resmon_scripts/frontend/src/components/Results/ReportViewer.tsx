@@ -5,6 +5,8 @@ import SaveConfigButton from '../SaveConfig/SaveConfigButton';
 import EditRoutineButton from '../Routines/EditRoutineButton';
 import { useConfigurationsVersion } from '../../lib/configurationsBus';
 import SearchRecord from './SearchRecord';
+import CoverageSummary from './CoverageSummary';
+import { useSearchRecord } from '../../api/searchRecord';
 import ExecutionPapers from './ExecutionPapers';
 
 /* ------------------------------------------------------------------ */
@@ -137,7 +139,7 @@ interface Props {
   initialTab?: ReportTab;
 }
 
-const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => {
+const RunViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => {
   const [tab, setTab] = useState<ReportTab>(initialTab ?? 'report');
   const [report, setReport] = useState<string | null>(null);
   const [log, setLog] = useState<string | null>(null);
@@ -156,6 +158,9 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
   const isLive =
     activeExecution?.executionId === executionId &&
     activeExecution?.status === 'running';
+
+  const recordState = useSearchRecord(executionId, true, isLive);
+  const recordTab = useRef<HTMLButtonElement>(null);
 
   /* Fetch core data */
   useEffect(() => {
@@ -282,6 +287,9 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
           )}
         </div>
       )}
+      {recordState.error ? <div role="alert" className="form-error">Coverage for execution #{executionId} could not be loaded: {recordState.error} <button className="btn btn-sm" onClick={recordState.retry}>Retry coverage</button></div>
+        : recordState.data?.coverage ? <CoverageSummary coverage={recordState.data.coverage} onDetails={() => { setTab('record'); recordTab.current?.focus(); }} />
+          : <p role="status">Loading source coverage for execution #{executionId}…</p>}
       <div className="tab-bar">
         <button className={`tab-btn ${tab === 'report' ? 'tab-active' : ''}`} onClick={() => setTab('report')}>Report</button>
         <button className={`tab-btn ${tab === 'log' ? 'tab-active' : ''}`} onClick={() => setTab('log')}>Log</button>
@@ -289,7 +297,7 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
         <button className={`tab-btn ${tab === 'progress' ? 'tab-active' : ''}`} onClick={() => setTab('progress')}>
           Progress{isLive && <span className="sidebar-pulse" style={{ marginLeft: 6 }} />}
         </button>
-        <button className={`tab-btn ${tab === 'record' ? 'tab-active' : ''}`} onClick={() => setTab('record')}>Search record</button>
+        <button ref={recordTab} className={`tab-btn ${tab === 'record' ? 'tab-active' : ''}`} onClick={() => setTab('record')}>Search record</button>
         {/* Last, so the five tabs that existed before 2.2 keep the order a
             user's hand already knows. */}
         <button className={`tab-btn ${tab === 'papers' ? 'tab-active' : ''}`} onClick={() => setTab('papers')}>Papers</button>
@@ -319,7 +327,7 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
           <ProgressTimeline events={displayEvents} />
         )}
         {tab === 'record' && (
-          <SearchRecord executionId={executionId} />
+          <SearchRecord executionId={executionId} recordState={recordState} />
         )}
         {tab === 'papers' && (
           <ExecutionPapers executionId={executionId} />
@@ -330,4 +338,7 @@ const ReportViewer: React.FC<Props> = ({ executionId, onClose, initialTab }) => 
   );
 };
 
+// Changing runs remounts every tab and export state; an old async export cannot
+// announce its path inside a different execution or survive close/reopen.
+const ReportViewer: React.FC<Props> = props => <RunViewer key={props.executionId} {...props} />;
 export default ReportViewer;

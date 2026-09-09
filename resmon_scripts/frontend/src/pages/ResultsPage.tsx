@@ -61,7 +61,7 @@ const ResultsPage: React.FC = () => {
     const hash = window.location.hash;
     const match = hash.match(/exec=(\d+)/);
     if (match) setViewId(Number(match[1]));
-    const tabMatch = hash.match(/tab=(report|log|meta|progress|papers)/);
+    const tabMatch = hash.match(/tab=(report|log|meta|progress|record|papers)/);
     if (tabMatch) setViewTab(tabMatch[1] as ReportTab);
   }, []);
 
@@ -213,7 +213,7 @@ const ResultsPage: React.FC = () => {
                     date window you asked for, needs a key that is not configured, or
                     has been withdrawn. This is <em>not</em> a zero, and a search
                     strategy that lists the source as searched would be overstating its
-                    coverage.
+                    coverage. The opened run shows a compact coverage account; View source details opens its Search record. Explicit report ZIPs add generated Search record companions while preserving original reports and logs.
                   </li>
                   <li>
                     <strong>Reason not recorded.</strong> resmon did not observe why.

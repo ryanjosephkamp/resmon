@@ -1,5 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { apiClient, getBaseUrl } from '../../api/client';
+import React from 'react';
+import { DedupBlock, SearchRecordData, SearchRecordState, useSearchRecord } from '../../api/searchRecord';
+import CoverageSummary from './CoverageSummary';
+type SourceRow = SearchRecordData['sources'][number];
+import { getBaseUrl } from '../../api/client';
 
 /**
  * The reproducible search record for one execution.
@@ -25,29 +28,6 @@ import { apiClient, getBaseUrl } from '../../api/client';
  * a disclosure. They travel into the Markdown export for the same reason.
  */
 
-interface SourceRow {
-  source: string;
-  records_identified: number;
-  status: string;
-  /** Why this source returned nothing, or "not_recorded". Null when it did. */
-  zero_reason: string | null;
-  /** Whether the source replied at all — not the same as status === 'ok'. */
-  answered: boolean;
-  note: string | null;
-}
-
-/**
- * The short label in the Outcome column.
- *
- * This column used to read "answered" for every ``ok`` row. Every client
- * degrades rather than raising, so a source whose endpoint 503'd is recorded
- * ``ok / 0`` and was being reported to a systematic reviewer as a database
- * that answered. The full sentence is rendered underneath the table; this is
- * the label.
- */
-// A plain index signature rather than `Record<…>`: this module declares its
-// own `Record` interface for the search record itself, which shadows the
-// built-in utility type.
 const OUTCOME_LABELS: { [reason: string]: string } = {
   window_unanswerable: 'could not answer this window',
   upstream_failure: 'did not answer',
@@ -69,48 +49,6 @@ const outcomeLabel = (s: SourceRow): string => {
   return s.status.replace(/_/g, ' ');
 };
 
-interface DedupBlock {
-  count: number | null;
-  prisma: string | null;
-  meaning: string;
-  recorded?: boolean;
-  not_recorded_reason?: string | null;
-}
-
-interface Record {
-  generated_at: string;
-  software: { name: string; version: string; citation: string };
-  search: {
-    execution_id: number;
-    run_at: string;
-    completed_at: string | null;
-    status: string;
-    keywords: string[];
-    query_as_sent: string | null;
-    date_from: string | null;
-    date_to: string | null;
-    max_results_per_source: number | null;
-    routine_name: string | null;
-    routine_schedule: string | null;
-    configuration_name: string | null;
-  };
-  sources: SourceRow[];
-  identification: {
-    records_identified: number;
-    sources_searched: number;
-    sources_that_answered: number;
-    prisma: string;
-  };
-  deduplication: {
-    records_processed: number | null;
-    cross_source_duplicates: DedupBlock;
-    already_held: DedupBlock;
-    discarded_unusable: DedupBlock;
-    records_added: DedupBlock;
-  };
-  caveats: string[];
-}
-
 const nf = new Intl.NumberFormat();
 
 /** Keeps "we did not measure this" visibly distinct from "there were none". */
@@ -119,24 +57,11 @@ const count = (value: number | null): React.ReactNode =>
     ? <em className="record-absent">not recorded</em>
     : nf.format(value);
 
-const SearchRecord: React.FC<{ executionId: number }> = ({ executionId }) => {
-  const [data, setData] = useState<Record | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      setData(await apiClient.get<Record>(
-        `/api/executions/${executionId}/search-record`));
-    } catch (err: any) {
-      setError(err?.message || 'Could not build the search record.');
-    }
-  }, [executionId]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  if (error) return <div className="form-error">{error}</div>;
-  if (!data) return <p className="text-muted">Building the record…</p>;
+const SearchRecord: React.FC<{ executionId: number; recordState?: SearchRecordState }> = ({ executionId, recordState }) => {
+  const ownState = useSearchRecord(executionId, !recordState);
+  const { data, error, retry } = recordState ?? ownState;
+  if (error) return <div role="alert" className="form-error">Search record for execution #{executionId}: {error} <button className="btn btn-sm" onClick={retry}>Retry search record</button></div>;
+  if (!data || data.search.execution_id !== executionId) return <p className="text-muted">Building the record for execution #{executionId}…</p>;
 
   const { search, identification, deduplication: dd } = data;
   const window = [search.date_from, search.date_to].filter(Boolean).join(' to ');
@@ -153,7 +78,7 @@ const SearchRecord: React.FC<{ executionId: number }> = ({ executionId }) => {
       <div className="search-record-head">
         <p className="text-muted">
           The complete, dated account of this search, in the shape a PRISMA flow
-          diagram needs. Everything here was recorded when the search ran.
+          diagram needs. Generated from saved facts; missing history remains unknown. Execution #{executionId}. Generated {data.generated_at}.
         </p>
         {/*
           A plain link, not a scripted download: this opens the backend's own
@@ -169,6 +94,7 @@ const SearchRecord: React.FC<{ executionId: number }> = ({ executionId }) => {
         </a>
       </div>
 
+      {data.coverage && <CoverageSummary coverage={data.coverage} details />}
       <h4>The search</h4>
       <div className="meta-grid">
         <div className="meta-row">
@@ -224,7 +150,7 @@ const SearchRecord: React.FC<{ executionId: number }> = ({ executionId }) => {
             <td><strong>{nf.format(identification.records_identified)}</strong></td>
             <td>
               {identification.sources_that_answered} of{' '}
-              {identification.sources_searched} sources answered
+              {identification.sources_searched} recorded sources answered
             </td>
           </tr>
         </tbody>
