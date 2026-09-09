@@ -26,9 +26,6 @@ const Header: React.FC = () => {
     instance_mismatch: 'Running app changed',
   };
 
-  return () => { cancelled = true; clearInterval(interval); };
-  }, []);
-
   return (
     <header className="header">
       <span className="header-title">{title}</span>
