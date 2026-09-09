@@ -38,7 +38,14 @@ import { downloadReferences, ReferenceFormat } from '../lib/referenceDownload';
  *
  * **A completing action refreshes the view that is current when it lands**, not
  * the one that was current when it was clicked. `viewRef` is the single source
- * of that answer. Reconciliation held a real, successful `PUT` until after the
+ * of that answer, and it follows the page that actually arrived.
+ *
+ * **The range describes rows, never a total.** Removing the only paper on page
+ * two left the pager rendering `Showing 51–50 of 50` over an empty view,
+ * because it was gated on `total > 0` rather than on there being anything to
+ * count — and the previous handback claimed otherwise without checking. `load`
+ * now recovers to the last page that exists, and the pager renders only
+ * alongside rows. Reconciliation held a real, successful `PUT` until after the
  * user had switched to Read, and the old closure then refreshed *To read* over
  * the Read page while the Read button stayed selected.
  */
@@ -93,10 +100,35 @@ const ReadingQueuePage: React.FC = () => {
     if (!options?.background) setLoading(true);
     setError('');
     try {
-      const result = await readingQueueApi.list(nextFilter, READING_PAGE_SIZE, nextOffset);
+      let wanted = nextOffset;
+      let result = await readingQueueApi.list(nextFilter, READING_PAGE_SIZE, wanted);
       if (mine !== requestId.current) return;
+
+      // **The page you are standing on can stop existing.** Remove the only
+      // paper on page two of 51 and the backend answers truthfully — no
+      // entries, total 50, offset 50 — but that offset is now past the end.
+      // Rendering it produced "Showing 51–50 of 50" over nothing. Recover to
+      // the last page that does exist and read *that*, so the range, the rows
+      // and the pager all describe one confirmed response.
+      //
+      // Guarded against looping: the correction is only followed when it
+      // actually moves, so a backend that answers an in-range offset with an
+      // empty page is rendered as it is rather than asked forever.
+      if (result.entries.length === 0 && result.total > 0 && wanted > 0) {
+        const lastPage = Math.floor((result.total - 1) / READING_PAGE_SIZE) * READING_PAGE_SIZE;
+        if (lastPage !== wanted) {
+          wanted = lastPage;
+          result = await readingQueueApi.list(nextFilter, READING_PAGE_SIZE, wanted);
+          if (mine !== requestId.current) return;
+        }
+      }
+
       setPage(result);
       setOffset(result.offset);
+      // Whatever page actually arrived is now the current view, so a mutation
+      // that completes later refreshes *this* one rather than the offset that
+      // stopped existing. A stale response returned above without touching it.
+      viewRef.current = { filter: nextFilter, offset: result.offset };
       // Deliberately *not* pruning `selected` here. The first repair did both —
       // pruned the stored set and derived the effective one — and a probe
       // showed the suite could not tell them apart, because either alone
@@ -296,7 +328,9 @@ const ReadingQueuePage: React.FC = () => {
                 else: the paper, its authors, and every run that found it are untouched,
                 and it is still in the Explorer. Save it again later and it starts fresh
                 at <em>To read</em>. The only thing in resmon that deletes a paper is{' '}
-                <strong>Settings → Advanced</strong>, which you operate yourself.
+                <strong>Settings → Advanced</strong>, which you operate yourself. If it was
+                the last paper on the page you were reading, the list moves you back to a
+                page that still has papers on it.
               </p>
             ),
           },
@@ -388,7 +422,24 @@ const ReadingQueuePage: React.FC = () => {
         </div>
       )}
 
-      {!loading && !error && total > 0 && (
+      {/* A page of a non-empty queue that came back empty. With the recovery in
+          `load` this should be unreachable, so it is not styled as a normal
+          state — but "unreachable" is a belief about a backend, and rendering
+          nothing at all was the other half of what reconciliation found. */}
+      {!loading && !error && total > 0 && entries.length === 0 && (
+        <div className="card" data-testid="queue-page-empty">
+          <p>
+            This page of your queue came back empty, although it holds {total}{' '}
+            {total === 1 ? 'paper' : 'papers'}. Something changed it while you were
+            looking.
+          </p>
+          <button className="btn btn-sm" onClick={() => go(filter, 0)}>
+            Go to the first page
+          </button>
+        </div>
+      )}
+
+      {listVisible && (
         <>
           <div className="reading-pager">
             <p className="text-muted" data-testid="queue-range">

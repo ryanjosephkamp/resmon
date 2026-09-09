@@ -567,6 +567,94 @@ describe('ReadingQueuePage', () => {
     expect(screen.queryByTestId('paper-1')).not.toBeInTheDocument();
   });
 
+  /* ------------------------------------------------------------------ *
+   * R4 — the page you are standing on can stop existing.
+   *
+   * Reconciliation reproduced this at the repaired head: 51 papers, go to
+   * page two, remove its only row. The backend answers truthfully — no
+   * entries, total 50, offset 50 — and the page rendered "Showing 51–50 of
+   * 50" over nothing at all. The range was gated on `total > 0` rather than
+   * on there being rows, which is what the previous handback wrongly claimed
+   * it already did.
+   * ------------------------------------------------------------------ */
+
+  /** A 51-entry queue served by offset, with one row alone on page two. */
+  function pagedQueue(total: number) {
+    const firstPage = Array.from({ length: Math.min(50, total) }, (_, i) => entry(i + 2));
+    return (url: string) => (
+      url.includes('offset=50')
+        ? queuePage(total > 50 ? [entry(1)] : [],
+                    { total, offset: 50, counts: { to_read: total, read: 0, all: total } })
+        : queuePage(firstPage,
+                    { total, offset: 0, counts: { to_read: total, read: 0, all: total } })
+    );
+  }
+
+  test('R4: removing the only row on page two lands on a real page, not a false range', async () => {
+    let total = 51;
+    const mock = mockRoutedFetch({
+      ...WHY,
+      '/api/reading-queue': (url: string) => pagedQueue(total)(url),
+      '/api/reading-queue/1': () => { total = 50; return { removed: true, document_id: 1 }; },
+    });
+    await renderWithProviders(<ReadingQueuePage />);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Next' })); });
+    expect(screen.getByTestId('queue-range')).toHaveTextContent('Showing 51–51 of 51');
+
+    await act(async () => { fireEvent.click(screen.getByTestId('remove-1')); });
+
+    // The recovery request has to have settled before this means anything.
+    await waitFor(() => expect(
+      callsTo(mock, '/api/reading-queue?').slice(-1)[0].url).toContain('offset=0'));
+    expect(screen.getByTestId('queue-range')).toHaveTextContent('Showing 1–50 of 50');
+    expect(screen.queryByText(/Showing 51–50/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('paper-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('paper-1')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    expect(screen.getByTestId('filter-to_read')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('R4: marking the only row on page two Read recovers the same way', async () => {
+    // Under To read, a paper that becomes Read leaves this filter — same
+    // shape as a removal, reached by the other control.
+    let total = 51;
+    const mock = mockRoutedFetch({
+      ...WHY,
+      '/api/reading-queue': (url: string) => pagedQueue(total)(url),
+      '/api/reading-queue/1': () => {
+        total = 50;
+        return { document_id: 1, status: 'read', saved_at: '', updated_at: '', read_at: '' };
+      },
+    });
+    await renderWithProviders(<ReadingQueuePage />);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Next' })); });
+    await act(async () => { fireEvent.click(screen.getByTestId('toggle-1')); });
+
+    await waitFor(() => expect(
+      callsTo(mock, '/api/reading-queue?').slice(-1)[0].url).toContain('offset=0'));
+    expect(screen.getByTestId('queue-range')).toHaveTextContent('Showing 1–50 of 50');
+    expect(screen.getByTestId('paper-2')).toBeInTheDocument();
+    // Recovery keeps the filter it was reading; it does not fall back to All.
+    expect(callsTo(mock, '/api/reading-queue?').slice(-1)[0].url).toContain('status=to_read');
+  });
+
+  test('R4: an empty page the recovery cannot correct still says something coherent', async () => {
+    // A backend that reports a total but answers page one empty is a
+    // disagreement no offset arithmetic can fix. The page must not render a
+    // range over nothing; it says what it has instead.
+    mockRoutedFetch({
+      ...WHY,
+      '/api/reading-queue': queuePage([], { total: 5, counts: { to_read: 5, read: 0, all: 5 } }),
+    });
+    await renderWithProviders(<ReadingQueuePage />);
+
+    expect(screen.queryByTestId('queue-range')).not.toBeInTheDocument();
+    expect(screen.getByTestId('queue-page-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('queue-empty')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'BibTeX' })).toBeDisabled();
+  });
+
   test('the evidence panel asks about the paper, by its corpus id', async () => {
     // `WhyThisPaper` fetches on first open rather than on mount, so the click
     // is the point: it is what proves the queue handed it a document id.

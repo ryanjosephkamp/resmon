@@ -77,10 +77,15 @@ trusting to be complete.
   was current when it was clicked.
 - `requestId` makes the most recently issued list request the winner, so a slow earlier
   response cannot replace a newer page.
+- **A page that stops existing is recovered, not rendered.** Removing or reading the only
+  paper on the last page leaves the current offset past the end; `load` then re-reads the last
+  page that does exist, and `viewRef` follows the page that actually arrived. The pager renders
+  only alongside rows, so a range can never describe a page with nothing on it.
 - The effective selection is **derived from the rows on screen** (`visibleSelected`), not held
   independently of them: counts, the select-all state, the export body and the export buttons'
   enabled state all read from it, so what is exported and what the user can see ticked cannot
-  come apart. The stored set is additionally pruned to the page on every successful load.
+  come apart. `selected` records what the user clicked and is never read directly — a second
+  mechanism that pruned it was removed once a probe showed no check could tell the two apart.
 - State on screen is state a response confirmed. A failed load, state change, removal or
   export shows the backend's message and leaves the rows as they were.
 

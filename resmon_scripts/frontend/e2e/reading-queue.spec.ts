@@ -323,6 +323,67 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     await win.unroute('**/api/reading-queue/*');
 
     /* ---------------------------------------------------------------- */
+    /* R4: the page you are standing on can stop existing.               */
+    /*                                                                   */
+    /* Reconciliation reproduced this here: 51 papers, page two, remove   */
+    /* its only row, and the range read "Showing 51–50 of 50" over        */
+    /* nothing. Both controls that can empty a page are exercised.        */
+    /* ---------------------------------------------------------------- */
+    // Put the two papers the R1/R2 blocks marked Read back, so To read holds
+    // 51 again and page two has exactly one row. Setup, not the behaviour
+    // under test — hence the API rather than the buttons.
+    for (const id of [leavingId, staleId]) {
+      const restored = await win.request.put(`${base}/api/reading-queue/${id}`,
+        { data: { status: 'to_read' } });
+      expect(restored.status()).toBe(200);
+    }
+    await win.getByTestId('filter-to_read').click();
+    await expect(win.getByTestId('queue-range')).toHaveText('Showing 1–50 of 51');
+
+    const lastPageRow = async () => Number(String(await win.locator('.reading-item').first()
+      .getAttribute('data-testid')).replace('paper-', ''));
+
+    for (const control of ['remove', 'toggle'] as const) {
+      if (control === 'toggle') {
+        // Back to 51 for the second pass: one more paper, newest save first,
+        // so the oldest is again alone on page two.
+        const saved = await win.request.post(`${base}/api/reading-queue`,
+          { data: { document_id: fixture.twin_document_ids[0] } });
+        expect(saved.status()).toBe(201);
+        await win.getByTestId('filter-read').click();
+        await win.getByTestId('filter-to_read').click();
+        await expect(win.getByTestId('queue-range')).toHaveText('Showing 1–50 of 51');
+      }
+
+      await win.getByRole('button', { name: 'Next', exact: true }).click();
+      await expect(win.getByTestId('queue-range')).toHaveText('Showing 51–51 of 51');
+      const alone = await lastPageRow();
+
+      const listsBefore = listRequests.length;
+      await win.getByTestId(`${control}-${alone}`).click();
+
+      // Judge only once the recovery request has actually settled.
+      await expect.poll(() => listRequests.length).toBeGreaterThan(listsBefore);
+      await expect.poll(
+        () => listRequests[listRequests.length - 1].includes('offset=0')).toBe(true);
+
+      await expect(win.getByTestId('queue-range')).toHaveText('Showing 1–50 of 50');
+      await expect(win.locator('.reading-item')).toHaveCount(50);
+      await expect(win.getByTestId(`paper-${alone}`)).toHaveCount(0);
+      await expect(win.getByRole('button', { name: 'Previous', exact: true })).toBeDisabled();
+      await expect(win.getByTestId('filter-to_read')).toHaveAttribute('aria-pressed', 'true');
+      // The backend agrees with what is on screen.
+      const settled = await (await win.request.get(
+        `${base}/api/reading-queue?status=to_read&limit=50&offset=0`)).json();
+      expect(settled.total).toBe(50);
+      expect(settled.entries).toHaveLength(50);
+      console.log('R4_LAST_PAGE_RECOVERED', JSON.stringify({
+        control, removedFromPageTwo: alone, range: 'Showing 1-50 of 50',
+        backendTotal: settled.total }));
+    }
+    await win.screenshot({ path: path.join(shots, '36-reading-queue-last-page-recovered.png') });
+
+    /* ---------------------------------------------------------------- */
     /* A failing request is an error on screen, never a silent success.  */
     /* ---------------------------------------------------------------- */
     await win.route('**/api/reading-queue?*', (route) => route.abort('failed'));
