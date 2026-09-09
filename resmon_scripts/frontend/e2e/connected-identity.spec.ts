@@ -4,8 +4,9 @@ import * as os from 'os';
 import * as path from 'path';
 import * as net from 'net';
 import * as http from 'http';
-import { spawn, execFileSync } from 'child_process';
+import { spawn, execFileSync, ChildProcess } from 'child_process';
 import { test, expect, _electron as electron } from '@playwright/test';
+import type { ElectronApplication } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, launchEnv, ensureScreenshotDir } from './fixtures/resmon-app';
 
 test('connected header observes real runtime change, explicit keyboard reaccept and legacy/error status', async () => {
@@ -26,15 +27,21 @@ test('connected header observes real runtime change, explicit keyboard reaccept 
   const backendLog = fs.openSync(path.join(b, 'backend.log'), 'w');
   const backend = spawn(envB.RESMON_PYTHON, [path.join(REPO_ROOT, 'resmon_scripts/resmon.py'), String(portB)],
     { cwd: b, env: envB, stdio: ['ignore', backendLog, backendLog] });
-  const app = await electron.launch({ args: ['.', `--user-data-dir=${path.join(a, 'electron-user-data')}`], cwd: FRONTEND_ROOT, env: envA, timeout: 180_000 });
+  let app: ElectronApplication | undefined;
+  let appProcess: ChildProcess | undefined;
+  let backendPidA: number | undefined;
   let legacy: http.Server | undefined;
   try {
+    app = await electron.launch({ args: ['.', `--user-data-dir=${path.join(a, 'electron-user-data')}`], cwd: FRONTEND_ROOT, env: envA, timeout: 180_000 });
+    appProcess = app.process();
     const win = await app.firstWindow({ timeout: 180_000 });
     await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
     const portA = fs.readFileSync(envA.RESMON_PORT_FILE, 'utf8').trim();
     expect(portA).not.toBe('8742');
     const baseA = `http://127.0.0.1:${portA}`; const baseB = `http://127.0.0.1:${portB}`;
     const healthA = await (await win.request.get(baseA + '/api/health')).json();
+    backendPidA = Number(healthA.pid);
+    if (process.platform !== 'win32') expect(Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(backendPidA)], { encoding: 'utf8' }).trim())).toBe(appProcess.pid);
     await expect.poll(async () => (await win.request.get(baseB + '/api/health')).status()).toBe(200);
     const healthB = await (await win.request.get(baseB + '/api/health')).json();
     expect(healthB.pid).toBe(backend.pid);
@@ -92,12 +99,30 @@ test('connected header observes real runtime change, explicit keyboard reaccept 
     expect(snapshot(envA)).toBe(beforeA); expect(snapshot(envB)).toBe(beforeB);
     console.log('IDENTITY_ELECTRON', JSON.stringify({ root, portA, portB, healthA, healthB, forwarded,
       tableCount: Object.keys(JSON.parse(beforeA)).length, rowsUnchanged: true, keyboard: true, profile: path.join(a, 'electron-user-data') }));
+  } catch (error) {
+    console.error('IDENTITY_ELECTRON_FAILURE', error);
+    throw error;
   } finally {
-    await app.close();
-    if (legacy) await new Promise<void>(resolve => legacy!.close(() => resolve()));
-    backend.kill('SIGTERM');
-    if (backend.exitCode === null) await new Promise<void>(resolve => backend.once('exit', () => resolve()));
-    fs.closeSync(backendLog);
-    console.log('IDENTITY_ELECTRON_SHUTDOWN', JSON.stringify({ appPid: app.process().pid, appExit: app.process().exitCode, backendPid: backend.pid, backendExit: backend.exitCode, backendSignal: backend.signalCode }));
+    // Cleanup covers failed launch as well as failures after the window appears.
+    try { if (app) await app.close(); }
+    finally {
+      if (legacy) { legacy.closeAllConnections(); await new Promise<void>(resolve => legacy!.close(() => resolve())); }
+      if (backend.exitCode === null && backend.signalCode === null) {
+        backend.kill('SIGTERM');
+        await new Promise<void>(resolve => {
+          const timer = setTimeout(() => backend.kill('SIGKILL'), 10000);
+          backend.once('exit', () => { clearTimeout(timer); resolve(); });
+        });
+      }
+      fs.closeSync(backendLog);
+    }
+    const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    if (backendPidA) {
+      try { await expect.poll(() => alive(backendPidA!), { timeout: 15000 }).toBe(false); }
+      finally { if (alive(backendPidA)) process.kill(backendPidA, 'SIGKILL'); }
+    }
+    console.log('IDENTITY_ELECTRON_SHUTDOWN', JSON.stringify({ appPid: appProcess?.pid, appExit: appProcess?.exitCode,
+      backendPidA, backendAExited: backendPidA ? !alive(backendPidA) : 'not observed',
+      backendPid: backend.pid, backendExit: backend.exitCode, backendSignal: backend.signalCode }));
   }
 });

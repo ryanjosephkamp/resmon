@@ -23,7 +23,7 @@ def snapshot(path: Path) -> dict:
         tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
         # Include virtual tables AND their shadow tables. Sort serialized rows;
         # no physical page/hash claim is made for SQLite journaling.
-        return {table: sorted([list(row) for row in conn.execute('SELECT * FROM "' + table.replace('"', '""') + '"')], key=repr)
+        return {table: sorted([[{"bytes_hex": value.hex()} if isinstance(value, bytes) else value for value in row] for row in conn.execute('SELECT * FROM "' + table.replace('"', '""') + '"')], key=repr)
                 for table in tables}
 
 
