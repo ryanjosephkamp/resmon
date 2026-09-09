@@ -45,6 +45,10 @@ def test_singular_and_matching_list_are_concrete_selection():
 def test_every_existing_reason_has_one_exclusive_category(reason, expected):
     result = project({"repository": "a"}, [row(reason=reason)])
     assert result["sources"][0]["category"] == expected
+    if reason == "window_unanswerable":
+        assert result["sources"][0]["label"] == "could not answer this window"
+    if reason == "parse_failure":
+        assert result["sources"][0]["label"] == "reply unreadable"
     assert sum(result["counts"][k] for k in ("answered", "non_answer", "unknown")) == 1
     assert result["counts"]["genuine_empty"] == int(reason == "answered_empty")
 
