@@ -102,51 +102,86 @@ test('the in-app link window is a child of the main window and comes to the fron
     await win.waitForFunction(() => window.location.hash.startsWith('#/repositories'));
     const link = win.locator('.required-attributions a').first();
     await link.waitFor({ state: 'visible', timeout: 30_000 });
-    await link.click();
-    await expect.poll(() => app.windows().length, { timeout: 20_000 }).toBe(2);
-    await new Promise((r) => setTimeout(r, 1500));
-
-    const facts = await app.evaluate(async ({ BrowserWindow }, keep) => {
-      const all = BrowserWindow.getAllWindows();
-      const opened = all.find((w) => w.id !== keep);
-      const main = all.find((w) => w.id === keep);
-      return {
-        parentIsMain: opened?.getParentWindow()?.id === keep,
-        openedVisible: opened?.isVisible() ?? false,
-        openedFocused: opened?.isFocused() ?? false,
-        mainFocused: main?.isFocused() ?? false,
-        anyFocused: all.some((w) => w.isFocused()),
+    const href = await link.getAttribute('href');
+    expect(href).toMatch(/^https?:\/\//);
+    // Cancel this real attribution navigation before transport. The window is
+    // still created by the app; no successful remote page is fabricated.
+    const interception = await app.evaluateHandle(({ session }, target) => {
+      const facts = {
+        installed: false,
+        cancelled: [] as string[],
+        errors: [] as { url: string; error: string }[],
       };
-    }, mainId);
-    console.log('WM LINK WINDOW', JSON.stringify(facts));
+      session.defaultSession.webRequest.onErrorOccurred({ urls: [target] }, (details) => {
+        facts.errors.push({ url: details.url, error: details.error });
+      });
+      session.defaultSession.webRequest.onBeforeRequest({ urls: [target] }, (details, callback) => {
+        facts.cancelled.push(details.url);
+        callback({ cancel: true });
+      });
+      facts.installed = true;
+      return facts;
+    }, href!);
+    try {
+      expect(await interception.jsonValue()).toEqual({ installed: true, cancelled: [], errors: [] });
+      await link.click();
+      await expect.poll(() => interception.evaluate((facts) => facts.cancelled)).toEqual([href]);
+      await expect.poll(() => interception.evaluate((facts) => facts.errors)).toEqual([
+        { url: href, error: 'net::ERR_BLOCKED_BY_CLIENT' },
+      ]);
+      console.log('ATTRIBUTION CANCELLED BEFORE TRANSPORT', JSON.stringify(await interception.jsonValue()));
 
-    // Parentage and visibility are the app's own doing and hold anywhere.
-    expect(facts.parentIsMain).toBe(true);
-    expect(facts.openedVisible).toBe(true);
+      await expect.poll(() => app.windows().length, { timeout: 20_000 }).toBe(2);
+      await new Promise((r) => setTimeout(r, 1500));
 
-    // Focus is the window manager's to give, and it gives it to the frontmost
-    // application. Under a launcher — a bare X server with no window manager,
-    // or a local run where the terminal stays frontmost — **no** window reports
-    // focus, which is what `anyFocused` measures. Asserting through that would
-    // make this red for a reason no change to this repository could fix, so the
-    // run says which arm held instead. Measured on the machine this was written
-    // on: `anyFocused` was false, so the local run does not verify it either.
-    if (!facts.anyFocused) {
-      console.log(
-        'WM LINK FOCUS NOT VERIFIED — no window on this display reports focus at all,',
-        'so resmon is not the frontmost application here. That is the normal state',
-        'under xvfb (no window manager) and under a local run whose terminal keeps',
-        'focus. Which window would come to the front is NOT verified by this run.',
-      );
-      test.skip(true, 'no window reports focus on this display');
+      const facts = await app.evaluate(async ({ BrowserWindow }, keep) => {
+        const all = BrowserWindow.getAllWindows();
+        const opened = all.find((w) => w.id !== keep);
+        const main = all.find((w) => w.id === keep);
+        return {
+          parentIsMain: opened?.getParentWindow()?.id === keep,
+          openedVisible: opened?.isVisible() ?? false,
+          openedFocused: opened?.isFocused() ?? false,
+          mainFocused: main?.isFocused() ?? false,
+          anyFocused: all.some((w) => w.isFocused()),
+        };
+      }, mainId);
+      console.log('WM LINK WINDOW', JSON.stringify(facts));
+
+      // Parentage and visibility are the app's own doing and hold anywhere.
+      expect(facts.parentIsMain).toBe(true);
+      expect(facts.openedVisible).toBe(true);
+
+      // Focus is the window manager's to give, and it gives it to the frontmost
+      // application. Under a launcher — a bare X server with no window manager,
+      // or a local run where the terminal stays frontmost — **no** window reports
+      // focus, which is what `anyFocused` measures. Asserting through that would
+      // make this red for a reason no change to this repository could fix, so the
+      // run says which arm held instead. Measured on the machine this was written
+      // on: `anyFocused` was false, so the local run does not verify it either.
+      if (!facts.anyFocused) {
+        console.log(
+          'WM LINK FOCUS NOT VERIFIED — no window on this display reports focus at all,',
+          'so resmon is not the frontmost application here. That is the normal state',
+          'under xvfb (no window manager) and under a local run whose terminal keeps',
+          'focus. Which window would come to the front is NOT verified by this run.',
+        );
+        test.skip(true, 'no window reports focus on this display');
+      }
+      expect(facts.openedFocused).toBe(true);
+      expect(facts.mainFocused).toBe(false);
+      console.log('WM LINK FOCUS — verified: the link window took focus from the main window');
+
+      await app.evaluate(async ({ BrowserWindow }, keep) => {
+        for (const w of BrowserWindow.getAllWindows()) if (w.id !== keep) w.destroy();
+      }, mainId);
+    } finally {
+      await app.evaluate(({ session }) => {
+        session.defaultSession.webRequest.onBeforeRequest(null);
+        session.defaultSession.webRequest.onErrorOccurred(null);
+      });
+      await interception.dispose();
     }
-    expect(facts.openedFocused).toBe(true);
-    expect(facts.mainFocused).toBe(false);
-    console.log('WM LINK FOCUS — verified: the link window took focus from the main window');
-
-    await app.evaluate(async ({ BrowserWindow }, keep) => {
-      for (const w of BrowserWindow.getAllWindows()) if (w.id !== keep) w.destroy();
-    }, mainId);
   } finally {
     await app.close().catch(() => { /* already gone */ });
     const fs = await import('fs');
