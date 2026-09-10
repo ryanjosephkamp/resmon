@@ -54,8 +54,8 @@ work on one side of it cannot break the other except through an endpoint's shape
                                              # 89 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 355 tests across 36 suites
-npm run e2e                                      # the real Electron app — 88 checks, 26 routes
+npm run typecheck && npm test && npm run build   # 356 tests across 36 suites
+npm run e2e                                      # the real Electron app — 94 checks, 26 routes
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 

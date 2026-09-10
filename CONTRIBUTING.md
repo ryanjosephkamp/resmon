@@ -46,7 +46,7 @@ All five must pass:
 .venv/bin/python -m pytest -q                    # hermetic backend suite — 1873 pass, 2 skip, 108 deselected
 .venv/bin/python -m pytest -m live_network -q    # real APIs; CI runs the half that needs no CLI, weekly
 cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
-npm run e2e                                      # the real Electron app, every route
+npm run e2e                                      # 94 checks, 26 routes; assistant-readability.spec.ts includes the local model-double journey
 ```
 
 `npm run e2e:review` runs the same suite on your own display — which is the only

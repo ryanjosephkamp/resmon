@@ -13,7 +13,7 @@ import {
  * behaviour, same minimised/expanded shape — because a second floating thing
  * that behaved differently would be a second thing to learn.
  *
- * **It never covers the page.** The panel is `position: fixed`, so the main
+ * **It overlays the page without reflow.** The panel is `position: fixed`, so the main
  * content's layout does not move when it opens; `e2e/assistant.spec.ts` asserts
  * the main content's bounding box before and after on every route, which is the
  * rebuild-pressure measurement decision 7 asks for.
@@ -185,6 +185,20 @@ const AssistantPanel: React.FC = () => {
   } = useAssistant();
   const [draft, setDraft] = React.useState('');
   const [showSessions, setShowSessions] = React.useState(false);
+  const composerRef = React.useRef<HTMLTextAreaElement>(null);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const historyRef = React.useRef<HTMLButtonElement>(null);
+  const wasOpen = React.useRef(false);
+  React.useEffect(() => {
+    // Only an open/close transition moves focus, never a streamed message.
+    if (isOpen) {
+      if (composerRef.current?.disabled) historyRef.current?.focus();
+      else composerRef.current?.focus();
+    }
+    else if (wasOpen.current) triggerRef.current?.focus();
+    wasOpen.current = isOpen;
+  }, [isOpen]);
+
 
   // The trigger is rendered whatever the status is; an assistant that vanished
   // when its CLI was missing would look like a feature resmon does not have,
@@ -193,6 +207,7 @@ const AssistantPanel: React.FC = () => {
     return (
       <button
         type="button"
+        ref={triggerRef}
         className="assistant-trigger"
         data-testid="assistant-trigger"
         title="Ask resmon (⌘/)"
@@ -225,13 +240,15 @@ const AssistantPanel: React.FC = () => {
           <button
             type="button"
             onClick={() => setShowSessions((value) => !value)}
+            ref={historyRef}
             aria-expanded={showSessions}
             title="Earlier conversations"
+            aria-label="Earlier conversations"
           >
             ☰
           </button>
           <button type="button" onClick={() => { void newSession(); setShowSessions(false); }}
-                  title="New conversation">＋</button>
+                  title="New conversation" aria-label="New conversation">＋</button>
           <button type="button" onClick={() => setOpen(false)} aria-label="Close the assistant">
             ×
           </button>
@@ -252,6 +269,7 @@ const AssistantPanel: React.FC = () => {
 
       <form className="assistant-composer" onSubmit={onSubmit}>
         <textarea
+          ref={composerRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
