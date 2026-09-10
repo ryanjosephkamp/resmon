@@ -13,6 +13,23 @@
 
 
 
+## Connected app status
+
+Open **Connected app details** in the header to inspect the runtime ID, last observation,
+process/start/version and saved schema version. The header checks every 15 seconds; pending
+or failed checks label the previous observation stale. A changed runtime requires **Use
+this running app** and a fresh successful observation. This acceptance lives in this
+mounted header only; reload starts a new observation. Other desktop requests are not pinned.
+
+The runtime ID identifies one serving process and changes on restart. It is not a corpus,
+installation or build fingerprint; corpus and build identity remain unknown. Advanced
+Settings separately polls every 5 seconds and retains its attached-app versus daemon status.
+
+MCP `health` and `get_execution` alone accept optional `expected_runtime_id`. Read health's
+`identity.runtime_id`, compare it with the app you intend to inspect, then supply it on
+those reads. A mismatch refuses the read; other 16 reads and 7 confirmed writes keep their
+existing behavior. Runtime matching does not authenticate a hostile local service.
+
 ## Overview
 
 resmon is an automated, customizable literature surveillance platform that monitors open-access scholarly repositories, aggregates newly published papers against user-defined criteria, and compiles chronological reading reports. By default it functions as a streamlined metadata and abstract extractor; an optional AI-powered pipeline can generate concise, customized summaries of abstracts, methodologies, results, and discussions. The desktop application surfaces this capability through a dashboard of active routines and recent activity, manual Deep Dive and Deep Sweep runs, scheduled Automated Deep Sweeps, a calendar of upcoming and past executions, and a local-first architecture that keeps every report and credential on the user's own machine.

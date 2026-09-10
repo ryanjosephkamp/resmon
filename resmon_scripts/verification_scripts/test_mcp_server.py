@@ -126,7 +126,7 @@ def test_tools_list_matches_the_contract():
     # first. v2.1 adds none. v2.2 (phase 2.1a′) adds the four watch-profile
     # tools, additively.
     assert len(names) == 25
-    assert mcp.CONTRACT_VERSION == "2.2"
+    assert mcp.CONTRACT_VERSION == "2.3"
 
 
 def test_every_tool_declares_whether_it_needs_confirmation():
@@ -903,3 +903,75 @@ def test_health_description_does_not_promise_fields_the_endpoint_lacks():
     description = next(t["description"] for t in mcp.TOOLS if t["name"] == "health")
     assert "schema" not in description.lower()
     assert "scheduler" not in description.lower()
+
+
+# Runtime expectation is deliberately opt-in on two reads only.
+_RUNTIME_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+_RUNTIME_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+
+def _identity(token=_RUNTIME_A):
+    return {"contract_version": 1, "runtime_id": token, "schema_version": 14,
+            "corpus_id": None, "build_id": None}
+
+
+@pytest.mark.parametrize("name", ["health", "get_execution"])
+@pytest.mark.parametrize("value", ["", None, 7, "bad", _RUNTIME_A.upper(), "aaaaaaaa-aaaa-1aaa-8aaa-aaaaaaaaaaaa"])
+def test_runtime_argument_refused_before_discovery(name, value):
+    with patch.object(mcp.backend, "base_url", side_effect=AssertionError("must not discover")):
+        with pytest.raises(mcp.ToolError) as exc:
+            next(t for t in mcp.TOOLS if t["name"] == name)["fn"]({"exec_id": 7, "expected_runtime_id": value})
+    assert exc.value.code == "invalid_argument"
+
+
+def test_expected_execution_preflights_and_forwards_exact_query():
+    stub = _stub({"/api/health": {"identity": _identity()},
+                  "/api/executions/7": {"id": 7, "identity": _identity()}})
+    with stub:
+        assert mcp.t_get_execution({"exec_id": 7, "expected_runtime_id": _RUNTIME_A})["id"] == 7
+    assert [(x["path"], x["params"]) for x in stub.seen] == [
+        ("/api/health", {"expected_runtime_id": _RUNTIME_A}),
+        ("/api/executions/7", {"expected_runtime_id": _RUNTIME_A})]
+
+
+@pytest.mark.parametrize("identity,code", [(None, "identity_unavailable"),
+    ({"runtime_id": "bad"}, "identity_unavailable"), (_identity(_RUNTIME_B), "instance_mismatch")])
+def test_legacy_preflight_refuses_before_execution(identity, code):
+    stub = _stub({"/api/health": {"identity": identity}, "/api/executions/7": {"id": 7}})
+    with stub:
+        with pytest.raises(mcp.ToolError) as exc:
+            mcp.t_get_execution({"exec_id": 7, "expected_runtime_id": _RUNTIME_A})
+    assert exc.value.code == code
+    assert len(stub.seen) == 1 and stub.seen[0]["path"] == "/api/health"
+
+
+@pytest.mark.parametrize("identity,code", [(None, "identity_unavailable"), (_identity(_RUNTIME_B), "instance_mismatch")])
+def test_replacement_after_preflight_discards_otherwise_valid_execution(identity, code):
+    with _stub({"/api/health": {"identity": _identity()},
+                "/api/executions/7": {"id": 7, "parameters": "private content", "identity": identity}}):
+        with pytest.raises(mcp.ToolError) as exc:
+            mcp.t_get_execution({"exec_id": 7, "expected_runtime_id": _RUNTIME_A})
+    assert exc.value.code == code
+    assert "private content" not in str(exc.value)
+
+
+@pytest.mark.parametrize("detail,code", [({"code": "instance_mismatch", "actual_runtime_id": _RUNTIME_B}, "instance_mismatch"),
+                                        ("Busy", "conflict"), ({"code": "other"}, "conflict")])
+def test_precise_runtime_409_mapping(detail, code):
+    with _stub({"/api/health": (409, {"detail": detail})}):
+        with pytest.raises(mcp.ToolError) as exc:
+            mcp.t_health({"expected_runtime_id": _RUNTIME_A})
+    assert exc.value.code == code
+
+
+def test_only_two_tools_offer_runtime_expectation():
+    assert {t["name"] for t in mcp.TOOLS if "expected_runtime_id" in t["schema"]["properties"]} == {"health", "get_execution"}
+    assert len(mcp.TOOLS) == 25 and len(mcp.WRITE_TOOLS) == 7
+
+
+@pytest.mark.parametrize("change", [{"contract_version": True}, {"schema_version": "14"}, {"corpus_id": "invented"}, {"build_id": "invented"}])
+def test_malformed_identity_shape_is_unavailable(change):
+    with _stub({"/api/health": {"identity": {**_identity(), **change}}}):
+        with pytest.raises(mcp.ToolError) as exc:
+            mcp.t_health({"expected_runtime_id": _RUNTIME_A})
+    assert exc.value.code == "identity_unavailable"

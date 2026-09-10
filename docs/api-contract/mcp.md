@@ -421,3 +421,44 @@ distinct records remain separate without fuzzy matching or corpus changes. Order
 is publication date then document ID descending, independent of run selection
 order. BibTeX keys are unique within the resulting file; suffixes depend on file
 contents/order and are not stable paper identifiers or an importer guarantee.
+
+
+## v2.3 amendment: opt-in runtime identity on two reads
+
+Only `health` and `get_execution` add optional string `expected_runtime_id`. The tool
+surface remains 25 tools: 18 reads and 7 writes requiring confirmation. No registration,
+discovery order/cache, write permission or default behavior changes.
+
+Successful `GET /api/health` and `GET /api/executions/{exec_id}` add:
+
+```json
+{"identity":{"contract_version":1,"runtime_id":"<canonical lowercase UUID4>","schema_version":14,"corpus_id":null,"build_id":null}}
+```
+
+The runtime token is random, stable in one serving process and new after restart, including
+forked workers. Schema comes from saved metadata (null when unavailable). Corpus and build
+IDs stay null; version is a release label, not a build fingerprint. No marker is persisted.
+
+Both handlers accept `?expected_runtime_id=<token>`. Malformed/empty values return 422.
+A different valid token returns 409 with `detail.code=instance_mismatch`, plain `message`,
+`expected_runtime_id` and `actual_runtime_id`, before database/capability work or execution
+lookup. Matching identity with an absent execution still returns 404. Unbound calls retain
+their existing fields and semantics with additive identity metadata.
+
+The MCP adapter validates the optional value before discovery/network access. Expected
+`get_execution` first requests health with that expectation and requires matching identity,
+then sends the same expectation to the execution handler. It also validates each actual
+response: unsupported/missing/malformed identity becomes `identity_unavailable`, a different
+token becomes `instance_mismatch`, and execution content is discarded. The specific structured
+409 maps to `instance_mismatch`; unrelated 409 responses remain `conflict` and 422/404 remain
+`invalid_argument`/`not_found`. There is no hidden retry, discovery widening or reaccept.
+
+An ordinary legacy backend is refused by preflight before the execution request. If the
+server is replaced after preflight with an old or nonconforming one, the adapter can discard
+its reply but cannot prove it never read or transmitted content. Prevention at the answering
+handler relies on this new contract. Runtime matching is not authenticated confidentiality.
+Legacy unbound reads remain available without inventing an identity.
+
+Example: call `health`, compare `identity.runtime_id` with the intended running app, then
+call `get_execution` with `exec_id` and `expected_runtime_id` set to that observed token.
+An explicit expectation applies to this call only, not other tools or future calls.

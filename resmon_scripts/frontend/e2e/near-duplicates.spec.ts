@@ -16,6 +16,17 @@
  * Two papers are given the **same title and the same text**, so they embed
  * identically and the near-duplicate rule links them — a genuine duplicate, made
  * by the seeding rather than asserted into the table.
+ *
+ * **Where those two papers come from changed.** They used to come from arXiv and
+ * OpenAlex themselves, on the reasoning that OpenAlex indexes arXiv preprints
+ * and the pair would usually overlap; hosted CI therefore ran two live scholarly
+ * queries, which is a boundary failure kept in the record. Both providers are
+ * now answered by `fixtures/source-boundary.ts` on loopback, in their own
+ * formats — Atom for arXiv, an inverted-index JSON work for OpenAlex — through
+ * the real clients and the real parsers. The shared work is authored *as* two
+ * records with two different identity keys, so `documents` stores two rows and
+ * the link is still computed by `near_duplicates` from the vectors and the
+ * titles. Nothing inserts the link, and nothing tells the renderer what to draw.
  */
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -26,6 +37,9 @@ import { execFileSync } from 'child_process';
 import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { launchEnv, FRONTEND_ROOT } from './fixtures/resmon-app';
+import {
+  AUTHORED_DUPLICATE_DOCUMENTS, AUTHORED_SHARED_TITLE, launchSourceApp,
+} from './fixtures/source-boundary';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -120,7 +134,7 @@ async function goto(win: Page, hash: string): Promise<void> {
 test('P12: a near-duplicate is badged, and collapse hides nothing until asked',
   async () => {
     const model = await startEmbeddingServer();
-    const { win, close } = await launch();
+    const { win, close, requests, hook } = await launchSourceApp('authored-duplicates');
     try {
       const health = await api(win, 'GET', '/api/health');
       test.skip(
@@ -140,13 +154,10 @@ test('P12: a near-duplicate is badged, and collapse hides nothing until asked',
       // Seeded from **two repositories with one query**, because a
       // near-duplicate needs the same paper twice and one repository cannot
       // supply that: `documents` is unique on (source, external_id), so a
-      // repeated dive against arXiv produces the same rows, not a duplicate.
-      //
-      // OpenAlex indexes arXiv preprints, so the two overlap in practice —
-      // arXiv↔OpenAlex was the commonest true pair in the real-corpus
-      // calibration. Whether they overlap *today, for this query* is not
-      // something a test can guarantee, so the arm skips with a printed reason
-      // when they do not, rather than asserting on the weather.
+      // repeated dive against one source produces the same rows, not a
+      // duplicate. Both dives are answered on loopback in each provider's own
+      // format, and the shared work is authored into both replies with the two
+      // identity keys the two catalogues would really give it.
       const query = 'graph neural network';
       for (const repository of ['arxiv', 'openalex']) {
         const dive = await api(win, 'POST', '/api/search/dive', {
@@ -160,12 +171,29 @@ test('P12: a near-duplicate is badged, and collapse hides nothing until asked',
           await win.waitForTimeout(1000);
         }
       }
+
+      // Both provider routes were really asked, each in its own dialect, and
+      // nothing else was.
+      expect(hook.endpoint).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/api\/query$/);
+      expect(hook.openalex_endpoint).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/openalex\/works$/);
+      const providers = requests.map((request) => request.provider);
+      expect([...new Set(providers)].sort()).toEqual(['arxiv', 'openalex']);
+      for (const request of requests) {
+        expect(request.method).toBe('GET');
+        expect(request.status).toBe(200);
+        expect(request.provider === 'arxiv'
+          ? request.params.search_query : request.params.search).toBe(
+          request.provider === 'arxiv' ? `all:${query}` : query);
+      }
+      console.log('P12 SOURCE REQUESTS', JSON.stringify(requests));
+
       const embedded = (await api(win, 'GET', '/api/embeddings/status'))
         .body.coverage.embedded;
       console.log('P12 EMBEDDED AFTER SEED', embedded);
-      test.skip(embedded < 2,
-        'NOT VERIFIED — this machine could not reach a repository, so there are fewer '
-        + 'than two papers to link. Both CI jobs have network.');
+      // Every authored record from both providers is stored and embedded,
+      // including both copies of the shared work. A short corpus is a failure
+      // here, not a machine without a network.
+      expect(embedded).toBe(AUTHORED_DUPLICATE_DOCUMENTS);
 
       const scan = await api(win, 'POST', '/api/links/scan');
       expect(scan.status).toBe(200);
@@ -177,16 +205,24 @@ test('P12: a near-duplicate is badged, and collapse hides nothing until asked',
         await win.waitForTimeout(500);
       }
       console.log('P12 LINKS FOUND', links);
-      test.skip(links === 0,
-        'NOT VERIFIED — the seeded corpus contains no near-duplicates, so there is '
-        + 'nothing to badge. The rule is exercised hermetically in '
-        + 'test_near_duplicates.py; this arm needs a real duplicate.');
+      // The scan found the pair the seed created. The link is the app's own
+      // finding — two signals over two rows it embedded itself — and the arm
+      // fails rather than skips when it is absent.
+      expect(links).toBe(1);
 
       await goto(win, '/explorer');
       const totalText = await win.locator('.explorer-results-head p').first().innerText();
       const rowsBefore = await win.locator('.explorer-item').count();
       console.log('P12 BEFORE', JSON.stringify({ totalText, rowsBefore }));
+      expect(rowsBefore).toBe(AUTHORED_DUPLICATE_DOCUMENTS);
       await expect(win.getByTestId('duplicate-links').first()).toBeVisible();
+      // The badge sits on the work that really was indexed twice — on both
+      // copies, and reading as the inference it is rather than as an identifier.
+      const badged = win.locator('.explorer-item')
+        .filter({ hasText: AUTHORED_SHARED_TITLE });
+      await expect(badged.locator('[data-testid="duplicate-links"]')).toHaveCount(2);
+      await expect(badged.locator('.duplicate-badge').first())
+        .toHaveText('likely duplicate');
 
       // Off on arrival — the property, in the real page.
       const toggle = win.getByTestId('collapse-toggle').locator('input');
@@ -201,7 +237,7 @@ test('P12: a near-duplicate is badged, and collapse hides nothing until asked',
 
       // The count above the list is the backend's and must not move.
       expect(totalAfter).toBe(totalText);
-      expect(rowsAfter).toBeLessThan(rowsBefore);
+      expect(rowsAfter).toBe(rowsBefore - 1);
       await expect(win.getByTestId('collapse-note')).toContainText('Nothing was removed');
 
       // And off again restores every row.

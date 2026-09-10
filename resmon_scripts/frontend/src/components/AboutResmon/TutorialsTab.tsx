@@ -641,7 +641,10 @@ const sections: TutorialSection[] = [
       'Danger Zone — destructive data/settings actions (`Erase all configs`, `Erase execution history`, `Erase all execution data`, `Erase all app data`, `Reset all settings`, `Factory reset`): click the button, read the irreversibility warning, type `CONFIRM` (case-sensitive, all caps) into the input, then click the red `Confirm` button (disabled until the typed value matches exactly).',
     ],
     features: [
-      '`/api/health` is polled every 5 seconds to display PID, uptime, and version.',
+      'Advanced Settings polls `/api/health` every 5 seconds for its attached-app status; the header checks every 15 seconds.',
+      'Open Connected app details in the header for the runtime ID, last observation, PID, start time, version and saved schema. Corpus and build identity remain unknown.',
+      'A changed running app keeps the previous observation stale. Use this running app accepts only a fresh successful observation; the header remembers it until reload, without pinning other desktop requests.',
+      'MCP health and get_execution accept an optional expected_runtime_id. Compare health.identity.runtime_id with the intended app before sending it; the other tools retain their existing behavior.',
       'Saved limits flow into the in-process `admission` controller (IMPL-R1 / R2) and into the scheduler\'s routine-fire queue (IMPL-R3 / R6).',
       'Danger Zone actions call dedicated `POST /api/admin/erase-*`, `POST /api/admin/reset-settings`, and `POST /api/admin/factory-reset` endpoints; on success the page broadcasts on `configurationsBus`, `routinesBus`, and the `resmon:execution-completed` window event so Dashboard, Configurations, Routines, Calendar, and Results & Logs all refresh.',
       '`Erase execution history` also resets the auto-incremented `Execution #N` counter (the executions `sqlite_sequence` row) so the next run starts back at `Execution #1`.',

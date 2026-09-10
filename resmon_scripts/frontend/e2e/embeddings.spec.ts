@@ -12,15 +12,21 @@
  * control appears, ranks, and labels itself with what it ranked against. Getting
  * there needs documents in the corpus, and the only way to put them there is a
  * real search — the schema is not this suite's to write to (the rule
- * `search-record.spec.ts` set). So this arm seeds through the backend's own API
- * and **skips with a printed reason** when the machine could not reach a
- * repository, the same shape `ai-settings.spec.ts` uses for the arms that need
- * an absent CLI. Both CI jobs have network, so it runs there.
+ * `search-record.spec.ts` set). So this arm seeds through the backend's own API,
+ * `POST /api/search/dive`, exactly as a user's Deep Dive does.
  *
- * The embedding model is a Node server this spec starts on loopback, returning
- * a deterministic vector per text. The backend calls it over a real socket with
- * its real client; nothing about resmon is stubbed. What that cannot see is a
- * real provider's own behaviour, and the handback says so.
+ * **What that search reaches is authored and local.** It used to reach arXiv,
+ * and hosted CI then queried the public service to fill a test corpus — a
+ * boundary failure kept in the record. The dive now runs against an authored
+ * Atom feed served on loopback by `fixtures/source-boundary.ts`, through the
+ * same real client, parser, sweep engine and SQLite writes. An empty corpus is
+ * therefore a failure of the run rather than a machine without a network, and
+ * the arm no longer has a network-dependent skip to hide in.
+ *
+ * The embedding model is likewise a Node server this spec starts on loopback,
+ * returning a deterministic vector per text. The backend calls it over a real
+ * socket with its real client; nothing about resmon is stubbed. What neither can
+ * see is a real provider's own behaviour, and the handback says so.
  */
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -31,6 +37,7 @@ import { execFileSync } from 'child_process';
 import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { launchEnv, FRONTEND_ROOT } from './fixtures/resmon-app';
+import { AUTHORED_CORPUS_PAPERS, launchSourceApp } from './fixtures/source-boundary';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -219,7 +226,7 @@ test('the Embeddings settings section states what cannot embed rather than hidin
 
 test('the sort control appears, ranks, and says what it ranked against', async () => {
   const model = await startEmbeddingServer();
-  const { win, close } = await launch();
+  const { win, close, requests, hook } = await launchSourceApp('authored-corpus');
   try {
     // A machine that cannot load the extension cannot rank, by design, and the
     // arm above is the one that checks that. Skipping here rather than failing
@@ -250,10 +257,10 @@ test('the sort control appears, ranks, and says what it ranked against', async (
     const probe = await api(win, 'POST', '/api/embeddings/probe', {});
     expect(probe.body.ok, `probe said: ${probe.body.reason}`).toBe(true);
 
-    // Seed through the backend's own API, as search-record.spec.ts does. The
-    // execution row is written before the network is touched, so this always
-    // creates an execution; whether it creates *papers* depends on the machine
-    // reaching a repository.
+    // Seed through the backend's own API, as search-record.spec.ts does — the
+    // dive a user runs, answered by the authored loopback feed. The execution
+    // row is written before any request is made, so an execution always exists;
+    // the papers come from the reply the real client parsed.
     const dive = await api(win, 'POST', '/api/search/dive', {
       repository: 'arxiv', query: 'graph neural network',
       keywords: ['graph neural network'], max_results: 5, ai_enabled: false,
@@ -267,30 +274,42 @@ test('the sort control appears, ranks, and says what it ranked against', async (
       const exec = await api(win, 'GET', `/api/executions/${execId}`);
       if (exec.body?.status && exec.body.status !== 'running') {
         embedded = (await api(win, 'GET', '/api/embeddings/status')).body.coverage.embedded;
-        if (embedded > 0) break;
-        // The run finished with nothing to embed.
         break;
       }
       await win.waitForTimeout(1000);
     }
     console.log('EMBEDDED AFTER SEED', embedded);
-    test.skip(
-      embedded === 0,
-      'NOT VERIFIED — this machine could not reach a repository, so the corpus is '
-      + 'empty and there is nothing to rank. The absent-control arm above still ran. '
-      + 'Both CI jobs have network and run this.',
-    );
+
+    // The request the dive actually made, and where it went: a GET on arXiv's
+    // own route at the loopback fixture, carrying the query the user typed under
+    // arXiv's default field prefix. No other provider route was touched.
+    expect(hook.endpoint).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/api\/query$/);
+    expect(requests.length).toBeGreaterThan(0);
+    expect([...new Set(requests.map((request) => request.provider))]).toEqual(['arxiv']);
+    for (const request of requests) {
+      expect(request.method).toBe('GET');
+      expect(request.status).toBe(200);
+      expect(request.params.search_query).toBe('all:graph neural network');
+      expect(Number(request.params.max_results)).toBeLessThanOrEqual(5);
+    }
+    console.log('EMBEDDING SOURCE REQUESTS', JSON.stringify(requests));
+
+    // Every authored paper is stored and embedded. Missing records fail here:
+    // the old skip existed because a machine might not reach arXiv, and this
+    // seed never leaves the loopback interface.
+    expect(embedded).toBe(AUTHORED_CORPUS_PAPERS.length);
 
     const status = await api(win, 'GET', '/api/embeddings/status');
     expect(status.body.capability.available).toBe(true);
 
     // A term guaranteed to match: taken from a paper the seed actually stored,
-    // because a repository answers a multi-word query with papers containing
-    // none of its words.
+    // rather than from the query, because a source answers a multi-word query
+    // with papers containing none of its words.
     const page = await api(win, 'POST', '/api/explorer/search', { limit: 5 });
+    expect(page.body.results).toHaveLength(AUTHORED_CORPUS_PAPERS.length);
     const title = String(page.body.results[0].title);
     const term = title.split(/\s+/).find((w) => w.length > 5 && /^[A-Za-z]+$/.test(w));
-    test.skip(!term, 'NOT VERIFIED — no usable single-word search term in the seeded corpus');
+    expect(term, `no usable single-word search term in ${title}`).toBeTruthy();
 
     await goto(win, `/explorer?q=${encodeURIComponent(term!)}`);
     await expect(win.getByTestId('explorer-sort')).toBeVisible();

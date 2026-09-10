@@ -174,3 +174,20 @@ Write-side from the Dashboard's own surface:
 - **SSE / Progress events:** The Dashboard itself does not subscribe to `/api/executions/{exec_id}/progress/stream`. It relies on `ExecutionContext` to observe terminal-state transitions, bump `completionCounter`, and trigger the Dashboard's `useEffect` refetch.
 - **`execution_location` population:** `_enrich_execution_row` does **not** set `execution_location`. The only endpoint that sets it explicitly is `/api/executions/merged` (resmon.py:1093), which stamps `"local"` on rows from `get_executions` and `"cloud"` on rows from `get_cloud_executions`. Because the Dashboard uses `/api/executions`, the field is absent on its rows and the `Local` badge is driven by the frontend's `?? 'local'` default.
 - **Email / cloud sync:** None are triggered from the Dashboard. `CloudSyncCard` surfaces cloud-account state but does not itself mutate on render.
+
+## Connected app status
+
+Open **Connected app details** in the header to inspect the runtime ID, last observation,
+process/start/version and saved schema version. The header checks every 15 seconds; pending
+or failed checks label the previous observation stale. A changed runtime requires **Use
+this running app** and a fresh successful observation. This acceptance lives in this
+mounted header only; reload starts a new observation. Other desktop requests are not pinned.
+
+The runtime ID identifies one serving process and changes on restart. It is not a corpus,
+installation or build fingerprint; corpus and build identity remain unknown. Advanced
+Settings separately polls every 5 seconds and retains its attached-app versus daemon status.
+
+MCP `health` and `get_execution` alone accept optional `expected_runtime_id`. Read health's
+`identity.runtime_id`, compare it with the app you intend to inspect, then supply it on
+those reads. A mismatch refuses the read; other 16 reads and 7 confirmed writes keep their
+existing behavior. Runtime matching does not authenticate a hostile local service.

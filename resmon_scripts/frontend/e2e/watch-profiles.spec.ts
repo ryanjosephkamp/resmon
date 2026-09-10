@@ -15,13 +15,18 @@
  * creating a watch routine and firing it, so what reaches the screen came
  * through the code a user's routine uses.
  *
- * **Five of the six arms need no network.** The sixth does, deliberately: a real
- * author search against a real source is the point of it, and arXiv is the right
- * source because it returns no ORCID for anybody — so every match it can produce
- * is `name_only`, and `name_only` rendered honestly is the guarantee this phase
- * exists for. Where the network is absent that arm prints what it did **not**
- * verify and asserts the empty state instead of passing quietly. Both CI jobs
- * have network.
+ * **No arm reaches the network.** The real-match arm used to: it ran an author
+ * search against arXiv itself, and hosted CI then queried the public service,
+ * which is a boundary failure preserved in the record rather than explained
+ * away. It now asks the same real client for an **authored Atom feed served on
+ * loopback** by `fixtures/source-boundary.ts` — an invented person with an
+ * invented bibliography, so no living researcher's publication record is fetched
+ * to make a test go green. arXiv's *shape* is still the point: it carries no
+ * ORCID for anybody, so every match it can produce is `name_only`, and
+ * `name_only` rendered honestly is the guarantee this phase exists for. The
+ * parser, the sweep engine's local re-verification, the basis and the row are
+ * all production code, and an absent authored record fails the arm instead of
+ * skipping it.
  */
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
@@ -30,6 +35,9 @@ import * as path from 'path';
 import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { launchEnv, FRONTEND_ROOT, ensureScreenshotDir } from './fixtures/resmon-app';
+import {
+  AUTHORED_PERSON, AUTHORED_PERSON_PAPERS, launchSourceApp,
+} from './fixtures/source-boundary';
 import { APP_ROUTES, allRouteHashes } from '../src/routes';
 
 test.describe.configure({ mode: 'serial' });
@@ -187,21 +195,24 @@ test('P10: a real match shows its basis, and a name-only one is never shown as t
      * through the code a user's routine uses, including the deliverable-12 seam
      * that would have refused a bad profile id.
      *
-     * **arXiv returns no ORCID for anybody**, which is why it is the right source
-     * here: every match it can produce is `name_only`, and `name_only` rendered
-     * honestly is the thing this phase exists to guarantee. A source that
-     * returned identifiers would make the weakest case the one left untested.
+     * **arXiv returns no ORCID for anybody**, which is why its shape is the right
+     * one here: every match it can produce is `name_only`, and `name_only`
+     * rendered honestly is the thing this phase exists to guarantee. A source
+     * that returned identifiers would make the weakest case the one left
+     * untested.
      *
-     * The arm needs the network — a real author search against a real source is
-     * the point — and says what it did **not** verify when there is none, rather
-     * than passing quietly. Both CI jobs have network.
+     * The author search is answered by an authored Atom feed on loopback, by the
+     * real arXiv client over a real socket, and the person is invented. Nothing
+     * downstream is: the parser, the local re-verification of every candidate
+     * against the profile, the basis, the row and the chip are all the app's own.
+     * What this cannot see is arXiv changing its feed or its author field, and a
+     * live weekly job is where that would show.
      */
-    // A real author search over a real source, then a wait for the run. The
-    // config's 120 s is the whole test's budget and the poll alone can use it.
+    // The whole test's budget; the run poll alone can use most of it.
     test.setTimeout(300_000);
-    const { win, close } = await launch();
+    const { win, close, requests, hook } = await launchSourceApp('authored-person');
     try {
-      const person = 'Yoshua Bengio';
+      const person = AUTHORED_PERSON;
       const weak = (await api(win, 'POST', '/api/profiles', {
         kind: 'person', display_name: person,
       })).body;
@@ -227,30 +238,31 @@ test('P10: a real match shows its basis, and a name-only one is never shown as t
         await win.waitForTimeout(1000);
       }
 
+      // What the client actually asked for, read off the loopback fixture: a
+      // GET, on arXiv's own route, carrying arXiv's own author-field syntax —
+      // and no request to any other provider route in the whole run.
+      expect(hook.endpoint).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/api\/query$/);
+      expect(requests.length).toBeGreaterThan(0);
+      expect([...new Set(requests.map((request) => request.provider))]).toEqual(['arxiv']);
+      for (const request of requests) {
+        expect(request.method).toBe('GET');
+        expect(request.status).toBe(200);
+        expect(request.params.search_query).toBe(`au:"${person}"`);
+      }
+      console.log('P10 SOURCE REQUESTS', JSON.stringify(requests));
+
       const matches = await api(win, 'GET', `/api/profiles/${weak.id}/matches`);
       expect(matches.status).toBe(200);
       console.log('P10 MATCHES', JSON.stringify(matches.body.by_basis));
 
+      // Every authored paper carries this person, so every one of them must come
+      // back as a match. An empty result is a failure of the run, not a machine
+      // without a network — there is no network here to be without.
+      expect(matches.body.by_basis).toEqual({ name_only: AUTHORED_PERSON_PAPERS.length });
+      expect(matches.body.total).toBe(AUTHORED_PERSON_PAPERS.length);
+
       await goto(win, '/profiles');
       await expect(win.getByTestId('profiles-list')).toBeVisible();
-
-      if (matches.body.total === 0) {
-        // Said out loud rather than skipped silently. Reaching a real author
-        // search needs the network, and this machine did not have one.
-        console.log(
-          'NOT VERIFIED — no match row was produced, so this machine could not '
-          + 'reach arXiv. The empty state is asserted instead; a populated list '
-          + 'is covered in jsdom (WatchProfiles.test.tsx) and over the API '
-          + '(test_api_profiles.py). Both CI jobs have network.',
-        );
-        await expect(win.getByTestId('no-matches')).toBeVisible();
-        await expect(win.getByTestId('no-matches')).toContainText('Watch a person');
-        return;
-      }
-
-      // arXiv carries no ORCID, so this is the honest weak case and it must
-      // read as one.
-      expect(Object.keys(matches.body.by_basis)).toEqual(['name_only']);
 
       const counts = win.getByTestId('basis-counts');
       await expect(counts).toBeVisible();
@@ -258,7 +270,7 @@ test('P10: a real match shows its basis, and a name-only one is never shown as t
 
       const rows = win.getByTestId('profile-matches').locator('li');
       const count = await rows.count();
-      expect(count).toBeGreaterThan(0);
+      expect(count).toBe(AUTHORED_PERSON_PAPERS.length);
       for (let i = 0; i < count; i += 1) {
         // No row without a chip. Asserted per row, not as "a chip exists".
         await expect(rows.nth(i).locator('.basis-chip')).toHaveCount(1);
@@ -266,7 +278,14 @@ test('P10: a real match shows its basis, and a name-only one is never shown as t
         // And the string the source actually returned, so the reader can judge
         // the match rather than take resmon's word for it.
         await expect(rows.nth(i).locator('.basis-author')).toHaveCount(1);
+        await expect(rows.nth(i).locator('.basis-author')).toContainText(person);
       }
+
+      // Nothing anywhere on the page upgrades a name match into the person.
+      // Text content rather than rendered text: the chip is upper-cased in CSS,
+      // and the assertion is about what the app says, not how it is set.
+      const chips = await win.locator('.basis-chip').allTextContents();
+      expect([...new Set(chips.map((chip) => chip.trim()))]).toEqual(['name only']);
 
       await win.screenshot({
         path: path.join(ensureScreenshotDir(), 'watch-profiles-matches.png'),
