@@ -98,7 +98,7 @@ from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
 from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
-    analytics, assistant_runtime, assistant_store, coverage_audit, embedding_job,
+    analytics, assistant_export, assistant_runtime, assistant_store, coverage_audit, embedding_job,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
     reading_queue, reference_export, search_record, source_coverage, vector_index, watch_profiles,
     watchdog,
@@ -4989,19 +4989,53 @@ def list_assistant_sessions(limit: int = 50):
         _close_db(conn)
 
 
+@app.get("/api/assistant/sessions/browse")
+def browse_assistant_sessions(limit: int = Query(50, ge=1, le=100),
+                              before_id: Optional[int] = Query(None, ge=1, le=9223372036854775807),
+                              through_id: Optional[int] = Query(None, ge=0, le=9223372036854775807),
+                              q: str = Query("", max_length=200)):
+    conn = _get_db()
+    try:
+        return assistant_store.browse_sessions(conn, limit=limit, before_id=before_id,
+                                               through_id=through_id, q=q)
+    finally:
+        _close_db(conn)
+
+
+def _assistant_activity_observation(session_id: int) -> dict:
+    from datetime import datetime, timezone
+
+    return {"observed_at_utc": datetime.now(timezone.utc).isoformat(),
+            "turn_claimed": assistant_runtime.bus.is_open(session_id),
+            "cli_running": assistant_runtime.is_running(session_id),
+            "basis": "in_memory_observation_not_atomic_with_sqlite"}
+
+
 @app.get("/api/assistant/sessions/{session_id}")
 def get_assistant_session(session_id: int):
     conn = _get_db()
     try:
-        session = assistant_store.get_session(conn, session_id)
-        if not session:
+        snapshot = assistant_store.read_snapshot(conn, session_id)
+        if snapshot is None:
             raise HTTPException(404, "That conversation does not exist.")
-        return {
-            "session": session,
-            "messages": assistant_store.list_messages(conn, session_id),
-            "totals": assistant_store.session_totals(conn, session_id),
-            "running": assistant_runtime.is_running(session_id),
-        }
+        observation = _assistant_activity_observation(session_id)
+        return {**{k: snapshot[k] for k in ('session', 'messages', 'totals', 'snapshot')},
+                "running": observation['cli_running'], "activity_observation": observation}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/assistant/sessions/{session_id}/export")
+def export_assistant_session(session_id: int, format: str = Query(..., pattern="^(json|markdown)$")):
+    conn = _get_db()
+    try:
+        snapshot = assistant_store.read_snapshot(conn, session_id)
+        if snapshot is None:
+            raise HTTPException(404, "That conversation does not exist.")
+        try:
+            return assistant_export.export_snapshot(snapshot, format, _assistant_activity_observation(session_id))
+        except ValueError as exc:
+            raise HTTPException(413, str(exc)) from exc
     finally:
         _close_db(conn)
 

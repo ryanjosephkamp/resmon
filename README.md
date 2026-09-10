@@ -120,6 +120,20 @@ keyboard focus in the composer; closing it returns focus to Ask. Enter sends, Sh
 adds a line, and Stop remains below the scrolling conversation. Earlier conversations
 reopen from the header; Allow and Deny stay explicit on each permission card.
 
+**Chats** in the sidebar finds saved conversations beyond the Ask history drawer.
+Browse newest-created pages or filter saved titles; Refresh includes new chats.
+Select a transcript, then **Continue in Ask** to open that same local conversation
+without sending anything. While Ask answers, other chats remain readable/exportable;
+finish or stop the active answer before continuing another chat.
+
+**Export Markdown** and **Export JSON** explicitly download the selected persisted
+transcript. These are point-in-time copies, possibly incomplete: live fragments and
+pending approval cards are excluded, historical completion is unknown, and recorded
+metadata may be absent. Recorded cost does not establish billed cost. Includes saved
+messages and tool data; review before sharing. Each format refuses output above 8 MiB
+without truncation. Reading/exporting saved chats does not require an available CLI.
+See the [conversation read/export contract](docs/api-contract/assistant-conversations.md).
+
 Four things about it are structural rather than promised:
 
 - **Everything it tells you came from a tool call it made.** It has no other source. When

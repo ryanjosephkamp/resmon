@@ -176,3 +176,64 @@ def test_an_unreadable_structured_column_is_reported_rather_than_crashing(conn):
     message = store.list_messages(conn, sid)[0]
     assert message["content"] == "hi"
     assert message["tool_calls"] == {"unreadable": True}
+
+
+def test_browse_123_stable_ids_literal_filter_and_refresh(conn):
+    ids = [store.create_session(conn, runtime='synthetic', title=f'Chat {i} %_ Élève') for i in range(123)]
+    conn.execute("UPDATE assistant_sessions SET created_at='same', updated_at='same'")
+    conn.commit()
+    first = store.browse_sessions(conn)
+    assert [s['id'] for s in first['sessions']] == ids[::-1][:50]
+    store.touch_session(conn, ids[0])
+    extra = store.create_session(conn, runtime='synthetic', title='Later')
+    second = store.browse_sessions(conn, through_id=first['through_id'], before_id=first['next_before_id'])
+    third = store.browse_sessions(conn, through_id=first['through_id'], before_id=second['next_before_id'])
+    assert [len(p['sessions']) for p in [first, second, third]] == [50, 50, 23]
+    assert [s['id'] for p in [first, second, third] for s in p['sessions']] == ids[::-1]
+    assert third['next_before_id'] is None and not third['has_more']
+    assert store.browse_sessions(conn)['sessions'][0]['id'] == extra
+    assert len(store.browse_sessions(conn, limit=100, q='%_')['sessions']) == 100
+    assert not store.browse_sessions(conn, q='élève')['sessions']  # SQLite only folds ASCII.
+    assert store.browse_sessions(conn, q='cHAT')['sessions']
+    store.delete_session(conn, ids[50])
+    page = store.browse_sessions(conn, limit=100, through_id=first['through_id'], before_id=ids[90])
+    assert ids[50] not in [s['id'] for s in page['sessions']]
+    assert extra not in [s['id'] for s in page['sessions']]
+
+
+def test_browse_empty_default_title_and_bounds(conn):
+    assert store.browse_sessions(conn) == {'sessions': [], 'through_id': 0, 'next_before_id': None, 'has_more': False}
+    sid = store.create_session(conn, runtime='synthetic')
+    assert store.browse_sessions(conn, q='new conversation')['sessions'][0]['id'] == sid
+    for args in [dict(limit=0), dict(limit=101), dict(before_id=0), dict(through_id=-1), dict(q='a'*201)]:
+        with pytest.raises(ValueError): store.browse_sessions(conn, **args)
+
+
+def test_snapshot_real_wal_commit_between_session_and_messages(conn):
+    sid = store.create_session(conn, runtime='synthetic', title='Before')
+    store.add_message(conn, sid, role='user', content='Before')
+    filename = conn.execute('PRAGMA database_list').fetchone()[2]
+    conn.execute('PRAGMA journal_mode=WAL')
+    other = sqlite3.connect(filename)
+    committed = False
+    def barrier(sql):
+        nonlocal committed
+        if 'SELECT * FROM assistant_messages' in sql and not committed:
+            committed = True
+            other.execute("UPDATE assistant_sessions SET title='After' WHERE id=?", (sid,))
+            other.execute("INSERT INTO assistant_messages(session_id,role,content) VALUES (?,'assistant','After')", (sid,))
+            other.commit()
+    conn.set_trace_callback(barrier)
+    try: snap = store.read_snapshot(conn, sid)
+    finally: conn.set_trace_callback(None); other.close()
+    assert committed
+    assert snap['session']['title'] == 'Before'
+    assert [m['content'] for m in snap['raw_messages']] == ['Before']
+    assert snap['snapshot']['message_count'] == 1
+    assert store.read_snapshot(conn, sid)['session']['title'] == 'After'
+    assert len(store.read_snapshot(conn, sid)['messages']) == 2
+    conn.execute("UPDATE assistant_sessions SET title='Uncommitted' WHERE id=?", (sid,))
+    with pytest.raises(ValueError): store.read_snapshot(conn, sid)
+    assert conn.in_transaction
+    conn.rollback()
+    assert store.get_session(conn, sid)['title'] == 'After'

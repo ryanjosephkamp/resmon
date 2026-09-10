@@ -669,3 +669,39 @@ def test_the_three_new_read_tools_need_no_card(backend):
     assert [e["type"] for e in events if e["type"] == "tool_result"], (
         "the reads must actually have run"
     )
+
+
+def test_chats_read_http_paging_export_and_validation(backend):
+    from implementation_scripts import assistant_store as store, database
+    c = database.get_connection(backend.db_path)
+    marker = 'R04b literal %_ '
+    ids = [store.create_session(c, runtime='synthetic', title=marker+str(i)) for i in range(123)]
+    store.add_message(c, ids[0], role='system', content='<b>saved 雪</b>')
+    c.execute('UPDATE assistant_messages SET tool_calls=? WHERE session_id=?', ('{bad',ids[0]));c.commit()
+    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
+    before = {t:[tuple(r) for r in c.execute('SELECT * FROM "'+t+'" ORDER BY 1')] for t in tables}
+    gathered=[];params={'q':marker};sizes=[]
+    with httpx.Client(base_url=backend.base,timeout=30) as client:
+        while True:
+            resp=client.get('/api/assistant/sessions/browse',params=params)
+            assert resp.status_code==200,resp.text
+            page=resp.json();sizes.append(len(page['sessions']));gathered.extend(s['id'] for s in page['sessions'])
+            if not page['has_more']:break
+            params.update(through_id=page['through_id'],before_id=page['next_before_id'])
+        assert gathered==ids[::-1] and sizes==[50,50,23]
+        assert len(client.get('/api/assistant/sessions').json()['sessions'])==50
+        for query in ['limit=0','limit=101','before_id=0','through_id=-1','before_id=x','before_id=9223372036854775808','q='+'a'*201]:
+            assert client.get('/api/assistant/sessions/browse?'+query).status_code==422
+        for fmt in ['json','markdown']:
+            res=client.get(f'/api/assistant/sessions/{ids[0]}/export',params={'format':fmt})
+            assert res.status_code==200,res.text
+            body=res.json();assert body['session_id']==ids[0] and '{bad' in body['text']
+            assert '<b>saved 雪</b>' in body['text']
+        assert client.get(f'/api/assistant/sessions/{ids[0]}/export?format=pdf').status_code==422
+        assert client.get('/api/assistant/sessions/99999999/export?format=json').status_code==404
+        detail=client.get(f'/api/assistant/sessions/{ids[0]}').json()
+        assert detail['snapshot']['message_count']==1 and not detail['activity_observation']['turn_claimed']
+        assert {t:[tuple(r) for r in c.execute('SELECT * FROM "'+t+'" ORDER BY 1')] for t in tables}==before
+        c.execute('UPDATE assistant_messages SET content=? WHERE session_id=?',('a'*(8*1024*1024),ids[0]));c.commit()
+        assert client.get(f'/api/assistant/sessions/{ids[0]}/export?format=json').status_code==413
+    c.close()

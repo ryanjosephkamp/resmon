@@ -1,6 +1,6 @@
+import { TranscriptMessages } from './TranscriptMessages';
 import React from 'react';
 import {
-  AssistantMessage,
   describeToolCall,
   shortToolName,
   useAssistant,
@@ -18,37 +18,6 @@ import {
  * the main content's bounding box before and after on every route, which is the
  * rebuild-pressure measurement decision 7 asks for.
  */
-
-function formatCost(value?: number | null): string {
-  // "not reported" rather than "$0.00". Zero is a measurement and this is not
-  // one; every other surface in resmon draws that line and so does this.
-  if (value === null || value === undefined) return 'cost not reported';
-  return `$${value.toFixed(4)}`;
-}
-
-const ToolCallRow: React.FC<{ call: NonNullable<AssistantMessage['tool_calls']>[number] }> = (
-  { call },
-) => {
-  const [open, setOpen] = React.useState(false);
-  const icon = call.outcome === 'error' ? '✗' : call.outcome === 'ok' ? '✓' : '⟳';
-  return (
-    <div className={`assistant-tool assistant-tool--${call.outcome || 'running'}`}>
-      <button
-        type="button"
-        className="assistant-tool-head"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span className="assistant-tool-icon" aria-hidden="true">{icon}</span>
-        <span className="assistant-tool-name">{shortToolName(call.name)}</span>
-        <span className="assistant-tool-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
-      </button>
-      {open && (
-        <pre className="assistant-tool-body">{JSON.stringify(call.input ?? {}, null, 2)}</pre>
-      )}
-    </div>
-  );
-};
 
 const PermissionCards: React.FC = () => {
   const { pending, answerPermission } = useAssistant();
@@ -129,20 +98,7 @@ const Transcript: React.FC = () => {
 
   return (
     <>
-      {messages.map((message, index) => (
-        <div
-          className={`assistant-message assistant-message--${message.role}`}
-          key={message.id ?? `live-${index}`}
-        >
-          {message.content && <div className="assistant-bubble">{message.content}</div>}
-          {(message.tool_calls || []).map((call, callIndex) => (
-            <ToolCallRow call={call} key={call.tool_use_id ?? callIndex} />
-          ))}
-          {message.role === 'assistant' && !message.streaming && (
-            <div className="assistant-meta">{formatCost(message.cost_usd)}</div>
-          )}
-        </div>
-      ))}
+      <TranscriptMessages messages={messages} />
       <PermissionCards />
       {isAnswering && <div className="assistant-thinking">Working…</div>}
       <div ref={endRef} />
@@ -151,7 +107,7 @@ const Transcript: React.FC = () => {
 };
 
 const SessionList: React.FC<{ onPick: () => void }> = ({ onPick }) => {
-  const { sessions, sessionId, openSession, deleteSession } = useAssistant();
+  const { sessions, sessionId, openSession, deleteSession, isAnswering } = useAssistant();
   if (!sessions.length) return <p className="assistant-empty-note">No earlier conversations.</p>;
   return (
     <ul className="assistant-sessions">
@@ -160,6 +116,7 @@ const SessionList: React.FC<{ onPick: () => void }> = ({ onPick }) => {
           <button
             type="button"
             className="assistant-session-open"
+            disabled={isAnswering && session.id !== sessionId}
             onClick={() => { void openSession(session.id); onPick(); }}
           >
             {session.title}
@@ -167,6 +124,7 @@ const SessionList: React.FC<{ onPick: () => void }> = ({ onPick }) => {
           <button
             type="button"
             className="assistant-session-delete"
+            disabled={isAnswering && session.id === sessionId}
             aria-label={`Delete ${session.title}`}
             onClick={() => { void deleteSession(session.id); }}
           >
@@ -180,7 +138,7 @@ const SessionList: React.FC<{ onPick: () => void }> = ({ onPick }) => {
 
 const AssistantPanel: React.FC = () => {
   const {
-    isOpen, setOpen, status, statusLoaded, isAnswering, error,
+    isOpen, setOpen, status, statusLoaded, isAnswering, isSelecting, error,
     send, newSession, cancel,
   } = useAssistant();
   const [draft, setDraft] = React.useState('');
@@ -222,6 +180,7 @@ const AssistantPanel: React.FC = () => {
 
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault();
+    if (isSelecting || isAnswering) return;
     const text = draft;
     setDraft('');
     void send(text);
@@ -248,7 +207,7 @@ const AssistantPanel: React.FC = () => {
             ☰
           </button>
           <button type="button" onClick={() => { void newSession(); setShowSessions(false); }}
-                  title="New conversation" aria-label="New conversation">＋</button>
+                  disabled={isAnswering} title="New conversation" aria-label="New conversation">＋</button>
           <button type="button" onClick={() => setOpen(false)} aria-label="Close the assistant">
             ×
           </button>
@@ -257,6 +216,7 @@ const AssistantPanel: React.FC = () => {
 
       {showSessions && (
         <div className="assistant-session-drawer">
+          <a href="#/chats" onClick={() => setOpen(false)}>Browse saved Chats</a>
           <SessionList onPick={() => setShowSessions(false)} />
         </div>
       )}
@@ -283,7 +243,7 @@ const AssistantPanel: React.FC = () => {
             : 'Ask about your monitoring…'}
           rows={2}
           aria-label="Message the assistant"
-          disabled={status?.available === false}
+          disabled={status?.available === false || isSelecting}
         />
         {isAnswering ? (
           <button type="button" className="assistant-btn" onClick={() => { void cancel(); }}>
@@ -293,7 +253,7 @@ const AssistantPanel: React.FC = () => {
           <button
             type="submit"
             className="assistant-btn assistant-btn--primary"
-            disabled={!draft.trim() || status?.available === false}
+            disabled={!draft.trim() || status?.available === false || isSelecting}
           >
             Send
           </button>

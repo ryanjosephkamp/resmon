@@ -30,7 +30,7 @@ implies more certainty than it earns is rejected even when the code is correct.
 
 ```
 resmon_scripts/
-├── resmon.py                       FastAPI app — 135 routes, the API seam
+├── resmon.py                       FastAPI app — 137 routes, the API seam
 ├── implementation_scripts/         backend modules
 │   ├── api_base.py                 BaseAPIClient, NormalizedResult, RateLimiter, safe_request
 │   ├── api_<slug>.py               one source client each; self-registering
@@ -49,13 +49,13 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 1873 pass, 2 skip, 108 deselected
+.venv/bin/python -m pytest -q          # hermetic suite: 1891 pass, 2 skip, 108 deselected
 .venv/bin/python -m pytest -m live_network   # the 105 — real scholarly APIs, CLIs and sockets
                                              # 89 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 356 tests across 36 suites
-npm run e2e                                      # the real Electron app — 94 checks, 26 routes
+npm run typecheck && npm test && npm run build   # 375 tests across 38 suites
+npm run e2e                                      # the real Electron app — 96 checks, 27 routes
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -285,3 +285,6 @@ Every delegated PR is reviewed by Claude Code against its brief before it reache
 maintainer. Expect the review to check contract conformance, whether the tests genuinely
 exercise the behavior they name, and whether anything in the diff claims more than it
 proves.
+
+Saved conversation read/export contract: `docs/api-contract/assistant-conversations.md`;
+Chats journey: `resmon_scripts/frontend/e2e/chats-export.spec.ts`.

@@ -15,6 +15,7 @@ const navItems: NavItem[] = [
   { to: '/routines', label: 'Routines', icon: '⟳' },
   { to: '/calendar', label: 'Calendar', icon: '▦' },
   { to: '/results', label: 'Results & Logs', icon: '◉' },
+  { to: '/chats', label: 'Chats', icon: '☏' },
   { to: '/reading-queue', label: 'Reading queue', icon: '⚑' },
   { to: '/analytics', label: 'Analytics', icon: '▤' },
   { to: '/watchdog', label: 'Watchdog', icon: '◬' },
