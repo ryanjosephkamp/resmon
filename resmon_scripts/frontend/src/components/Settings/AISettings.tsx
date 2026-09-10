@@ -707,7 +707,7 @@ const AISettings: React.FC = () => {
   const saveDisabled = saving || customBaseUrlError !== null;
 
   return (
-    <div className="settings-section">
+    <div className="settings-section ai-settings-page">
       <div className="settings-panel-header">
         <h2>AI Configuration</h2>
         <TutorialLinkButton anchor="settings-ai" />
@@ -973,12 +973,15 @@ const AISettings: React.FC = () => {
                 <tr
                   key={slot.credName}
                   style={{
-                    background: isDefault ? 'var(--surface-2, rgba(0, 100, 200, 0.08))' : undefined,
+                    background: isDefault ? 'var(--color-bg)' : undefined,
                     fontWeight: isDefault ? 600 : undefined,
                   }}
                 >
                   <td>
-                    <span
+                    <button
+                      type="button"
+                      className="ai-default-provider"
+                      aria-pressed={isDefault}
                       onClick={() => handleSetDefaultProvider(slot.provider)}
                       style={{
                         cursor: 'pointer',
@@ -991,7 +994,7 @@ const AISettings: React.FC = () => {
                       }
                     >
                       {slot.label}
-                    </span>
+                    </button>
                   </td>
                   <td>
                     <div

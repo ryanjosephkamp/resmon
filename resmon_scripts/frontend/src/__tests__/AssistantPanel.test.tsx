@@ -349,3 +349,15 @@ describe('naming a tool', () => {
     expect(shortToolName('list_routines')).toBe('list_routines');
   });
 });
+
+// A stream update must not steal focus from a pending decision or another control.
+it('focuses on entry and returns to Ask on close without moving focus on draft edits', async () => {
+  mockBackend(); await mount(); await openPanel();
+  expect(screen.getByLabelText('Message the assistant')).toHaveFocus();
+  const history = screen.getByRole('button', { name: 'Earlier conversations' });
+  history.focus();
+  fireEvent.change(screen.getByLabelText('Message the assistant'), { target: { value: 'draft' } });
+  expect(history).toHaveFocus();
+  fireEvent.click(screen.getByRole('button', { name: 'Close the assistant' }));
+  expect(screen.getByTestId('assistant-trigger')).toHaveFocus();
+});

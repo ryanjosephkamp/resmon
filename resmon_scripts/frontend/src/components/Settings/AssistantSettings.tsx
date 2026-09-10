@@ -129,9 +129,10 @@ const AssistantSettings: React.FC = () => {
         <p className="settings-help" key={other.kind}>{other.reason}</p>
       ))}
 
-      <div className="form-row">
-        <label htmlFor="assistant-runtime">Run it with</label>
+      <div className="form-field">
+        <label className="form-label" htmlFor="assistant-runtime">Run it with</label>
         <select
+          className="form-select"
           id="assistant-runtime"
           value={settings.assistant_runtime}
           onChange={(e) => setSettings({ ...settings, assistant_runtime: e.target.value })}
@@ -153,9 +154,10 @@ const AssistantSettings: React.FC = () => {
 
       {isApiKey && (
         <>
-          <div className="form-row">
-            <label htmlFor="assistant-provider">Provider</label>
+          <div className="form-field">
+            <label className="form-label" htmlFor="assistant-provider">Provider</label>
             <select
+              className="form-select"
               id="assistant-provider"
               value={settings.assistant_provider}
               onChange={(e) => setSettings({
@@ -199,10 +201,11 @@ const AssistantSettings: React.FC = () => {
         </>
       )}
 
-      <div className="form-row">
-        <label htmlFor="assistant-model">Model</label>
+      <div className="form-field">
+        <label className="form-label" htmlFor="assistant-model">Model</label>
         {isApiKey ? (
           <input
+            className="form-input"
             id="assistant-model"
             type="text"
             value={settings.assistant_model}
@@ -211,6 +214,7 @@ const AssistantSettings: React.FC = () => {
           />
         ) : (
           <select
+            className="form-select"
             id="assistant-model"
             value={settings.assistant_model}
             onChange={(e) => setSettings({ ...settings, assistant_model: e.target.value })}
@@ -225,9 +229,10 @@ const AssistantSettings: React.FC = () => {
       </div>
 
       {!isApiKey && (
-        <div className="form-row">
-          <label htmlFor="assistant-effort">Effort</label>
+        <div className="form-field">
+          <label className="form-label" htmlFor="assistant-effort">Effort</label>
           <select
+            className="form-select"
             id="assistant-effort"
             value={settings.assistant_effort}
             onChange={(e) => setSettings({ ...settings, assistant_effort: e.target.value })}

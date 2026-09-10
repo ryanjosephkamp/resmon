@@ -13,6 +13,12 @@ The Settings page is the central configuration surface for `resmon`. It groups a
 3. Within a panel, edit fields and press **Save** (or the panel-specific action button) to persist the change through the corresponding `PUT /api/settings/*` endpoint (or a credential / service endpoint, depending on the tab).
 4. Test actions (send test email, test API key, list models, link Google Drive, install service, refresh scheduler jobs) call their backend endpoints directly and surface an inline status line.
 
+### Reading and configuring the assistant
+
+Settings → AI keeps the existing runtime, provider, model and effort choices on the app's dark palette. Labels, help text and keyboard focus identify each existing control. Use **Save assistant settings** to save the Assistant section.
+
+The **Ask** panel opens over the page on an opaque surface. When available, its message field receives focus when opened; **Enter** sends and **Shift+Enter** adds a line. Conversation text scrolls above the composer, with **Stop** beside it during an answer. The header opens earlier conversations or starts a new one; closing returns focus to Ask. Each permission card shows its exact call and waits for an explicit **Allow** or **Deny**.
+
 ### Inputs and Outputs
 
 - **Inputs** — per-panel form fields, toggles, and action buttons; secrets typed into password inputs (SMTP password, AI provider API key).

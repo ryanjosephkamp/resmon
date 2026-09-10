@@ -115,6 +115,11 @@ your existing plan rather than a metered key, and resmon never sees your credent
 the command is not there, or is not signed in, the panel says so and says where to fix
 it; it does not quietly disappear.
 
+The panel has an opaque reading surface and a visible message field. When available, opening it puts
+keyboard focus in the composer; closing it returns focus to Ask. Enter sends, Shift+Enter
+adds a line, and Stop remains below the scrolling conversation. Earlier conversations
+reopen from the header; Allow and Deny stay explicit on each permission card.
+
 Four things about it are structural rather than promised:
 
 - **Everything it tells you came from a tool call it made.** It has no other source. When
