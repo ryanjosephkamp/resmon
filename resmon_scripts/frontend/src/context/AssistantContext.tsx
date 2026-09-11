@@ -83,6 +83,7 @@ interface AssistantContextValue {
   messages: AssistantMessage[];
   pending: PermissionCard[];
   isAnswering: boolean;
+  isSelecting: boolean;
   error: string | null;
   send: (text: string) => Promise<void>;
   answerPermission: (requestId: string, allow: boolean) => Promise<void>;
@@ -91,6 +92,8 @@ interface AssistantContextValue {
   deleteSession: (id: number) => Promise<void>;
   cancel: () => Promise<void>;
 }
+
+interface ActiveTurn { id: number | null; stopping: boolean; permissions: Set<string>; cancellation?: Promise<unknown> }
 
 const AssistantContext = createContext<AssistantContextValue | undefined>(undefined);
 
@@ -134,8 +137,16 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [pending, setPending] = useState<PermissionCard[]>([]);
   const [isAnswering, setAnswering] = useState(false);
+  const [isSelecting, setSelecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  // Refs claim ownership synchronously, before React can paint a disabled button.
+  const selected = useRef<number | null>(null);
+  const selectionEpoch = useRef(0);
+  const selectionBusy = useRef(false);
+  const deleting = useRef(new Set<number>());
+  const active = useRef<ActiveTurn | null>(null);
+  const blocked = 'Finish or stop the current answer before continuing another chat.';
+  const sessionsEpoch = useRef(0);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -148,11 +159,12 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const refreshSessions = useCallback(async () => {
+    const epoch = ++sessionsEpoch.current;
     try {
       const body = await apiClient.get<{ sessions: AssistantSessionSummary[] }>(
         '/api/assistant/sessions',
       );
-      setSessions(body.sessions || []);
+      if (epoch === sessionsEpoch.current) setSessions(body.sessions || []);
     } catch {
       /* the list is a convenience; a failure here must not break the panel */
     }
@@ -183,73 +195,126 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const newSession = useCallback(async () => {
+    if (active.current) { setError(blocked); return; }
+    const epoch = ++selectionEpoch.current;
+    selectionBusy.current = true;
+    setSelecting(true);
     setError(null);
     try {
       const session = await apiClient.post<{ id: number }>('/api/assistant/sessions', {});
+      if (epoch !== selectionEpoch.current || active.current) return;
+      selected.current = session.id;
       setSessionId(session.id);
       setMessages([]);
       setPending([]);
-      await refreshSessions();
+      void refreshSessions();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (epoch === selectionEpoch.current) setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (epoch === selectionEpoch.current) { selectionBusy.current = false; setSelecting(false); }
     }
   }, [refreshSessions]);
 
   const openSession = useCallback(async (id: number) => {
+    if (active.current) {
+      if (active.current.id === id) setOpen(true);
+      else setError(blocked);
+      return;
+    }
+    if (deleting.current.has(id)) return;
+    const epoch = ++selectionEpoch.current;
+    selectionBusy.current = true;
+    setSelecting(true);
     setError(null);
     try {
-      const body = await apiClient.get<{ messages: AssistantMessage[] }>(
-        `/api/assistant/sessions/${id}`,
-      );
+      const body = await apiClient.get<{ session?: { id: number }; messages: AssistantMessage[];
+        activity_observation?: { turn_claimed: boolean } }>(`/api/assistant/sessions/${id}`);
+      if (epoch !== selectionEpoch.current || active.current) return;
+      if (body.session && body.session.id !== id) throw new Error('The conversation response did not match.');
+      selected.current = id;
       setSessionId(id);
       setMessages(body.messages || []);
       setPending([]);
+      setOpen(true);
+      if (body.activity_observation?.turn_claimed) {
+        setError('This conversation is already answering in another renderer. Its live stream cannot be reopened here.');
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (epoch === selectionEpoch.current) {
+        selected.current = null;
+        setSessionId(null);
+        setMessages([]);
+        setPending([]);
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (epoch === selectionEpoch.current) { selectionBusy.current = false; setSelecting(false); }
     }
   }, []);
 
   const deleteSession = useCallback(async (id: number) => {
-    await apiClient.delete(`/api/assistant/sessions/${id}`);
-    if (id === sessionId) {
-      setSessionId(null);
-      setMessages([]);
-    }
-    await refreshSessions();
-  }, [sessionId, refreshSessions]);
+    if (active.current?.id === id || selectionBusy.current) { setError(blocked); return; }
+    if (deleting.current.has(id)) return;
+    deleting.current.add(id);
+    const epoch = selectionEpoch.current;
+    try {
+      await apiClient.delete(`/api/assistant/sessions/${id}`);
+      if (selected.current === id && epoch === selectionEpoch.current) {
+        ++selectionEpoch.current;
+        selected.current = null;
+        setSessionId(null);
+        setMessages([]);
+      }
+      void refreshSessions();
+    } catch (err) {
+      if (epoch === selectionEpoch.current) setError(err instanceof Error ? err.message : String(err));
+    } finally { deleting.current.delete(id); }
+  }, [refreshSessions]);
 
   const answerPermission = useCallback(async (requestId: string, allow: boolean) => {
-    // Removed from `pending` first: the backend answers immediately and the
-    // card must not be tappable twice, which the backend refuses anyway (409).
+    const turn = active.current;
+    if (!turn || turn.stopping || !turn.permissions.delete(requestId)) return;
     setPending((cards) => cards.filter((card) => card.request_id !== requestId));
     try {
       await apiClient.post(`/api/assistant/permissions/${requestId}`, { allow });
-    } catch {
-      /* Already answered or expired. The transcript will show what happened. */
+    } catch (err) {
+      if (active.current === turn) setError(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
   const cancel = useCallback(async () => {
-    abortRef.current?.abort();
-    if (sessionId !== null) {
-      try {
-        await apiClient.post(`/api/assistant/sessions/${sessionId}/cancel`);
-      } catch { /* nothing was running */ }
+    const turn = active.current;
+    if (!turn || turn.stopping) return;
+    turn.stopping = true;
+    if (turn.id === null) return; // Creation settles before this turn is released.
+    try {
+      turn.cancellation = apiClient.post(`/api/assistant/sessions/${turn.id}/cancel`);
+      await turn.cancellation;
+    } catch (err) {
+      if (active.current === turn) {
+        turn.stopping = false;
+        setError(err instanceof Error ? err.message : String(err));
+      }
     }
-    setPending([]);
-    setAnswering(false);
-  }, [sessionId]);
+    // A cancellation request is not proof the server stopped. Keep ownership
+    // and the reader until stream_end/EOF, then refresh the persisted rows.
+  }, []);
 
-  const applyEvent = useCallback((event: any) => {
+  const applyEvent = useCallback((event: {
+    type: string; text?: string; tool_name?: string; input?: Record<string, unknown>;
+    tool_use_id?: string; is_error?: boolean; message?: string; request_id?: string;
+    cost_usd?: number | null; input_tokens?: number | null; output_tokens?: number | null;
+  }) => {
     switch (event.type) {
       case 'text_delta':
+        if (typeof event.text !== 'string') return;
         setMessages((current) => {
           const next = [...current];
           const last = next[next.length - 1];
           if (last && last.role === 'assistant' && last.streaming) {
             next[next.length - 1] = { ...last, content: last.content + event.text };
           } else {
-            next.push({ role: 'assistant', content: event.text, streaming: true });
+            next.push({ role: 'assistant', content: event.text || '', streaming: true });
           }
           return next;
         });
@@ -259,7 +324,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           const next = [...current];
           const last = next[next.length - 1];
           const call: AssistantToolCall = {
-            name: event.tool_name,
+            name: event.tool_name || 'Unknown tool',
             input: event.input,
             tool_use_id: event.tool_use_id,
           };
@@ -297,9 +362,11 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }]);
         break;
       case 'permission_request':
+        if (!event.request_id || !active.current || active.current.stopping) return;
+        active.current.permissions.add(event.request_id);
         setPending((cards) => [...cards, {
-          request_id: event.request_id,
-          tool_name: event.tool_name,
+          request_id: event.request_id!,
+          tool_name: event.tool_name || 'Unknown tool',
           input: event.input || {},
         }]);
         break;
@@ -335,26 +402,26 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    let id = sessionId;
-    if (id === null) {
-      const session = await apiClient.post<{ id: number }>('/api/assistant/sessions', {});
-      id = session.id;
-      setSessionId(id);
-    }
-
+    if (active.current || selectionBusy.current || (selected.current !== null && deleting.current.has(selected.current))) return;
+    const turn: ActiveTurn = { id: selected.current, stopping: false, permissions: new Set<string>() };
+    active.current = turn;
+    ++selectionEpoch.current;
     setError(null);
     setAnswering(true);
-    setMessages((current) => [...current, { role: 'user', content: trimmed }]);
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-
     try {
+      if (turn.id === null) {
+        const session = await apiClient.post<{ id: number }>('/api/assistant/sessions', {});
+        turn.id = session.id;
+        selected.current = session.id;
+        setSessionId(session.id);
+      }
+      if (turn.stopping) return;
+      const id = turn.id;
+      setMessages((current) => [...current, { role: 'user', content: trimmed }]);
       const response = await fetch(`${getBaseUrl()}/api/assistant/sessions/${id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: trimmed }),
-        signal: controller.signal,
       });
       if (!response.ok || !response.body) {
         const detail = await response.text();
@@ -366,6 +433,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         throw new Error(message || 'resmon refused that message.');
       }
 
+      if (turn.stopping) await apiClient.post(`/api/assistant/sessions/${id}/cancel`);
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -379,32 +447,44 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           for (const line of chunk.split('\n')) {
             if (!line.startsWith('data: ')) continue;
             try {
-              applyEvent(JSON.parse(line.slice(6)));
+              if (active.current === turn) applyEvent(JSON.parse(line.slice(6)));
             } catch { /* a partial or malformed frame is dropped */ }
           }
         }
       }
     } catch (err) {
-      if (!(err instanceof Error && err.name === 'AbortError')) {
+      if (active.current === turn && !(err instanceof Error && err.name === 'AbortError')) {
         setError(err instanceof Error ? err.message : String(err));
       }
       setMessages((current) => current.map((m) => (
         m.streaming ? { ...m, streaming: false } : m
       )));
     } finally {
-      setAnswering(false);
-      abortRef.current = null;
-      setPending([]);
-      void refreshSessions();
+      if (active.current === turn) {
+        // A delayed cancellation request must finish before another turn on
+        // this ID can start, even when the old stream has already ended.
+        await turn.cancellation?.catch(() => {});
+        try {
+          if (turn.id !== null) {
+            const body = await apiClient.get<{ session?: { id: number }; messages: AssistantMessage[] }>(
+              `/api/assistant/sessions/${turn.id}`);
+            if (active.current === turn && Array.isArray(body.messages) && (!body.session || body.session.id === turn.id)) setMessages(body.messages);
+          }
+        } catch { /* Keep the observed text when the persisted read is unavailable. */ }
+        active.current = null;
+        setAnswering(false);
+        setPending([]);
+        void refreshSessions();
+      }
     }
-  }, [sessionId, applyEvent, refreshSessions]);
+  }, [applyEvent, refreshSessions]);
 
   const value = useMemo<AssistantContextValue>(() => ({
     isOpen, setOpen, status, statusLoaded, refreshStatus,
-    sessions, sessionId, messages, pending, isAnswering, error,
+    sessions, sessionId, messages, pending, isAnswering, isSelecting, error,
     send, answerPermission, newSession, openSession, deleteSession, cancel,
   }), [isOpen, status, statusLoaded, refreshStatus, sessions, sessionId, messages,
-    pending, isAnswering, error, send, answerPermission, newSession, openSession,
+    pending, isAnswering, isSelecting, error, send, answerPermission, newSession, openSession,
     deleteSession, cancel]);
 
   return <AssistantContext.Provider value={value}>{children}</AssistantContext.Provider>;

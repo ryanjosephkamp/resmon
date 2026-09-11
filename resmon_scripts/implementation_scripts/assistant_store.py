@@ -14,12 +14,9 @@ mode is a resume that silently starts a fresh conversation the user believes is
 their old one. ``cli_session_id`` is nullable because "this runtime cannot
 resume" is a real state the panel reports rather than papers over.
 
-**Tool results are stored exactly as returned.** That is safe by construction
-rather than by care: no tool on the surface returns a credential value — a
-contract v2 guarantee asserted against a real backend — so a transcript has no
-class of secret to accumulate. It is worth writing down *why* it is safe,
-because "we store what the model saw" is otherwise the sort of decision that
-ages badly the first time a tool starts returning something sensitive.
+**Tool results are stored exactly as returned.** Tools do not expose credential
+fields, but saved messages and tool data can themselves contain sensitive text.
+A requested transcript export preserves that text; review before sharing.
 
 **Cost and tokens are recorded per message, and are nullable.** A runtime that
 does not report them stores ``NULL``, and the panel renders "not reported"
@@ -30,6 +27,7 @@ app does not do is show a number it did not measure.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 import sqlite3
 import uuid
 from typing import Any, Optional
@@ -37,6 +35,8 @@ from typing import Any, Optional
 __all__ = [
     "MAX_TITLE_LENGTH",
     "add_message",
+    "browse_sessions",
+    "read_snapshot",
     "create_session",
     "delete_session",
     "get_session",
@@ -207,11 +207,15 @@ def list_sessions(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
     return out
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError("Non-JSON numeric constant: " + value)
+
+
 def _json_or_none(value: Any) -> Any:
     if value is None:
         return None
     try:
-        return json.loads(value)
+        return json.loads(value, parse_constant=_reject_json_constant)
     except (TypeError, ValueError):
         # A row written by a future version, or a hand-edited database. The
         # message is still shown; the structured part is reported as
@@ -277,3 +281,53 @@ def delete_session(conn: sqlite3.Connection, session_id: int) -> bool:
     cur = conn.execute("DELETE FROM assistant_sessions WHERE id = ?", (session_id,))
     conn.commit()
     return cur.rowcount > 0
+
+
+def browse_sessions(conn: sqlite3.Connection, *, limit: int = 50,
+                    before_id: Optional[int] = None, through_id: Optional[int] = None,
+                    q: str = "") -> dict:
+    """Newest-created paging. The ceiling freezes IDs, not row contents."""
+    if not 1 <= limit <= 100 or len(q) > 200:
+        raise ValueError("Invalid page size or title filter.")
+    if (before_id is not None and not 1 <= before_id <= 9223372036854775807) or (through_id is not None and not 0 <= through_id <= 9223372036854775807):
+        raise ValueError("Invalid conversation cursor.")
+    if through_id is None:
+        through_id = conn.execute("SELECT COALESCE(MAX(id), 0) FROM assistant_sessions").fetchone()[0]
+    literal = q.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    rows = conn.execute(
+        "SELECT s.*, (SELECT COUNT(*) FROM assistant_messages m WHERE m.session_id=s.id) AS message_count "
+        "FROM assistant_sessions s WHERE s.id <= ? AND (? IS NULL OR s.id < ?) "
+        "AND COALESCE(NULLIF(s.title, ''), 'New conversation') LIKE ? ESCAPE '!' "
+        "ORDER BY s.id DESC LIMIT ?",
+        (through_id, before_id, before_id, '%' + literal + '%', limit + 1),
+    ).fetchall()
+    sessions = [{**{k: row[k] for k in ('id', 'runtime', 'model', 'created_at', 'updated_at', 'message_count')},
+                 'title': row['title'] or 'New conversation'} for row in rows[:limit]]
+    more = len(rows) > limit
+    return {'sessions': sessions, 'through_id': through_id,
+            'next_before_id': sessions[-1]['id'] if more else None, 'has_more': more}
+
+
+def read_snapshot(conn: sqlite3.Connection, session_id: int) -> Optional[dict]:
+    """One committed SQLite read snapshot; never commit a caller's writes.
+
+    Refuse an already-writing connection instead of calling uncommitted rows
+    persisted. Runtime observations belong outside this transaction.
+    """
+    if conn.in_transaction:
+        raise ValueError("A transcript snapshot requires a connection without pending writes.")
+    conn.execute("BEGIN")
+    try:
+        row = conn.execute("SELECT * FROM assistant_sessions WHERE id=?", (session_id,)).fetchone()
+        if row is None:
+            return None
+        raw = [dict(m) for m in conn.execute(
+            "SELECT * FROM assistant_messages WHERE session_id=? ORDER BY id", (session_id,))]
+        return {'session': _session_row(row), 'stored_title': row['title'],
+                'messages': list_messages(conn, session_id), 'raw_messages': raw,
+                'totals': session_totals(conn, session_id),
+                'snapshot': {'captured_at_utc': datetime.now(timezone.utc).isoformat(),
+                             'basis': 'persisted_messages_only', 'message_count': len(raw),
+                             'last_message_id': raw[-1]['id'] if raw else None}}
+    finally:
+        conn.rollback()

@@ -51,7 +51,7 @@ function manifest(dir: string): Record<string, string> {
     try {
       entries = fs.readdirSync(d, { withFileTypes: true });
     } catch {
-      return; // unreadable is not this test's business
+      throw new Error(`Cannot inventory synthetic profile: ${d}`);
     }
     for (const e of entries) {
       const full = path.join(d, e.name);
@@ -59,7 +59,7 @@ function manifest(dir: string): Record<string, string> {
       try {
         const st = fs.statSync(full);
         out[path.relative(dir, full)] = `${st.size}:${st.mtimeMs}`;
-      } catch { /* vanished mid-walk */ }
+      } catch { throw new Error(`Cannot stat synthetic profile entry: ${full}`); }
     }
   };
   walk(dir);
@@ -122,49 +122,50 @@ test('P12b: every file that launches the app passes --user-data-dir', () => {
   expect(offenders).toEqual([]);
 });
 
-test('P12c: the installed app\'s profile is byte-for-byte unchanged by a launch', async () => {
+test('P12c: a synthetic prior profile retains path/size/mtime metadata after a separate launch', async () => {
   test.setTimeout(300_000);
-  const real = realUserDataDir();
-  const before = manifest(real);
-  if (Object.keys(before).length === 0) {
-    // Nothing to protect on this machine — a CI runner has never installed
-    // resmon. Say so rather than reporting a vacuous pass.
-    console.log(
-      'P12c NOT VERIFIED — there is no installed-app profile at', real,
-      'on this machine, so a launch has nothing to disturb. The property holds',
-      'vacuously here; it was measured on a machine that has one.',
-    );
-    test.skip(true, `no installed profile at ${real}`);
-  }
-
   const { launchResmon } = await import('./fixtures/resmon-app');
-  const { app, stateDir } = await launchResmon(true);
+  const control = await launchResmon(true);
+  let controlProfile = '';
   try {
-    const win = await app.firstWindow({ timeout: 180_000 });
-    await win.waitForLoadState('domcontentloaded');
+    const win = await control.app.firstWindow({ timeout: 180_000 });
     await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
-    // Do the things that write to a profile: navigate, and change the zoom.
+    controlProfile = await control.app.evaluate(({ app }) => app.getPath('userData'));
+  } finally { await control.app.close(); }
+  const sentinel = path.join(controlProfile, 'synthetic-control-sentinel.txt');
+  fs.writeFileSync(sentinel, 'R04b authored prior-profile sentinel');
+  fs.utimesSync(sentinel, 1700000000, 1700000000);
+  const before = manifest(controlProfile);
+  expect(Object.keys(before).length).toBeGreaterThan(1);
+  const candidate = await launchResmon(true);
+  try {
+    const win = await candidate.app.firstWindow({ timeout: 180_000 });
+    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
+    const candidateProfile = await candidate.app.evaluate(({ app }) => app.getPath('userData'));
+    expect(path.resolve(candidateProfile)).not.toBe(path.resolve(controlProfile));
     for (const hash of ['/', '/settings/ai', '/repositories']) {
-      await win.evaluate((h) => { window.location.hash = `#${h}`; }, hash);
+      await win.evaluate(h => { window.location.hash = `#${h}`; }, hash);
       await win.waitForTimeout(300);
     }
-    await app.evaluate(async ({ BrowserWindow }) => {
-      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1.4);
-    });
-    await win.waitForTimeout(500);
+    await candidate.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1.4));
   } finally {
-    await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    await candidate.app.close();
+    fs.rmSync(candidate.stateDir, { recursive: true, force: true });
   }
-
-  const after = manifest(real);
-  const changed = Object.keys({ ...before, ...after })
-    .filter((k) => before[k] !== after[k]);
-  console.log('P12c INSTALLED PROFILE', JSON.stringify({
-    dir: real, files: Object.keys(before).length, changed,
-  }));
-  expect(changed, `the launch touched the installed app's profile:\n${
-    JSON.stringify(changed, null, 2)}`).toEqual([]);
+  try {
+    expect(manifest(controlProfile)).toEqual(before);
+    const stat = fs.statSync(sentinel);
+    const bytes = fs.readFileSync(sentinel);
+    fs.appendFileSync(sentinel, ' deliberate mutation');
+    let refused = false;
+    try { expect(manifest(controlProfile)).toEqual(before); } catch { refused = true; }
+    expect(refused, 'the metadata comparison must reject an altered control').toBe(true);
+    fs.writeFileSync(sentinel, bytes);
+    fs.utimesSync(sentinel, stat.atime, stat.mtime);
+    const restored = manifest(controlProfile);
+    expect(restored).toEqual(before);
+    console.log('P12c SYNTHETIC METADATA ONLY', JSON.stringify({ controlProfile, files: Object.keys(before).length, negativeRejected: refused, restored }));
+  } finally { fs.rmSync(control.stateDir, { recursive: true, force: true }); }
 });
 
 test('P14: a full run leaves no modified or untracked file under e2e/', () => {

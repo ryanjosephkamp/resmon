@@ -20,6 +20,7 @@ import { MemoryRouter } from 'react-router-dom';
 import AssistantPanel from '../components/Assistant/AssistantPanel';
 import {
   AssistantProvider,
+  useAssistant,
   describeToolCall,
   shortToolName,
 } from '../context/AssistantContext';
@@ -360,4 +361,103 @@ it('focuses on entry and returns to Ask on close without moving focus on draft e
   expect(history).toHaveFocus();
   fireEvent.click(screen.getByRole('button', { name: 'Close the assistant' }));
   expect(screen.getByTestId('assistant-trigger')).toHaveFocus();
+});
+
+// Controlled request completion exercises the real provider's synchronous refs.
+let owner: ReturnType<typeof useAssistant>;
+function OwnershipHarness() {
+  owner = useAssistant();
+  return <div data-testid="owner">{JSON.stringify({ id:owner.sessionId, answering:owner.isAnswering,
+    messages:owner.messages,pending:owner.pending,error:owner.error })}</div>;
+}
+function deferred<T>() {
+  let resolve!: (value:T)=>void; let reject!: (e:Error)=>void;
+  const promise = new Promise<T>((ok,no)=>{resolve=ok;reject=no;});
+  return {promise,resolve,reject};
+}
+async function mountOwner() { await act(async()=>{ render(<AssistantProvider><OwnershipHarness/></AssistantProvider>); }); }
+const saved = (id:number) => ({session:{id},messages:[{id,role:'user',content:`saved ${id}`} ]});
+
+it('late open success/error and create response cannot replace newer selection',async()=>{
+  mockBackend();const previous=global.fetch;
+  const a=deferred<Response>();const b=deferred<Response>();const created=deferred<Response>();
+  global.fetch=jest.fn((input,init)=>{
+    const url=String(input);
+    if(url.endsWith('/sessions/10'))return a.promise;
+    if(url.endsWith('/sessions/11'))return b.promise;
+    if(url.endsWith('/sessions')&&init?.method==='POST')return created.promise;
+    return previous(input,init);
+  });
+  await mountOwner();
+  act(()=>{void owner.openSession(10);void owner.openSession(11);});
+  await act(async()=>b.resolve(json(saved(11))));
+  await act(async()=>a.resolve(json(saved(10))));expect(owner.sessionId).toBe(11);
+  act(()=>{void owner.newSession();});
+  await act(async()=>owner.openSession(11));
+  await act(async()=>created.resolve(json({id:12})));expect(owner.sessionId).toBe(11);
+  const stale=deferred<Response>();global.fetch=jest.fn((input,init)=>String(input).endsWith('/sessions/10')?stale.promise:previous(input,init));
+  act(()=>{void owner.openSession(10);});
+  await act(async()=>owner.newSession());
+  await act(async()=>stale.reject(new Error('old failure')));
+  expect(owner.sessionId).toBe(1);expect(owner.error).not.toBe('old failure');
+});
+
+it('same-tick double send, active continuation and exact permission ownership stay on one turn',async()=>{
+  const calls=mockBackend();const previous=global.fetch;
+  let controller!:ReadableStreamDefaultController<Uint8Array>;
+  const stream=new ReadableStream<Uint8Array>({start(c){controller=c;}});
+  global.fetch=jest.fn((input,init)=>{
+    if(String(input).endsWith('/messages'))return Promise.resolve({ok:true,body:stream} as Response);
+    if(String(input).endsWith('/sessions/1'))return Promise.resolve(json(saved(1)));
+    return previous(input,init);
+  });
+  await mountOwner();let sending!:Promise<void>;
+  await act(async()=>{sending=owner.send('one');void owner.send('two');});
+  expect((global.fetch as jest.Mock).mock.calls.filter(([url])=>String(url).endsWith('/messages'))).toHaveLength(1);
+  const event=(e:unknown)=>controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(e)}\n\n`));
+  await act(async()=>event({type:'permission_request',request_id:'exact-A',tool_name:'create_routine',input:{name:'authored'}}));
+  expect(owner.pending[0].request_id).toBe('exact-A');
+  await act(async()=>{await owner.openSession(1);await owner.openSession(2);await owner.newSession();await owner.deleteSession(1);});
+  expect(owner.sessionId).toBe(1);expect(owner.pending).toHaveLength(1);
+  await act(async()=>{await owner.answerPermission('other-request',true);await owner.answerPermission('exact-A',false);await owner.answerPermission('exact-A',true);});
+  expect(calls.filter(c=>c.path.includes('/permissions/'))).toEqual([{path:'/api/assistant/permissions/exact-A',body:{allow:false}}]);
+  await act(async()=>{controller.close();await sending;});expect(owner.isAnswering).toBe(false);
+  expect(owner.messages[0].content).toBe('saved 1');
+});
+
+it('Stop retains ownership until the actual reader settles, including delayed cancellation completion',async()=>{
+  mockBackend();const previous=global.fetch;const stop=deferred<Response>();
+  let controller!:ReadableStreamDefaultController<Uint8Array>;
+  global.fetch=jest.fn((input,init)=>{
+    if(String(input).endsWith('/messages'))return Promise.resolve({ok:true,body:new ReadableStream<Uint8Array>({start(c){controller=c;}})} as Response);
+    if(String(input).endsWith('/cancel'))return stop.promise;
+    if(String(input).endsWith('/sessions/1'))return Promise.resolve(json(saved(1)));
+    if(String(input).endsWith('/sessions/2'))return Promise.resolve(json(saved(2)));
+    return previous(input,init);
+  });
+  await mountOwner();let sending!:Promise<void>;let stopping!:Promise<void>;
+  await act(async()=>{sending=owner.send('wait');});
+  act(()=>{stopping=owner.cancel();});
+  await act(async()=>owner.openSession(2));expect(owner.sessionId).toBe(1);expect(owner.isAnswering).toBe(true);
+  await act(async()=>{controller.close();});
+  await act(async()=>owner.openSession(2));expect(owner.sessionId).toBe(1);
+  await act(async()=>{stop.resolve(json({cancelled:true}));await stopping;await sending;});
+  await act(async()=>owner.openSession(2));
+  expect(owner.sessionId).toBe(2);expect(owner.messages[0].content).toBe('saved 2');
+});
+
+it('retains a draft and disables submission while a new session is being selected',async()=>{
+  mockBackend();const previous=global.fetch;const created=deferred<Response>();
+  global.fetch=jest.fn((input,init)=>String(input).endsWith('/sessions')&&init?.method==='POST'?created.promise:previous(input,init));
+  await mount();await openPanel();
+  const composer=screen.getByLabelText('Message the assistant');
+  fireEvent.change(composer,{target:{value:'retained draft'}});
+  act(()=>fireEvent.click(screen.getByLabelText('New conversation')));
+  expect(composer).toBeDisabled();
+  fireEvent.submit(composer.closest('form')!);
+  expect(composer).toHaveValue('retained draft');
+  await act(async()=>created.resolve(json({id:44})));
+  expect(composer).toBeEnabled();
+  await act(async()=>fireEvent.click(screen.getByText('Send')));
+  expect((global.fetch as jest.Mock).mock.calls.some(([url,init])=>String(url).endsWith('/sessions/44/messages')&&JSON.parse(init.body).text==='retained draft')).toBe(true);
 });

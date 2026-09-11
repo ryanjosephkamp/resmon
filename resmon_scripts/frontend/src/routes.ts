@@ -48,6 +48,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
   { path: '/routines', name: 'Routines' },
   { path: '/calendar', name: 'Calendar' },
   { path: '/results', name: 'Results' },
+  { path: '/chats', name: 'Chats' },
   { path: '/reading-queue', name: 'Reading queue' },
   { path: '/analytics', name: 'Analytics' },
   { path: '/watchdog', name: 'Watchdog' },
