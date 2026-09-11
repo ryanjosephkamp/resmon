@@ -98,7 +98,7 @@ from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
 from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
-    analytics, assistant_export, assistant_runtime, assistant_store, coverage_audit, embedding_job,
+    analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store, coverage_audit, embedding_job,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
     reading_queue, reference_export, search_record, source_coverage, vector_index, watch_profiles,
     watchdog,
@@ -4874,11 +4874,15 @@ def close_db() -> None:
 
 
 class AssistantSessionCreate(BaseModel):
+    model_config = {"extra": "forbid"}
     title: Optional[str] = None
+    choices: Optional[dict] = None
 
 
 class AssistantMessageBody(BaseModel):
+    model_config = {"extra": "forbid"}
     text: str
+    legacy_adoption: Optional[dict] = None
 
 
 class AssistantPermissionOpen(BaseModel):
@@ -4945,6 +4949,7 @@ def assistant_status():
         status = assistant_runtime.runtime_status(
             _assistant_settings(conn), backend_port=serving_port(),
         )
+        status["composer_choices"] = assistant_choices.descriptor(_assistant_settings(conn), backend_port=serving_port())
         status["contract_version"] = _mcp_contract_version()
         return status
     finally:
@@ -4964,17 +4969,18 @@ def _mcp_contract_version() -> str:
 def create_assistant_session(body: AssistantSessionCreate):
     conn = _get_db()
     try:
-        runtime = _assistant_runtime_for(conn)
+        try:
+            settings = _assistant_settings(conn)
+            if 'choices' in body.model_fields_set and body.choices is None:
+                raise ValueError('Supply a complete choices object, or omit it to use settings defaults.')
+            binding = assistant_choices.resolve(settings, body.choices)
+            runtime = assistant_runtime.get_bound_runtime(binding, settings, backend_port=serving_port())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         status = runtime.status()
         if not status.available:
             raise HTTPException(409, status.reason)
-        session_id = assistant_store.create_session(
-            conn,
-            runtime=runtime.kind,
-            cli_session_id=assistant_store.new_cli_session_id(),
-            model=runtime.model,
-            title=(body.title or "").strip() or None,
-        )
+        session_id = assistant_store.create_bound_session(conn, binding, (body.title or '').strip() or None)
         return assistant_store.get_session(conn, session_id)
     finally:
         _close_db(conn)
@@ -5019,7 +5025,7 @@ def get_assistant_session(session_id: int):
         if snapshot is None:
             raise HTTPException(404, "That conversation does not exist.")
         observation = _assistant_activity_observation(session_id)
-        return {**{k: snapshot[k] for k in ('session', 'messages', 'totals', 'snapshot')},
+        return {**{k: snapshot[k] for k in ('session', 'messages', 'totals', 'snapshot', 'choices_version', 'turn_choices')},
                 "running": observation['cli_running'], "activity_observation": observation}
     finally:
         _close_db(conn)
@@ -5099,7 +5105,8 @@ async def answer_assistant_permission(request_id: str, body: AssistantPermission
 
 def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
                         cli_session_id: str,
-                        history: Optional[list] = None) -> None:
+                        history: Optional[list], runtime, user_message_id: int,
+                        events, finished: threading.Event, detached: threading.Event) -> None:
     """The worker thread: drive the CLI, publish events, store the turn.
 
     Runs on its own thread with its own database connection (``_get_db`` is
@@ -5114,7 +5121,7 @@ def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
     usage: dict = {}
     try:
         conn = _get_db()
-        runtime = _assistant_runtime_for(conn)
+        # Runtime was captured at admission; never reconstruct it from defaults.
         # ``history`` is read by the API-key runtime and ignored by the CLI
         # one, which keeps its own session. Passed always rather than
         # conditionally: a caller that has to know which runtime it is talking
@@ -5123,13 +5130,18 @@ def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
             session_id, prompt,
             cli_session_id=cli_session_id, resume=resume, history=history,
         ):
+            observation = event.get('model_report')
+            if observation:
+                observed = assistant_store.append_report(conn, session_id, user_message_id, observation)
+                assistant_runtime.bus.publish(session_id, {'type': 'turn_model_report', 'session_id': session_id,
+                                                          'user_message_id': user_message_id, 'reported': observed})
             if event["type"] == "started":
                 # The id the CLI actually reports, which is normally the one it
                 # was handed and is *not* after a failed resume: the runtime
                 # starts a fresh CLI session and this is where resmon learns
                 # about it. Without this the next turn would resume the id the
                 # CLI has already said it does not have, for ever.
-                reported = str(event.get("cli_session_id") or "")
+                reported = str(event.get("owned_cli_session_id") or "")
                 if reported and reported != cli_session_id:
                     cli_session_id = reported
                     assistant_store.set_cli_session_id(conn, session_id, reported)
@@ -5155,8 +5167,8 @@ def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
                 usage = event
             assistant_runtime.bus.publish(session_id, event)
 
-        assistant_store.add_message(
-            conn, session_id, role="assistant",
+        assistant_store.finish_turn(
+            conn, session_id, user_message_id,
             content="".join(text_parts),
             tool_calls=tool_calls or None,
             tool_results=tool_results or None,
@@ -5175,6 +5187,9 @@ def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
     finally:
         # Always, so the stream ends even when the turn did not.
         assistant_runtime.bus.publish(session_id, {"type": "stream_end"})
+        finished.set()
+        if detached.is_set():
+            assistant_runtime.bus.close(session_id, expected=events)
 
 
 @app.post("/api/assistant/sessions/{session_id}/messages")
@@ -5187,7 +5202,29 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
     if not text:
         raise HTTPException(400, "There is nothing to send.")
 
-    runtime = _assistant_runtime_for(conn)
+    settings = _assistant_settings(conn)
+    binding = assistant_store.get_choices(conn, session_id)
+    legacy = binding is None
+    if legacy:
+        adoption = body.legacy_adoption
+        if not isinstance(adoption, dict) or set(adoption) != {'choices', 'confirmed'} or adoption['confirmed'] is not True:
+            raise HTTPException(409, {'code': 'legacy_adoption_required', 'message':
+                'Historical settings are unknown. Choose and confirm a future connection before sending.'})
+        try:
+            if not isinstance(adoption['choices'], dict):
+                raise ValueError('Supply explicit future choices.')
+            binding = assistant_choices.resolve(settings, adoption['choices'], legacy=True)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if binding['runtime'] != session['runtime']:
+            raise HTTPException(409, {'code': 'runtime_change_requires_new_conversation', 'message':
+                'A different connection kind starts a new empty conversation.'})
+    elif body.legacy_adoption is not None:
+        raise HTTPException(409, {'code': 'already_bound', 'message': 'This conversation already has fixed choices. Reopen it.'})
+    try:
+        runtime = assistant_runtime.get_bound_runtime(binding, settings, backend_port=serving_port())
+    except ValueError as exc:
+        raise HTTPException(409, {'code': 'configuration_changed', 'message': str(exc)}) from exc
     status = runtime.status()
     if not status.available:
         raise HTTPException(409, status.reason)
@@ -5205,25 +5242,17 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
     # conversation is wedged: every later turn would answer 409 for ever, and
     # only restarting the app would clear it.
     try:
-        # Resume only when there is something to resume *and* a CLI session to
-        # resume it in. Those are two facts and this used to read only the
-        # first: a session whose ``cli_session_id`` was null but which had
-        # messages minted a brand-new id and then asked the CLI to *resume* it,
-        # which the CLI cannot do by construction. Nothing set that column null
-        # in 2.0a, so it was latent; the cannot-resume work makes it reachable.
-        cli_session_id = session["cli_session_id"] or assistant_store.new_cli_session_id()
-        history = assistant_store.list_messages(conn, session_id)
-        resume = bool(session["cli_session_id"]) and bool(history)
-        if not session["cli_session_id"]:
-            assistant_store.set_cli_session_id(conn, session_id, cli_session_id)
-
-        assistant_store.add_message(conn, session_id, role="user", content=text)
-        assistant_store.touch_session(conn, session_id,
-                                     title=assistant_store.title_from(text))
-
+        try:
+            admitted = assistant_store.admit_turn(conn, session_id, text, binding, legacy=legacy)
+        except ValueError as exc:
+            raise HTTPException(409, {'code': 'admission_conflict', 'message': str(exc)}) from exc
+        assistant_runtime.bus.publish(session_id, {'type': 'turn_choices', 'session_id': session_id,
+            'user_message_id': admitted['user_message_id'], 'requested': admitted['requested']})
+        finished, detached = threading.Event(), threading.Event()
         worker = threading.Thread(
             target=_run_assistant_turn,
-            args=(session_id, text, resume, cli_session_id, history),
+            args=(session_id, text, admitted['resume'], admitted['cli_session_id'], admitted['history'],
+                  runtime, admitted['user_message_id'], events, finished, detached),
             daemon=True,
         )
         worker.start()
@@ -5255,7 +5284,14 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
                                             "part-way through that answer."})
                    + "\n\n")
         finally:
-            assistant_runtime.bus.close(session_id)
+            # A dropped reader does not prove the runtime stopped. Keep the
+            # claim until this exact worker finishes, so another send cannot
+            # overlap it or inherit its late permission/model events.
+            detached.set()
+            if finished.is_set():
+                assistant_runtime.bus.close(session_id, expected=events)
+            else:
+                assistant_runtime.cancel_turn(session_id)
             # Anything still waiting for a card belongs to a turn nobody is
             # watching any more.
             permission_broker.cancel_session(session_id)

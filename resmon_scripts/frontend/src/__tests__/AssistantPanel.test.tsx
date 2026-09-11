@@ -461,3 +461,67 @@ it('retains a draft and disables submission while a new session is being selecte
   await act(async()=>fireEvent.click(screen.getByText('Send')));
   expect((global.fetch as jest.Mock).mock.calls.some(([url,init])=>String(url).endsWith('/sessions/44/messages')&&JSON.parse(init.body).text==='retained draft')).toBe(true);
 });
+
+const choiceRequest = {version:1 as const,runtime:'claude_cli' as const,provider:'claude_code',model:'opus',effort:'high'};
+const choiceStatus = {...AVAILABLE,composer_choices:{version:1,default_request:choiceRequest,default_error:null,
+ connections:[{runtime:'claude_cli',provider:'claude_code',label:'Claude Code',implemented:true,available:true,reason:'Local prerequisites only',effort_supported:true},
+ {runtime:'api_key',provider:'custom',label:'Custom',implemented:true,available:true,reason:'Key configured; not authenticated',effort_supported:false}],
+ claude_aliases:['opus','fable'],claude_efforts:['high','max'],limitations:'Aliases are not compatibility'}};
+const storedChoice = {version:1,runtime:'claude_cli',provider:'claude_code',requested_model:'opus',requested_effort:'high',model_basis:'explicit',effort_basis:'explicit',binding_basis:'new'};
+
+it('an edited choice survives late status and cannot save global defaults',async()=>{
+ const calls=mockBackend({status:choiceStatus});await mountOwner();
+ act(()=>owner.setDraftChoices({...choiceRequest,model:'literal-B',effort:'max'}));
+ await act(async()=>owner.refreshStatus());
+ expect(owner.draftChoices?.model).toBe('literal-B');
+ expect(calls.filter(c=>c.path.startsWith('/api/settings'))).toEqual([]);
+ await act(async()=>owner.newSession());
+ expect(calls.find(c=>c.path==='/api/assistant/sessions'&&c.body)?.body).toEqual({choices:{...choiceRequest,model:'literal-B',effort:'max'}});
+});
+
+it('historical continuation stays unread until explicit confirmation; cancel keeps the draft',async()=>{
+ const calls=mockBackend({status:choiceStatus});const previous=global.fetch;
+ global.fetch=jest.fn((input,init)=>String(input).endsWith('/sessions/9')?Promise.resolve(json({session:{id:9,runtime:'claude_cli',choices:null},messages:[{id:90,role:'user',content:'old local text'}]})):previous(input,init));
+ await act(async()=>{render(<AssistantProvider><OwnershipHarness/><AssistantPanel/></AssistantProvider>);});
+ await act(async()=>owner.openSession(9));
+ fireEvent.change(screen.getByLabelText('Message the assistant'),{target:{value:'future message'}});
+ await act(async()=>fireEvent.click(screen.getByText('Send')));
+ expect(screen.getByText(/Earlier messages remain here; this new Claude session/)).toBeVisible();
+ expect(calls.filter(c=>c.path.endsWith('/messages'))).toEqual([]);
+ fireEvent.click(screen.getByText('Cancel continuation'));
+ expect(screen.getByLabelText('Message the assistant')).toHaveValue('future message');
+ await act(async()=>fireEvent.click(screen.getByText('Send')));
+ await act(async()=>fireEvent.click(screen.getByText('Confirm and send')));
+ expect(calls.find(c=>c.path.endsWith('/9/messages'))?.body).toEqual({text:'future message',legacy_adoption:{choices:choiceRequest,confirmed:true}});
+});
+
+it('a bound selection resists same-tick edits/change choices and foreign late reports',async()=>{
+ mockBackend({status:choiceStatus});const previous=global.fetch;let controller!:ReadableStreamDefaultController<Uint8Array>;
+ global.fetch=jest.fn((input,init)=>{
+  const u=String(input);
+  if(u.endsWith('/sessions/1'))return Promise.resolve(json({session:{id:1,runtime:'claude_cli',choices:storedChoice},messages:[]}));
+  if(u.endsWith('/messages'))return Promise.resolve({ok:true,body:new ReadableStream<Uint8Array>({start(c){controller=c;}})} as Response);
+  return previous(input,init);
+ });
+ await mountOwner();await act(async()=>owner.openSession(1));let sending!:Promise<void>;
+ await act(async()=>{sending=owner.send('live');owner.changeChoices();owner.setDraftChoices({...choiceRequest,model:'forbidden'});});
+ expect(owner.sessionId).toBe(1);expect(owner.draftChoices?.model).toBe('opus');
+ const event=(e:unknown)=>controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(e)}\n\n`));
+ await act(async()=>{event({type:'turn_choices',session_id:1,user_message_id:5,requested:storedChoice});event({type:'turn_model_report',session_id:2,user_message_id:5,reported:{sequence:1,model:'foreign',source:'api_response_model',observed_at_utc:'now'}});});
+ expect(owner.turnChoices[0].reported).toEqual([]);
+ await act(async()=>{controller.close();await sending;});
+ act(()=>owner.changeChoices());expect(owner.sessionId).toBeNull();expect(owner.messages).toEqual([]);
+});
+it('keeps the unavailable explanation and lets a usable alternative restore the composer',async()=>{
+ const status={...choiceStatus,available:false,reason:'Claude is not installed',composer_choices:{...choiceStatus.composer_choices,connections:choiceStatus.composer_choices.connections.map(c=>c.runtime==='claude_cli'?{...c,available:false,reason:'Claude CLI missing. Configure Settings → AI.'}:c)}};
+ const calls=mockBackend({status});
+ await act(async()=>{render(<AssistantProvider><OwnershipHarness/><AssistantPanel/></AssistantProvider>);});
+ await act(async()=>owner.setOpen(true));
+ expect(screen.getByTestId('assistant-unavailable')).toHaveTextContent('Claude CLI missing');
+ expect(screen.getByLabelText('Message the assistant')).toBeDisabled();
+ fireEvent.change(screen.getByLabelText('Connection'),{target:{value:'api_key:custom'}});
+ fireEvent.change(screen.getByLabelText('Model'),{target:{value:'explicit-api'}});
+ expect(screen.queryByTestId('assistant-unavailable')).toBeNull();
+ expect(screen.getByLabelText('Message the assistant')).toBeEnabled();
+ expect(calls.filter(c=>c.path.startsWith('/api/settings'))).toEqual([]);
+});

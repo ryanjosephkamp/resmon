@@ -403,3 +403,45 @@ def test_the_sdk_evidence_is_read_from_the_installed_sdk_not_from_the_comment():
     assert "tools" in openai_params and "tool_choice" in openai_params
     assert anthropic.__version__ in tool_calling("anthropic").evidence
     assert openai.__version__ in tool_calling("openai").evidence
+
+
+@pytest.mark.parametrize('provider', [p for p,c in PROVIDER_TOOL_CALLING.items() if c.offered])
+@pytest.mark.parametrize('mode', ['reported', 'missing', 'refused'])
+def test_r04c_actual_requests_reports_and_no_model_fallback(provider, mode):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import threading
+    captures = []
+    family = PROVIDER_TOOL_CALLING[provider].family
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            captures.append({'path':self.path,'body':body})
+            response = ({'content':[{'type':'text','text':'answer'}]} if family=='anthropic' else
+                        {'candidates':[{'content':{'parts':[{'text':'answer'}]}}]} if family=='google' else
+                        {'choices':[{'message':{'content':'answer'}}]})
+            if mode=='reported': response['modelVersion' if family=='google' else 'model']='different-concrete-model'
+            if mode=='refused': response={'error':{'message':'model refused by authored fixture'}}
+            data=json.dumps(response).encode();self.send_response(400 if mode=='refused' else 200)
+            self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+    server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+    assert server.server_port!=8742
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        runtime=ak.ApiKeyRuntime(provider=provider,model='requested-model',api_key='fake-not-a-secret',base_url=f'http://127.0.0.1:{server.server_port}',custom_base_url=f'http://127.0.0.1:{server.server_port}' if provider=='custom' else None)
+        events=list(runtime.run_turn(1,'new message',history=[{'role':'user','content':'same chat'}, {'role':'assistant','content':'prior answer','tool_results':[{'do_not_replay':'old tool'}]}]))
+    finally: server.shutdown();server.server_close();thread.join()
+    assert len(captures)==1
+    body=captures[0]['body']; text=json.dumps(body)
+    assert 'effort' not in body and 'old tool' not in text
+    if family=='google': assert '/requested-model:generateContent' in captures[0]['path']
+    else: assert body['model']=='requested-model'
+    assert 'same chat' in text and 'new message' in text
+    reports=[e['model_report'] for e in events if e['type']=='model_report']
+    if mode=='reported':
+        assert [r['model'] for r in reports]==['different-concrete-model']
+        assert reports[0]['source']==('google_response_modelVersion' if family=='google' else 'api_response_model')
+    else: assert reports==[]
+    # The old start echo remains requested metadata only.
+    assert next(e for e in events if e['type']=='started')['model']=='requested-model'
+    assert any(e['type']=='error' for e in events)==(mode=='refused')

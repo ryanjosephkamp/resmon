@@ -62,3 +62,16 @@ it('missing detail visibly replaces the previous transcript',async()=>{
   read.mockRejectedValueOnce(new Error('404 missing'));fireEvent.click(screen.getByRole('button',{name:/Chat 1 Created/}));
   expect(await screen.findByRole('alert')).toHaveTextContent('404 missing');expect(screen.queryByRole('heading',{name:'Chat 2'})).toBeNull();
 });
+it('shows requested and reported models literally without inventing historical settings',async()=>{
+  const choices={version:1,runtime:'claude_cli',provider:'claude_code',requested_model:'<img src=x onerror=alert(1)>',requested_effort:'max',model_basis:'explicit',effort_basis:'explicit',binding_basis:'new'};
+  read.mockResolvedValueOnce({...detail(2),session:{...row(2),choices},choices_version:1,turn_choices:[{version:1,user_message_id:1,assistant_message_id:null,requested:choices,reported:[{sequence:1,model:'<script>reported</script>',source:'claude_system_init_model',observed_at_utc:'observed'}]}]});
+  render(<ChatsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Chat 2 Created/}));
+  await screen.findByText('Requested choices · runtime reports');
+  fireEvent.click(screen.getByText('Requested choices · runtime reports'));
+  expect(screen.getByText(/<script>reported<\/script>/)).toBeInTheDocument();
+  expect(document.querySelector('img')).toBeNull();expect(document.querySelector('script')).toBeNull();
+  expect(screen.getAllByText(/Runtime-reported effort: not available/)).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button',{name:/Chat 1 Created/}));
+  expect(await screen.findByText('Historical settings: unknown.')).toBeInTheDocument();
+  expect(screen.queryByText(/<script>reported<\/script>/)).toBeNull();
+});

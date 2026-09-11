@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import { apiClient, getBaseUrl } from '../api/client';
+import type { ChoiceRequest, SavedChoices, UnreadableChoices, ChoicesDescriptor, TurnChoices, ModelReport } from '../components/Assistant/ComposerChoices';
 
 /**
  * The assistant panel's state, and the one place that talks to the backend.
@@ -52,6 +53,7 @@ export interface AssistantSessionSummary {
   title: string;
   runtime: string;
   updated_at: string;
+  choices?: SavedChoices | UnreadableChoices | null;
   message_count?: number;
   cost_usd?: number | null;
 }
@@ -63,6 +65,7 @@ export interface PermissionCard {
 }
 
 export interface AssistantStatus {
+  composer_choices?: ChoicesDescriptor;
   available: boolean;
   reason: string;
   runtime?: { kind: string; path?: string | null; how?: string | null };
@@ -85,9 +88,15 @@ interface AssistantContextValue {
   isAnswering: boolean;
   isSelecting: boolean;
   error: string | null;
-  send: (text: string) => Promise<void>;
+  draftChoices: ChoiceRequest | null;
+  setDraftChoices: (choice: ChoiceRequest) => void;
+  sessionChoices: SavedChoices | UnreadableChoices | null;
+  sessionRuntime: string | null;
+  turnChoices: TurnChoices[];
+  send: (text: string, confirmLegacy?: boolean) => Promise<void>;
   answerPermission: (requestId: string, allow: boolean) => Promise<void>;
   newSession: () => Promise<void>;
+  changeChoices: () => void;
   openSession: (id: number) => Promise<void>;
   deleteSession: (id: number) => Promise<void>;
   cancel: () => Promise<void>;
@@ -135,6 +144,13 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [sessions, setSessions] = useState<AssistantSessionSummary[]>([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
+  const [draftChoices, updateDraftChoices] = useState<ChoiceRequest | null>(null);
+  const draftChoicesRef = useRef<ChoiceRequest | null>(null);
+  const draftSeeded = useRef(false);
+  const [sessionChoices, setSessionChoices] = useState<SavedChoices | UnreadableChoices | null>(null);
+  const [sessionRuntime, setSessionRuntime] = useState<string | null>(null);
+  const [turnChoices, setTurnChoices] = useState<TurnChoices[]>([]);
+  const bindingRef = useRef<SavedChoices | UnreadableChoices | null>(null);
   const [pending, setPending] = useState<PermissionCard[]>([]);
   const [isAnswering, setAnswering] = useState(false);
   const [isSelecting, setSelecting] = useState(false);
@@ -148,9 +164,28 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const blocked = 'Finish or stop the current answer before continuing another chat.';
   const sessionsEpoch = useRef(0);
 
+  const setDraftChoices = useCallback((choice: ChoiceRequest) => {
+    if (active.current || selectionBusy.current || bindingRef.current) return;
+    draftSeeded.current = true;
+    draftChoicesRef.current = choice;
+    updateDraftChoices(choice);
+  }, []);
+  const acceptSession = (session?: { runtime?: string; choices?: SavedChoices | UnreadableChoices | null }, turns?: TurnChoices[]) => {
+    bindingRef.current = session?.choices ?? null;
+    setSessionChoices(bindingRef.current);
+    setSessionRuntime(session?.runtime ?? null);
+    setTurnChoices(turns ?? []);
+  };
+
   const refreshStatus = useCallback(async () => {
     try {
-      setStatus(await apiClient.get<AssistantStatus>('/api/assistant/status'));
+      const next = await apiClient.get<AssistantStatus>('/api/assistant/status');
+      setStatus(next);
+      if (!draftSeeded.current && next.composer_choices?.default_request) {
+        draftSeeded.current = true;
+        draftChoicesRef.current = next.composer_choices.default_request;
+        updateDraftChoices(next.composer_choices.default_request);
+      }
     } catch {
       setStatus({ available: false, reason: 'resmon is not answering right now.' });
     } finally {
@@ -194,17 +229,30 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const changeChoices = useCallback(() => {
+    if (active.current || selectionBusy.current) { setError(blocked); return; }
+    ++selectionEpoch.current;
+    selected.current = null;
+    setSessionId(null);
+    acceptSession();
+    setMessages([]);
+    setPending([]);
+    setError(null);
+  }, []);
+
   const newSession = useCallback(async () => {
     if (active.current) { setError(blocked); return; }
     const epoch = ++selectionEpoch.current;
     selectionBusy.current = true;
     setSelecting(true);
     setError(null);
+    const chosen = draftChoicesRef.current ? { ...draftChoicesRef.current } : null;
     try {
-      const session = await apiClient.post<{ id: number }>('/api/assistant/sessions', {});
+      const session = await apiClient.post<{ id: number; runtime?: string; choices?: SavedChoices | UnreadableChoices }>('/api/assistant/sessions', chosen ? { choices: chosen } : {});
       if (epoch !== selectionEpoch.current || active.current) return;
       selected.current = session.id;
       setSessionId(session.id);
+      acceptSession(session);
       setMessages([]);
       setPending([]);
       void refreshSessions();
@@ -227,13 +275,14 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setSelecting(true);
     setError(null);
     try {
-      const body = await apiClient.get<{ session?: { id: number }; messages: AssistantMessage[];
+      const body = await apiClient.get<{ session?: { id: number; runtime?: string; choices?: SavedChoices | UnreadableChoices | null }; messages: AssistantMessage[]; turn_choices?: TurnChoices[];
         activity_observation?: { turn_claimed: boolean } }>(`/api/assistant/sessions/${id}`);
       if (epoch !== selectionEpoch.current || active.current) return;
       if (body.session && body.session.id !== id) throw new Error('The conversation response did not match.');
       selected.current = id;
       setSessionId(id);
       setMessages(body.messages || []);
+      acceptSession(body.session, body.turn_choices);
       setPending([]);
       setOpen(true);
       if (body.activity_observation?.turn_claimed) {
@@ -243,6 +292,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (epoch === selectionEpoch.current) {
         selected.current = null;
         setSessionId(null);
+        acceptSession();
         setMessages([]);
         setPending([]);
         setError(err instanceof Error ? err.message : String(err));
@@ -263,6 +313,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         ++selectionEpoch.current;
         selected.current = null;
         setSessionId(null);
+        acceptSession();
         setMessages([]);
       }
       void refreshSessions();
@@ -304,8 +355,20 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     type: string; text?: string; tool_name?: string; input?: Record<string, unknown>;
     tool_use_id?: string; is_error?: boolean; message?: string; request_id?: string;
     cost_usd?: number | null; input_tokens?: number | null; output_tokens?: number | null;
+    session_id?: number; user_message_id?: number; requested?: SavedChoices; reported?: ModelReport;
   }) => {
     switch (event.type) {
+      case 'turn_choices':
+        if (event.session_id !== active.current?.id || !event.user_message_id || !event.requested) return;
+        setMessages(current => current.map((m, i) => i === current.length - 1 && m.role === 'user' ? { ...m, id: event.user_message_id } : m));
+        setTurnChoices(current => [...current, { user_message_id: event.user_message_id!, assistant_message_id: null,
+          version: 1, requested: event.requested!, reported: [], created_at_utc: '' }]);
+        break;
+      case 'turn_model_report':
+        if (event.session_id !== active.current?.id || !event.user_message_id || !event.reported) return;
+        setTurnChoices(current => current.map(t => t.user_message_id === event.user_message_id && Array.isArray(t.reported)
+          ? { ...t, reported: [...t.reported, event.reported!] } : t));
+        break;
       case 'text_delta':
         if (typeof event.text !== 'string') return;
         setMessages((current) => {
@@ -398,11 +461,16 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, []);
 
-  const send = useCallback(async (text: string) => {
+  const send = useCallback(async (text: string, confirmLegacy = false) => {
     const trimmed = text.trim();
     if (!trimmed) return;
 
     if (active.current || selectionBusy.current || (selected.current !== null && deleting.current.has(selected.current))) return;
+    if (status?.composer_choices && selected.current !== null && !bindingRef.current && !confirmLegacy) {
+      setError('Confirm the future connection and history disclosure before continuing this historical chat.'); return;
+    }
+    const chosen = draftChoicesRef.current ? { ...draftChoicesRef.current } : null;
+    const adopting = selected.current !== null && !bindingRef.current && confirmLegacy;
     const turn: ActiveTurn = { id: selected.current, stopping: false, permissions: new Set<string>() };
     active.current = turn;
     ++selectionEpoch.current;
@@ -410,7 +478,8 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setAnswering(true);
     try {
       if (turn.id === null) {
-        const session = await apiClient.post<{ id: number }>('/api/assistant/sessions', {});
+        const session = await apiClient.post<{ id: number; runtime: string; choices?: SavedChoices | UnreadableChoices }>('/api/assistant/sessions', chosen ? { choices: chosen } : {});
+        acceptSession(session);
         turn.id = session.id;
         selected.current = session.id;
         setSessionId(session.id);
@@ -421,14 +490,14 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const response = await fetch(`${getBaseUrl()}/api/assistant/sessions/${id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: trimmed }),
+        body: JSON.stringify({ text: trimmed, ...(adopting ? { legacy_adoption: { choices: chosen, confirmed: true } } : {}) }),
       });
       if (!response.ok || !response.body) {
         const detail = await response.text();
         let message = detail;
         try {
           const parsed = JSON.parse(detail);
-          if (parsed?.detail) message = parsed.detail;
+          if (parsed?.detail) message = typeof parsed.detail === 'string' ? parsed.detail : parsed.detail.message || 'resmon refused that message.';
         } catch { /* keep the raw text */ }
         throw new Error(message || 'resmon refused that message.');
       }
@@ -466,9 +535,9 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         await turn.cancellation?.catch(() => {});
         try {
           if (turn.id !== null) {
-            const body = await apiClient.get<{ session?: { id: number }; messages: AssistantMessage[] }>(
+            const body = await apiClient.get<{ session?: { id: number; runtime?: string; choices?: SavedChoices | UnreadableChoices | null }; messages: AssistantMessage[]; turn_choices?: TurnChoices[] }>(
               `/api/assistant/sessions/${turn.id}`);
-            if (active.current === turn && Array.isArray(body.messages) && (!body.session || body.session.id === turn.id)) setMessages(body.messages);
+            if (active.current === turn && Array.isArray(body.messages) && (!body.session || body.session.id === turn.id)) { setMessages(body.messages); acceptSession(body.session, body.turn_choices); }
           }
         } catch { /* Keep the observed text when the persisted read is unavailable. */ }
         active.current = null;
@@ -477,14 +546,15 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         void refreshSessions();
       }
     }
-  }, [applyEvent, refreshSessions]);
+  }, [applyEvent, refreshSessions, status]);
 
   const value = useMemo<AssistantContextValue>(() => ({
+    draftChoices, setDraftChoices, sessionChoices, sessionRuntime, turnChoices,
     isOpen, setOpen, status, statusLoaded, refreshStatus,
     sessions, sessionId, messages, pending, isAnswering, isSelecting, error,
-    send, answerPermission, newSession, openSession, deleteSession, cancel,
-  }), [isOpen, status, statusLoaded, refreshStatus, sessions, sessionId, messages,
-    pending, isAnswering, isSelecting, error, send, answerPermission, newSession, openSession,
+    send, answerPermission, newSession, changeChoices, openSession, deleteSession, cancel,
+  }), [draftChoices, setDraftChoices, sessionChoices, sessionRuntime, turnChoices, isOpen, status, statusLoaded, refreshStatus, sessions, sessionId, messages,
+    pending, isAnswering, isSelecting, error, send, answerPermission, newSession, changeChoices, openSession,
     deleteSession, cancel]);
 
   return <AssistantContext.Provider value={value}>{children}</AssistantContext.Provider>;

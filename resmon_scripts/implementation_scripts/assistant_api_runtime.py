@@ -366,6 +366,16 @@ class ApiKeyRuntime:
         for iteration in range(self.max_iterations):
             reply = self._call(family, constitution, tools, conversation, usage)
 
+            from .assistant_choices import report
+
+            raw = reply.get('raw') or {}
+            observation = report(raw.get('modelVersion' if family == 'google' else 'model'),
+                                 'google_response_modelVersion' if family == 'google' else 'api_response_model')
+            if observation:
+                event = {'type': 'model_report', 'model_report': observation}
+                emit(event)
+                yield event
+
             for text in reply["texts"]:
                 event = {"type": "text_delta", "text": text}
                 emit(event)

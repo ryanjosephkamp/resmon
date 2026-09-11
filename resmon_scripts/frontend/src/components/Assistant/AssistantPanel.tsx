@@ -1,5 +1,6 @@
 import { TranscriptMessages } from './TranscriptMessages';
 import React from 'react';
+import { ComposerChoices, ChoiceSummary } from './ComposerChoices';
 import {
   describeToolCall,
   shortToolName,
@@ -59,25 +60,26 @@ const PermissionCards: React.FC = () => {
   );
 };
 
-const Unavailable: React.FC = () => {
+const Unavailable: React.FC<{ reason?: string; cli?: boolean }> = ({ reason, cli = true }) => {
   const { status } = useAssistant();
   const others = status?.others || [];
   return (
     <div className="assistant-unavailable" data-testid="assistant-unavailable">
       <h4>The assistant is not available</h4>
-      <p>{status?.reason}</p>
+      <p>{reason ?? status?.reason}</p>
       {others.map((other) => (
         <p className="assistant-unavailable-other" key={other.kind}>{other.reason}</p>
       ))}
       <p className="assistant-unavailable-where">
-        Set the path to your <code>claude</code> command in Settings → AI, under Assistant.
+        {cli ? <>Set the path to your <code>claude</code> command in Settings → AI, under Assistant.</>
+          : 'Choose an available connection or configure its key and model in Settings → AI.'}
       </p>
     </div>
   );
 };
 
 const Transcript: React.FC = () => {
-  const { messages, isAnswering } = useAssistant();
+  const { messages, isAnswering, turnChoices } = useAssistant();
   const endRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
@@ -98,7 +100,7 @@ const Transcript: React.FC = () => {
 
   return (
     <>
-      <TranscriptMessages messages={messages} />
+      <TranscriptMessages messages={messages} turnChoices={turnChoices} />
       <PermissionCards />
       {isAnswering && <div className="assistant-thinking">Working…</div>}
       <div ref={endRef} />
@@ -139,9 +141,11 @@ const SessionList: React.FC<{ onPick: () => void }> = ({ onPick }) => {
 const AssistantPanel: React.FC = () => {
   const {
     isOpen, setOpen, status, statusLoaded, isAnswering, isSelecting, error,
-    send, newSession, cancel,
+    send, newSession, changeChoices, cancel, sessionId, draftChoices, setDraftChoices, sessionChoices, sessionRuntime,
   } = useAssistant();
   const [draft, setDraft] = React.useState('');
+  const [confirmingLegacy, setConfirmingLegacy] = React.useState(false);
+  React.useEffect(() => { setConfirmingLegacy(false); }, [sessionId]);
   const [showSessions, setShowSessions] = React.useState(false);
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
@@ -178,12 +182,21 @@ const AssistantPanel: React.FC = () => {
     );
   }
 
+  const descriptor = status?.composer_choices;
+  const legacy = !!descriptor && sessionId !== null && !sessionChoices;
+  const connection = descriptor?.connections.find(c => c.runtime === (sessionChoices && !('unreadable' in sessionChoices) ? sessionChoices.runtime : draftChoices?.runtime)
+    && c.provider === (sessionChoices && !('unreadable' in sessionChoices) ? sessionChoices.provider : draftChoices?.provider));
+  const unavailable = descriptor ? !connection?.available : status?.available === false;
+  const invalidModel = !sessionChoices && draftChoices?.runtime === 'api_key' && !draftChoices.model?.trim();
+  const changedKind = legacy && draftChoices?.runtime !== sessionRuntime;
+  const startEmpty = () => { if (isAnswering || isSelecting) return; setDraft(''); setConfirmingLegacy(false); changeChoices(); setShowSessions(false); };
+  const submit = (confirmed = false) => { const text = draft; setDraft(''); setConfirmingLegacy(false); void send(text, confirmed); };
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     if (isSelecting || isAnswering) return;
-    const text = draft;
-    setDraft('');
-    void send(text);
+    if (unavailable || invalidModel || changedKind) return;
+    if (legacy) { setConfirmingLegacy(true); return; }
+    submit();
   };
 
   return (
@@ -206,7 +219,7 @@ const AssistantPanel: React.FC = () => {
           >
             ☰
           </button>
-          <button type="button" onClick={() => { void newSession(); setShowSessions(false); }}
+          <button type="button" onClick={() => { void newSession(); setConfirmingLegacy(false); setShowSessions(false); }}
                   disabled={isAnswering} title="New conversation" aria-label="New conversation">＋</button>
           <button type="button" onClick={() => setOpen(false)} aria-label="Close the assistant">
             ×
@@ -222,7 +235,26 @@ const AssistantPanel: React.FC = () => {
       )}
 
       <div className="assistant-body">
-        {statusLoaded && status && !status.available ? <Unavailable /> : <Transcript />}
+        {descriptor && <>
+          {sessionId !== null && <ChoiceSummary choices={sessionChoices} />}
+          {!sessionChoices && <ComposerChoices descriptor={descriptor} value={draftChoices} onChange={setDraftChoices} disabled={isAnswering || isSelecting} />}
+          {sessionId !== null && <button type="button" className="assistant-btn" disabled={isAnswering || isSelecting} onClick={startEmpty}>Change choices · new empty conversation</button>}
+          {changedKind && <p>A different connection kind requires a new empty conversation. Earlier messages stay in this saved chat.</p>}
+          {sessionChoices && <p>{connection?.reason}</p>}
+        </>}
+        {statusLoaded && status && unavailable && <Unavailable reason={connection?.reason}
+          cli={!descriptor || connection?.runtime === 'claude_cli'} />}
+        <Transcript />
+        {confirmingLegacy && <div className="assistant-legacy-confirmation" role="group" aria-label="Confirm historical continuation">
+          <h4>Confirm the future connection</h4>
+          <p>Historical settings are unknown. This choice binds future messages once.</p>
+          <p>{sessionRuntime === 'api_key'
+            ? `The earlier provider is unknown. Saved user and assistant text from this chat will be sent to ${draftChoices?.provider}. Saved tool results are not replayed.`
+            : 'Earlier messages remain here; this new Claude session will receive your new message, not the earlier conversation.'}</p>
+          <p>Changing the connection, model or effort later starts an empty new conversation.</p>
+          <button type="button" className="assistant-btn assistant-btn--primary" disabled={isAnswering || isSelecting || unavailable || !!invalidModel || changedKind} onClick={() => submit(true)}>Confirm and send</button>
+          <button type="button" className="assistant-btn" onClick={() => setConfirmingLegacy(false)}>Cancel continuation</button>
+        </div>}
       </div>
 
       {error && <div className="assistant-error" role="alert">{error}</div>}
@@ -238,12 +270,12 @@ const AssistantPanel: React.FC = () => {
               (event.currentTarget.form as HTMLFormElement)?.requestSubmit();
             }
           }}
-          placeholder={status?.available === false
+          placeholder={unavailable
             ? 'The assistant is not available'
             : 'Ask about your monitoring…'}
           rows={2}
           aria-label="Message the assistant"
-          disabled={status?.available === false || isSelecting}
+          disabled={unavailable || isSelecting}
         />
         {isAnswering ? (
           <button type="button" className="assistant-btn" onClick={() => { void cancel(); }}>
@@ -253,7 +285,7 @@ const AssistantPanel: React.FC = () => {
           <button
             type="submit"
             className="assistant-btn assistant-btn--primary"
-            disabled={!draft.trim() || status?.available === false || isSelecting}
+            disabled={!draft.trim() || unavailable || !!invalidModel || changedKind || isSelecting || confirmingLegacy}
           >
             Send
           </button>

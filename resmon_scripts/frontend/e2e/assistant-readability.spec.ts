@@ -68,7 +68,7 @@ test.describe('assistant readability and preserved real transport', () => {
   const python = process.env.RESMON_PYTHON || path.join(REPO_ROOT, '.venv/bin/python');
   const preservation = () => execFileSync(python, ['-c', `import sqlite3,json,sys
 c=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True)
-tables=[r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name") if r[0] not in ['assistant_sessions','assistant_messages','app_settings','routines']]
+tables=[r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name") if r[0] not in ['assistant_sessions','assistant_messages','assistant_session_choices','assistant_turn_choices','app_settings','routines']]
 print(json.dumps({t:c.execute('SELECT * FROM '+t+(' WHERE id != '+sys.argv[2] if t=='saved_configurations' else '')+' ORDER BY 1').fetchall() for t in tables},sort_keys=True,default=lambda v:{'bytes_hex':v.hex()}))`, path.join(isolatedState, 'resmon.db'), String(allowedConfiguration)], { encoding: 'utf8' });
   test('one palette stays opaque over 12 page/window/OS cases', async ({ app, win, goto, backendPort }) => {
     const port = await backendPort(); expect(port).not.toBe('8742');
@@ -111,10 +111,15 @@ c.commit()`, path.join(isolatedState, 'resmon.db')]);
       await expect(composer).toHaveCSS('outline-style', 'solid');
       const boundary = await composer.evaluate(e => { const c = getComputedStyle(e); return { border: c.borderColor, outline: c.outlineColor, background: c.backgroundColor }; });
       expect(boundary).toEqual({ border: 'rgb(139, 141, 154)', outline: 'rgb(129, 140, 248)', background: 'rgb(15, 17, 23)' });
-      await composer.press('Shift+Tab'); await expect(win.getByLabel('Close the assistant')).toBeFocused();
-      await win.keyboard.press('Shift+Tab'); await expect(win.getByLabel('New conversation')).toBeFocused();
-      await win.keyboard.press('Shift+Tab'); await expect(win.getByLabel('Earlier conversations')).toBeFocused();
-      await win.keyboard.press('Tab'); await win.keyboard.press('Tab'); await win.keyboard.press('Tab'); await expect(composer).toBeFocused();
+      await composer.press('Shift+Tab'); await expect(win.getByText('What these choices establish',{exact:true})).toBeFocused();
+      for (const label of ['Effort','Model','Connection','Close the assistant','New conversation','Earlier conversations']) {
+        await win.keyboard.press('Shift+Tab'); await expect(panel.getByLabel(label,{exact:true})).toBeFocused();
+      }
+      for (const label of ['New conversation','Close the assistant','Connection','Model','Effort']) {
+        await win.keyboard.press('Tab'); await expect(panel.getByLabel(label,{exact:true})).toBeFocused();
+      }
+      await win.keyboard.press('Tab'); await expect(win.getByText('What these choices establish',{exact:true})).toBeFocused();
+      await win.keyboard.press('Tab'); await expect(composer).toBeFocused();
       const geometry = await panel.boundingBox(); const viewport = await win.evaluate(() => ({ width: innerWidth, height: innerHeight }));
       expect(geometry!.x).toBeGreaterThanOrEqual(0); expect(geometry!.y).toBeGreaterThanOrEqual(0);
       expect(geometry!.x + geometry!.width).toBeLessThanOrEqual(viewport.width);

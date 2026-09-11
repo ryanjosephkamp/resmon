@@ -49,13 +49,13 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 1891 pass, 2 skip, 108 deselected
+.venv/bin/python -m pytest -q          # hermetic suite: 1993 pass, 2 skip, 108 deselected
 .venv/bin/python -m pytest -m live_network   # the 105 — real scholarly APIs, CLIs and sockets
                                              # 89 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 375 tests across 38 suites
-npm run e2e                                      # the real Electron app — 96 checks, 27 routes
+npm run typecheck && npm test && npm run build   # 383 tests across 39 suites
+npm run e2e                                      # the real Electron app — 97 checks, 27 routes
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -288,3 +288,5 @@ proves.
 
 Saved conversation read/export contract: `docs/api-contract/assistant-conversations.md`;
 Chats journey: `resmon_scripts/frontend/e2e/chats-export.spec.ts`.
+
+Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.

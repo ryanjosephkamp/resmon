@@ -102,6 +102,7 @@ __all__ = [
 # switches on this set, and an unknown shape reaching it renders as either
 # nothing or raw JSON in a chat window. Both are worse than a gap.
 EVENT_TYPES = (
+    "model_report",       # literal runtime response field, never a request echo
     "started",            # the session is up; carries the tool list it was given
     "text_delta",         # a chunk of the assistant's reply
     "tool_call",          # the model asked for a tool
@@ -329,10 +330,14 @@ class ClaudeCliRuntime(AssistantRuntime):
         self.backend_port = backend_port
         self.python_executable = python_executable or _bundled_python()
         self.timeout = timeout
+        self.resolved_binary: Optional[str] = None
+        self.admitted_status: Optional[RuntimeStatus] = None
 
     # -- availability ---------------------------------------------------
 
     def status(self) -> RuntimeStatus:
+        if self.admitted_status is not None:
+            return self.admitted_status
         found = ai_cli.discover_cli("claude_code", self.configured_path)
         if not found.found:
             return RuntimeStatus(self.kind, False, found.describe())
@@ -396,7 +401,7 @@ class ClaudeCliRuntime(AssistantRuntime):
         its own command.
         """
         argv = [
-            binary or (self.status().path or "claude"),
+            binary or self.resolved_binary or (self.status().path or "claude"),
             "-p",
             # stream-json requires --verbose. Not optional, and not documented
             # anywhere but the error: "When using --print,
@@ -580,6 +585,12 @@ class ClaudeCliRuntime(AssistantRuntime):
         try:
             for line in _lines_with_timeout(process, self.timeout):
                 for event in _normalise(line):
+                    if event['type'] == 'started':
+                        native_flag = '--resume' if '--resume' in argv else '--session-id'
+                        expected_native = argv[argv.index(native_flag) + 1] if native_flag in argv else None
+                        # A provider-returned ID is not authority to resume a
+                        # different native conversation next time.
+                        event['owned_cli_session_id'] = expected_native if event.get('cli_session_id') == expected_native else None
                     if event["type"] == "done" and event.get("is_error"):
                         final_error_text = str(event.get("result_text") or "")
                         failed_subtype = str(event.get("subtype") or "")
@@ -708,9 +719,10 @@ class SessionBus:
         q.put(event)
         return True
 
-    def close(self, session_id: int) -> None:
+    def close(self, session_id: int, *, expected: Optional["queue.Queue[dict]"] = None) -> None:
         with self._lock:
-            self._queues.pop(session_id, None)
+            if expected is None or self._queues.get(session_id) is expected:
+                self._queues.pop(session_id, None)
 
     def is_open(self, session_id: int) -> bool:
         with self._lock:
@@ -746,10 +758,13 @@ def _normalise(line: str) -> list[dict]:
     kind = message.get("type")
 
     if kind == "system" and message.get("subtype") == "init":
+        from .assistant_choices import report
+
         return [{
             "type": "started",
             "cli_session_id": message.get("session_id"),
             "model": message.get("model"),
+            "model_report": report(message.get("model"), "claude_system_init_model"),
             # What the session actually got, as opposed to what was asked for.
             # The live denominator check reads this.
             "tools": message.get("tools") or [],
@@ -1055,6 +1070,29 @@ def get_runtime(settings: dict, *, backend_port: Optional[int] = None) -> Assist
         effort=settings.get("assistant_effort") or "",
         backend_port=backend_port,
     )
+
+
+def get_bound_runtime(binding: dict, settings: dict, *, backend_port: Optional[int] = None) -> AssistantRuntime:
+    """Construct once from a validated saved request and captured route settings."""
+    from .assistant_choices import request_projection, route_digest
+    from .assistant_api_runtime import ApiKeyRuntime
+
+    request_projection(binding)
+    if route_digest(settings, binding['runtime'], binding['provider']) != binding['route_digest']:
+        raise ValueError('This connection configuration changed. Start a new conversation.')
+    if binding['runtime'] == 'api_key':
+        runtime = ApiKeyRuntime(provider=binding['provider'], model=binding['requested_model'],
+                                custom_base_url=settings.get('ai_custom_base_url'), backend_port=backend_port)
+    else:
+        runtime = ClaudeCliRuntime(cli_path=settings.get('ai_cli_path'), model=binding['requested_model'],
+                                   effort=binding['requested_effort'], backend_port=backend_port)
+        status = runtime.status()
+        runtime.resolved_binary = status.path
+        runtime.admitted_status = status
+    # The explicit ID is one literal argument; constructor normalization must
+    # not silently change the immutable requested value.
+    runtime.model = binding['requested_model']
+    return runtime
 
 
 def runtime_status(settings: dict, *, backend_port: Optional[int] = None) -> dict:

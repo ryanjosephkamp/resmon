@@ -1,4 +1,5 @@
 import React from 'react';
+import { ChoiceSummary, TurnChoices } from './ComposerChoices';
 import { AssistantMessage, shortToolName } from '../../context/AssistantContext';
 
 function formatCost(value?: number | null): string {
@@ -33,9 +34,16 @@ const ToolCallRow: React.FC<{ call: NonNullable<AssistantMessage['tool_calls']>[
 };
 
 /** All persisted text and arbitrary tool data render literally, without HTML/Markdown. */
-export const TranscriptMessages: React.FC<{ messages: AssistantMessage[] }> = ({ messages }) => <>
+export const TranscriptMessages: React.FC<{ messages: AssistantMessage[]; turnChoices?: TurnChoices[] }> = ({ messages, turnChoices = [] }) => <>
   {messages.map((message, index) => <div className={`assistant-message assistant-message--${message.role}`}
     key={message.id ?? `live-${index}`}>
+    {turnChoices.filter(t => t.user_message_id === message.id).map(turn => <details className="assistant-turn-choices" key={turn.user_message_id}>
+      <summary>Requested choices · runtime reports</summary>
+      <ChoiceSummary choices={turn.requested} />
+      <div>Runtime-reported model: {Array.isArray(turn.reported) ? (turn.reported.length ? <ol>{turn.reported.map(report =>
+        <li key={report.sequence}>{report.model} <small>({report.source}, {report.observed_at_utc})</small></li>)}</ol> : 'Not reported') : 'Unreadable'}</div>
+      <p>Literal response fields, not proof of execution or billing. A saved request or reply does not establish completion.</p>
+    </details>)}
     {message.content && <div className="assistant-bubble">{message.content}</div>}
     {Array.isArray(message.tool_calls) && message.tool_calls.every(call => call && typeof call.name === 'string')
       ? message.tool_calls.map((call, i) => <ToolCallRow key={i} call={call} live={!!message.streaming} />)

@@ -50,6 +50,8 @@ def export_snapshot(snapshot: dict, fmt: str, observations: dict) -> dict:
         m.update({k: tool_data(raw[k]) for k in ('tool_calls', 'tool_results')})
         messages.append(m)
     document = {'version': 1, 'session': session, 'messages': messages,
+                'choices_version': 1, 'choices': snapshot['session'].get('choices'),
+                'turn_choices': snapshot.get('turn_choices', []),
                 'snapshot': snapshot['snapshot'], 'activity_observation': observations,
                 'completion_status': 'unknown', 'limitations': LIMITATIONS}
     if fmt == 'json':
@@ -59,6 +61,9 @@ def export_snapshot(snapshot: dict, fmt: str, observations: dict) -> dict:
                  '## Session\n', literal(session), '## Snapshot\n', literal(snapshot['snapshot']),
                  '## Separately observed current activity\n', literal(observations),
                  'Historical completion status: unknown.\n']
+        parts.extend(['## Requested choices and literal runtime reports\n',
+                      'Historical settings are unknown. Requests are not proof of execution; runtime-reported effort is not available.\n',
+                      literal({'choices_version': 1, 'choices': document['choices'], 'turn_choices': document['turn_choices']})])
         for message in messages:
             parts.extend(['## Message\n', literal({k: v for k, v in message.items() if k != 'content'}),
                           '### Saved text\n', literal(message['content'])])

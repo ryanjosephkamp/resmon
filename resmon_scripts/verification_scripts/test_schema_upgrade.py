@@ -123,3 +123,107 @@ def test_an_undated_legacy_paper_is_still_reachable(legacy_conn):
             break
 
     assert sorted(seen) == ["Diffusion models", "Protein folding"]
+
+# R04c: real baseline schema 14, not current DDL with a renamed marker.
+CHOICES_SCHEMA_14 = Path(__file__).parent / 'fixtures/assistant_choices/schema_14.sql'
+
+
+def choices_legacy(path):
+    c = sqlite3.connect(path)
+    c.row_factory = sqlite3.Row
+    c.executescript(CHOICES_SCHEMA_14.read_text())
+    return c
+
+
+def choices_rows(c):
+    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")
+              if not r[0].startswith(('sqlite_', 'documents_fts', 'assistant_session_choices', 'assistant_turn_choices'))]
+    result = {}
+    for name in tables:
+        result[name] = sorted([tuple(r) for r in c.execute('SELECT * FROM "' + name + '"')], key=repr)
+    return result
+
+
+def choices_objects(c):
+    return {r[0]: r[1] for r in c.execute("SELECT name,sql FROM sqlite_master WHERE sql IS NOT NULL")}
+
+
+def test_choices_upgrade_preserves_every_baseline_row_and_fts(tmp_path):
+    from implementation_scripts import database
+    c = choices_legacy(tmp_path / 'legacy.db')
+    before = choices_rows(c)
+    old_objects = choices_objects(c)
+    fts = [tuple(r) for r in c.execute("SELECT rowid FROM documents_fts WHERE documents_fts MATCH 'diffusion'")]
+    assert fts == [(1,)]  # Exercise the populated index, not two empty answers.
+    assert len(before) == 22 and all(before.values())
+    database.init_db(conn=c)
+    assert database.get_schema_version(c) == 15
+    after = choices_rows(c)
+    after['app_settings'] = [(k, '14' if k == 'schema_version' else v) for k, v in after['app_settings']]
+    assert after == before
+    assert [tuple(r) for r in c.execute("SELECT rowid FROM documents_fts WHERE documents_fts MATCH 'diffusion'")] == fts
+    assert set(choices_objects(c)) - set(old_objects) == set(database._ASSISTANT_CHOICES_DDL)
+    for name, ddl in old_objects.items():
+        assert choices_objects(c)[name] == ddl
+    for name in ('assistant_session_choices', 'assistant_turn_choices'):
+        assert c.execute('SELECT COUNT(*) FROM ' + name).fetchone()[0] == 0
+    fresh = sqlite3.connect(tmp_path / 'fresh.db')
+    database.init_db(conn=fresh)
+    assert choices_objects(fresh) == choices_objects(c)
+    database.init_db(conn=c)
+    database.init_db(conn=c)
+    c.close()
+    c = sqlite3.connect(tmp_path / 'legacy.db')
+    database.init_db(conn=c)
+    assert database.get_schema_version(c) == 15
+    assert c.execute('SELECT COUNT(*) FROM assistant_session_choices').fetchone()[0] == 0
+    c.close(); fresh.close()
+
+
+@pytest.mark.parametrize('blocker', [
+    'CREATE VIEW assistant_session_choices AS SELECT 1',
+    'CREATE TABLE assistant_session_choices(wrong TEXT)',
+    'CREATE VIEW assistant_turn_choices AS SELECT 1',
+    'CREATE TABLE idx_assistant_turn_choices_assistant_message(wrong TEXT)',
+    'CREATE INDEX idx_assistant_turn_choices_assistant_message ON assistant_messages(content)',
+])
+def test_choices_blocking_objects_roll_back_partial_upgrade(tmp_path, blocker):
+    from implementation_scripts import database
+    c = choices_legacy(tmp_path / 'blocked.db')
+    c.execute(blocker); c.commit()
+    before = choices_objects(c)
+    rows = choices_rows(c)
+    with pytest.raises(sqlite3.DatabaseError, match='Conflicting schema-15 object'):
+        database.init_db(conn=c)
+    assert database.get_schema_version(c) == 14
+    assert choices_objects(c) == before
+    assert choices_rows(c) == rows
+    c.close()
+
+
+@pytest.mark.parametrize('stage', ['second_table', 'index', 'marker'])
+def test_choices_actual_sql_authorizer_failure_rolls_back(tmp_path, stage):
+    from implementation_scripts import database
+    c = choices_legacy(tmp_path / 'failed.db')
+    before = choices_objects(c)
+    rows = choices_rows(c)
+    denied = []
+    def reject(action, arg1, arg2, dbname, trigger):
+        if ((stage == 'second_table' and action == sqlite3.SQLITE_CREATE_TABLE and arg1 == 'assistant_turn_choices')
+                or (stage == 'index' and action == sqlite3.SQLITE_CREATE_INDEX and arg1 == 'idx_assistant_turn_choices_assistant_message')
+                or (stage == 'marker' and action == sqlite3.SQLITE_UPDATE and arg1 == 'app_settings' and arg2 == 'value')):
+            denied.append((action, arg1, arg2))
+            return sqlite3.SQLITE_DENY
+        return sqlite3.SQLITE_OK
+    c.set_authorizer(reject)
+    with pytest.raises(sqlite3.DatabaseError):
+        database.init_db(conn=c)
+    # Python 3.10 requires a callable here; None disables it only on 3.11+.
+    c.set_authorizer(lambda *_: sqlite3.SQLITE_OK)
+    assert denied, 'The intended DDL/marker operation must actually be denied'
+    assert database.get_schema_version(c) == 14
+    assert choices_objects(c) == before
+    assert choices_rows(c) == rows
+    database.init_db(conn=c)
+    assert database.get_schema_version(c) == 15
+    c.close()

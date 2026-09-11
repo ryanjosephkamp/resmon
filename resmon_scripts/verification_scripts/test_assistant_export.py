@@ -73,3 +73,58 @@ def test_empty_and_missing_snapshot(conn):
     assert snap['snapshot']['last_message_id'] is None
     assert json.loads(export.export_snapshot(snap, 'json', {})['text'])['messages'] == []
     assert store.read_snapshot(conn, sid+1) is None
+
+
+def test_choice_metadata_and_messages_share_one_wal_snapshot(conn, monkeypatch):
+    from implementation_scripts import assistant_choices as choices
+    path = conn.execute('PRAGMA database_list').fetchone()[2]
+    conn.execute('PRAGMA journal_mode=WAL')
+    binding = choices.resolve({}, {'version':1,'runtime':'claude_cli','provider':'claude_code','model':'opus','effort':None})
+    sid = store.create_bound_session(conn, binding)
+    uid = store.admit_turn(conn, sid, 'before', store.get_choices(conn,sid))['user_message_id']
+    original = store.read_turn_choices
+    def commit_between_reads(reader, selected):
+        writer = database.get_connection(path)
+        try:
+            store.append_report(writer,sid,uid,choices.report('later report','api_response_model'))
+            store.finish_turn(writer,sid,uid,content='later reply',tool_calls=None,tool_results=None,input_tokens=None,output_tokens=None,cost_usd=None)
+        finally: writer.close()
+        return original(reader,selected)
+    monkeypatch.setattr(store,'read_turn_choices',commit_between_reads)
+    snapshot = store.read_snapshot(conn,sid)
+    assert snapshot['turn_choices'][0]['reported'] == []
+    assert snapshot['turn_choices'][0]['assistant_message_id'] is None
+    assert [m['content'] for m in snapshot['messages']] == ['before']
+    for fmt in ['json','markdown']:
+        text = export.export_snapshot(snapshot,fmt,{})['text']
+        assert 'later reply' not in text and 'later report' not in text
+    monkeypatch.setattr(store,'read_turn_choices',original)
+    reopened = store.read_snapshot(conn,sid)
+    assert reopened['turn_choices'][0]['reported'][0]['model'] == 'later report'
+    assert [m['content'] for m in reopened['messages']] == ['before','later reply']
+
+
+@pytest.mark.parametrize('fmt',['json','markdown'])
+def test_literal_choices_unknowns_and_metadata_count_towards_size_limit(conn,fmt):
+    from implementation_scripts import assistant_choices as choices
+    model = '<img src=x onerror=alert(1)> `雪` [literal](https://invalid.example)'
+    binding = choices.resolve({}, {'version':1,'runtime':'claude_cli','provider':'claude_code','model':model,'effort':None})
+    sid = store.create_bound_session(conn,binding)
+    uid = store.admit_turn(conn,sid,'user',store.get_choices(conn,sid))['user_message_id']
+    hostile = '```\n<script>literal</script>\n雪'
+    store.append_report(conn,sid,uid,choices.report(hostile,'claude_system_init_model'))
+    snap = store.read_snapshot(conn,sid)
+    before = inventory(conn)
+    rendered = export.export_snapshot(snap,fmt,{})['text']
+    assert 'route_digest' not in rendered and binding['route_digest'] not in rendered
+    if fmt == 'json':
+        data=json.loads(rendered)
+        assert data['choices']['requested_model']==model
+        assert data['turn_choices'][0]['reported'][0]['model']==hostile
+        assert data['turn_choices'][0]['assistant_message_id'] is None
+    else:
+        assert model in rendered and json.dumps(hostile,ensure_ascii=False)[1:-1] in rendered
+    # Oversized reported metadata must refuse just as oversized message text does.
+    snap['turn_choices'][0]['reported'][0]['model']='x'*(export.MAX_EXPORT_BYTES+1)
+    with pytest.raises(ValueError,match='8 MiB'):export.export_snapshot(snap,fmt,{})
+    assert inventory(conn)==before

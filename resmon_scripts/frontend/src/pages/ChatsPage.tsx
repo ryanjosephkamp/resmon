@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import PageHelp from '../components/Help/PageHelp';
+import { ChoiceSummary } from '../components/Assistant/ComposerChoices';
 import { TranscriptMessages } from '../components/Assistant/TranscriptMessages';
 import { useAssistant } from '../context/AssistantContext';
 import { ChatDetail, ChatPage, chatsApi, ConversationFormat } from '../api/chats';
@@ -72,6 +73,7 @@ const ChatsPage: React.FC = () => {
         Filter matches a literal saved-title substring, ignoring ASCII case; other characters match literally.</p>
       <p>Continue in Ask opens the same local conversation without sending a message. One Ask turn can run in this renderer.
         Other saved chats remain readable and exportable. Historical completion is unknown.</p>
+      <p>Ask fixes connection/model/effort per conversation without changing global defaults. Requested choices and literal runtime model reports are separate. Historical chats require confirmation of future choices: API continuation sends saved user/assistant text to the chosen provider; Claude starts fresh without earlier messages. Change choices starts an empty conversation.</p>
       <p>Exports contain persisted messages and tool data only, without live fragments or pending approval cards.
         Each format is limited to 8 MiB and refuses larger output without truncation. Recorded metadata may be absent;
         cost is not an invoice. Review saved text before sharing.</p>
@@ -116,7 +118,8 @@ const ChatsPage: React.FC = () => {
           <p>Includes saved messages and tool data; review before sharing. Live-only fragments and pending cards are excluded.</p>
           {notice && <p role="status">{notice}</p>}
           {!detail.messages.length && <p>No saved messages.</p>}
-          <TranscriptMessages messages={detail.messages} />
+          <ChoiceSummary choices={detail.session.choices} />
+          <TranscriptMessages messages={detail.messages} turnChoices={detail.turn_choices} />
         </>}
       </section>
     </div>
