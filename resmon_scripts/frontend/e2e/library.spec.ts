@@ -14,7 +14,9 @@ const started=(pid:number)=>execFileSync('ps',['-p',String(pid),'-o','lstart='],
 
 test('owned vault, 123 items, exact text/Open/inventory, delayed responses, restart and reset retention',async()=>{
  test.setTimeout(300_000);
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'resmon-library-journey-'));
+ // Electron canonicalizes /var to /private/var on macOS. Supply the physical
+ // newly-created root everywhere so exact state/profile assertions still hold.
+ const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'resmon-library-journey-')));
  const state=path.join(root,'state'),originals=path.join(root,'originals'),parent=path.join(root,'vault-parent'),exports=path.join(root,'exports');
  for(const d of [state,originals,parent,exports])fs.mkdirSync(d);
  const env=launchEnv(state,true);env.RESMON_DISABLE_SCHEDULER='1';
