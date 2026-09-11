@@ -30,7 +30,7 @@ implies more certainty than it earns is rejected even when the code is correct.
 
 ```
 resmon_scripts/
-├── resmon.py                       FastAPI app — 137 routes, the API seam
+├── resmon.py                       FastAPI app — 146 routes, the API seam
 ├── implementation_scripts/         backend modules
 │   ├── api_base.py                 BaseAPIClient, NormalizedResult, RateLimiter, safe_request
 │   ├── api_<slug>.py               one source client each; self-registering
@@ -49,13 +49,13 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 1993 pass, 2 skip, 108 deselected
+.venv/bin/python -m pytest -q          # hermetic suite: 2051 pass, 2 skip, 108 deselected
 .venv/bin/python -m pytest -m live_network   # the 105 — real scholarly APIs, CLIs and sockets
                                              # 89 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 383 tests across 39 suites
-npm run e2e                                      # the real Electron app — 97 checks, 27 routes
+npm run typecheck && npm test && npm run build   # 419 tests across 42 suites
+npm run e2e                                      # the real Electron app — 99 checks, 28 routes
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -290,3 +290,5 @@ Saved conversation read/export contract: `docs/api-contract/assistant-conversati
 Chats journey: `resmon_scripts/frontend/e2e/chats-export.spec.ts`.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
+
+Library storage, schema 16 and bounded TXT/MD reading: `docs/api-contract/library.md`; real disposable journey: `resmon_scripts/frontend/e2e/library.spec.ts`. Library-specific backend tests are `test_library.py`, `test_library_upgrade.py`, `test_library_boundary.py` and `test_library_text.py`. Native picker/opener results and download destinations are scripted in the Electron journey; report actual pass/skip counts separately.

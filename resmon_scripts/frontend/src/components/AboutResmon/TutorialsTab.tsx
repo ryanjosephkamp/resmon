@@ -404,6 +404,31 @@ const sections: TutorialSection[] = [
     destination: { path: '/reading-queue', label: 'Go to Page' },
   },
   {
+    anchor: 'library',
+    title: 'Library',
+    blurb: 'Retain your selected PDF, TXT and Markdown files as immutable local copies.',
+    mediaCaption: 'Library instructions — no video recorded.',
+    instructions: [
+      'Choose an existing parent folder, then click Create managed vault. resmon creates one new child; it never adopts an existing folder.',
+      'Import up to20files sequentially, at most64MiB each. Originals stay unchanged. Exact byte duplicates reuse the first retained name and version; different bytes remain separate.',
+      'Search literal filenames and use Next50items to reach later pages. Refresh includes newer imports. Metadata lists do not freshly verify file integrity.',
+      'Select an item and use Read text for literal UTF8 TXT/MD up to256KiB and5,000logical lines. Find searches only that returned version. PDF and larger text stay retained for Open externally.',
+      'Associate an existing positive paper ID explicitly. This is an owner association in this app database, not scientific identity matching.',
+      'Export complete JSON inventory includes every recorded item, within8MiB. Review filenames before sharing. It is not a backup, bundle of retained bytes, relocation tool or integrity scan.',
+    ],
+    features: [
+      'A durable vault UUID and immutable file/version UUIDs survive restart. Read and Open verify the selected retained bytes. External viewer rendering is not verified by an Open request.',
+      'One vault retains at most1GiB and10,000items. Unexpected bytes, locks, missing markers or mismatched storage are refused without automatic recovery.',
+      'Existing resets and corpus erasure retain the Library catalog/files. Deleting a collected paper removes only its associations; reused paper IDs do not inherit them.',
+    ],
+    tips: [
+      'TXT/MD displays literal text, never executable Markdown/HTML. Display line endings normalize to LF; original retained bytes do not change.',
+      'No PDF extraction, OCR, AI analysis, automatic download, notes or annotations are added. Database backup alone does not preserve vault bytes; no automatic Library cloud backup is added.',
+      'Safe descriptor-relative filesystem primitives are required; unsupported platforms refuse filesystem operations instead of following an unsafe fallback.',
+    ],
+    destination: { path: '/library', label: 'Go to Page' },
+  },
+  {
     anchor: 'configurations',
     title: 'Configurations',
     blurb: 'Manage saved manual-dive, manual-sweep, and routine parameter presets.',

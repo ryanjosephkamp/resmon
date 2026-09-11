@@ -118,3 +118,8 @@ describe('the route table is the single source of truth', () => {
     }
   });
 });
+
+it('includes the Library in the shared route sweep', () => {
+  expect(allRouteHashes().map(r => r.hash)).toContain('/library');
+  expect(allRouteHashes()).toHaveLength(28);
+});

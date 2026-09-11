@@ -645,7 +645,7 @@ def test_the_queue_survives_a_backend_restart_unchanged(tmp_path):
                 sorted(after["entries"], key=lambda e: e["document_id"])] == \
             [tuple(r) for r in rows_on_disk]
         assert entries_of(after) == entries_of(before)
-        assert database_version(path) == 15
+        assert database_version(path) == 16
         print("P2_RESTART", json.dumps({"entries": after["counts"], "rows": len(rows_on_disk)}))
     finally:
         _stop(proc)
@@ -662,7 +662,7 @@ def test_a_fresh_database_carries_the_queue_from_the_first_launch(tmp_path):
     db.init_db(str(path))
     conn = db.get_connection(str(path))
     try:
-        assert db.get_schema_version(conn) == 15
+        assert db.get_schema_version(conn) == 16
         assert reading_queue.counts(conn) == {"to_read": 0, "read": 0, "all": 0}
         columns = {r[1] for r in conn.execute("PRAGMA table_info(reading_queue)")}
         assert columns == {"document_id", "status", "saved_at", "updated_at", "read_at"}
