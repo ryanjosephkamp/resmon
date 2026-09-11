@@ -207,16 +207,20 @@ def test_choices_actual_sql_authorizer_failure_rolls_back(tmp_path, stage):
     c = choices_legacy(tmp_path / 'failed.db')
     before = choices_objects(c)
     rows = choices_rows(c)
+    denied = []
     def reject(action, arg1, arg2, dbname, trigger):
         if ((stage == 'second_table' and action == sqlite3.SQLITE_CREATE_TABLE and arg1 == 'assistant_turn_choices')
                 or (stage == 'index' and action == sqlite3.SQLITE_CREATE_INDEX and arg1 == 'idx_assistant_turn_choices_assistant_message')
                 or (stage == 'marker' and action == sqlite3.SQLITE_UPDATE and arg1 == 'app_settings' and arg2 == 'value')):
+            denied.append((action, arg1, arg2))
             return sqlite3.SQLITE_DENY
         return sqlite3.SQLITE_OK
     c.set_authorizer(reject)
     with pytest.raises(sqlite3.DatabaseError):
         database.init_db(conn=c)
-    c.set_authorizer(None)
+    # Python 3.10 requires a callable here; None disables it only on 3.11+.
+    c.set_authorizer(lambda *_: sqlite3.SQLITE_OK)
+    assert denied, 'The intended DDL/marker operation must actually be denied'
     assert database.get_schema_version(c) == 14
     assert choices_objects(c) == before
     assert choices_rows(c) == rows

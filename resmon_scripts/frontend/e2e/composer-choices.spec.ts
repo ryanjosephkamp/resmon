@@ -37,6 +37,10 @@ test('fixed choices, historical consent, real recipient requests, reports, Stop,
  expect(address.port).not.toBe(8742);
  const endpoint=`http://127.0.0.1:${address.port}`;
  const env=launchEnv(state,true);env.RESMON_DISABLE_SCHEDULER='1';env.FAKE_CLAUDE_STATE=path.join(state,'fake-native');
+ // CI supplies "python3" without a checkout venv. A kernel shebang needs the
+ // absolute interpreter, while execFile accepts either spelling.
+ env.RESMON_PYTHON=execFileSync(env.RESMON_PYTHON,['-c','import sys; print(sys.executable)'],{env,encoding:'utf8'}).trim();
+ expect(path.isAbsolute(env.RESMON_PYTHON)).toBe(true);
  // Only this process sees the authored nonsecret keyring. No real keyring lookup.
  fs.writeFileSync(path.join(state,'composer_fake_keys.py'),`from keyring.backend import KeyringBackend\nclass Keyring(KeyringBackend):\n priority=1\n def get_password(self,service,username): return 'r04c-authored-nonsecret' if username=='custom_llm_api_key' else None\n def set_password(self,*a): raise RuntimeError('No key writes in composer fixture')\n def delete_password(self,*a): raise RuntimeError('No key deletion in composer fixture')\n`);
  env.PYTHON_KEYRING_BACKEND='composer_fake_keys.Keyring';env.PYTHONPATH=state+path.delimiter+(env.PYTHONPATH||'');
