@@ -120,6 +120,24 @@ keyboard focus in the composer; closing it returns focus to Ask. Enter sends, Sh
 adds a line, and Stop remains below the scrolling conversation. Earlier conversations
 reopen from the header; Allow and Deny stay explicit on each permission card.
 
+Choose **Connection**, **Model** and, for Claude Code, **Effort** before sending.
+Choices are fixed for that conversation; **Change choices · new empty conversation**
+starts with no copied messages or native session. Global Settings remain defaults for
+future chats, and changing them cannot retarget an existing conversation or active turn.
+Claude suggestions are aliases, not an account-verified compatibility list. Blank CLI
+model/effort omits that flag and leaves the native default unknown. API effort is not
+supported by the current adapter. Codex and Ollama assistant adapters are unavailable.
+Readiness describes local prerequisites; authentication and model acceptance are checked
+only when you send. A refusal does not switch to another model or connection.
+
+Older chats have unknown historical choices. Their first continuation asks for explicit
+confirmation: an API conversation sends saved user/assistant text to the chosen future
+provider, whose predecessor is unknown; Claude starts a fresh native session without
+sending the earlier local messages. Those messages remain readable and exportable.
+Changing runtime kind starts an empty conversation. Requested choices and literal model
+reports are shown separately in Ask, Chats and exports; reports do not prove execution,
+effective effort, completion or billing. See the [choices contract](docs/api-contract/assistant-choices.md).
+
 **Chats** in the sidebar finds saved conversations beyond the Ask history drawer.
 Browse newest-created pages or filter saved titles; Refresh includes new chats.
 Select a transcript, then **Continue in Ask** to open that same local conversation

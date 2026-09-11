@@ -101,7 +101,7 @@ print(json.dumps({x:c.execute('SELECT * FROM "'+x+'" ORDER BY 1').fetchall() for
     const composer=win.getByLabel('Message the assistant');await expect(composer).toBeVisible();
     await composer.fill('SAY:R04b same-session answer');
     const stream=win.waitForResponse(r=>r.url().endsWith('/123/messages'));
-    await composer.press('Enter');const response=await stream;const sse=await response.text();expect(sse).toContain('R04b same-session answer');
+    await composer.press('Enter');await expect(win.getByText('Earlier messages remain here; this new Claude session will receive your new message, not the earlier conversation.')).toBeVisible();await win.getByRole('button',{name:'Confirm and send',exact:true}).click();const response=await stream;const sse=await response.text();expect(sse).toContain('R04b same-session answer');
     await expect(win.getByRole('button',{name:'Stop',exact:true})).toBeHidden();
     const stored=await get('/api/assistant/sessions/123');expect(stored.messages.some((m:{content:string})=>m.content==='R04b same-session answer')).toBe(true);
     receipt('continuation',{request:response.request().postDataJSON(),sse,stored});
@@ -132,7 +132,10 @@ print(json.dumps({x:c.execute('SELECT * FROM "'+x+'" ORDER BY 1').fetchall() for
     await win.getByRole('button',{name:'Stop',exact:true}).click();await expect(win.getByRole('button',{name:'Stop',exact:true})).toBeHidden();
     await composer.fill('RESULT_ERROR:R04b authored error');await composer.press('Enter');await expect(win.locator('.assistant-error')).toBeVisible();await expect(win.getByRole('button',{name:'Stop',exact:true})).toBeHidden();
     const after=inventory();receipt('after',after);
-    const intentional=['assistant_sessions','assistant_messages','routines','saved_configurations','sqlite_sequence'];
+    const intentional=['assistant_sessions','assistant_messages','assistant_session_choices','assistant_turn_choices','routines','saved_configurations','sqlite_sequence'];
+    expect(after.assistant_session_choices.every((r:unknown[])=>r[0]===123)).toBe(true);
+    const chosenMessageIds=after.assistant_messages.filter((m:unknown[])=>m[1]===123).map((m:unknown[])=>m[0]);
+    expect(after.assistant_turn_choices.every((r:unknown[])=>chosenMessageIds.includes(r[0]))).toBe(true);
     for(const table of Object.keys(before).filter(t=>!intentional.includes(t)))expect(after[table],table).toEqual(before[table]);
     expect(after.assistant_messages.filter((m:unknown[])=>m[1]!==123)).toEqual(before.assistant_messages.filter((m:unknown[])=>m[1]!==123));
     expect(contacts).toEqual([]);receipt('preservation',{tables:Object.keys(before),intentional,unexpectedContacts:contacts});

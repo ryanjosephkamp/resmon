@@ -108,7 +108,7 @@ def test_two_actual_processes_http_stdio_and_same_state_restart(tmp_path):
         with ThreadPoolExecutor(max_workers=8) as pool:
             identities = list(pool.map(lambda _: httpx.get(a + "/api/health").json()["identity"], range(16)))
         assert all(identity == ha["identity"] for identity in identities)
-        assert ha["identity"]["schema_version"] == 14
+        assert ha["identity"]["schema_version"] == 15
         assert ha["identity"]["corpus_id"] is None and ha["identity"]["build_id"] is None
         for route in ("/api/health", f"/api/executions/{eid}"):
             matched = httpx.get(a + route, params={"expected_runtime_id": aid})

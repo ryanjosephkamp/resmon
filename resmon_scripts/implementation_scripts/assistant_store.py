@@ -32,6 +32,8 @@ import sqlite3
 import uuid
 from typing import Any, Optional
 
+from . import assistant_choices as choices
+
 __all__ = [
     "MAX_TITLE_LENGTH",
     "add_message",
@@ -179,7 +181,7 @@ def get_session(conn: sqlite3.Connection, session_id: int) -> Optional[dict]:
     row = conn.execute(
         "SELECT * FROM assistant_sessions WHERE id = ?", (session_id,)
     ).fetchone()
-    return _session_row(row) if row else None
+    return {**_session_row(row), "choices": choices.public_binding(get_choices(conn, session_id))} if row else None
 
 
 def list_sessions(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
@@ -196,7 +198,7 @@ def list_sessions(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
     ).fetchall()
     out = []
     for row in rows:
-        entry = _session_row(row)
+        entry = {**_session_row(row), "choices": choices.public_binding(get_choices(conn, row["id"]))}
         entry["message_count"] = row["message_count"]
         # SUM over no rows, or over rows that all reported nothing, is NULL.
         # Kept as None: "this conversation cost nothing" and "nobody told us
@@ -277,6 +279,9 @@ def delete_session(conn: sqlite3.Connection, session_id: int) -> bool:
     explicit delete below means this is still correct on a connection that
     does not.
     """
+    conn.execute("DELETE FROM assistant_turn_choices WHERE user_message_id IN "
+                 "(SELECT id FROM assistant_messages WHERE session_id=?)", (session_id,))
+    conn.execute("DELETE FROM assistant_session_choices WHERE session_id=?", (session_id,))
     conn.execute("DELETE FROM assistant_messages WHERE session_id = ?", (session_id,))
     cur = conn.execute("DELETE FROM assistant_sessions WHERE id = ?", (session_id,))
     conn.commit()
@@ -302,7 +307,8 @@ def browse_sessions(conn: sqlite3.Connection, *, limit: int = 50,
         (through_id, before_id, before_id, '%' + literal + '%', limit + 1),
     ).fetchall()
     sessions = [{**{k: row[k] for k in ('id', 'runtime', 'model', 'created_at', 'updated_at', 'message_count')},
-                 'title': row['title'] or 'New conversation'} for row in rows[:limit]]
+                 'title': row['title'] or 'New conversation',
+                 'choices': choices.public_binding(get_choices(conn, row['id']))} for row in rows[:limit]]
     more = len(rows) > limit
     return {'sessions': sessions, 'through_id': through_id,
             'next_before_id': sessions[-1]['id'] if more else None, 'has_more': more}
@@ -323,7 +329,8 @@ def read_snapshot(conn: sqlite3.Connection, session_id: int) -> Optional[dict]:
             return None
         raw = [dict(m) for m in conn.execute(
             "SELECT * FROM assistant_messages WHERE session_id=? ORDER BY id", (session_id,))]
-        return {'session': _session_row(row), 'stored_title': row['title'],
+        return {'session': {**_session_row(row), 'choices': choices.public_binding(get_choices(conn, session_id))}, 'stored_title': row['title'],
+                'choices_version': 1, 'turn_choices': read_turn_choices(conn, session_id),
                 'messages': list_messages(conn, session_id), 'raw_messages': raw,
                 'totals': session_totals(conn, session_id),
                 'snapshot': {'captured_at_utc': datetime.now(timezone.utc).isoformat(),
@@ -331,3 +338,135 @@ def read_snapshot(conn: sqlite3.Connection, session_id: int) -> Optional[dict]:
                              'last_message_id': raw[-1]['id'] if raw else None}}
     finally:
         conn.rollback()
+
+
+def get_choices(conn: sqlite3.Connection, session_id: int) -> Optional[dict]:
+    row = conn.execute('SELECT * FROM assistant_session_choices WHERE session_id=?', (session_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def _insert_choices(conn: sqlite3.Connection, session_id: int, binding: dict) -> None:
+    choices.request_projection(binding)
+    columns = (*choices.REQUEST_FIELDS, 'route_digest', 'created_at_utc')
+    conn.execute('INSERT INTO assistant_session_choices (session_id,' + ','.join(columns) + ') VALUES (' +
+                 ','.join('?' for _ in range(len(columns) + 1)) + ')',
+                 (session_id, *(binding[k] for k in columns)))
+
+
+def create_bound_session(conn: sqlite3.Connection, binding: dict, title: Optional[str] = None) -> int:
+    with conn:
+        cur = conn.execute('INSERT INTO assistant_sessions(runtime,cli_session_id,model,title) VALUES (?,?,?,?)',
+                           (binding['runtime'], new_cli_session_id() if binding['runtime'] == 'claude_cli' else None,
+                            binding['requested_model'], title))
+        sid = int(cur.lastrowid)
+        _insert_choices(conn, sid, binding)
+    return sid
+
+
+def admit_turn(conn: sqlite3.Connection, session_id: int, text: str, binding: dict,
+               *, legacy: bool = False) -> dict:
+    """One write lock: prospective binding, native identity, user and request.
+
+    Recheck binding after acquiring the SQLite lock; the in-process bus alone
+    cannot protect a concurrent adoption on another connection/process.
+    """
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        session = get_session(conn, session_id)
+        if session is None:
+            raise ValueError('That conversation does not exist.')
+        current = get_choices(conn, session_id)
+        route_settings = dict(conn.execute("SELECT key,value FROM app_settings WHERE key IN ('ai_cli_path','ai_custom_base_url')"))
+        if choices.route_digest(route_settings, binding['runtime'], binding['provider']) != binding['route_digest']:
+            raise ValueError('This connection configuration changed. Start a new conversation.')
+        if legacy:
+            if current is not None or session['runtime'] != binding['runtime']:
+                raise ValueError('Historical continuation changed. Reopen the conversation and confirm again.')
+            _insert_choices(conn, session_id, binding)
+        elif current != binding:
+            raise ValueError('Conversation choices changed. Reopen the conversation.')
+        history = list_messages(conn, session_id)
+        native = session['cli_session_id'] if binding['runtime'] == 'claude_cli' and not legacy else None
+        resume = bool(native) and bool(history)
+        if binding['runtime'] == 'claude_cli' and not native:
+            native = new_cli_session_id()
+        if legacy or native != session['cli_session_id']:
+            conn.execute('UPDATE assistant_sessions SET cli_session_id=? WHERE id=?', (native, session_id))
+        cur = conn.execute("INSERT INTO assistant_messages(session_id,role,content) VALUES (?,'user',?)", (session_id, text))
+        uid = int(cur.lastrowid)
+        request = choices.request_projection(binding)
+        conn.execute('INSERT INTO assistant_turn_choices(user_message_id,version,requested_json,created_at_utc) VALUES (?,1,?,?)',
+                     (uid, json.dumps(request), choices.now()))
+        conn.execute("UPDATE assistant_sessions SET updated_at=datetime('now'), title=COALESCE(NULLIF(title,''),?) WHERE id=?",
+                     (title_from(text), session_id))
+        conn.commit()
+        return {'user_message_id': uid, 'requested': request, 'cli_session_id': native or '',
+                'resume': resume, 'history': history if binding['runtime'] == 'api_key' else []}
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def append_report(conn: sqlite3.Connection, session_id: int, user_message_id: int, observation: dict) -> dict:
+    conn.execute('BEGIN IMMEDIATE')
+    with conn:
+        row = conn.execute("SELECT t.reported_json FROM assistant_turn_choices t JOIN assistant_messages u ON u.id=t.user_message_id "
+                           "WHERE u.id=? AND u.session_id=? AND u.role='user'", (user_message_id, session_id)).fetchone()
+        if not row:
+            raise ValueError('Model report does not belong to this user turn.')
+        reports = json.loads(row[0])
+        item = {k: observation[k] for k in ('model', 'source', 'observed_at_utc')}
+        if choices.report(item['model'], item['source']) is None:
+            raise ValueError('Unrecognized model report.')
+        item['sequence'] = len(reports) + 1
+        reports.append(item)
+        conn.execute('UPDATE assistant_turn_choices SET reported_json=? WHERE user_message_id=?', (json.dumps(reports), user_message_id))
+    return item
+
+
+def finish_turn(conn: sqlite3.Connection, session_id: int, user_message_id: int, *, content: str,
+                tool_calls: Optional[list], tool_results: Optional[list], input_tokens: Optional[int],
+                output_tokens: Optional[int], cost_usd: Optional[float]) -> int:
+    conn.execute('BEGIN IMMEDIATE')
+    with conn:
+        row = conn.execute("SELECT t.assistant_message_id FROM assistant_turn_choices t JOIN assistant_messages u ON u.id=t.user_message_id "
+                           "WHERE u.id=? AND u.session_id=? AND u.role='user'", (user_message_id, session_id)).fetchone()
+        if not row or row[0] is not None:
+            raise ValueError('Assistant message cannot be linked to this request.')
+        cur = conn.execute('INSERT INTO assistant_messages(session_id,role,content,tool_calls,tool_results,input_tokens,output_tokens,cost_usd) '
+                           "VALUES (?,'assistant',?,?,?,?,?,?)", (session_id, content,
+                           json.dumps(tool_calls) if tool_calls else None, json.dumps(tool_results) if tool_results else None,
+                           input_tokens, output_tokens, cost_usd))
+        mid = int(cur.lastrowid)
+        conn.execute('UPDATE assistant_turn_choices SET assistant_message_id=? WHERE user_message_id=?', (mid, user_message_id))
+    return mid
+
+
+def read_turn_choices(conn: sqlite3.Connection, session_id: int) -> list[dict]:
+    rows = conn.execute('SELECT t.*, u.role AS user_role, a.session_id AS assistant_session, a.role AS assistant_role '
+                        'FROM assistant_turn_choices t JOIN assistant_messages u ON u.id=t.user_message_id '
+                        'LEFT JOIN assistant_messages a ON a.id=t.assistant_message_id WHERE u.session_id=? ORDER BY u.id', (session_id,)).fetchall()
+    result = []
+    for row in rows:
+        item = {k: row[k] for k in ('user_message_id', 'assistant_message_id', 'version', 'created_at_utc')}
+        if row['user_role'] != 'user' or (row['assistant_message_id'] is not None and
+                (row['assistant_session'] != session_id or row['assistant_role'] != 'assistant')):
+            item.update(assistant_message_id=None, requested={'unreadable': True}, reported={'unreadable': True})
+        else:
+            try:
+                item['requested'] = choices.request_projection(json.loads(row['requested_json']))
+            except (ValueError, TypeError, KeyError):
+                item['requested'] = {'unreadable': True}
+            try:
+                reports = json.loads(row['reported_json'])
+                if not isinstance(reports, list):
+                    raise ValueError('Invalid report list')
+                item['reported'] = []
+                for index, report in enumerate(reports, 1):
+                    if report['sequence'] != index or choices.report(report['model'], report['source']) is None or not isinstance(report['observed_at_utc'], str):
+                        raise ValueError('Invalid report')
+                    item['reported'].append({k: report[k] for k in ('sequence', 'model', 'source', 'observed_at_utc')})
+            except (ValueError, TypeError, KeyError):
+                item['reported'] = {'unreadable': True}
+        result.append(item)
+    return result

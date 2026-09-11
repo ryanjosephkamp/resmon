@@ -699,3 +699,42 @@ def test_a_direct_stream_still_gets_the_real_reason(tmp_path):
         errors=["No conversation found with session ID: q"])
     assert "no longer has this conversation" in message
     assert "Start a new conversation" in message
+
+
+def test_r04c_bound_runtime_captures_exact_argv_reports_and_binary(tmp_path, monkeypatch):
+    import json
+    import sys
+    from implementation_scripts import assistant_choices as choices
+    from implementation_scripts import assistant_runtime as runtime
+    from types import SimpleNamespace
+    capture = tmp_path / 'request.json'
+    script = tmp_path / 'cli'
+    script.write_text('#!' + sys.executable + '\n' + '''import sys,json
+from pathlib import Path
+args=sys.argv[1:]
+Path(''' + repr(str(capture)) + ''').write_text(json.dumps(args))
+sid=args[args.index('--session-id')+1]
+print(json.dumps({'type':'system','subtype':'init','session_id':sid,'model':'literal-concrete-report'}))
+print(json.dumps({'type':'result','subtype':'success','result':'answer'}))
+''')
+    script.chmod(0o755)
+    settings = {'ai_cli_path': str(script)}
+    request = {'version':1,'runtime':'claude_cli','provider':'claude_code','model':'opus; literal$(model)','effort':'xhigh'}
+    bound = runtime.get_bound_runtime(choices.resolve(settings,request), settings, backend_port=54321)
+    monkeypatch.setattr(runtime.ai_cli,'discover_cli',lambda *a,**k: pytest.fail('No second executable discovery after admission'))
+    events = list(bound.run_turn(444, 'synthetic user',cli_session_id='1c26a185-3e53-48fa-b93e-a9a96e038491',resume=False))
+    args = json.loads(capture.read_text())
+    assert args[args.index('--model')+1] == request['model']
+    assert args[args.index('--effort')+1] == 'xhigh'
+    assert args[args.index('--tools')+1] == ''
+    start = next(e for e in events if e['type']=='started')
+    assert start['model_report']['model']=='literal-concrete-report'
+    assert start['model_report']['source']=='claude_system_init_model'
+    assert start['owned_cli_session_id']=='1c26a185-3e53-48fa-b93e-a9a96e038491'
+
+
+@pytest.mark.parametrize('reported', [None, '', 2, {}, []])
+def test_r04c_missing_invalid_cli_model_is_not_inferred(reported):
+    from implementation_scripts import assistant_runtime as runtime
+    event = runtime._normalise(json.dumps({'type':'system','subtype':'init','model':reported}))[0]
+    assert event['model_report'] is None

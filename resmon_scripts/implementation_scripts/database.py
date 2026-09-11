@@ -623,7 +623,7 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # one membership row per saved paper, additive, with nothing backfilled --
 # resmon never observed which papers a user meant to read before the queue
 # existed, so an upgraded database starts empty and says so.
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -695,6 +695,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_embeddings_and_links(conn)
     _migrate_author_identity(conn)
     _migrate_schema_version(conn)
+    _migrate_assistant_choices(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
     # invisible to every other -- an in-memory database shared through
@@ -1213,13 +1214,66 @@ def _migrate_schema_version(conn: sqlite3.Connection) -> None:
         "SELECT value FROM app_settings WHERE key = ?", (_SCHEMA_VERSION_KEY,)
     ).fetchone()
     current = int(row[0]) if row else 0
-    if current < SCHEMA_VERSION:
+    if current < 14:
         conn.execute(
             "INSERT INTO app_settings (key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (_SCHEMA_VERSION_KEY, str(SCHEMA_VERSION)),
+            (_SCHEMA_VERSION_KEY, "14"),
         )
         conn.commit()
+
+
+# One common final migration for fresh and upgraded databases. Keep these out of
+# _SCHEMA_SQL: executescript commits implicitly and would accept half an upgrade.
+_ASSISTANT_CHOICES_DDL = {
+    "assistant_session_choices": """CREATE TABLE assistant_session_choices (
+        session_id INTEGER PRIMARY KEY REFERENCES assistant_sessions(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL CHECK(version=1),
+        runtime TEXT NOT NULL CHECK(runtime IN ('claude_cli','api_key')),
+        provider TEXT NOT NULL,
+        requested_model TEXT,
+        requested_effort TEXT CHECK(requested_effort IS NULL OR requested_effort IN ('low','medium','high','xhigh','max')),
+        model_basis TEXT NOT NULL CHECK(model_basis IN ('explicit','settings_default','runtime_default')),
+        effort_basis TEXT NOT NULL CHECK(effort_basis IN ('explicit','settings_default','runtime_default','not_supported')),
+        route_digest TEXT NOT NULL,
+        binding_basis TEXT NOT NULL CHECK(binding_basis IN ('new','legacy_confirmed')),
+        created_at_utc TEXT NOT NULL,
+        CHECK(runtime != 'api_key' OR requested_effort IS NULL)
+    )""",
+    "assistant_turn_choices": """CREATE TABLE assistant_turn_choices (
+        user_message_id INTEGER PRIMARY KEY REFERENCES assistant_messages(id) ON DELETE CASCADE,
+        assistant_message_id INTEGER REFERENCES assistant_messages(id) ON DELETE SET NULL,
+        version INTEGER NOT NULL CHECK(version=1),
+        requested_json TEXT NOT NULL,
+        reported_json TEXT NOT NULL DEFAULT '[]',
+        created_at_utc TEXT NOT NULL
+    )""",
+    "idx_assistant_turn_choices_assistant_message": """CREATE UNIQUE INDEX idx_assistant_turn_choices_assistant_message
+        ON assistant_turn_choices(assistant_message_id) WHERE assistant_message_id IS NOT NULL""",
+}
+
+
+def _migrate_assistant_choices(conn: sqlite3.Connection) -> None:
+    """Fail closed on blocking objects; DDL, validation and marker are atomic."""
+    conn.execute("SAVEPOINT assistant_choices_v15")
+    try:
+        for name, ddl in _ASSISTANT_CHOICES_DDL.items():
+            row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+            if row is None:
+                conn.execute(ddl)
+            row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+            if not row or ' '.join((row[0] or '').split()) != ' '.join(ddl.split()):
+                raise sqlite3.DatabaseError("Conflicting schema-15 object: " + name)
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(app_settings.value AS INTEGER)<15",
+            (_SCHEMA_VERSION_KEY, "15"),
+        )
+        conn.execute("RELEASE assistant_choices_v15")
+    except Exception:
+        conn.execute("ROLLBACK TO assistant_choices_v15")
+        conn.execute("RELEASE assistant_choices_v15")
+        raise
 
 
 def get_schema_version(conn: sqlite3.Connection) -> int:

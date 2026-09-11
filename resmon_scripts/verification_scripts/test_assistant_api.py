@@ -75,7 +75,7 @@ class Backend:
             "RESMON_PORT_FILE": str(self.state / "resmon.port"),
             "RESMON_DISABLE_SCHEDULER": "1",
             "RESMON_PORT": str(self.port),
-            "PYTHONPATH": str(PROJECT_ROOT / "resmon_scripts"),
+            "PYTHONPATH": os.pathsep.join((str(PROJECT_ROOT / "resmon_scripts"), os.environ.get("PYTHONPATH", ""))),
             # The double remembers which sessions it was asked to start, so a
             # resume of one it never started fails the way the real CLI's does.
             # Set here rather than globally because it is the resume tests that
@@ -84,7 +84,7 @@ class Backend:
             "FAKE_CLAUDE_STATE": str(self.state / "fake-claude"),
         }
         self.proc = subprocess.Popen(
-            [sys.executable, str(PROJECT_ROOT / "resmon_scripts" / "resmon.py"),
+            [sys.executable, str(getattr(self, "entrypoint", PROJECT_ROOT / "resmon_scripts" / "resmon.py")),
              str(self.port)],
             env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             cwd=str(PROJECT_ROOT),
@@ -298,7 +298,7 @@ def test_an_unknown_cli_event_never_reaches_the_panel(backend):
 # stale the moment ``notice`` was added, and a stale list would have let a new
 # event type reach the panel unnoticed by the very test that exists to stop
 # exactly that.
-_PANEL_EVENTS = tuple(assistant_runtime.EVENT_TYPES)
+_PANEL_EVENTS = (*assistant_runtime.EVENT_TYPES, "turn_choices", "turn_model_report")
 
 
 def test_a_second_turn_is_refused_while_one_is_running(backend):
@@ -705,3 +705,123 @@ def test_chats_read_http_paging_export_and_validation(backend):
         c.execute('UPDATE assistant_messages SET content=? WHERE session_id=?',('a'*(8*1024*1024),ids[0]));c.commit()
         assert client.get(f'/api/assistant/sessions/{ids[0]}/export?format=json').status_code==413
     c.close()
+
+
+def _choice_rows(backend):
+    with sqlite3.connect(backend.db_path) as conn:
+        return {table:conn.execute('SELECT * FROM '+table+' ORDER BY 1').fetchall() for table in
+                ('assistant_sessions','assistant_messages','assistant_session_choices','assistant_turn_choices')}
+
+
+def test_choice_http_rejects_overrides_and_changed_route_without_writing(backend,shim):
+    request={'version':1,'runtime':'claude_cli','provider':'claude_code','model':'opus','effort':'high'}
+    before=_choice_rows(backend)
+    for change in ({'runtime':'codex_cli'},{'model':'bad\nmodel'},{'effort':'unknown'},{'extra':True}):
+        result=httpx.post(backend.base+'/api/assistant/sessions',json={'choices':{**request,**change}},timeout=20)
+        assert result.status_code==400,result.text
+        assert _choice_rows(backend)==before
+    result=httpx.post(backend.base+'/api/assistant/sessions',json={'choices':request},timeout=20)
+    assert result.status_code==201,result.text
+    sid=result.json()['id'];url=f'{backend.base}/api/assistant/sessions/{sid}/messages'
+    before=_choice_rows(backend)
+    result=httpx.post(url,json={'text':'override','choices':{**request,'model':'fable'}},timeout=20)
+    assert result.status_code==422 and _choice_rows(backend)==before
+    try:
+        httpx.put(backend.base+'/api/settings/ai',json={'settings':{'ai_cli_path':shim+'-changed'}},timeout=20).raise_for_status()
+        result=httpx.post(url,json={'text':'must refuse'},timeout=20)
+        assert result.status_code==409 and result.json()['detail']['code']=='configuration_changed'
+        assert _choice_rows(backend)==before
+    finally:
+        httpx.put(backend.base+'/api/settings/ai',json={'settings':{'ai_cli_path':shim}},timeout=20).raise_for_status()
+    events=_turn(backend.base,sid,'SAY:restored route')
+    request_event=next(e for e in events if e['type']=='turn_choices')
+    snapshot=httpx.get(f'{backend.base}/api/assistant/sessions/{sid}',timeout=20).json()
+    assert snapshot['turn_choices'][0]['requested']==request_event['requested']
+    assert snapshot['turn_choices'][0]['user_message_id']==request_event['user_message_id']
+    assert snapshot['turn_choices'][0]['assistant_message_id'] is not None
+    assert 'route_digest' not in json.dumps(snapshot)
+
+
+def test_legacy_http_requires_explicit_same_kind_confirmation_once(backend):
+    from implementation_scripts import database,assistant_store as store
+    conn=database.get_connection(backend.db_path)
+    try:
+        sid=store.create_session(conn,runtime='claude_cli',cli_session_id='historical-unverified-native',model='old-model')
+        store.add_message(conn,sid,role='user',content='historical user')
+        store.add_message(conn,sid,role='assistant',content='historical answer')
+        before=_choice_rows(backend)
+        url=f'{backend.base}/api/assistant/sessions/{sid}/messages'
+        cli={'version':1,'runtime':'claude_cli','provider':'claude_code','model':None,'effort':None}
+        api={**cli,'runtime':'api_key','provider':'openai','model':'authored'}
+        for adoption in (None,{'confirmed':False,'choices':cli},{'confirmed':True,'choices':api}):
+            response=httpx.post(url,json={'text':'future',**({'legacy_adoption':adoption} if adoption else {})},timeout=20)
+            assert response.status_code==409,response.text
+            assert _choice_rows(backend)==before
+        response=httpx.post(url,json={'text':'SAY:future','legacy_adoption':{'confirmed':True,'choices':cli}},timeout=60)
+        assert response.status_code==200,response.text
+        assert 'session not found' not in response.text.lower()
+        saved=store.get_session(conn,sid)
+        assert saved['model']=='old-model' and saved['cli_session_id']!='historical-unverified-native'
+        assert saved['choices']['binding_basis']=='legacy_confirmed'
+        assert [m['content'] for m in store.list_messages(conn,sid)][:2]==['historical user','historical answer']
+        before=_choice_rows(backend)
+        response=httpx.post(url,json={'text':'reconfirm','legacy_adoption':{'confirmed':True,'choices':cli}},timeout=20)
+        assert response.status_code==409 and response.json()['detail']['code']=='already_bound'
+        assert _choice_rows(backend)==before
+    finally:conn.close()
+
+
+def test_admitted_worker_keeps_captured_runtime_across_thread_start_barrier(tmp_path,shim):
+    """Actual HTTP/SSE and CLI, with a barrier before the real worker function."""
+    import threading
+    from implementation_scripts import database
+    state=tmp_path/'barrier-state';state.mkdir()
+    server=Backend(state);wrapper=state/'backend.py'
+    entered=state/'entered';release=state/'release'
+    wrapper.write_text('''import os,time
+from pathlib import Path
+import resmon,uvicorn
+original=resmon._run_assistant_turn
+def held(*args):
+ Path(os.environ['RESMON_DB_PATH']).with_name('entered').write_text('worker scheduled')
+ deadline=time.monotonic()+30
+ while not Path(os.environ['RESMON_DB_PATH']).with_name('release').exists():
+  if time.monotonic()>deadline:raise RuntimeError('authored barrier timeout')
+  time.sleep(.02)
+ original(*args)
+resmon._run_assistant_turn=held
+uvicorn.run(resmon.app,host='127.0.0.1',port=int(os.environ['RESMON_PORT']),log_level='warning')
+''')
+    server.entrypoint=wrapper
+    database.init_db(server.db_path)
+    c=database.get_connection(server.db_path);database.set_setting(c,'ai_cli_path',shim);c.close()
+    server.start();events=[];errors=[];worker=None
+    try:
+        choice={'version':1,'runtime':'claude_cli','provider':'claude_code','model':'opus','effort':'max'}
+        created=httpx.post(server.base+'/api/assistant/sessions',json={'choices':choice},timeout=20);created.raise_for_status();sid=created.json()['id']
+        def send():
+            try:_turn(server.base,sid,'SAY:captured runtime',sink=events)
+            except BaseException as exc:errors.append(repr(exc))
+        worker=threading.Thread(target=send);worker.start()
+        deadline=time.monotonic()+20
+        while not entered.exists() and time.monotonic()<deadline:time.sleep(.02)
+        assert entered.exists()
+        before=_choice_rows(server)
+        assert len(before['assistant_messages'])==len(before['assistant_turn_choices'])==1
+        # Retargeting here would select an unavailable API adapter; the admitted
+        # worker must still launch the original captured fake CLI/path/model.
+        httpx.put(server.base+'/api/settings/assistant',json={'settings':{'assistant_runtime':'api_key','assistant_provider':'openai','assistant_model':'not-the-request'}},timeout=20).raise_for_status()
+        httpx.put(server.base+'/api/settings/ai',json={'settings':{'ai_cli_path':shim+'-changed'}},timeout=20).raise_for_status()
+        rival=httpx.post(f'{server.base}/api/assistant/sessions/{sid}/messages',json={'text':'rival'},timeout=20)
+        assert rival.status_code==409 and _choice_rows(server)==before
+        release.write_text('continue');worker.join(30)
+        assert not worker.is_alive() and not errors
+        assert any(e.get('text')=='captured runtime' for e in events),events
+        saved=httpx.get(f'{server.base}/api/assistant/sessions/{sid}',timeout=20).json()
+        assert saved['turn_choices'][0]['requested']['requested_model']=='opus'
+        assert saved['turn_choices'][0]['requested']['requested_effort']=='max'
+        assert saved['turn_choices'][0]['assistant_message_id'] is not None
+    finally:
+        release.write_text('cleanup')
+        if worker:worker.join(35)
+        server.stop()

@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import type { TurnChoices } from '../components/Assistant/ComposerChoices';
 import type { AssistantMessage, AssistantSessionSummary } from '../context/AssistantContext';
 
 export type ConversationFormat = 'json' | 'markdown';
@@ -7,7 +8,7 @@ export interface ChatPage {
   sessions: ChatSummary[]; through_id: number; next_before_id: number | null; has_more: boolean;
 }
 export interface ChatDetail {
-  session: ChatSummary; messages: AssistantMessage[];
+  session: ChatSummary; messages: AssistantMessage[]; choices_version?: number; turn_choices?: TurnChoices[];
   snapshot: { captured_at_utc: string; basis: string; message_count: number; last_message_id: number | null };
   activity_observation: { observed_at_utc: string; turn_claimed: boolean; cli_running: boolean; basis: string };
 }

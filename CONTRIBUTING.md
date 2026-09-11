@@ -46,7 +46,7 @@ All five must pass:
 .venv/bin/python -m pytest -q                    # hermetic backend suite — 1891 pass, 2 skip, 108 deselected
 .venv/bin/python -m pytest -m live_network -q    # real APIs; CI runs the half that needs no CLI, weekly
 cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
-npm run e2e                                      # 96 checks, 27 routes; assistant-readability.spec.ts includes the local model-double journey
+npm run e2e                                      # 97 checks, 27 routes; assistant-readability.spec.ts includes the local model-double journey
 ```
 
 `npm run e2e:review` runs the same suite on your own display — which is the only
@@ -142,3 +142,5 @@ the contributor.
 
 The saved-conversation read/export API is documented in
 [`docs/api-contract/assistant-conversations.md`](docs/api-contract/assistant-conversations.md).
+
+Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
