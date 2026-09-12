@@ -109,12 +109,13 @@ test('P10: the Profiles route is in the sweep table and the sweep grew by exactl
     expect(hashes).toContain('/profiles');
     expect(APP_ROUTES.filter((r) => r.path === '/profiles')).toHaveLength(1);
     // 24 through v2.0.1; Watch Profiles is the twenty-fifth, and 2.2's Reading
-    // queue is the twenty-sixth; Chats the twenty-seventh; Library the twenty-eighth. Updated by hand:
+    // queue is the twenty-sixth; Chats the twenty-seventh; Library the twenty-eighth; Evidence the twenty-ninth. Updated by hand:
     // adding a page has to cost somebody a line here, or the denominator stops
     // being a denominator.
     expect(hashes).toContain('/reading-queue');
     expect(hashes).toContain('/library');
-    expect(hashes).toHaveLength(28);
+    expect(hashes).toContain('/evidence');
+    expect(hashes).toHaveLength(29);
   });
 
 test('P10 + P8: the page renders, and a profile with no ORCID says so in a real browser',

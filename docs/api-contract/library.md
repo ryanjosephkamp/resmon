@@ -143,3 +143,11 @@ the backend, IPC request and download bytes are real. This does not prove native
 dialog behavior, an external viewer, a human/Android interaction, hostile-file
 safety or independent audit. The separately authored briefing prototype is not
 part of this app, its reader API, or this public source tree.
+
+## Evidence handoff
+
+A selected Library item can hand its exact vault/file/version identity to
+[Evidence](evidence.md) for explicit project membership, bounded PDF/TXT/MD
+reading, literal saved notes and selected ZIP export. Existing Library import,
+reader, external Open, inventory and nine-route contracts remain unchanged.
+Evidence does not infer the latest imported file or publication identity.

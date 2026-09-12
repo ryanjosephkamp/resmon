@@ -18,6 +18,7 @@ const navItems: NavItem[] = [
   { to: '/chats', label: 'Chats', icon: '☏' },
   { to: '/reading-queue', label: 'Reading queue', icon: '⚑' },
   { to: '/library', label: 'Library', icon: '▤' },
+  { to: '/evidence', label: 'Evidence', icon: '▧' },
   { to: '/analytics', label: 'Analytics', icon: '▤' },
   { to: '/watchdog', label: 'Watchdog', icon: '◬' },
   { to: '/explorer', label: 'Explorer', icon: '⌕' },

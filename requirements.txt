@@ -36,3 +36,6 @@ uvicorn==0.44.0
 # --- Testing -----------------------------------------------------------------
 pytest==9.0.3
 pytest-timeout==2.4.0
+
+# Bounded selected-page Evidence reader; no optional extras.
+pypdf==6.18.1

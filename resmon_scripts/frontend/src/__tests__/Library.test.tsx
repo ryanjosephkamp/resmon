@@ -53,3 +53,9 @@ it('returns keyboard focus after the disabled read button is reenabled',async()=
  fireEvent.click(screen.getByText('Read text'));expect(screen.getByText('Read text')).toBeDisabled();
  fireEvent.click(screen.getByText('Close reader'));expect(screen.getByText('Read text')).toBeEnabled();expect(screen.getByText('Read text')).toHaveFocus();
 });
+
+it.each([undefined,'44444444-4444-4444-8444-444444444444'])('hands off only the selected immutable Library identity with project %s',async(projectId)=>{
+ window.location.hash=projectId?'#/library?evidence_project='+projectId:'#/library';render(<LibraryPage/>);await choose(2);
+ const link=await screen.findByRole('link',{name:'Open in Evidence / add to project'});const q=new URLSearchParams(link.getAttribute('href')!.split('?')[1]);
+ expect(Object.fromEntries(q)).toEqual({vault_id:vid,file_id:file(2).file_id,version_id:file(2).version_id,...(projectId?{project_id:projectId}:{})});expect(libraryApi.import).not.toHaveBeenCalled();expect(libraryApi.link).not.toHaveBeenCalled();window.location.hash='';
+});

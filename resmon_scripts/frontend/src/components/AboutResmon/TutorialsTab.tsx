@@ -429,6 +429,30 @@ const sections: TutorialSection[] = [
     destination: { path: '/library', label: 'Go to Page' },
   },
   {
+    anchor: 'evidence', title: 'Evidence',
+    blurb: 'Organize exact Library versions, read bounded pages and keep literal notes.',
+    mediaCaption: 'Local Evidence instructions — no video recorded.',
+    instructions: [
+      'Select a retained Library item and choose Open in Evidence / add to project. Create or choose the intended project, then add that exact file explicitly.',
+      'Choose from Library to add other retained versions. The import link returns through an explicit selected-file handoff; no latest-file inference.',
+      'Read a PDF physical page or one literal TXT/MD logical page. Find searches only current canonical text. Select there and use the passage in a new note.',
+      'Save a passage with an optional body or create a plain note. Edit changes the body only; reopen resolves the saved exact version, hash, page and codepoint range.',
+      'Remove from collection preserves notes, original files, managed copies and provenance. Re-add the same identity to reconnect saved records.',
+      'Export selected evidence: choose 1–20 current members, review names/notes, and decide whether to include retained bytes. Metadata-only is the default.',
+    ],
+    features: [
+      'PDF: 16 MiB, 200 pages, one requested page and a 20-second limit. No OCR; encrypted, unsupported, malformed, image-only and over-limit pages remain explicit.',
+      'Canonical text may omit or reshape figures, equations, tables and columns. A PDF canvas is a visual reference, not the saved offset basis.',
+      'Projects and notes survive existing resets. Missing bytes leave saved records unresolved, never silently reanchored or moved to another version.',
+    ],
+    tips: [
+      'Conflict responses keep your unsaved text. Refresh the project and explicitly retry; no lost-update retry is automatic.',
+      'The selected ZIP is a portable handoff, not encrypted backup or restore. File mode rehashes included bytes but does not re-extract quotations.',
+      'Existing Library platform requirements apply. No assistant tool, model call, AI briefing, automatic source download or background extraction is added.',
+    ],
+    destination: { path: '/evidence', label: 'Go to Page' },
+  },
+  {
     anchor: 'configurations',
     title: 'Configurations',
     blurb: 'Manage saved manual-dive, manual-sweep, and routine parameter presets.',

@@ -93,7 +93,7 @@ export default function LibraryPageComponent() {
         {page&&<p>{page.files.length} items on this page · through catalog ID {page.through_id}</p>}
         {page?.has_more&&<button disabled={loading||importing} onClick={()=>void load(query,page.through_id,page.next_before_id??undefined)}>Next 50 items</button>}
       </div>
-      {selected?<LibraryDetail key={`${selected.vault_id}/${selected.file_id}/${selected.version_id}`} selected={selected} onClose={()=>{const id=selected.file_id;select(null);const i=page?.files.findIndex(f=>f.file_id===id);if(i!==undefined&&i>=0)list.current?.querySelectorAll<HTMLButtonElement>('.library-item')[i]?.focus();}}/>:<p className="library-empty-detail">Select an item to read, inspect, associate a local paper or request Open.</p>}
+      {selected?<LibraryDetail evidenceProject={(()=>{const id=new URLSearchParams(window.location.hash.split('?')[1]??'').get('evidence_project');return id&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)?id:undefined;})()} key={`${selected.vault_id}/${selected.file_id}/${selected.version_id}`} selected={selected} onClose={()=>{const id=selected.file_id;select(null);const i=page?.files.findIndex(f=>f.file_id===id);if(i!==undefined&&i>=0)list.current?.querySelectorAll<HTMLButtonElement>('.library-item')[i]?.focus();}}/>:<p className="library-empty-detail">Select an item to read, inspect, associate a local paper or request Open.</p>}
       </div>
     </>}
   </div>;
