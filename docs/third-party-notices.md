@@ -270,3 +270,67 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ```
+
+
+---
+
+## PDF.js 6.3.289 browser distribution
+
+Source: Mozilla PDF.js tag [v6.3.289](https://github.com/mozilla/pdf.js/releases/tag/v6.3.289),
+published `pdfjs-dist` archive SHA256
+`06f25e887adc6489f04c9fcb14198c77e4e5623a59a0bba5c4cea5838a4f1241`.
+resmon redistributes exactly 188 unchanged browser module, CMap, standard-font
+and notice files (3,700,085 bytes), without installing the npm runtime package
+or running its package scripts. The display and worker source modules retain
+publisher bytes; the build aliases their `.mjs` names to `.js` for the existing
+local HTTP server's JavaScript MIME handling.
+
+The exact upstream notices travel with the selected assets under
+`resmon_scripts/frontend/vendor/pdfjs/6.3.289/` and with the desktop renderer at
+`dist/renderer/pdfjs/6.3.289/`:
+
+- [PDF.js Apache License 2.0](../resmon_scripts/frontend/vendor/pdfjs/6.3.289/LICENSE)
+- [Adobe CMap notice](../resmon_scripts/frontend/vendor/pdfjs/6.3.289/cmaps/LICENSE)
+- [Foxit standard-font notice](../resmon_scripts/frontend/vendor/pdfjs/6.3.289/standard_fonts/LICENSE_FOXIT)
+- [Liberation font notice](../resmon_scripts/frontend/vendor/pdfjs/6.3.289/standard_fonts/LICENSE_LIBERATION)
+
+## pypdf 6.18.1
+
+Source: [pypdf 6.18.1 on PyPI](https://pypi.org/project/pypdf/6.18.1/).
+The pure-Python wheel `pypdf-6.18.1-py3-none-any.whl` is 394,327 bytes, SHA256
+`ee93a2665670ecf57ee81d197a4ca548f3dc15f9cefc56e59b8140866aaa3de5`.
+resmon uses this pinned dependency without optional extras. Its BSD-3-Clause
+notice is also included in the upstream wheel; the following bytes reproduce
+that wheel's `pypdf-6.18.1.dist-info/licenses/LICENSE` verbatim.
+
+```
+Copyright (c) 2006-2008, Mathieu Fenniak
+Some contributions copyright (c) 2007, Ashish Kulkarni <kulkarni.ashish@gmail.com>
+Some contributions copyright (c) 2014, Steve Witham <switham_github@mac-guyver.com>
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+* Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation
+and/or other materials provided with the distribution.
+* The name of the author may not be used to endorse or promote products
+derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+```

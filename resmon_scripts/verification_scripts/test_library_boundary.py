@@ -31,7 +31,8 @@ if sys.argv[2] != 'production': library.MAX_FILE_BYTES=int(sys.argv[2])
 s=socket.socket();s.bind(('127.0.0.1',0));s.listen(128)
 port=s.getsockname()[1]
 assert port!=8742
-with open(sys.argv[1],'w') as f:json.dump({'pid':os.getpid(),'port':port,'source':os.getcwd(),'state':os.environ['RESMON_STATE_DIR'],'database':os.environ['RESMON_DB_PATH'],'start':datetime.datetime.now(datetime.timezone.utc).isoformat()},f)
+with open(sys.argv[1]+'.tmp','w') as f:json.dump({'pid':os.getpid(),'port':port,'source':os.getcwd(),'state':os.environ['RESMON_STATE_DIR'],'database':os.environ['RESMON_DB_PATH'],'start':datetime.datetime.now(datetime.timezone.utc).isoformat()},f)
+os.replace(sys.argv[1]+'.tmp',sys.argv[1])
 uvicorn.Server(uvicorn.Config(resmon.app,log_level='error')).run(sockets=[s])
 '''
     receipt=state/'identity.json';log=state/'backend.log'

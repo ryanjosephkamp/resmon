@@ -623,7 +623,7 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # one membership row per saved paper, additive, with nothing backfilled --
 # resmon never observed which papers a user meant to read before the queue
 # existed, so an upgraded database starts empty and says so.
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -697,6 +697,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_schema_version(conn)
     _migrate_assistant_choices(conn)
     _migrate_library(conn)
+    _migrate_evidence(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
     # invisible to every other -- an in-memory database shared through
@@ -1329,6 +1330,91 @@ def _migrate_library(conn: sqlite3.Connection) -> None:
     except Exception:
         conn.execute("ROLLBACK TO library_v16")
         conn.execute("RELEASE library_v16")
+        raise
+
+
+
+# Schema 17 is one additive, validated transaction for fresh and populated DBs.
+_EVIDENCE_DDL = {
+    'evidence_projects': """CREATE TABLE evidence_projects (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ project_id TEXT NOT NULL UNIQUE,
+ vault_id TEXT NOT NULL REFERENCES library_vault(vault_id) ON DELETE RESTRICT,
+ name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 120),
+ revision INTEGER NOT NULL CHECK(revision >= 1),
+ created_at_utc TEXT NOT NULL,
+ updated_at_utc TEXT NOT NULL
+)""",
+    'evidence_project_files': """CREATE TABLE evidence_project_files (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ project_id TEXT NOT NULL REFERENCES evidence_projects(project_id) ON DELETE RESTRICT,
+ file_id TEXT NOT NULL REFERENCES library_files(file_id) ON DELETE RESTRICT,
+ version_id TEXT NOT NULL REFERENCES library_files(version_id) ON DELETE RESTRICT,
+ added_at_utc TEXT NOT NULL,
+ UNIQUE(project_id, file_id)
+)""",
+    'evidence_notes': """CREATE TABLE evidence_notes (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ note_id TEXT NOT NULL UNIQUE,
+ project_id TEXT NOT NULL REFERENCES evidence_projects(project_id) ON DELETE RESTRICT,
+ file_id TEXT NOT NULL REFERENCES library_files(file_id) ON DELETE RESTRICT,
+ version_id TEXT NOT NULL REFERENCES library_files(version_id) ON DELETE RESTRICT,
+ kind TEXT NOT NULL CHECK(kind IN ('note', 'passage')),
+ body TEXT NOT NULL CHECK(length(body) <= 20000),
+ page_number INTEGER,
+ extraction_contract TEXT,
+ page_text_sha256 TEXT,
+ start_codepoint INTEGER,
+ end_codepoint INTEGER,
+ quote TEXT,
+ revision INTEGER NOT NULL CHECK(revision >= 1),
+ created_at_utc TEXT NOT NULL,
+ updated_at_utc TEXT NOT NULL,
+ CHECK (
+  (kind = 'note' AND length(body) >= 1 AND page_number IS NULL AND extraction_contract IS NULL
+   AND page_text_sha256 IS NULL AND start_codepoint IS NULL AND end_codepoint IS NULL AND quote IS NULL)
+  OR
+  (kind = 'passage' AND page_number IS NOT NULL AND page_number >= 1 AND extraction_contract IS NOT NULL
+   AND page_text_sha256 IS NOT NULL AND length(page_text_sha256) = 64 AND page_text_sha256 NOT GLOB '*[^0-9a-f]*'
+   AND start_codepoint IS NOT NULL AND end_codepoint IS NOT NULL AND quote IS NOT NULL AND start_codepoint >= 0 AND end_codepoint > start_codepoint
+   AND length(quote) BETWEEN 1 AND 20000 AND end_codepoint - start_codepoint = length(quote))
+ )
+)""",
+    'idx_evidence_project_files_order': """CREATE INDEX idx_evidence_project_files_order ON evidence_project_files(project_id, id)""",
+    'idx_evidence_notes_order': """CREATE INDEX idx_evidence_notes_order ON evidence_notes(project_id, id)""",
+}
+
+
+def _migrate_evidence(conn: sqlite3.Connection) -> None:
+    """Never adopt partial objects, repair their shape, or backfill user data."""
+    current = get_schema_version(conn)
+    conn.execute("SAVEPOINT evidence_v17")
+    try:
+        for name, ddl in _EVIDENCE_DDL.items():
+            row = conn.execute("SELECT type,sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+            if current < 17:
+                if row is not None:
+                    raise sqlite3.DatabaseError("Conflicting schema-17 object: " + name)
+                conn.execute(ddl)
+                row = conn.execute("SELECT type,sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+            expected_type = 'table' if ddl.startswith('CREATE TABLE') else 'index'
+            if (not row or row[0] != expected_type
+                    or " ".join((row[1] or "").split()) != " ".join(ddl.split())):
+                raise sqlite3.DatabaseError("Conflicting schema-17 shape: " + name)
+        # Extra authored indexes/triggers are not part of this schema contract.
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE tbl_name IN "
+                                "('evidence_projects','evidence_project_files','evidence_notes') AND sql IS NOT NULL"):
+            if row[0] not in _EVIDENCE_DDL:
+                raise sqlite3.DatabaseError("Unexpected schema-17 object: " + row[0])
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(app_settings.value AS INTEGER)<17",
+            (_SCHEMA_VERSION_KEY, "17"),
+        )
+        conn.execute("RELEASE evidence_v17")
+    except BaseException:
+        conn.execute("ROLLBACK TO evidence_v17")
+        conn.execute("RELEASE evidence_v17")
         raise
 
 

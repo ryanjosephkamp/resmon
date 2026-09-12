@@ -12,6 +12,7 @@ const routeTitles: Record<string, string> = {
   '/chats': 'Chats',
   '/reading-queue': 'Reading queue',
   '/library': 'Library',
+  '/evidence': 'Evidence',
   '/watchdog': 'Watchdog',
   '/configurations': 'Configurations',
   '/settings': 'Settings',

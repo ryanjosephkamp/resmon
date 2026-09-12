@@ -1,0 +1,17 @@
+import React,{useEffect,useRef,useState} from 'react';
+import {EvidenceFile,Member,Page,Project} from '../../api/evidence';
+import {downloadEvidence} from '../../lib/evidenceDownload';
+export default function BundleDialog({project,files,onNext,onClose}:{project:Project;files:Page<Member>|null;onNext:()=>void;onClose:()=>void}){
+  const [selected,setSelected]=useState<Map<string,EvidenceFile>>(new Map());const [include,setInclude]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');const abort=useRef<AbortController|null>(null);const dialog=useRef<HTMLDivElement>(null);const alive=useRef(true);
+  useEffect(()=>{alive.current=true;dialog.current?.focus();return()=>{alive.current=false;abort.current?.abort();};},[]);
+  const save=async()=>{const controller=new AbortController();abort.current=controller;setBusy(true);setError('');setNotice('');try{const id=await downloadEvidence(project,Array.from(selected.values()),include,controller.signal);if(alive.current)setNotice(`Complete ${include?'retained-file':'metadata-only'} ZIP download requested for ${selected.size} selected files. Bundle ${id}. Destination handling belongs to the desktop download flow.`);}catch(reason){if(alive.current)setError(reason instanceof Error?reason.message:'Bundle refused.');}finally{if(alive.current)setBusy(false);}};
+  return <div ref={dialog} tabIndex={-1} className="evidence-bundle" role="region" aria-label="Selected evidence bundle"><div className="evidence-toolbar"><h2>Export selected evidence</h2><button onClick={()=>{abort.current?.abort();onClose();}}>Close export</button></div>
+    <p>Select 1–20 current file versions. All saved notes for those exact members in this project are included. Notes for removed or unselected members are excluded.</p>
+    {files?.items.map(m=><label className="evidence-bundle-item" key={m.file_id}><input type="checkbox" disabled={busy||(!selected.has(m.file_id)&&selected.size>=20)} checked={selected.has(m.file_id)} onChange={e=>setSelected(prior=>{const next=new Map(prior);if(e.target.checked)next.set(m.file_id,m.file);else next.delete(m.file_id);return next;})}/>{m.file.original_name} · {m.file.byte_size.toLocaleString()} recorded bytes <span className="evidence-identity">{m.version_id}</span></label>)}
+    {files?.has_more&&<button disabled={busy} onClick={onNext}>Next files for selection</button>}
+    <p>{selected.size} selected · {Array.from(selected.values()).reduce((n,f)=>n+f.byte_size,0).toLocaleString()} recorded file bytes. Changing pages retains explicit selections.</p>
+    <label><input type="checkbox" disabled={busy} checked={include} onChange={e=>setInclude(e.target.checked)}/> Include retained files</label>
+    <p>{include?'Retained bytes are reverified before a complete ZIP is offered. Limit: 256 MiB of files. Saved passages are not re-extracted.':'Metadata only (default): retained bytes are not checked or included. Quotations and notes are saved records.'} The ZIP may disclose original names, notes and selected originals. This is a portable selection, not an encrypted backup or restore format.</p>
+    <div className="evidence-toolbar"><button disabled={busy||selected.size===0} onClick={()=>void save()}>Download selected ZIP</button>{busy&&<button onClick={()=>abort.current?.abort()}>Cancel bundle</button>}</div>{error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
+  </div>;
+}

@@ -274,7 +274,7 @@ def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
 
     database.init_db(conn=legacy)
 
-    assert database.get_schema_version(legacy) == 16
+    assert database.get_schema_version(legacy) == 17
     tables = {r[0] for r in legacy.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
     assert "reading_queue" in tables
@@ -283,7 +283,7 @@ def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
     # app_settings is the one table the upgrade is allowed to touch, and only
     # in the schema_version row.
     assert after["app_settings"]["rows"] != before["app_settings"]["rows"]
-    assert (dict(before["app_settings"]["rows"]) | {"schema_version": "16"}
+    assert (dict(before["app_settings"]["rows"]) | {"schema_version": "17"}
             == dict(after["app_settings"]["rows"]))
     for table in POPULATED_TABLES:
         if table == "app_settings":
@@ -321,7 +321,7 @@ def test_upgrading_twice_more_is_a_no_op(legacy):
     database.init_db(conn=legacy)
 
     assert contents(legacy, POPULATED_TABLES + ("reading_queue",)) == settled
-    assert database.get_schema_version(legacy) == 16
+    assert database.get_schema_version(legacy) == 17
 
 
 def test_a_failed_migration_does_not_claim_to_have_succeeded(legacy):
@@ -346,7 +346,7 @@ def test_a_failed_migration_does_not_claim_to_have_succeeded(legacy):
     legacy.commit()
     database.init_db(conn=legacy)
 
-    assert database.get_schema_version(legacy) == 16
+    assert database.get_schema_version(legacy) == 17
     assert reading_queue.counts(legacy) == {"to_read": 0, "read": 0, "all": 0}
 
 
@@ -369,7 +369,7 @@ def test_a_fresh_database_gets_the_same_table_as_an_upgraded_one(tmp_path, legac
         }
 
     assert shape(legacy) == shape(fresh)
-    assert database.get_schema_version(fresh) == 16
+    assert database.get_schema_version(fresh) == 17
     fresh.close()
 
 
@@ -410,20 +410,22 @@ def application_objects(conn: sqlite3.Connection) -> dict:
     }
 
 
-#: What schemas 14, 15 and 16 add. Everything else in a fresh database must already be in
+#: What schemas 14 through 17 add. Everything else in a fresh database must already be in
 #: the schema-13 fixture, or the fixture is not schema 13.
-SCHEMA_14_TO_16_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
+SCHEMA_14_TO_17_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
                             "assistant_session_choices", "assistant_turn_choices",
                             "idx_assistant_turn_choices_assistant_message",
                             "library_vault", "library_files", "library_file_documents",
-                            "idx_library_file_documents_document"}
+                            "idx_library_file_documents_document",
+                            "evidence_projects", "evidence_project_files", "evidence_notes",
+                            "idx_evidence_project_files_order", "idx_evidence_notes_order"}
 
 
 def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):
     """The check reconciliation had to make by hand, now in the suite.
 
     A fresh database built by the current code is the denominator: subtract
-    schemas 14, 15 and 16's own objects and what is left is precisely what an upgrading
+    schemas 14 through 17's own objects and what is left is precisely what an upgrading
     schema-13 corpus must already have. Comparing against that, rather than
     against a list in this file, is what makes a silently dropped trigger fail
     here instead of passing for another phase.
@@ -433,7 +435,7 @@ def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):
     try:
         database.init_db(conn=fresh)
         expected = {name: kind for name, kind in application_objects(fresh).items()
-                    if name not in SCHEMA_14_TO_16_OBJECTS}
+                    if name not in SCHEMA_14_TO_17_OBJECTS}
     finally:
         fresh.close()
 
@@ -493,6 +495,6 @@ def test_the_settings_a_user_had_survive_the_upgrade(legacy):
     before = dict(legacy.execute("SELECT key, value FROM app_settings"))
     database.init_db(conn=legacy)
     after = dict(legacy.execute("SELECT key, value FROM app_settings"))
-    assert after.pop("schema_version") == "16"
+    assert after.pop("schema_version") == "17"
     assert before.pop("schema_version") == "13"
     assert after == before

@@ -27,7 +27,7 @@ const DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       "Removes every saved BYOK LLM-provider key (OpenAI, Anthropic, Google, xAI, Meta, DeepSeek, Alibaba, Custom) from this device's OS keyring.",
     longWarning:
-      "Every saved AI provider API key on this device will be deleted from the OS keyring. AI summarization will fall back to whichever provider has no key saved (typically 'local'). You will need to re-enter keys in Settings → AI to use hosted LLM providers again. Library catalog, retained files and paper associations remain.",
+      "Every saved AI provider API key on this device will be deleted from the OS keyring. AI summarization will fall back to whichever provider has no key saved (typically 'local'). You will need to re-enter keys in Settings → AI to use hosted LLM providers again. Library catalog, retained files, paper associations, Evidence projects and saved notes remain.",
     needsTyping: false,
   },
   {
@@ -37,7 +37,7 @@ const DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       "Removes every saved research-repository API key from this device's OS keyring.",
     longWarning:
-      'Every saved research-repository API key on this device will be deleted from the OS keyring. Key-gated repositories will report missing credentials until you re-enter their keys on the Repositories & API Keys page. Library catalog, retained files and paper associations remain.',
+      'Every saved research-repository API key on this device will be deleted from the OS keyring. Key-gated repositories will report missing credentials until you re-enter their keys on the Repositories & API Keys page. Library catalog, retained files, paper associations, Evidence projects and saved notes remain.',
     needsTyping: false,
   },
   {
@@ -47,7 +47,7 @@ const DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       'Deletes every saved configuration (manual dive, manual sweep, and routine) along with any routine linked to a routine config.',
     longWarning:
-      'This will permanently delete every row on the Configurations page (manual dive presets, manual sweep presets, and routine configs). Any scheduled routine linked to a routine config is also deleted, so its future scheduled fires stop firing. Already-completed executions are kept, but they lose the link badge that pointed back to the deleted config. Library catalog, retained files and paper associations remain.',
+      'This will permanently delete every row on the Configurations page (manual dive presets, manual sweep presets, and routine configs). Any scheduled routine linked to a routine config is also deleted, so its future scheduled fires stop firing. Already-completed executions are kept, but they lose the link badge that pointed back to the deleted config. Library catalog, retained files, paper associations, Evidence projects and saved notes remain.',
     needsTyping: true,
   },
   {
@@ -57,7 +57,7 @@ const DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       'Deletes every execution row (manual dives, manual sweeps, routine fires) and resets the default "Execution #N" counter back to 1. The papers themselves are kept.',
     longWarning:
-      "This will permanently delete every execution on the Results & Logs page — local manual dives, local manual sweeps, and local routine fires — and reset the auto-incremented execution number so the next run is named 'Execution #1'. Reports and logs on disk for those executions are no longer reachable from the app. Your collected papers are NOT deleted — they stay in the Explorer. Use 'Erase the paper corpus' for those. Library catalog, retained files and paper associations remain.",
+      "This will permanently delete every execution on the Results & Logs page — local manual dives, local manual sweeps, and local routine fires — and reset the auto-incremented execution number so the next run is named 'Execution #1'. Reports and logs on disk for those executions are no longer reachable from the app. Your collected papers are NOT deleted — they stay in the Explorer. Use 'Erase the paper corpus' for those. Library catalog, retained files, paper associations, Evidence projects and saved notes remain.",
     needsTyping: true,
   },
   {
@@ -67,7 +67,7 @@ const DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       'Deletes every paper resmon has collected — the whole Explorer corpus — along with its retraction and lifecycle records. Executions, configs, settings and API keys are kept.',
     longWarning:
-      'This will permanently delete every paper in your local corpus: everything the Explorer searches, everything Analytics measures, and every retraction or lifecycle notice recorded against them. Execution rows survive but will show no papers. Nothing here is recoverable from within resmon — re-running your searches would re-collect current results, but papers that have since been removed upstream would not come back, and every "first seen" date restarts. Library catalog and retained files remain; associations to deleted corpus papers are removed.',
+      'This will permanently delete every paper in your local corpus: everything the Explorer searches, everything Analytics measures, and every retraction or lifecycle notice recorded against them. Execution rows survive but will show no papers. Nothing here is recoverable from within resmon — re-running your searches would re-collect current results, but papers that have since been removed upstream would not come back, and every "first seen" date restarts. Library catalog, retained files, Evidence projects and saved notes remain; associations to deleted corpus papers are removed.',
     needsTyping: true,
   },
   {
@@ -77,7 +77,7 @@ const DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       'Combines "Erase all configs" and "Erase execution history". API keys, settings, and your collected papers are untouched.',
     longWarning:
-      'This will permanently delete every saved configuration AND every execution row, and reset the execution-number counter. API keys and Settings tabs are not affected, and your collected papers are kept. Library catalog, retained files and paper associations remain.',
+      'This will permanently delete every saved configuration AND every execution row, and reset the execution-number counter. API keys and Settings tabs are not affected, and your collected papers are kept. Library catalog, retained files, paper associations, Evidence projects and saved notes remain.',
     needsTyping: true,
   },
   {
@@ -87,7 +87,7 @@ const DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       'Combines "Erase all AI API keys", "Erase all repo API keys", "Erase all execution data", and "Erase the paper corpus". Settings (other than the AI tab, which depends on AI keys) are kept.',
     longWarning:
-      'This will permanently delete every API key (AI + repo), every saved configuration, every execution, AND every paper resmon has collected. Routines linked to routine configs are deleted too. Non-AI settings (Email, Storage, Notifications, Advanced) are kept; the AI tab will revert to the no-keys state. Before 1.7.0 this action left the entire corpus in place despite its name; it no longer does. Library catalog and retained files remain; associations to deleted corpus papers are removed.',
+      'This will permanently delete every API key (AI + repo), every saved configuration, every execution, AND every paper resmon has collected. Routines linked to routine configs are deleted too. Non-AI settings (Email, Storage, Notifications, Advanced) are kept; the AI tab will revert to the no-keys state. Before 1.7.0 this action left the entire corpus in place despite its name; it no longer does. Library catalog, retained files, Evidence projects and saved notes remain; associations to deleted corpus papers are removed.',
     needsTyping: true,
   },
   {
@@ -97,7 +97,7 @@ const DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       'Resets every settings tab to defaults and erases every API key (both AI and research-repository keys plus the SMTP password). Configs and execution history are kept.',
     longWarning:
-      'This will reset every Settings tab (Email, Cloud Storage, AI, Storage, Notifications, Advanced) to defaults, erase every saved API key (AI + research-repository + SMTP password). Saved configurations and execution history are kept. Library catalog, retained files and paper associations remain.',
+      'This will reset every Settings tab (Email, Cloud Storage, AI, Storage, Notifications, Advanced) to defaults, erase every saved API key (AI + research-repository + SMTP password). Saved configurations and execution history are kept. Library catalog, retained files, paper associations, Evidence projects and saved notes remain.',
     needsTyping: true,
   },
   {
@@ -105,9 +105,9 @@ const DANGER_ACTIONS: DangerAction[] = [
     label: 'Factory reset',
     endpoint: '/api/admin/factory-reset',
     shortDescription:
-      'Erases every API key, every configuration, every execution, every collected paper, and every setting on this device. Library catalog and retained files remain.',
+      'Erases every API key, every configuration, every execution, every collected paper, and every setting on this device. Library catalog, retained files, Evidence projects and saved notes remain.',
     longWarning:
-      "This will permanently erase the following resmon data on this device: every API key, every saved configuration, every execution row, every paper in your corpus, and every setting on every Settings tab. Library catalog and retained files remain. This cannot be undone. Before 1.7.0 this left the entire corpus in place — a factory reset that was not one; Library retention is a deliberate exception. Associations to deleted corpus papers are removed.",
+      "This will permanently erase the following resmon data on this device: every API key, every saved configuration, every execution row, every paper in your corpus, and every setting on every Settings tab. Library catalog, retained files, Evidence projects and saved notes remain. This cannot be undone. Before 1.7.0 this left the entire corpus in place — a factory reset that was not one; Library retention is a deliberate exception. Associations to deleted corpus papers are removed.",
     needsTyping: true,
   },
 ];
