@@ -3,6 +3,7 @@ import {act,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import EvidenceReader,{resolveSaved,selectionAnchor} from '../components/Evidence/EvidenceReader';
 import {evidenceApi,EvidenceFile,Project,SavedNote,TextPage,validateText} from '../api/evidence';
 import {webcrypto,createHash} from 'crypto';
+import {Buffer} from 'buffer';
 import {TextEncoder} from 'util';
 jest.mock('../components/Evidence/PdfPage',()=>()=>null);
 const id=(n:number)=>`${n.toString().padStart(8,'0')}-1111-4111-8111-111111111111`;
@@ -10,7 +11,13 @@ const file:EvidenceFile={file_id:id(1),version_id:id(2),vault_id:id(3),sha256:'a
 const project={project_id:id(4),vault_id:file.vault_id,revision:1} as Project;
 const text='😀 é first needle\nsecond needle <script>never()</script>';
 const basis:TextPage={contract_version:1,vault_id:file.vault_id,project_id:project.project_id,file_id:file.file_id,version_id:file.version_id,sha256:file.sha256,media_type:file.media_type,status:'extracted',page_number:1,page_count:1,text,extraction_contract:'library-text-lf/v1',page_text_sha256:createHash('sha256').update(text).digest('hex'),examined_pages:[1],remaining_pages:'not_examined',coverage:'No OCR'};
-beforeAll(()=>{Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true});Object.defineProperty(globalThis,'TextEncoder',{value:TextEncoder,configurable:true});});
+beforeAll(()=>{
+ // Node20's Web Crypto rejects jsdom-realm ArrayBuffers. Cross the test-only
+ // realm boundary with an exact byte copy, then use the real native digest.
+ const digest=(algorithm:string,data:ArrayBuffer)=>webcrypto.subtle.digest(algorithm,Buffer.from(new Uint8Array(data)));
+ Object.defineProperty(globalThis,'crypto',{value:{subtle:{digest}},configurable:true});
+ Object.defineProperty(globalThis,'TextEncoder',{value:TextEncoder,configurable:true});
+});
 afterEach(()=>jest.restoreAllMocks());
 it('selects the second repeated quote by Unicode codepoints without normalizing combining text',()=>{
  const start=text.lastIndexOf('needle');const anchor=selectionAnchor(basis,start,start+6)!;
