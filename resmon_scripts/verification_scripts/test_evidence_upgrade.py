@@ -379,7 +379,9 @@ def test_failed_migration_preserves_marker16_and_every_preexisting_object(
         with pytest.raises(sqlite3.DatabaseError):
             db.init_db(conn=conn)
     finally:
-        conn.set_authorizer(None)
+        # Python 3.10 cannot disable the callback with None. Restore ordinary
+        # access after the injected DDL failure so preservation reads can run.
+        conn.set_authorizer(lambda *_: sqlite3.SQLITE_OK)
     assert db.get_schema_version(conn) == 16
     assert (contents(conn), objects(conn), file_census(legacy.roots)) == before
     if blocker in ("late_index", "late_authorizer"):
