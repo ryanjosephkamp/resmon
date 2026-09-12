@@ -623,7 +623,7 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # one membership row per saved paper, additive, with nothing backfilled --
 # resmon never observed which papers a user meant to read before the queue
 # existed, so an upgraded database starts empty and says so.
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -696,6 +696,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_author_identity(conn)
     _migrate_schema_version(conn)
     _migrate_assistant_choices(conn)
+    _migrate_library(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
     # invisible to every other -- an in-memory database shared through
@@ -1273,6 +1274,61 @@ def _migrate_assistant_choices(conn: sqlite3.Connection) -> None:
     except Exception:
         conn.execute("ROLLBACK TO assistant_choices_v15")
         conn.execute("RELEASE assistant_choices_v15")
+        raise
+
+
+
+# Schema 16 adds owned Library metadata only; initialization never creates a vault.
+_LIBRARY_DDL = {
+    'library_vault': """CREATE TABLE library_vault (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    vault_id TEXT NOT NULL UNIQUE,
+    root_path TEXT NOT NULL,
+    created_at_utc TEXT NOT NULL
+)""",
+    'library_files': """CREATE TABLE library_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id TEXT NOT NULL UNIQUE,
+    version_id TEXT NOT NULL UNIQUE,
+    vault_id TEXT NOT NULL REFERENCES library_vault(vault_id) ON DELETE RESTRICT,
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+    byte_size INTEGER NOT NULL CHECK (byte_size > 0 AND byte_size <= 67108864),
+    media_type TEXT NOT NULL CHECK (media_type IN ('application/pdf', 'text/plain', 'text/markdown')),
+    original_name TEXT NOT NULL,
+    relative_path TEXT NOT NULL UNIQUE,
+    created_at_utc TEXT NOT NULL,
+    UNIQUE(vault_id, sha256)
+)""",
+    'library_file_documents': """CREATE TABLE library_file_documents (
+    file_id TEXT NOT NULL REFERENCES library_files(file_id) ON DELETE RESTRICT,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    linked_at_utc TEXT NOT NULL,
+    PRIMARY KEY (file_id, document_id)
+)""",
+    'idx_library_file_documents_document': """CREATE INDEX idx_library_file_documents_document ON library_file_documents(document_id)""",
+}
+
+
+def _migrate_library(conn: sqlite3.Connection) -> None:
+    """Validate all four approved objects before advancing the durable marker."""
+    conn.execute("SAVEPOINT library_v16")
+    try:
+        for name, ddl in _LIBRARY_DDL.items():
+            row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+            if row is None:
+                conn.execute(ddl)
+            row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+            if not row or " ".join((row[0] or "").split()) != " ".join(ddl.split()):
+                raise sqlite3.DatabaseError("Conflicting schema-16 object: " + name)
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(app_settings.value AS INTEGER)<16",
+            (_SCHEMA_VERSION_KEY, "16"),
+        )
+        conn.execute("RELEASE library_v16")
+    except Exception:
+        conn.execute("ROLLBACK TO library_v16")
+        conn.execute("RELEASE library_v16")
         raise
 
 

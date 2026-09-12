@@ -43,10 +43,10 @@ should not be described as if it had been.
 All five must pass:
 
 ```bash
-.venv/bin/python -m pytest -q                    # hermetic backend suite — 1891 pass, 2 skip, 108 deselected
+.venv/bin/python -m pytest -q                    # hermetic backend suite — 2051 pass, 2 skip, 108 deselected
 .venv/bin/python -m pytest -m live_network -q    # real APIs; CI runs the half that needs no CLI, weekly
 cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
-npm run e2e                                      # 97 checks, 27 routes; assistant-readability.spec.ts includes the local model-double journey
+npm run e2e                                      # 99 checks, 28 routes; assistant-readability.spec.ts includes the local model-double journey
 ```
 
 `npm run e2e:review` runs the same suite on your own display — which is the only
@@ -144,3 +144,5 @@ The saved-conversation read/export API is documented in
 [`docs/api-contract/assistant-conversations.md`](docs/api-contract/assistant-conversations.md).
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
+
+Library storage, schema 16 and bounded TXT/MD reading: `docs/api-contract/library.md`; real disposable journey: `resmon_scripts/frontend/e2e/library.spec.ts`. Library-specific backend tests are `test_library.py`, `test_library_upgrade.py`, `test_library_boundary.py` and `test_library_text.py`. Native picker/opener results and download destinations are scripted in the Electron journey; report actual pass/skip counts separately.

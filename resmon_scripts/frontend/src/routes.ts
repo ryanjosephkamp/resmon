@@ -50,6 +50,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
   { path: '/results', name: 'Results' },
   { path: '/chats', name: 'Chats' },
   { path: '/reading-queue', name: 'Reading queue' },
+  { path: '/library', name: 'Library' },
   { path: '/analytics', name: 'Analytics' },
   { path: '/watchdog', name: 'Watchdog' },
   { path: '/explorer', name: 'Explorer' },

@@ -20,6 +20,7 @@ import CalendarPage from './pages/CalendarPage';
 import ResultsPage from './pages/ResultsPage';
 import ChatsPage from './pages/ChatsPage';
 import ReadingQueuePage from './pages/ReadingQueuePage';
+import LibraryPage from './pages/LibraryPage';
 import ConfigurationsPage from './pages/ConfigurationsPage';
 import MonitorPage from './pages/MonitorPage';
 import RepositoriesPage from './pages/RepositoriesPage';
@@ -74,6 +75,7 @@ export const PAGE_ELEMENTS: Record<string, React.ReactElement> = {
   '/results': <ResultsPage />,
   '/chats': <ChatsPage />,
   '/reading-queue': <ReadingQueuePage />,
+  '/library': <LibraryPage />,
   '/analytics': <AnalyticsPage />,
   '/watchdog': <WatchdogPage />,
   '/explorer': <ExplorerPage />,

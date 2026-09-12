@@ -22,7 +22,7 @@ import httpx
 # Ensure the implementation_scripts package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
@@ -30,7 +30,7 @@ from starlette.responses import Response, StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field
 
-from implementation_scripts import runtime_identity
+from implementation_scripts import runtime_identity, library, library_export, library_text
 from implementation_scripts.config import (
     APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
 )
@@ -2335,6 +2335,174 @@ def remove_from_reading_queue(document_id: int):
 
 
 # ---------------------------------------------------------------------------
+# Owned Library: nine domain routes, no assistant tool or global auth change.
+# Guard before body parsing, even for simple cross-origin form requests.
+# ---------------------------------------------------------------------------
+
+class LibraryOriginGuard:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        import re
+        from urllib.parse import urlsplit
+        path = scope.get("path", "")
+        if scope.get("type") == "http" and re.fullmatch(r"/api/library/files/[^/]+/text", path):
+            original_send = send
+
+            async def text_send(message):
+                if message["type"] == "http.response.start":
+                    message = {**message, "headers": [
+                        (k, v) for k, v in message.get("headers", [])
+                        if k.lower() != b"cache-control"
+                    ] + [(b"cache-control", b"no-store")]}
+                await original_send(message)
+
+            send = text_send
+        protected = scope.get("type") == "http" and scope.get("method") != "OPTIONS" and (
+            path in ("/api/library", "/api/library/vault", "/api/library/files", "/api/library/export")
+            or re.fullmatch(r"/api/library/files/[^/]+(?:/(?:paper-links|open|text))?", path)
+        )
+        if protected:
+            headers = scope.get("headers", [])
+            origins = [v.decode("latin1") for k, v in headers if k.lower() == b"origin"]
+            custom = [v for k, v in headers if k.lower() == b"x-resmon-library"]
+            valid = False
+            if len(origins) == 1 and custom == [b"1"]:
+                try:
+                    origin = urlsplit(origins[0])
+                    port = origin.port
+                    valid = (origin.scheme == "http" and origin.hostname == "127.0.0.1"
+                             and port is not None and 1 <= port <= 65535
+                             and origins[0] == f"http://127.0.0.1:{port}")
+                except ValueError:
+                    pass
+            if not valid:
+                from starlette.responses import JSONResponse
+                await JSONResponse({"detail": {"reason": "origin_refused", "message": "Library requires the loopback renderer Origin and X-Resmon-Library header."}}, status_code=403)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(LibraryOriginGuard)
+
+
+class LibraryVaultBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    parent_directory: str = Field(min_length=1, max_length=4096)
+
+
+class LibraryLinkBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected_vault_id: str
+    document_id: int = Field(gt=0)
+
+
+class LibraryOpenBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected_vault_id: str
+    expected_version_id: str
+
+
+def _library_query(request: Request, allowed: tuple[str, ...]) -> None:
+    keys = list(request.query_params.keys())
+    if any(k not in allowed or len(request.query_params.getlist(k)) != 1 for k in keys):
+        raise HTTPException(400, {"reason": "unknown_fields", "message": "Unknown or repeated Library fields."})
+
+
+@contextmanager
+def _library_connection():
+    # An import awaits streamed chunks. It must own a separate connection so
+    # another request on the event-loop thread cannot share its transaction.
+    initialized = _get_db()
+    db_path = initialized.execute("PRAGMA database_list").fetchone()[2]
+    conn = get_connection(db_path)
+    try:
+        yield conn
+    except library.LibraryError as exc:
+        raise HTTPException(exc.status, {"reason": exc.reason, "message": str(exc)}) from None
+    except (OSError, sqlite3.Error):
+        # Avoid leaking a private absolute root from an OS/SQLite exception.
+        raise HTTPException(409, {"reason": "storage_unavailable", "message": "Library storage is unavailable or blocked. No automatic recovery was attempted."}) from None
+    finally:
+        conn.close()
+
+
+@app.get("/api/library")
+def library_status(request: Request):
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library.status(conn)
+
+
+@app.post("/api/library/vault", status_code=201)
+def library_create_vault(request: Request, body: LibraryVaultBody):
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library.create_vault(conn, body.parent_directory)
+
+
+@app.get("/api/library/files")
+def library_list(request: Request, expected_vault_id: str, q: str = "",
+                 through_id: int | None = None, before_id: int | None = None, limit: int = 50):
+    _library_query(request, ("expected_vault_id", "q", "through_id", "before_id", "limit"))
+    with _library_connection() as conn:
+        return library.list_files(conn, expected_vault_id, q, through_id, before_id, limit)
+
+
+@app.post("/api/library/files")
+async def library_import(request: Request, response: Response, expected_vault_id: str,
+                         filename: str, document_id: int | None = None):
+    _library_query(request, ("expected_vault_id", "filename", "document_id"))
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/octet-stream":
+        raise HTTPException(415, {"reason": "invalid_body", "message": "Send selected raw file bytes, not a source path or multipart form."})
+    with _library_connection() as conn:
+        with library.Import(conn, expected_vault_id, filename, document_id) as upload:
+            async for chunk in request.stream():
+                upload.write(chunk)
+            result = upload.finish()
+        response.status_code = 201 if result["created"] else 200
+        return result
+
+
+@app.get("/api/library/files/{file_id}")
+def library_detail(request: Request, file_id: str, expected_vault_id: str):
+    _library_query(request, ("expected_vault_id",))
+    with _library_connection() as conn:
+        return library.detail(conn, expected_vault_id, file_id)
+
+
+@app.post("/api/library/files/{file_id}/paper-links")
+def library_link(request: Request, file_id: str, body: LibraryLinkBody):
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library.add_link(conn, body.expected_vault_id, file_id, body.document_id)
+
+
+@app.post("/api/library/files/{file_id}/open")
+def library_open(request: Request, file_id: str, body: LibraryOpenBody):
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library.open_request(conn, body.expected_vault_id, file_id, body.expected_version_id)
+
+
+@app.get("/api/library/export")
+def library_inventory(request: Request, expected_vault_id: str, format: str = "json"):
+    _library_query(request, ("expected_vault_id", "format"))
+    with _library_connection() as conn:
+        return library_export.export_inventory(conn, expected_vault_id, format)
+
+
+@app.get("/api/library/files/{file_id}/text")
+def library_read_text(request: Request, response: Response, file_id: str,
+                      expected_vault_id: str, expected_version_id: str):
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    response.headers["Cache-Control"] = "no-store"
+    with _library_connection() as conn:
+        return library_text.read_text(conn, expected_vault_id, file_id, expected_version_id)
+
+
+# ---------------------------------------------------------------------------
 # Explorer (Phase 2b)
 # ---------------------------------------------------------------------------
 
@@ -4600,7 +4768,7 @@ def _erase_executions(conn) -> int:
 
 
 def _erase_corpus(conn) -> int:
-    """Delete every paper resmon has collected.
+    """Delete every collected paper and its Library associations, retaining Library files/catalog.
 
     Until 1.7.0 nothing in the Danger Zone did this. "Erase all app data" and
     even "Factory reset" removed executions, configurations and keys while
@@ -4626,7 +4794,7 @@ def _erase_corpus(conn) -> int:
 
 
 def _reset_settings(conn) -> int:
-    """Clear every row in app_settings except the schema-version marker."""
+    """Clear settings except the schema marker; Library catalog and files remain."""
     # Preserve only the schema-version marker so the next daemon start
     # doesn't re-run migrations.
     count = conn.execute(
