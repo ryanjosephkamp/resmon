@@ -26,7 +26,9 @@ def http_selected(tmp_path):
 import uvicorn,resmon
 s=socket.socket();s.bind(('127.0.0.1',0));s.listen(128);port=s.getsockname()[1];assert port!=8742
 resmon.serving_port=lambda:port
-json.dump({'pid':os.getpid(),'port':port,'source':os.getcwd(),'state':os.environ['RESMON_STATE_DIR'],'database':os.environ['RESMON_DB_PATH'],'start':datetime.datetime.now(datetime.timezone.utc).isoformat()},open(sys.argv[1],'w'))
+record={'pid':os.getpid(),'port':port,'source':os.getcwd(),'state':os.environ['RESMON_STATE_DIR'],'database':os.environ['RESMON_DB_PATH'],'start':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+with open(sys.argv[1]+'.pending','w') as receipt:json.dump(record,receipt)
+os.replace(sys.argv[1]+'.pending',sys.argv[1])
 uvicorn.Server(uvicorn.Config(resmon.app,log_level='error')).run(sockets=[s])
 '''
     with log.open('w') as output:
