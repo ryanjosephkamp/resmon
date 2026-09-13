@@ -295,8 +295,8 @@ def test_schema_13_is_the_version_and_its_columns_exist(conn):
     # 16 since Library; 13's columns are still what this file is
     # about, and they are asserted directly below rather than through the
     # version number.
-    assert database.SCHEMA_VERSION == 17
-    assert database.get_schema_version(conn) == 17
+    assert database.SCHEMA_VERSION == 18
+    assert database.get_schema_version(conn) == 18
     columns = {row[1] for row in conn.execute("PRAGMA table_info(document_authors)")}
     assert {"orcid", "affiliation", "source_author_id"} <= columns
 
@@ -328,9 +328,9 @@ def test_an_upgraded_database_gains_the_columns_and_backfills_nothing():
     old.execute("DROP INDEX IF EXISTS idx_document_authors_orcid")
     for column in ("orcid", "affiliation", "source_author_id"):
         old.execute(f"ALTER TABLE document_authors DROP COLUMN {column}")
-    # Schema-17 objects cannot predate this synthetic marker. Drop only the
-    # three empty Evidence tables; their two explicit indexes leave with them.
-    for table in ('evidence_notes', 'evidence_project_files', 'evidence_projects'):
+    # Schema-17/18 objects cannot predate this synthetic marker. Drop only
+    # the four empty Evidence tables; their explicit indexes leave with them.
+    for table in ('evidence_answers', 'evidence_notes', 'evidence_project_files', 'evidence_projects'):
         assert old.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0] == 0
         old.execute(f'DROP TABLE {table}')
     old.execute("UPDATE app_settings SET value = '12' WHERE key = 'schema_version'")

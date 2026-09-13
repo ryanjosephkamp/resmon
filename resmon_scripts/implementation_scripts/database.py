@@ -623,7 +623,7 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # one membership row per saved paper, additive, with nothing backfilled --
 # resmon never observed which papers a user meant to read before the queue
 # existed, so an upgraded database starts empty and says so.
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -698,6 +698,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_assistant_choices(conn)
     _migrate_library(conn)
     _migrate_evidence(conn)
+    _migrate_selected_evidence(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
     # invisible to every other -- an in-memory database shared through
@@ -1415,6 +1416,40 @@ def _migrate_evidence(conn: sqlite3.Connection) -> None:
     except BaseException:
         conn.execute("ROLLBACK TO evidence_v17")
         conn.execute("RELEASE evidence_v17")
+        raise
+
+
+
+# Schema 18: immutable selected-answer snapshots; no old data is adopted.
+_SELECTED_EVIDENCE_DDL = {'evidence_answers': "CREATE TABLE evidence_answers (\n id INTEGER PRIMARY KEY AUTOINCREMENT,\n answer_id TEXT NOT NULL UNIQUE,\n preview_id TEXT NOT NULL UNIQUE,\n vault_id TEXT NOT NULL REFERENCES library_vault(vault_id) ON DELETE RESTRICT,\n project_id TEXT NOT NULL REFERENCES evidence_projects(project_id) ON DELETE RESTRICT,\n project_revision INTEGER NOT NULL CHECK(project_revision >= 1),\n mode TEXT NOT NULL CHECK(mode IN ('question', 'briefing')),\n state TEXT NOT NULL CHECK(state IN ('admitted', 'running', 'succeeded', 'refused', 'failed', 'cancelled', 'interrupted')),\n request_json TEXT NOT NULL CHECK(length(CAST(request_json AS BLOB)) <= 262144),\n request_sha256 TEXT NOT NULL CHECK(length(request_sha256) = 64 AND request_sha256 NOT GLOB '*[^0-9a-f]*'),\n private_binding_json TEXT NOT NULL CHECK(length(CAST(private_binding_json AS BLOB)) <= 4096),\n private_native_session_id TEXT,\n owner_runtime_id TEXT NOT NULL,\n partial_text TEXT NOT NULL DEFAULT '' CHECK(length(CAST(partial_text AS BLOB)) <= 65536),\n result_json TEXT CHECK(result_json IS NULL OR length(CAST(result_json AS BLOB)) <= 65536),\n reports_json TEXT NOT NULL DEFAULT '[]' CHECK(length(CAST(reports_json AS BLOB)) <= 16384),\n usage_json TEXT CHECK(usage_json IS NULL OR length(CAST(usage_json AS BLOB)) <= 4096),\n error_code TEXT CHECK(error_code IS NULL OR length(error_code) <= 80),\n error_message TEXT CHECK(error_message IS NULL OR length(error_message) <= 1000),\n cleanup_state TEXT NOT NULL CHECK(cleanup_state IN ('not_started', 'pending', 'confirmed', 'unknown')),\n created_at_utc TEXT NOT NULL,\n started_at_utc TEXT,\n finished_at_utc TEXT,\n CHECK((state IN ('admitted','running') AND finished_at_utc IS NULL)\n       OR (state IN ('succeeded','refused','failed','cancelled','interrupted') AND finished_at_utc IS NOT NULL)),\n CHECK(result_json IS NULL OR state IN ('succeeded','refused'))\n)", 'idx_evidence_answers_project_order': 'CREATE INDEX idx_evidence_answers_project_order ON evidence_answers(project_id, id)'}
+
+def _migrate_selected_evidence(conn: sqlite3.Connection) -> None:
+    current = get_schema_version(conn)
+    conn.execute("SAVEPOINT selected_evidence_v18")
+    try:
+        for name, ddl in _SELECTED_EVIDENCE_DDL.items():
+            row = conn.execute("SELECT type,sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+            if current < 18:
+                if row is not None:
+                    raise sqlite3.DatabaseError("Conflicting schema-18 object: " + name)
+                conn.execute(ddl)
+                row = conn.execute("SELECT type,sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+            expected_type = 'table' if ddl.startswith('CREATE TABLE') else 'index'
+            if (not row or row[0] != expected_type
+                    or " ".join((row[1] or "").split()) != " ".join(ddl.split())):
+                raise sqlite3.DatabaseError("Conflicting schema-18 shape: " + name)
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE tbl_name='evidence_answers' AND sql IS NOT NULL"):
+            if row[0] not in _SELECTED_EVIDENCE_DDL:
+                raise sqlite3.DatabaseError("Unexpected schema-18 object: " + row[0])
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(app_settings.value AS INTEGER)<18",
+            (_SCHEMA_VERSION_KEY, "18"),
+        )
+        conn.execute("RELEASE selected_evidence_v18")
+    except BaseException:
+        conn.execute("ROLLBACK TO selected_evidence_v18")
+        conn.execute("RELEASE selected_evidence_v18")
         raise
 
 

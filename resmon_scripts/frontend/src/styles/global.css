@@ -4959,3 +4959,19 @@ li.basis-name-affiliation .basis-chip {
 .evidence-page blockquote { margin: .5rem 0; padding-left: .8rem; border-left: 3px solid var(--color-accent-hover); }
 .evidence-page [role="alert"] { overflow-wrap: anywhere; }
 @media (max-width: 1250px) { .evidence-workspace { grid-template-columns: 1fr; } }
+
+/* Selected answers reuse the Evidence surfaces and existing palette. */
+.selected-panel { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--color-border); }
+.selected-dialog { position: fixed; inset: 3vh max(1rem, calc((100vw - 960px) / 2)); z-index: 10001; overflow: auto; padding: 1.25rem; background: var(--color-bg); color: var(--color-text); border: 2px solid var(--color-border); border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,.3); }
+.selected-dialog fieldset, .selected-preview, .selected-answer { margin: 1rem 0; padding: 1rem; border: 1px solid var(--color-border); border-radius: 6px; }
+.selected-dialog label { display: block; margin: .65rem 0; }
+.selected-dialog textarea { display: block; width: 100%; box-sizing: border-box; }
+.selected-dialog pre, .selected-answer pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
+.selected-file, .selected-note { padding: .65rem 0; border-bottom: 1px solid var(--color-border); }
+.selected-file small, .selected-note small { display: block; overflow-wrap: anywhere; }
+.selected-dialog input[type="number"] { width: 6rem; margin: 0 .5rem; }
+.selected-dialog button, .selected-answer button { margin: .35rem .35rem .35rem 0; }
+.selected-answer-item { margin: 1rem 0; padding-bottom: .75rem; border-bottom: 1px solid var(--color-border); }
+.selected-limits { padding: .75rem; border-left: 3px solid var(--color-text-muted); }
+.selected-history .evidence-item { width: 100%; text-align: left; margin: .4rem 0; }
+@media (max-width: 640px) { .selected-dialog { inset: .5rem; padding: .75rem; } }

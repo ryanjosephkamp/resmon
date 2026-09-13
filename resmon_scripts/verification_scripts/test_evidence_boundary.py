@@ -115,7 +115,7 @@ def _reader_query(ctx, **changes):
             'page': '1', 'representation': 'text', **changes}
 
 
-def test_exact_twelve_evidence_route_inventory():
+def test_exact_nineteen_evidence_route_inventory():
     tree = ast.parse((_source_root() / 'resmon_scripts' / 'resmon.py').read_text())
     actual = set()
     decorators = 0
@@ -130,9 +130,19 @@ def test_exact_twelve_evidence_route_inventory():
                     and deco.args[0].value.startswith('/api/evidence/')):
                 decorators += 1
                 actual.add((deco.func.attr.upper(), deco.args[0].value))
-    assert decorators == 12 and actual == ROUTES
-    # The complete 158 HTTP decorator census belongs to final source comparison;
-    # this asserts this phase's 12 routes, including absence of a deletion API.
+    selected_answer_routes = {
+        ('GET', '/api/evidence/projects/{project_id}/answers'),
+        ('GET', '/api/evidence/projects/{project_id}/answers/{answer_id}'),
+        ('GET', '/api/evidence/projects/{project_id}/answers/{answer_id}/events'),
+        ('GET', '/api/evidence/projects/{project_id}/answers/{answer_id}/export'),
+        ('POST', '/api/evidence/projects/{project_id}/answer-previews'),
+        ('POST', '/api/evidence/projects/{project_id}/answers'),
+        ('POST', '/api/evidence/projects/{project_id}/answers/{answer_id}/cancel'),
+    }
+    assert decorators == 19 and actual == ROUTES | selected_answer_routes
+    # The complete 165 HTTP decorator census belongs to final source comparison;
+    # this pins the original 12 routes plus exactly seven selected-answer routes.
+    # ROUTES still scopes the original guard/effect tests; no answer deletion API.
 
 
 @pytest.mark.parametrize('headers', [

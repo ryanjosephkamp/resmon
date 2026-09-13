@@ -439,6 +439,9 @@ const sections: TutorialSection[] = [
       'Save a passage with an optional body or create a plain note. Edit changes the body only; reopen resolves the saved exact version, hash, page and codepoint range.',
       'Remove from collection preserves notes, original files, managed copies and provenance. Re-add the same identity to reconnect saved records.',
       'Export selected evidence: choose 1–20 current members, review names/notes, and decide whether to include retained bytes. Metadata-only is the default.',
+      'New selected-evidence answer: explicitly add file pages or the current reader passage, select optional note bodies individually, and enter a question or manual briefing instruction.',
+      'Preview selected content shows exact excerpts, notes, page coverage, requested connection/model/effort, and application system/user payloads. Close without sending, or Send once to create a new saved answer. Earlier answers and Ask history are excluded.',
+      'Open a citation to see its frozen excerpt; the current reader checks the exact version, hash and codepoint range. Open saved answers after restart or export one answer and its selected text as a ZIP.',
     ],
     features: [
       'PDF: 16 MiB, 200 pages, one requested page and a 20-second limit. No OCR; encrypted, unsupported, malformed, image-only and over-limit pages remain explicit.',
@@ -448,7 +451,9 @@ const sections: TutorialSection[] = [
     tips: [
       'Conflict responses keep your unsaved text. Refresh the project and explicitly retry; no lost-update retry is automatic.',
       'The selected ZIP is a portable handoff, not encrypted backup or restore. File mode rehashes included bytes but does not re-extract quotations.',
-      'Existing Library platform requirements apply. No assistant tool, model call, AI briefing, automatic source download or background extraction is added.',
+      'Selected answers use the existing CLI or supported API connection with tools off. Stop requests cancellation; remote completion, retention and billing may remain unknown. A saved answer with unresolved local cleanup blocks another Send.',
+      'Select at most 5 files, 12 pages, 24 segments and 8 notes; source text is limited to 48 KiB and 24,000 codepoints. Matched citations establish selected-text identity only: support, scientific quality and truth remain unchecked.',
+      'Existing Library platform requirements apply. No OCR, whole-project transfer, automatic briefing, new assistant/MCP tool or background extraction is added.',
     ],
     destination: { path: '/evidence', label: 'Go to Page' },
   },

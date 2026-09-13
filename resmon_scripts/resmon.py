@@ -31,6 +31,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field
 
 from implementation_scripts import runtime_identity, library, library_export, library_text, evidence, evidence_reader, evidence_export
+from implementation_scripts import selected_evidence, selected_evidence_runtime, selected_evidence_export
 from implementation_scripts.config import (
     APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
 )
@@ -130,9 +131,11 @@ async def _lifespan(_app: FastAPI):
     _init_admission_on_startup()
     _migrate_legacy_ai_key_on_startup()
     _init_scheduler_on_startup()
+    _selected_startup()
     try:
         yield
     finally:
+        _selected_shutdown()
         _shutdown_scheduler()
 
 
@@ -2652,6 +2655,140 @@ async def _evidence_run(request: Request, operation: Callable[[sqlite3.Connectio
         except Exception:
             pass
         raise
+
+
+# Selected-answer state is separate from ordinary Ask sessions and buses.
+_selected_lanes: dict[tuple[str, str], selected_evidence_runtime.Lane] = {}
+_selected_lane_lock = threading.RLock()
+
+
+def _selected_lane(conn: sqlite3.Connection) -> selected_evidence_runtime.Lane:
+    port = serving_port()
+    if type(port) is not int or not 1 <= port <= 65535 or port == 8742:
+        evidence.refuse('invalid_port', 'Selected answers require an explicit non-default serving port.', 409)
+    db_path = conn.execute('PRAGMA database_list').fetchone()[2]
+    owner = runtime_identity.current_runtime_id()
+    with _selected_lane_lock:
+        key = (db_path, owner)
+        if key not in _selected_lanes:
+            _selected_lanes[key] = selected_evidence_runtime.Lane(db_path, owner, port, _assistant_settings)
+        return _selected_lanes[key]
+
+
+def _selected_startup() -> None:
+    # Embedded tests without a serving identity do not start this optional lane.
+    port = serving_port()
+    if type(port) is int and 1 <= port <= 65535 and port != 8742:
+        _selected_lane(_get_db())
+
+
+def _selected_shutdown() -> None:
+    with _selected_lane_lock:
+        lanes = list(_selected_lanes.values())
+        _selected_lanes.clear()
+    for lane in lanes:
+        lane.shutdown()
+
+
+class SelectedPreviewBody(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    expected_vault_id: str
+    expected_revision: int
+    expected_runtime_id: str
+    selections: list[dict]
+    notes: list[dict]
+    mode: str
+    instruction: str
+    choices: dict
+
+
+class SelectedSendBody(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    expected_vault_id: str
+    expected_runtime_id: str
+    preview_id: str
+    request_sha256: str
+    confirmed: bool
+
+
+class SelectedCancelBody(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    expected_vault_id: str
+    expected_runtime_id: str
+
+
+@app.post('/api/evidence/projects/{project_id}/answer-previews', response_model=None)
+async def selected_answer_preview(request: Request, project_id: str) -> dict:
+    body = await _evidence_body(request, SelectedPreviewBody)
+    return await _evidence_run(request, lambda c, cancel: _selected_lane(c).preview(c, project_id, body.model_dump(), cancel))
+
+
+@app.post('/api/evidence/projects/{project_id}/answers', status_code=202, response_model=None)
+async def selected_answer_send(request: Request, project_id: str) -> dict:
+    body = await _evidence_body(request, SelectedSendBody)
+    return await _evidence_run(request, lambda c, cancel: _selected_lane(c).send(c, project_id, body.model_dump(), cancel))
+
+
+@app.get('/api/evidence/projects/{project_id}/answers', response_model=None)
+async def selected_answer_history(request: Request, project_id: str) -> dict:
+    q = _evidence_query(request, ('expected_vault_id','after_id','through_id','limit'))
+    return await _evidence_run(request, lambda c, _: selected_evidence.history(c, _evidence_required(q,'expected_vault_id'),project_id,**_evidence_page(q)))
+
+
+@app.get('/api/evidence/projects/{project_id}/answers/{answer_id}', response_model=None)
+async def selected_answer_detail(request: Request, project_id: str, answer_id: str) -> dict:
+    q = _evidence_query(request, ('expected_vault_id',))
+    return await _evidence_run(request, lambda c, _: selected_evidence.detail(c,_evidence_required(q,'expected_vault_id'),project_id,answer_id))
+
+
+@app.post('/api/evidence/projects/{project_id}/answers/{answer_id}/cancel', response_model=None)
+async def selected_answer_cancel(request: Request, project_id: str, answer_id: str) -> dict:
+    body = await _evidence_body(request, SelectedCancelBody)
+    return await _evidence_run(request, lambda c, _: _selected_lane(c).cancel(answer_id,body.expected_vault_id,project_id,body.expected_runtime_id))
+
+
+@app.get('/api/evidence/projects/{project_id}/answers/{answer_id}/events', response_model=None)
+async def selected_answer_events(request: Request, project_id: str, answer_id: str) -> StreamingResponse:
+    q = _evidence_query(request, ('expected_vault_id','expected_runtime_id'))
+    vault_id, owner = _evidence_required(q,'expected_vault_id'), _evidence_required(q,'expected_runtime_id')
+    lane, job, saved = await _evidence_run(request, lambda c, _: (_selected_lane(c),_selected_lane(c).subscribe(answer_id,vault_id,project_id,owner),selected_evidence.detail(c,vault_id,project_id,answer_id)))
+    async def stream():
+        try:
+            initial = {'type':'initial','sequence':0,'answer_id':answer_id,'request_sha256':job.request_sha256,
+                       'project_id':project_id,'vault_id':vault_id,'owner_runtime_id':owner,'answer':saved}
+            yield 'data: '+selected_evidence.canonical(initial)+'\n\n'
+            while True:
+                if await request.is_disconnected():
+                    break
+                event = await asyncio.to_thread(lane.next_event,job)
+                if event is not None:
+                    yield 'data: '+selected_evidence.canonical(event)+'\n\n'
+                    if event['type']=='terminal':
+                        return
+                elif job.completed.is_set():
+                    return
+                else:
+                    yield ': selected answer waiting\n\n'
+        finally:
+            with job.lock:
+                job.subscriber = False
+            if not job.completed.is_set():
+                await asyncio.to_thread(lane.cancel,answer_id,vault_id,project_id,owner)
+    return StreamingResponse(stream(),media_type='text/event-stream',headers={'Cache-Control':'no-store','X-Accel-Buffering':'no'})
+
+
+@app.get('/api/evidence/projects/{project_id}/answers/{answer_id}/export', response_model=None)
+async def selected_answer_export(request: Request, project_id: str, answer_id: str) -> StreamingResponse:
+    q = _evidence_query(request, ('expected_vault_id','format'))
+    if q.get('format') != 'zip':
+        raise HTTPException(422, 'Select format=zip explicitly.')
+    bundle = await _evidence_run(request, lambda c,cancel: selected_evidence_export.build(c,_evidence_required(q,'expected_vault_id'),project_id,answer_id,cancel=cancel))
+    m = bundle.manifest
+    headers = {'Content-Disposition':'attachment; filename="selected-answer.zip"','Content-Length':str(bundle.size),
+               'X-Resmon-Evidence-Contract':'selected-answer/v1','X-Resmon-Vault':m['vault_id'],'X-Resmon-Project':project_id,
+               'X-Resmon-Bundle':answer_id,'X-Resmon-SHA256':m['sha256'],'X-Resmon-Version':m['request_sha256']}
+    from starlette.background import BackgroundTask
+    return StreamingResponse(bundle.chunks(),media_type='application/zip',headers=headers,background=BackgroundTask(bundle.close))
 
 
 @app.get('/api/evidence/projects', response_model=None)

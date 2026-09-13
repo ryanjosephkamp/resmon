@@ -191,3 +191,13 @@ canvas, package scripts, Node upgrade or new build dependency is used.
 See [third-party notices](../third-party-notices.md) and the exact asset-hash
 assertion in `src/__tests__/pdfjs.test.ts`. Installer launch/release verification
 and independent acceptance remain separate from implementing-session tests.
+
+
+## Selected answers (schema 18)
+
+The separate [selected-answer contract](selected-evidence.md) adds seven explicit
+preview, answer, event, history and selected-text export routes. The original
+12 Evidence routes retain their request, origin, storage and effect contracts.
+Schema 18 adds one answer table and its project-order index without backfilling
+or rewriting existing Evidence records. Selecting a passage does not select its
+note body; answers have separate consent and history from ordinary Ask.
