@@ -165,11 +165,21 @@ c.execute('INSERT INTO evidence_answers ('+','.join(r)+') VALUES ('+','.join('?'
    expect(await page.locator('*').evaluateAll(elements=>elements.flatMap(el=>Array.from(el.attributes).filter(a=>a.name.startsWith('on')||a.name==='src'||a.name==='style').map(a=>a.name)))).toEqual([]);
    expect(await page.locator('body').textContent()).toContain(hostile);expect(await page.locator('body').textContent()).toContain('PORTABLE OWNER NOTE');
    const links=await page.locator('a').evaluateAll(elements=>elements.map(a=>a.getAttribute('href')));expect(links.every(href=>/^#[a-z0-9-]+$/.test(href??''))).toBe(true);
+   const navigationChecks:{expected:string;immediate:string;arrived:string}[]=[];
+   // Keyboard input acknowledgement can precede the native fragment commit.
+   // Wait for that exact navigation; retain the original URL/focus assertions.
+   const enterFragment=async(selector:string,expected:string)=>{
+    const arrived=page.waitForURL(url=>url.hash===expected);
+    await page.locator(selector).focus();await page.keyboard.press('Enter');
+    const immediate=new URL(page.url()).hash;await arrived;
+    const actual=new URL(page.url()).hash;expect(actual).toBe(expected);
+    navigationChecks.push({expected,immediate,arrived:actual});
+   };
    if(entry.answer.result){
     for(const [si,section] of entry.answer.result.sections.entries())for(const [ii,item] of section.items.entries())for(const [ci,citation] of item.citations.entries()){
-     const id=`reference-${si+1}-${ii+1}-${ci+1}`,link=page.locator('#'+id),href=await link.getAttribute('href');await link.focus();await page.keyboard.press('Enter');expect(new URL(page.url()).hash).toBe(href);
+     const id=`reference-${si+1}-${ii+1}-${ci+1}`,link=page.locator('#'+id),href=await link.getAttribute('href');await enterFragment('#'+id,href!);
      const quote=page.locator(href!);expect(await quote.locator('div.literal').textContent()).toBe(citation.quote);expect(await quote.locator('dd').nth(1).textContent()).toBe(String(citation.start_codepoint));expect(await quote.locator('dd').nth(2).textContent()).toBe(String(citation.end_codepoint));
-     await quote.getByRole('link',{name:'Return to this answer citation'}).focus();await page.keyboard.press('Enter');expect(new URL(page.url()).hash).toBe('#'+id);await expect(link).toBeFocused();
+     const back=quote.getByRole('link',{name:'Return to this answer citation'});expect(await back.getAttribute('href')).toBe('#'+id);await enterFragment(href!+' a','#'+id);await expect(link).toBeFocused();
     }
    }else await expect(page.getByRole('heading',{name:'Incomplete / unvalidated output'})).toBeVisible();
    if(index===0){
@@ -184,12 +194,13 @@ c.execute('INSERT INTO evidence_answers ('+','.join(r)+') VALUES ('+','.join('?'
     await expect(page.locator('#sources')).toBeVisible();await expect(page.locator('#coverage')).toBeVisible();expect(await page.locator('body').textContent()).toContain('billing');
     const print=await reader.evaluate(async({BrowserWindow})=>Array.from(await BrowserWindow.getAllWindows()[0].webContents.printToPDF({printBackground:true})));fs.writeFileSync(path.join(out,'portable-print.pdf'),Buffer.from(print));expect(Buffer.from(print).subarray(0,5).toString()).toBe('%PDF-');
     const printed=py("from pypdf import PdfReader;import sys;print('\\n'.join(p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages))",path.join(out,'portable-print.pdf'));
-    for(const literal of [entry.answer.answer_id,'Frozen selected sources','PORTABLE OWNER NOTE','Saved coverage and disclosure','Requested settings','Reported usage','65,536','20,000','billing','Citation identity is not semantic support'])expect(printed).toContain(literal);
-    receipt('layout-keyboard-print',{layouts,zoom,focus,printBytes:print.length,printTextSha256:hash(printed),printContentAssertions:11,nativeCapture:true,physicalAndroid:false});
+    const printLiterals=[entry.answer.answer_id,'Frozen selected sources','PORTABLE OWNER NOTE','Saved coverage and disclosure','Requested settings','Reported usage','65,536','20,000','billing','Citation identity is not semantic support'];
+    for(const literal of printLiterals)expect(printed).toContain(literal);
+    receipt('layout-keyboard-print',{layouts,zoom,focus,printBytes:print.length,printTextSha256:hash(printed),printContentAssertions:printLiterals.length,printSignature:true,nativeCapture:true,physicalAndroid:false});
    }
    const observed=await reader.evaluate(()=>(globalThis as unknown as {portableReader:{allowed:string[];blocked:string[];opens:string[]}}).portableReader);
    expect(observed.allowed).toEqual([target]);expect(observed.blocked).toEqual([]);expect(observed.opens).toEqual([]);
-   receipt('offline-'+entry.label,{...observed,profile,source:REPO_ROOT,readerMain,readerMainSha256:hash(code),pid:owned,processStart:readerStart,appPidsAbsent:mainPids.filter(alive),backendPidsAbsent:backends.filter(alive),sha256:hash(fs.readFileSync(entry.target)),state:entry.answer.state});
+   receipt('offline-'+entry.label,{...observed,navigationChecks,profile,source:REPO_ROOT,readerMain,readerMainSha256:hash(code),pid:owned,processStart:readerStart,appPidsAbsent:mainPids.filter(alive),backendPidsAbsent:backends.filter(alive),sha256:hash(fs.readFileSync(entry.target)),state:entry.answer.state});
    await reader.close();reader=undefined;await expect.poll(()=>alive(owned)).toBe(false);receipt('reader-cleanup-'+entry.label,{pid:owned,reaped:true});
   }
   for(const name of originals)expect(hash(fs.readFileSync(path.join(dirs.originals,name)))).toBe(originalHashes[name]);
