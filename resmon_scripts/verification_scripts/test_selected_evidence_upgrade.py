@@ -74,7 +74,8 @@ def test_migration_fault_rolls_back_new_objects_and_keeps17(legacy17,fault):
         conn.set_authorizer(lambda action,arg1,arg2,dbname,trigger:sqlite3.SQLITE_DENY if action==sqlite3.SQLITE_CREATE_INDEX and arg1=='idx_evidence_answers_project_order' else sqlite3.SQLITE_OK)
     try:
         with pytest.raises(sqlite3.DatabaseError):db.init_db(conn=conn)
-    finally:conn.set_authorizer(None)
+    # Match the existing historical migration fixtures on every supported Python.
+    finally:conn.set_authorizer(lambda *_: sqlite3.SQLITE_OK)
     assert db.get_schema_version(conn)==17 and contents(conn)==before and objects(conn)==old_objects
 
 

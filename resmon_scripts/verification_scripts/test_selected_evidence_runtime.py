@@ -323,7 +323,7 @@ def test_two_connections_terminal_cas_one_winner_and_no_late_rewrite(workspace,t
 
 def test_bounded_event_queue_cancels_at_seventeenth_and_never_enqueues_more(workspace,tmp_path,monkeypatch):
     from types import SimpleNamespace
-    value,body,capture=real_lane(workspace,tmp_path);request,_,_=assemble(workspace,body)
+    value,body,capture=real_lane(workspace,tmp_path);request,_,_=assemble(workspace,body,value.settings(workspace.conn))
     job=lane.Job(1,str(uuid.uuid4()),workspace.project_id,workspace.vault_id,request['request_sha256'],value.runtime_id,SimpleNamespace(),str(uuid.uuid4()),request)
     stopped=[];monkeypatch.setattr(value,'cancel',lambda *args:stopped.append(args))
     for _ in range(16):value._publish(job,'progress',state='running')
@@ -387,6 +387,9 @@ def test_startup_failure_never_falsely_confirms_a_live_worker(workspace,tmp_path
     assert value.job.completed.wait(5)
     saved=se.detail(workspace.conn,workspace.vault_id,workspace.project_id,a['answer_id'])
     assert saved['state']=='failed' and saved['cleanup_state']=='confirmed'
+    # The completion marker follows transport cleanup; join the owned thread
+    # before asserting its final return/connection teardown (no sleep race).
+    if value.job.thread.ident is not None:value.job.thread.join(5)
     assert not value.job.thread.is_alive();value.shutdown()
 
 
@@ -407,7 +410,7 @@ def test_actual_preview_cache_byte_pressure_refuses_before_four(workspace,availa
 @pytest.mark.parametrize('limit,accepted',[(262144,True),(262145,False)])
 def test_event_queue_exact_serialized_byte_ceiling(workspace,tmp_path,monkeypatch,limit,accepted):
     from types import SimpleNamespace
-    value,body,capture=real_lane(workspace,tmp_path);request,_,_=assemble(workspace,body)
+    value,body,capture=real_lane(workspace,tmp_path);request,_,_=assemble(workspace,body,value.settings(workspace.conn))
     job=lane.Job(1,str(uuid.uuid4()),workspace.project_id,workspace.vault_id,request['request_sha256'],value.runtime_id,SimpleNamespace(),str(uuid.uuid4()),request)
     stopped=[];monkeypatch.setattr(value,'cancel',lambda *args:stopped.append(args))
     envelope={'type':'progress','sequence':1,'answer_id':job.answer_id,'request_sha256':job.request_sha256,'project_id':job.project_id,'vault_id':job.vault_id,'owner_runtime_id':job.owner,'fixture_padding':''}
