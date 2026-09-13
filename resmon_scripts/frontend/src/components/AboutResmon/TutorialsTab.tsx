@@ -442,6 +442,7 @@ const sections: TutorialSection[] = [
       'New selected-evidence answer: explicitly add file pages or the current reader passage, select optional note bodies individually, and enter a question or manual briefing instruction.',
       'Preview selected content shows exact excerpts, notes, page coverage, requested connection/model/effort, and application system/user payloads. Close without sending, or Send once to create a new saved answer. Earlier answers and Ask history are excluded.',
       'Open a citation to see its frozen excerpt; the current reader checks the exact version, hash and codepoint range. Open saved answers after restart or export one answer and its selected text as a ZIP.',
+      'Export HTML saves a separate readable offline document. Open the downloaded file in a browser after resmon closes. Citations link to exact frozen quotes and back; selected notes, coverage, requested settings, reports and partial states remain labelled. The existing ZIP action stays available.',
     ],
     features: [
       'PDF: 16 MiB, 200 pages, one requested page and a 20-second limit. No OCR; encrypted, unsupported, malformed, image-only and over-limit pages remain explicit.',
