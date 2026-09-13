@@ -12,8 +12,11 @@ const started=(pid:number)=>execFileSync('ps',['-p',String(pid),'-o','lstart='],
 for(const mode of ['question','briefing'] as const)test(`Selected evidence ${mode}: actual consent, ${mode==='question'?'CLI':'API'} citations, Stop, history, restart and ZIP`,async()=>{
  test.setTimeout(360_000);
  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),`resmon-selected-${mode}-`))),state=path.join(root,'state'),profile=path.join(root,'profile'),originals=path.join(root,'originals'),parent=path.join(root,'vault-parent'),exports=path.join(root,'exports');for(const dir of [state,profile,originals,parent,exports])fs.mkdirSync(dir);
- const env=launchEnv(state,true),python=env.RESMON_PYTHON;env.PYTHON_KEYRING_BACKEND='keyring.backends.null.Keyring';const fake=await selectedEvidenceTransport(root,python);env.RESMON_PYTHON=fake.backend;
- const out=ensureScreenshotDir(),receipt=(name:string,value:unknown)=>fs.writeFileSync(path.join(out,`selected-${mode}-${name}.json`),JSON.stringify(value,null,2));receipt('fixture',fake.receipt());
+ const env=launchEnv(state,true);env.PYTHON_KEYRING_BACKEND='keyring.backends.null.Keyring';
+ // CI supplies a PATH name; native script shebangs require the resolved interpreter.
+ const requestedPython=env.RESMON_PYTHON,python=execFileSync(requestedPython,['-c','import sys;print(sys.executable)'],{env,encoding:'utf8'}).trim();expect(path.isAbsolute(python)).toBe(true);
+ const fake=await selectedEvidenceTransport(root,python);env.RESMON_PYTHON=fake.backend;
+ const out=ensureScreenshotDir(),receipt=(name:string,value:unknown)=>fs.writeFileSync(path.join(out,`selected-${mode}-${name}.json`),JSON.stringify(value,null,2));receipt('fixture',{...fake.receipt(),requestedPython,resolvedPython:python});
  const py=(code:string,...args:string[])=>execFileSync(python,['-c',code,...args],{cwd:REPO_ROOT,env,encoding:'utf8'});
  const names=['two-pages.pdf','unicode.txt','hostile.md'];for(const name of names)fs.copyFileSync(path.join(REPO_ROOT,'resmon_scripts/verification_scripts/fixtures/evidence',name),path.join(originals,name));const originalHashes=Object.fromEntries(names.map(n=>[n,hash(fs.readFileSync(path.join(originals,n)))]));
  let app:ElectronApplication|undefined,win!:Page,base='',origin='',vid='',pid='',vaultRoot='';const backends:number[]=[],instances:unknown[]=[],errors:string[]=[],transportFailures:unknown[]=[],responses:unknown[]=[],saved:Answer[]=[];let catalog:LibraryFile[]=[];
