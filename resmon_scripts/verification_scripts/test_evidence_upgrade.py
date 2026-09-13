@@ -289,12 +289,12 @@ def test_populated_16_upgrade_preserves_all_old_rows_objects_and_files(
             for name in ("create_vault", "Import", "retained", "checked_vault"):
                 scoped.setattr(library, name, forbidden_io)
             db.init_db(conn=conn)
-        assert db.SCHEMA_VERSION == db.get_schema_version(conn) == 17
-        assert table_names(conn) == set(before_rows) | set(TABLES)
-        assert len(table_names(conn)) == 36
+        assert db.SCHEMA_VERSION == db.get_schema_version(conn) == 18
+        assert table_names(conn) == set(before_rows) | set(TABLES) | {"evidence_answers"}
+        assert len(table_names(conn)) == 37
         after_rows = contents(conn, set(before_rows))
         assert before_rows_hash == row_digest(before_rows), "the before snapshot itself changed"
-        expected_settings = dict(before_rows["app_settings"]["rows"]) | {"schema_version": "17"}
+        expected_settings = dict(before_rows["app_settings"]["rows"]) | {"schema_version": "18"}
         assert dict(after_rows["app_settings"]["rows"]) == expected_settings
         for table in before_rows:
             if table != "app_settings":
@@ -330,8 +330,8 @@ def test_fresh_upgraded_and_twice_reopened_schema_are_identical(legacy: Legacy, 
         assert evidence_shape(fresh) == expected_shape
         assert all(fresh.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
                    for table in (*LIBRARY_TABLES, *TABLES))
-        assert db.get_schema_version(fresh) == 17
-        assert len(table_names(fresh)) == 36
+        assert db.get_schema_version(fresh) == 18
+        assert len(table_names(fresh)) == 37
     finally:
         fresh.close()
     legacy.conn.close()
@@ -342,7 +342,7 @@ def test_fresh_upgraded_and_twice_reopened_schema_are_identical(legacy: Legacy, 
             assert contents(reopened) == expected_rows
             assert objects(reopened) == expected_objects
             assert evidence_shape(reopened) == expected_shape
-            assert db.get_schema_version(reopened) == 17
+            assert db.get_schema_version(reopened) == 18
         finally:
             reopened.close()
     assert file_census(legacy.roots) == expected_files
@@ -405,7 +405,7 @@ def test_failed_migration_preserves_marker16_and_every_preexisting_object(
         conn.execute("DROP INDEX idx_evidence_notes_order")
     conn.commit()
     db.init_db(conn=conn)
-    assert db.get_schema_version(conn) == 17
+    assert db.get_schema_version(conn) == 18
     assert_approved_shape(conn)
 
 
@@ -414,6 +414,12 @@ def test_schema17_restart_refuses_bad_shapes_without_repair(legacy: Legacy, dama
     conn = legacy.conn
     db.init_db(conn=conn)
     pristine = (contents(conn), objects(conn), file_census(legacy.roots))
+    # Recreate the actual schema17 restart boundary. The added table is empty;
+    # historical failure marker17 and every old shape assertion remain exact.
+    assert conn.execute('SELECT count(*) FROM evidence_answers').fetchone()[0] == 0
+    conn.execute('DROP TABLE evidence_answers')
+    conn.execute("UPDATE app_settings SET value='17' WHERE key='schema_version'")
+    conn.commit()
     if damage in ("not_null", "check", "foreign_key", "unique"):
         conn.execute("DROP TABLE evidence_notes")
         ddl = APPROVED_DDL["evidence_notes"]

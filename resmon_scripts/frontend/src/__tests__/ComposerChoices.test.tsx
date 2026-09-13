@@ -31,3 +31,8 @@ test('unknown and unreadable stored history never invents a request',()=>{
  const {rerender}=render(<ChoiceSummary choices={null}/>);expect(screen.getByText('Historical settings: unknown.')).toBeVisible();
  rerender(<ChoiceSummary choices={{unreadable:true}}/>);expect(screen.getByText('Saved choices: unreadable.')).toBeVisible();
 });
+
+test('the selected-answer instance has unique control IDs while ordinary Ask retains its default IDs',()=>{
+ const {container}=render(<><ComposerChoices descriptor={descriptor} value={initial} onChange={()=>{}}/><ComposerChoices descriptor={descriptor} value={initial} onChange={()=>{}} legend="Selected answer choices" idPrefix="selected-evidence"/></>);
+ const ids=Array.from(container.querySelectorAll('input[id],select[id]')).map(n=>n.id);expect(new Set(ids).size).toBe(ids.length);expect(screen.getByRole('group',{name:'Selected answer choices'}).querySelector('[id^="selected-evidence"]')).not.toBeNull();
+});

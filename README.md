@@ -183,6 +183,18 @@ encrypted backup/restore format, an AI briefing or a claim of redistribution
 rights. Existing Library platform limitations remain; no new Windows support or
 assistant/MCP tool is introduced. See the [Evidence contract](docs/api-contract/evidence.md).
 
+Evidence also offers **selected-evidence questions and manual structured briefings**.
+Explicitly choose up to 5 files, 12 pages or 24 passages and, optionally, up to
+8 individual saved note bodies. Inspect the exact content, coverage and requested
+connection/model/effort in the preview. Each **Send** creates one saved answer using
+the existing CLI or API connection with tools off and no earlier conversation.
+Source text is limited to 48 KiB and 24,000 Unicode codepoints; nothing is silently
+truncated. Citation checks establish exact selected-text identity; they do not
+establish semantic support, research quality or truth. Stop requests cancellation;
+remote completion, retention and billing can remain unknown. Saved answers and
+selected-text ZIPs remain available without the original files or a model call.
+See the [selected-answer contract](docs/api-contract/selected-evidence.md).
+
 ### The assistant
 
 Every page has a **✦ Ask** button in the corner. It opens a panel that can do what you

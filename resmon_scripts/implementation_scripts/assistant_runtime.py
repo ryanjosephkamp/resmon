@@ -69,6 +69,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -323,7 +324,14 @@ class ClaudeCliRuntime(AssistantRuntime):
         backend_port: Optional[int] = None,
         python_executable: Optional[str] = None,
         timeout: int = DEFAULT_TURN_TIMEOUT,
+        profile: Optional[str] = None,
     ) -> None:
+        if profile not in (None, "selected_evidence_v1"):
+            raise ValueError("Unknown runtime profile")
+        self.profile = profile
+        self._selected_cancel = threading.Event()
+        self._selected_owned_job = None
+        self.selected_system_sha256 = None
         self.configured_path = (cli_path or "").strip() or None
         self.model = (model or "").strip() or None
         self.effort = (effort or "").strip() or None
@@ -354,6 +362,8 @@ class ClaudeCliRuntime(AssistantRuntime):
         default port answers every question truthfully about the wrong corpus.
         Which happened.
         """
+        if self.profile == "selected_evidence_v1":
+            return {"mcpServers": {}}
         server_dir = str(Path(__file__).resolve().parent.parent)
         env = {"PYTHONPATH": server_dir}
         if self.backend_port:
@@ -381,6 +391,8 @@ class ClaudeCliRuntime(AssistantRuntime):
         ``READ_TOOLS`` and is caught by
         ``test_every_tool_declares_whether_it_needs_confirmation``.
         """
+        if self.profile == "selected_evidence_v1":
+            return []
         import mcp_server  # noqa: PLC0415 — a sibling script, not a package
 
         return sorted(f"mcp__resmon__{name}" for name in mcp_server.READ_TOOLS)
@@ -400,6 +412,27 @@ class ClaudeCliRuntime(AssistantRuntime):
         from two of three summary lanes for a whole release because each built
         its own command.
         """
+        if self.profile == "selected_evidence_v1":
+            from .selected_evidence_context import system_rules
+            from .evidence import identity
+            from .selected_evidence import sha
+            system = system_rules()
+            if self.selected_system_sha256 is not None and sha(system) != self.selected_system_sha256:
+                raise ValueError("Selected system rules changed after admission")
+            identity(cli_session_id)
+            if resume:
+                raise ValueError("Selected evidence cannot resume a native session")
+            argv = [binary or self.resolved_binary or (self.status().path or "claude"), "-p",
+                    "--output-format", "stream-json", "--verbose", "--tools", "",
+                    "--strict-mcp-config", "--mcp-config", mcp_config_path,
+                    "--setting-sources", "", "--disable-slash-commands",
+                    "--append-system-prompt", system, "--system-prompt-snapshot", "off",
+                    "--max-budget-usd", str(TURN_BUDGET_USD), "--session-id", cli_session_id]
+            if self.model is not None:
+                argv += ["--model", self.model]
+            if self.effort is not None:
+                argv += ["--effort", self.effort]
+            return [*argv, prompt]
         argv = [
             binary or self.resolved_binary or (self.status().path or "claude"),
             "-p",
@@ -475,6 +508,11 @@ class ClaudeCliRuntime(AssistantRuntime):
         would quietly turn "it remembers" into "it does not".
         """
         emit = on_event or (lambda _event: None)
+        if self.profile == "selected_evidence_v1":
+            if resume or history:
+                raise ValueError("Selected evidence cannot receive history or resume")
+            yield from self._selected_turn(session_id, prompt, cli_session_id, emit)
+            return
         with tempfile.TemporaryDirectory(prefix="resmon-assistant-") as workdir:
             config_path = os.path.join(workdir, "mcp.json")
             with open(config_path, "w", encoding="utf-8") as handle:
@@ -625,7 +663,137 @@ class ClaudeCliRuntime(AssistantRuntime):
                 process.kill()
                 process.wait(timeout=10)
 
+    def _selected_turn(self, session_id: int, prompt: str, native_id: str,
+                       emit: Callable[[dict], None]) -> Iterator[dict]:
+        """Bound pipes before allocation; require observed empty startup inventory.
+
+        Ordinary Ask keeps its original environment and stream handling. The
+        selected profile projects only native login/location prerequisites from
+        that helper; no arbitrary API key or application variable is inherited.
+        """
+        from . import selected_evidence as se
+        import queue
+        stop = threading.Event()
+        events: queue.Queue = queue.Queue(maxsize=16)
+        process = None
+        readers = []
+        deadline = time.monotonic() + min(self.timeout, 300)
+        with tempfile.TemporaryDirectory(prefix="resmon-selected-") as workdir:
+            config = os.path.join(workdir, "mcp.json")
+            Path(config).write_text('{"mcpServers":{}}', encoding='utf-8')
+            argv = self.build_argv(prompt, mcp_config_path=config, cli_session_id=native_id, resume=False)
+            source_env = _child_env()
+            env = {k: source_env[k] for k in ('HOME','USER','LOGNAME','PATH','TMPDIR','LANG','LC_ALL','SYSTEMROOT','WINDIR') if k in source_env}
+            def consume(stream: Any, label: str) -> None:
+                try:
+                    while not stop.is_set():
+                        chunk = os.read(stream.fileno(), 16384)
+                        while not stop.is_set():
+                            try:
+                                events.put((label, chunk), timeout=0.1)
+                                break
+                            except queue.Full:
+                                continue
+                        if not chunk:
+                            return
+                except OSError:
+                    return
+            try:
+                if session_id >= 0:
+                    raise ValueError('Selected evidence requires its negative job identity')
+                with _PROCESS_LOCK:
+                    if self._selected_cancel.is_set():
+                        raise ValueError("selected_cancelled_before_spawn")
+                    self._selected_owned_job = session_id
+                    if session_id in _PROCESSES:
+                        raise ValueError('Selected job is already owned')
+                    process = subprocess.Popen(argv, cwd=workdir, stdin=subprocess.DEVNULL,
+                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+                    _PROCESSES[session_id] = process
+                for stream, label in ((process.stdout,'stdout'), (process.stderr,'stderr')):
+                    thread = threading.Thread(target=consume, args=(stream,label), daemon=True)
+                    readers.append(thread); thread.start()
+                pending = bytearray(); total = stderr_bytes = text_bytes = 0
+                ended = set(); started = completed = False
+                while len(ended) < 2:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError('selected_deadline')
+                    try:
+                        label, chunk = events.get(timeout=0.1)
+                    except queue.Empty:
+                        if process.poll() is not None and all(not t.is_alive() for t in readers):
+                            break
+                        continue
+                    if not chunk:
+                        ended.add(label)
+                        continue
+                    if label == 'stderr':
+                        stderr_bytes += len(chunk)
+                        if stderr_bytes > 16384:
+                            raise ValueError('selected_stderr_limit')
+                        # Diagnostics are intentionally not copied into public events.
+                        continue
+                    total += len(chunk)
+                    if total > 1048576:
+                        raise ValueError('selected_stream_limit')
+                    pending.extend(chunk)
+                    while b'\n' in pending:
+                        line, _, remaining = pending.partition(b'\n'); pending = bytearray(remaining)
+                        if len(line) > 262144:
+                            raise ValueError('selected_line_limit')
+                        message = json.loads(line.decode('utf-8'), object_pairs_hook=se._unique,
+                                             parse_constant=lambda _: se.fail('Nonfinite transport JSON'))
+                        if not isinstance(message, dict):
+                            raise ValueError('selected_stream_shape')
+                        if message.get('type') == 'system' and message.get('subtype') == 'init':
+                            if (started or message.get('session_id') != native_id or
+                                    message.get('tools') != [] or message.get('mcp_servers') != []):
+                                raise ValueError('selected_startup_inventory')
+                            started = True
+                        normal = _normalise(line.decode('utf-8'))
+                        for event in normal:
+                            kind = event['type']
+                            if kind in ('tool_call','tool_result'):
+                                raise ValueError('selected_unexpected_tool')
+                            if kind != 'started' and not started:
+                                raise ValueError('selected_missing_startup')
+                            if completed:
+                                raise ValueError('selected_after_completion')
+                            if kind == 'text_delta':
+                                text_bytes += len(event['text'].encode('utf-8'))
+                                if text_bytes > 65536:
+                                    raise ValueError('selected_text_limit')
+                            if kind == 'done':
+                                if event.get('is_error') or event.get('subtype') != 'success':
+                                    raise ValueError('selected_completion_failure')
+                                completed = True
+                            emit(event); yield event
+                    if len(pending) > 262144:
+                        raise ValueError('selected_line_limit')
+                if pending or not started or not completed or process.wait(timeout=10) != 0:
+                    raise ValueError('selected_incomplete_stream')
+            except Exception as exc:
+                event = {'type':'error','detail':type(exc).__name__,
+                         'message':'Selected evidence runtime failed; no retry or structured result was published.'}
+                emit(event); yield event
+            finally:
+                stop.set()
+                if process is not None:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=10)
+                    for thread in readers:
+                        thread.join(timeout=2)
+                    process.stdout.close(); process.stderr.close()
+                    with _PROCESS_LOCK:
+                        if _PROCESSES.get(session_id) is process:
+                            del _PROCESSES[session_id]
+
     def cancel(self, session_id: int) -> bool:
+        if self.profile == 'selected_evidence_v1':
+            if self._selected_owned_job != session_id:
+                return False
+            self._selected_cancel.set()
         return cancel_turn(session_id)
 
 
@@ -1072,7 +1240,7 @@ def get_runtime(settings: dict, *, backend_port: Optional[int] = None) -> Assist
     )
 
 
-def get_bound_runtime(binding: dict, settings: dict, *, backend_port: Optional[int] = None) -> AssistantRuntime:
+def get_bound_runtime(binding: dict, settings: dict, *, backend_port: Optional[int] = None, profile: Optional[str] = None) -> AssistantRuntime:
     """Construct once from a validated saved request and captured route settings."""
     from .assistant_choices import request_projection, route_digest
     from .assistant_api_runtime import ApiKeyRuntime
@@ -1082,10 +1250,10 @@ def get_bound_runtime(binding: dict, settings: dict, *, backend_port: Optional[i
         raise ValueError('This connection configuration changed. Start a new conversation.')
     if binding['runtime'] == 'api_key':
         runtime = ApiKeyRuntime(provider=binding['provider'], model=binding['requested_model'],
-                                custom_base_url=settings.get('ai_custom_base_url'), backend_port=backend_port)
+                                custom_base_url=settings.get('ai_custom_base_url'), backend_port=backend_port, profile=profile)
     else:
         runtime = ClaudeCliRuntime(cli_path=settings.get('ai_cli_path'), model=binding['requested_model'],
-                                   effort=binding['requested_effort'], backend_port=backend_port)
+                                   effort=binding['requested_effort'], backend_port=backend_port, profile=profile)
         status = runtime.status()
         runtime.resolved_binary = status.path
         runtime.admitted_status = status

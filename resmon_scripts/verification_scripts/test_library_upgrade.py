@@ -18,7 +18,7 @@ def old_database(path):
 
 
 def contents(c):
-    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'library_%' AND name NOT IN ('evidence_projects','evidence_project_files','evidence_notes')")]
+    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'library_%' AND name NOT IN ('evidence_projects','evidence_project_files','evidence_notes','evidence_answers')")]
     return {t: sorted([tuple(r) for r in c.execute(f'SELECT * FROM "{t}"')], key=repr) for t in tables}
 
 
@@ -30,7 +30,7 @@ def objects(c):
 def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tmp_path):
     path = tmp_path / 'old.db'; c = old_database(path); before = contents(c)
     db.init_db(conn=c)
-    assert db.get_schema_version(c) == 17
+    assert db.get_schema_version(c) == 18
     after = contents(c)
     after['app_settings'] = [(k, '15' if k == 'schema_version' else v) for k, v in after['app_settings']]
     assert after == before
@@ -43,7 +43,7 @@ def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tm
     c.close(); db.init_db(path); db.init_db(path)
     with db.get_connection(path) as reopened:
         assert objects(reopened) == ddl
-        assert db.get_schema_version(reopened) == 17
+        assert db.get_schema_version(reopened) == 18
     assert not list(tmp_path.glob('resmon-library-*'))
     fresh = db.get_connection(tmp_path / 'fresh.db'); db.init_db(conn=fresh)
     assert objects(fresh) == ddl

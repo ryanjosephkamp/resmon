@@ -1,4 +1,5 @@
-import React from 'react';import {act,fireEvent,render,screen,waitFor} from '@testing-library/react';
+import React from 'react';import {act,fireEvent,render,screen,waitFor,within} from '@testing-library/react';
+import {selectedApi} from '../api/selectedEvidence';
 import ProjectList from '../components/Evidence/ProjectList';
 import EvidencePage from '../pages/EvidencePage';import {evidenceApi,EvidenceFile,Member,Project,SavedNote} from '../api/evidence';import {libraryApi} from '../api/library';
 jest.mock('../components/Evidence/EvidenceReader',()=>({file,canSave}:{file:EvidenceFile;canSave:boolean})=> <div>Reader fixture {file.original_name} {canSave?'save-enabled':'save-disabled'}</div>);
@@ -59,4 +60,22 @@ it.each([true,false])('resolves selected membership beyond the first 50 rows: pr
 it('initializes rename from the actual selected project for handoffs and new projects',()=>{
  const props={page:page([project(1)]),selected:project(1),busy:false,onSelect:jest.fn(),onCreate:jest.fn(),onRename:jest.fn(),onNext:jest.fn()};const view=render(<ProjectList {...props}/>);
  expect(screen.getByLabelText('Rename selected project')).toHaveValue('Project 1');view.rerender(<ProjectList {...props} selected={project(2)}/>);expect(screen.getByLabelText('Rename selected project')).toHaveValue('Project 2');
+});
+
+
+it('opening and retiring the original bundle preserves one answer panel and one file checkbox',async()=>{
+ const f=fileFixture(3),p={...project(1),file_count:1};jest.spyOn(evidenceApi,'detail').mockResolvedValue(p);
+ jest.mocked(evidenceApi.files).mockResolvedValue({...page([]),items:[memberFixture(f,1)],revision:1});
+ jest.spyOn(selectedApi,'history').mockResolvedValue({...page([]),items:[]});
+ render(<EvidencePage/>);fireEvent.click(await screen.findByRole('button',{name:/Project 1 0 current/}));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Export selected evidence'})).toBeEnabled());
+ for(let n=0;n<3;n++){
+  fireEvent.click(screen.getByRole('button',{name:'Export selected evidence'}));
+  const bundle=screen.getByRole('region',{name:'Selected evidence bundle'});
+  expect(within(bundle).getAllByRole('checkbox',{name:/^File 3.txt /})).toHaveLength(1);
+  fireEvent.click(within(bundle).getByRole('button',{name:'Close export'}));
+  expect(screen.queryByRole('region',{name:'Selected evidence bundle'})).toBeNull();
+  expect(screen.getAllByRole('region',{name:'Evidence answers'})).toHaveLength(1);
+  expect(screen.getAllByRole('button',{name:'New selected-evidence answer'})).toHaveLength(1);
+ }
 });

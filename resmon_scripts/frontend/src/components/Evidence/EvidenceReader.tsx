@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {Anchor,evidenceApi,EvidenceFile,Project,SavedNote,TextPage} from '../../api/evidence';
 import PdfPage from './PdfPage';
+import type {CitationRange} from './AnswerView';
 
 export function selectionAnchor(text:TextPage,start:number,end:number):Anchor|null {
   if(text.status!=='extracted'||!text.page_text_sha256||start<0||end<=start||end>text.text.length)return null;
@@ -11,8 +12,11 @@ export function selectionAnchor(text:TextPage,start:number,end:number):Anchor|nu
 export function resolveSaved(note:SavedNote,text:TextPage):boolean {
   return note.kind==='passage'&&note.file_id===text.file_id&&note.version_id===text.version_id&&note.file.sha256===text.sha256&&note.page_number===text.page_number&&note.extraction_contract===text.extraction_contract&&note.page_text_sha256===text.page_text_sha256&&Array.from(text.text).slice(note.start_codepoint??0,note.end_codepoint??0).join('')===note.quote;
 }
-export default function EvidenceReader({project,file,reopen,onPassage,canSave}:{project:Project;file:EvidenceFile;reopen:SavedNote|null;onPassage:(anchor:Anchor)=>void;canSave:boolean}){
-  const [page,setPage]=useState(reopen?.page_number??1);const [text,setText]=useState<TextPage|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);const [anchor,setAnchor]=useState<Anchor|null>(null);const [query,setQuery]=useState('');const [findStatus,setFindStatus]=useState('');const [resolution,setResolution]=useState('');const [reload,setReload]=useState(0);
+export function resolveCitation(c:CitationRange,text:TextPage):boolean {
+  return text.status==='extracted'&&c.file_id===text.file_id&&c.version_id===text.version_id&&c.sha256===text.sha256&&c.page_number===text.page_number&&c.extraction_contract===text.extraction_contract&&c.page_text_sha256===text.page_text_sha256&&c.start_codepoint>=0&&c.end_codepoint>c.start_codepoint&&c.end_codepoint<=Array.from(text.text).length&&Array.from(text.text).slice(c.start_codepoint,c.end_codepoint).join('')===c.quote;
+}
+export default function EvidenceReader({project,file,reopen,onPassage,canSave,citation}:{project:Project;file:EvidenceFile;reopen:SavedNote|null;onPassage:(anchor:Anchor)=>void;canSave:boolean;citation?:CitationRange}){
+  const [page,setPage]=useState(citation?.page_number??reopen?.page_number??1);const [text,setText]=useState<TextPage|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);const [anchor,setAnchor]=useState<Anchor|null>(null);const [query,setQuery]=useState('');const [findStatus,setFindStatus]=useState('');const [resolution,setResolution]=useState('');const [reload,setReload]=useState(0);
   const pane=useRef<HTMLTextAreaElement>(null);const abort=useRef<AbortController|null>(null);
   useEffect(()=>{if(reopen?.page_number)setPage(reopen.page_number);},[reopen?.note_id]);
   useEffect(()=>{
@@ -29,6 +33,15 @@ export default function EvidenceReader({project,file,reopen,onPassage,canSave}:{
       pane.current?.focus();pane.current?.setSelectionRange(start,end);
     }else setResolution('Saved passage unresolved: this page, text hash or extraction contract does not match. The saved quote is unchanged.');
   },[reopen,text]);
+  useEffect(()=>{if(citation)setPage(citation.page_number);},[citation?.file_id,citation?.version_id,citation?.page_number]);
+  useEffect(()=>{
+    if(!citation)return;
+    if(!text){setResolution('Saved citation unresolved until this exact current page is checked.');return;}
+    if(resolveCitation(citation,text)){
+      setResolution('Citation matched this exact current text range. Semantic support remains unchecked.');
+      const chars=Array.from(text.text);pane.current?.focus();pane.current?.setSelectionRange(chars.slice(0,citation.start_codepoint).join('').length,chars.slice(0,citation.end_codepoint).join('').length);
+    }else setResolution('Saved citation unresolved: exact version, hash, extraction or range does not match. The frozen excerpt is unchanged.');
+  },[citation?.file_id,citation?.version_id,citation?.sha256,citation?.page_number,citation?.page_text_sha256,citation?.extraction_contract,citation?.start_codepoint,citation?.end_codepoint,citation?.quote,text]);
   const choose=()=>{const el=pane.current;if(text&&el)setAnchor(selectionAnchor(text,el.selectionStart,el.selectionEnd));};
   const find=()=>{
     if(!text||!query)return;const from=pane.current?.selectionEnd??0;let index=text.text.indexOf(query,from);if(index<0)index=text.text.indexOf(query);

@@ -34,12 +34,12 @@ export const ChoiceSummary: React.FC<{ choices?: SavedChoices | UnreadableChoice
 
 export const ComposerChoices: React.FC<{
   descriptor: ChoicesDescriptor; value: ChoiceRequest | null; onChange: (choice: ChoiceRequest) => void;
-  disabled?: boolean;
-}> = ({ descriptor, value, onChange, disabled }) => {
+  disabled?: boolean; legend?: string; idPrefix?: string;
+}> = ({ descriptor, value, onChange, disabled, legend = "Choices for this conversation", idPrefix = "assistant" }) => {
   const connection = descriptor.connections.find(c => c.runtime === value?.runtime && c.provider === value?.provider);
   const api = value?.runtime === 'api_key';
   return <fieldset className="assistant-choices" disabled={disabled}>
-    <legend>Choices for this conversation</legend>
+    <legend>{legend}</legend>
     <label>Connection
       <select aria-label="Connection" value={value ? `${value.runtime}:${value.provider}` : ''} onChange={event => {
         const c = descriptor.connections.find(item => `${item.runtime}:${item.provider}` === event.target.value);
@@ -54,10 +54,10 @@ export const ComposerChoices: React.FC<{
     </label>
     {value && <>
       <label>Model
-        <input aria-label="Model" list={api ? undefined : 'assistant-claude-aliases'} maxLength={512}
+        <input aria-label="Model" list={api ? undefined : `${idPrefix}-claude-aliases`} maxLength={512}
           value={value.model ?? ''} placeholder={api ? 'Explicit model ID required' : 'Blank: omit flag; CLI default unknown'}
           onChange={event => onChange({ ...value, model: event.target.value || null })} />
-        {!api && <datalist id="assistant-claude-aliases">{descriptor.claude_aliases.map(alias => <option key={alias} value={alias} />)}</datalist>}
+        {!api && <datalist id={`${idPrefix}-claude-aliases`}>{descriptor.claude_aliases.map(alias => <option key={alias} value={alias} />)}</datalist>}
       </label>
       {api ? <p>Effort: Not supported by this adapter</p> : <label>Effort
         <select aria-label="Effort" value={value.effort ?? ''} onChange={event => onChange({ ...value, effort: event.target.value || null })}>

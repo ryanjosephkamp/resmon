@@ -214,7 +214,18 @@ class ApiKeyRuntime:
         api_key: Optional[str] = None,
         max_iterations: int = MAX_TOOL_ITERATIONS,
         max_tokens: int = MAX_TURN_TOKENS,
+        profile: Optional[str] = None,
     ) -> None:
+        if profile not in (None, 'selected_evidence_v1'):
+            raise ValueError('Unknown runtime profile')
+        self.profile = profile
+        self._selected_cancel = threading.Event()
+        self._selected_client = None
+        self._selected_response = None
+        self._selected_job = None
+        self._selected_owned_job = None
+        self.selected_system_sha256 = None
+        self._selected_deadline = None
         self.provider = (provider or "").strip().lower()
         self.model = (model or "").strip()
         self.backend_port = backend_port
@@ -318,6 +329,11 @@ class ApiKeyRuntime:
         here rather than silently ignored.
         """
         emit = on_event or (lambda _event: None)
+        if self.profile == 'selected_evidence_v1':
+            if history or resume or session_id >= 0:
+                raise ValueError('Selected evidence requires a fresh negative job and no history')
+            yield from self._selected_turn(session_id, prompt, emit)
+            return
         try:
             yield from self._loop(session_id, prompt, history, emit)
         except Exception as exc:                     # noqa: BLE001
@@ -504,10 +520,143 @@ class ApiKeyRuntime:
         return self._call_openai(key, constitution, tools, conversation, usage)
 
     def _post(self, url: str, *, headers: dict, payload: dict) -> dict:
+        if self.profile == 'selected_evidence_v1':
+            return self._selected_post(url, headers=headers, payload={k:v for k,v in payload.items() if k != 'tools'})
         with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
             response = client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             return response.json()
+
+    def cancel(self, session_id: int) -> bool:
+        if self.profile != 'selected_evidence_v1' or self._selected_owned_job != session_id:
+            return False
+        self._selected_cancel.set()
+        # Closing a synchronous response from another thread can strand its
+        # blocked read until timeout (observed with the loopback fixture). The
+        # owned thread closes it at the next chunk or the <=60s I/O deadline;
+        # the domain blocks publication immediately and retains its busy claim.
+        return True
+
+    def _selected_check(self) -> None:
+        if self._selected_cancel.is_set():
+            raise ValueError('selected_cancelled')
+        if self._selected_deadline is None or time.monotonic() >= self._selected_deadline:
+            raise TimeoutError('selected_deadline')
+
+    def _selected_post(self, url: str, *, headers: dict, payload: dict) -> dict:
+        from . import selected_evidence as se
+        self._selected_check()
+        # Identity encoding lets the byte cap precede both JSON allocation and
+        # decompression. No automatic redirect, tool round trip or HTTP retry.
+        headers = {**headers, 'Accept-Encoding':'identity'}
+        with httpx.Client(timeout=httpx.Timeout(connect=10, write=10, pool=10, read=60),
+                          follow_redirects=False) as client:
+            self._selected_client = client
+            try:
+                with client.stream('POST', url, headers=headers, json=payload) as response:
+                    self._selected_response = response
+                    if response.headers.get('content-encoding', 'identity').lower() != 'identity':
+                        raise ValueError('selected_response_encoding')
+                    raw = bytearray()
+                    for chunk in response.iter_raw():
+                        self._selected_check()
+                        if len(raw)+len(chunk) > 1048576:
+                            raise ValueError('selected_response_limit')
+                        raw.extend(chunk)
+                    self._selected_check()
+                    if response.status_code < 200 or response.status_code >= 300:
+                        raise ValueError('selected_http_failure')
+                    # Transport envelopes can contain cost/usage floats. Only
+                    # the separately validated research result is published.
+                    body = json.loads(raw.decode('utf-8'), object_pairs_hook=se._unique,
+                                      parse_constant=lambda _: se.fail('Nonfinite transport JSON'))
+                    if not isinstance(body, dict):
+                        raise ValueError('selected_response_shape')
+                    return body
+            finally:
+                self._selected_response = None
+                self._selected_client = None
+
+    def _selected_turn(self, session_id: int, prompt: str,
+                       emit: Callable[[dict], None]) -> Iterator[dict]:
+        from .selected_evidence_context import system_rules
+        from .assistant_choices import report
+        self._selected_job = session_id
+        self._selected_owned_job = session_id
+        self._selected_deadline = time.monotonic()+300
+        timer = threading.Timer(300, lambda: self.cancel(session_id))
+        timer.daemon = True
+        timer.start()
+        try:
+            self._selected_check()
+            if not self.status().available:
+                raise ValueError('selected_runtime_unavailable')
+            family = self.answer.family or 'openai'
+            # No tool-manifest conversion, permission dispatch or old turns.
+            usage = _Usage()
+            event = {'type':'started','runtime':self.kind,'provider':self.provider,
+                     'tools':[],'mcp_servers':[], 'cli_session_id':None}
+            emit(event); yield event
+            from .selected_evidence import sha
+            system = system_rules()
+            if self.selected_system_sha256 is not None and sha(system) != self.selected_system_sha256:
+                raise ValueError('Selected system rules changed after admission')
+            reply = self._call(family, system, [], _new_conversation(family, [], prompt), usage)
+            self._selected_check()
+            raw = reply['raw']
+            observation = report(raw.get('modelVersion' if family=='google' else 'model'),
+                                 'google_response_modelVersion' if family=='google' else 'api_response_model')
+            if observation:
+                event = {'type':'model_report','model_report':observation}
+                emit(event); yield event
+            if reply['tool_calls']:
+                raise ValueError('selected_unexpected_tool')
+            texts = reply['texts']
+            if any(not isinstance(t,str) for t in texts):
+                raise ValueError('selected_text_shape')
+            accepted = 0
+            for part in texts:
+                accepted += len(part.encode('utf-8'))
+                if accepted > 65536:
+                    raise ValueError('selected_text_limit')
+                event = {'type':'text_delta','text':part}
+                emit(event); yield event
+            if family == 'anthropic':
+                complete = raw.get('stop_reason') in ('end_turn','stop_sequence')
+            elif family == 'google':
+                candidates = raw.get('candidates') or []
+                complete = len(candidates)==1 and candidates[0].get('finishReason')=='STOP'
+            else:
+                choices = raw.get('choices') or []
+                complete = len(choices)==1 and choices[0].get('finish_reason')=='stop'
+            if not complete:
+                raise ValueError('selected_missing_completion')
+            self._selected_check()
+            # Keep a reported zero distinct from absent usage. Ordinary Ask's
+            # aggregation remains unchanged; this profile makes one request.
+            if family == 'google':
+                raw_usage = raw.get('usageMetadata') or {}
+                names = {'input_tokens':'promptTokenCount','output_tokens':'candidatesTokenCount'}
+            elif family == 'anthropic':
+                raw_usage = raw.get('usage') or {}
+                names = {'input_tokens':'input_tokens','output_tokens':'output_tokens',
+                         'cache_read_tokens':'cache_read_input_tokens','cache_creation_tokens':'cache_creation_input_tokens'}
+            else:
+                raw_usage = raw.get('usage') or {}
+                names = {'input_tokens':'prompt_tokens','output_tokens':'completion_tokens'}
+            event = {'type':'done','subtype':'success','is_error':False,
+                     **{name:raw_usage[key] for name,key in names.items()
+                        if type(raw_usage.get(key)) is int and raw_usage[key]>=0}}
+            emit(event); yield event
+        except Exception as exc:
+            # Raw exceptions can include key-bearing URLs and response bodies.
+            event = {'type':'error','detail':type(exc).__name__,
+                     'message':'Selected API request failed or was cancelled; no retry was sent.'}
+            emit(event); yield event
+        finally:
+            timer.cancel()
+            self._selected_job = None
+            self._selected_deadline = None
 
     def _call_anthropic(self, key: str, constitution: str, tools: list[dict],
                         conversation: dict, usage: _Usage) -> dict:

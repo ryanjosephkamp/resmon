@@ -40,7 +40,7 @@ test('Evidence actual collection, PDF/text passages, notes, restart, exact selec
   expect(rows).toHaveLength(1);const backendPid=Number(rows[0]![1]);backends.push(backendPid);
   const identity=await app.evaluate(({app})=>({pid:process.pid,state:process.env.RESMON_STATE_DIR,database:process.env.RESMON_DB_PATH,reports:process.env.RESMON_REPORTS_DIR,portFile:process.env.RESMON_PORT_FILE,profile:app.getPath('userData')}));
   expect(identity.state).toBe(state);expect(identity.database).toBe(env.RESMON_DB_PATH);expect(identity.profile).toBe(profile);expect(fs.readFileSync(env.RESMON_PORT_FILE,'utf8').trim()).toBe(port);
-  const health=await req<{pid:number;started_at:string;identity:{runtime_id:string;schema_version:number}}>('/api/health');expect(health.pid).toBe(backendPid);expect(health.identity.schema_version).toBe(17);
+  const health=await req<{pid:number;started_at:string;identity:{runtime_id:string;schema_version:number}}>('/api/health');expect(health.pid).toBe(backendPid);expect(health.identity.schema_version).toBe(18);
   instances.push({...identity,mainStart:started(mainPid),backendPid,backendStart:started(backendPid),health,source:REPO_ROOT,port,origin});receipt('instances',instances);
   await app.evaluate(({session,shell,dialog},args)=>{
    const g=globalThis as unknown as {evidenceNetwork:{allowed:string[];blocked:string[];opens:string[];downloads:string[];workerUrls:string[]}};g.evidenceNetwork={allowed:[],blocked:[],opens:[],downloads:[],workerUrls:[]};
