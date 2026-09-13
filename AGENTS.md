@@ -49,7 +49,7 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 2510 pass, 2 skip, 108 deselected
+.venv/bin/python -m pytest -q          # hermetic suite: 2516 pass, 2 skip, 108 deselected
 .venv/bin/python -m pytest -m live_network   # the 105 — real scholarly APIs, CLIs and sockets
                                              # 89 of them run weekly in CI; see below
 

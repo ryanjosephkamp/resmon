@@ -304,14 +304,27 @@ class Lane:
                     cleanup = 'unknown'
             except Exception:
                 cleanup = 'unknown'
-            conn.execute("UPDATE evidence_answers SET cleanup_state=? WHERE id=? AND owner_runtime_id=? AND state IN ('succeeded','refused','failed','cancelled','interrupted')",
-                         (cleanup,job.id,job.owner)); conn.commit()
-            if cleanup == 'unknown':
+            try:
+                # cancel() signals before committing its terminal row under this
+                # lock. Publishing earlier can update zero rows, then strand the
+                # cancelled answer at pending after the worker has completed.
+                # Transport cleanup stays outside: it may need a worker callback.
+                with job.lock:
+                    updated = conn.execute("UPDATE evidence_answers SET cleanup_state=? WHERE id=? AND owner_runtime_id=? AND state IN ('succeeded','refused','failed','cancelled','interrupted')",
+                                           (cleanup,job.id,job.owner))
+                    conn.commit()
+                    if cleanup == 'unknown' or updated.rowcount != 1:
+                        self.blocked = True
+                    # A stale owner cannot publish another owner's saved state.
+                    if updated.rowcount == 1:
+                        saved = se.row(conn,job.vault_id,job.project_id,job.answer_id)
+                        self._publish(job,'terminal',state=saved['state'],cleanup_state=saved['cleanup_state'])
+                    job.completed.set()
+            except Exception:
                 self.blocked = True
-            saved = se.row(conn,job.vault_id,job.project_id,job.answer_id)
-            self._publish(job,'terminal',state=saved['state'],cleanup_state=saved['cleanup_state'])
-            job.completed.set()
-            conn.close()
+                raise
+            finally:
+                conn.close()
 
     def cancel(self, answer_id: str, vault_id: str, project_id: str, runtime_id: str) -> dict:
         if runtime_id != self.runtime_id:
