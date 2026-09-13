@@ -62,4 +62,13 @@ describe('PageHelp', () => {
 
     expect(screen.queryByText('What this page does')).not.toBeInTheDocument();
   });
+
+  test('portable answer export guidance appears only in the existing Evidence help panel', () => {
+    const {unmount}=renderHelp('evidence');
+    act(()=>fireEvent.click(screen.getByText('Test Page')));
+    expect(screen.getByText(/Export HTML on a saved answer/)).toHaveTextContent('billing stays unknown');
+    expect(screen.getByText(/Export HTML on a saved answer/)).toHaveTextContent('ZIP action remains separate');
+    unmount();renderHelp('explorer');act(()=>fireEvent.click(screen.getByText('Test Page')));
+    expect(screen.queryByText(/Export HTML on a saved answer/)).toBeNull();
+  });
 });

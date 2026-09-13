@@ -135,6 +135,115 @@ def test_http_stop_has_one_terminal_and_no_late_success(http_selected):
     assert _json(c['client'].post(answer_url(c,a)+'/cancel',headers=HEADERS,json={'expected_vault_id':c['vault_id'],'expected_runtime_id':c['runtime_id']}))==final
 
 
+@pytest.mark.parametrize('mode',['question','briefing'])
+def test_real_http_html_and_zip_exact_headers_bytes_and_no_extra_runtime(http_selected,mode):
+    from test_evidence import sql_snapshot
+    from implementation_scripts import selected_evidence_html as document
+    c=http_selected;request=body(c);request['mode']=mode
+    p=_json(c['client'].post(f"{ROOT}/{c['project_id']}/answer-previews",headers=HEADERS,json=request));a=send(c,p)
+    deadline=time.monotonic()+10
+    while True:
+        saved=_json(c['client'].get(answer_url(c,a),headers=HEADERS,params=query(c)))
+        if saved['cleanup_state']=='confirmed':break
+        assert time.monotonic()<deadline;time.sleep(.02)
+    capture=c['capture'].read_bytes()
+    with sqlite3.connect(c['record']['database']) as conn:before=sql_snapshot(conn)
+    archive=c['client'].get(answer_url(c,a)+'/export',headers=HEADERS,params={**query(c),'format':'zip'})
+    response=c['client'].get(answer_url(c,a)+'/export',headers=HEADERS,params={**query(c),'format':'html'})
+    assert response.status_code==200
+    expected={'Content-Type':'text/html; charset=utf-8','Content-Disposition':'attachment; filename="selected-answer.html"',
+              'X-Resmon-Evidence-Contract':'selected-answer-html/v1','X-Resmon-Vault':c['vault_id'],
+              'X-Resmon-Project':c['project_id'],'X-Resmon-Bundle':a['answer_id'],'X-Resmon-Version':p['request_sha256'],
+              'Content-Length':str(len(response.content)),'X-Resmon-SHA256':hashlib.sha256(response.content).hexdigest(),
+              'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':document.CSP}
+    assert {k:response.headers.get(k) for k in expected}==expected
+    assert response.content==document.render(saved)
+    after_zip=c['client'].get(answer_url(c,a)+'/export',headers=HEADERS,params={**query(c),'format':'zip'})
+    assert after_zip.content==archive.content
+    assert c['capture'].read_bytes()==capture
+    with sqlite3.connect(c['record']['database']) as conn:assert sql_snapshot(conn)==before
+    (c['tmp']/('portable-'+mode+'.html')).write_bytes(response.content)
+    (c['tmp']/('portable-'+mode+'-headers.json')).write_text(json.dumps(dict(response.headers),indent=2))
+
+
+def test_real_http_html_unknown_corrupt_cross_identity_and_format_refusals(http_selected):
+    from test_evidence import sql_snapshot
+    c=http_selected;p=preview(c);a=send(c,p);deadline=time.monotonic()+10
+    while _json(c['client'].get(answer_url(c,a),headers=HEADERS,params=query(c)))['cleanup_state']!='confirmed':
+        assert time.monotonic()<deadline;time.sleep(.02)
+    capture=c['capture'].read_bytes();url=answer_url(c,a)+'/export'
+    with sqlite3.connect(c['record']['database']) as conn:before=sql_snapshot(conn)
+    for query_value,status in [(query(c),422),({**query(c),'format':'pdf'},422),
+                               ({**query(c),'format':'HTML'},422),({'expected_vault_id':str(uuid.uuid4()),'format':'html'},409)]:
+        response=c['client'].get(url,headers=HEADERS,params=query_value)
+        assert response.status_code==status,response.text
+        assert 'X-Resmon-SHA256' not in response.headers
+    for replacement in [url.replace(a['answer_id'],str(uuid.uuid4())),url.replace(c['project_id'],str(uuid.uuid4()))]:
+        response=c['client'].get(replacement,headers=HEADERS,params={**query(c),'format':'html'})
+        assert response.status_code==404,response.text
+    for headers in ({},{'Origin':'null','X-Resmon-Library':'1'},{'Origin':'https://invalid.test','X-Resmon-Library':'1'}):
+        assert c['client'].get(url,headers=headers,params={**query(c),'format':'html'}).status_code==403
+    with sqlite3.connect(c['record']['database']) as conn:
+        assert sql_snapshot(conn)==before
+        conn.execute('UPDATE evidence_answers SET reports_json=? WHERE answer_id=?',('[{}]',a['answer_id']));conn.commit()
+        corrupt=sql_snapshot(conn)
+    response=c['client'].get(url,headers=HEADERS,params={**query(c),'format':'html'})
+    assert response.status_code==409 and response.json()['detail']['reason']=='corrupt_record'
+    assert 'X-Resmon-SHA256' not in response.headers
+    with sqlite3.connect(c['record']['database']) as conn:assert sql_snapshot(conn)==corrupt
+    assert c['capture'].read_bytes()==capture
+
+
+def test_real_http_html_escaped_expansion_hits_actual_4mib_413_without_spool(http_selected):
+    """Authored expansion drives the real final-byte limit and HTTP mapping.
+
+    Existing saved-data limits are tighter: this is not a naturally admitted
+    4 MiB snapshot. Only escaped rendering is expanded, in an isolated process.
+    """
+    from test_evidence import sql_snapshot
+    c=http_selected;p=preview(c);a=send(c,p);deadline=time.monotonic()+10
+    while _json(c['client'].get(answer_url(c,a),headers=HEADERS,params=query(c)))['cleanup_state']!='confirmed':
+        assert time.monotonic()<deadline;time.sleep(.02)
+    root=c['tmp']/'html-expansion';root.mkdir();state=root/'state';state.mkdir();spools=root/'tmp';spools.mkdir()
+    destination=state/'resmon.db'
+    with sqlite3.connect(c['record']['database']) as old,sqlite3.connect(destination) as new:old.backup(new)
+    env=dict(os.environ);env.update(RESMON_STATE_DIR=str(state),RESMON_DB_PATH=str(destination),RESMON_REPORTS_DIR=str(root/'reports'),RESMON_PORT_FILE=str(state/'resmon.port'),RESMON_DISABLE_SCHEDULER='1',TMPDIR=str(spools),PYTHON_KEYRING_BACKEND='keyring.backends.null.Keyring')
+    source=Path(__file__).parents[2];identity=root/'identity.json';log=root/'server.log'
+    script='''import os,socket,sys,json,datetime,subprocess
+import uvicorn,resmon
+from implementation_scripts import selected_evidence_html as document
+original=document._text
+document._text=lambda value:original(value)*1000
+assert document.MAX_BYTES==4194304
+s=socket.socket();s.bind(('127.0.0.1',0));s.listen(128);port=s.getsockname()[1];assert port!=8742
+resmon.serving_port=lambda:port
+json.dump({'pid':os.getpid(),'port':port,'source':os.getcwd(),'state':os.environ['RESMON_STATE_DIR'],'database':os.environ['RESMON_DB_PATH'],'start':datetime.datetime.now(datetime.timezone.utc).isoformat(),'process_start':subprocess.check_output(['ps','-p',str(os.getpid()),'-o','lstart='],text=True).strip(),'fault':'1000x escaped literal expansion; actual 4MiB guard unchanged'},open(sys.argv[1],'w'))
+uvicorn.Server(uvicorn.Config(resmon.app,log_level='error')).run(sockets=[s])
+'''
+    with log.open('w') as output:
+        process=subprocess.Popen([sys.executable,'-c',script,str(identity)],cwd=source/'resmon_scripts',env=env,stdout=output,stderr=output)
+        try:
+            deadline=time.monotonic()+10
+            while not identity.exists():assert process.poll() is None;assert time.monotonic()<deadline;time.sleep(.02)
+            record=json.loads(identity.read_text());assert record['pid']==process.pid and record['port']!=8742
+            with httpx.Client(base_url=f"http://127.0.0.1:{record['port']}",timeout=15) as client:
+                while True:
+                    try:
+                        if client.get('/api/library',headers=HEADERS).status_code==200:break
+                    except httpx.ConnectError:pass
+                    assert process.poll() is None;assert time.monotonic()<deadline;time.sleep(.02)
+                with sqlite3.connect(destination) as conn:before=sql_snapshot(conn)
+                response=client.get(answer_url(c,a)+'/export',headers=HEADERS,params={**query(c),'format':'html'})
+                assert response.status_code==413 and response.json()['detail']['reason']=='export_limit'
+                assert 'X-Resmon-SHA256' not in response.headers and 'Content-Disposition' not in response.headers
+                with sqlite3.connect(destination) as conn:assert sql_snapshot(conn)==before
+                assert not list(spools.glob('resmon-evidence-bundle-*'))
+                (root/'response.json').write_text(json.dumps({'status':response.status_code,'headers':dict(response.headers),'body':response.json(),'argv':[sys.executable,'-c',script,str(identity)]},indent=2))
+        finally:
+            process.terminate();code=process.wait(timeout=15)
+            (root/'cleanup.json').write_text(json.dumps({'pid':process.pid,'exit':code,'reaped':True}))
+
+
 # Reuse the pre-existing HTTP regression verbatim, including its WRONG/CONFIRM
 # calls and all old assertions. Add only a saved-answer preservation sentinel;
 # this wrapper introduces no new admin request or erase/activation journey.

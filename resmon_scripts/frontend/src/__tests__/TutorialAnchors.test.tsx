@@ -54,4 +54,10 @@ describe('Tutorial deep links', () => {
     const orphans = anchors.filter((a) => !sectionAnchors.has(a.anchor));
     expect(orphans).toEqual([]);
   });
+
+  test('Evidence tutorial describes the separate offline HTML action without replacing ZIP', () => {
+    const evidence=tutorialsTab.text.split("anchor: 'evidence'")[1]?.split('],')[0]??'';
+    expect(evidence).toContain('Export HTML saves a separate readable offline document');
+    expect(evidence).toContain('The existing ZIP action stays available');
+  });
 });
