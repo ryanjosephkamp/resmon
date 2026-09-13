@@ -58,7 +58,7 @@ No selected-answer MCP tool is added. Paths below begin with
 | GET `/answers/{answer_id}` | Durable answer plus immutable request, selected excerpts and public reports |
 | GET `/answers/{answer_id}/events` | One owned SSE subscriber; expected runtime required |
 | POST `/answers/{answer_id}/cancel` | Cancel the exact owner/runtime operation |
-| GET `/answers/{answer_id}/export?format=zip` | One saved answer and selected-text ZIP |
+| GET `/answers/{answer_id}/export?format=zip` or `format=html` | One explicit saved-answer ZIP or separate static HTML document |
 
 SSE frames carry answer/request/project/vault/runtime identities and monotonic
 sequence numbers. Initial state is a full saved snapshot, followed by bounded
@@ -126,3 +126,59 @@ paths, literal fenced Markdown and selected excerpts/notes/coverage. Partial and
 terminal failures stay explicitly unvalidated. The download checks exact identity
 headers, length and SHA256 before the browser flow; owned spools and object URLs
 are cleaned. It is not a full-paper archive, encrypted backup or restore format.
+
+## Portable HTML, selected-answer-html/v1
+
+`format=html` extends that same guarded endpoint; omitted and unknown formats
+refuse. Schema remains 18, with 165 app route decorators (19 Evidence routes,
+including the same seven selected-answer routes) and unchanged 25-tool MCP
+inventory. Export reads exactly one validated `selected_evidence.detail` public
+snapshot, using its existing single read transaction. No originals, runtime,
+private binding or native-session history is consulted.
+
+The response is `text/html; charset=utf-8`, with fixed attachment filename
+`selected-answer.html`, no-store, nosniff and the restrictive document CSP. Headers:
+
+| Header | Value |
+| --- | --- |
+| `X-Resmon-Evidence-Contract` | `selected-answer-html/v1` |
+| `X-Resmon-Vault` / `X-Resmon-Project` | Exact selected vault/project UUIDs |
+| `X-Resmon-Bundle` | Saved answer UUID |
+| `X-Resmon-Version` | Saved request SHA256 |
+| `Content-Length` / `X-Resmon-SHA256` | Final UTF-8 byte count / SHA256 |
+
+The final document, after escaping, is at most 4,194,304 bytes; app-authored CSS
+is at most 65,536 bytes. Oversize returns `export_limit`/413 before advertising a
+download. Cancellable render/write work uses the existing owned spool/chunks and
+cleanup; a failure does not mutate saved rows or claim a complete file.
+
+The renderer escapes every untrusted value as text, retaining CR codepoints with
+character references. It emits only index-derived IDs and fragment links, native
+details, semantic headings and wrapping system-font CSS. There are no scripts,
+active resources, forms, interpreted Markdown, auto-linked URLs or embedded PDFs.
+CSP is early in the file and also in HTTP: default/script/connect/image/media/
+object/frame/font sources are none; base-uri and form-action are none; style-src
+permits only the SHA256 of the exact authored CSS. Browser support for CSP is
+additional defense, not the basis for accepting untrusted markup.
+
+All seven saved states retain their validation, cleanup, timestamps and unknowns.
+Structured results appear only after existing validation; other available text
+is explicitly incomplete/unvalidated. Each citation targets its exact saved
+source/quote/codepoint range and has a distinct return link. Selected notes,
+source identities, coverage basis, requested settings, literal observations and
+reported usage remain separate. No source URL becomes an external link.
+
+The frontend validates exact headers/identities, bounded bytes, SHA256, UTF-8,
+document envelope and owned cancellation before creating a download object URL.
+It never inserts export HTML into the app DOM. Changing the answer/project/vault
+retires the prior export and its status. The legacy three-argument
+`downloadSelectedAnswer(project, answer, signal)` still selects ZIP. For an
+identical saved snapshot, ZIP bytes, member order/names and public JSON/Markdown
+remain unchanged; HTML is not inserted into the ZIP.
+
+Checks: `test_portable_briefing.py`, additions to the selected export/boundary
+suites and renderer download/view suites, and `e2e/portable-briefing.spec.ts`.
+The latter uses real HTTP and scripted download destinations, then a separate
+file reader after app shutdown with request observation/cancellation installed
+before loading. It does not establish physical Android, human native Save/Cancel
+or live-model acceptance. See [the reading guide](../portable-briefing.md).

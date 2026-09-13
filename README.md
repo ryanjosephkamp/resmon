@@ -193,6 +193,13 @@ truncated. Citation checks establish exact selected-text identity; they do not
 establish semantic support, research quality or truth. Stop requests cancellation;
 remote completion, retention and billing can remain unknown. Saved answers and
 selected-text ZIPs remain available without the original files or a model call.
+**Export HTML** separately saves one readable offline document with frozen
+citations and return links, source excerpts, selected local notes, coverage and
+requested/reported settings. Open the downloaded file in a browser after closing
+resmon. It contains no scripts, remote assets, PDFs or current-original links;
+URLs in source text stay literal. Partial and unknown states stay explicit.
+The existing ZIP action and its three members are unchanged. See the
+[portable briefing guide](docs/portable-briefing.md) for navigation and limits.
 See the [selected-answer contract](docs/api-contract/selected-evidence.md).
 
 ### The assistant

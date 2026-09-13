@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import zipfile
 
-from . import evidence_export, selected_evidence as se
+from . import evidence_export, selected_evidence as se, selected_evidence_html
 
 
 def markdown(answer: dict) -> str:
@@ -63,3 +63,25 @@ def build(conn: sqlite3.Connection, vault_id: str, project_id: str, answer_id: s
         return bundle
     except BaseException:
         bundle.close(); raise
+
+
+def build_html(conn: sqlite3.Connection, vault_id: str, project_id: str, answer_id: str,
+               *, cancel: threading.Event | None = None) -> evidence_export.Bundle:
+    evidence_export.cancelled(cancel)
+    answer = se.detail(conn, vault_id, project_id, answer_id)
+    raw = selected_evidence_html.render(answer, cancel=cancel)
+    bundle = evidence_export.Bundle()
+    try:
+        with bundle.path.open('wb') as stream:
+            for offset in range(0, len(raw), 65536):
+                evidence_export.cancelled(cancel)
+                stream.write(raw[offset:offset + 65536])
+        evidence_export.cancelled(cancel)
+        bundle.size = len(raw)
+        bundle.manifest = {'answer_id': answer_id, 'vault_id': vault_id, 'project_id': project_id,
+                           'request_sha256': answer['request_sha256'],
+                           'sha256': hashlib.sha256(raw).hexdigest()}
+        return bundle
+    except BaseException:
+        bundle.close()
+        raise

@@ -2780,15 +2780,22 @@ async def selected_answer_events(request: Request, project_id: str, answer_id: s
 @app.get('/api/evidence/projects/{project_id}/answers/{answer_id}/export', response_model=None)
 async def selected_answer_export(request: Request, project_id: str, answer_id: str) -> StreamingResponse:
     q = _evidence_query(request, ('expected_vault_id','format'))
-    if q.get('format') != 'zip':
-        raise HTTPException(422, 'Select format=zip explicitly.')
-    bundle = await _evidence_run(request, lambda c,cancel: selected_evidence_export.build(c,_evidence_required(q,'expected_vault_id'),project_id,answer_id,cancel=cancel))
+    if q.get('format') not in ('zip', 'html'):
+        raise HTTPException(422, 'Select format=zip or format=html explicitly.')
+    is_html = q['format'] == 'html'
+    build = selected_evidence_export.build_html if is_html else selected_evidence_export.build
+    bundle = await _evidence_run(request, lambda c,cancel: build(c,_evidence_required(q,'expected_vault_id'),project_id,answer_id,cancel=cancel))
     m = bundle.manifest
     headers = {'Content-Disposition':'attachment; filename="selected-answer.zip"','Content-Length':str(bundle.size),
                'X-Resmon-Evidence-Contract':'selected-answer/v1','X-Resmon-Vault':m['vault_id'],'X-Resmon-Project':project_id,
                'X-Resmon-Bundle':answer_id,'X-Resmon-SHA256':m['sha256'],'X-Resmon-Version':m['request_sha256']}
+    if is_html:
+        headers.update({'Content-Disposition':'attachment; filename="selected-answer.html"',
+                        'X-Resmon-Evidence-Contract':selected_evidence_export.selected_evidence_html.CONTRACT,
+                        'Content-Security-Policy':selected_evidence_export.selected_evidence_html.CSP,
+                        'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff'})
     from starlette.background import BackgroundTask
-    return StreamingResponse(bundle.chunks(),media_type='application/zip',headers=headers,background=BackgroundTask(bundle.close))
+    return StreamingResponse(bundle.chunks(),media_type='text/html' if is_html else 'application/zip',headers=headers,background=BackgroundTask(bundle.close))
 
 
 @app.get('/api/evidence/projects', response_model=None)

@@ -7,6 +7,7 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
+import subprocess
 import threading
 import time
 import uuid
@@ -18,6 +19,314 @@ from implementation_scripts import assistant_tool_calling, selected_evidence as 
 from implementation_scripts import selected_evidence_context as ctx, selected_evidence_runtime as lane
 from test_selected_evidence_context import workspace, available, selection, assemble
 from test_selected_evidence import answer
+from test_evidence import Workspace, sql_snapshot, files_snapshot
+
+
+class CancellationTrace:
+    """Observe real SQL/locks/processes; barriers control scheduling only."""
+
+    def __init__(self, name: str, tmp_path: Path) -> None:
+        self.started = time.monotonic_ns()
+        self.lock = threading.Lock()
+        self.events: list[dict] = []
+        parent = Path(os.environ.get('RESMON_E2E_SCREENSHOT_DIR', str(tmp_path)))
+        self.output = parent / ('cancellation-' + name)
+        self.output.mkdir(parents=True, exist_ok=True)
+
+    def write(self, name: str, value: object) -> None:
+        (self.output / name).write_text(json.dumps(value, indent=2,
+            default=lambda value: {'sqlite_blob_hex': value.hex()} if isinstance(value, bytes)
+            else str(value)) + '\n')
+
+    def record(self, kind: str, **values: object) -> None:
+        with self.lock:
+            self.events.append({'order': len(self.events) + 1,
+                'elapsed_ns': time.monotonic_ns() - self.started,
+                'thread': threading.current_thread().name, 'kind': kind, **values})
+            self.write('trace.json', self.events)
+
+
+def cancellation_conservation(w: Workspace, trace: CancellationTrace,
+                              before: dict, files: dict, answer_ids: list[int]) -> None:
+    after = sql_snapshot(w.conn)
+    trace.write('sqlite-before.json', before)
+    trace.write('sqlite-after.json', after)
+    trace.write('files-before.json', [{'path': key, 'value': value} for key, value in files.items()])
+    trace.write('files-after.json', [{'path': key, 'value': value} for key, value in files_snapshot(w).items()])
+    excluded = ('evidence_answers', 'sqlite_sequence')
+    assert {k: v for k, v in before.items() if k not in excluded} == {
+        k: v for k, v in after.items() if k not in excluded}
+    assert not before['evidence_answers']
+    assert len(after['evidence_answers']) == len(answer_ids)
+    assert dict(after['sqlite_sequence']) == {
+        **dict(before['sqlite_sequence']), 'evidence_answers': max(answer_ids)}
+    assert files_snapshot(w) == files
+    trace.record('conservation', table_count=len(before), file_count=len(files),
+                 owned_answer_ids=answer_ids, other_tables_unchanged=True, files_unchanged=True)
+
+
+@pytest.mark.parametrize('scenario', ['before_worker', 'overlap', 'already_running'])
+def test_owned_cancellation_publication_order(workspace: Workspace, tmp_path: Path,
+                                             monkeypatch: pytest.MonkeyPatch, scenario: str) -> None:
+    """C01-C03: admission, terminal persistence and cleanup use real modules."""
+    from implementation_scripts import database
+    trace = CancellationTrace(scenario, tmp_path)
+    entered = threading.Event(); release_worker = threading.Event()
+    finish_entered = threading.Event(); release_finish = threading.Event()
+    cleanup_returned = threading.Event(); publication_attempt = threading.Event()
+    worker_errors: list[str] = []; cancel_errors: list[str] = []
+    processes: list[subprocess.Popen] = []; rowcounts: list[int] = []
+    original_run = lane.Lane._run; original_finish = se.finish
+    original_connection = database.get_connection; original_popen = subprocess.Popen
+    binary, capture = fake_cli(tmp_path, fault='wait')
+    value = lane.Lane(str(workspace.database), str(uuid.uuid4()), 45671,
+                      lambda conn: {'ai_cli_path': str(binary)})
+    before = sql_snapshot(workspace.conn); files = files_snapshot(workspace)
+
+    class ObservedLock:
+        def __init__(self, inner: object) -> None:
+            self.inner = inner
+        def __enter__(self) -> object:
+            if threading.current_thread() is value.job.thread and cleanup_returned.is_set():
+                trace.record('publication_lock_attempt', cleanup_rowcounts=list(rowcounts))
+                publication_attempt.set()
+            return self.inner.__enter__()
+        def __exit__(self, *args: object) -> object:
+            return self.inner.__exit__(*args)
+
+    class ObservedConnection:
+        def __init__(self, inner: object) -> None:
+            self.inner = inner
+        def __getattr__(self, name: str) -> object:
+            return getattr(self.inner, name)
+        def execute(self, sql: str, parameters: tuple = ()) -> object:
+            cursor = self.inner.execute(sql, parameters)
+            if sql.startswith('UPDATE evidence_answers SET cleanup_state='):
+                rowcounts.append(cursor.rowcount)
+                trace.record('cleanup_update', rowcount=cursor.rowcount, parameters=parameters)
+            return cursor
+        def close(self) -> None:
+            self.inner.close()
+            trace.record('connection_closed')
+
+    def scheduled_run(self: lane.Lane, job: lane.Job) -> None:
+        job.lock = ObservedLock(job.lock)
+        original_cancel = job.runtime.cancel
+        def observed_cancel(job_id: int) -> bool:
+            result = original_cancel(job_id)
+            if threading.current_thread() is job.thread:
+                cleanup_returned.set()
+                trace.record('worker_transport_cleanup_returned', running=cli.is_running(job_id))
+            return result
+        job.runtime.cancel = observed_cancel
+        entered.set()
+        try:
+            if scenario != 'already_running':
+                assert release_worker.wait(5), 'worker barrier was not released'
+            trace.record('worker_released', cancelled=job.cancelled.is_set())
+            original_run(self, job)
+        except BaseException as error:
+            worker_errors.append(repr(error))
+        finally:
+            trace.record('worker_returned', errors=list(worker_errors))
+
+    def scheduled_finish(conn: object, answer_id: str, owner: str, state: str, **kwargs: object) -> bool:
+        if state == 'cancelled' and scenario == 'overlap':
+            trace.record('cancel_before_terminal_sql', cancelled=value.job.cancelled.is_set())
+            finish_entered.set()
+            assert release_finish.wait(5), 'terminal barrier was not released'
+        changed = original_finish(conn, answer_id, owner, state, **kwargs)
+        trace.record('terminal_write_returned', state=state, changed=changed)
+        return changed
+
+    def observed_popen(argv: list, *args: object, **kwargs: object) -> subprocess.Popen:
+        process = original_popen(argv, *args, **kwargs)
+        if argv and str(argv[0]) == str(binary):
+            processes.append(process)
+            trace.record('fake_cli_spawn', pid=process.pid, argv0=str(argv[0]))
+        return process
+
+    monkeypatch.setattr(lane.Lane, '_run', scheduled_run)
+    monkeypatch.setattr(se, 'finish', scheduled_finish)
+    monkeypatch.setattr(database, 'get_connection', lambda *a, **k: ObservedConnection(original_connection(*a, **k)))
+    monkeypatch.setattr(subprocess, 'Popen', observed_popen)
+    cancellation = None
+    try:
+        preview, consent, result = admitted(workspace, value, selection(workspace, expected_runtime_id=value.runtime_id))
+        assert entered.wait(5)
+        job = value.job
+        trace.write('request.json', {'preview': preview, 'consent': consent, 'admission': result,
+                                    'request': job.request, 'database': str(workspace.database)})
+        if scenario == 'overlap':
+            def cancel() -> None:
+                try:
+                    value.cancel(job.answer_id, job.vault_id, job.project_id, job.owner)
+                except BaseException as error:
+                    cancel_errors.append(repr(error))
+            cancellation = threading.Thread(target=cancel, name='controlled-selected-cancel')
+            cancellation.start()
+            assert finish_entered.wait(5)
+            release_worker.set()
+            # Both versions reach a real lock acquisition: the old implementation
+            # gets here in _publish *after* its lost UPDATE; the repair gets here
+            # before the UPDATE. Do not wait for a commit a correct lock prevents.
+            assert publication_attempt.wait(5)
+            trace.record('overlap_observed', rowcounts=list(rowcounts), completed=job.completed.is_set())
+            assert not job.completed.is_set()
+            release_finish.set()
+            cancellation.join(5)
+            assert not cancellation.is_alive()
+        else:
+            if scenario == 'already_running':
+                deadline = time.monotonic() + 5
+                captured = None
+                while time.monotonic() < deadline:
+                    if capture.exists():
+                        try: captured = json.loads(capture.read_text())
+                        except (ValueError, OSError): pass
+                    if captured and cli.is_running(-job.id): break
+                    time.sleep(.01)
+                assert captured and cli.is_running(-job.id)
+                trace.write('captured-cli.json', captured)
+                trace.record('running_observed', pid=captured['pid'], process_start=captured['process_start'])
+            cancelled = value.cancel(job.answer_id, job.vault_id, job.project_id, job.owner)
+            trace.record('cancel_returned', state=cancelled['state'], cleanup=cancelled['cleanup_state'])
+            release_worker.set()
+        job.thread.join(5)
+        assert not job.thread.is_alive() and job.completed.is_set()
+        assert not worker_errors and not cancel_errors
+        saved = se.detail(workspace.conn, job.vault_id, job.project_id, job.answer_id)
+        events = []
+        while not job.events.empty():
+            events.append(value.next_event(job))
+        trace.write('result.json', {'saved': saved, 'events': events, 'cleanup_rowcounts': rowcounts,
+            'processes': [{'pid': p.pid, 'exit': p.poll()} for p in processes],
+            'runtime_running': cli.is_running(-job.id), 'completed': job.completed.is_set()})
+        cancellation_conservation(workspace, trace, before, files, [job.id])
+        assert len(processes) == (1 if scenario == 'already_running' else 0)
+        assert all(p.poll() is not None for p in processes) and not cli.is_running(-job.id)
+        assert saved['state'] == 'cancelled' and saved['cleanup_state'] == 'confirmed'
+        assert rowcounts == [1]
+        terminal = [e for e in events if e['type'] == 'terminal']
+        assert len(terminal) == 1 and terminal[0]['state'] == 'cancelled'
+        assert terminal[0]['cleanup_state'] == 'confirmed'
+        assert not original_finish(workspace.conn, job.answer_id, job.owner, 'succeeded', partial='late', reports=[])
+        assert se.detail(workspace.conn, job.vault_id, job.project_id, job.answer_id) == saved
+    finally:
+        release_worker.set(); release_finish.set()
+        if cancellation is not None: cancellation.join(5)
+        value.shutdown()
+        if value.job:
+            value.job.thread.join(5)
+            if value.job.timer: value.job.timer.join(5)
+            trace.record('joined', worker_alive=value.job.thread.is_alive(),
+                timer_alive=bool(value.job.timer and value.job.timer.is_alive()),
+                cancel_alive=bool(cancellation and cancellation.is_alive()),
+                remaining_owned_processes=[p.pid for p in processes if p.poll() is None])
+            assert not value.job.thread.is_alive()
+            assert not value.job.timer or not value.job.timer.is_alive()
+        assert not cancellation or not cancellation.is_alive()
+        assert all(p.poll() is not None for p in processes)
+
+
+@pytest.mark.parametrize('cleanup', ['confirmed', 'unknown'])
+def test_owned_cancellation_admission_waits_for_cleanup(workspace: Workspace, tmp_path: Path,
+                                                       monkeypatch: pytest.MonkeyPatch, cleanup: str) -> None:
+    """C04: no admission while pending/unknown; fresh consent after completion."""
+    trace = CancellationTrace('admission-' + cleanup, tmp_path)
+    value, body, capture = real_lane(workspace, tmp_path)
+    intruder = lane.Lane(str(workspace.database), str(uuid.uuid4()), value.port, value.settings)
+    entered = threading.Event(); release = threading.Event()
+    original_run = lane.Lane._run
+    before = sql_snapshot(workspace.conn); files = files_snapshot(workspace)
+    def scheduled_run(self: lane.Lane, job: lane.Job) -> None:
+        if cleanup == 'unknown':
+            original_cancel = job.runtime.cancel
+            def cleanup_fault(job_id: int) -> bool:
+                result = original_cancel(job_id)
+                if threading.current_thread() is job.thread:
+                    raise OSError('Authored unresolved local cleanup')
+                return result
+            job.runtime.cancel = cleanup_fault
+        entered.set()
+        assert release.wait(5)
+        original_run(self, job)
+    monkeypatch.setattr(lane.Lane, '_run', scheduled_run)
+    try:
+        _, _, result = admitted(workspace, value, body)
+        assert entered.wait(5)
+        job = value.job
+        raw = sql_snapshot(workspace.conn)
+        with pytest.raises(se.ev.EvidenceError, match='runtime changed'):
+            value.cancel(job.answer_id, job.vault_id, job.project_id, str(uuid.uuid4()))
+        with pytest.raises(se.ev.EvidenceError) as refusal:
+            intruder.cancel(job.answer_id, job.vault_id, job.project_id, intruder.runtime_id)
+        assert refusal.value.reason == 'wrong_owner' and sql_snapshot(workspace.conn) == raw
+        value.cancel(job.answer_id, job.vault_id, job.project_id, job.owner)
+        pending = se.detail(workspace.conn, job.vault_id, job.project_id, job.answer_id)
+        assert pending['state'] == 'cancelled' and pending['cleanup_state'] == 'pending'
+        trace.write('pending.json', pending)
+        with pytest.raises(se.ev.EvidenceError) as refusal:
+            admitted(workspace, value, body)
+        assert refusal.value.reason == 'lane_busy' and not capture.exists()
+        release.set(); job.thread.join(5); job.timer.join(5)
+        assert not job.thread.is_alive() and not job.timer.is_alive() and job.completed.is_set()
+        saved = se.detail(workspace.conn, job.vault_id, job.project_id, job.answer_id)
+        assert saved['cleanup_state'] == cleanup
+        trace.write('first-completion.json', saved)
+        answer_ids = [job.id]
+        if cleanup == 'unknown':
+            with pytest.raises(se.ev.EvidenceError) as refusal:
+                admitted(workspace, value, body)
+            assert refusal.value.reason == 'lane_busy' and not capture.exists()
+        else:
+            _, consent, later = admitted(workspace, value, body)
+            next_job = value.job
+            assert next_job.answer_id != job.answer_id and next_job.native_id != job.native_id
+            assert next_job.completed.wait(5)
+            next_job.thread.join(5); next_job.timer.join(5)
+            next_saved = se.detail(workspace.conn, next_job.vault_id, next_job.project_id, next_job.answer_id)
+            assert next_saved['state'] == 'succeeded' and next_saved['cleanup_state'] == 'confirmed'
+            captured = json.loads(capture.read_text())
+            assert '--resume' not in captured['argv']
+            trace.write('new-consent.json', {'consent': consent, 'admission': later, 'saved': next_saved, 'capture': captured})
+            answer_ids.append(next_job.id)
+        cancellation_conservation(workspace, trace, before, files, answer_ids)
+    finally:
+        release.set(); value.shutdown()
+        if value.job:
+            value.job.thread.join(5); value.job.timer.join(5)
+            assert not value.job.thread.is_alive() and not value.job.timer.is_alive()
+            trace.record('joined', worker_alive=False, timer_alive=False, runtime_running=cli.is_running(-value.job.id))
+
+
+def test_owned_cancellation_cleanup_cannot_publish_for_wrong_owner(workspace: Workspace, tmp_path: Path,
+                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    """C04 ownership guard also applies to final cleanup publication."""
+    trace = CancellationTrace('wrong-owner', tmp_path)
+    value, body, capture = real_lane(workspace, tmp_path)
+    entered = threading.Event(); release = threading.Event()
+    original_run = lane.Lane._run
+    def scheduled_run(self: lane.Lane, job: lane.Job) -> None:
+        entered.set(); assert release.wait(5)
+        original_run(self, job)
+    monkeypatch.setattr(lane.Lane, '_run', scheduled_run)
+    try:
+        admitted(workspace, value, body); assert entered.wait(5)
+        job = value.job
+        before = sql_snapshot(workspace.conn)
+        job.owner = str(uuid.uuid4())  # stale worker identity; persisted row stays owned by the actual runtime
+        release.set(); job.thread.join(5); job.timer.join(5)
+        assert not job.thread.is_alive() and not job.timer.is_alive()
+        after = sql_snapshot(workspace.conn)
+        trace.write('result.json', {'before': before, 'after': after,
+            'events': list(job.events.queue), 'blocked': value.blocked, 'completed': job.completed.is_set()})
+        assert before == after and not capture.exists()
+        assert job.events.empty() and value.blocked
+    finally:
+        release.set(); value.shutdown()
+        if value.job:
+            value.job.thread.join(5); value.job.timer.join(5)
 
 
 def fake_cli(tmp_path: Path, *, fault: str = '') -> tuple[Path,Path]:

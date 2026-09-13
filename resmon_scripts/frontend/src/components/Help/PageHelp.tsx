@@ -78,6 +78,7 @@ const PageHelp: React.FC<PageHelpProps> = ({ storageKey, title, summary, section
                 </div>
               ))
             : children}
+          {storageKey === 'evidence' && <p>Export HTML on a saved answer creates one readable offline document with frozen citation and return links, selected local notes, coverage and requested/reported settings. Open the downloaded file in a browser after resmon closes. Partial results stay unvalidated, billing stays unknown and no model or current original is read. The existing selected-text ZIP action remains separate.</p>}
         </div>
       )}
     </div>
