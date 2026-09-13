@@ -23,7 +23,7 @@ test('Portable briefing: exact saved downloads, stale guards, seven offline stat
  const env=launchEnv(dirs.state,true);env.PYTHON_KEYRING_BACKEND='keyring.backends.null.Keyring';
  const python=execFileSync(env.RESMON_PYTHON,['-c','import sys;print(sys.executable)'],{env,encoding:'utf8'}).trim();
  const fake=await selectedEvidenceTransport(root,python);env.RESMON_PYTHON=fake.backend;
- const py=(code:string,...args:string[])=>execFileSync(python,['-c',code,...args],{cwd:REPO_ROOT,env,encoding:'utf8'});
+ const py=(code:string,...args:string[])=>execFileSync(python,['-c',code,...args],{cwd:path.join(REPO_ROOT,'resmon_scripts'),env,encoding:'utf8'});
  const sql=()=>py("import sqlite3,json,sys;c=sqlite3.connect(sys.argv[1]);tables=[r[0] for r in c.execute(\"SELECT name FROM sqlite_master WHERE type='table'\")];print(json.dumps({t:sorted(list(c.execute('SELECT * FROM '+t)),key=repr) for t in sorted(tables)},default=lambda value:{'sqlite_blob_hex':value.hex()}));c.close()",env.RESMON_DB_PATH);
  const originals=['two-pages.pdf','unicode.txt'];for(const name of originals)fs.copyFileSync(path.join(REPO_ROOT,'resmon_scripts/verification_scripts/fixtures/evidence',name),path.join(dirs.originals,name));
  fs.writeFileSync(path.join(dirs.originals,'hostile.txt'),hostile+'\n'+'longword'.repeat(120));originals.push('hostile.txt');
@@ -46,7 +46,9 @@ test('Portable briefing: exact saved downloads, stale guards, seven offline stat
    shell.openExternal=async url=>{g.portableNetwork.opens.push(url);};shell.openPath=async target=>{g.portableNetwork.opens.push(target);return 'Not an authorized destination';};
    dialog.showOpenDialog=async()=>({canceled:false,filePaths:[v.parent]});session.defaultSession.on('will-download',(_event,item)=>g.portableNetwork.downloads.push(item.getFilename()));
   },{base,origin,parent:dirs['vault-parent']});
-  await win.evaluate(()=>{const original=window.fetch;const requests:{url:string;method:string}[]=[];(window as unknown as {portableRequests:typeof requests}).portableRequests=requests;window.fetch=async(input,init)=>{requests.push({url:String(input),method:init?.method??'GET'});return original(input,init);};});
+  // Clone the actual native fetch body before handing it to the UI. CDP can
+  // evict the body once the selection dialog closes; no response is replaced.
+  await win.evaluate(()=>{const original=window.fetch;const requests:{url:string;method:string}[]=[],responses:{url:string;status:number;body:string}[]=[];const observed=window as unknown as {portableRequests:typeof requests;portableResponses:typeof responses};observed.portableRequests=requests;observed.portableResponses=responses;window.fetch=async(input,init)=>{const url=String(input);requests.push({url,method:init?.method??'GET'});const response=await original(input,init);if(init?.method==='POST'&&url.endsWith('/answers'))responses.push({url,status:response.status,body:await response.clone().text()});return response;};});
  };
  const network=async()=>app!.evaluate(()=>(globalThis as unknown as {portableNetwork:{allowed:string[];blocked:string[];opens:string[];downloads:string[]}}).portableNetwork);
  const closeApp=async()=>{if(!app)return;const n=await network();receipt('network-'+mainPids.length,n);expect(n.blocked).toEqual([]);expect(n.opens).toEqual([]);const owned=app.process().pid!;await app.close();app=undefined;await expect.poll(()=>alive(owned)).toBe(false);await expect.poll(()=>backends.filter(alive)).toEqual([]);};
@@ -75,8 +77,12 @@ test('Portable briefing: exact saved downloads, stale guards, seven offline stat
   await dialog.getByLabel('Answer format').selectOption(mode);await dialog.getByLabel('Question or briefing instruction').fill(hostile);
   await dialog.getByLabel('Connection',{exact:true}).selectOption(mode==='question'?'claude_cli:claude_code':'api_key:custom');await dialog.getByLabel('Model',{exact:true}).fill('requested-synthetic-portable');
   await dialog.getByRole('button',{name:'Preview selected content'}).click();await expect(dialog.getByRole('heading',{name:'Inspect before Send'})).toBeVisible();
-  const response=win.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith('/answers'));
-  await dialog.getByRole('button',{name:'Send selected evidence'}).click();const a=await (await response).json() as Answer;
+  const browserResponses=()=>win.evaluate(()=>(window as unknown as {portableResponses:{url:string;status:number;body:string}[]}).portableResponses);
+  const start=(await browserResponses()).length;
+  await dialog.getByRole('button',{name:'Send selected evidence'}).click();
+  await expect.poll(async()=>(await browserResponses()).length).toBe(start+1);
+  const responses=await browserResponses(),response=responses[start];expect(response.status,response.body).toBe(202);
+  receipt('native-send-responses',responses);const a=JSON.parse(response.body) as Answer;
   if(active){await expect.poll(async()=>(await detail(a.answer_id)).partial_text).toContain('durable checkpoint');return detail(a.answer_id);}
   await expect.poll(async()=>(await detail(a.answer_id)).cleanup_state).toBe('confirmed');const saved=await detail(a.answer_id);expect(saved.state).toBe('succeeded');await expect(win.getByRole('button',{name:'New selected-evidence answer'})).toBeEnabled();return saved;
  };

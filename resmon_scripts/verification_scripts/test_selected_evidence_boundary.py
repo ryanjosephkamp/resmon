@@ -217,7 +217,10 @@ document._text=lambda value:original(value)*1000
 assert document.MAX_BYTES==4194304
 s=socket.socket();s.bind(('127.0.0.1',0));s.listen(128);port=s.getsockname()[1];assert port!=8742
 resmon.serving_port=lambda:port
-json.dump({'pid':os.getpid(),'port':port,'source':os.getcwd(),'state':os.environ['RESMON_STATE_DIR'],'database':os.environ['RESMON_DB_PATH'],'start':datetime.datetime.now(datetime.timezone.utc).isoformat(),'process_start':subprocess.check_output(['ps','-p',str(os.getpid()),'-o','lstart='],text=True).strip(),'fault':'1000x escaped literal expansion; actual 4MiB guard unchanged'},open(sys.argv[1],'w'))
+record={'pid':os.getpid(),'port':port,'source':os.getcwd(),'state':os.environ['RESMON_STATE_DIR'],'database':os.environ['RESMON_DB_PATH'],'start':datetime.datetime.now(datetime.timezone.utc).isoformat(),'process_start':subprocess.check_output(['ps','-p',str(os.getpid()),'-o','lstart='],text=True).strip(),'fault':'1000x escaped literal expansion; actual 4MiB guard unchanged'}
+# Publish a complete receipt; existence of a newly opened file is not readiness.
+with open(sys.argv[1]+'.pending','w') as receipt:json.dump(record,receipt)
+os.replace(sys.argv[1]+'.pending',sys.argv[1])
 uvicorn.Server(uvicorn.Config(resmon.app,log_level='error')).run(sockets=[s])
 '''
     with log.open('w') as output:

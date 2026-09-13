@@ -97,6 +97,10 @@ def test_saved_schema18_html_one_snapshot_no_reads_or_writes(workspace,available
     text=exported(w,a)
     assert calls==[a['answer_id']] and db.get_schema_version(w.conn)==18
     assert sql_snapshot(w.conn)==before and files_snapshot(w)==files
+    # Retain the complete synthetic comparison, not just a passing boolean.
+    for label,rows,inventory in [('before',before,files),('after',sql_snapshot(w.conn),files_snapshot(w))]:
+        receipt={'tables':rows,'table_count':len(rows),'files':[{'root':root,'path':name,'sha256':digest} for (root,name),digest in inventory.items()]}
+        (tmp_path/(mode+'-'+label+'.json')).write_text(json.dumps(receipt,default=lambda value:{'sqlite_blob_hex':value.hex()},indent=2))
     for value in [a['answer_id'],a['vault_id'],a['project_id'],a['request_sha256'],a['request']['payload']['instruction']]:
         assert value in html.unescape(text)
     for forbidden in ['SYNTHETIC_PRIVATE_NATIVE','private_binding_json','owner_runtime_id',str(w.root),'Unselected original and unrelated text']:
