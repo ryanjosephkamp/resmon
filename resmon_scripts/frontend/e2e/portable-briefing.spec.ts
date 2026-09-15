@@ -302,9 +302,20 @@ c.execute('INSERT INTO evidence_answers ('+','.join(r)+') VALUES ('+','.join('?'
     await expect(page.locator('#sources')).toBeVisible();await expect(page.locator('#coverage')).toBeVisible();expect(await page.locator('body').textContent()).toContain('billing');
     const print=await reader.evaluate(async({BrowserWindow})=>Array.from(await BrowserWindow.getAllWindows()[0].webContents.printToPDF({printBackground:true})));fs.writeFileSync(path.join(out,'portable-print.pdf'),Buffer.from(print));expect(Buffer.from(print).subarray(0,5).toString()).toBe('%PDF-');
     const printed=py("from pypdf import PdfReader;import sys;print('\\n'.join(p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages))",path.join(out,'portable-print.pdf'));
-    const printLiterals=[entry.answer.answer_id,'Frozen selected sources','PORTABLE OWNER NOTE','Saved coverage and disclosure','Requested settings','Reported usage','65,536','20,000','billing','Citation identity is not semantic support'];
+    // Chromium's Linux font can encode the hexadecimal pair ff as one PDF
+    // presentation glyph. Expand only that glyph for the UUID comparison;
+    // keep the raw extraction and all other print/HTML identity assertions.
+    const printedIdentityText=(text:string)=>text.replace(/\uFB00/g,'ff');
+    const extractionExample='6b05c22f-3a34-4527-b489-7dd\uFB00135e6c9';
+    const exactExample='6b05c22f-3a34-4527-b489-7ddff135e6c9';
+    expect(printedIdentityText(extractionExample)).toBe(exactExample);
+    expect(printedIdentityText(extractionExample.replace('135e6c9','135e6c8'))).not.toBe(exactExample);
+    expect(printedIdentityText(extractionExample.replace('\uFB00','f'))).not.toBe(exactExample);
+    expect(printedIdentityText(printed)).toContain(entry.answer.answer_id);
+    fs.writeFileSync(path.join(out,'portable-print.txt'),printed);
+    const printLiterals=['Frozen selected sources','PORTABLE OWNER NOTE','Saved coverage and disclosure','Requested settings','Reported usage','65,536','20,000','billing','Citation identity is not semantic support'];
     for(const literal of printLiterals)expect(printed).toContain(literal);
-    receipt('layout-keyboard-print',{layouts,zoom,focus,printBytes:print.length,printTextSha256:hash(printed),printContentAssertions:printLiterals.length,printSignature:true,nativeCapture:true,physicalAndroid:false});
+    receipt('layout-keyboard-print',{layouts,zoom,focus,printBytes:print.length,printTextSha256:hash(printed),printIdentityTextSha256:hash(printedIdentityText(printed)),ffLigatures:(printed.match(/\uFB00/g)||[]).length,printContentAssertions:printLiterals.length+1,printIdentityNormalization:'U+FB00 to ff only; other literals compare raw extraction',printSignature:true,nativeCapture:true,physicalAndroid:false});
    }
    const observed=await reader.evaluate(()=>(globalThis as unknown as {portableReader:{allowed:string[];blocked:string[];opens:string[]}}).portableReader);
    expect(observed.allowed).toEqual([target]);expect(observed.blocked).toEqual([]);expect(observed.opens).toEqual([]);
