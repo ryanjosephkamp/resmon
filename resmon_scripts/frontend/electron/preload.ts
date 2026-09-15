@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { DownloadRecord } from './downloads';
 
 function extractBackendPort(): string {
   for (const arg of process.argv) {
@@ -13,6 +14,13 @@ const backendPort = extractBackendPort();
 
 contextBridge.exposeInMainWorld('resmonAPI', {
   getBackendPort: (): string => backendPort,
+  getDownloads: (): Promise<DownloadRecord[]> => ipcRenderer.invoke('resmon:downloads'),
+  revealDownload: (id: string): Promise<boolean> => ipcRenderer.invoke('resmon:reveal-download', id),
+  onDownloadsChanged: (callback: (records: DownloadRecord[]) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, records: DownloadRecord[]) => callback(records);
+    ipcRenderer.on('resmon:downloads-changed', listener);
+    return () => { ipcRenderer.removeListener('resmon:downloads-changed', listener); };
+  },
   platform: process.platform,
   versions: {
     node: process.versions.node,

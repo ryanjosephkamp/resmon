@@ -73,7 +73,7 @@ export default function LibraryPageComponent() {
       <p>TXT/MD reading is literal UTF-8 without NUL, up to 256 KiB and 5,000 logical lines. PDF and larger text remain retained for verified external Open. No PDF extraction, AI analysis, executable Markdown, annotations or inferred publication identity.</p>
       <p>Search matches literal filenames. Paging keeps the first page’s ceiling; Refresh includes later imports. Metadata views do not freshly check file integrity. Missing or mismatched storage refuses access without adopting or repairing it.</p>
       <p>The complete JSON inventory is recorded metadata, limited to 8 MiB. It is not a file bundle, backup, relocation tool or integrity scan. Review original names before sharing. Library catalog and retained files survive existing resets and corpus erasure; paper associations disappear when their local paper is deleted. Database backup alone does not preserve managed bytes. No automatic Library cloud backup is added.</p>
-    </PageHelp>
+    <p>For PDFs, Read PDF in Evidence carries this exact selected version. Choose a project and explicitly add it to open the reader; an existing membership is reused. Downloads at the bottom of the app shows completed export filenames and their saved locations.</p></PageHelp>
     {error&&<p role="alert" className="library-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
     {loading&&<p role="status">Loading Library…</p>}
     {status&&!status.vault&&<section aria-label="Create managed vault"><h2>Create your managed vault</h2><p>A new child folder will be created inside your selected parent. Existing folders are never adopted.</p>

@@ -59,3 +59,14 @@ it.each([undefined,'44444444-4444-4444-8444-444444444444'])('hands off only the 
  const link=await screen.findByRole('link',{name:'Open in Evidence / add to project'});const q=new URLSearchParams(link.getAttribute('href')!.split('?')[1]);
  expect(Object.fromEntries(q)).toEqual({vault_id:vid,file_id:file(2).file_id,version_id:file(2).version_id,...(projectId?{project_id:projectId}:{})});expect(libraryApi.import).not.toHaveBeenCalled();expect(libraryApi.link).not.toHaveBeenCalled();window.location.hash='';
 });
+
+it('offers the exact PDF Evidence handoff instead of the text-only reader',async()=>{
+ const pdf={...file(3),original_name:'Review.pdf',media_type:'application/pdf'};
+ (libraryApi.list as jest.Mock).mockResolvedValue({...page(),files:[pdf]});
+ (libraryApi.detail as jest.Mock).mockResolvedValue(pdf);render(<LibraryPage/>);
+ fireEvent.click(await screen.findByRole('button',{name:/Review.pdf application\/pdf/}));
+ const link=await screen.findByRole('link',{name:'Read PDF in Evidence'});
+ expect(Object.fromEntries(new URLSearchParams(link.getAttribute('href')!.split('?')[1]))).toEqual({vault_id:pdf.vault_id,file_id:pdf.file_id,version_id:pdf.version_id});
+ expect(screen.queryByRole('button',{name:'Read text'})).toBeNull();
+ expect(libraryApi.text).not.toHaveBeenCalled();expect(libraryApi.import).not.toHaveBeenCalled();
+});

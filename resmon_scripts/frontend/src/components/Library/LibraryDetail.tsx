@@ -5,6 +5,7 @@ import LibraryTextReader from './LibraryTextReader';
 export default function LibraryDetail({selected,onClose,evidenceProject}: {selected: LibraryFile;onClose: ()=>void;evidenceProject?:string}) {
   const [file,setFile]=useState(selected);const [error,setError]=useState('');const [notice,setNotice]=useState('');
   const [busy,setBusy]=useState(false);const [paper,setPaper]=useState('');const [reading,setReading]=useState(false);
+  const evidenceHref='#/evidence?'+new URLSearchParams({vault_id:file.vault_id,file_id:file.file_id,version_id:file.version_id,...(evidenceProject?{project_id:evidenceProject}:{})}).toString();
   const restoreReadFocus=useRef(false);
   useLayoutEffect(()=>{if(!reading&&restoreReadFocus.current){restoreReadFocus.current=false;readButton.current?.focus();}},[reading]);
   const epoch=useRef(0);const title=useRef<HTMLHeadingElement>(null);const readButton=useRef<HTMLButtonElement>(null);
@@ -38,8 +39,8 @@ export default function LibraryDetail({selected,onClose,evidenceProject}: {selec
       <dt>File</dt><dd className="library-identity">{file.file_id}</dd><dt>Immutable version</dt><dd className="library-identity">{file.version_id}</dd>
       <dt>SHA256 of imported bytes</dt><dd className="library-identity">{file.sha256}</dd></dl>
     <p>Availability has not been checked by this metadata view. Read or Open checks the retained version.</p>
-    <div className="library-toolbar"><button ref={readButton} disabled={reading} onClick={()=>setReading(true)}>Read text</button><button disabled={busy} onClick={()=>void act('open')}>Open externally</button></div>
-    <p><a href={'#/evidence?'+new URLSearchParams({vault_id:file.vault_id,file_id:file.file_id,version_id:file.version_id,...(evidenceProject?{project_id:evidenceProject}:{})}).toString()}>Open in Evidence / add to project</a></p>
+    <div className="library-toolbar">{file.media_type==='application/pdf'?<a className="library-read-link" href={evidenceHref}>Read PDF in Evidence</a>:<button ref={readButton} disabled={reading} onClick={()=>setReading(true)}>Read text</button>}<button disabled={busy} onClick={()=>void act('open')}>Open externally</button></div>
+    <p><a href={evidenceHref}>Open in Evidence / add to project</a> · Choose a project there, then explicitly add this exact version to open its reader. An existing membership is reused.</p>
     {error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
     {reading&&<LibraryTextReader file={file} onClose={()=>{restoreReadFocus.current=true;setReading(false);}}/>}
     <h3>Local paper associations</h3><p>Enter an existing paper ID from this app. No fuzzy matching, metadata merging or publication verification.</p>

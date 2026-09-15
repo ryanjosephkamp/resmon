@@ -57,11 +57,15 @@ test('Portable briefing: exact saved downloads, stale guards, seven offline stat
  const download=async(a:Answer,label:string,format:'html'|'zip'='html')=>{
   const target=path.join(dirs.downloads,label+'.'+format);const count=calls(),rows=sql(),events=await eventRequests();
   await app!.evaluate(({session},destination)=>session.defaultSession.once('will-download',(_event,item)=>item.setSavePath(destination)),target);
-  await win.getByRole('button',{name:format==='html'?'Export HTML':'Export this answer and selected text',exact:true}).click();
+  await win.getByRole('button',{name:format==='html'?'Export HTML':'Export ZIP',exact:true}).click();
   await expect(win.getByRole('status').filter({hasText:new RegExp(`selected ${format.toUpperCase()} was handed`)})).toBeVisible();
   await expect.poll(()=>fs.existsSync(target)&&fs.statSync(target).size>0).toBe(true);
   const r=await fetch(base+`/api/evidence/projects/${pid}/answers/${a.answer_id}/export?expected_vault_id=${vid}&format=${format}`,{headers:{Origin:origin,'X-Resmon-Library':'1'}});expect(r.status).toBe(200);
   const raw=Buffer.from(await r.arrayBuffer());await expect.poll(()=>hash(fs.readFileSync(target))).toBe(hash(raw));
+  await expect.poll(()=>win.evaluate(target=>window.resmonAPI!.getDownloads!().then(items=>items.find(item=>item.path===target)?.state),target)).toBe('completed');
+  const completed=await win.evaluate(target=>window.resmonAPI!.getDownloads!().then(items=>items.find(item=>item.path===target)!),target);
+  expect(completed.receivedBytes).toBe(raw.length);expect(completed.totalBytes).toBe(raw.length);
+  await expect(win.getByRole('region',{name:'Downloads'}).getByText(target,{exact:true})).toBeVisible();
   expect(r.headers.get('x-resmon-sha256')).toBe(hash(raw));expect(r.headers.get('content-length')).toBe(String(raw.length));expect(r.headers.get('x-resmon-version')).toBe(a.request_sha256);
   expect(calls()).toBe(count);expect(sql()).toBe(rows);expect(await eventRequests()).toEqual(events);
   if(format==='html')exports.push({label,target,answer:a,sha256:hash(raw)});
