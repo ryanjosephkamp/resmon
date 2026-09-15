@@ -1,6 +1,7 @@
 # resmon_scripts/implementation_scripts/api_base.py
 """API client framework: NormalizedResult, BaseAPIClient, RateLimiter, retry, safe_request."""
 
+import asyncio
 import logging
 import re
 import threading
@@ -269,6 +270,69 @@ class BaseAPIClient(ABC):
         return ""
 
 
+class RequestDeadlineExceeded(httpx.TimeoutException):
+    """The caller's operation budget expired, possibly before any HTTP attempt."""
+
+
+def _remaining(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise RequestDeadlineExceeded("The source operation deadline expired")
+    return remaining
+
+
+def _request_before_deadline(
+    method: str, url: str, *, headers: dict[str, str], timeout: float,
+    deadline: float, **kwargs,
+) -> httpx.Response:
+    """Buffer and close one response within the remaining cooperative I/O budget.
+
+    A sync HTTPX timeout is per phase/chunk, so a slowly progressing reply can
+    outlive it indefinitely. The opt-in async scope cancels that whole request
+    and finishes its transport cleanup before this synchronous call returns.
+    Its joined thread also supports a synchronous client called from an existing
+    event loop. DNS executor shutdown and blocking CPU work are not hard real-time
+    bounded by asyncio cancellation; this is not a universal wall-clock guarantee.
+    """
+    attempted = False
+
+    async def send() -> httpx.Response:
+        nonlocal attempted
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            _remaining(deadline)
+            attempted = True
+            return await client.request(method, url, headers=headers, **kwargs)
+
+    async def bounded() -> httpx.Response:
+        try:
+            budget = _remaining(deadline)
+            return await asyncio.wait_for(send(), timeout=budget)
+        except asyncio.TimeoutError as exc:
+            raise RequestDeadlineExceeded("The source operation deadline expired") from exc
+
+    responses: list[httpx.Response] = []
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            responses.append(asyncio.run(bounded()))
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=run, name="resmon-request-deadline")
+    worker.start()
+    # Do not merely stop waiting and leave the network operation running.
+    worker.join()
+    # Publish on the caller's thread-local outcome only after joining. Client
+    # setup or queue expiry must not invent an HTTPX request attempt.
+    if attempted:
+        search_outcome().note_attempt()
+    if errors:
+        raise errors[0]
+    _remaining(deadline)
+    return responses[0]
+
+
 # ---------------------------------------------------------------------------
 # RateLimiter — token-bucket
 # ---------------------------------------------------------------------------
@@ -300,13 +364,26 @@ class RateLimiter:
         self._last_call: float = 0.0
         self._lock = threading.Lock()
 
-    def acquire(self) -> None:
-        """Block until the next request is permitted."""
-        with self._lock:
-            elapsed = time.monotonic() - self._last_call
-            if elapsed < self._interval:
-                time.sleep(self._interval - elapsed)
+    def acquire(self, *, deadline: float | None = None) -> None:
+        """Wait for admission, optionally within an operation's monotonic budget."""
+        if deadline is None:
+            with self._lock:
+                elapsed = time.monotonic() - self._last_call
+                if elapsed < self._interval:
+                    time.sleep(self._interval - elapsed)
+                self._last_call = time.monotonic()
+            return
+
+        if not self._lock.acquire(timeout=_remaining(deadline)):
+            raise RequestDeadlineExceeded("The source rate-limiter wait expired")
+        try:
+            wait = max(0.0, self._interval - (time.monotonic() - self._last_call))
+            if wait:
+                time.sleep(min(wait, _remaining(deadline)))
+            _remaining(deadline)
             self._last_call = time.monotonic()
+        finally:
+            self._lock.release()
 
 
 # ---------------------------------------------------------------------------
@@ -440,6 +517,9 @@ class SearchOutcome:
             # 429 is its own fact -- the source answered and refused on rate
             # -- and a user can act on it differently from a 500.
             self.last_detail = "rate_limited" if status_or_exc == 429 else f"http_{status_or_exc}"
+        elif isinstance(status_or_exc, RequestDeadlineExceeded):
+            self.last_status = None
+            self.last_detail = "operation_deadline"
         elif isinstance(status_or_exc, httpx.TimeoutException):
             self.last_status = None
             self.last_detail = "timeout"
@@ -559,6 +639,7 @@ def safe_request(
     timeout: float | None = None,
     max_retries: int | None = None,
     backoff_base: float | None = None,
+    deadline: float | None = None,
     **kwargs,
 ) -> httpx.Response:
     """HTTP request wrapper integrating rate limiting, retries, and error logging.
@@ -578,8 +659,14 @@ def safe_request(
         time.
     backoff_base : float | None
         Base for exponential backoff. ``None`` reads ``config`` at call time.
+    deadline : float | None
+        Optional absolute ``time.monotonic()`` operation deadline, shared by
+        pages/retries/limiter admission. The opt-in async transport cancels an
+        in-progress response and joins its owned thread before returning. This
+        is cooperative I/O timing, not a bound on blocking DNS shutdown/CPU work.
+        Omit to preserve the existing synchronous transport and defaults.
     **kwargs
-        Forwarded to ``httpx.Client.request()``.
+        Forwarded to the HTTPX request.
 
     Returns
     -------
@@ -608,13 +695,33 @@ def safe_request(
     if not any(k.lower() == "user-agent" for k in headers):
         headers["User-Agent"] = "resmon/1.0 (+https://github.com/rkamp-research/resmon)"
 
+    def pause(wait: float) -> None:
+        # The next loop admission records expiry exactly once, without inventing
+        # an HTTP attempt for time spent waiting between requests.
+        if deadline is not None:
+            wait = min(wait, max(0.0, deadline - time.monotonic()))
+        time.sleep(wait)
+
     for attempt in range(max_retries + 1):
-        if rate_limiter is not None:
-            rate_limiter.acquire()
-        outcome.note_attempt()
         try:
-            with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-                response = client.request(method, url, headers=headers, **kwargs)
+            if deadline is not None:
+                _remaining(deadline)
+            if rate_limiter is not None:
+                if deadline is None:
+                    rate_limiter.acquire()
+                else:
+                    rate_limiter.acquire(deadline=deadline)
+            if deadline is not None:
+                _remaining(deadline)
+            if deadline is None:
+                outcome.note_attempt()
+                with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                    response = client.request(method, url, headers=headers, **kwargs)
+            else:
+                response = _request_before_deadline(
+                    method, url, headers=headers, timeout=timeout,
+                    deadline=deadline, **kwargs,
+                )
 
             if response.status_code in _TRANSIENT_CODES and attempt < max_retries:
                 wait = backoff_base ** attempt
@@ -622,7 +729,7 @@ def safe_request(
                     "safe_request: transient %d from %s — retry %d/%d in %.1fs",
                     response.status_code, url, attempt + 1, max_retries, wait,
                 )
-                time.sleep(wait)
+                pause(wait)
                 continue
 
             # The call that is about to be returned is the one that explains
@@ -635,6 +742,11 @@ def safe_request(
                 outcome.note_failure(response.status_code, url)
             return response
 
+        except RequestDeadlineExceeded as exc:
+            outcome.note_failure(exc, url)
+            logger.error("safe_request: operation deadline expired for %s", url)
+            raise
+
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
             last_exc = exc
             if attempt < max_retries:
@@ -643,7 +755,7 @@ def safe_request(
                     "safe_request: %s for %s — retry %d/%d in %.1fs",
                     exc, url, attempt + 1, max_retries, wait,
                 )
-                time.sleep(wait)
+                pause(wait)
             else:
                 logger.error("safe_request: exhausted retries for %s: %s", url, exc)
                 outcome.note_failure(exc, url)

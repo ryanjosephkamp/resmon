@@ -120,7 +120,9 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
 
     if reason == "upstream_failure":
         kind = str(detail.get("detail") or "")
-        if kind == "timeout":
+        if kind == "operation_deadline":
+            what = f"the search operation budget expired after {_attempts(detail)}"
+        elif kind == "timeout":
             what = f"the request timed out after {_attempts(detail)}"
         elif kind == "connect":
             what = f"resmon could not open a connection after {_attempts(detail)}"
