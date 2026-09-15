@@ -120,8 +120,9 @@ association means you selected that record, not that resmon verified the publica
 **Read text** shows exact retained TXT/MD as literal UTF-8 with line numbers, local
 find and previous/next matches. CRLF and CR display as LF without changing retained
 bytes. Reading is limited to 256 KiB, 5,000 logical lines and a 2 MiB serialized
-response. Markdown, HTML, links and embedded images are never executed. PDF and
-larger text remain retained: **Open externally** verifies the selected stored version
+response. Markdown, HTML, links and embedded images are never executed. For PDFs, **Read PDF in Evidence** carries the selected file/version to Evidence;
+choose a project and explicitly add it to open the reader (an existing membership
+is reused). Larger text remains retained. **Open externally** verifies the selected stored version
 and requests the existing OS opener. An accepted Open request does not establish
 that another application rendered the document. The Library reader adds no PDF extraction, OCR or AI analysis; the separate
 Evidence workspace provides bounded PDF pages and saved passages.
@@ -143,6 +144,11 @@ Existing settings resets and corpus erasure retain Library catalog entries and f
 Deleting a paper removes only its Library associations, so a reused local ID cannot
 inherit them. See the [Library storage and API contract](docs/api-contract/library.md)
 for identity, migration and verification details.
+
+Completed exports appear in **Downloads** at the bottom of the app, with filename,
+actual saved path and **Show in folder**. Saving, cancelled and interrupted items
+remain distinct from completed files. This is the last 20 downloads in the current
+app session; the save dialog and existing export formats are unchanged.
 
 ### Projects and selected evidence
 

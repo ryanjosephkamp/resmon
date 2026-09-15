@@ -2,6 +2,7 @@ import React from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Layout/Sidebar';
 import Header from './components/Layout/Header';
+import Downloads from './components/Layout/Downloads';
 import MainContent from './components/Layout/MainContent';
 import FloatingWidget from './components/Monitor/FloatingWidget';
 import AssistantPanel from './components/Assistant/AssistantPanel';
@@ -110,6 +111,7 @@ const App: React.FC = () => {
                     ))}
                   </Routes>
                 </MainContent>
+                <Downloads />
               </div>
               <FloatingWidget />
               {/* A second fixed element beside the widget, never in the layout

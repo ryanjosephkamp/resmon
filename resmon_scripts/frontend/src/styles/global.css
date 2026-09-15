@@ -4975,3 +4975,16 @@ li.basis-name-affiliation .basis-chip {
 .selected-limits { padding: .75rem; border-left: 3px solid var(--color-text-muted); }
 .selected-history .evidence-item { width: 100%; text-align: left; margin: .4rem 0; }
 @media (max-width: 640px) { .selected-dialog { inset: .5rem; padding: .75rem; } }
+
+/* Anchors without a component-specific style must not fall back to browser blue. */
+a { color: var(--color-accent); text-underline-offset: .15em; }
+a:hover { color: var(--color-accent-hover); }
+.library-read-link { display: inline-block; padding: .65rem .8rem; border: 1px solid var(--color-accent); border-radius: 6px; }
+.downloads-panel { flex: 0 0 auto; border-top: 1px solid var(--color-border); background: var(--color-surface); padding: .6rem 1rem; }
+.downloads-heading { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+.downloads-heading span { overflow-wrap: anywhere; }
+.downloads-panel button { color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 5px; padding: .45rem .7rem; font: inherit; cursor: pointer; }
+.downloads-panel button:hover { border-color: var(--color-accent-hover); }
+.downloads-list { max-height: 28vh; overflow: auto; padding-top: .6rem; }
+.download-record { margin-top: .75rem; padding-top: .5rem; border-top: 1px solid var(--color-border); }
+.download-path { overflow-wrap: anywhere; user-select: text; margin: .35rem 0; }

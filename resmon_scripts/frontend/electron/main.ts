@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron';
+import { installDownloads } from './downloads';
 import { autoUpdater } from 'electron-updater';
 import { ChildProcess, spawn } from 'child_process';
 import * as fs from 'fs';
@@ -758,6 +759,7 @@ app.whenReady().then(async () => {
     await startRendererServer(rendererRoot);
     installApplicationMenu();
     createWindow();
+    if (mainWindow) installDownloads(mainWindow);
     initAutoUpdater();
   } catch (err) {
     console.error('[main] Failed to start:', err);

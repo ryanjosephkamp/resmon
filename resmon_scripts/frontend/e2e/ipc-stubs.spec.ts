@@ -53,6 +53,8 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
 }) => {
   await installIpcGuards(app);
   await goto('/');
+  // Initial renderer download-history reads are separate from the six calls below.
+  const before = await readGuards(app);
 
   // Call each channel the way the renderer does — through the preload bridge,
   // which is the only route the app itself has.
@@ -63,6 +65,8 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
         chooseFile(d?: string): Promise<string | null>;
         openPath(p: string): Promise<string>;
         revealPath(p: string): Promise<boolean>;
+        getDownloads(): Promise<unknown[]>;
+        revealDownload(id: string): Promise<boolean>;
       };
     }).resmonAPI;
     return {
@@ -70,6 +74,8 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
       chosenFile: await api.chooseFile('/tmp/claude'),
       opened: await api.openPath('/tmp/e2e-nonexistent.md'),
       revealed: await api.revealPath('/tmp/e2e-nonexistent.md'),
+      downloads: await api.getDownloads(),
+      downloadRevealed: await api.revealDownload('synthetic-download-id'),
     };
   });
 
@@ -78,13 +84,16 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
   expect(results.chosenFile).toBe('/tmp/e2e-chosen-file');
   expect(results.opened).toBe('');
   expect(results.revealed).toBe(true);
+  expect(results.downloads).toEqual([]);
+  expect(results.downloadRevealed).toBe(true);
 
   const guards = await readGuards(app);
   console.log('Q5 GUARD COUNTS', JSON.stringify(guards));
 
-  // Each stub was reached exactly once …
-  expect(guards.stubbed).toEqual({
-    chooseDirectory: 1, chooseFile: 1, openPath: 1, revealPath: 1,
+  // Each explicit bridge invocation increments its counter exactly once.
+  expect(Object.fromEntries(Object.entries(guards.stubbed).map(([key, value]) =>
+    [key, value - before.stubbed[key as keyof typeof before.stubbed]]))).toEqual({
+    chooseDirectory: 1, chooseFile: 1, openPath: 1, revealPath: 1, getDownloads: 1, revealDownload: 1,
   });
   // … and nothing underneath them was.
   expect(guards.escaped).toEqual(NOTHING_ESCAPED);
@@ -101,7 +110,7 @@ test('P4: a full pass over every route opens no dialog and makes no shell call',
   const guards = await readGuards(app);
   console.log('P4 GUARD COUNTS AFTER FULL PASS', JSON.stringify(guards));
   expect(guards.stubbed).toEqual({
-    chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0,
+    chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0,
   });
   expect(guards.escaped).toEqual(NOTHING_ESCAPED);
 });

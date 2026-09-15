@@ -1,7 +1,15 @@
+export interface DownloadRecord {
+  id: string; filename: string; state: 'progressing' | 'completed' | 'cancelled' | 'interrupted';
+  path: string; receivedBytes: number; totalBytes: number;
+}
+
 declare global {
   interface Window {
     resmonAPI?: {
       getBackendPort: () => string;
+      getDownloads?: () => Promise<DownloadRecord[]>;
+      revealDownload?: (id: string) => Promise<boolean>;
+      onDownloadsChanged?: (callback: (records: DownloadRecord[]) => void) => (() => void);
       platform: string;
       versions: { node: string; electron: string };
       chooseDirectory?: (defaultPath?: string) => Promise<string | null>;

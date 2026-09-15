@@ -112,7 +112,15 @@ c.commit();c.close()`,env.RESMON_DB_PATH);
    expect(await app!.evaluate(()=>(globalThis as unknown as {libraryDownloads:string[]}).libraryDownloads)).toEqual([]);
    expect(await win.getByText('authored stale action error',{exact:false}).count()).toBe(0);
   }
-  await win.getByText('Read text',{exact:true}).click();await expect(win.getByRole('alert')).toContainText('PDF is retained');
+  // PDFs now hand off to Evidence; Library's literal text endpoint still refuses them.
+  const pdfRead=win.getByRole('link',{name:'Read PDF in Evidence',exact:true});
+  await expect(pdfRead).toHaveAttribute('href','#/evidence?'+new URLSearchParams({vault_id:vid,file_id:pdf.file_id,version_id:pdf.version_id}).toString());
+  expect(await win.getByRole('button',{name:'Read text',exact:true}).count()).toBe(0);
+  const pdfText=await fetch(base+`/api/library/files/${pdf.file_id}/text`+q+`&expected_version_id=${pdf.version_id}`,{headers:{Origin:origin,'X-Resmon-Library':'1'}});
+  expect(pdfText.status).toBe(415);expect(await pdfText.text()).toContain('PDF is retained');
+  await pdfRead.click();await expect(win.getByRole('region',{name:'Selected Library handoff'})).toContainText(pdf.version_id);
+  await expect(win.getByRole('button',{name:'Add selected Library file to project'})).toBeDisabled();
+  await win.evaluate(()=>{location.hash='/library';});await win.waitForSelector('.library-page');await select(pdf.original_name);
   await win.getByText('Open externally',{exact:true}).click();await expect(win.getByText(/Open requested/)).toBeVisible();
   expect(await app!.evaluate(()=>(globalThis as unknown as {libraryOpenPaths:string[]}).libraryOpenPaths)).toEqual([path.join(vaultRoot,pdf.relative_path)]);
   await app!.evaluate(()=>{(globalThis as unknown as {libraryOpenFailure:boolean}).libraryOpenFailure=true;});await win.getByText('Open externally',{exact:true}).click();await expect(win.getByText(/authored OS-open refusal/)).toBeVisible();

@@ -8,7 +8,7 @@ import {FRONTEND_ROOT,REPO_ROOT,launchEnv,ensureScreenshotDir,selectedEvidenceTr
 // which is deliberately outside the existing e2e compiler's configuration.
 interface Answer {answer_id:string;request_sha256:string;state:string;cleanup_state:string;partial_text:string;result:{sections:{items:{citations:{source_id:string;start_codepoint:number;end_codepoint:number;quote:string}[]}[]}[]}|null}
 import type {LibraryStatus,LibraryPage,LibraryFile} from '../src/api/library';
-import type {Project} from '../src/api/evidence';
+import type {Project,SavedNote} from '../src/api/evidence';
 
 const hash=(raw:Buffer|string)=>createHash('sha256').update(raw).digest('hex');
 const alive=(pid:number)=>{try{process.kill(pid,0);return true;}catch{return false;}};
@@ -57,11 +57,15 @@ test('Portable briefing: exact saved downloads, stale guards, seven offline stat
  const download=async(a:Answer,label:string,format:'html'|'zip'='html')=>{
   const target=path.join(dirs.downloads,label+'.'+format);const count=calls(),rows=sql(),events=await eventRequests();
   await app!.evaluate(({session},destination)=>session.defaultSession.once('will-download',(_event,item)=>item.setSavePath(destination)),target);
-  await win.getByRole('button',{name:format==='html'?'Export HTML':'Export this answer and selected text',exact:true}).click();
+  await win.getByRole('button',{name:format==='html'?'Export HTML':'Export ZIP',exact:true}).click();
   await expect(win.getByRole('status').filter({hasText:new RegExp(`selected ${format.toUpperCase()} was handed`)})).toBeVisible();
   await expect.poll(()=>fs.existsSync(target)&&fs.statSync(target).size>0).toBe(true);
   const r=await fetch(base+`/api/evidence/projects/${pid}/answers/${a.answer_id}/export?expected_vault_id=${vid}&format=${format}`,{headers:{Origin:origin,'X-Resmon-Library':'1'}});expect(r.status).toBe(200);
   const raw=Buffer.from(await r.arrayBuffer());await expect.poll(()=>hash(fs.readFileSync(target))).toBe(hash(raw));
+  await expect.poll(()=>win.evaluate(target=>window.resmonAPI!.getDownloads!().then(items=>items.find(item=>item.path===target)?.state),target)).toBe('completed');
+  const completed=await win.evaluate(target=>window.resmonAPI!.getDownloads!().then(items=>items.find(item=>item.path===target)!),target);
+  expect(completed.receivedBytes).toBe(raw.length);expect(completed.totalBytes).toBe(raw.length);
+  await expect(win.getByRole('region',{name:'Downloads'}).getByText(target,{exact:true})).toBeVisible();
   expect(r.headers.get('x-resmon-sha256')).toBe(hash(raw));expect(r.headers.get('content-length')).toBe(String(raw.length));expect(r.headers.get('x-resmon-version')).toBe(a.request_sha256);
   expect(calls()).toBe(count);expect(sql()).toBe(rows);expect(await eventRequests()).toEqual(events);
   if(format==='html')exports.push({label,target,answer:a,sha256:hash(raw)});
@@ -95,8 +99,116 @@ test('Portable briefing: exact saved downloads, stale guards, seven offline stat
   const status=await req<LibraryStatus>('/api/library');vid=status.vault!.vault_id;vaultRoot=path.join(dirs['vault-parent'],status.vault!.label);catalog=(await req<LibraryPage>(`/api/library/files?expected_vault_id=${vid}`)).files;
   await win.getByRole('region',{name:'Library files'}).getByRole('button',{name:/^two-pages.pdf /}).click();await win.getByRole('link',{name:'Open in Evidence / add to project'}).click();await win.getByLabel('New project name',{exact:true}).fill('Portable synthetic project');await win.getByRole('button',{name:'Create project',exact:true}).click();await win.getByRole('button',{name:'Add selected Library file to project'}).click();
   await expect(win.getByLabel('Canonical page text')).toHaveValue('Alpha evidence — exact version.');pid=(await req<{projects:Project[]}>(`/api/evidence/projects?expected_vault_id=${vid}`)).projects[0].project_id;
-  await win.getByLabel('Note body',{exact:true}).fill('PORTABLE OWNER NOTE '+hostile);await win.getByRole('button',{name:'Save note',exact:true}).click();await expect(win.getByText('PORTABLE OWNER NOTE '+hostile,{exact:true}).first()).toBeVisible();
-  await win.getByRole('button',{name:'Choose from Library'}).click();for(const name of ['unicode.txt','hostile.txt']){await win.getByRole('button',{name:'Add '+name,exact:true}).click();await expect(win.getByRole('button',{name:'Choose from Library'})).toBeEnabled();}await win.getByRole('button',{name:'Close Library chooser'}).click();
+  const noteBody='PORTABLE OWNER NOTE '+hostile,pdf=catalog.find(f=>f.original_name==='two-pages.pdf')!;
+  const projectBefore=(await req<{project:Project}>(`/api/evidence/projects/${pid}?expected_vault_id=${vid}`)).project;
+  const chooser=win.getByRole('button',{name:'Choose from Library',exact:true});await expect(chooser).toBeEnabled();
+  const chooserRegion=win.getByRole('region',{name:'Choose retained Library files'});
+  type SeamStage='save'|'refresh'|'chooser';
+  type SeamEvent={order:number;stage:SeamStage;phase:'request'|'held'|'released';url:string;method:string;request?:unknown;status?:number;response?:unknown};
+  type SeamState={held:Record<SeamStage,boolean>;released:Record<SeamStage,boolean>;events:SeamEvent[];release:(stage:SeamStage)=>void;restore:()=>void};
+  // Delay delivery of real responses, without replacing their bytes or writing
+  // through an API. The note can be stored while its UI acknowledgement is pending.
+  await win.evaluate(({projectId,body})=>{
+   const original=window.fetch,releases:Partial<Record<SeamStage,()=>void>>={};
+   const state:SeamState={held:{save:false,refresh:false,chooser:false},released:{save:false,refresh:false,chooser:false},events:[],release:stage=>{state.released[stage]=true;releases[stage]?.();},restore:()=>{window.fetch=original;}};
+   (window as unknown as {portableNoteSeam:SeamState}).portableNoteSeam=state;
+   window.fetch=async(input,init)=>{
+    const url=String(input),pathname=new URL(url).pathname,method=init?.method??'GET';
+    const request=typeof init?.body==='string'?JSON.parse(init.body):undefined;
+    const stage:SeamStage|null=method==='POST'&&pathname===`/api/evidence/projects/${projectId}/notes`&&request?.body===body?'save':method==='GET'&&pathname===`/api/evidence/projects/${projectId}`&&state.held.save?'refresh':method==='GET'&&pathname==='/api/library/files'?'chooser':null;
+    if(stage)state.events.push({order:state.events.length,stage,phase:'request',url,method,request});
+    const response=await original(input,init);
+    if(stage&&!state.held[stage]){
+     const observed=await response.clone().json();state.held[stage]=true;
+     state.events.push({order:state.events.length,stage,phase:'held',url,method,status:response.status,response:observed});
+     if(!state.released[stage])await new Promise<void>(resolve=>{releases[stage]=resolve;});
+     state.events.push({order:state.events.length,stage,phase:'released',url,method});
+    }
+    return response;
+   };
+  },{projectId:pid,body:noteBody});
+  const seam=()=>win.evaluate(()=>{const s=(window as unknown as {portableNoteSeam:SeamState}).portableNoteSeam;return {held:s.held,released:s.released,events:s.events};});
+  const release=async(stage:SeamStage)=>win.evaluate(stage=>(window as unknown as {portableNoteSeam:SeamState}).portableNoteSeam.release(stage),stage);
+  const savedArticles=win.locator('article.evidence-saved-note').filter({has:win.locator('p.evidence-literal').filter({hasText:noteBody})});
+  let chooserAttempted=false,savedNote:SavedNote|undefined,seamFailure:unknown;
+  await win.getByLabel('Note body',{exact:true}).fill(noteBody);
+  const advance=(async()=>{
+   const response=win.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname===`/api/evidence/projects/${pid}/notes`);
+   await win.getByRole('button',{name:'Save note',exact:true}).click();
+   const actual=await response;expect(actual.status()).toBe(201);
+   expect(actual.request().postDataJSON()).toEqual({expected_vault_id:vid,expected_revision:projectBefore.revision,file_id:pdf.file_id,version_id:pdf.version_id,kind:'note',body:noteBody,anchor:null});
+   const saved=await actual.json() as {project:Project;note:SavedNote};
+   expect(saved.project.project_id).toBe(pid);expect(saved.project.revision).toBe(projectBefore.revision+1);
+   expect(saved.note).toMatchObject({project_id:pid,file_id:pdf.file_id,version_id:pdf.version_id,body:noteBody,revision:1,kind:'note'});
+   // Saved-record identity and the completed refresh acknowledge the UI action.
+   // A match anywhere on the page can instead be the still-pending textarea.
+   await expect(savedArticles).toHaveCount(1);
+   await expect(savedArticles.locator('.evidence-identity')).toContainText(`Note ${saved.note.note_id} · revision ${saved.note.revision}`);
+   await expect(savedArticles.locator('.evidence-identity')).toContainText(`Version ${pdf.version_id}`);
+   await expect(win.getByRole('status').filter({hasText:'Saved this exact evidence record.'})).toBeVisible();
+   await expect(win.getByLabel('Note body',{exact:true})).toHaveValue('');
+   await expect(win.getByText('Loading or saving selected project…',{exact:true})).toHaveCount(0);
+   await expect(chooser).toBeEnabled();
+   chooserAttempted=true;
+   await chooser.click();
+   await expect(chooserRegion).toBeVisible();
+   await expect(chooserRegion.getByRole('button',{name:'Close Library chooser',exact:true})).toBeVisible();
+   for(const name of ['unicode.txt','hostile.txt'])await expect(chooserRegion.getByRole('button',{name:'Add '+name,exact:true})).toBeEnabled();
+   return saved.note;
+  })();
+  // Attach immediately while the test controls response delivery below.
+  void advance.catch(()=>{});
+  try{
+   await expect.poll(async()=>(await seam()).held.save).toBe(true);
+   await expect(win.getByLabel('Note body',{exact:true})).toHaveValue(noteBody);
+   await expect(win.getByText(noteBody,{exact:true}).first()).toBeVisible();
+   await expect(savedArticles).toHaveCount(0);expect(chooserAttempted).toBe(false);
+   expect((await seam()).events.filter(e=>e.stage==='chooser')).toEqual([]);
+   receipt('note-save-pending',{...(await seam()),oldTextPredicateMatches:true,savedRecordsVisible:0,chooserAttempted,route:win.url(),mainPid:mainPids[mainPids.length-1]});
+   await release('save');
+   await expect.poll(async()=>(await seam()).held.refresh).toBe(true);
+   await expect(chooser).toBeDisabled();await expect(win.getByText('Loading or saving selected project…',{exact:true})).toBeVisible();
+   await expect(savedArticles).toHaveCount(0);expect(chooserAttempted).toBe(false);
+   expect((await seam()).events.filter(e=>e.stage==='chooser')).toEqual([]);
+   receipt('note-refresh-pending',{...(await seam()),chooserDisabled:true,savedRecordsVisible:0,chooserAttempted});
+   await release('refresh');
+   await expect.poll(async()=>(await seam()).held.chooser).toBe(true);
+   await expect(savedArticles).toHaveCount(1);await expect(chooserRegion).toBeVisible();
+   await expect(chooserRegion.getByRole('button',{name:'Add unicode.txt',exact:true})).toHaveCount(0);
+   expect(chooserAttempted).toBe(true);receipt('chooser-acknowledged-pending-catalog',{...(await seam()),chooserAttempted,chooserRegionVisible:true,addButtonsVisible:0});
+   await release('chooser');savedNote=await advance;
+  }catch(error){seamFailure=error;throw error;}
+  finally{
+   await win.evaluate(()=>{const s=(window as unknown as {portableNoteSeam:SeamState}).portableNoteSeam;for(const stage of ['save','refresh','chooser'] as const)s.release(stage);s.restore();});
+   await advance.catch(error=>{if(!seamFailure)throw error;});
+  }
+  const ordered=(await seam()).events;
+  const position=(stage:SeamStage,phase:SeamEvent['phase'])=>ordered.findIndex(e=>e.stage===stage&&e.phase===phase);
+  expect(position('save','released')).toBeLessThan(position('refresh','request'));
+  expect(position('refresh','released')).toBeLessThan(position('chooser','request'));
+  let currentRevision=projectBefore.revision+1;
+  const additions:unknown[]=[];
+  for(const name of ['unicode.txt','hostile.txt']){
+   const file=catalog.find(f=>f.original_name===name)!;
+   const response=win.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname===`/api/evidence/projects/${pid}/files`);
+   await chooserRegion.getByRole('button',{name:'Add '+name,exact:true}).click();
+   const actual=await response;expect(actual.ok()).toBe(true);
+   expect(actual.request().postDataJSON()).toEqual({expected_vault_id:vid,expected_revision:currentRevision,file_id:file.file_id,version_id:file.version_id});
+   const result=await actual.json() as {project:Project;membership:{project_id:string;file_id:string;version_id:string};added:boolean};
+   expect(result.added).toBe(true);expect(result.membership).toMatchObject({project_id:pid,file_id:file.file_id,version_id:file.version_id});
+   expect(result.project.revision).toBe(++currentRevision);await expect(chooser).toBeEnabled();
+   await expect(win.getByRole('region',{name:'Current collection files'}).getByRole('button',{name:'Remove '+name+' from collection',exact:true})).toBeVisible();
+   additions.push({request:actual.request().postDataJSON(),response:result});
+  }
+  await chooserRegion.getByRole('button',{name:'Close Library chooser',exact:true}).click();await expect(chooserRegion).toHaveCount(0);
+  const storedProject=(await req<{project:Project}>(`/api/evidence/projects/${pid}?expected_vault_id=${vid}`)).project;
+  const storedNotes=await req<{notes:SavedNote[]}>(`/api/evidence/projects/${pid}/notes?expected_vault_id=${vid}`);
+  const storedFiles=await req<{files:{file_id:string;version_id:string}[]}>(`/api/evidence/projects/${pid}/files?expected_vault_id=${vid}`);
+  expect(storedProject).toMatchObject({project_id:pid,revision:currentRevision,file_count:3,note_count:1});
+  expect(storedNotes.notes).toEqual([savedNote]);
+  expect(storedFiles.files.map(f=>[f.file_id,f.version_id]).sort()).toEqual(catalog.map(f=>[f.file_id,f.version_id]).sort());
+  expect((await req<LibraryPage>(`/api/library/files?expected_vault_id=${vid}`)).files).toEqual(catalog);
+  receipt('note-chooser-complete',{events:ordered,savedNote,projectBefore,storedProject,storedFiles,additions,libraryUnchanged:true,route:win.url(),mainPid:mainPids[mainPids.length-1]});
   const question=await send('question');const zip=await download(question,'legacy','zip');await download(question,'question');
   const briefing=await send('briefing');await download(briefing,'briefing');expect(fake.captures()).toHaveLength(1);expect(fake.requests).toHaveLength(1);
   // Hold the real HTTP response before the download consumer receives it.
@@ -194,9 +306,20 @@ c.execute('INSERT INTO evidence_answers ('+','.join(r)+') VALUES ('+','.join('?'
     await expect(page.locator('#sources')).toBeVisible();await expect(page.locator('#coverage')).toBeVisible();expect(await page.locator('body').textContent()).toContain('billing');
     const print=await reader.evaluate(async({BrowserWindow})=>Array.from(await BrowserWindow.getAllWindows()[0].webContents.printToPDF({printBackground:true})));fs.writeFileSync(path.join(out,'portable-print.pdf'),Buffer.from(print));expect(Buffer.from(print).subarray(0,5).toString()).toBe('%PDF-');
     const printed=py("from pypdf import PdfReader;import sys;print('\\n'.join(p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages))",path.join(out,'portable-print.pdf'));
-    const printLiterals=[entry.answer.answer_id,'Frozen selected sources','PORTABLE OWNER NOTE','Saved coverage and disclosure','Requested settings','Reported usage','65,536','20,000','billing','Citation identity is not semantic support'];
+    // Chromium's Linux font can encode the hexadecimal pair ff as one PDF
+    // presentation glyph. Expand only that glyph for the UUID comparison;
+    // keep the raw extraction and all other print/HTML identity assertions.
+    const printedIdentityText=(text:string)=>text.replace(/\uFB00/g,'ff');
+    const extractionExample='6b05c22f-3a34-4527-b489-7dd\uFB00135e6c9';
+    const exactExample='6b05c22f-3a34-4527-b489-7ddff135e6c9';
+    expect(printedIdentityText(extractionExample)).toBe(exactExample);
+    expect(printedIdentityText(extractionExample.replace('135e6c9','135e6c8'))).not.toBe(exactExample);
+    expect(printedIdentityText(extractionExample.replace('\uFB00','f'))).not.toBe(exactExample);
+    expect(printedIdentityText(printed)).toContain(entry.answer.answer_id);
+    fs.writeFileSync(path.join(out,'portable-print.txt'),printed);
+    const printLiterals=['Frozen selected sources','PORTABLE OWNER NOTE','Saved coverage and disclosure','Requested settings','Reported usage','65,536','20,000','billing','Citation identity is not semantic support'];
     for(const literal of printLiterals)expect(printed).toContain(literal);
-    receipt('layout-keyboard-print',{layouts,zoom,focus,printBytes:print.length,printTextSha256:hash(printed),printContentAssertions:printLiterals.length,printSignature:true,nativeCapture:true,physicalAndroid:false});
+    receipt('layout-keyboard-print',{layouts,zoom,focus,printBytes:print.length,printTextSha256:hash(printed),printIdentityTextSha256:hash(printedIdentityText(printed)),ffLigatures:(printed.match(/\uFB00/g)||[]).length,printContentAssertions:printLiterals.length+1,printIdentityNormalization:'U+FB00 to ff only; other literals compare raw extraction',printSignature:true,nativeCapture:true,physicalAndroid:false});
    }
    const observed=await reader.evaluate(()=>(globalThis as unknown as {portableReader:{allowed:string[];blocked:string[];opens:string[]}}).portableReader);
    expect(observed.allowed).toEqual([target]);expect(observed.blocked).toEqual([]);expect(observed.opens).toEqual([]);

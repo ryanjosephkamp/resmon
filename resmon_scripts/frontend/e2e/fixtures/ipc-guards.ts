@@ -31,6 +31,8 @@ export interface Stubbed {
   chooseFile: number;
   openPath: number;
   revealPath: number;
+  getDownloads: number;
+  revealDownload: number;
 }
 
 /**
@@ -44,6 +46,8 @@ export const STUBBED_CHANNELS: Record<keyof Stubbed, string> = {
   chooseFile: 'resmon:choose-file',
   openPath: 'resmon:open-path',
   revealPath: 'resmon:reveal-path',
+  getDownloads: 'resmon:downloads',
+  revealDownload: 'resmon:reveal-download',
 };
 
 export interface GuardCounts {
@@ -62,13 +66,13 @@ export const NOTHING_ESCAPED: Escaped = {
 };
 
 /**
- * Replace the three IPC handlers with counting stubs, and put a counter on
+ * Replace the preload IPC handlers with counting stubs, and put a counter on
  * every OS-facing call underneath them.
  */
 export async function installIpcGuards(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ ipcMain, dialog, shell }) => {
     const counts = {
-      stubbed: { chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0 },
+      stubbed: { chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0 },
       escaped: {
         showOpenDialog: 0,
         showMessageBox: 0,
@@ -129,6 +133,18 @@ export async function installIpcGuards(app: ElectronApplication): Promise<void> 
       counts.stubbed.openPath += 1;
       counts.lastArgs.openPathTarget = target;
       return '';
+    });
+
+    ipcMain.removeHandler('resmon:downloads');
+    ipcMain.handle('resmon:downloads', async () => {
+      counts.stubbed.getDownloads += 1;
+      return [];
+    });
+    ipcMain.removeHandler('resmon:reveal-download');
+    ipcMain.handle('resmon:reveal-download', async (_e, id: string) => {
+      counts.stubbed.revealDownload += 1;
+      counts.lastArgs.revealDownloadId = id;
+      return true;
     });
 
     ipcMain.removeHandler('resmon:reveal-path');

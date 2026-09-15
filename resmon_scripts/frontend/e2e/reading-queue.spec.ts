@@ -24,6 +24,14 @@ import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+
+interface QueueDownloadReceipt {
+  target: string;
+  state: string | null;
+  receivedBytes: number;
+  totalBytes: number;
+}
+type DownloadGlobal = typeof globalThis & { queueDownload: QueueDownloadReceipt };
 import { FRONTEND_ROOT, launchEnv, ensureScreenshotDir } from './fixtures/resmon-app';
 
 const HELPER = path.resolve(FRONTEND_ROOT, '../verification_scripts/test_reading_queue.py');
@@ -213,13 +221,43 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
 
     for (const [label, extension] of [['BibTeX', 'bib'], ['RIS', 'ris'], ['CSV', 'csv']]) {
       const destination = path.join(state, `queue.${extension}`);
+      // An existing destination is not a completed download. Keep this empty
+      // file as a deterministic counterexample to the former exists/read gate.
+      fs.writeFileSync(destination, '');
       await app.evaluate(({ BrowserWindow }, target) => {
+        const receipt: QueueDownloadReceipt = {
+          target, state: null, receivedBytes: 0, totalBytes: 0,
+        };
+        (globalThis as DownloadGlobal).queueDownload = receipt;
         BrowserWindow.getAllWindows()[0].webContents.session.once(
-          'will-download', (_event, item) => { item.setSavePath(target); });
+          'will-download', (_event, item) => {
+            item.setSavePath(target);
+            item.once('done', (_doneEvent, state) => {
+              receipt.state = state;
+              receipt.receivedBytes = item.getReceivedBytes();
+              receipt.totalBytes = item.getTotalBytes();
+            });
+          });
       }, destination);
+      const completionState = () => app.evaluate(
+        () => (globalThis as DownloadGlobal).queueDownload.state);
+      expect(fs.existsSync(destination)).toBe(true);
+      expect(await completionState(), 'an existing empty file is not download completion').toBeNull();
       await win.getByRole('button', { name: label, exact: true }).click();
-      await expect.poll(() => fs.existsSync(destination)).toBe(true);
+      await expect.poll(completionState).not.toBeNull();
+      const download = await app.evaluate(
+        () => (globalThis as DownloadGlobal).queueDownload);
+      console.log('READING_QUEUE_DOWNLOAD_DONE', JSON.stringify(download));
+      expect(download.target).toBe(destination);
+      expect(download.state).toBe('completed');
       const bytes = fs.readFileSync(destination);
+      // Preserve the actual payload even when a format assertion fails in CI.
+      await test.info().attach(`reading-queue-${extension}`, {
+        body: bytes, contentType: 'application/octet-stream',
+      });
+      expect(bytes.length).toBeGreaterThan(0);
+      expect(download.receivedBytes).toBe(bytes.length);
+      expect(download.totalBytes).toBe(bytes.length);
       const text = bytes.toString('utf8');
       if (label === 'BibTeX') {
         const keys = [...text.matchAll(/^@\w+\{([^,]+),/gm)].map((m) => m[1]);
@@ -284,19 +322,48 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
       if (request.url().includes('/api/reading-queue?')) listRequests.push(request.url());
     });
 
-    let releaseHeld: () => void = () => {};
-    const heldReply = new Promise<void>((resolve) => { releaseHeld = resolve; });
-    await win.route('**/api/reading-queue/*', async (route) => {
-      if (route.request().method() !== 'PUT') { await route.continue(); return; }
-      const response = await route.fetch();          // the real PUT happens here
-      const body = await response.body();
-      await heldReply;                               // ...its reply waits for us
-      await route.fulfill({ response, body });
+    // Hold the native response itself. Reissuing a PUT through CDP route.fetch
+    // changes the transport path and did not deliver a completion refresh in
+    // the guarded local Electron run. The product request/body stays untouched.
+    type HeldQueueReply = {
+      ready: boolean; url: string; status: number; body: unknown;
+      release: () => void; restore: () => void;
+    };
+    await win.evaluate(() => {
+      const original = window.fetch;
+      let release: () => void = () => {};
+      const held: HeldQueueReply = {
+        ready: false, url: '', status: 0, body: null,
+        release: () => release(), restore: () => { window.fetch = original; },
+      };
+      (window as unknown as { heldQueueReply: HeldQueueReply }).heldQueueReply = held;
+      window.fetch = async (input, init) => {
+        const response = await original(input, init);
+        if (init?.method === 'PUT' && new URL(String(input)).pathname.startsWith('/api/reading-queue/')
+            && !held.ready) {
+          held.url = String(input); held.status = response.status;
+          held.body = await response.clone().json();
+          const pending = new Promise<void>((resolve) => { release = resolve; });
+          held.ready = true;
+          await pending;
+        }
+        return response;
+      };
     });
 
     const staleId = Number(String(await win.locator('.reading-item').first()
       .getAttribute('data-testid')).replace('paper-', ''));
     await win.getByTestId(`toggle-${staleId}`).click();
+    await expect.poll(() => win.evaluate(
+      () => (window as unknown as { heldQueueReply: HeldQueueReply }).heldQueueReply.ready)).toBe(true);
+    const heldResponse = await win.evaluate(() => {
+      const held = (window as unknown as { heldQueueReply: HeldQueueReply }).heldQueueReply;
+      return { url: held.url, status: held.status, body: held.body };
+    });
+    expect(heldResponse.url).toBe(`${base}/api/reading-queue/${staleId}`);
+    expect(heldResponse.status).toBe(200);
+    expect(heldResponse.body).toMatchObject({ document_id: staleId, status: 'read' });
+    console.log('R2_REAL_RESPONSE_HELD', JSON.stringify(heldResponse));
     // The backend really has it before the renderer is told.
     await expect.poll(async () => {
       const read = await (await win.request.get(`${base}/api/reading-queue?status=read`)).json();
@@ -307,7 +374,8 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     await expect(win.getByTestId(`state-${staleId}`)).toHaveText('Read');
 
     const listsBeforeRelease = listRequests.length;
-    releaseHeld();
+    await win.evaluate(() =>
+      (window as unknown as { heldQueueReply: HeldQueueReply }).heldQueueReply.release());
 
     // Wait for the completion's own refresh to actually happen, then judge it.
     await expect.poll(() => listRequests.length).toBeGreaterThan(listsBeforeRelease);
@@ -320,7 +388,8 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     await expect(win.getByTestId(`state-${leavingId}`)).toHaveText('Read');
     console.log('R2_STALE_REFRESH_CLOSED', JSON.stringify({
       staleId, refreshUrl, filterAfterRelease: 'read' }));
-    await win.unroute('**/api/reading-queue/*');
+    await win.evaluate(() =>
+      (window as unknown as { heldQueueReply: HeldQueueReply }).heldQueueReply.restore());
 
     /* ---------------------------------------------------------------- */
     /* R4: the page you are standing on can stop existing.               */
