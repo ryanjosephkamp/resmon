@@ -2,12 +2,20 @@
 """HAL (Hyper Articles en Ligne) API client — REST JSON API."""
 
 import logging
+import time
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, note_parse_failure, safe_request
 
 logger = logging.getLogger(__name__)
 
 _HAL_API_URL = "https://api.archives-ouvertes.fr/search/"
+
+# One cooperative I/O budget covers every page, retry and limiter wait. A
+# per-phase HTTPX timeout alone allowed retry exhaustion beyond the live test's
+# 120-second watchdog. DNS shutdown/CPU scheduling remain platform limitations.
+_SEARCH_BUDGET_SECONDS = 45.0
+_REQUEST_TIMEOUT_SECONDS = 10.0
+_MAX_RETRIES = 1
 
 # HAL does not publish strict rate limits; use 2 req/s as polite default
 _RATE_LIMITER = RateLimiter(requests_per_second=2.0)
@@ -28,6 +36,7 @@ class HalClient(BaseAPIClient):
         **kwargs,
     ) -> list[NormalizedResult]:
         results: list[NormalizedResult] = []
+        deadline = time.monotonic() + _SEARCH_BUDGET_SECONDS
         start = 0
         page_size = min(max_results, 100)
 
@@ -55,6 +64,9 @@ class HalClient(BaseAPIClient):
                     "GET", _HAL_API_URL,
                     params=params,
                     rate_limiter=_RATE_LIMITER,
+                    timeout=_REQUEST_TIMEOUT_SECONDS,
+                    max_retries=_MAX_RETRIES,
+                    deadline=deadline,
                 )
                 if response.status_code != 200:
                     logger.error("HAL API returned %d", response.status_code)
@@ -63,12 +75,23 @@ class HalClient(BaseAPIClient):
                 logger.exception("HAL API request failed")
                 break
 
-            data = response.json()
-            docs = data.get("response", {}).get("docs", [])
+            try:
+                data = response.json()
+                payload = data["response"]
+                docs = payload["docs"]
+                if not isinstance(docs, list):
+                    raise ValueError("HAL docs is not an array")
+            except (ValueError, TypeError, KeyError):
+                note_parse_failure()
+                logger.warning("HAL returned an unreadable search response")
+                break
             if not docs:
                 break
 
             for doc in docs:
+                if not isinstance(doc, dict):
+                    logger.warning("HAL returned a malformed record; skipped")
+                    continue
                 title = doc.get("title_s")
                 if isinstance(title, list):
                     title = title[0] if title else ""
