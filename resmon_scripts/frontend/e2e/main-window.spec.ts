@@ -156,11 +156,11 @@ test('P3: an external link opens in-app, titled with its URL, and never reaches 
   }
 });
 
-test('P3b: the OS-facing surface of main.ts is still the five that are guarded', async () => {
+test('P3b: the main-process OS-facing surface is still the five that are guarded', async () => {
   // The guards are only a measurement while they cover everything. A new
   // `shell.` or `dialog.` call in `main.ts` would escape silently, and the
   // count would still read zero.
-  const source = fs.readFileSync(path.join(FRONTEND_ROOT, 'electron', 'main.ts'), 'utf8')
+  const source = ['main.ts', 'downloads.ts'].map(name => fs.readFileSync(path.join(FRONTEND_ROOT, 'electron', name), 'utf8')).join('\n')
     // Comments first. `main.ts` explains `shell.openExternal` in prose in three
     // places, and a call that exists only in a comment is not a call — this
     // check has to be able to go red, so it must not be satisfied by the file
@@ -172,7 +172,7 @@ test('P3b: the OS-facing surface of main.ts is still the five that are guarded',
   const calls = new Set(
     [...source.matchAll(/\b(?:dialog|shell)\s*\.\s*(\w+)\s*\(/g)].map((m) => m[1]),
   );
-  console.log('P3b OS-FACING CALLS IN main.ts', JSON.stringify([...calls].sort()));
+  console.log('P3b OS-FACING CALLS IN main.ts and downloads.ts', JSON.stringify([...calls].sort()));
   expect([...calls].sort()).toEqual([
     'openExternal', 'openPath', 'showItemInFolder', 'showMessageBox', 'showOpenDialog',
   ]);
