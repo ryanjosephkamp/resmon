@@ -101,6 +101,12 @@ The table below lists the 27 active sources registered in the repository catalog
 | Springer Nature | REST (JSON Meta API) | Required (query-param key) | 5.0 req/s (≈5000/day cap) | STM, Humanities, Social sciences |
 | Zenodo | REST (JSON) | Not required | 0.5 req/s (30/min) | Multi-disciplinary publications, data, software, and other outputs |
 
+HAL searches share a 45-second cooperative I/O budget across pages, retries and
+rate-limit waits. Budget exhaustion is recorded as an upstream failure; an empty
+successful response remains distinct. Already normalized records are retained.
+DNS shutdown and blocking CPU work can exceed this budget; see
+[HAL request reliability](docs/hal-reliability.md).
+
 Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in `.ai:/prep/repos.md` and are not queried at runtime.
 
 ### Your local Library

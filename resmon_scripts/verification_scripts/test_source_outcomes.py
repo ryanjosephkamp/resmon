@@ -325,7 +325,7 @@ def _fake_response(request, status=200, body=b"{}"):
 @pytest.fixture
 def no_rate_limit(monkeypatch):
     """arXiv alone waits 3 s between calls; 25 clients would be a minute."""
-    monkeypatch.setattr(api_base.RateLimiter, "acquire", lambda self: None)
+    monkeypatch.setattr(api_base.RateLimiter, "acquire", lambda self, **kwargs: None)
 
 
 @pytest.fixture
@@ -359,8 +359,8 @@ def test_every_client_records_an_attempt(
     Not a grep for ``safe_request``: a client that imported it and then used
     ``httpx`` directly would pass a grep and fail this. The patch is at
     ``httpx.Client.request`` -- below every client and below ``safe_request``
-    -- so the only way to satisfy it is to actually make the call through the
-    instrumented path.
+    (and AsyncClient.request for deadline-opted HAL) -- so the only way to
+    satisfy it is to actually make the call through the instrumented path.
 
     The reply is an empty JSON object, which most of these clients cannot
     parse. That is deliberate and harmless: the property is that the attempt
@@ -376,7 +376,11 @@ def test_every_client_records_an_attempt(
         calls.append(url)
         return _fake_response(httpx.Request(method, url))
 
+    async def _async_request(self, method, url, **kwargs):
+        return _request(self, method, url, **kwargs)
+
     monkeypatch.setattr(httpx.Client, "request", _request)
+    monkeypatch.setattr(httpx.AsyncClient, "request", _async_request)
 
     api_base.reset_search_outcome()
     client = api_registry.get_client(slug)
@@ -396,6 +400,7 @@ def test_every_client_records_an_attempt(
     assert snapshot["attempts"] >= 1, (
         f"{slug} made no recorded HTTP attempt (httpx saw {len(calls)} calls)"
     )
+    assert calls, f"{slug} recorded an attempt without reaching an HTTPX request"
 
 
 # ---------------------------------------------------------------------------
@@ -879,3 +884,33 @@ def test_a_source_that_answered_emits_no_sentence(
     assert event["zero_reason"] is None
     assert event["zero_message"] is None
     conn.close()
+
+
+def test_hal_budget_expiry_is_stored_in_the_row_record_log_and_report(
+    monkeypatch, http_server,
+):
+    """An actual HAL request can fail before retry without becoming empty success."""
+    from pathlib import Path
+    from resmon_scripts.implementation_scripts import api_hal
+
+    http_server.reply = (503, "synthetic unavailable")
+    monkeypatch.setattr(api_hal, "_HAL_API_URL", http_server.url)
+    monkeypatch.setattr(api_hal, "_RATE_LIMITER", api_base.RateLimiter(1000))
+    monkeypatch.setattr(api_hal, "_SEARCH_BUDGET_SECONDS", 0.3)
+    conn, result = _run_dive(monkeypatch, api_hal.HalClient(), repo="hal")
+    try:
+        row = get_execution_sources(conn, result["execution_id"])[0]
+        assert row["status"] == "ok" and row["result_count"] == 0
+        assert row["zero_reason"] == "upstream_failure"
+        detail = json.loads(row["zero_detail"])
+        assert detail["attempts"] == len(http_server.hits) == 1
+        assert detail["detail"] == "operation_deadline"
+        expected = zero_reason.sentence("HAL", row["zero_reason"], detail)
+        assert "search operation budget expired after 1 attempt" in expected
+        assert expected in Path(result["log_path"]).read_text(encoding="utf-8")
+        assert expected in Path(result["report_path"]).read_text(encoding="utf-8")
+        record = search_record.build(conn, result["execution_id"])
+        assert record["sources"][0]["note"] == expected
+        assert record["identification"]["sources_that_answered"] == 0
+    finally:
+        conn.close()

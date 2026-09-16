@@ -22,7 +22,7 @@ import implementation_scripts.api_hal
 import implementation_scripts.api_plos
 import implementation_scripts.api_springer
 
-from implementation_scripts.api_base import NormalizedResult
+from implementation_scripts.api_base import NormalizedResult, reset_search_outcome, search_outcome
 from implementation_scripts.api_registry import list_repositories, get_client
 
 # NOTE: SSRN and RePEc were removed from the active registry on 2026-04-18
@@ -47,12 +47,18 @@ def test_each_client_instantiates():
 
 @pytest.mark.live_network
 def test_hal_search():
-    """HAL client returns results."""
+    """A live HAL search retrieves usable records; graceful failure is not success."""
     client = get_client("hal")
+    reset_search_outcome()
     results = client.search(query="physics", max_results=3)
-    assert isinstance(results, list)
-    if results:
-        assert isinstance(results[0], NormalizedResult)
+    snapshot = search_outcome().snapshot()
+    assert 1 <= len(results) <= 3, "HAL did not return usable records"
+    assert snapshot["attempts"] >= 1
+    assert not snapshot["last_call_failed"] and snapshot["explicit_reason"] is None
+    for result in results:
+        assert isinstance(result, NormalizedResult)
+        assert result.source_repository == "hal"
+        assert result.external_id and result.title and result.url
 
 
 @pytest.mark.live_network
