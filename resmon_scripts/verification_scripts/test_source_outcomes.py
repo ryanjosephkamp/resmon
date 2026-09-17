@@ -201,17 +201,22 @@ def test_a_refused_connection_records_connect(fast_retries):
     """A port nothing is listening on, over a real socket."""
     import socket
 
-    probe = socket.socket()
-    probe.bind(("127.0.0.1", 0))
-    dead_port = probe.getsockname()[1]
-    probe.close()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as buddy:
+        buddy.bind(("127.0.0.1", 0))
+        buddy.listen(1)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            dead_port = reserved.getsockname()[1]
+            assert dead_port != 8742
+            reserved.connect(buddy.getsockname())
+            accepted, _ = buddy.accept()
+            with accepted:
+                with pytest.raises(Exception):
+                    api_base.safe_request("GET", f"http://127.0.0.1:{dead_port}/records")
 
-    with pytest.raises(Exception):
-        api_base.safe_request("GET", f"http://127.0.0.1:{dead_port}/records")
-
-    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
-    assert reason == "upstream_failure"
-    assert detail["detail"] == "connect"
+                reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+                assert reason == "upstream_failure"
+                assert detail["detail"] == "connect"
 
 
 # ---------------------------------------------------------------------------

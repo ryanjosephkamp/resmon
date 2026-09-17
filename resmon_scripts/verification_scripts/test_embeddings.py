@@ -203,13 +203,25 @@ def test_a_refusal_and_an_outage_are_different_answers(server):
 
 def test_a_probe_never_raises_whatever_the_endpoint_does():
     """Settings calls this on a URL the user typed; the reason is the product."""
-    lane = EmbeddingLane(
-        kind="local", provider="local", model="m",
-        endpoint="http://127.0.0.1:1",  # nothing listens here
-    )
-    result = embeddings.probe_lane(lane)
-    assert result["ok"] is False
-    assert result["reason"]
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as buddy:
+        buddy.bind(("127.0.0.1", 0))
+        buddy.listen(1)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            port = reserved.getsockname()[1]
+            assert port != 8742
+            reserved.connect(buddy.getsockname())
+            accepted, _ = buddy.accept()
+            with accepted:
+                lane = EmbeddingLane(
+                    kind="local", provider="local", model="m",
+                    endpoint=f"http://127.0.0.1:{port}",
+                )
+                result = embeddings.probe_lane(lane)
+                assert result["ok"] is False
+                assert result["reason"]
 
 
 # ---------------------------------------------------------------------------
