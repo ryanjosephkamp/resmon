@@ -158,7 +158,7 @@ class BiorxivClient(BaseAPIClient):
             # legitimate empty result set so the sweep engine surfaces a
             # repo_error instead of silently reporting zero results.
             if not collection:
-                if cursor == 0 and status_msg and status_msg.lower() != "ok":
+                if status_msg and status_msg.lower() != "ok":
                     search_outcome().note_failure(
                         RuntimeError(
                             f"bioRxiv /details/{self._server} returned "

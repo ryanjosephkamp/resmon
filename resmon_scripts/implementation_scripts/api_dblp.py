@@ -130,7 +130,19 @@ class DblpClient(BaseAPIClient):
 
             result_obj = data.get("result")
             hits = result_obj.get("hits") if isinstance(result_obj, dict) else None
+            if not isinstance(hits, dict):
+                note_parse_failure("malformed_json_shape")
+                logger.error("DBLP API response has no result.hits object")
+                break
+            try:
+                total = int(hits.get("@total", 0))
+            except (TypeError, ValueError):
+                note_parse_failure("malformed_json_shape")
+                logger.error("DBLP API response has an invalid total")
+                break
             hit_list = hits.get("hit") if isinstance(hits, dict) else None
+            if hit_list is None and total == 0:
+                break
             if isinstance(hit_list, dict):
                 hit_list = [hit_list]
             if not isinstance(hit_list, list):
@@ -150,12 +162,6 @@ class DblpClient(BaseAPIClient):
                     results.append(parsed)
 
             first += len(hit_list)
-            try:
-                total = int(hits.get("@total", 0))
-            except (TypeError, ValueError):
-                note_parse_failure("malformed_json_shape")
-                logger.error("DBLP API response has an invalid total")
-                break
             if first >= total or len(hit_list) < params["h"]:
                 break
 

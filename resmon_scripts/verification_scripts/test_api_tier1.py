@@ -2897,9 +2897,10 @@ def test_biorxiv_search():
     assert outcome["attempts"] > 0, outcome
     assert outcome["last_call_failed"] is False, outcome
     assert outcome["explicit_reason"] is None, outcome
-    assert results
+    assert 1 <= len(results) <= 3
     assert all(isinstance(result, NormalizedResult) for result in results)
     assert all(result.source_repository == "biorxiv" for result in results)
+    assert all(result.title and result.external_id for result in results)
     assert all(
         result.publication_date is not None
         and "2026-04-01" <= result.publication_date <= "2026-04-15"
@@ -2924,9 +2925,10 @@ def test_medrxiv_search_respects_date_window():
     assert outcome["attempts"] > 0, outcome
     assert outcome["last_call_failed"] is False, outcome
     assert outcome["explicit_reason"] is None, outcome
-    assert results
+    assert 1 <= len(results) <= 3
     assert all(isinstance(result, NormalizedResult) for result in results)
     assert all(result.source_repository == "medrxiv" for result in results)
+    assert all(result.title and result.external_id for result in results)
     assert all(
         result.publication_date is not None
         and date_from <= result.publication_date <= date_to
@@ -2969,9 +2971,10 @@ def test_eric_search_respects_publication_year_window():
     assert outcome["attempts"] > 0, outcome
     assert outcome["last_call_failed"] is False, outcome
     assert outcome["explicit_reason"] is None, outcome
-    assert results
+    assert 1 <= len(results) <= 3
     assert all(isinstance(result, NormalizedResult) for result in results)
     assert all(result.source_repository == "eric" for result in results)
+    assert all(result.title and result.external_id for result in results)
     assert all(result.publication_date == "2024" for result in results)
 
 

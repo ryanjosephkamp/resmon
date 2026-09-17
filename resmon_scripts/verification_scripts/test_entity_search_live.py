@@ -167,9 +167,10 @@ def test_a_real_source_answers_a_real_author_query(slug, record_property):
 
     name = _ASK_ABOUT[slug]
     client = get_client(slug)
-    reset_search_outcome()
+    if slug == "dblp":
+        reset_search_outcome()
     records = client.search_entity(_profile(name), max_results=10)
-    outcome = search_outcome().snapshot()
+    outcome = search_outcome().snapshot() if slug == "dblp" else None
     record_property("returned", len(records))
 
     if not records:
@@ -184,6 +185,9 @@ def test_a_real_source_answers_a_real_author_query(slug, record_property):
             f"test_at_least_most_sources_answered fails when this happens broadly.")
 
     if slug == "dblp":
+        assert 1 <= len(records) <= 10
+        assert all(record.source_repository == "dblp" for record in records)
+        assert all(record.title and record.external_id for record in records)
         assert outcome["attempts"] > 0, outcome
         assert outcome["last_call_failed"] is False, outcome
         assert outcome["explicit_reason"] is None, outcome
@@ -196,6 +200,11 @@ def test_a_real_source_answers_a_real_author_query(slug, record_property):
     # open item and said out loud here rather than being hidden inside a green
     # assertion or a red one that blames the query.
     if not any(r.authors for r in records):
+        if slug == "dblp":
+            pytest.fail(
+                "DBLP returned records for its strict author query but none "
+                f"had a parsed author; outcome={outcome!r}"
+            )
         pytest.skip(
             f"NOT VERIFIED — {slug} answered the author query with "
             f"{len(records)} record(s) and resmon parsed no author from any of "

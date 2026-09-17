@@ -180,7 +180,9 @@ def test_partial_preprint_results_retain_later_parse_failure(monkeypatch):
 @pytest.mark.parametrize("module,client,payload", [
     (api_biorxiv, api_biorxiv.BiorxivClient(), {"messages": {}, "collection": []}),
     (api_eric, api_eric.EricClient(), {"response": {"docs": {}}}),
-    (api_dblp, api_dblp.DblpClient(), {"result": {"hits": {}}}),
+    (api_dblp, api_dblp.DblpClient(), {
+        "result": {"hits": {"@total": "1"}},
+    }),
 ])
 def test_malformed_nested_shape_is_not_answered_empty(
     monkeypatch, module, client, payload,
@@ -246,6 +248,29 @@ def test_biorxiv_body_status_is_a_failed_answer(monkeypatch):
     assert outcome["last_detail"] == "request_error"
 
 
+def test_later_preprint_unavailable_status_keeps_partial_results_truthful(
+    monkeypatch,
+):
+    _recording_sequence(monkeypatch, api_biorxiv, [
+        FakeResponse(_preprint_payload(count=30, total=60)),
+        FakeResponse({
+            "messages": [{"status": "Not available at this time", "total": 60}],
+            "collection": [],
+        }),
+    ])
+
+    results = api_biorxiv.BiorxivClient().search(
+        query="climate", max_results=60,
+        date_from="2024-01-01", date_to="2024-01-07",
+    )
+    outcome = api_base.search_outcome().snapshot()
+
+    assert len(results) == 30
+    assert outcome["attempts"] == 2
+    assert outcome["last_call_failed"] is True
+    assert outcome["last_detail"] == "request_error"
+
+
 def test_eric_retries_one_504_then_preserves_query_and_success(monkeypatch):
     calls = _recording_sequence(monkeypatch, api_eric, [
         FakeResponse(status_code=504), FakeResponse(_eric_payload()),
@@ -285,6 +310,18 @@ def test_dblp_challenge_is_recorded_without_retry(monkeypatch):
     assert calls[0]["params"]["q"] == 'author:"Yoshua Bengio"'
     assert outcome["explicit_reason"] == "parse_failure"
     assert outcome["explicit_detail"] == {"detail": "access_challenge"}
+
+
+def test_dblp_zero_count_without_hit_is_clean_empty(monkeypatch):
+    _recording_sequence(monkeypatch, api_dblp, [FakeResponse({
+        "result": {"hits": {"@total": "0"}},
+    })])
+
+    assert api_dblp.DblpClient().search(query="no such publication") == []
+    outcome = api_base.search_outcome().snapshot()
+    assert outcome["attempts"] == 1
+    assert outcome["last_call_failed"] is False
+    assert outcome["explicit_reason"] is None
 
 
 class _OwnedServer(ThreadingHTTPServer):
