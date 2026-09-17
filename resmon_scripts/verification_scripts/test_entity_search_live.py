@@ -46,6 +46,10 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
+from implementation_scripts.api_base import (  # noqa: E402
+    reset_search_outcome,
+    search_outcome,
+)
 from implementation_scripts.api_registry import get_client  # noqa: E402
 from implementation_scripts.credential_manager import get_credential_for  # noqa: E402
 from implementation_scripts.entity_matching import fold_name  # noqa: E402
@@ -163,14 +167,26 @@ def test_a_real_source_answers_a_real_author_query(slug, record_property):
 
     name = _ASK_ABOUT[slug]
     client = get_client(slug)
+    reset_search_outcome()
     records = client.search_entity(_profile(name), max_results=10)
+    outcome = search_outcome().snapshot()
     record_property("returned", len(records))
 
     if not records:
+        if slug == "dblp":
+            pytest.fail(
+                "DBLP is a strict source-response gate: its real author query "
+                f"for {name!r} returned no useful records; outcome={outcome!r}"
+            )
         pytest.skip(
             f"NOT VERIFIED — {slug} returned nothing for '{name}'. That is either "
             f"an outage or a change upstream, and this run cannot tell which. "
             f"test_at_least_most_sources_answered fails when this happens broadly.")
+
+    if slug == "dblp":
+        assert outcome["attempts"] > 0, outcome
+        assert outcome["last_call_failed"] is False, outcome
+        assert outcome["explicit_reason"] is None, outcome
 
     # A source whose records carry **no author at all** is a third fact, and it
     # is neither a pass nor the failure below. NDL is the case: its author query

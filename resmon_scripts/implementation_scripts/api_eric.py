@@ -5,12 +5,14 @@ import calendar
 import html
 import logging
 import re
+import time
 from urllib.parse import quote, unquote, urlparse
 
 from .api_base import (
     BaseAPIClient,
     NormalizedResult,
     RateLimiter,
+    note_parse_failure,
     note_parse_failure_unless_transport,
     note_unanswerable,
     safe_request,
@@ -19,6 +21,10 @@ from .api_base import (
 logger = logging.getLogger(__name__)
 
 _ERIC_API_URL = "https://api.ies.ed.gov/eric/"
+_SEARCH_BUDGET_SECONDS = 45.0
+_REQUEST_TIMEOUT_SECONDS = 10.0
+_MAX_RESPONSE_ATTEMPTS = 2
+_TRANSIENT_CODES = {429, 500, 502, 503, 504}
 _ERIC_FIELDS = (
     "id,title,author,description,publicationdateyear,subject,"
     "url"
@@ -29,6 +35,60 @@ _ERIC_FIELDS = (
 _RATE_LIMITER = RateLimiter(requests_per_second=0.5)
 
 _PARTIAL_DATE = re.compile(r"^\d{4}(?:-\d{2}(?:-\d{2})?)?$")
+
+
+def _request_json(params: dict[str, object], deadline: float) -> dict | None:
+    """Read one ERIC page within one search budget and one response retry."""
+    for attempt in range(_MAX_RESPONSE_ATTEMPTS):
+        try:
+            response = safe_request(
+                "GET",
+                _ERIC_API_URL,
+                params=params,
+                rate_limiter=_RATE_LIMITER,
+                timeout=_REQUEST_TIMEOUT_SECONDS,
+                max_retries=0,
+                deadline=deadline,
+            )
+        except Exception as exc:
+            if attempt + 1 < _MAX_RESPONSE_ATTEMPTS:
+                logger.warning("ERIC API request failed; retrying once: %s", exc)
+                continue
+            logger.exception("ERIC API request failed")
+            return None
+
+        if response.status_code != 200:
+            if (
+                response.status_code in _TRANSIENT_CODES
+                and attempt + 1 < _MAX_RESPONSE_ATTEMPTS
+            ):
+                logger.warning(
+                    "ERIC API returned %d; retrying once",
+                    response.status_code,
+                )
+                continue
+            logger.error("ERIC API returned %d", response.status_code)
+            return None
+
+        try:
+            payload = response.json()
+        except Exception as exc:
+            if attempt + 1 < _MAX_RESPONSE_ATTEMPTS:
+                logger.warning("ERIC API returned unreadable JSON; retrying once")
+                continue
+            note_parse_failure_unless_transport(exc, "empty_or_invalid_json")
+            logger.error("ERIC API returned unreadable JSON: %s", exc)
+            return None
+
+        if isinstance(payload, dict):
+            return payload
+        if attempt + 1 < _MAX_RESPONSE_ATTEMPTS:
+            logger.warning("ERIC API returned a malformed shape; retrying once")
+            continue
+        note_parse_failure("malformed_json_shape")
+        logger.error("ERIC API response was not an object")
+        return None
+    return None
 
 
 def _publication_year_clause(
@@ -172,6 +232,8 @@ class EricClient(BaseAPIClient):
         if max_results <= 0:
             return []
 
+        deadline = time.monotonic() + _SEARCH_BUDGET_SECONDS
+
         bounds = _search_year_bounds(date_from, date_to)
         if bounds is None:
             # ERIC exposes only a publication year. If no whole calendar year
@@ -205,40 +267,26 @@ class EricClient(BaseAPIClient):
                 "rows": page_size,
                 "fields": _ERIC_FIELDS,
             }
-            try:
-                response = safe_request(
-                    "GET",
-                    _ERIC_API_URL,
-                    params=params,
-                    rate_limiter=_RATE_LIMITER,
-                )
-                if response.status_code != 200:
-                    logger.error("ERIC API returned %d", response.status_code)
-                    break
-                payload = response.json()
-            except Exception as exc:
-                logger.exception("ERIC API request failed")
-                # A reply that arrived and would not parse is a
-                # different fact from a source that never answered;
-                # safe_request has already recorded the second kind.
-                note_parse_failure_unless_transport(exc)
+            payload = _request_json(params, deadline)
+            if payload is None:
                 break
 
-            if not isinstance(payload, dict):
-                logger.error("ERIC API response was not an object")
-                break
             response_data = payload.get("response")
             if not isinstance(response_data, dict):
+                note_parse_failure("malformed_json_shape")
                 logger.error("ERIC API response has no response object")
                 break
             records = response_data.get("docs")
             if not isinstance(records, list):
+                note_parse_failure("malformed_json_shape")
                 logger.error("ERIC API response has no response.docs list")
                 break
             if not records:
                 break
 
             for record in records:
+                if not isinstance(record, dict):
+                    note_parse_failure("malformed_json_shape")
                 parsed = self._parse_record(record)
                 if parsed is None:
                     continue
@@ -257,6 +305,8 @@ class EricClient(BaseAPIClient):
             try:
                 total = int(response_data.get("numFound"))
             except (TypeError, ValueError):
+                note_parse_failure("malformed_json_shape")
+                logger.error("ERIC API response has an invalid numFound")
                 total = None
             if total is not None and start >= total:
                 break
@@ -273,6 +323,13 @@ class EricClient(BaseAPIClient):
 
         external_id_value = record.get("id")
         title_value = record.get("title")
+        if (
+            external_id_value is not None
+            and not isinstance(external_id_value, str)
+        ) or (title_value is not None and not isinstance(title_value, str)):
+            note_parse_failure("malformed_json_shape")
+            logger.warning("ERIC record has a non-string id or title; skipping it")
+            return None
         external_id = (
             external_id_value.strip()
             if isinstance(external_id_value, str) else ""
