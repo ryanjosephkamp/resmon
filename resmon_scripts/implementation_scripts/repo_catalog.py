@@ -421,9 +421,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         entity_search=_entity(
             "endpoint", author_syntax='SPARQL exact rdfs:label "{name}" + dblp:authoredBy',
             established=(
-                "2026-09-17: a bounded official SPARQL diagnostic returned useful "
-                "exact-label authored-publication bindings. Exact-label ambiguity and "
-                "alias misses remain; candidate hosted acceptance is pending."),
+                "2026-09-06 historical REST evidence: `author:Geoffrey_Hinton:` "
+                "returned a hit and the nonsense author 0. That dated observation is "
+                "not a current REST success; a bounded 2026-09-17 diagnostic observed "
+                "REST challenge pages. On 2026-09-17, a bounded official SPARQL "
+                "diagnostic returned useful exact-label authored-publication bindings. "
+                "Exact-label ambiguity and alias misses remain; candidate hosted "
+                "acceptance is pending."),
         ),
     ),
     _entry(
