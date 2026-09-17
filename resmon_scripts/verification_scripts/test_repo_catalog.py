@@ -141,6 +141,20 @@ def test_eric_catalog_does_not_invent_upstream_limits_or_date_precision():
     assert "year" in entry.query_method.lower()
 
 
+def test_dblp_catalog_records_supported_routes_pacing_and_limits():
+    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "dblp")
+
+    assert entry.rate_limit == "0.5 req/s (shared; at least 2 seconds between requests)"
+    assert "search/publ/api" in entry.endpoint
+    assert "sparql.dblp.org/sparql" in entry.endpoint
+    assert entry.entity_search.author_query == "endpoint"
+    assert "authoredBy" in entry.entity_search.author_syntax
+    assert "year precision" in entry.notes
+    assert "not a known day" in entry.notes
+    assert "challenge" in entry.notes
+    assert "not guaranteed" in entry.notes
+
+
 def test_openlibrary_catalog_records_year_precision_and_undocumented_query_semantics():
     entry = next(e for e in REPOSITORY_CATALOG if e.slug == "openlibrary")
 

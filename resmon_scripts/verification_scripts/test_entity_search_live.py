@@ -188,6 +188,22 @@ def test_a_real_source_answers_a_real_author_query(slug, record_property):
         assert 1 <= len(records) <= 10
         assert all(record.source_repository == "dblp" for record in records)
         assert all(record.title and record.external_id for record in records)
+        assert all(not record.external_id.startswith("http") for record in records)
+        assert all(record.url.startswith("https://dblp.org/rec/") for record in records)
+        assert all(
+            record.publication_date is None
+            or (
+                len(record.publication_date) == 10
+                and record.publication_date.endswith("-01-01")
+                and record.publication_date[:4].isdigit()
+            )
+            for record in records
+        )
+        assert any(
+            any(namespace == "dblp" and source_id
+                for namespace, source_id in author.source_ids)
+            for record in records for author in record.authors
+        )
         assert outcome["attempts"] > 0, outcome
         assert outcome["last_call_failed"] is False, outcome
         assert outcome["explicit_reason"] is None, outcome
