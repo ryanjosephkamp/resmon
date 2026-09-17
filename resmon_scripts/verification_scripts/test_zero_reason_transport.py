@@ -82,13 +82,19 @@ class _Server:
 
 
 @pytest.fixture
-def closed_port() -> int:
-    """A port nothing is listening on. Reliably refuses."""
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+def closed_port():
+    """Retain a connected, non-listening target that rejects other peers."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as buddy:
+        buddy.bind(("127.0.0.1", 0))
+        buddy.listen(1)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            port = reserved.getsockname()[1]
+            assert port != 8742
+            reserved.connect(buddy.getsockname())
+            accepted, _ = buddy.accept()
+            with accepted:
+                yield port
 
 
 def _reason_for(url: str) -> tuple[str, dict]:

@@ -201,17 +201,22 @@ def test_a_refused_connection_records_connect(fast_retries):
     """A port nothing is listening on, over a real socket."""
     import socket
 
-    probe = socket.socket()
-    probe.bind(("127.0.0.1", 0))
-    dead_port = probe.getsockname()[1]
-    probe.close()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as buddy:
+        buddy.bind(("127.0.0.1", 0))
+        buddy.listen(1)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            dead_port = reserved.getsockname()[1]
+            assert dead_port != 8742
+            reserved.connect(buddy.getsockname())
+            accepted, _ = buddy.accept()
+            with accepted:
+                with pytest.raises(Exception):
+                    api_base.safe_request("GET", f"http://127.0.0.1:{dead_port}/records")
 
-    with pytest.raises(Exception):
-        api_base.safe_request("GET", f"http://127.0.0.1:{dead_port}/records")
-
-    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
-    assert reason == "upstream_failure"
-    assert detail["detail"] == "connect"
+                reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+                assert reason == "upstream_failure"
+                assert detail["detail"] == "connect"
 
 
 # ---------------------------------------------------------------------------
@@ -439,19 +444,24 @@ def test_a_json_client_with_an_unreadable_body_records_parse_failure(
 
     from resmon_scripts.implementation_scripts import api_zenodo
 
-    monkeypatch.setattr(
-        httpx.Client, "request",
-        lambda self, method, url, **kw: _fake_response(
+    calls = []
+
+    async def _unreadable(self, method, url, **kw):
+        calls.append((method, url))
+        return _fake_response(
             httpx.Request(method, url), body=b"not json at all",
-        ),
-    )
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", _unreadable)
 
     api_base.reset_search_outcome()
     results = api_zenodo.ZenodoClient().search(query="alpha", max_results=5)
 
     assert results == []
-    assert zero_reason.derive(
-        api_base.search_outcome().snapshot())[0] == "parse_failure"
+    snapshot = api_base.search_outcome().snapshot()
+    assert calls == [("GET", "https://zenodo.org/api/records")]
+    assert snapshot["attempts"] == len(calls)
+    assert zero_reason.derive(snapshot)[0] == "parse_failure"
 
 
 def test_a_transport_failure_is_not_reported_as_an_unreadable_body(
@@ -467,16 +477,25 @@ def test_a_transport_failure_is_not_reported_as_an_unreadable_body(
 
     from resmon_scripts.implementation_scripts import api_zenodo
 
-    def _boom(self, method, url, **kw):
+    calls = []
+
+    async def _boom(self, method, url, **kw):
+        calls.append((method, url))
         raise httpx.ConnectError("no route", request=httpx.Request(method, url))
 
-    monkeypatch.setattr(httpx.Client, "request", _boom)
+    monkeypatch.setattr(httpx.AsyncClient, "request", _boom)
 
     api_base.reset_search_outcome()
     results = api_zenodo.ZenodoClient().search(query="alpha", max_results=5)
 
     assert results == []
-    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+    snapshot = api_base.search_outcome().snapshot()
+    assert calls == [
+        ("GET", "https://zenodo.org/api/records"),
+        ("GET", "https://zenodo.org/api/records"),
+    ]
+    assert snapshot["attempts"] == len(calls)
+    reason, detail = zero_reason.derive(snapshot)
     assert reason == "upstream_failure"
     assert detail["detail"] == "connect"
 

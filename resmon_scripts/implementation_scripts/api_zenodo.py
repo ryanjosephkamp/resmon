@@ -2,12 +2,14 @@
 """Zenodo records API client."""
 
 import logging
+import time
 from html.parser import HTMLParser
 
 from .api_base import (
     BaseAPIClient,
     NormalizedResult,
     RateLimiter,
+    note_parse_failure,
     note_parse_failure_unless_transport,
     safe_request,
 )
@@ -15,6 +17,12 @@ from .api_base import (
 logger = logging.getLogger(__name__)
 
 _ZENODO_API_URL = "https://zenodo.org/api/records"
+
+# One cooperative budget covers all pages, limiter waits and retries. A
+# per-phase timeout alone does not bound a response that keeps making progress.
+_SEARCH_BUDGET_SECONDS = 45.0
+_REQUEST_TIMEOUT_SECONDS = 10.0
+_MAX_RETRIES = 1
 
 # Zenodo limits search REST endpoints to 30 requests per minute.
 _RATE_LIMITER = RateLimiter(requests_per_second=0.5)
@@ -81,6 +89,7 @@ class ZenodoClient(BaseAPIClient):
         if max_results <= 0:
             return []
 
+        deadline = time.monotonic() + _SEARCH_BUDGET_SECONDS
         search_query = query.strip()
         if date_from or date_to:
             date_clause = (
@@ -112,6 +121,9 @@ class ZenodoClient(BaseAPIClient):
                     _ZENODO_API_URL,
                     params=params,
                     rate_limiter=_RATE_LIMITER,
+                    timeout=_REQUEST_TIMEOUT_SECONDS,
+                    max_retries=_MAX_RETRIES,
+                    deadline=deadline,
                 )
                 if response.status_code != 200:
                     logger.error("Zenodo API returned %d", response.status_code)
@@ -127,14 +139,17 @@ class ZenodoClient(BaseAPIClient):
 
             if not isinstance(payload, dict):
                 logger.error("Zenodo API returned a non-object response")
+                note_parse_failure()
                 break
             hits_node = payload.get("hits")
             if not isinstance(hits_node, dict):
                 logger.error("Zenodo API response has no hits object")
+                note_parse_failure()
                 break
             hits = hits_node.get("hits")
             if not isinstance(hits, list):
                 logger.error("Zenodo API response has no hits list")
+                note_parse_failure()
                 break
             if not hits:
                 break

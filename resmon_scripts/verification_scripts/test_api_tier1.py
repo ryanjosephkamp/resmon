@@ -2994,6 +2994,7 @@ def test_dryad_search_returns_normalized_results_when_available():
 @pytest.mark.live_network
 def test_zenodo_search_respects_date_window():
     """Zenodo returns normalized records inside the requested date range."""
+    api_base.reset_search_outcome()
     date_from = "2024-01-01"
     date_to = "2024-12-31"
     results = get_client("zenodo").search(
@@ -3003,6 +3004,10 @@ def test_zenodo_search_respects_date_window():
         date_to=date_to,
     )
 
+    outcome = api_base.search_outcome().snapshot()
+    assert outcome["attempts"] > 0, outcome
+    assert outcome["last_call_failed"] is False, outcome
+    assert outcome["explicit_reason"] is None, outcome
     assert results
     assert all(isinstance(result, NormalizedResult) for result in results)
     assert all(result.source_repository == "zenodo" for result in results)

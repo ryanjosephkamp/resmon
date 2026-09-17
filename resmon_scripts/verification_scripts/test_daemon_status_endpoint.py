@@ -60,21 +60,33 @@ def test_no_lock_returns_not_running(lock_path):
 
 def test_lock_present_probe_fails(lock_path):
     """A stale lock pointing at a closed port must report running=False with an error."""
-    lock_path.write_text(
-        json.dumps({"pid": 99999, "port": 1, "version": APP_VERSION}),
-        encoding="utf-8",
-    )
-    _reset_app_db()
-    client = TestClient(resmon_mod.create_app())
-    resp = client.get("/api/service/daemon-status")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["lock_present"] is True
-    assert body["running"] is False
-    assert body["lock_pid"] == 99999
-    assert body["lock_port"] == 1
-    assert body["lock_version"] == APP_VERSION
-    assert body["error"]  # populated
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as buddy:
+        buddy.bind(("127.0.0.1", 0))
+        buddy.listen(1)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            port = reserved.getsockname()[1]
+            assert port != 8742
+            reserved.connect(buddy.getsockname())
+            accepted, _ = buddy.accept()
+            with accepted:
+                lock_path.write_text(
+                    json.dumps({"pid": 99999, "port": port, "version": APP_VERSION}),
+                    encoding="utf-8",
+                )
+                _reset_app_db()
+                client = TestClient(resmon_mod.create_app())
+                resp = client.get("/api/service/daemon-status")
+                assert resp.status_code == 200
+                body = resp.json()
+                assert body["lock_present"] is True
+                assert body["running"] is False
+                assert body["lock_pid"] == 99999
+                assert body["lock_port"] == port
+                assert body["lock_version"] == APP_VERSION
+                assert body["error"]  # populated
 
 
 def test_lock_present_probe_succeeds(lock_path, monkeypatch):
