@@ -180,6 +180,7 @@ def test_partial_preprint_results_retain_later_parse_failure(monkeypatch):
 @pytest.mark.parametrize("module,client,payload", [
     (api_biorxiv, api_biorxiv.BiorxivClient(), {"messages": {}, "collection": []}),
     (api_eric, api_eric.EricClient(), {"response": {"docs": {}}}),
+    (api_dblp, api_dblp.DblpClient(), {"result": {"hits": {}}}),
     (api_dblp, api_dblp.DblpClient(), {
         "result": {"hits": {"@total": "1"}},
     }),

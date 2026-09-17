@@ -134,11 +134,20 @@ class DblpClient(BaseAPIClient):
                 note_parse_failure("malformed_json_shape")
                 logger.error("DBLP API response has no result.hits object")
                 break
+            total_value = hits.get("@total")
+            if total_value is None:
+                note_parse_failure("malformed_json_shape")
+                logger.error("DBLP API response has no result.hits total")
+                break
             try:
-                total = int(hits.get("@total", 0))
+                total = int(total_value)
             except (TypeError, ValueError):
                 note_parse_failure("malformed_json_shape")
                 logger.error("DBLP API response has an invalid total")
+                break
+            if total < 0:
+                note_parse_failure("malformed_json_shape")
+                logger.error("DBLP API response has a negative total")
                 break
             hit_list = hits.get("hit") if isinstance(hits, dict) else None
             if hit_list is None and total == 0:
