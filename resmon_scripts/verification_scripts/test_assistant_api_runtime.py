@@ -18,8 +18,11 @@ in those words.
 from __future__ import annotations
 
 import json
+import socket
 import sys
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -41,6 +44,7 @@ from provider_server import ProviderServer                      # noqa: E402
 # One provider per family, so a family cannot be tested through the same
 # provider twice and a family without one cannot hide.
 PROVIDER_FOR_FAMILY = {"anthropic": "anthropic", "openai": "openai", "google": "google"}
+_BACKEND_ABSENCE_PROOFS: list[dict] = []
 
 
 def runtime_for(family: str, base_url: str, **kwargs) -> ak.ApiKeyRuntime:
@@ -53,8 +57,54 @@ def runtime_for(family: str, base_url: str, **kwargs) -> ak.ApiKeyRuntime:
     )
 
 
+@contextmanager
+def _owned_backend_absence():
+    """Name one live-owned endpoint where no server can listen.
+
+    Keeping the reserved socket connected to ``buddy`` keeps its local port
+    owned while HTTPX makes the real health request.  The request therefore
+    receives the OS refusal from this exact endpoint; no released port, port
+    8742, or authored transport exception stands in for backend absence.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as buddy:
+        buddy.bind(("127.0.0.1", 0))
+        buddy.listen(1)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            port = reserved.getsockname()[1]
+            assert port != 8742
+            reserved.connect(buddy.getsockname())
+            peer, _ = buddy.accept()
+            with peer:
+                base = f"http://127.0.0.1:{port}"
+                previous_base = mcp_server.backend._base
+                previous_tried = list(mcp_server.backend._tried)
+                proof = {"base": base, "port": port}
+                mcp_server.backend._base = None
+                mcp_server.backend._tried = []
+                try:
+                    with patch.object(mcp_server, "_candidate_ports", return_value=[port]):
+                        yield proof
+                finally:
+                    proof.update(
+                        tried=list(mcp_server.backend._tried),
+                        reservation_open=reserved.fileno() >= 0,
+                    )
+                    _BACKEND_ABSENCE_PROOFS.append(proof)
+                    mcp_server.backend._base = previous_base
+                    mcp_server.backend._tried = previous_tried
+
+
 def run(runtime: ak.ApiKeyRuntime, prompt: str = "how many routines?", **kwargs) -> list[dict]:
-    return list(runtime.run_turn(1, prompt, **kwargs))
+    with _owned_backend_absence() as absence:
+        events = list(runtime.run_turn(1, prompt, **kwargs))
+        health_calls = [
+            event for event in events
+            if event["type"] == "tool_call" and event["tool_name"] == "health"
+        ]
+        if health_calls:
+            assert mcp_server.backend._tried == [absence["base"]]
+    return events
 
 
 # ---------------------------------------------------------------------------
@@ -173,12 +223,18 @@ def test_the_events_are_the_ones_the_panel_already_knows(family):
 @pytest.mark.parametrize("family", FAMILIES)
 def test_a_tool_call_is_announced_run_and_reported(family):
     """The loop's whole job, against a real socket."""
+    proof_count = len(_BACKEND_ABSENCE_PROOFS)
     with ProviderServer(family) as server:
         server.script = [
             {"text": "", "calls": [{"name": "health", "arguments": {}}]},
             {"text": "resmon is not running", "calls": []},
         ]
         events = run(runtime_for(family, server.base_url))
+
+    assert len(_BACKEND_ABSENCE_PROOFS) == proof_count + 1
+    absence = _BACKEND_ABSENCE_PROOFS[-1]
+    assert absence["tried"] == [absence["base"]]
+    assert absence["port"] != 8742 and absence["reservation_open"] is True
 
     call = next(e for e in events if e["type"] == "tool_call")
     result = next(e for e in events if e["type"] == "tool_result")

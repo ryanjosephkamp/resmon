@@ -340,34 +340,53 @@ class TestCancelEndpoint:
     def test_cancel_completed_returns_409(self):
         """Cancel an already-completed execution returns 409."""
         client = _make_client()
+        started = threading.Event()
+        completed = threading.Event()
+        worker = {}
+        deadline = time.monotonic() + 30.0
 
-        @patch("resmon.SweepEngine.run_prepared", _fake_run_prepared)
-        def _run():
+        def _remaining():
+            return max(0.0, deadline - time.monotonic())
+
+        def _completed(self, exec_id):
+            worker["thread"] = threading.current_thread()
+            started.set()
+            try:
+                _fake_run_prepared(self, exec_id)
+            finally:
+                completed.set()
+
+        with patch("resmon.SweepEngine.run_prepared", _completed):
             resp = client.post("/api/search/dive", json={
                 "query": "done test",
                 "repository": "arxiv",
             })
-            return resp.json()["execution_id"]
+            exec_id = resp.json()["execution_id"]
 
-        exec_id = _run()
+            # Keep the replacement installed until the owned background thread
+            # has actually invoked it and completed.  A decorator on a nested
+            # helper ended when POST returned, racing the thread's later method
+            # lookup and occasionally letting the real arXiv pipeline run.
+            try:
+                assert started.wait(timeout=_remaining()), (
+                    "the positive fake was never invoked"
+                )
+                assert completed.wait(timeout=_remaining()), (
+                    "the positive fake did not complete"
+                )
+                _wait_until_finished(exec_id, timeout=_remaining())
+            finally:
+                owned_thread = worker.get("thread")
+                if owned_thread is not None and owned_thread is not threading.current_thread():
+                    owned_thread.join(timeout=_remaining())
 
-        # Wait for the execution to stop being cancellable, rather than
-        # sleeping a fixed interval and hoping. This was time.sleep(1.0); on a
-        # slower CI runner the background execution had not finished yet, so
-        # cancel returned 200 instead of 409 and the test failed intermittently
-        # while passing every time locally.
-        #
-        # Poll the progress store, not the execution row: _fake_run_prepared
-        # stands in for the pipeline and only emits progress events, so the
-        # database status never changes. progress_store.is_active is also
-        # exactly what the cancel endpoint tests before returning 409.
-        from implementation_scripts.progress import progress_store as _ps
-        deadline = time.monotonic() + 30.0
-        while _ps.is_active(exec_id) and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert not _ps.is_active(exec_id), (
-            f"execution {exec_id} was still active after 30s"
-        )
+            assert worker["thread"].is_alive() is False, (
+                "the owned execution thread did not stop within 30 seconds"
+            )
+            from implementation_scripts.progress import progress_store as _ps
+            assert not _ps.is_active(exec_id), (
+                f"execution {exec_id} was still active after 30s"
+            )
 
         cancel_resp = client.post(f"/api/executions/{exec_id}/cancel")
         assert cancel_resp.status_code == 409, (

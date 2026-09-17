@@ -14,9 +14,9 @@ structural for a different reason — the loop itself will not dispatch a tool i
 ``WRITE_TOOLS`` before ``ask_backend`` has answered. A property that rests on a
 different mechanism needs its own check at the boundary that mechanism lives at.
 
-**The keyring is in memory**, installed into the backend by a ``sitecustomize``
-on its path, so nothing here reads or writes the developer's keychain. That is
-the only substitution, and it is on the side the properties do not depend on.
+**The keyring is in memory**, installed into the backend before the app module
+starts, so nothing here reads or writes the developer's keychain. That is the
+only substitution, and it is on the side the properties do not depend on.
 
 Hermetic: every socket is loopback, and no request leaves the machine.
 """
@@ -30,6 +30,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
@@ -56,6 +57,8 @@ def _free_port() -> int:
 class Backend:
     """A resmon subprocess whose keyring holds the canary and nothing else."""
 
+    START_TIMEOUT_SECONDS = 60.0
+
     def __init__(self, state: Path):
         self.state = state
         self.port = _free_port()
@@ -65,9 +68,9 @@ class Backend:
         self._handle = None
 
     def start(self) -> None:
-        shim = self.state / "sitecustomize"
+        shim = self.state / "memory-keyring"
         shim.mkdir(exist_ok=True)
-        (shim / "sitecustomize.py").write_text(f'''
+        (shim / "memory_keyring.py").write_text(f'''
 import keyring
 from keyring.backend import KeyringBackend
 
@@ -100,16 +103,24 @@ keyring.set_keyring(_Memory())
             "RESMON_DISABLE_SCHEDULER": "1",
             "RESMON_PORT": str(self.port),
             "PYTHONPATH": os.pathsep.join(
-                [str(shim), str(PROJECT_ROOT / "resmon_scripts")]),
+                [p for p in (
+                    os.environ.get("PYTHONPATH"), str(shim),
+                    str(PROJECT_ROOT / "resmon_scripts"),
+                ) if p]),
         }
+        script = str(PROJECT_ROOT / "resmon_scripts" / "resmon.py")
+        bootstrap = (
+            "import memory_keyring,runpy,sys; "
+            "script,port=sys.argv[1:3]; sys.argv=[script,port]; "
+            "runpy.run_path(script,run_name='__main__')"
+        )
         self._handle = open(self.log, "w", encoding="utf-8")
         self.proc = subprocess.Popen(
-            [sys.executable, str(PROJECT_ROOT / "resmon_scripts" / "resmon.py"),
-             str(self.port)],
+            [sys.executable, "-c", bootstrap, script, str(self.port)],
             env=env, stdout=self._handle, stderr=subprocess.STDOUT,
             cwd=str(PROJECT_ROOT),
         )
-        deadline = time.monotonic() + 60
+        deadline = time.monotonic() + self.START_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             if self.proc.poll() is not None:
                 raise RuntimeError(f"backend exited: {self.log.read_text()[:2000]}")
@@ -127,6 +138,7 @@ keyring.set_keyring(_Memory())
                 self.proc.wait(timeout=20)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+                self.proc.wait(timeout=20)
         if self._handle is not None:
             self._handle.close()
 
@@ -137,12 +149,21 @@ def provider():
         yield server
 
 
+@contextmanager
+def _started_backend(server: Backend):
+    """Always reap the owned backend, including when readiness fails."""
+    try:
+        server.start()
+        yield server
+    finally:
+        server.stop()
+
+
 @pytest.fixture(scope="module")
 def backend(tmp_path_factory, provider):
     state = tmp_path_factory.mktemp("assistant-api-key")
     server = Backend(state)
-    server.start()
-    try:
+    with _started_backend(server):
         # Configured through the real settings API — nothing monkeypatched, which
         # is the point: Ledger 33 was a setting the PUT stored and no run read.
         httpx.put(f"{server.base}/api/settings/ai", json={"settings": {
@@ -161,8 +182,23 @@ def backend(tmp_path_factory, provider):
         assert presence["credentials"]["custom_llm_api_key"]["status"] == "present", (
             "the canary was not installed, so P14f would pass vacuously")
         yield server
-    finally:
-        server.stop()
+
+
+def test_startup_failure_reaps_the_owned_backend(monkeypatch, tmp_path):
+    """A readiness failure cannot leave the fixture's child behind."""
+    server = Backend(tmp_path)
+    monkeypatch.setattr(Backend, "START_TIMEOUT_SECONDS", 0.05)
+
+    def _not_ready(*args, **kwargs):
+        request = httpx.Request("GET", server.base)
+        raise httpx.ConnectError("synthetic readiness failure", request=request)
+
+    monkeypatch.setattr(httpx, "get", _not_ready)
+    with pytest.raises(RuntimeError, match="backend did not become ready"):
+        with _started_backend(server):
+            pass
+    assert server.proc is not None
+    assert server.proc.poll() is not None
 
 
 def _session(base: str) -> dict:
