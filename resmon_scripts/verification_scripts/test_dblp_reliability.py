@@ -60,8 +60,7 @@ def _binding(
         row["venue"] = {"type": "literal", "value": venue}
     if doi:
         row["doi"] = {
-            "type": "literal",
-            "datatype": "http://www.w3.org/2001/XMLSchema#anyURI",
+            "type": "uri",
             "value": f"https://doi.org/{doi}",
         }
     return row
@@ -138,7 +137,7 @@ def test_author_query_is_escaped_and_normalizes_existing_identities(monkeypatch)
     ))])
 
     records = api_dblp.DblpClient().search_entity(
-        {"names": [{"value": 'Yoshua "Bengio"\\Lab\n'}]},
+        {"names": [{"value": 'Yoshua "Bengio"\n\\Lab'}]},
         date_from="2024-01-01",
         date_to="2024-12-31",
         max_results=10,
@@ -159,7 +158,7 @@ def test_author_query_is_escaped_and_normalizes_existing_identities(monkeypatch)
     assert calls[0]["method"] == "POST"
     assert calls[0]["url"] == "https://sparql.dblp.org/sparql"
     query = calls[0]["content"].decode()
-    assert 'rdfs:label "Yoshua \\"Bengio\\"\\\\Lab\\n"' in query
+    assert 'rdfs:label "Yoshua \\"Bengio\\"\\n\\\\Lab"' in query
     assert "dblp:authoredBy" in query
     assert "dblp:editedBy" not in query
     assert "dblp:publishedIn" in query
@@ -245,7 +244,11 @@ def test_binding_types_and_year_datatype_are_enforced(monkeypatch, field, bad_va
 
 def test_malformed_optional_fields_keep_the_publication(monkeypatch):
     bad_optional = _binding(key="conf/test/Optional")
-    bad_optional["doi"] = {"type": "uri", "value": "https://doi.org/10.1000/bad"}
+    bad_optional["doi"] = {
+        "type": "literal",
+        "datatype": "http://www.w3.org/2001/XMLSchema#anyURI",
+        "value": "https://doi.org/10.1000/bad",
+    }
     bad_optional["venue"] = {"type": "uri", "value": "https://example.com/venue"}
     _sequence(monkeypatch, [FakeResponse(_sparql_payload(bad_optional))])
 

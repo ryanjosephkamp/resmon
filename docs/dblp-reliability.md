@@ -31,8 +31,8 @@ publication IRIs rather than the number of normalized survivors.
 
 Publication and author identifiers must be URI bindings. Titles, author names,
 and optional venues must be literal bindings. Years must be `xsd:gYear`
-literals, while an optional DOI must be the [DBLP schema's `xsd:anyURI`
-literal](https://dblp.org/rdf/docu/#doi).
+literals. An optional DOI must be an RDF URI under `https://doi.org/`, matching
+the public SPARQL service's observed JSON binding shape and DBLP's KG tutorial.
 Malformed rows are recorded as parse failures; valid records from the same page
 remain available.
 
@@ -48,7 +48,10 @@ records that the window cannot be answered at DBLP's precision.
 ## Evidence limit
 
 A bounded diagnostic on 2026-09-17 observed HTML challenge pages from both REST
-search endpoints and useful JSON bindings from the public SPARQL service. That
-observation supports the adapter choice. It does not establish the cause of the
-REST challenge, guarantee future hosted availability, or prove every name and
+search endpoints and useful JSON bindings from the public SPARQL service. A
+second one-request diagnostic using the candidate projection observed ten DOI
+URI bindings, ten DBLP publication and author URI bindings, literal venue/name/
+title fields, and ten `xsd:gYear` values. Those observations support the adapter
+choice and parser contract. They do not establish the cause of the REST
+challenge, guarantee future hosted availability, or prove every name and
 publication shape.

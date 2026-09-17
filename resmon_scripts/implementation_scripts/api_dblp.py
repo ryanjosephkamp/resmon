@@ -38,7 +38,6 @@ _DBLP_HEADERS = {"User-Agent": _DBLP_USER_AGENT}
 _RECORD_IRI_PREFIX = "https://dblp.org/rec/"
 _PERSON_IRI_PREFIX = "https://dblp.org/pid/"
 _DOI_IRI_PREFIX = "https://doi.org/"
-_XSD_ANY_URI = "http://www.w3.org/2001/XMLSchema#anyURI"
 _XSD_GYEAR = "http://www.w3.org/2001/XMLSchema#gYear"
 _YEAR_RE = re.compile(r"^\d{4}$")
 
@@ -479,16 +478,11 @@ class DblpClient(BaseAPIClient):
                 malformed = True
                 continue
 
-            doi_value = (
-                binding_value("doi", "literal", datatype=_XSD_ANY_URI)
-                if "doi" in binding else None
-            )
+            doi_value = binding_value("doi", "uri") if "doi" in binding else None
             doi = None
             if doi_value is not None:
                 if doi_value.startswith(_DOI_IRI_PREFIX):
                     doi = doi_value[len(_DOI_IRI_PREFIX):]
-                elif doi_value.startswith("10."):
-                    doi = doi_value
                 else:
                     malformed = True
             elif "doi" in binding:
