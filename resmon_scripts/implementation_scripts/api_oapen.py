@@ -26,7 +26,20 @@ _RATE_LIMITER = RateLimiter(requests_per_second=0.5)
 _PAGE_SIZE = 100
 _MIN_SCAN_BUDGET = 10000
 _SEARCH_BUDGET_SECONDS = 45.0
-_REQUEST_TIMEOUT_SECONDS = 10.0
+# Twenty seconds, not ten, because ten was shorter than the provider's own
+# replies. Under the 30 s default the dated live case passed on 2026-09-17 in
+# ~1.6 s and again in ~23.8 s of whole-test time. OAPEN's HTTP 500 error page
+# takes ~11.7 s to its first byte. A 10 s timeout cannot wait for a reply that
+# slow, so a slow answer, or the error page itself, was recorded as a timeout
+# instead of as what it was. Twenty lets a reply that arrives between 10 and
+# 20 s be read. The worst case, two timeouts, is 20 + 1 s backoff + 20 = 41 s,
+# inside the 45 s budget and well inside pytest's 120 s watchdog.
+#
+# This does not fix a genuine 500. From 2026-09-18 OAPEN's DSpace server has
+# intermittently answered HTTP 500 (a JDBC "Could not open connection" error)
+# to GitHub runners and to a workstation alike. No client setting changes
+# that. The timeout only makes the 500 legible as a 500.
+_REQUEST_TIMEOUT_SECONDS = 20.0
 _MAX_REQUEST_RETRIES = 1
 _HANDLE = re.compile(r"^\d+(?:\.\d+)*/[A-Za-z0-9._~-]+$")
 

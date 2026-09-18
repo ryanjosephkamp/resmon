@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -380,7 +381,7 @@ def test_oapen_uses_json_negotiation_and_one_deadline_across_pages(monkeypatch):
     assert [call["params"]["offset"] for call in calls] == [0, 1]
     assert calls[0]["deadline"] == calls[1]["deadline"]
     assert all(call["headers"] == {"Accept": "application/json"} for call in calls)
-    assert all(call["timeout"] == 10.0 and call["max_retries"] == 1 for call in calls)
+    assert all(call["timeout"] == 20.0 and call["max_retries"] == 1 for call in calls)
 
 
 @pytest.mark.parametrize("module,client,payload", [
@@ -890,3 +891,363 @@ def test_oapen_progressing_body_cannot_outlive_shared_deadline(monkeypatch):
     assert outcome["attempts"] == 1
     assert outcome["last_call_failed"] is True
     assert outcome["last_detail"] == "operation_deadline"
+
+
+# ---------------------------------------------------------------------------
+# OAPEN's slow replies and its intermittent HTTP 500, at a real socket
+# ---------------------------------------------------------------------------
+#
+# The live OAPEN case failed because two facts were hidden. First, a 10 s
+# timeout was shorter than the provider's replies. Second, "HTTP 500, then a
+# timeout on the retry" was recorded as just ``timeout``. These cases put both
+# behind a real loopback socket and the production ``safe_request`` path.
+
+
+def _oapen_page_server(plan):
+    """A loopback OAPEN whose replies follow *plan*, one entry per request.
+
+    Each entry is ``(delay_seconds, status, body_bytes)``. The delay comes
+    before the status line, so it is the time to first byte that the client's
+    timeout measures. A reply the client stopped waiting for is written into
+    a closed socket, and that write is allowed to fail.
+    """
+    class Handler(BaseHTTPRequestHandler):
+        requests = []
+
+        def do_GET(self):
+            from urllib.parse import parse_qs, urlsplit
+
+            type(self).requests.append(parse_qs(urlsplit(self.path).query))
+            index = len(type(self).requests) - 1
+            delay, status, body = plan[min(index, len(plan) - 1)]
+            time.sleep(delay)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        def log_message(self, *_args):
+            pass
+
+    return Handler
+
+
+def _oapen_rows(*handles, year="2024"):
+    return json.dumps([_oapen_record(handle, year) for handle in handles]).encode()
+
+
+def test_oapen_dated_reply_arriving_after_ten_seconds_returns_rows(monkeypatch):
+    """P1 at the shipped constants. The reply arrives after 10.5 s.
+
+    That is after the old 10 s timeout and before the new 20 s one. Nothing
+    about the timeout or the budget is patched. Only the limiter is replaced,
+    so another test's use of the shared one cannot add a wait. With the old
+    constant this search came back empty with a recorded timeout.
+    """
+    handler = _oapen_page_server([(10.5, 200, _oapen_rows("20.500.12657/100210"))])
+    with _server(handler) as base:
+        monkeypatch.setattr(api_oapen, "_URL", base)
+        monkeypatch.setattr(api_oapen, "_RATE_LIMITER", api_base.RateLimiter(1000))
+        api_base.reset_search_outcome()
+        began = time.monotonic()
+        rows = api_oapen.OapenClient().search("water AND fire", "2020", "2024", 1)
+        elapsed = time.monotonic() - began
+
+    outcome = api_base.search_outcome().snapshot()
+    assert api_oapen._REQUEST_TIMEOUT_SECONDS == 20.0
+    assert elapsed >= 10.5
+    assert [row.external_id for row in rows] == ["20.500.12657/100210"]
+    assert handler.requests[0]["fq"] == [
+        "dc.date.issued_dt:[2020-01-01T00:00:00Z TO 2024-12-31T23:59:59.999Z]"
+    ]
+    assert outcome["attempts"] == 1
+    assert outcome["failures"] == 0
+    assert outcome["last_call_failed"] is False
+    assert outcome["failure_history"] == []
+
+
+def test_oapen_worst_case_fits_its_budget_and_the_pytest_watchdog():
+    """P2's arithmetic, on the shipped constants.
+
+    Two full timeouts plus the first backoff (``base ** 0`` is 1 s whatever
+    the base) must end before the search budget. The budget must end before
+    pytest's 120 s watchdog, or a provider outage would be reported as a hung
+    test instead of as a recorded failure.
+    """
+    first_backoff = api_base.config.DEFAULT_BACKOFF_BASE ** 0
+    worst = (
+        (api_oapen._MAX_REQUEST_RETRIES + 1) * api_oapen._REQUEST_TIMEOUT_SECONDS
+        + api_oapen._MAX_REQUEST_RETRIES * first_backoff
+    )
+    assert api_oapen._MAX_REQUEST_RETRIES == 1
+    assert worst == 41.0
+    assert worst < api_oapen._SEARCH_BUDGET_SECONDS == 45.0 < 120
+
+
+def test_oapen_two_timeouts_return_retained_rows_and_a_recorded_failure(monkeypatch):
+    """P2 at a real socket, with the timeout scaled from 20 s to 0.4 s.
+
+    The first page answers at once. The second page stalls past the timeout
+    on both attempts. The search must return, not raise, before its budget.
+    It must keep the first page's row and record both timeouts in order.
+    """
+    handler = _oapen_page_server([
+        (0.0, 200, _oapen_rows("20.500.12657/100210")),
+        (1.2, 200, _oapen_rows("20.500.12657/85023")),
+        (1.2, 200, _oapen_rows("20.500.12657/85023")),
+    ])
+    with _server(handler) as base:
+        monkeypatch.setattr(api_oapen, "_URL", base)
+        monkeypatch.setattr(api_oapen, "_PAGE_SIZE", 1)
+        monkeypatch.setattr(api_oapen, "_RATE_LIMITER", api_base.RateLimiter(1000))
+        monkeypatch.setattr(api_oapen, "_REQUEST_TIMEOUT_SECONDS", 0.4)
+        monkeypatch.setattr(api_oapen, "_SEARCH_BUDGET_SECONDS", 4.0)
+        api_base.reset_search_outcome()
+        began = time.monotonic()
+        rows = api_oapen.OapenClient().search("water", "2020", "2024", 2)
+        elapsed = time.monotonic() - began
+
+    outcome = api_base.search_outcome().snapshot()
+    assert [row.external_id for row in rows] == ["20.500.12657/100210"]
+    assert elapsed < 4.0
+    assert [request["offset"] for request in handler.requests] == [["0"], ["1"], ["1"]]
+    assert outcome["attempts"] == 3
+    assert outcome["failures"] == 1
+    assert outcome["last_call_failed"] is True
+    assert outcome["last_detail"] == "timeout"
+    assert outcome["failure_history"] == ["timeout", "timeout"]
+
+
+def test_oapen_500_then_timeout_keeps_both_in_order(monkeypatch):
+    """P3, first half: the shape of the 2026-09-18 live failure.
+
+    Before the history existed this snapshot read only ``timeout``, and
+    the 500 survived only as a warning line in the log.
+    """
+    handler = _oapen_page_server([
+        (0.0, 500, b'{"error":"GenericJDBCException"}'),
+        (1.2, 200, _oapen_rows("20.500.12657/100210")),
+    ])
+    with _server(handler) as base:
+        monkeypatch.setattr(api_oapen, "_URL", base)
+        monkeypatch.setattr(api_oapen, "_RATE_LIMITER", api_base.RateLimiter(1000))
+        monkeypatch.setattr(api_oapen, "_REQUEST_TIMEOUT_SECONDS", 0.4)
+        monkeypatch.setattr(api_oapen, "_SEARCH_BUDGET_SECONDS", 4.0)
+        api_base.reset_search_outcome()
+        rows = api_oapen.OapenClient().search("water AND fire", "2020", "2024", 2)
+
+    outcome = api_base.search_outcome().snapshot()
+    assert rows == []
+    assert len(handler.requests) == 2
+    assert outcome["failure_history"] == ["http_500", "timeout"]
+    assert outcome["failure_history_omitted"] == 0
+    assert outcome["last_call_failed"] is True
+    assert outcome["last_detail"] == "timeout"
+    assert outcome["failures"] == 1
+
+
+@pytest.mark.parametrize("bounded", [True, False], ids=["deadline", "no-deadline"])
+def test_500_then_success_keeps_the_500_in_history_only(monkeypatch, bounded):
+    """P3, second half, on both transports ``safe_request`` has.
+
+    A successful retry is still a successful invocation, so ``last_call_failed``
+    stays false and no partial-result issue is derived. The 500 is still
+    history: it is what a quarantine signature is matched against.
+    """
+    from implementation_scripts import zero_reason
+
+    handler = _oapen_page_server([
+        (0.0, 500, b"{}"),
+        (0.0, 200, _oapen_rows("20.500.12657/100210")),
+    ])
+    with _server(handler) as base:
+        api_base.reset_search_outcome()
+        response = api_base.safe_request(
+            "GET", base,
+            rate_limiter=api_base.RateLimiter(1000),
+            timeout=1.0, max_retries=1, backoff_base=0.01,
+            deadline=(time.monotonic() + 4.0) if bounded else None,
+        )
+
+    outcome = api_base.search_outcome().snapshot()
+    assert response.status_code == 200
+    assert len(handler.requests) == 2
+    assert outcome["attempts"] == 2
+    assert outcome["failures"] == 0
+    assert outcome["last_call_failed"] is False
+    assert outcome["last_detail"] is None
+    assert outcome["failure_history"] == ["http_500"]
+    assert zero_reason.terminal_issue(outcome) is None
+
+
+def test_a_cooldown_stopped_retry_records_its_status_once():
+    """The one terminal failure first seen as a retryable attempt.
+
+    A 503 asks for a 30 s cooldown and the budget is 2 s, so the retry is
+    refused before transport. The status becomes terminal, and the history
+    must still hold it once: counting it twice would invent an attempt.
+    """
+    class Handler(BaseHTTPRequestHandler):
+        count = 0
+
+        def do_GET(self):
+            type(self).count += 1
+            self.send_response(503)
+            self.send_header("Retry-After", "30")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *_args):
+            pass
+
+    with _server(Handler) as base:
+        api_base.reset_search_outcome()
+        with pytest.raises(api_base.ServerCooldownActive):
+            api_base.safe_request(
+                "GET", base,
+                rate_limiter=api_base.RateLimiter(1000),
+                timeout=1.0, max_retries=1, backoff_base=0.01,
+                deadline=time.monotonic() + 2.0,
+            )
+
+    outcome = api_base.search_outcome().snapshot()
+    assert Handler.count == 1
+    assert outcome["attempts"] == 1
+    assert outcome["failures"] == 1
+    assert outcome["last_detail"] == "http_503"
+    assert outcome["failure_history"] == ["http_503"]
+
+
+def test_failure_history_is_bounded_ordered_and_cleared_only_by_reset():
+    outcome = api_base.SearchOutcome()
+    statuses = [500, 502, 503, 504, 429, 500, 502, 503, 504, 500]
+    for status in statuses:
+        outcome.note_attempt()
+        outcome.note_retried_failure(status)
+    outcome.note_attempt()
+    snapshot = outcome.snapshot()
+    expected = [
+        "rate_limited" if status == 429 else f"http_{status}" for status in statuses
+    ]
+    assert snapshot["failure_history"] == expected[-api_base._FAILURE_HISTORY_LIMIT:]
+    assert snapshot["failure_history_omitted"] == (
+        len(statuses) - api_base._FAILURE_HISTORY_LIMIT
+    )
+    # A snapshot is a copy: a later failure cannot rewrite what was handed out.
+    outcome.note_failure(httpx.ReadTimeout("slow"))
+    assert snapshot["failure_history"][-1] == "http_500"
+    assert outcome.snapshot()["failure_history"][-1] == "timeout"
+    outcome.reset()
+    assert outcome.snapshot()["failure_history"] == []
+    assert outcome.snapshot()["failure_history_omitted"] == 0
+
+
+def test_failure_history_holds_categories_never_text():
+    """The words in the history are resmon's own vocabulary, never the source's."""
+    canary = "CANARY-7f3a-body-text"
+    outcome = api_base.SearchOutcome()
+    outcome.note_failure(RuntimeError(canary), f"https://example.invalid/?api_key={canary}")
+    outcome.note_failure(httpx.ConnectError(canary))
+    outcome.note_failure(api_base.RequestDeadlineExceeded(canary))
+    outcome.note_retried_failure(httpx.ReadTimeout(canary))
+    snapshot = outcome.snapshot()
+    assert snapshot["failure_history"] == [
+        "request_error", "connect", "operation_deadline", "timeout",
+    ]
+    assert canary not in json.dumps(snapshot)
+
+
+@pytest.mark.parametrize("first_page", ["empty", "partial"])
+def test_oapen_failure_text_never_reaches_the_row_record_log_or_report(
+    monkeypatch, tmp_path, first_page,
+):
+    """P4 through the sweep engine, the SQLite row and the search record.
+
+    The canaries are an API-key-shaped parameter in the request's query
+    string and a sentence in the 500 body. That is where a keyed source's
+    credential and a provider's untrusted text would be. The server confirms
+    it received the URL canary, so the test is not vacuous. Then every table,
+    the exported search record (JSON and Markdown), the task log and the
+    report are searched for both canaries.
+    """
+    import sqlite3
+
+    from implementation_scripts import credential_manager as cm
+    from implementation_scripts import search_record
+    from implementation_scripts import sweep_engine as se
+    from implementation_scripts.database import get_execution_sources, init_db
+
+    url_canary = "URLCANARY9c1e"
+    body_canary = "BODYCANARY4d2b"
+    error_body = (
+        '{"error":"org.hibernate.exception.GenericJDBCException: '
+        f'Could not open connection {body_canary}"}}'
+    ).encode()
+    plan = [(0.0, 500, error_body), (0.0, 500, error_body)]
+    if first_page == "partial":
+        plan.insert(0, (0.0, 200, _oapen_rows("20.500.12657/100210")))
+    handler = _oapen_page_server(plan)
+
+    conn = sqlite3.connect(":memory:")
+    init_db(conn=conn)
+    for exec_id in list(se.progress_store._events):
+        se.progress_store.cleanup(exec_id)
+    real_request = api_base.safe_request
+
+    def keyed_request(method, url, *, params=None, **kwargs):
+        # A keyed source sends its credential as one more query parameter.
+        # The production safe_request still makes the call.
+        return real_request(
+            method, url, params={**(params or {}), "api_key": url_canary}, **kwargs)
+
+    with _server(handler) as base:
+        monkeypatch.setattr(api_oapen, "_URL", f"{base}/rest/search")
+        monkeypatch.setattr(api_oapen, "safe_request", keyed_request)
+        monkeypatch.setattr(api_oapen, "_PAGE_SIZE", 1)
+        monkeypatch.setattr(api_oapen, "_RATE_LIMITER", api_base.RateLimiter(1000))
+        monkeypatch.setattr(api_oapen, "_REQUEST_TIMEOUT_SECONDS", 1.0)
+        monkeypatch.setattr(api_oapen, "_SEARCH_BUDGET_SECONDS", 5.0)
+        monkeypatch.setattr(se, "REPORTS_DIR", tmp_path)
+        monkeypatch.setattr(se, "get_client", lambda _name: api_oapen.OapenClient())
+        monkeypatch.setattr(cm, "get_credential", lambda _name: None)
+        engine = se.SweepEngine(db_conn=conn, config={})
+        result = engine.execute_dive("oapen", {
+            "query": "water", "date_from": "2020", "date_to": "2024",
+            "max_results": 2,
+        })
+
+    try:
+        assert all(request["api_key"] == [url_canary] for request in handler.requests)
+        row = get_execution_sources(conn, result["execution_id"])[0]
+        assert row["zero_reason"] == "upstream_failure"
+        detail = json.loads(row["zero_detail"])
+        assert detail["detail"] == "http_500" and detail["status"] == 500
+        assert row["result_count"] == (1 if first_page == "partial" else 0)
+
+        stored = []
+        tables = [
+            name for (name,) in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'")
+        ]
+        for table in tables:
+            for values in conn.execute(f'SELECT * FROM "{table}"'):
+                stored.append(repr(values))
+        record = search_record.build(conn, result["execution_id"])
+        surfaces = {
+            "database": "\n".join(stored),
+            "search-record.json": json.dumps(record),
+            "search-record.md": search_record.to_markdown(record),
+            "task log": Path(result["log_path"]).read_text(encoding="utf-8"),
+            "report": Path(result["report_path"]).read_text(encoding="utf-8"),
+        }
+        assert len(tables) > 10 and stored
+        for name, text in surfaces.items():
+            for canary in (url_canary, body_canary):
+                assert canary not in text, f"{canary} reached the {name}"
+            assert "GenericJDBCException" not in text, f"body text reached the {name}"
+    finally:
+        conn.close()

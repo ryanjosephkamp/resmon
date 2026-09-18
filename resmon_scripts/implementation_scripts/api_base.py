@@ -550,6 +550,33 @@ def retry_with_backoff(
 # here; the guard is the same either way and is a test, not the mechanism.
 
 
+# How many failed attempts one search remembers, newest kept. A search that
+# fails more often than this still says how many earlier ones were dropped,
+# so a truncated history never reads as a complete one.
+_FAILURE_HISTORY_LIMIT = 8
+
+
+def _failure_detail(status_or_exc) -> tuple[int | None, str]:
+    """The status and the one-word category of a failed call.
+
+    The category is chosen from a fixed vocabulary and never copied from the
+    reply or the exception message. That is what makes it safe to keep: the
+    words are resmon's, not the source's.
+    """
+    if isinstance(status_or_exc, int):
+        # 429 is its own fact -- the source answered and refused on rate
+        # -- and a user can act on it differently from a 500.
+        detail = "rate_limited" if status_or_exc == 429 else f"http_{status_or_exc}"
+        return status_or_exc, detail
+    if isinstance(status_or_exc, RequestDeadlineExceeded):
+        return None, "operation_deadline"
+    if isinstance(status_or_exc, httpx.TimeoutException):
+        return None, "timeout"
+    if isinstance(status_or_exc, httpx.ConnectError):
+        return None, "connect"
+    return None, "request_error"
+
+
 @dataclass
 class SearchOutcome:
     """What the HTTP calls of one ``search()`` did.
@@ -561,6 +588,14 @@ class SearchOutcome:
     is what explains an empty result list. A client can make several separate
     invocations in one search, so the event count is not necessarily one per
     whole search.
+
+    ``failure_history`` is the ordered list of every failed attempt in this
+    search, retried or terminal, by category only. The ``last_*`` fields
+    cannot hold it, because each new attempt clears them. Before this field,
+    "HTTP 500, then a timeout on the retry" was recorded as just ``timeout``,
+    and a live failure that began with the provider's 500 read as a bare
+    timeout. The newest ``_FAILURE_HISTORY_LIMIT`` entries are kept, and
+    ``failure_history_omitted`` counts older ones that were dropped.
     """
 
     attempts: int = 0
@@ -571,6 +606,8 @@ class SearchOutcome:
     retained_cooldown_status: int | None = None
     explicit_reason: str | None = None
     explicit_detail: dict | None = None
+    failure_history: list[str] = field(default_factory=list)
+    failure_history_omitted: int = 0
 
     def reset(self) -> None:
         self.attempts = 0
@@ -581,6 +618,8 @@ class SearchOutcome:
         self.retained_cooldown_status = None
         self.explicit_reason = None
         self.explicit_detail = None
+        self.failure_history = []
+        self.failure_history_omitted = 0
 
     # -- written by safe_request ------------------------------------------
 
@@ -591,33 +630,43 @@ class SearchOutcome:
         self.last_status = None
         self.retained_cooldown_status = None
 
-    def note_failure(self, status_or_exc, url: str = "") -> None:
+    def note_failure(
+        self, status_or_exc, url: str = "", *, already_in_history: bool = False,
+    ) -> None:
         """Record that the call that just finished did not answer.
 
         ``url`` is accepted so call sites read naturally and is deliberately
         **not stored**: several sources take their API key as a query
         parameter, so a URL kept in the database and rendered into a search
         record would put a user's credential on screen and into an export.
+        The same rule covers the reply: no response-body text is kept here,
+        because it is the source's words and cannot be trusted.
+
+        ``already_in_history`` is for the one terminal failure that was
+        first seen as a retryable attempt. ``safe_request`` wrote it to the
+        history then, and a cooldown stopped the retry. Counting it twice
+        would invent a failed attempt.
         """
         self.failures += 1
         self.last_call_failed = True
-        if isinstance(status_or_exc, int):
-            self.last_status = status_or_exc
-            # 429 is its own fact -- the source answered and refused on rate
-            # -- and a user can act on it differently from a 500.
-            self.last_detail = "rate_limited" if status_or_exc == 429 else f"http_{status_or_exc}"
-        elif isinstance(status_or_exc, RequestDeadlineExceeded):
-            self.last_status = None
-            self.last_detail = "operation_deadline"
-        elif isinstance(status_or_exc, httpx.TimeoutException):
-            self.last_status = None
-            self.last_detail = "timeout"
-        elif isinstance(status_or_exc, httpx.ConnectError):
-            self.last_status = None
-            self.last_detail = "connect"
-        else:
-            self.last_status = None
-            self.last_detail = "request_error"
+        self.last_status, self.last_detail = _failure_detail(status_or_exc)
+        if not already_in_history:
+            self._remember_failure(self.last_detail)
+
+    def note_retried_failure(self, status_or_exc) -> None:
+        """Record an attempt that failed and is about to be retried.
+
+        It is not terminal, so ``failures`` and the ``last_*`` fields keep
+        their existing contract: a retry that later succeeds is still a
+        successful invocation. Only the history records that it happened.
+        """
+        self._remember_failure(_failure_detail(status_or_exc)[1])
+
+    def _remember_failure(self, detail: str) -> None:
+        if len(self.failure_history) >= _FAILURE_HISTORY_LIMIT:
+            del self.failure_history[0]
+            self.failure_history_omitted += 1
+        self.failure_history.append(detail)
 
     def note_retained_cooldown(self, status_code: int = 429) -> None:
         """Record shared provider state without inventing an HTTP attempt.
@@ -665,6 +714,8 @@ class SearchOutcome:
             "retained_cooldown_status": self.retained_cooldown_status,
             "explicit_reason": self.explicit_reason,
             "explicit_detail": dict(self.explicit_detail) if self.explicit_detail else None,
+            "failure_history": list(self.failure_history),
+            "failure_history_omitted": self.failure_history_omitted,
         }
 
 
@@ -840,6 +891,11 @@ def safe_request(
                 # report it once; a later success remains a successful
                 # invocation under the established outcome contract.
                 pending_transient_status = response.status_code
+                # The history records it now, before anything below can end
+                # the invocation. The next attempt clears ``last_*``, and a
+                # 500 answered by a successful retry is still a fact about
+                # the source.
+                outcome.note_retried_failure(response.status_code)
                 wait = backoff_base ** attempt
                 if retry_after is not None and rate_limiter is None:
                     requested_wait = max(wait, retry_after)
@@ -879,7 +935,8 @@ def safe_request(
             # shared state records retained cooldown without fabricating a
             # response, failure, or attempt.
             if pending_transient_status is not None:
-                outcome.note_failure(pending_transient_status, url)
+                outcome.note_failure(
+                    pending_transient_status, url, already_in_history=True)
             elif not outcome.last_call_failed:
                 outcome.note_retained_cooldown(exc.status_code)
             logger.error(
@@ -890,7 +947,8 @@ def safe_request(
 
         except RequestDeadlineExceeded as exc:
             # The invocation terminates here. A prior retryable response was
-            # not itself terminal; its raw status remains in the warning log.
+            # not itself terminal; its raw status remains in the warning log
+            # and, by category, in the outcome's failure history.
             outcome.note_failure(exc, url)
             logger.error("safe_request: operation deadline expired for %s", url)
             raise
@@ -898,6 +956,7 @@ def safe_request(
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
             last_exc = exc
             if attempt < max_retries:
+                outcome.note_retried_failure(exc)
                 wait = backoff_base ** attempt
                 logger.warning(
                     "safe_request: %s for %s — retry %d/%d in %.1fs",
