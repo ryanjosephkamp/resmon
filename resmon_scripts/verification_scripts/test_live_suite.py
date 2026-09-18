@@ -997,7 +997,7 @@ def test_entity_aggregate_contains_no_second_client_call():
 # non-matching one fails it, a pass is called a recovery, and an expired
 # entry changes nothing.
 
-from datetime import timedelta  # noqa: E402
+from datetime import date, timedelta  # noqa: E402
 
 from live_evidence import (  # noqa: E402
     QUARANTINE_FILE,
@@ -1006,6 +1006,7 @@ from live_evidence import (  # noqa: E402
     asserted_line,
     load_quarantine,
     quarantine_line,
+    source_outcome_property,
     utc_today,
 )
 
@@ -1090,7 +1091,7 @@ def test_quarantine_expiry_is_at_most_thirty_days_after_first_observed(tmp_path)
      "earliest observation"),
 ])
 def test_quarantine_admission_needs_the_status_from_two_vantage_points(tmp_path, evidence, match):
-    first = datetime_date(2026, 9, 18)
+    first = date(2026, 9, 18)
     entry = _entry("test_case.py::test_a", first=first,
                    expires=first + timedelta(days=10), evidence=evidence)
     with pytest.raises(AssertionError, match=match):
@@ -1109,12 +1110,6 @@ def test_quarantine_fields_are_closed_vocabularies(tmp_path, field, value, match
     entry[field] = value
     with pytest.raises(AssertionError, match=match):
         load_quarantine(_write_quarantine(tmp_path / "q.json", [entry]))
-
-
-def datetime_date(year, month, day):
-    from datetime import date
-
-    return date(year, month, day)
 
 
 def test_the_denominator_is_derived_from_the_collection_it_is_given(tmp_path):
@@ -1393,15 +1388,9 @@ def test_source_outcome_property_keeps_categories_and_drops_text():
         "failure_history_omitted": 0,
         "unexpected": "https://example.invalid/?api_key=SECRETVALUE",
     }
-    value = live_evidence_source_outcome_property("oapen", snapshot)
+    value = source_outcome_property("oapen", snapshot)
     assert value["failure_history"] == ["http_500", "timeout"]
     assert "SECRETVALUE" not in json.dumps(value)
     snapshot["failure_history"] = ["GenericJDBCException: Could not open connection"]
     with pytest.raises(AssertionError, match="failure history"):
-        live_evidence_source_outcome_property("oapen", snapshot)
-
-
-def live_evidence_source_outcome_property(source, snapshot):
-    from live_evidence import source_outcome_property
-
-    return source_outcome_property(source, snapshot)
+        source_outcome_property("oapen", snapshot)
