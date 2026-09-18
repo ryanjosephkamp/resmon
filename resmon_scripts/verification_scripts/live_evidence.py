@@ -21,6 +21,10 @@ _SECRET = re.compile(
 )
 _BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 _RESULTS = {"answered_nonempty", "answered_empty", "raised", "unfinished"}
+_OUTCOME_KEYS = (
+    "attempts", "failures", "last_call_failed", "last_status", "last_detail",
+    "retained_cooldown_status", "explicit_reason", "explicit_detail",
+)
 
 
 def stable_hash(value: object) -> str:
@@ -38,6 +42,45 @@ def _safe_text(value: object, limit: int = 512) -> str:
     return text[:limit]
 
 
+def _safe_outcome(value: object) -> dict | None:
+    """Keep only bounded source-outcome facts used by the live contract."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise AssertionError("source outcome must be a structured snapshot")
+    clean = {key: value.get(key) for key in _OUTCOME_KEYS}
+    for key in ("attempts", "failures"):
+        if not isinstance(clean[key], int) or isinstance(clean[key], bool) or clean[key] < 0:
+            raise AssertionError(f"invalid source outcome {key}")
+    if not isinstance(clean["last_call_failed"], bool):
+        raise AssertionError("invalid source outcome last_call_failed")
+    for key in ("last_status", "retained_cooldown_status"):
+        if clean[key] is not None and (
+            not isinstance(clean[key], int) or isinstance(clean[key], bool)
+            or not 100 <= clean[key] <= 599
+        ):
+            raise AssertionError(f"invalid source outcome {key}")
+    for key in ("last_detail", "explicit_reason"):
+        if clean[key] is not None:
+            clean[key] = _safe_text(clean[key], 128)
+    detail = clean["explicit_detail"]
+    clean["explicit_detail"] = (
+        {str(k)[:64]: _safe_text(v, 128) for k, v in detail.items()}
+        if isinstance(detail, dict) else {}
+    )
+    return clean
+
+
+def _outcome_is_partial(outcome: dict | None) -> bool:
+    if not outcome:
+        return False
+    return bool(
+        outcome.get("explicit_reason") == "parse_failure"
+        or (outcome.get("failures") and outcome.get("last_call_failed"))
+        or outcome.get("retained_cooldown_status")
+    )
+
+
 @dataclass(frozen=True)
 class SourceQueryEvidence:
     session_id: str
@@ -50,7 +93,7 @@ class SourceQueryEvidence:
     finished_at: float | None = None
     result: str = "unfinished"
     returned_count: int | None = None
-    outcome: str | None = None
+    outcome: dict | None = None
     error_type: str | None = None
     error_message: str | None = None
 
@@ -112,7 +155,7 @@ class CurrentRunSourceLedger:
         *,
         result: str,
         returned_count: int | None,
-        outcome: str | None = None,
+        outcome: dict | None = None,
         error: Exception | None = None,
     ) -> None:
         self._validate_result(result, returned_count, finished=True)
@@ -126,7 +169,7 @@ class CurrentRunSourceLedger:
             finished_at=_now(),
             result=result,
             returned_count=returned_count,
-            outcome=_safe_text(outcome) if outcome else None,
+            outcome=_safe_outcome(outcome),
             error_type=type(error).__name__ if error else None,
             error_message=_safe_text(error) if error else None,
         )
@@ -159,6 +202,9 @@ class CurrentRunSourceLedger:
 
     def accept(self, record: SourceQueryEvidence) -> None:
         """Accept a supplied record for pure stale/duplicate contract tests."""
+        safe_outcome = _safe_outcome(record.outcome)
+        if safe_outcome != record.outcome:
+            record = replace(record, outcome=safe_outcome)
         if record.session_id != self.session_id:
             raise AssertionError(f"stale session evidence for {record.slug}")
         if record.candidate_head != self.candidate_head:
@@ -199,6 +245,7 @@ class CurrentRunSourceLedger:
                     record.finished_at is not None
                     and _invalid_result(record.result, record.returned_count)
                 )
+                or _invalid_outcome(record.outcome)
             )
         )
         if missing or extra or unfinished or invalid:
@@ -210,6 +257,10 @@ class CurrentRunSourceLedger:
             )
         records = [self._records[slug] for slug in self.expected]
         answered = [record.slug for record in records if record.result == "answered_nonempty"]
+        partial = [
+            record.slug for record in records
+            if record.result == "answered_nonempty" and _outcome_is_partial(record.outcome)
+        ]
         minimum = max(1, len(self.expected) // 2)
         return {
             "session_id": self.session_id,
@@ -217,6 +268,7 @@ class CurrentRunSourceLedger:
             "selection_id": self.selection_id,
             "expected": list(self.expected),
             "answered": answered,
+            "partial": partial,
             "minimum": minimum,
             "records": [asdict(record) for record in records],
         }
@@ -237,6 +289,14 @@ def _invalid_result(result: str, returned_count: int | None) -> bool:
         CurrentRunSourceLedger._validate_result(
             result, returned_count, finished=True,
         )
+    except AssertionError:
+        return True
+    return False
+
+
+def _invalid_outcome(outcome: object) -> bool:
+    try:
+        _safe_outcome(outcome)
     except AssertionError:
         return True
     return False

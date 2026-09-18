@@ -6,13 +6,17 @@ provider shapes and pagination without claiming that a public provider is up.
 
 from __future__ import annotations
 
+import email.utils
 import json
+import math
 import sys
 import threading
 import time
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -113,6 +117,177 @@ def _oapen_record(handle="20.500.12657/100210", year="2024"):
             {"key": "dc.contributor.author", "value": "A. Author"},
         ],
     }
+
+
+def test_retry_after_parser_accepts_rfc_forms_and_refuses_unsafe_values():
+    now = datetime(2026, 9, 18, tzinfo=timezone.utc)
+    response = lambda value: SimpleNamespace(headers={"Retry-After": value})
+
+    assert api_base._retry_after_seconds(response("3"), now=now) == 3.0
+    assert api_base._retry_after_seconds(
+        response("0" * 5000 + "3"), now=now) == 3.0
+    assert api_base._retry_after_seconds(
+        response(email.utils.format_datetime(now + timedelta(seconds=5), usegmt=True)),
+        now=now,
+    ) == 5.0
+    for value in ("-1", "1.5", "nan", "not-a-date"):
+        assert api_base._retry_after_seconds(response(value), now=now) is None
+    assert math.isinf(api_base._retry_after_seconds(response("9" * 80), now=now))
+
+
+def test_safe_request_without_limiter_refuses_unbounded_retry_after(monkeypatch):
+    response = FakeResponse(status_code=503)
+    response.headers["Retry-After"] = "9" * 80
+    calls = []
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def request(self, method, url, **kwargs):
+            calls.append((method, url, kwargs))
+            return response
+
+    monkeypatch.setattr(api_base.httpx, "Client", Client)
+    began = time.monotonic()
+    with pytest.raises(api_base.ServerCooldownActive):
+        api_base.safe_request(
+            "GET", "https://example.test/records", max_retries=1,
+            backoff_base=0.01,
+        )
+
+    snapshot = api_base.search_outcome().snapshot()
+    assert time.monotonic() - began < 0.5
+    assert len(calls) == snapshot["attempts"] == 1
+    assert snapshot["failures"] == 1
+    assert snapshot["last_status"] == 503
+    assert snapshot["retained_cooldown_status"] is None
+
+
+def test_rate_limiter_keeps_longest_cooldown_and_refuses_over_budget():
+    limiter = api_base.RateLimiter(1000)
+    limiter.defer(0.2, status_code=503)
+    limiter.defer(0.05, status_code=429)
+
+    with pytest.raises(api_base.ServerCooldownActive) as blocked:
+        limiter.acquire(deadline=time.monotonic() + 0.05)
+    assert blocked.value.status_code == 503
+
+    began = time.monotonic()
+    limiter.acquire(deadline=began + 0.5)
+    assert time.monotonic() - began >= 0.14
+
+
+def test_rate_limiter_waiter_observes_concurrent_longer_cooldown(monkeypatch):
+    limiter = api_base.RateLimiter(20)
+    limiter._last_call = time.monotonic()
+    admitted = []
+    entered_wait = threading.Event()
+    original_wait = limiter._condition.wait
+
+    def observed_wait(timeout=None):
+        entered_wait.set()
+        return original_wait(timeout)
+
+    monkeypatch.setattr(limiter._condition, "wait", observed_wait)
+
+    def acquire():
+        limiter.acquire(deadline=time.monotonic() + 1.0)
+        admitted.append(time.monotonic())
+
+    began = time.monotonic()
+    thread = threading.Thread(target=acquire)
+    thread.start()
+    assert entered_wait.wait(timeout=0.5), "waiter never entered Condition.wait"
+    limiter.defer(0.2, status_code=503)
+    limiter.defer(0.05, status_code=429)
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert len(admitted) == 1
+    assert admitted[0] - began >= 0.18
+
+
+def test_retained_retry_after_blocks_a_new_search_without_new_attempt(monkeypatch):
+    limiter = api_base.RateLimiter(1000)
+    limiter.defer(5.0, status_code=429)
+    calls = []
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def request(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            raise AssertionError("cooldown must stop transport")
+
+    monkeypatch.setattr(api_base.httpx, "Client", Client)
+    with pytest.raises(api_base.ServerCooldownActive):
+        api_base.safe_request(
+            "GET", "https://example.test/records", rate_limiter=limiter,
+            deadline=time.monotonic() + 0.05,
+        )
+
+    snapshot = api_base.search_outcome().snapshot()
+    assert calls == []
+    assert snapshot["attempts"] == 0
+    assert snapshot["failures"] == 0
+    assert snapshot["last_call_failed"] is False
+    assert snapshot["retained_cooldown_status"] == 429
+
+
+def test_new_retry_attempt_clears_stale_pending_response_status(monkeypatch):
+    limiter = api_base.RateLimiter(1000)
+    replies = [FakeResponse(status_code=503), "timeout"]
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def request(self, method, url, **_kwargs):
+            reply = replies.pop(0)
+            if reply == "timeout":
+                # A concurrent response publishes a cooldown while this newer
+                # transport fails. The earlier 503 no longer represents the
+                # pending attempt when the following admission is blocked.
+                limiter.defer(5.0, status_code=429)
+                raise api_base.httpx.ReadTimeout(
+                    "synthetic", request=api_base.httpx.Request(method, url))
+            return reply
+
+    monkeypatch.setattr(api_base.httpx, "Client", Client)
+    monkeypatch.setattr(api_base.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(api_base.ServerCooldownActive):
+        api_base.safe_request(
+            "GET", "https://example.test/records", rate_limiter=limiter,
+            max_retries=2,
+        )
+
+    snapshot = api_base.search_outcome().snapshot()
+    assert replies == []
+    assert snapshot["attempts"] == 2
+    assert snapshot["failures"] == 0
+    assert snapshot["last_status"] is None
+    assert snapshot["retained_cooldown_status"] == 429
 
 
 @pytest.fixture(autouse=True)
@@ -479,6 +654,126 @@ def test_eric_real_httpx_retry_and_successive_clients_share_production_pacing(
         "wire_arrival_spacings": spacings,
         "first_call_wait_is_zero_eligible": True,
     }, sort_keys=True))
+
+
+def test_safe_request_real_503_retry_after_waits_and_keeps_attempt_evidence():
+    class Handler(BaseHTTPRequestHandler):
+        arrivals = []
+        statuses = []
+        user_agents = []
+
+        def do_GET(self):
+            type(self).arrivals.append(time.monotonic())
+            type(self).user_agents.append(self.headers.get("User-Agent"))
+            if len(type(self).arrivals) == 1:
+                type(self).statuses.append(503)
+                self.send_response(503)
+                # The ordinary first backoff is 1 second (base ** 0), so two
+                # seconds proves that the provider cooldown sets the boundary.
+                self.send_header("Retry-After", "2")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            type(self).statuses.append(200)
+            body = b"{}"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    with _server(Handler) as base:
+        began = time.monotonic()
+        response = api_base.safe_request(
+            "GET", base,
+            rate_limiter=api_base.RateLimiter(1000),
+            timeout=1.0,
+            max_retries=1,
+            backoff_base=0.01,
+            deadline=began + 4.0,
+        )
+
+    outcome = api_base.search_outcome().snapshot()
+    assert response.status_code == 200
+    assert len(Handler.arrivals) == 2
+    assert Handler.statuses == [503, 200]
+    assert Handler.arrivals[1] - Handler.arrivals[0] >= 1.8
+    assert Handler.user_agents == [
+        "resmon/1.0 (+https://github.com/ryanjosephkamp/resmon)",
+    ] * 2
+    assert outcome["attempts"] == 2
+    assert outcome["failures"] == 0
+    assert outcome["last_call_failed"] is False
+
+
+def test_eric_retry_after_is_shared_across_client_instances(monkeypatch):
+    class Handler(BaseHTTPRequestHandler):
+        arrivals = []
+
+        def do_GET(self):
+            type(self).arrivals.append(time.monotonic())
+            if len(type(self).arrivals) == 1:
+                body = b'{"message":"deferred"}'
+                self.send_response(429)
+                self.send_header("Retry-After", "1")
+            else:
+                body = json.dumps(_eric_payload()).encode()
+                self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    with _server(Handler) as base:
+        monkeypatch.setattr(api_eric, "_ERIC_API_URL", base)
+        monkeypatch.setattr(api_eric, "_RATE_LIMITER", api_base.RateLimiter(1000))
+        monkeypatch.setattr(api_eric, "_MAX_RESPONSE_ATTEMPTS", 1)
+        monkeypatch.setattr(api_eric, "_SEARCH_BUDGET_SECONDS", 3.0)
+        assert api_eric.EricClient().search("climate", max_results=1) == []
+        rows = api_eric.EricClient().search("climate", max_results=1)
+
+    assert len(rows) == 1
+    assert len(Handler.arrivals) == 2
+    assert Handler.arrivals[1] - Handler.arrivals[0] >= 0.9
+
+
+def test_eric_retry_after_beyond_budget_sends_no_second_request(monkeypatch):
+    class Handler(BaseHTTPRequestHandler):
+        count = 0
+
+        def do_GET(self):
+            type(self).count += 1
+            body = b'{"message":"deferred"}'
+            self.send_response(429)
+            self.send_header("Retry-After", "5")
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    with _server(Handler) as base:
+        monkeypatch.setattr(api_eric, "_ERIC_API_URL", base)
+        monkeypatch.setattr(api_eric, "_RATE_LIMITER", api_base.RateLimiter(1000))
+        monkeypatch.setattr(api_eric, "_SEARCH_BUDGET_SECONDS", 0.2)
+        began = time.monotonic()
+        assert api_eric.EricClient().search("climate", max_results=1) == []
+        elapsed = time.monotonic() - began
+
+    outcome = api_base.search_outcome().snapshot()
+    assert Handler.count == 1
+    assert elapsed < 1.0
+    assert outcome["attempts"] == 1
+    assert outcome["last_status"] == 429
+    assert outcome["last_detail"] == "rate_limited"
 
 
 def test_progressing_body_cannot_outlive_shared_deadline(monkeypatch):

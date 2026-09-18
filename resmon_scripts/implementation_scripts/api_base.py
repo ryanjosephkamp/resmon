@@ -2,13 +2,16 @@
 """API client framework: NormalizedResult, BaseAPIClient, RateLimiter, retry, safe_request."""
 
 import asyncio
+import email.utils
 import logging
+import math
 import re
 import threading
 import time
 import functools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -274,6 +277,15 @@ class RequestDeadlineExceeded(httpx.TimeoutException):
     """The caller's operation budget expired, possibly before any HTTP attempt."""
 
 
+class ServerCooldownActive(RequestDeadlineExceeded):
+    """A provider cooldown forbids another request inside this call's budget."""
+
+    def __init__(self, seconds: float, status_code: int = 429):
+        super().__init__("The source Retry-After cooldown is still active")
+        self.seconds = seconds
+        self.status_code = status_code
+
+
 def _remaining(deadline: float) -> float:
     remaining = deadline - time.monotonic()
     if remaining <= 0:
@@ -354,36 +366,108 @@ class RateLimiter:
     three seconds apart. Providers answer that with 429s and, on repeat, a
     temporary IP block.
 
-    The sleep is held inside the lock deliberately: the point is to serialize
-    callers, so a thread must not be able to claim a slot while another is
-    still waiting for its own.
+    Waiters use one condition around the same lock. The condition releases the
+    physical lock while sleeping so a response can publish a longer cooldown,
+    then every waiter recomputes before it claims a slot. That preserves serial
+    admission without letting an already-waiting caller miss a new cooldown.
     """
 
     def __init__(self, requests_per_second: float = 1.0):
         self._interval = 1.0 / requests_per_second
         self._last_call: float = 0.0
+        self._not_before: float = 0.0
+        self._cooldown_status: int = 429
         self._lock = threading.Lock()
+        self._condition = threading.Condition(self._lock)
+
+    def defer(self, seconds: float, *, status_code: int = 429) -> None:
+        """Publish a server cooldown to every caller sharing this limiter.
+
+        Longer concurrent cooldowns win. An oversized valid value is retained
+        as an infinite in-process deferral, so it cannot become an early retry.
+        Callers with a bounded deadline fail promptly instead of sleeping past
+        their operation budget.
+        """
+        if seconds <= 0:
+            return
+        with self._condition:
+            target = math.inf if not math.isfinite(seconds) else time.monotonic() + seconds
+            if target > self._not_before:
+                self._not_before = target
+                self._cooldown_status = status_code
+                self._condition.notify_all()
 
     def acquire(self, *, deadline: float | None = None) -> None:
         """Wait for admission, optionally within an operation's monotonic budget."""
         if deadline is None:
-            with self._lock:
-                elapsed = time.monotonic() - self._last_call
-                if elapsed < self._interval:
-                    time.sleep(self._interval - elapsed)
-                self._last_call = time.monotonic()
-            return
-
-        if not self._lock.acquire(timeout=_remaining(deadline)):
+            self._lock.acquire()
+        elif not self._lock.acquire(timeout=_remaining(deadline)):
             raise RequestDeadlineExceeded("The source rate-limiter wait expired")
         try:
-            wait = max(0.0, self._interval - (time.monotonic() - self._last_call))
-            if wait:
-                time.sleep(min(wait, _remaining(deadline)))
-            _remaining(deadline)
-            self._last_call = time.monotonic()
+            while True:
+                now = time.monotonic()
+                interval_wait = max(0.0, self._interval - (now - self._last_call))
+                cooldown_wait = max(0.0, self._not_before - now)
+                # A call without an operation budget may wait its ordinary
+                # limiter interval, but an arbitrary server header must not
+                # block a worker for hours. Refuse and retain the cooldown.
+                if deadline is None and cooldown_wait > interval_wait:
+                    raise ServerCooldownActive(cooldown_wait, self._cooldown_status)
+                if deadline is not None and cooldown_wait >= _remaining(deadline):
+                    raise ServerCooldownActive(cooldown_wait, self._cooldown_status)
+                wait = max(interval_wait, cooldown_wait)
+                if not wait:
+                    self._last_call = now
+                    return
+                if deadline is not None and wait >= _remaining(deadline):
+                    raise RequestDeadlineExceeded("The source rate-limiter wait expired")
+                self._condition.wait(timeout=wait)
         finally:
             self._lock.release()
+
+
+def _header(response, name: str) -> str | None:
+    headers = getattr(response, "headers", {}) or {}
+    for key, value in headers.items():
+        if str(key).lower() == name.lower():
+            return str(value)
+    return None
+
+
+def _retry_after_seconds(
+    response,
+    *,
+    now: datetime | None = None,
+) -> float | None:
+    """Parse Retry-After delta-seconds or HTTP-date conservatively.
+
+    Values beyond the bounded local wait are represented as infinity. That
+    makes the shared limiter refuse another request instead of sleeping for an
+    attacker- or server-chosen duration or retrying early.
+    """
+    raw = _header(response, "retry-after")
+    if raw is None:
+        return None
+    value = raw.strip()
+    if value.isascii() and value.isdigit():
+        # Judge the numeric value, not the wire length. A provider may send
+        # harmless leading zeroes; converting an arbitrarily long digit string
+        # directly can also hit Python's integer-string safety limit.
+        significant = value.lstrip("0") or "0"
+        if len(significant) > 12:
+            return math.inf
+        seconds = int(significant)
+        return float(seconds)
+    try:
+        when = email.utils.parsedate_to_datetime(value)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        current = now or datetime.now(timezone.utc)
+        seconds = max(0.0, (when - current).total_seconds())
+        return seconds if math.isfinite(seconds) else math.inf
+    except (TypeError, ValueError, OverflowError):
+        logger.warning("safe_request: ignoring invalid Retry-After value")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -470,11 +554,13 @@ def retry_with_backoff(
 class SearchOutcome:
     """What the HTTP calls of one ``search()`` did.
 
-    ``attempts`` and ``failures`` count every call the search made; the
-    ``last_*`` fields describe only the **most recent** one, because that is
-    the call whose outcome explains the empty list. A paginated search whose
-    third page 503s has both a success and a failure on record, and the
-    failure is the one that ended it.
+    ``attempts`` counts transport attempts. ``failures`` counts terminal
+    failure events reported by completed ``safe_request`` invocations; an
+    internal retry that later succeeds is not a failed invocation. The
+    ``last_*`` fields describe the most recent terminal outcome because that
+    is what explains an empty result list. A client can make several separate
+    invocations in one search, so the event count is not necessarily one per
+    whole search.
     """
 
     attempts: int = 0
@@ -482,6 +568,7 @@ class SearchOutcome:
     last_call_failed: bool = False
     last_detail: str | None = None
     last_status: int | None = None
+    retained_cooldown_status: int | None = None
     explicit_reason: str | None = None
     explicit_detail: dict | None = None
 
@@ -491,6 +578,7 @@ class SearchOutcome:
         self.last_call_failed = False
         self.last_detail = None
         self.last_status = None
+        self.retained_cooldown_status = None
         self.explicit_reason = None
         self.explicit_detail = None
 
@@ -501,6 +589,7 @@ class SearchOutcome:
         self.last_call_failed = False
         self.last_detail = None
         self.last_status = None
+        self.retained_cooldown_status = None
 
     def note_failure(self, status_or_exc, url: str = "") -> None:
         """Record that the call that just finished did not answer.
@@ -529,6 +618,15 @@ class SearchOutcome:
         else:
             self.last_status = None
             self.last_detail = "request_error"
+
+    def note_retained_cooldown(self, status_code: int = 429) -> None:
+        """Record shared provider state without inventing an HTTP attempt.
+
+        Another request already observed the provider's Retry-After. This
+        search was stopped before transport, so neither ``attempts`` nor
+        ``failures`` changes and the retained state has its own field.
+        """
+        self.retained_cooldown_status = status_code
 
     # -- written by clients, for what the status code cannot say -----------
 
@@ -564,6 +662,7 @@ class SearchOutcome:
             "last_call_failed": self.last_call_failed,
             "last_detail": self.last_detail,
             "last_status": self.last_status,
+            "retained_cooldown_status": self.retained_cooldown_status,
             "explicit_reason": self.explicit_reason,
             "explicit_detail": dict(self.explicit_detail) if self.explicit_detail else None,
         }
@@ -687,13 +786,14 @@ def safe_request(
 
     outcome = search_outcome()
     last_exc: Exception | None = None
+    pending_transient_status: int | None = None
 
     # Ensure a descriptive User-Agent — several scholarly APIs (notably
     # arXiv and CORE) return 5xx or 403 for requests with the default
     # httpx user agent.
     headers = dict(kwargs.pop("headers", {}) or {})
     if not any(k.lower() == "user-agent" for k in headers):
-        headers["User-Agent"] = "resmon/1.0 (+https://github.com/rkamp-research/resmon)"
+        headers["User-Agent"] = "resmon/1.0 (+https://github.com/ryanjosephkamp/resmon)"
 
     def pause(wait: float) -> None:
         # The next loop admission records expiry exactly once, without inventing
@@ -713,6 +813,10 @@ def safe_request(
                     rate_limiter.acquire(deadline=deadline)
             if deadline is not None:
                 _remaining(deadline)
+            # Admission completed: a new attempt is now taking over from any
+            # earlier retryable response. Keep the old status only when the
+            # limiter itself blocks this attempt before transport.
+            pending_transient_status = None
             if deadline is None:
                 outcome.note_attempt()
                 with httpx.Client(timeout=timeout, follow_redirects=True) as client:
@@ -723,8 +827,35 @@ def safe_request(
                     deadline=deadline, **kwargs,
                 )
 
+            retry_after = (
+                _retry_after_seconds(response)
+                if response.status_code in _TRANSIENT_CODES else None
+            )
+            if retry_after is not None and rate_limiter is not None:
+                rate_limiter.defer(retry_after, status_code=response.status_code)
+
             if response.status_code in _TRANSIENT_CODES and attempt < max_retries:
+                # This invocation is not terminal yet. Keep the actual status
+                # locally so a cooldown that prevents the next attempt can
+                # report it once; a later success remains a successful
+                # invocation under the established outcome contract.
+                pending_transient_status = response.status_code
                 wait = backoff_base ** attempt
+                if retry_after is not None and rate_limiter is None:
+                    requested_wait = max(wait, retry_after)
+                    # Without a shared limiter or an operation deadline there
+                    # is nowhere to retain an arbitrary provider delay. Never
+                    # let an untrusted header extend the caller beyond its
+                    # configured backoff; report the cooldown and return
+                    # control instead. A bounded call may wait only when the
+                    # full delay fits its remaining budget.
+                    if deadline is None and requested_wait > wait:
+                        raise ServerCooldownActive(
+                            retry_after, response.status_code)
+                    if deadline is not None and requested_wait >= _remaining(deadline):
+                        raise ServerCooldownActive(
+                            retry_after, response.status_code)
+                    wait = requested_wait
                 logger.warning(
                     "safe_request: transient %d from %s — retry %d/%d in %.1fs",
                     response.status_code, url, attempt + 1, max_retries, wait,
@@ -742,7 +873,24 @@ def safe_request(
                 outcome.note_failure(response.status_code, url)
             return response
 
+        except ServerCooldownActive as exc:
+            # No new transport attempt occurred. Preserve an earlier response
+            # from this invocation exactly once. A later invocation stopped by
+            # shared state records retained cooldown without fabricating a
+            # response, failure, or attempt.
+            if pending_transient_status is not None:
+                outcome.note_failure(pending_transient_status, url)
+            elif not outcome.last_call_failed:
+                outcome.note_retained_cooldown(exc.status_code)
+            logger.error(
+                "safe_request: server cooldown blocks %s for %.1fs",
+                url, exc.seconds,
+            )
+            raise
+
         except RequestDeadlineExceeded as exc:
+            # The invocation terminates here. A prior retryable response was
+            # not itself terminal; its raw status remains in the warning log.
             outcome.note_failure(exc, url)
             logger.error("safe_request: operation deadline expired for %s", url)
             raise

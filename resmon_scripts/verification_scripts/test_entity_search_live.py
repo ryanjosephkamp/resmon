@@ -224,7 +224,7 @@ def test_a_real_source_answers_a_real_author_query(
         if keyless:
             source_response_ledger.finish(
                 slug, result="raised", returned_count=None,
-                outcome=str(search_outcome().snapshot()), error=exc,
+                outcome=search_outcome().snapshot(), error=exc,
             )
         raise
     outcome = search_outcome().snapshot()
@@ -233,7 +233,7 @@ def test_a_real_source_answers_a_real_author_query(
             slug,
             result="answered_nonempty" if records else "answered_empty",
             returned_count=len(records),
-            outcome=str(outcome),
+            outcome=outcome,
         )
     record_property("returned", len(records))
 
@@ -247,6 +247,12 @@ def test_a_real_source_answers_a_real_author_query(
             f"NOT VERIFIED — {slug} returned nothing for '{name}'. That is either "
             f"an outage or a change upstream, and this run cannot tell which. "
             f"test_at_least_most_sources_answered fails when this happens broadly.")
+
+    if slug in _STRICT_AUTHOR:
+        assert outcome["attempts"] > 0, outcome
+        assert outcome["last_call_failed"] is False, outcome
+        assert outcome["retained_cooldown_status"] is None, outcome
+        assert outcome["explicit_reason"] is None, outcome
 
     if slug == "dblp":
         assert 1 <= len(records) <= 10
@@ -268,10 +274,6 @@ def test_a_real_source_answers_a_real_author_query(
                 for namespace, source_id in author.source_ids)
             for record in records for author in record.authors
         )
-        assert outcome["attempts"] > 0, outcome
-        assert outcome["last_call_failed"] is False, outcome
-        assert outcome["explicit_reason"] is None, outcome
-
     # A source whose records carry **no author at all** is a third fact, and it
     # is neither a pass nor the failure below. NDL is the case: its author query
     # works and its records use `dc:creator`, which resmon's NDL parser does not

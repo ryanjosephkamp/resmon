@@ -54,9 +54,21 @@ def outcome(row: dict) -> dict:
     category, note = "unknown", "Recorded outcome is malformed or unsupported; whether this source answered is unknown."
     valid = (valid_count and status in {"ok", "error", "skipped_missing_key", "cancelled"}
              and (reason is None or reason in zero_reason.ZERO_REASONS) and not malformed)
+    partial = bool(
+        valid and status == "ok" and count > 0
+        and reason in {"upstream_failure", "parse_failure"}
+        and detail.get("partial") is True
+        and detail.get("returned") == count
+    )
     if valid:
         try:
-            if status == "ok" and count == 0:
+            if partial:
+                saved_message = detail.get("message")
+                note = (
+                    saved_message if isinstance(saved_message, str) and saved_message
+                    else zero_reason.partial_sentence(source, reason, detail, count)
+                )
+            elif status == "ok" and count == 0:
                 note = zero_reason.sentence(source, reason, detail)
             elif status == "error" and reason == "retired":
                 note = zero_reason.sentence(source, reason, detail)
@@ -81,6 +93,8 @@ def outcome(row: dict) -> dict:
         label = "zero, reason not recorded"
     if category == "answered" and count == 0:
         label = "answered, zero" if reason == "answered_empty" else "answered; nothing storable"
+    if partial:
+        label = "answered, partial"
     if valid and category == "non_answer":
         # Preserve the Search record's established distinctions, now rendered
         # once for both Markdown and React. A specific non-answer is more
@@ -95,7 +109,8 @@ def outcome(row: dict) -> dict:
     return {"source": source, "category": category, "label": label, "note": note,
             "outcome_recorded": True, "status": status, "result_count": count,
             "zero_reason": reason, "recorded_at": row.get("recorded_at"),
-            "genuine_empty": category == "answered" and status == "ok" and count == 0 and reason == "answered_empty"}
+            "genuine_empty": category == "answered" and status == "ok" and count == 0 and reason == "answered_empty",
+            "partial": partial}
 
 
 def build(execution: dict, rows: list[dict]) -> dict:
@@ -106,10 +121,12 @@ def build(execution: dict, rows: list[dict]) -> dict:
                 "label": "unknown / outcome not recorded",
                 "note": "Outcome not recorded; no attempt, failure or empty answer can be inferred.",
                 "outcome_recorded": False, "status": None, "result_count": None,
-                "zero_reason": None, "recorded_at": None, "genuine_empty": False}) for slug in basis]
+                "zero_reason": None, "recorded_at": None, "genuine_empty": False,
+                "partial": False}) for slug in basis]
     extra = [v for k, v in recorded.items() if selected is not None and k not in selected]
     counts = {key: sum(s["category"] == key for s in sources) for key in ("answered", "non_answer", "unknown")}
     counts["genuine_empty"] = sum(s["genuine_empty"] for s in sources)
+    counts["partial"] = sum(bool(s.get("partial")) for s in sources)
     label = "selected sources" if selected is not None else "recorded sources"
     summary = (f"{len(sources)} {label}: {counts['answered']} answered, "
                f"{counts['non_answer']} recorded non-answer (could not answer), {counts['unknown']} unknown.") if sources else "No source outcomes were recorded; the full selected set is unknown."
@@ -117,6 +134,8 @@ def build(execution: dict, rows: list[dict]) -> dict:
                       and s["zero_reason"] in (None, "not_recorded") for s in sources)
     if unexplained:
         summary += f" {unexplained} returned nothing for a reason resmon did not record."
+    if counts["partial"]:
+        summary += f" {counts['partial']} answered with retained partial results."
     notes = [provenance]
     if extra:
         notes.append(f"{len(extra)} additional recorded sources fall outside the saved selection and are excluded from selected-source counts.")

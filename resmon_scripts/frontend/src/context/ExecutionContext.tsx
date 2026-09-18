@@ -124,7 +124,8 @@ function updateExecutionState(
       next.repoStatuses = {
         ...next.repoStatuses,
         [event.repository]:
-          reason && DID_NOT_ANSWER.has(reason) ? 'no_answer' : 'done',
+          (event.result_count ?? 0) === 0 && reason && DID_NOT_ANSWER.has(reason)
+            ? 'no_answer' : 'done',
       };
       if (reason && event.zero_message) {
         next.repoZeroReasons = {

@@ -133,7 +133,10 @@ def _did_not_answer(run: dict) -> bool:
     """
     if run["status"] == "error":
         return True
-    return run.get("zero_reason") in ERROR_EQUIVALENT_ZERO_REASONS
+    return (
+        int(run.get("result_count") or 0) == 0
+        and run.get("zero_reason") in ERROR_EQUIVALENT_ZERO_REASONS
+    )
 
 
 def _is_a_measurement(run: dict) -> bool:

@@ -38,7 +38,7 @@ _PARTIAL_DATE = re.compile(r"^\d{4}(?:-\d{2}(?:-\d{2})?)?$")
 
 
 def _request_json(params: dict[str, object], deadline: float) -> dict | None:
-    """Read one ERIC page within one search budget and one response retry."""
+    """Read one page; the shared limiter carries Retry-After across clients."""
     for attempt in range(_MAX_RESPONSE_ATTEMPTS):
         try:
             response = safe_request(

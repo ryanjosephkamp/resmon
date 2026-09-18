@@ -260,6 +260,31 @@ def test_current_run_ledger_threshold_keeps_empty_and_raised_in_denominator():
         ledger.assert_threshold()
 
 
+def test_current_run_ledger_keeps_structured_partial_ids_without_changing_threshold():
+    ledger = _ledger(("alpha", "beta"))
+    for slug, outcome in (
+        ("alpha", {
+            "attempts": 2, "failures": 1, "last_call_failed": True,
+            "last_status": 503, "last_detail": "http_503",
+            "retained_cooldown_status": None, "explicit_reason": None,
+            "explicit_detail": None,
+        }),
+        ("beta", {
+            "attempts": 1, "failures": 0, "last_call_failed": False,
+            "last_status": None, "last_detail": None,
+            "retained_cooldown_status": None, "explicit_reason": None,
+            "explicit_detail": None,
+        }),
+    ):
+        ledger.start(slug, nodeid=f"test_source[{slug}]", query_id=ledger.query_ids[slug])
+        ledger.finish(slug, result="answered_nonempty", returned_count=1, outcome=outcome)
+    summary = ledger.assert_threshold()
+    assert summary["answered"] == ["alpha", "beta"]
+    assert summary["partial"] == ["alpha"]
+    assert summary["minimum"] == 1
+    assert isinstance(summary["records"][0]["outcome"], dict)
+
+
 @pytest.mark.parametrize("result,count", [
     ("answered_nonempty", 0),
     ("answered_nonempty", None),
@@ -277,6 +302,16 @@ def test_current_run_ledger_rejects_inconsistent_terminal_results(result, count)
 def test_current_run_ledger_rejects_duplicate_expected_source():
     with pytest.raises(ValueError, match="duplicate expected"):
         _ledger(("alpha", "alpha"))
+
+
+def test_current_run_ledger_rejects_opaque_outcome_text():
+    ledger = _ledger(("alpha",))
+    ledger.start("alpha", nodeid="test_source[alpha]", query_id=ledger.query_ids["alpha"])
+    with pytest.raises(AssertionError, match="structured snapshot"):
+        ledger.finish(
+            "alpha", result="answered_nonempty", returned_count=1,
+            outcome="{'attempts': 1}",  # type: ignore[arg-type]
+        )
 
 
 def _report(nodeid, when, outcome, *, message="", returned=None):
@@ -451,7 +486,10 @@ def test_live_evidence_rejects_mixed_candidate_identity(tmp_path):
         validate_evidence(tmp_path)
 
 
-def test_real_pytest_failure_keeps_nonzero_status_and_durable_reports(tmp_path):
+@pytest.mark.parametrize("plugin_autoload", [True, False])
+def test_real_pytest_failure_keeps_nonzero_status_and_durable_reports(
+    tmp_path, plugin_autoload,
+):
     case = tmp_path / "test_deliberate.py"
     case.write_text(
         "def test_pass():\n    pass\n\n"
@@ -460,6 +498,10 @@ def test_real_pytest_failure_keeps_nonzero_status_and_durable_reports(tmp_path):
     )
     evidence = tmp_path / "evidence"
     env = os.environ.copy()
+    if plugin_autoload:
+        env.pop("PYTEST_DISABLE_PLUGIN_AUTOLOAD", None)
+    else:
+        env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     env.update({
         "RESMON_LIVE_EVIDENCE_DIR": str(evidence),
         "RESMON_LIVE_CANDIDATE_SHA": "candidate-proof",
@@ -470,10 +512,10 @@ def test_real_pytest_failure_keeps_nonzero_status_and_durable_reports(tmp_path):
         [
             sys.executable, "-m", "pytest",
             "-c", str(PROJECT_ROOT / "pytest.ini"),
-            "-p", "pytest_timeout",
+            "-p", "timeout",
             "-p", "resmon_scripts.verification_scripts.conftest",
             "-p", "no:cacheprovider",
-            "-q", str(case),
+            "--timeout=5", "-q", str(case),
         ],
         cwd=PROJECT_ROOT,
         env=env,
@@ -481,6 +523,11 @@ def test_real_pytest_failure_keeps_nonzero_status_and_durable_reports(tmp_path):
         text=True,
         timeout=60,
     )
+    # Preserve the complete child streams before making any assertion; hosted
+    # failures must not be reduced to pytest's bounded assertion rendering.
+    mode = "autoload-on" if plugin_autoload else "autoload-off"
+    (tmp_path / f"{mode}.stdout").write_text(result.stdout, encoding="utf-8")
+    (tmp_path / f"{mode}.stderr").write_text(result.stderr, encoding="utf-8")
     assert result.returncode == int(pytest.ExitCode.TESTS_FAILED), (
         result.stdout, result.stderr,
     )

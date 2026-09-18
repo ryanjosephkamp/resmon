@@ -102,23 +102,7 @@ def test_keyword_rest_preserves_query_and_uses_truthful_identity(monkeypatch):
     assert api_dblp._RATE_LIMITER._interval == 2.0
 
 
-def test_retry_after_waits_only_inside_shared_deadline(monkeypatch):
-    slept = []
-    monkeypatch.setattr(api_dblp.time, "monotonic", lambda: 100.0)
-    monkeypatch.setattr(api_dblp.time, "sleep", slept.append)
-
-    response = FakeResponse(status_code=429, headers={"Retry-After": "3"})
-    assert api_dblp._wait_for_retry(response, 110.0) is True
-    assert slept == [3.0]
-
-    slept.clear()
-    assert api_dblp._wait_for_retry(response, 102.0) is False
-    assert slept == []
-
-
-def test_transient_retry_reuses_identity_headers_and_honors_retry_after(monkeypatch):
-    slept = []
-    monkeypatch.setattr(api_dblp.time, "sleep", slept.append)
+def test_transient_retry_reuses_identity_headers_without_adapter_sleep(monkeypatch):
     calls = _sequence(monkeypatch, [
         FakeResponse(status_code=429, headers={"Retry-After": "1"}),
         FakeResponse({"result": {"hits": {"@total": "0"}}}),
@@ -127,7 +111,6 @@ def test_transient_retry_reuses_identity_headers_and_honors_retry_after(monkeypa
     assert api_dblp._request_json({}, time.monotonic() + 30) is not None
     assert len(calls) == 2
     assert calls[0]["headers"] == calls[1]["headers"]
-    assert slept == [1.0]
 
 
 def test_author_query_is_escaped_and_normalizes_existing_identities(monkeypatch):
@@ -405,6 +388,12 @@ def test_real_loopback_retry_after_waits_and_retries_once(monkeypatch):
 
     assert Handler.count == 2
     assert elapsed >= 1.0
+    outcome = api_base.search_outcome().snapshot()
+    assert outcome["attempts"] == 2
+    # The 429 ended the first safe_request invocation; DBLP's outer retry then
+    # made a separate successful invocation.
+    assert outcome["failures"] == 1
+    assert outcome["last_call_failed"] is False
 
 
 def test_rest_year_filter_requires_a_complete_calendar_year():

@@ -5,11 +5,11 @@ import { SourceCoverage } from '../api/searchRecord';
 
 const coverage: SourceCoverage = {
   execution_id: 42, basis: 'selected', basis_label: 'selected sources', selection_known: true, total: 3,
-  counts: { answered: 1, non_answer: 1, unknown: 1, genuine_empty: 0 },
+  counts: { answered: 1, non_answer: 1, unknown: 1, genuine_empty: 0, partial: 0 },
   summary: '3 selected sources: 1 answered, 1 recorded non-answer, 1 unknown.',
   notes: ['Saved selection', 'Limits stay visible.'], additional_sources: [],
   sources: [{ source: '<img src=x onerror=bad()>', category: 'unknown', label: 'unknown', note: '<script>bad()</script>|# forged',
-    result_count: null, recorded_at: null, outcome_recorded: false, genuine_empty: false }],
+    result_count: null, recorded_at: null, outcome_recorded: false, genuine_empty: false, partial: false }],
 };
 test('backend counts and hostile strings render as text; details opens accessibly', () => {
   const open = jest.fn();
@@ -25,4 +25,10 @@ test('no outcomes uses backend unknown history explanation, never a zero ratio',
     summary: 'No source outcomes were recorded; the full selected set is unknown.', sources: [] }} />);
   expect(screen.getByText(/No source outcomes were recorded/)).toBeInTheDocument();
   expect(screen.queryByText(/0\/0|100%/)).not.toBeInTheDocument();
+});
+test('partial answers are visible inside the answered count', () => {
+  render(<CoverageSummary coverage={{ ...coverage,
+    counts: { ...coverage.counts, answered: 2, partial: 1 },
+    summary: '3 selected sources: 2 answered. 1 answered with retained partial results.' }} />);
+  expect(screen.getByText('Partial answers: 1 (included in answered).')).toBeInTheDocument();
 });

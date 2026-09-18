@@ -369,10 +369,10 @@ class SweepEngine:
 
                     all_results.extend(results)
 
-                    # Why nothing came back, derived only when nothing came
-                    # back. A source that returned papers has no zero to
-                    # explain, and asking the question anyway would put a
-                    # reason on a row that does not need one.
+                    # Preserve a terminal issue even when earlier pages yielded
+                    # usable records. The row stays ``ok`` and the records stay
+                    # available, but every consumer can see that the retained
+                    # set may be incomplete.
                     zero_reason_value: str | None = None
                     zero_detail_value: dict | None = None
                     zero_message: str | None = None
@@ -399,6 +399,36 @@ class SweepEngine:
                             "reason": zero_reason_value,
                             "sentence": zero_message,
                         })
+                    else:
+                        issue = zero_reason_module.terminal_issue(outcome)
+                        if issue:
+                            zero_reason_value, issue_detail = issue
+                            zero_detail_value = {
+                                **issue_detail,
+                                "partial": True,
+                                "returned": len(results),
+                            }
+                            zero_message = zero_reason_module.partial_sentence(
+                                _source_display_name(repo_name),
+                                zero_reason_value,
+                                zero_detail_value,
+                                len(results),
+                            )
+                            # Persist the exact catalog-rendered sentence. The
+                            # saved coverage/search-record path knows the stable
+                            # source slug, while this engine owns display names;
+                            # carrying the rendered sentence avoids a circular
+                            # catalog import and keeps every surface identical.
+                            zero_detail_value["message"] = zero_message
+                            task_log.log(f"    {zero_message}")
+                            zero_notes.append({
+                                "source": _source_display_name(repo_name),
+                                "slug": repo_name,
+                                "reason": zero_reason_value,
+                                "sentence": zero_message,
+                                "partial": True,
+                                "returned": len(results),
+                            })
 
                     store.emit(exec_id, {
                         "type": "repo_done",

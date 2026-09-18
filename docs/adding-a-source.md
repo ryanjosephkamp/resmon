@@ -108,7 +108,11 @@ Every part of this is pinned by an existing test. Break one and the suite tells 
   `max_results`, and returns **`[]` on upstream failure** — logged, never raised. A source
   being down degrades a sweep; it does not fail it.
 - Every HTTP call goes through `safe_request()` with a **module-level** `RateLimiter`, shared
-  by every instance of that client, so concurrent sweeps contend on one object.
+  by every instance of that client, so concurrent sweeps contend on one object. The same
+  limiter carries a valid upstream `Retry-After` cooldown across retries and client
+  instances. Do not add a client-local `sleep`: a cooldown that cannot fit the operation
+  deadline fails without sending an early request, and an unbounded caller will not accept
+  an arbitrary header-length delay beyond its ordinary limiter wait.
 - The rate limit is whatever the upstream publishes, **or slower**. Where none is published,
   pick a conservative number and record the reasoning in a comment. Cite the published
   figure; do not carry over a number from another source.

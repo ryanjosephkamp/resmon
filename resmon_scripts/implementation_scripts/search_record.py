@@ -229,6 +229,8 @@ def _source_note(source: dict) -> str | None:
                 source.get("zero_reason"),
                 _zero_detail(source),
             )
+        if projected.get("partial"):
+            return projected["note"]
         return None
     if status == "error" and source.get("zero_reason") == "retired":
         return zero_reason_module.sentence(
@@ -347,6 +349,14 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
             f"returned zero because they could not answer, not because there "
             f"was nothing to find ({names}). Their notes below say why. They "
             "did not contribute to this search."
+        )
+
+    partial = [s for s in sources if s.get("coverage", {}).get("partial")]
+    if partial:
+        names = ", ".join(s["source"] for s in partial)
+        caveats.append(
+            f"{len(partial)} of the {len(sources)} recorded sources contributed "
+            f"records but may be incomplete ({names}). Their notes below say why."
         )
 
     unrecorded = [s for s in sources if s["zero_reason"] == "not_recorded"]

@@ -2896,6 +2896,7 @@ def test_biorxiv_search():
     outcome = api_base.search_outcome().snapshot()
     assert outcome["attempts"] > 0, outcome
     assert outcome["last_call_failed"] is False, outcome
+    assert outcome["retained_cooldown_status"] is None, outcome
     assert outcome["explicit_reason"] is None, outcome
     assert 1 <= len(results) <= 3
     assert all(isinstance(result, NormalizedResult) for result in results)
@@ -2924,6 +2925,7 @@ def test_medrxiv_search_respects_date_window():
     outcome = api_base.search_outcome().snapshot()
     assert outcome["attempts"] > 0, outcome
     assert outcome["last_call_failed"] is False, outcome
+    assert outcome["retained_cooldown_status"] is None, outcome
     assert outcome["explicit_reason"] is None, outcome
     assert 1 <= len(results) <= 3
     assert all(isinstance(result, NormalizedResult) for result in results)
@@ -2970,6 +2972,7 @@ def test_eric_search_respects_publication_year_window():
     outcome = api_base.search_outcome().snapshot()
     assert outcome["attempts"] > 0, outcome
     assert outcome["last_call_failed"] is False, outcome
+    assert outcome["retained_cooldown_status"] is None, outcome
     assert outcome["explicit_reason"] is None, outcome
     assert 1 <= len(results) <= 3
     assert all(isinstance(result, NormalizedResult) for result in results)
@@ -3027,6 +3030,7 @@ def test_zenodo_search_respects_date_window():
     outcome = api_base.search_outcome().snapshot()
     assert outcome["attempts"] > 0, outcome
     assert outcome["last_call_failed"] is False, outcome
+    assert outcome["retained_cooldown_status"] is None, outcome
     assert outcome["explicit_reason"] is None, outcome
     assert results
     assert all(isinstance(result, NormalizedResult) for result in results)

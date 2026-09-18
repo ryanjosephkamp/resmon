@@ -42,6 +42,24 @@ from implementation_scripts.database import (  # noqa: E402
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
 
 
+def test_positive_partial_is_not_a_non_answer_or_measurement():
+    run = {
+        "status": "ok", "result_count": 3,
+        "zero_reason": "upstream_failure",
+    }
+    assert watchdog._did_not_answer(run) is False
+    assert watchdog._is_a_measurement(run) is False
+
+
+def test_zero_terminal_failure_remains_a_non_answer():
+    run = {
+        "status": "ok", "result_count": 0,
+        "zero_reason": "upstream_failure",
+    }
+    assert watchdog._did_not_answer(run) is True
+    assert watchdog._is_a_measurement(run) is False
+
+
 @pytest.fixture
 def conn():
     c = sqlite3.connect(":memory:")

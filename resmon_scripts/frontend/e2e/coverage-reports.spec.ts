@@ -13,7 +13,7 @@ test('coverage history opens with keyboard, exports and preserves source identit
   env.RESMON_DISABLE_SCHEDULER = '1';
   env.PYTHON_KEYRING_BACKEND = 'keyring.backends.null.Keyring';
   const helper = path.resolve(FRONTEND_ROOT, '../verification_scripts/test_coverage_reports.py');
-  const fixture = JSON.parse(execFileSync(env.RESMON_PYTHON, [helper, 'seed', env.RESMON_DB_PATH], { env, encoding: 'utf8' })) as { coverage_ids: Record<string, number>; marker: string };
+  const fixture = JSON.parse(execFileSync(env.RESMON_PYTHON, [helper, 'seed', env.RESMON_DB_PATH], { env, encoding: 'utf8' })) as { coverage_ids: Record<string, number>; marker: string; partial_sentence: string };
   const snapshot = () => execFileSync(env.RESMON_PYTHON, [helper, 'snapshot', env.RESMON_DB_PATH], { env, encoding: 'utf8' });
   const before = snapshot();
   const app = await electron.launch({ args: ['.', `--user-data-dir=${path.join(state, 'electron-user-data')}`], cwd: FRONTEND_ROOT, env, timeout: 180_000 });
@@ -47,6 +47,26 @@ test('coverage history opens with keyboard, exports and preserves source identit
     const exported = (await win.getByText(/Export saved to:/).innerText()).replace('Export saved to: ', '').trim();
     const zip = JSON.parse(execFileSync(env.RESMON_PYTHON, ['-c', 'import zipfile,json,sys; z=zipfile.ZipFile(sys.argv[1]); print(z.read(sys.argv[2]).decode())', exported, `execution_${mixed}/search-record.json`], { env, encoding: 'utf8' })) as { search: { execution_id: number }; coverage: { counts: { unknown: number } } };
     expect(zip.search.execution_id).toBe(mixed); expect(zip.coverage.counts.unknown).toBe(2);
+    await win.getByRole('button', { name: 'Close', exact: true }).click();
+    const partial = fixture.coverage_ids.partial;
+    const partialRow = win.getByText(`Execution #${partial}`, { exact: true }).locator('xpath=ancestor::tr');
+    await expect(partialRow).toContainText('retained partial results');
+    await partialRow.click();
+    await expect(summary).toContainText('1 answered with retained partial results');
+    await expect(summary).toContainText('Partial answers: 1');
+    await summary.getByRole('button', { name: 'View source details' }).click();
+    await expect(win.locator('.search-record')).toContainText(fixture.partial_sentence);
+    await win.getByRole('button', { name: 'Progress', exact: true }).click();
+    const partialEvent = win.locator('.pv-entry.pv-warning');
+    await expect(partialEvent).toContainText(`arxiv: 2 results — ${fixture.partial_sentence}`);
+    await expect(partialEvent.locator('.pv-icon')).toHaveText('⚠');
+    await win.screenshot({ path: path.join(ensureScreenshotDir(), 'coverage-partial.png') });
+    await win.getByRole('button', { name: 'Export', exact: true }).click();
+    await expect(win.getByText(/Export saved to:/)).toBeVisible();
+    const partialExport = (await win.getByText(/Export saved to:/).innerText()).replace('Export saved to: ', '').trim();
+    const partialZip = JSON.parse(execFileSync(env.RESMON_PYTHON, ['-c', 'import zipfile,json,sys; z=zipfile.ZipFile(sys.argv[1]); print(z.read(sys.argv[2]).decode())', partialExport, `execution_${partial}/search-record.json`], { env, encoding: 'utf8' })) as { coverage: { counts: { partial: number }; sources: Array<{ note: string }> } };
+    expect(partialZip.coverage.counts.partial).toBe(1);
+    expect(partialZip.coverage.sources[0].note).toBe(fixture.partial_sentence);
     await win.getByRole('button', { name: 'Close', exact: true }).click();
     const empty = fixture.coverage_ids['no-history'];
     await win.getByText(`Execution #${empty}`, { exact: true }).locator('xpath=ancestor::tr').click();
@@ -95,7 +115,7 @@ test('coverage history opens with keyboard, exports and preserves source identit
     const missing = await win.request.get(`http://127.0.0.1:${port}/api/executions/999999/search-record`);
     expect(missing.status()).toBe(404);
     expect(snapshot()).toBe(before);
-    console.log('COVERAGE_UI', JSON.stringify({ mixed, empty, exported, sixTabs: true, keyboardDetails: true, corpusUnchanged: true }));
+    console.log('COVERAGE_UI', JSON.stringify({ mixed, partial, empty, exported, partialExport, sixTabs: true, keyboardDetails: true, corpusUnchanged: true }));
   } finally {
     await app.close();
     if (backendPid) await expect.poll(() => { try { process.kill(backendPid, 0); return true; } catch { return false; } }).toBe(false);

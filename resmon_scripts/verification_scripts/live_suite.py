@@ -68,7 +68,7 @@ def collect(selection: str) -> list[str]:
     """
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
-         "-p", "pytest_timeout", "-m", selection],
+         "-p", "timeout", "-m", selection],
         cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=300,
     )
     if result.returncode not in (0, 5):               # 5 = nothing collected

@@ -24,6 +24,7 @@ import RepoProgressGrid from '../components/Monitor/RepoProgressGrid';
 import ResultsList from '../components/Results/ResultsList';
 import SearchRecord from '../components/Results/SearchRecord';
 import LiveActivityLog from '../components/Monitor/LiveActivityLog';
+import ReportViewer from '../components/Results/ReportViewer';
 
 /* ------------------------------------------------------------------ */
 /* The live monitor                                                    */
@@ -32,6 +33,9 @@ import LiveActivityLog from '../components/Monitor/LiveActivityLog';
 const OUTAGE_SENTENCE =
   'CrossRef could not be queried: HTTP 503 after 3 attempts. This is not a '
   + 'zero — the source did not answer.';
+const PARTIAL_SENTENCE =
+  'CrossRef returned 2 usable records before a later HTTP 503 request failed. '
+  + 'The retained set may be incomplete.';
 
 function execWith(overrides: any = {}) {
   return {
@@ -120,6 +124,18 @@ test('the activity log shows the reason on a zero, and no raw event names', () =
   ).toBeInTheDocument();
 });
 
+test('the activity log renders a positive partial result as a warning', () => {
+  const { container } = render(
+    <LiveActivityLog events={[{
+      type: 'repo_done', timestamp: '2026-09-04T10:00:01Z',
+      repository: 'crossref', result_count: 2,
+      zero_reason: 'upstream_failure', zero_message: PARTIAL_SENTENCE,
+    }] as any} />,
+  );
+  expect(screen.getByText(`crossref: 2 results — ${PARTIAL_SENTENCE}`)).toBeInTheDocument();
+  expect(container.querySelector('.log-warning')).not.toBeNull();
+});
+
 /* ------------------------------------------------------------------ */
 /* The results row                                                     */
 /* ------------------------------------------------------------------ */
@@ -182,6 +198,29 @@ test('a run where every source answered carries no coverage note', () => {
 
   expect(screen.queryByText(/could not answer/)).not.toBeInTheDocument();
   expect(screen.queryByText(/did not record/)).not.toBeInTheDocument();
+});
+
+test('a run with a partial answer keeps its coverage note', () => {
+  render(
+    <ResultsList
+      executions={[{ ...ROW, coverage: {
+        execution_id: 9, basis: 'selected', basis_label: 'selected sources',
+        selection_known: true, total: 1,
+        counts: { answered: 1, non_answer: 0, unknown: 0, genuine_empty: 0, partial: 1 },
+        summary: '1 selected source: 1 answered. 1 answered with retained partial results.',
+        notes: ['Saved selection'], additional_sources: [], sources: [{
+          source: 'crossref', category: 'answered', label: 'answered, partial',
+          note: PARTIAL_SENTENCE, result_count: 2, recorded_at: '2026-09-04',
+          outcome_recorded: true, genuine_empty: false, partial: true,
+        }],
+      } }] as any}
+      selected={new Set<number>()} onToggle={jest.fn()} onToggleAll={jest.fn()}
+      onRowClick={jest.fn()} onOpenSearchRecord={jest.fn()}
+      typeFilter="" statusFilter="" onTypeFilterChange={jest.fn()}
+      onStatusFilterChange={jest.fn()}
+    />,
+  );
+  expect(screen.getByText(/retained partial results/)).toBeInTheDocument();
 });
 
 test('a run from before the reason existed carries no source_outcomes at all', () => {
@@ -332,6 +371,41 @@ test('repo_done carries the reason into the per-source status and sentence', asy
   expect(exec.repoStatuses.core).toBe('done');
   expect(exec.repoStatuses.springer).toBe('skipped');
   expect(exec.repoZeroReasons.crossref.message).toBe(OUTAGE_SENTENCE);
+});
+
+test('positive partial repo_done remains done and keeps its warning sentence', async () => {
+  progressFetch([{
+    type: 'repo_done', timestamp: '2026-09-04T10:00:01Z',
+    repository: 'crossref', result_count: 2,
+    zero_reason: 'upstream_failure', zero_message: PARTIAL_SENTENCE,
+  }]);
+  const { result } = renderHook(() => useExecution(), { wrapper: providerWrapper });
+  await act(async () => {
+    result.current.startExecution(6, 'deep_sweep', ['crossref']);
+  });
+  await waitFor(() => {
+    expect(result.current.activeExecutions[6]?.repoStatuses.crossref).toBe('done');
+  }, { timeout: 5000 });
+  expect(result.current.activeExecutions[6]?.repoZeroReasons.crossref.message)
+    .toBe(PARTIAL_SENTENCE);
+});
+
+test('the saved progress timeline shows a partial result as a warning', async () => {
+  progressFetch([{
+    type: 'repo_done', timestamp: '2026-09-04T10:00:01Z',
+    repository: 'crossref', result_count: 2,
+    zero_reason: 'upstream_failure', zero_message: PARTIAL_SENTENCE,
+  }]);
+  const { container } = render(
+    <ExecutionProvider>
+      <ReportViewer executionId={77} onClose={jest.fn()} initialTab="progress" />
+    </ExecutionProvider>,
+  );
+  await waitFor(() => {
+    expect(screen.getByText(`crossref: 2 results — ${PARTIAL_SENTENCE}`))
+      .toBeInTheDocument();
+  });
+  expect(container.querySelector('.pv-warning .pv-icon')?.textContent).toBe('⚠');
 });
 
 /* ------------------------------------------------------------------ */

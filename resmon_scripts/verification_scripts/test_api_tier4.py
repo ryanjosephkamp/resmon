@@ -268,7 +268,12 @@ BATCH_LIVE_CASES = {"oapen": "test_oapen_live_search", "govinfo": "test_govinfo_
 def test_oapen_live_search():
     api_base.reset_search_outcome()
     rows = api_registry.get_client("oapen").search("water AND fire", "2020", "2024", 2)
-    assert len(rows) == 2, api_base.search_outcome().snapshot()
+    outcome = api_base.search_outcome().snapshot()
+    assert len(rows) == 2, outcome
+    assert outcome["attempts"] > 0, outcome
+    assert outcome["last_call_failed"] is False, outcome
+    assert outcome["retained_cooldown_status"] is None, outcome
+    assert outcome["explicit_reason"] is None, outcome
     assert all(r.source_repository == "oapen" and "2020" <= r.publication_date <= "2024" for r in rows)
     assert all(r.title and r.external_id and r.url.startswith("https://library.oapen.org/handle/") for r in rows)
     api_base.reset_search_outcome()

@@ -1,11 +1,10 @@
 # resmon_scripts/implementation_scripts/api_dblp.py
 """DBLP API client — REST keyword search and SPARQL author search."""
 
-import email.utils
 import logging
 import re
 import time
-from datetime import date, datetime, timezone
+from datetime import date
 
 from .api_base import (
     Author,
@@ -52,50 +51,6 @@ def _looks_like_access_challenge(response) -> bool:
     )
 
 
-def _header(response, name: str) -> str | None:
-    headers = getattr(response, "headers", {}) or {}
-    for key, value in headers.items():
-        if str(key).lower() == name.lower():
-            return str(value)
-    return None
-
-
-def _retry_after_seconds(response) -> float | None:
-    """Return a valid Retry-After delay, without inventing invalid values."""
-    value = _header(response, "retry-after")
-    if not value:
-        return None
-    try:
-        return max(0.0, float(value.strip()))
-    except ValueError:
-        try:
-            when = email.utils.parsedate_to_datetime(value)
-            if when.tzinfo is None:
-                when = when.replace(tzinfo=timezone.utc)
-            return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
-        except (TypeError, ValueError, OverflowError):
-            logger.warning("DBLP returned an invalid Retry-After value")
-            return None
-
-
-def _wait_for_retry(response, deadline: float) -> bool:
-    """Honor Retry-After only when it fits inside the shared search budget."""
-    wait = _retry_after_seconds(response)
-    if wait is None:
-        return True
-    remaining = deadline - time.monotonic()
-    if wait >= remaining:
-        logger.error(
-            "DBLP Retry-After %.1fs exceeds the remaining %.1fs search budget; "
-            "the request stays failed",
-            wait,
-            max(0.0, remaining),
-        )
-        return False
-    time.sleep(wait)
-    return True
-
-
 def _request_payload(
     method: str,
     url: str,
@@ -133,8 +88,6 @@ def _request_payload(
                 response.status_code in _TRANSIENT_CODES
                 and attempt + 1 < _MAX_RESPONSE_ATTEMPTS
             ):
-                if not _wait_for_retry(response, deadline):
-                    return None
                 logger.warning(
                     "DBLP API returned %d; retrying once",
                     response.status_code,
