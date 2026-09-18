@@ -49,9 +49,9 @@ work on one side of it cannot break the other except through an endpoint's shape
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 2516 pass, 2 skip, 108 deselected
-.venv/bin/python -m pytest -m live_network   # the 105 — real scholarly APIs, CLIs and sockets
-                                             # 89 of them run weekly in CI; see below
+.venv/bin/python -m pytest -q          # hermetic suite: 2723 pass, 4 skip, 108 deselected (CI, Python 3.11)
+.venv/bin/python -m pytest -m live_network   # the 108 — real scholarly APIs, CLIs and sockets
+                                             # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
 npm run typecheck && npm test && npm run build   # 518 tests across 52 suites
@@ -113,6 +113,14 @@ that column alone goes red, suspect a shared `sqlite3.Connection`.
   not run. The selection lives in `verification_scripts/live_suite.py`, the workflow asks
   that file for it, and `test_live_suite.py` fails when the two halves stop partitioning
   the live suite exactly. **A new live test must fall in one half or the other.**
+- **A provider's outage is quarantined, never skipped.** `live_quarantine.json` beside
+  `live_suite.py` lists at most two live cases, each with a failure signature (such as
+  `http_500`), a first-observed date, an expiry at most 30 days later, and the status
+  captured from two vantage points. A quarantined case still runs and asserts. Only a
+  failure whose recorded source outcome carries the signature becomes an xfail; any
+  other failure fails the run, a pass is reported as a recovery, and an expired entry
+  is ignored. Every summary prints "N of M asserted; Q quarantined" from a collection.
+  Rules: `live_evidence.py`; proofs at a real exit status: `test_live_suite.py`.
 - `conftest.py` installs an in-memory keyring and joins execution worker threads before
   fixture teardown. Both fixed real flakiness; both stay.
 - `_db_path = ":memory:"` is backed by a temp file, not a true in-memory database, so
