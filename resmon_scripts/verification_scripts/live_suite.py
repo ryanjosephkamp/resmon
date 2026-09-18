@@ -35,7 +35,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-from live_evidence import reduce_evidence, validate_evidence
+from live_evidence import (
+    asserted_line,
+    disposition_sentence,
+    load_quarantine,
+    quarantine_line,
+    quarantine_path,
+    record_label,
+    reduce_evidence,
+    utc_today,
+    validate_evidence,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -99,6 +109,7 @@ def summary() -> str:
         f"**{len(scheduled)} of {len(scheduled) + len(skipped)} `live_network` tests.** "
         "Selection: `" + SCHEDULED_SELECTION + "`",
         "",
+        *quarantine_summary(scheduled),
         "## What it did not run, and why",
         "",
     ]
@@ -118,6 +129,39 @@ def summary() -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def quarantine_summary(scheduled: list[str], today=None) -> list[str]:
+    """The quarantine paragraph: its denominator, and every entry that has expired.
+
+    The count comes from the scheduled collection it is handed. It is never
+    typed, so a case added to or removed from the suite moves it.
+    """
+    today = today or utc_today()
+    try:
+        entries = load_quarantine()
+    except Exception as exc:
+        return [
+            f"**Quarantine unreadable ({type(exc).__name__}); nothing is excused.** "
+            f"{asserted_line(len(scheduled), [])}.",
+            "",
+        ]
+    lines = [
+        f"**{quarantine_line(scheduled, entries, today)}.** A quarantined case "
+        "still runs and still asserts. Only a failure whose recorded failure "
+        "history carries the named signature is excused, and a pass is reported "
+        f"as a recovery. Policy: `{quarantine_path().name}`.",
+        "",
+    ]
+    selected = set(scheduled)
+    for entry in entries:
+        if entry.nodeid in selected and not entry.active(today):
+            lines.append(
+                f"- Quarantine expired and ignored: `{entry.nodeid}` "
+                f"({entry.label()}). Its case fails as normal; lift or renew the entry.")
+    if lines[-1] != "":
+        lines.append("")
+    return lines
 
 
 def validate_workflow_evidence(root: Path) -> dict:
@@ -152,20 +196,15 @@ def evidence_summary(root: Path) -> str:
         reduction = reduce_evidence(root, require_finish=False)
     except Exception as exc:
         return "## Durable live evidence\n\nUnavailable or invalid: " + type(exc).__name__ + "\n"
+    quarantine = reduction["quarantine"]
+    excused = {
+        nodeid for nodeid, value in quarantine["dispositions"].items()
+        if value["disposition"] == "excused"
+    }
     counts = {"passed": 0, "failed": 0, "skipped": 0}
-    for outcome in reduction["outcomes"].values():
-        counts[outcome] += 1
-    lines = [
-        "## Durable live evidence",
-        "",
-        f"Run `{reduction['run_id']}` selected {reduction['selected']} tests.",
-        f"Completed outcomes: {counts['passed']} passed, {counts['failed']} failed, "
-        f"{counts['skipped']} skipped; {len(reduction['unfinished'])} unfinished.",
-        "",
-    ]
-    ledger = reduction.get("source_ledger")
-    if ledger is None:
-        return "\n".join(lines)
+    for nodeid, outcome in reduction["outcomes"].items():
+        if nodeid not in excused:
+            counts[outcome] += 1
 
     def literal(value: object, limit: int = 128) -> str:
         text = str(value).replace("\r", " ").replace("\n", " ")[:limit]
@@ -178,6 +217,52 @@ def evidence_summary(root: Path) -> str:
         shown = values[:32]
         suffix = f" (+{len(values) - len(shown)} more)" if len(values) > len(shown) else ""
         return (", ".join(literal(value) for value in shown) or "none") + suffix
+
+    lines = [
+        "## Durable live evidence",
+        "",
+        f"Run `{reduction['run_id']}` selected {reduction['selected']} tests.",
+        f"**{asserted_line(reduction['selected'], quarantine['entries'])}.**",
+        f"Completed outcomes: {counts['passed']} passed, {counts['failed']} failed, "
+        f"{counts['skipped']} skipped, {len(excused)} quarantined; "
+        f"{len(reduction['unfinished'])} unfinished.",
+        "",
+    ]
+    if quarantine["entries"]:
+        lines.extend(["### Quarantine", ""])
+        for record in quarantine["entries"][:8]:
+            nodeid = record["nodeid"]
+            value = quarantine["dispositions"].get(nodeid)
+            if value is not None:
+                lines.append("- " + disposition_sentence(
+                    literal(nodeid, 4096), value["disposition"], record, value["history"]))
+            elif not record["active"]:
+                lines.append(
+                    f"- EXPIRED {literal(nodeid, 4096)}: the quarantine "
+                    f"({record_label(record)}) has expired and was ignored.")
+            else:
+                lines.append(
+                    f"- {literal(nodeid, 4096)}: quarantined ({record_label(record)}); "
+                    "no call result was recorded.")
+        lines.append("")
+    histories = [
+        (nodeid, value) for nodeid, value in sorted(quarantine["source_outcomes"].items())
+        if value["failure_history"]
+    ]
+    if histories:
+        lines.extend(["### Recorded source failure history", ""])
+        for nodeid, value in histories[:32]:
+            omitted = value["failure_history_omitted"]
+            lines.append(
+                f"- {literal(nodeid, 4096)} ({literal(value['source'], 64)}): "
+                + " -> ".join(value["failure_history"])
+                + (f" (+{omitted} earlier)" if omitted else "")
+                + f"; last call failed: {'yes' if value['last_call_failed'] else 'no'}."
+            )
+        lines.append("")
+    ledger = reduction.get("source_ledger")
+    if ledger is None:
+        return "\n".join(lines)
 
     if ledger["complete"]:
         threshold = "passed" if ledger["threshold_pass"] else "failed"

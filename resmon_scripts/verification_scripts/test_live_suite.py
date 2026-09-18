@@ -983,3 +983,425 @@ def test_entity_aggregate_contains_no_second_client_call():
     aggregate = source.split("def test_at_least_most_sources_answered", 1)[1]
     assert "get_client(" not in aggregate
     assert "source_response_ledger.assert_threshold()" in aggregate
+
+
+# ---------------------------------------------------------------------------
+# The provider-outage quarantine
+# ---------------------------------------------------------------------------
+#
+# ``live_quarantine.json`` names at most two live cases whose failure may be
+# excused while a provider is down. Each case still runs and still asserts.
+# The mechanism is proved here the way B2 asks for a new gate: every branch
+# is made to go red or green at a real pytest exit status, in a child process
+# with the production conftest loaded. A matching failure passes the run, a
+# non-matching one fails it, a pass is called a recovery, and an expired
+# entry changes nothing.
+
+from datetime import timedelta  # noqa: E402
+
+from live_evidence import (  # noqa: E402
+    QUARANTINE_FILE,
+    QUARANTINE_MAX_DAYS,
+    QUARANTINE_MAX_ENTRIES,
+    asserted_line,
+    load_quarantine,
+    quarantine_line,
+    utc_today,
+)
+
+
+def _observation(vantage, observed, status="http_500"):
+    return {
+        "vantage": vantage, "observed": observed, "status": status,
+        "reference": "synthetic observation for a hermetic proof",
+    }
+
+
+def _entry(nodeid, *, first, expires, signature="http_500", source="oapen", evidence=None):
+    return {
+        "nodeid": nodeid, "source": source, "signature": signature,
+        "first_observed": first.isoformat(), "expires": expires.isoformat(),
+        "reason": "synthetic provider outage",
+        "evidence": evidence if evidence is not None else [
+            _observation("runner", first.isoformat()),
+            _observation("workstation", first.isoformat()),
+        ],
+    }
+
+
+def _write_quarantine(path, entries):
+    path.write_text(json.dumps({
+        "schema": "resmon.live-quarantine.v1",
+        "policy": "synthetic policy for a hermetic proof",
+        "entries": entries,
+    }), encoding="utf-8")
+    return path
+
+
+def test_the_shipped_quarantine_is_valid_and_names_scheduled_live_cases(collections):
+    """Every entry names a case the weekly job really runs.
+
+    An entry for a node that no longer exists would excuse nothing and still
+    read as a quarantine in the summary. An entry for a local-only case would
+    describe a job that never runs it.
+    """
+    entries = load_quarantine(QUARANTINE_FILE)
+    assert len(entries) <= QUARANTINE_MAX_ENTRIES
+    for entry in entries:
+        assert entry.nodeid in collections["scheduled"], entry.nodeid
+        assert entry.expires <= entry.first_observed + timedelta(days=QUARANTINE_MAX_DAYS)
+        vantages = {item["vantage"] for item in entry.evidence if item["status"] == entry.signature}
+        assert len(vantages) >= 2, entry.nodeid
+    assert [entry.nodeid for entry in entries][:1] == [
+        "resmon_scripts/verification_scripts/test_api_tier4.py::test_oapen_live_search",
+    ]
+
+
+def test_quarantine_admits_two_entries_and_rejects_a_third(tmp_path):
+    first = utc_today()
+    entries = [
+        _entry(f"test_case.py::test_{index}", first=first, expires=first + timedelta(days=5))
+        for index in range(3)
+    ]
+    assert len(load_quarantine(_write_quarantine(tmp_path / "two.json", entries[:2]))) == 2
+    with pytest.raises(AssertionError, match="at most 2 live cases"):
+        load_quarantine(_write_quarantine(tmp_path / "three.json", entries))
+
+
+def test_quarantine_expiry_is_at_most_thirty_days_after_first_observed(tmp_path):
+    first = utc_today() - timedelta(days=3)
+    thirty = _entry("test_case.py::test_a", first=first, expires=first + timedelta(days=30))
+    assert load_quarantine(_write_quarantine(tmp_path / "ok.json", [thirty]))
+    late = _entry("test_case.py::test_a", first=first, expires=first + timedelta(days=31))
+    with pytest.raises(AssertionError, match="at most 30 days"):
+        load_quarantine(_write_quarantine(tmp_path / "late.json", [late]))
+    backwards = _entry("test_case.py::test_a", first=first, expires=first - timedelta(days=1))
+    with pytest.raises(AssertionError, match="expires before"):
+        load_quarantine(_write_quarantine(tmp_path / "back.json", [backwards]))
+
+
+@pytest.mark.parametrize("evidence,match", [
+    ([_observation("runner", "2026-09-18"), _observation("runner", "2026-09-18")],
+     "two vantage points"),
+    ([_observation("runner", "2026-09-18"), _observation("workstation", "2026-09-18", "timeout")],
+     "two vantage points"),
+    ([_observation("runner", "2026-09-18")], "two to eight"),
+    ([_observation("runner", "2026-09-19"), _observation("workstation", "2026-09-19")],
+     "earliest observation"),
+])
+def test_quarantine_admission_needs_the_status_from_two_vantage_points(tmp_path, evidence, match):
+    first = datetime_date(2026, 9, 18)
+    entry = _entry("test_case.py::test_a", first=first,
+                   expires=first + timedelta(days=10), evidence=evidence)
+    with pytest.raises(AssertionError, match=match):
+        load_quarantine(_write_quarantine(tmp_path / "q.json", [entry]))
+
+
+@pytest.mark.parametrize("field,value,match", [
+    ("signature", "HTTP 500 GenericJDBCException", "one failure category"),
+    ("signature", "http_5000", "one failure category"),
+    ("source", "OAPEN Library", "catalog slug"),
+    ("nodeid", "test_case.py", "must name a test"),
+])
+def test_quarantine_fields_are_closed_vocabularies(tmp_path, field, value, match):
+    first = utc_today()
+    entry = _entry("test_case.py::test_a", first=first, expires=first + timedelta(days=1))
+    entry[field] = value
+    with pytest.raises(AssertionError, match=match):
+        load_quarantine(_write_quarantine(tmp_path / "q.json", [entry]))
+
+
+def datetime_date(year, month, day):
+    from datetime import date
+
+    return date(year, month, day)
+
+
+def test_the_denominator_is_derived_from_the_collection_it_is_given(tmp_path):
+    """P6: "N of M" moves with the collection. It is not a typed number.
+
+    Two collections of different sizes and one entry outside both prove the
+    sentence counts what it is handed, and only what is in it.
+    """
+    today = utc_today()
+    path = _write_quarantine(tmp_path / "q.json", [
+        _entry("a.py::test_quarantined", first=today, expires=today + timedelta(days=30)),
+        _entry("z.py::test_not_collected", first=today, expires=today + timedelta(days=30)),
+    ])
+    entries = load_quarantine(path)
+    label = f"oapen, since {today.isoformat()}, http_500, expires {(today + timedelta(days=30)).isoformat()}"
+    small = ["a.py::test_quarantined", "b.py::test_other", "c.py::test_third"]
+    large = small + [f"d.py::test_{index}" for index in range(89)]
+    assert quarantine_line(small, entries, today) == f"2 of 3 asserted; 1 quarantined ({label})"
+    assert quarantine_line(large, entries, today) == f"91 of 92 asserted; 1 quarantined ({label})"
+    assert quarantine_line(large, entries, today + timedelta(days=31)) == (
+        "92 of 92 asserted; 0 quarantined")
+    assert asserted_line(5, []) == "5 of 5 asserted; 0 quarantined"
+
+
+def test_the_run_summary_quarantine_line_comes_from_the_scheduled_collection(collections):
+    """P6 at the real summary: its M is the scheduled collection's length."""
+    scheduled = collections["scheduled"]
+    entries = load_quarantine(QUARANTINE_FILE)
+    expected = quarantine_line(scheduled, entries, utc_today())
+    active = sum(entry.active(utc_today()) for entry in entries if entry.nodeid in scheduled)
+    assert expected.startswith(f"{len(scheduled) - active} of {len(scheduled)} asserted; {active} quarantined")
+    rendered = live_suite.summary()
+    assert f"**{expected}.**" in rendered
+
+
+# Child-process proofs. The case file is written per branch. Its quarantined
+# test records a real ``SearchOutcome`` snapshot, built through the same
+# methods ``safe_request`` calls, and then asserts the way the OAPEN live
+# case does. A second, unquarantined case makes the denominator two.
+_CASE_FILE = '''
+import os
+
+import httpx
+import pytest
+
+from resmon_scripts.implementation_scripts import api_base
+from resmon_scripts.verification_scripts.live_evidence import source_outcome_property
+
+MODE = os.environ["QUARANTINE_PROOF_MODE"]
+
+
+def _outcome(*steps):
+    outcome = api_base.SearchOutcome()
+    for kind, value, terminal in steps:
+        outcome.note_attempt()
+        failure = value if kind == "status" else httpx.ReadTimeout("slow")
+        if terminal:
+            outcome.note_failure(failure)
+        else:
+            outcome.note_retried_failure(failure)
+    return outcome.snapshot()
+
+
+@pytest.mark.live_network
+def test_quarantined_provider(record_property):
+    rows = 0
+    if MODE in ("match", "crash"):
+        snapshot = _outcome(("status", 500, False), ("timeout", None, True))
+    elif MODE == "other_status":
+        snapshot = _outcome(("status", 503, False), ("status", 503, True))
+    elif MODE == "timeouts_only":
+        snapshot = _outcome(("timeout", None, False), ("timeout", None, True))
+    else:
+        # The 500 was retried and the retry answered: rows came back.
+        outcome = api_base.SearchOutcome()
+        outcome.note_attempt()
+        outcome.note_retried_failure(500)
+        outcome.note_attempt()
+        snapshot = outcome.snapshot()
+        rows = 2
+    record_property("source_outcome", source_outcome_property("oapen", snapshot))
+    if MODE == "crash":
+        raise TypeError("a crash is never a provider outage")
+    assert rows == 2, snapshot["failure_history"]
+    if MODE == "wrong_dates":
+        assert "2019" >= "2020", "a publication year outside the requested window"
+
+
+@pytest.mark.live_network
+def test_unquarantined_neighbour():
+    pass
+'''
+
+_QUARANTINED_NODE = "test_quarantine_case.py::test_quarantined_provider"
+
+
+def _run_quarantine_case(tmp_path, mode, *, expired=False):
+    """Run the case file under the production conftest. Returns (result, evidence)."""
+    case = tmp_path / "test_quarantine_case.py"
+    case.write_text(_CASE_FILE, encoding="utf-8")
+    today = utc_today()
+    if expired:
+        first, expires = today - timedelta(days=30), today - timedelta(days=1)
+    else:
+        first, expires = today - timedelta(days=1), today + timedelta(days=29)
+    quarantine = _write_quarantine(
+        tmp_path / "quarantine.json",
+        [_entry(_QUARANTINED_NODE, first=first, expires=expires)],
+    )
+    evidence = tmp_path / "evidence"
+    env = os.environ.copy()
+    env.update({
+        "QUARANTINE_PROOF_MODE": mode,
+        "RESMON_LIVE_QUARANTINE_FILE": str(quarantine),
+        "RESMON_LIVE_EVIDENCE_DIR": str(evidence),
+        "RESMON_LIVE_CANDIDATE_SHA": "candidate-proof",
+        "RESMON_LIVE_CHECKOUT_SHA": "checkout-proof",
+        "RESMON_LIVE_SELECTION": "live_network",
+    })
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "pytest",
+            "-c", str(PROJECT_ROOT / "pytest.ini"),
+            "--rootdir", str(tmp_path),
+            "-p", "timeout",
+            "-p", "resmon_scripts.verification_scripts.conftest",
+            "-p", "no:cacheprovider",
+            "-m", "live_network",
+            "--timeout=30", "-rx", "-v", str(case),
+        ],
+        cwd=PROJECT_ROOT, env=env, capture_output=True, text=True, timeout=120,
+    )
+    (tmp_path / f"{mode}.stdout").write_text(result.stdout, encoding="utf-8")
+    (tmp_path / f"{mode}.stderr").write_text(result.stderr, encoding="utf-8")
+    return result, evidence
+
+
+@pytest.mark.parametrize("mode,expired,status,outcome,sentence,quarantined", [
+    # Matching signature: the failure is excused and the run passes.
+    ("match", False, pytest.ExitCode.OK, "skipped",
+     "QUARANTINED test_quarantine_case.py::test_quarantined_provider: failed with "
+     "the excused signature (observed http_500 -> timeout); not counted as a failure.", 1),
+    # A different status, or a timeout alone, is a real failure.
+    ("other_status", False, pytest.ExitCode.TESTS_FAILED, "failed",
+     "NOT EXCUSED test_quarantine_case.py::test_quarantined_provider: failed, but not "
+     "with the excused signature (observed http_503 -> http_503); counted as a failure.", 0),
+    ("timeouts_only", False, pytest.ExitCode.TESTS_FAILED, "failed",
+     "NOT EXCUSED test_quarantine_case.py::test_quarantined_provider: failed, but not "
+     "with the excused signature (observed timeout -> timeout); counted as a failure.", 0),
+    # The 500 is in the history, but the search answered and a date check
+    # failed. That is a wrong answer, not an outage, and it counts.
+    ("wrong_dates", False, pytest.ExitCode.TESTS_FAILED, "failed",
+     "NOT EXCUSED test_quarantine_case.py::test_quarantined_provider: failed, but not "
+     "with the excused signature (observed http_500); counted as a failure.", 0),
+    # A matching outcome followed by a crash, not an assertion: it counts.
+    ("crash", False, pytest.ExitCode.TESTS_FAILED, "failed",
+     "NOT EXCUSED test_quarantine_case.py::test_quarantined_provider: failed, but not "
+     "with the excused signature (observed http_500 -> timeout); counted as a failure.", 0),
+    # A pass while quarantined is reported as a recovery; the run stays green.
+    ("recovered", False, pytest.ExitCode.OK, "passed",
+     "RECOVERED test_quarantine_case.py::test_quarantined_provider: passed while "
+     "quarantined", 0),
+    # An expired entry changes nothing: the matching failure fails the run.
+    ("match", True, pytest.ExitCode.TESTS_FAILED, "failed",
+     "EXPIRED test_quarantine_case.py::test_quarantined_provider: the quarantine", 0),
+], ids=["match", "other-status", "timeouts-only", "wrong-dates", "crash", "recovered", "expired"])
+def test_quarantine_branches_at_the_real_exit_status(
+    tmp_path, mode, expired, status, outcome, sentence, quarantined,
+):
+    """P5: all five branches, observed at pytest's exit status and in both summaries."""
+    result, evidence = _run_quarantine_case(tmp_path, mode, expired=expired)
+    assert result.returncode == int(status), (result.stdout[-4000:], result.stderr[-2000:])
+
+    # The terminal summary always prints the denominator from the session's
+    # own live collection: two cases, one of them quarantined unless expired.
+    active = 0 if expired else 1
+    assert f"{2 - active} of 2 asserted; {active} quarantined" in result.stdout
+    assert sentence in result.stdout, result.stdout[-4000:]
+    if mode == "match" and not expired:
+        assert "XFAIL" in result.stdout
+
+    # The durable evidence agrees with the exit status and renders the same facts.
+    reduction = validate_evidence(evidence)
+    assert reduction["outcomes"][_QUARANTINED_NODE] == outcome
+    assert reduction["finish"]["exitstatus"] == int(status)
+    disposition = reduction["quarantine"]["dispositions"][_QUARANTINED_NODE]["disposition"]
+    assert disposition == {
+        "match": "expired" if expired else "excused", "recovered": "recovered",
+    }.get(mode, "unmatched")
+    rendered = live_suite.evidence_summary(evidence)
+    assert f"**{2 - active} of 2 asserted; {active} quarantined" in rendered
+    assert f", {quarantined} quarantined;" in rendered
+    assert sentence.split(":")[0].split(" ")[0] in rendered
+    assert "### Recorded source failure history" in rendered or mode == "recovered"
+
+
+def test_an_unreadable_quarantine_excuses_nothing_and_fails_the_session(tmp_path):
+    result, _evidence = _run_quarantine_case(tmp_path, "match")
+    assert result.returncode == int(pytest.ExitCode.OK)
+    (tmp_path / "quarantine.json").write_text("{not json", encoding="utf-8")
+    env_result, _ = _run_quarantine_case_with_existing_file(tmp_path, "recovered")
+    assert env_result.returncode == int(pytest.ExitCode.TESTS_FAILED)
+    assert "QUARANTINE UNREADABLE" in env_result.stdout
+
+
+def _run_quarantine_case_with_existing_file(tmp_path, mode):
+    """Like ``_run_quarantine_case`` but keeps whatever quarantine file is there."""
+    evidence = tmp_path / "evidence-existing"
+    env = os.environ.copy()
+    env.update({
+        "QUARANTINE_PROOF_MODE": mode,
+        "RESMON_LIVE_QUARANTINE_FILE": str(tmp_path / "quarantine.json"),
+        "RESMON_LIVE_EVIDENCE_DIR": str(evidence),
+        "RESMON_LIVE_CANDIDATE_SHA": "candidate-proof",
+        "RESMON_LIVE_CHECKOUT_SHA": "checkout-proof",
+        "RESMON_LIVE_SELECTION": "live_network",
+    })
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "pytest",
+            "-c", str(PROJECT_ROOT / "pytest.ini"),
+            "--rootdir", str(tmp_path),
+            "-p", "timeout",
+            "-p", "resmon_scripts.verification_scripts.conftest",
+            "-p", "no:cacheprovider",
+            "-m", "live_network",
+            "--timeout=30", "-v", str(tmp_path / "test_quarantine_case.py"),
+        ],
+        cwd=PROJECT_ROOT, env=env, capture_output=True, text=True, timeout=120,
+    )
+    return result, evidence
+
+
+def test_the_reducer_rejects_a_disposition_that_contradicts_the_call(tmp_path):
+    """The evidence cannot claim an excuse the exit status did not make."""
+    record = {
+        "nodeid": "test::quarantined", "source": "oapen", "signature": "http_500",
+        "first_observed": "2026-09-18", "expires": "2026-10-18", "active": True,
+    }
+    writer = _writer(tmp_path)
+    writer.collection(["test::quarantined"], live_suite.SCHEDULED_SELECTION, [record])
+    writer.start("test::quarantined")
+    writer.report(_report("test::quarantined", "setup", "passed"))
+    writer.report(_report(
+        "test::quarantined", "call", "failed", message="failed",
+        properties=[("quarantine", {
+            "entry": record, "disposition": "excused", "history": ["http_500"],
+        })],
+    ))
+    writer.report(_report("test::quarantined", "teardown", "passed"))
+    with pytest.raises(AssertionError, match="contradicts the call outcome"):
+        reduce_evidence(tmp_path, require_finish=False)
+
+
+def test_the_reducer_rejects_a_failed_quarantined_call_with_no_disposition(tmp_path):
+    record = {
+        "nodeid": "test::quarantined", "source": "oapen", "signature": "http_500",
+        "first_observed": "2026-09-18", "expires": "2026-10-18", "active": True,
+    }
+    writer = _writer(tmp_path)
+    writer.collection(["test::quarantined"], live_suite.SCHEDULED_SELECTION, [record])
+    writer.start("test::quarantined")
+    writer.report(_report("test::quarantined", "setup", "passed"))
+    writer.report(_report("test::quarantined", "call", "failed", message="failed"))
+    writer.report(_report("test::quarantined", "teardown", "passed"))
+    with pytest.raises(AssertionError, match="must say its failure was not excused"):
+        reduce_evidence(tmp_path, require_finish=False)
+
+
+def test_source_outcome_property_keeps_categories_and_drops_text():
+    snapshot = {
+        "attempts": 2, "failures": 1, "last_call_failed": True,
+        "last_status": None, "last_detail": "timeout",
+        "retained_cooldown_status": None, "explicit_reason": None,
+        "explicit_detail": None, "failure_history": ["http_500", "timeout"],
+        "failure_history_omitted": 0,
+        "unexpected": "https://example.invalid/?api_key=SECRETVALUE",
+    }
+    value = live_evidence_source_outcome_property("oapen", snapshot)
+    assert value["failure_history"] == ["http_500", "timeout"]
+    assert "SECRETVALUE" not in json.dumps(value)
+    snapshot["failure_history"] = ["GenericJDBCException: Could not open connection"]
+    with pytest.raises(AssertionError, match="failure history"):
+        live_evidence_source_outcome_property("oapen", snapshot)
+
+
+def live_evidence_source_outcome_property(source, snapshot):
+    from live_evidence import source_outcome_property
+
+    return source_outcome_property(source, snapshot)

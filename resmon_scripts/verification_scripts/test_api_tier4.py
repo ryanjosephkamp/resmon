@@ -12,6 +12,7 @@ import pytest
 
 from implementation_scripts import api_base, api_govinfo, api_oapen, api_registry, zero_reason
 from implementation_scripts.repo_catalog import REPOSITORY_CATALOG
+from resmon_scripts.verification_scripts.live_evidence import source_outcome_property
 
 
 def oapen_record(handle="20.500.12657/100210", year="2024"):
@@ -265,11 +266,17 @@ BATCH_LIVE_CASES = {"oapen": "test_oapen_live_search", "govinfo": "test_govinfo_
 
 
 @pytest.mark.live_network
-def test_oapen_live_search():
+def test_oapen_live_search(record_property):
     api_base.reset_search_outcome()
     rows = api_registry.get_client("oapen").search("water AND fire", "2020", "2024", 2)
     outcome = api_base.search_outcome().snapshot()
-    assert len(rows) == 2, outcome
+    # Recorded before any assertion. The provider-outage quarantine
+    # (live_quarantine.json) matches its signature against this outcome, and
+    # the durable live evidence reports the failure history from it.
+    record_property("source_outcome", source_outcome_property("oapen", outcome))
+    history = " -> ".join(outcome["failure_history"]) or "none"
+    assert len(rows) == 2, (
+        f"OAPEN returned {len(rows)} of 2 rows; failure history: {history}; {outcome}")
     assert outcome["attempts"] > 0, outcome
     assert outcome["last_call_failed"] is False, outcome
     assert outcome["retained_cooldown_status"] is None, outcome
