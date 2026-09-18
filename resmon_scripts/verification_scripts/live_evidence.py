@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import platform
 import re
@@ -24,6 +25,30 @@ _RESULTS = {"answered_nonempty", "answered_empty", "raised", "unfinished"}
 _OUTCOME_KEYS = (
     "attempts", "failures", "last_call_failed", "last_status", "last_detail",
     "retained_cooldown_status", "explicit_reason", "explicit_detail",
+)
+_SOURCE_CONTRACT_KEYS = {
+    "module", "markexpr", "catalog_sources", "expected_nodeids",
+    "excluded_keyed_nodeids", "query_ids",
+}
+_SOURCE_ROW_KEYS = {
+    "schema", "source_session_id", "candidate_sha", "source_selection_id",
+    "slug", "nodeid", "query_id", "started_at", "finished_at", "result",
+    "returned_count", "outcome", "error_type", "error_message",
+}
+_SOURCE_AGGREGATE_KEYS = {
+    "schema", "source_session_id", "candidate_sha", "source_selection_id",
+    "nodeid", "source_contract", "expected", "excluded_keyed", "answered",
+    "partial", "minimum", "record_count", "query_set_hash", "threshold_pass",
+}
+_SOURCE_BINDING_KEYS = {"evidence_run_id", "suite_selection_id", "checkout_sha"}
+_KEYED_SOURCE_SLUGS = {"core", "nasa_ads", "springer"}
+_AUTHOR_NODE = re.compile(
+    r"(?:^|/)resmon_scripts/verification_scripts/test_entity_search_live\.py::"
+    r"test_a_real_source_answers_a_real_author_query\[([^]\r\n]+)\]$"
+)
+_AGGREGATE_NODE = re.compile(
+    r"(?:^|/)resmon_scripts/verification_scripts/test_entity_search_live\.py::"
+    r"test_at_least_most_sources_answered$"
 )
 
 
@@ -71,6 +96,197 @@ def _safe_outcome(value: object) -> dict | None:
     return clean
 
 
+
+def _bounded_string(value: object, field: str, limit: int, *, nullable: bool = False) -> str | None:
+    if value is None and nullable:
+        return None
+    if not isinstance(value, str) or not value or len(value) > limit or "\n" in value or "\r" in value:
+        raise AssertionError(f"invalid {field}")
+    return _safe_text(value, limit)
+
+
+def _canonical_outcome(value: object) -> dict | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != set(_OUTCOME_KEYS):
+        raise AssertionError("source outcome must have the exact structured schema")
+    clean: dict[str, object] = {}
+    for key in ("attempts", "failures"):
+        item = value[key]
+        if not isinstance(item, int) or isinstance(item, bool) or item < 0:
+            raise AssertionError(f"invalid source outcome {key}")
+        clean[key] = item
+    if clean["failures"] > clean["attempts"]:
+        raise AssertionError("source outcome failures exceed attempts")
+    if not isinstance(value["last_call_failed"], bool):
+        raise AssertionError("invalid source outcome last_call_failed")
+    clean["last_call_failed"] = value["last_call_failed"]
+    for key in ("last_status", "retained_cooldown_status"):
+        item = value[key]
+        if item is not None and (
+            not isinstance(item, int) or isinstance(item, bool) or not 100 <= item <= 599
+        ):
+            raise AssertionError(f"invalid source outcome {key}")
+        clean[key] = item
+    for key in ("last_detail", "explicit_reason"):
+        item = value[key]
+        if item is not None and not isinstance(item, str):
+            raise AssertionError(f"invalid source outcome {key}")
+        clean[key] = _safe_text(item, 128) if item is not None else None
+    detail = value["explicit_detail"]
+    if not isinstance(detail, dict) or len(detail) > 16:
+        raise AssertionError("invalid source outcome explicit_detail")
+    cleaned_detail = {}
+    for key, item in detail.items():
+        if not isinstance(key, str) or not key or len(key) > 64 or not isinstance(item, str) or len(item) > 128:
+            raise AssertionError("invalid source outcome explicit_detail entry")
+        cleaned_detail[_safe_text(key, 64)] = _safe_text(item, 128)
+    clean["explicit_detail"] = cleaned_detail
+    if clean["last_call_failed"] and clean["failures"] == 0:
+        raise AssertionError("failed last source call requires a failure count")
+    return clean
+
+
+def _string_list(value: object, field: str, *, limit: int = 128) -> list[str]:
+    if not isinstance(value, list) or len(value) != len(set(value)):
+        raise AssertionError(f"invalid {field}")
+    clean = [_bounded_string(item, field, limit) for item in value]
+    if clean != sorted(clean):
+        raise AssertionError(f"{field} must be sorted")
+    return clean
+
+
+def _string_map(value: object, field: str, *, value_limit: int) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise AssertionError(f"invalid {field}")
+    clean = {}
+    for key, item in value.items():
+        clean[_bounded_string(key, f"{field} key", 128)] = _bounded_string(item, field, value_limit)
+    if list(clean) != sorted(clean):
+        raise AssertionError(f"{field} must be sorted")
+    return clean
+
+
+def _canonical_source_contract(value: object) -> dict:
+    if not isinstance(value, dict) or set(value) != _SOURCE_CONTRACT_KEYS:
+        raise AssertionError("source contract must have the exact structured schema")
+    contract = {
+        "module": _bounded_string(value["module"], "source module", 128),
+        "markexpr": _safe_text(value["markexpr"], 512) if isinstance(value["markexpr"], str) else None,
+        "catalog_sources": _string_list(value["catalog_sources"], "catalog sources"),
+        "expected_nodeids": _string_map(value["expected_nodeids"], "expected node ids", value_limit=4096),
+        "excluded_keyed_nodeids": _string_map(value["excluded_keyed_nodeids"], "excluded keyed node ids", value_limit=4096),
+        "query_ids": _string_map(value["query_ids"], "query ids", value_limit=128),
+    }
+    if contract["markexpr"] is None:
+        raise AssertionError("invalid source mark expression")
+    expected = set(contract["expected_nodeids"])
+    excluded = set(contract["excluded_keyed_nodeids"])
+    if expected & excluded or expected | excluded != set(contract["catalog_sources"]):
+        raise AssertionError("source contract does not partition the catalog")
+    if excluded != _KEYED_SOURCE_SLUGS & set(contract["catalog_sources"]):
+        raise AssertionError("source contract keyed exclusions do not match the canonical keyed sources")
+    if expected != set(contract["query_ids"]):
+        raise AssertionError("source contract query map does not match expected sources")
+    return contract
+
+
+def _canonical_source_row(value: object) -> dict:
+    if not isinstance(value, dict) or set(value) != _SOURCE_ROW_KEYS:
+        raise AssertionError("source ledger row must have the exact structured schema")
+    if value["schema"] != "resmon.source-ledger-row.v1":
+        raise AssertionError("invalid source ledger row schema")
+    started = value["started_at"]
+    finished = value["finished_at"]
+    if any(not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item) for item in (started, finished)):
+        raise AssertionError("invalid source ledger timestamps")
+    if finished < started:
+        raise AssertionError("source ledger finish precedes start")
+    returned = value["returned_count"]
+    CurrentRunSourceLedger._validate_result(value["result"], returned, finished=True)
+    error_type = value["error_type"]
+    error_message = value["error_message"]
+    if value["result"] == "raised":
+        error_type = _bounded_string(error_type, "source error type", 128)
+        if not isinstance(error_message, str) or len(error_message) > 512:
+            raise AssertionError("invalid source error message")
+        error_message = _safe_text(error_message, 512)
+    elif error_type is not None or error_message is not None:
+        raise AssertionError("answered source row cannot carry error fields")
+    return {
+        "schema": value["schema"],
+        "source_session_id": _bounded_string(value["source_session_id"], "source session id", 128),
+        "candidate_sha": _bounded_string(value["candidate_sha"], "candidate sha", 128),
+        "source_selection_id": _bounded_string(value["source_selection_id"], "source selection id", 128),
+        "slug": _bounded_string(value["slug"], "source slug", 128),
+        "nodeid": _bounded_string(value["nodeid"], "source node id", 4096),
+        "query_id": _bounded_string(value["query_id"], "source query id", 128),
+        "started_at": float(started), "finished_at": float(finished),
+        "result": value["result"], "returned_count": returned,
+        "outcome": _canonical_outcome(value["outcome"]),
+        "error_type": error_type, "error_message": error_message,
+    }
+
+
+def _canonical_source_aggregate(value: object) -> dict:
+    if not isinstance(value, dict) or set(value) != _SOURCE_AGGREGATE_KEYS:
+        raise AssertionError("source aggregate must have the exact structured schema")
+    if value["schema"] != "resmon.source-ledger-aggregate.v1":
+        raise AssertionError("invalid source aggregate schema")
+    contract = _canonical_source_contract(value["source_contract"])
+    expected = _string_list(value["expected"], "expected sources")
+    excluded = _string_list(value["excluded_keyed"], "excluded keyed sources")
+    answered = _string_list(value["answered"], "answered sources")
+    partial = _string_list(value["partial"], "partial sources")
+    if expected != sorted(contract["expected_nodeids"]) or excluded != sorted(contract["excluded_keyed_nodeids"]):
+        raise AssertionError("aggregate denominator does not match source contract")
+    if not set(partial) <= set(answered) <= set(expected):
+        raise AssertionError("aggregate source classifications are inconsistent")
+    minimum = value["minimum"]
+    record_count = value["record_count"]
+    if any(
+        not isinstance(item, int) or isinstance(item, bool)
+        for item in (minimum, record_count)
+    ):
+        raise AssertionError("aggregate denominator counts must be integers")
+    if minimum != max(1, len(expected) // 2) or record_count != len(expected):
+        raise AssertionError("aggregate denominator counts are inconsistent")
+    query_map = {slug: {"query_id": contract["query_ids"][slug], "nodeid": contract["expected_nodeids"][slug]} for slug in expected}
+    if value["query_set_hash"] != stable_hash(query_map):
+        raise AssertionError("aggregate query mapping hash mismatch")
+    if value["source_selection_id"] != stable_hash(contract):
+        raise AssertionError("aggregate source selection mismatch")
+    if not isinstance(value["threshold_pass"], bool) or value["threshold_pass"] != (len(answered) >= minimum):
+        raise AssertionError("aggregate threshold disposition mismatch")
+    return {
+        "schema": value["schema"],
+        "source_session_id": _bounded_string(value["source_session_id"], "source session id", 128),
+        "candidate_sha": _bounded_string(value["candidate_sha"], "candidate sha", 128),
+        "source_selection_id": value["source_selection_id"],
+        "nodeid": _bounded_string(value["nodeid"], "aggregate node id", 4096),
+        "source_contract": contract, "expected": expected, "excluded_keyed": excluded,
+        "answered": answered, "partial": partial, "minimum": minimum,
+        "record_count": record_count, "query_set_hash": value["query_set_hash"],
+        "threshold_pass": value["threshold_pass"],
+    }
+
+
+def _bind_source_property(value: dict, *, run_id: str, suite_selection_id: str, checkout_sha: str) -> dict:
+    return {**value, "evidence_run_id": run_id, "suite_selection_id": suite_selection_id, "checkout_sha": checkout_sha}
+
+
+def _validate_bound_source_property(value: object, *, aggregate: bool, run_id: str, suite_selection_id: str, checkout_sha: str) -> dict:
+    base_keys = _SOURCE_AGGREGATE_KEYS if aggregate else _SOURCE_ROW_KEYS
+    if not isinstance(value, dict) or set(value) != base_keys | _SOURCE_BINDING_KEYS:
+        raise AssertionError("bound source property has the wrong schema")
+    for key, expected in (("evidence_run_id", run_id), ("suite_selection_id", suite_selection_id), ("checkout_sha", checkout_sha)):
+        if value[key] != expected:
+            raise AssertionError(f"bound source property has wrong {key}")
+    base = {key: value[key] for key in base_keys}
+    canonical = _canonical_source_aggregate(base) if aggregate else _canonical_source_row(base)
+    return _bind_source_property(canonical, run_id=run_id, suite_selection_id=suite_selection_id, checkout_sha=checkout_sha)
+
+
 def _outcome_is_partial(outcome: dict | None) -> bool:
     if not outcome:
         return False
@@ -110,6 +326,7 @@ class CurrentRunSourceLedger:
         query_ids: dict[str, str],
         nodeids: dict[str, str],
         session_id: str | None = None,
+        source_contract: dict | None = None,
     ) -> None:
         supplied = tuple(expected)
         if len(supplied) != len(set(supplied)):
@@ -124,9 +341,18 @@ class CurrentRunSourceLedger:
                 "expected sources, query identities, and node ids must match exactly"
             )
         self.candidate_head = candidate_head
+        self.query_ids = dict(sorted(query_ids.items()))
+        self.nodeids = dict(sorted(nodeids.items()))
+        self.source_contract = _canonical_source_contract(source_contract or {
+            "module": "test_entity_search_live.py", "markexpr": "",
+            "catalog_sources": list(self.expected),
+            "expected_nodeids": self.nodeids, "excluded_keyed_nodeids": {},
+            "query_ids": self.query_ids,
+        })
+        computed_selection = stable_hash(self.source_contract)
+        if selection_id != computed_selection:
+            raise ValueError("source selection identity does not match source contract")
         self.selection_id = selection_id
-        self.query_ids = dict(query_ids)
-        self.nodeids = dict(nodeids)
         self.session_id = session_id or uuid.uuid4().hex
         self._records: dict[str, SourceQueryEvidence] = {}
 
@@ -273,6 +499,40 @@ class CurrentRunSourceLedger:
             "records": [asdict(record) for record in records],
         }
 
+    def record(self, slug: str) -> dict:
+        record = self._records.get(slug)
+        if record is None or record.finished_at is None:
+            raise AssertionError(f"source evidence is not terminal: {slug}")
+        return _canonical_source_row({
+            "schema": "resmon.source-ledger-row.v1",
+            "source_session_id": record.session_id,
+            "candidate_sha": record.candidate_head,
+            "source_selection_id": record.selection_id,
+            "slug": record.slug, "nodeid": record.nodeid, "query_id": record.query_id,
+            "started_at": record.started_at, "finished_at": record.finished_at,
+            "result": record.result, "returned_count": record.returned_count,
+            "outcome": record.outcome, "error_type": record.error_type,
+            "error_message": record.error_message,
+        })
+
+    def durable_summary(self, *, nodeid: str) -> dict:
+        summary = self.summary()
+        query_map = {slug: {"query_id": self.query_ids[slug], "nodeid": self.nodeids[slug]} for slug in self.expected}
+        return _canonical_source_aggregate({
+            "schema": "resmon.source-ledger-aggregate.v1",
+            "source_session_id": self.session_id,
+            "candidate_sha": self.candidate_head,
+            "source_selection_id": self.selection_id,
+            "nodeid": nodeid,
+            "source_contract": self.source_contract,
+            "expected": summary["expected"],
+            "excluded_keyed": sorted(self.source_contract["excluded_keyed_nodeids"]),
+            "answered": summary["answered"], "partial": summary["partial"],
+            "minimum": summary["minimum"], "record_count": len(summary["records"]),
+            "query_set_hash": stable_hash(query_map),
+            "threshold_pass": len(summary["answered"]) >= summary["minimum"],
+        })
+
     def assert_threshold(self) -> dict:
         summary = self.summary()
         if len(summary["answered"]) < summary["minimum"]:
@@ -296,7 +556,7 @@ def _invalid_result(result: str, returned_count: int | None) -> bool:
 
 def _invalid_outcome(outcome: object) -> bool:
     try:
-        _safe_outcome(outcome)
+        _canonical_outcome(outcome)
     except AssertionError:
         return True
     return False
@@ -376,9 +636,36 @@ class LiveEvidenceWriter:
 
     def report(self, report) -> None:
         properties = {}
+        structured_names: set[str] = set()
+        suite_selection_id = stable_hash(self.selected)
+        checkout_sha = self.identity.get("checkout_sha") or ""
+        candidate_sha = self.identity.get("candidate_sha") or ""
         for name, value in getattr(report, "user_properties", []):
             if name == "returned" and isinstance(value, (int, float)):
                 properties["returned"] = value
+            elif name in {"source_ledger", "source_aggregate"}:
+                if name in structured_names:
+                    raise AssertionError(f"duplicate structured report property: {name}")
+                structured_names.add(name)
+                canonical = (
+                    _canonical_source_row(value) if name == "source_ledger"
+                    else _canonical_source_aggregate(value)
+                )
+                if report.when == "setup":
+                    raise AssertionError("structured source property is forbidden during setup")
+                if canonical["nodeid"] != report.nodeid:
+                    raise AssertionError("structured source property belongs to another node")
+                if canonical["candidate_sha"] != candidate_sha:
+                    raise AssertionError("structured source property has wrong candidate")
+                if report.when == "teardown":
+                    continue
+                if report.when != "call":
+                    raise AssertionError("structured source property is call-only")
+                properties[name] = _bind_source_property(
+                    canonical, run_id=self.run_id,
+                    suite_selection_id=suite_selection_id,
+                    checkout_sha=checkout_sha,
+                )
         longrepr = getattr(report, "longreprtext", "") or ""
         message = ""
         crash = getattr(getattr(report, "longrepr", None), "reprcrash", None)
@@ -433,6 +720,184 @@ def _read_events(path: Path, *, strict: bool) -> list[dict]:
             raise AssertionError(f"non-object evidence line {index}")
         events.append(value)
     return events
+
+
+
+def _reduce_source_ledger(
+    run: dict, selection: dict, reports: dict[str, list[dict]],
+    *, unfinished: list[str], require_finish: bool,
+) -> dict | None:
+    run_id = run["run_id"]
+    suite_selection_id = selection["selection_id"]
+    checkout_sha = run["identity"].get("checkout_sha") or ""
+    candidate_sha = run["identity"].get("candidate_sha") or ""
+    rows = []
+    aggregates = []
+    selected_authors = {}
+    aggregate_nodes = []
+    for nodeid in selection["nodeids"]:
+        match = _AUTHOR_NODE.search(nodeid)
+        if match:
+            slug = match.group(1)
+            if slug in selected_authors:
+                raise AssertionError(f"duplicate selected author source: {slug}")
+            selected_authors[slug] = nodeid
+        if _AGGREGATE_NODE.search(nodeid):
+            aggregate_nodes.append(nodeid)
+    for nodeid, items in reports.items():
+        for item in items:
+            props = item.get("properties") or {}
+            structured = {"source_ledger", "source_aggregate"} & set(props)
+            if structured and item.get("phase") != "call":
+                raise AssertionError("structured source evidence is call-only")
+            if "source_ledger" in props:
+                rows.append((nodeid, item, _validate_bound_source_property(
+                    props["source_ledger"], aggregate=False, run_id=run_id,
+                    suite_selection_id=suite_selection_id, checkout_sha=checkout_sha,
+                )))
+            if "source_aggregate" in props:
+                aggregates.append((nodeid, item, _validate_bound_source_property(
+                    props["source_aggregate"], aggregate=True, run_id=run_id,
+                    suite_selection_id=suite_selection_id, checkout_sha=checkout_sha,
+                )))
+    applicable = bool(selected_authors or aggregate_nodes)
+    if not applicable:
+        if rows or aggregates:
+            raise AssertionError("structured source evidence has no selected source suite")
+        return None
+    if require_finish and not rows and not aggregates:
+        raise AssertionError("selected source ledger suite has no structured evidence")
+    if require_finish and len(aggregate_nodes) != 1:
+        raise AssertionError(f"expected one selected source aggregate, found {len(aggregate_nodes)}")
+    if len(aggregates) > 1 or (require_finish and len(aggregates) != 1):
+        raise AssertionError(f"expected one source aggregate, found {len(aggregates)}")
+    aggregate_node = aggregate_report = aggregate = contract = None
+    derived_excluded = sorted(set(selected_authors) & _KEYED_SOURCE_SLUGS)
+    derived_expected = sorted(set(selected_authors) - set(derived_excluded))
+    expected_nodes = {slug: selected_authors[slug] for slug in derived_expected}
+    excluded_nodes = {slug: selected_authors[slug] for slug in derived_excluded}
+    if aggregates:
+        aggregate_node, aggregate_report, aggregate = aggregates[0]
+        if (
+            not _AGGREGATE_NODE.search(aggregate_node)
+            or aggregate["nodeid"] != aggregate_node
+            or aggregate_node not in aggregate_nodes
+        ):
+            raise AssertionError("source aggregate is attached to the wrong node")
+        contract = aggregate["source_contract"]
+        expected_nodes = contract["expected_nodeids"]
+        excluded_nodes = contract["excluded_keyed_nodeids"]
+        if {**expected_nodes, **excluded_nodes} != dict(sorted(selected_authors.items())):
+            raise AssertionError("source contract does not match selected author cases")
+        if aggregate["candidate_sha"] != candidate_sha:
+            raise AssertionError("source aggregate candidate does not match run")
+        if aggregate["source_selection_id"] != stable_hash(contract):
+            raise AssertionError("source aggregate selection is stale")
+    unfinished_nodes = set(unfinished)
+    by_slug = {}
+    for nodeid, report, row in rows:
+        slug = row["slug"]
+        if slug in by_slug:
+            raise AssertionError(f"duplicate source ledger row: {slug}")
+        if row["nodeid"] != nodeid or expected_nodes.get(slug) != nodeid:
+            raise AssertionError(f"source ledger row has wrong node: {slug}")
+        if row["candidate_sha"] != candidate_sha:
+            raise AssertionError(f"source ledger row has wrong candidate: {slug}")
+        if contract is not None and row["query_id"] != contract["query_ids"].get(slug):
+            raise AssertionError(f"source ledger row has wrong query: {slug}")
+        if aggregate is not None:
+            for key in ("source_session_id", "candidate_sha", "source_selection_id"):
+                if row[key] != aggregate[key]:
+                    raise AssertionError(f"source ledger row has stale {key}: {slug}")
+        elif by_slug:
+            prior = next(iter(by_slug.values()))[0]
+            for key in ("source_session_id", "candidate_sha", "source_selection_id"):
+                if row[key] != prior[key]:
+                    raise AssertionError(f"source ledger rows disagree on {key}: {slug}")
+        report_outcome = report.get("outcome")
+        safe_outcome = (
+            report_outcome
+            if report_outcome in {"passed", "failed", "skipped"}
+            else None
+        )
+        if row["result"] == "raised" and safe_outcome not in {None, "failed"}:
+            raise AssertionError(f"raised source row must have a failed call: {slug}")
+        by_slug[slug] = (row, safe_outcome)
+    answered = sorted(slug for slug, (row, _) in by_slug.items() if row["result"] == "answered_nonempty")
+    partial = sorted(slug for slug, (row, _) in by_slug.items() if row["result"] == "answered_nonempty" and _outcome_is_partial(row["outcome"]))
+    expected = sorted(expected_nodes)
+    missing = sorted(set(expected) - set(by_slug))
+    sources = [
+        {"slug": slug, "result": by_slug[slug][0]["result"],
+         "returned_count": by_slug[slug][0]["returned_count"],
+         "partial": slug in partial, "source_case_outcome": by_slug[slug][1]}
+        for slug in expected if slug in by_slug
+    ]
+    aggregate_outcome = None
+    if aggregate_report is not None and aggregate_report.get("outcome") in {
+        "passed", "failed", "skipped",
+    }:
+        aggregate_outcome = aggregate_report["outcome"]
+    if aggregate is not None and aggregate_outcome is not None:
+        expected_aggregate_outcome = "passed" if aggregate["threshold_pass"] else "failed"
+        if aggregate_outcome != expected_aggregate_outcome:
+            raise AssertionError("source aggregate call outcome contradicts threshold")
+    relevant_nodes = set(selected_authors.values()) | set(aggregate_nodes)
+    incomplete_lifecycle = sorted(relevant_nodes & unfinished_nodes)
+    complete = (
+        len(aggregate_nodes) == 1
+        and aggregate is not None
+        and not missing
+        and sorted(by_slug) == aggregate["expected"]
+        and not incomplete_lifecycle
+    )
+    if not complete:
+        if require_finish:
+            raise AssertionError(
+                "incomplete source ledger: "
+                f"observed={sorted(by_slug)}, missing={missing}, "
+                f"aggregate_present={aggregate is not None}"
+            )
+        return {
+            "complete": False, "acceptance_available": False,
+            "source_session_id": (
+                aggregate["source_session_id"] if aggregate is not None
+                else (next(iter(by_slug.values()))[0]["source_session_id"] if by_slug else None)
+            ),
+            "source_selection_id": (
+                aggregate["source_selection_id"] if aggregate is not None
+                else (next(iter(by_slug.values()))[0]["source_selection_id"] if by_slug else None)
+            ),
+            "suite_selection_id": suite_selection_id,
+            "candidate_sha": candidate_sha, "checkout_sha": checkout_sha,
+            "expected": expected, "excluded_keyed": sorted(excluded_nodes),
+            "minimum": max(1, len(expected) // 2),
+            "observed": sorted(by_slug), "missing": missing,
+            "incomplete_lifecycle": incomplete_lifecycle,
+            "answered": answered, "partial": partial,
+            "aggregate_present": aggregate is not None,
+            "threshold_pass": None,
+            "aggregate_case_outcome": aggregate_outcome,
+            "sources": sources,
+        }
+    if answered != aggregate["answered"] or partial != aggregate["partial"]:
+        raise AssertionError("source aggregate classifications do not match rows")
+    if aggregate["threshold_pass"] != (len(answered) >= aggregate["minimum"]):
+        raise AssertionError("source aggregate threshold does not match rows")
+    return {
+        "complete": True, "acceptance_available": True,
+        "source_session_id": aggregate["source_session_id"],
+        "source_selection_id": aggregate["source_selection_id"],
+        "suite_selection_id": suite_selection_id,
+        "candidate_sha": candidate_sha, "checkout_sha": checkout_sha,
+        "expected": aggregate["expected"], "excluded_keyed": aggregate["excluded_keyed"],
+        "minimum": aggregate["minimum"], "answered": answered, "partial": partial,
+        "observed": sorted(by_slug), "missing": [], "aggregate_present": True,
+        "incomplete_lifecycle": [],
+        "threshold_pass": aggregate["threshold_pass"],
+        "aggregate_case_outcome": aggregate_outcome,
+        "sources": sources,
+    }
 
 
 def reduce_evidence(root: Path, *, require_finish: bool = True) -> dict:
@@ -538,6 +1003,10 @@ def reduce_evidence(root: Path, *, require_finish: bool = True) -> dict:
         )
     if require_finish and len(finishes) != 1:
         raise AssertionError(f"expected one finish event, found {len(finishes)}")
+    source_ledger = _reduce_source_ledger(
+        run, selection, reports, unfinished=unfinished,
+        require_finish=require_finish,
+    )
     if len(finishes) == 1 and (
         finishes[0].get("candidate_sha") != run["identity"].get("candidate_sha")
         or finishes[0].get("checkout_sha") != run["identity"].get("checkout_sha")
@@ -550,6 +1019,7 @@ def reduce_evidence(root: Path, *, require_finish: bool = True) -> dict:
         "outcomes": outcomes,
         "unfinished": unfinished,
         "finish": finishes[0] if len(finishes) == 1 else None,
+        "source_ledger": source_ledger,
     }
 
 

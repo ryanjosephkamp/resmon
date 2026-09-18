@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -154,14 +155,67 @@ def evidence_summary(root: Path) -> str:
     counts = {"passed": 0, "failed": 0, "skipped": 0}
     for outcome in reduction["outcomes"].values():
         counts[outcome] += 1
-    return "\n".join([
+    lines = [
         "## Durable live evidence",
         "",
         f"Run `{reduction['run_id']}` selected {reduction['selected']} tests.",
         f"Completed outcomes: {counts['passed']} passed, {counts['failed']} failed, "
         f"{counts['skipped']} skipped; {len(reduction['unfinished'])} unfinished.",
         "",
-    ])
+    ]
+    ledger = reduction.get("source_ledger")
+    if ledger is None:
+        return "\n".join(lines)
+
+    def literal(value: object, limit: int = 128) -> str:
+        text = str(value).replace("\r", " ").replace("\n", " ")[:limit]
+        runs = [len(match.group(0)) for match in re.finditer(r"`+", text)]
+        fence = "`" * (max(runs, default=0) + 1)
+        padding = " " if text.startswith("`") or text.endswith("`") else ""
+        return f"{fence}{padding}{text}{padding}{fence}"
+
+    def names(values: list[str]) -> str:
+        shown = values[:32]
+        suffix = f" (+{len(values) - len(shown)} more)" if len(values) > len(shown) else ""
+        return (", ".join(literal(value) for value in shown) or "none") + suffix
+
+    if ledger["complete"]:
+        threshold = "passed" if ledger["threshold_pass"] else "failed"
+        lines.extend([
+            "### Source-response ledger",
+            "",
+            f"Complete denominator: {len(ledger['expected'])} keyless sources; "
+            f"minimum {ledger['minimum']}; threshold **{threshold}**; "
+            f"aggregate case **{ledger['aggregate_case_outcome']}**.",
+            f"Answered: {names(ledger['answered'])}.",
+            f"Partial within answered: {names(ledger['partial'])}.",
+            f"Excluded credential-gated: {names(ledger['excluded_keyed'])}.",
+            "",
+        ])
+    else:
+        lines.extend([
+            "### Source-response ledger — incomplete",
+            "",
+            "No aggregate acceptance is available for this interrupted run.",
+            f"Observed: {names(ledger['observed'])}; missing: {names(ledger['missing'])}; "
+            f"aggregate present: {'yes' if ledger['aggregate_present'] else 'no'}.",
+            f"Incomplete pytest lifecycles: {names(ledger['incomplete_lifecycle'])}.",
+            f"Expected denominator: {len(ledger['expected'])}; minimum would be "
+            f"{ledger['minimum']} after complete evidence.",
+            "",
+        ])
+    for row in ledger["sources"][:32]:
+        returned = "n/a" if row["returned_count"] is None else str(row["returned_count"])
+        lines.append(
+            f"- {literal(row['slug'])}: result {literal(row['result'], 32)}; "
+            f"returned {returned}; "
+            f"partial {'yes' if row['partial'] else 'no'}; "
+            f"source case {literal(row['source_case_outcome'] or 'unavailable', 32)}."
+        )
+    if len(ledger["sources"]) > 32:
+        lines.append(f"- {len(ledger['sources']) - 32} additional source rows omitted.")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def main() -> int:                                   # pragma: no cover - entrypoint

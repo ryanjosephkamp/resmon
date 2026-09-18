@@ -140,31 +140,45 @@ def _query_id(slug: str) -> str:
     })
 
 
+def _canonical_author_nodeids(rootpath: Path) -> dict[str, str]:
+    """Return the full catalog map independently of pytest post-selection."""
+    module = Path(__file__).resolve()
+    try:
+        relative = module.relative_to(rootpath.resolve()).as_posix()
+    except ValueError as exc:
+        raise AssertionError("live source module is outside pytest root") from exc
+    prefix = (
+        f"{relative}::"
+        "test_a_real_source_answers_a_real_author_query"
+    )
+    return {slug: f"{prefix}[{slug}]" for slug in _askable()}
+
+
 @pytest.fixture(scope="session")
 def source_response_ledger(request) -> CurrentRunSourceLedger:
     expected = _keyless_askable()
     query_ids = {slug: _query_id(slug) for slug in expected}
-    source_case_nodeids = {
-        item.callspec.params["slug"]: item.nodeid
-        for item in request.session.items
-        if (
-            "test_a_real_source_answers_a_real_author_query" in item.nodeid
-            and hasattr(item, "callspec")
-            and item.callspec.params.get("slug") in expected
-        )
+    all_source_nodeids = _canonical_author_nodeids(Path(request.config.rootpath))
+    source_case_nodeids = {slug: all_source_nodeids[slug] for slug in expected}
+    excluded_keyed_nodeids = {
+        slug: all_source_nodeids[slug]
+        for slug in sorted(set(_KEYED) & set(all_source_nodeids))
+    }
+    source_contract = {
+        "module": Path(__file__).name,
+        "markexpr": request.config.option.markexpr,
+        "catalog_sources": _askable(),
+        "expected_nodeids": source_case_nodeids,
+        "excluded_keyed_nodeids": excluded_keyed_nodeids,
+        "query_ids": query_ids,
     }
     return CurrentRunSourceLedger(
         expected,
         candidate_head=os.environ.get("RESMON_LIVE_CANDIDATE_SHA", "local-unbound"),
-        selection_id=stable_hash({
-            "module": Path(__file__).name,
-            "markexpr": request.config.option.markexpr,
-            "selected_nodes": source_case_nodeids,
-            "catalog_sources": expected,
-            "query_ids": query_ids,
-        }),
+        selection_id=stable_hash(source_contract),
         query_ids=query_ids,
         nodeids=source_case_nodeids,
+        source_contract=source_contract,
     )
 
 
@@ -226,6 +240,7 @@ def test_a_real_source_answers_a_real_author_query(
                 slug, result="raised", returned_count=None,
                 outcome=search_outcome().snapshot(), error=exc,
             )
+            record_property("source_ledger", source_response_ledger.record(slug))
         raise
     outcome = search_outcome().snapshot()
     if keyless:
@@ -235,6 +250,7 @@ def test_a_real_source_answers_a_real_author_query(
             returned_count=len(records),
             outcome=outcome,
         )
+        record_property("source_ledger", source_response_ledger.record(slug))
     record_property("returned", len(records))
 
     if not records:
@@ -332,7 +348,9 @@ def test_a_real_source_answers_a_real_author_query(
     )
 
 
-def test_at_least_most_sources_answered(source_response_ledger):
+def test_at_least_most_sources_answered(
+    source_response_ledger, record_property, request,
+):
     """A systematic break goes red; one endpoint having a bad day does not.
 
     Most cases skip after recording a silent source; DBLP, ERIC, and OAPEN fail
@@ -343,4 +361,8 @@ def test_at_least_most_sources_answered(source_response_ledger):
     # Half, deliberately loosely, and over the exact current catalog-derived
     # denominator. The existing source cases made the real calls; this assertion
     # consumes their current-session evidence and makes no duplicate sweep.
+    record_property(
+        "source_aggregate",
+        source_response_ledger.durable_summary(nodeid=request.node.nodeid),
+    )
     source_response_ledger.assert_threshold()
