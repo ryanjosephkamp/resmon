@@ -81,10 +81,41 @@ jobs:
         # -v rather than -q for the same reason CI's backend job uses it: a
         # timeout dump does not name the item it killed, and the last line
         # printed is then the last test that finished.
-        run: pytest -v -m "${{ steps.selection.outputs.selection }}"
+        env:
+          RESMON_LIVE_EVIDENCE_DIR: ${{ github.workspace }}/live-evidence
+          RESMON_LIVE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RESMON_LIVE_CHECKOUT_SHA: ${{ github.sha }}
+          RESMON_LIVE_SELECTION: ${{ steps.selection.outputs.selection }}
+        run: |
+          mkdir -p "$RESMON_LIVE_EVIDENCE_DIR"
+          set +e
+          set -o pipefail
+          pytest -v -m "$RESMON_LIVE_SELECTION" 2>&1 | tee "$RESMON_LIVE_EVIDENCE_DIR/pytest.log"
+          pytest_status=${PIPESTATUS[0]}
+          set -e
+          exit "$pytest_status"
+
+      - name: Validate durable live evidence
+        if: always()
+        env:
+          RESMON_LIVE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RESMON_LIVE_CHECKOUT_SHA: ${{ github.sha }}
+          RESMON_LIVE_SELECTION: ${{ steps.selection.outputs.selection }}
+        run: python resmon_scripts/verification_scripts/live_suite.py --validate-evidence "${{ github.workspace }}/live-evidence"
 
       - name: Say what this run did not cover
         # Always, because a failed run is exactly when someone reads the summary
         # and needs to know how much of the suite the failure is about.
         if: always()
-        run: python resmon_scripts/verification_scripts/live_suite.py --summary >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          python resmon_scripts/verification_scripts/live_suite.py --evidence-summary "${{ github.workspace }}/live-evidence" >> "$GITHUB_STEP_SUMMARY"
+          python resmon_scripts/verification_scripts/live_suite.py --summary >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload durable live evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: live-network-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}/live-evidence
+          if-no-files-found: error
+          retention-days: 30

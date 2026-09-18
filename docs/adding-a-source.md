@@ -284,10 +284,17 @@ The hermeticity guard blocks any non-loopback socket from a test that is not mar
 `live_network`. A new test that needs the network carries the marker — and a source's
 live search test is then run every Monday by `.github/workflows/live-network.yml`,
 so a source that stops answering is heard about within a week rather than at the
-next time somebody happens to type the command.
+next time somebody happens to type the command. The workflow writes a flushed
+JSONL record of collection, test starts, phase reports, and completion to a
+dedicated artifact directory. Per-case fields are bounded and sanitized; the raw
+`pytest.log` is retained and is not subject to an application byte cap. The
+always-run validator rejects stale identities, missing starts or phases, mixed
+selections, and unfinished selected tests; the pytest exit status remains
+authoritative.
 
-**Run the live tests yourself.** CI does not, so an unverified client reaches review with its
-central claim untested.
+**Run the live tests yourself before review.** Weekly CI is a continuing signal,
+not a substitute for candidate-specific evidence and the provider-safe pacing
+review required before a new client is accepted.
 
 ### Tests that bite
 

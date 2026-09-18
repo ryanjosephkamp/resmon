@@ -34,6 +34,78 @@ for _path in (_REPO_ROOT, _REPO_ROOT / "resmon_scripts"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+from resmon_scripts.verification_scripts.live_evidence import LiveEvidenceWriter  # noqa: E402
+
+
+_LIVE_EVIDENCE: LiveEvidenceWriter | None = None
+
+
+def pytest_configure(config):
+    """Enable durable live evidence only when the workflow supplies a directory."""
+    global _LIVE_EVIDENCE
+    root = os.environ.get("RESMON_LIVE_EVIDENCE_DIR")
+    if not root:
+        return
+    identity = {
+        "candidate_sha": os.environ.get("RESMON_LIVE_CANDIDATE_SHA", "unknown"),
+        "checkout_sha": os.environ.get("RESMON_LIVE_CHECKOUT_SHA", "unknown"),
+        "selection": os.environ.get("RESMON_LIVE_SELECTION", "unknown"),
+        "github_run_id": os.environ.get("GITHUB_RUN_ID", "local"),
+        "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "local"),
+        "github_job": os.environ.get("GITHUB_JOB", "local"),
+    }
+    try:
+        _LIVE_EVIDENCE = LiveEvidenceWriter(Path(root), identity)
+    except Exception as exc:
+        config._resmon_live_evidence_error = True
+        print(
+            f"live evidence reporter initialization failed: {type(exc).__name__}",
+            file=sys.stderr,
+        )
+
+
+def pytest_collection_finish(session):
+    writer = _LIVE_EVIDENCE
+    if writer is not None:
+        writer.safe(
+            writer.collection,
+            [item.nodeid for item in session.items],
+            os.environ.get("RESMON_LIVE_SELECTION", "unknown"),
+        )
+
+
+def pytest_runtest_logstart(nodeid, location):
+    writer = _LIVE_EVIDENCE
+    if writer is not None:
+        writer.safe(writer.start, nodeid)
+
+
+def pytest_runtest_logreport(report):
+    writer = _LIVE_EVIDENCE
+    if writer is not None:
+        writer.safe(writer.report, report)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    writer = _LIVE_EVIDENCE
+    initialization_failed = getattr(session.config, "_resmon_live_evidence_error", False)
+    if writer is not None:
+        try:
+            reduction = writer.finish(int(exitstatus))
+            if reduction["unfinished"]:
+                writer.integrity_error = True
+        except Exception as exc:
+            writer.integrity_error = True
+            print(
+                f"live evidence reporter finalization failed: {type(exc).__name__}",
+                file=sys.stderr,
+            )
+    if (
+        (initialization_failed or (writer is not None and writer.integrity_error))
+        and int(session.exitstatus) == int(pytest.ExitCode.OK)
+    ):
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
 # ---------------------------------------------------------------------------
 # Keyring isolation
 # ---------------------------------------------------------------------------

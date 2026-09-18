@@ -28,9 +28,13 @@ of the expression is a copy that drifts.
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+from live_evidence import reduce_evidence, validate_evidence
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -64,7 +68,7 @@ def collect(selection: str) -> list[str]:
     """
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
-         "-m", selection],
+         "-p", "pytest_timeout", "-m", selection],
         cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=300,
     )
     if result.returncode not in (0, 5):               # 5 = nothing collected
@@ -115,14 +119,68 @@ def summary() -> str:
     return "\n".join(lines)
 
 
+def validate_workflow_evidence(root: Path) -> dict:
+    """Fail closed on missing, stale, wrong-selection, or incomplete evidence."""
+    reduction = validate_evidence(root)
+    selection = json.loads((root / "SELECTION.json").read_text())
+    run = json.loads((root / "RUN.json").read_text())
+    if selection["selection"] != SCHEDULED_SELECTION:
+        raise AssertionError("evidence used a different live selection")
+    collected = collect(SCHEDULED_SELECTION)
+    if selection["nodeids"] != collected:
+        raise AssertionError("evidence selection does not match fresh collection")
+    identity = run["identity"]
+    if identity.get("candidate_sha") in {None, "", "unknown"}:
+        raise AssertionError("candidate head identity is missing")
+    if identity.get("checkout_sha") in {None, "", "unknown"}:
+        raise AssertionError("checkout head identity is missing")
+    expected_identity = {
+        "candidate_sha": os.environ.get("RESMON_LIVE_CANDIDATE_SHA"),
+        "checkout_sha": os.environ.get("RESMON_LIVE_CHECKOUT_SHA"),
+        "selection": os.environ.get("RESMON_LIVE_SELECTION"),
+    }
+    for key, expected in expected_identity.items():
+        if expected and identity.get(key) != expected:
+            raise AssertionError(f"evidence {key} does not match workflow context")
+    return reduction
+
+
+def evidence_summary(root: Path) -> str:
+    """Render partial evidence without treating it as acceptance."""
+    try:
+        reduction = reduce_evidence(root, require_finish=False)
+    except Exception as exc:
+        return "## Durable live evidence\n\nUnavailable or invalid: " + type(exc).__name__ + "\n"
+    counts = {"passed": 0, "failed": 0, "skipped": 0}
+    for outcome in reduction["outcomes"].values():
+        counts[outcome] += 1
+    return "\n".join([
+        "## Durable live evidence",
+        "",
+        f"Run `{reduction['run_id']}` selected {reduction['selected']} tests.",
+        f"Completed outcomes: {counts['passed']} passed, {counts['failed']} failed, "
+        f"{counts['skipped']} skipped; {len(reduction['unfinished'])} unfinished.",
+        "",
+    ])
+
+
 def main() -> int:                                   # pragma: no cover - entrypoint
     what = sys.argv[1] if len(sys.argv) > 1 else "--selection"
     if what == "--selection":
         print(SCHEDULED_SELECTION)
     elif what == "--summary":
         print(summary())
+    elif what == "--validate-evidence" and len(sys.argv) == 3:
+        result = validate_workflow_evidence(Path(sys.argv[2]))
+        print(json.dumps(result, sort_keys=True))
+    elif what == "--evidence-summary" and len(sys.argv) == 3:
+        print(evidence_summary(Path(sys.argv[2])))
     else:
-        print(f"usage: {Path(__file__).name} [--selection|--summary]", file=sys.stderr)
+        print(
+            f"usage: {Path(__file__).name} "
+            "[--selection|--summary|--validate-evidence DIR|--evidence-summary DIR]",
+            file=sys.stderr,
+        )
         return 2
     return 0
 

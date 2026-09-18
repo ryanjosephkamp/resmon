@@ -19,7 +19,9 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
-from implementation_scripts import api_base, api_biorxiv, api_dblp, api_eric  # noqa: E402
+from implementation_scripts import (  # noqa: E402
+    api_base, api_biorxiv, api_dblp, api_eric, api_oapen,
+)
 
 
 class FakeResponse:
@@ -100,6 +102,19 @@ def _dblp_payload():
     }}]}}}
 
 
+def _oapen_record(handle="20.500.12657/100210", year="2024"):
+    return {
+        "handle": handle,
+        "name": "Water and fire",
+        "type": "item",
+        "withdrawn": "false",
+        "metadata": [
+            {"key": "dc.date.issued", "value": year},
+            {"key": "dc.contributor.author", "value": "A. Author"},
+        ],
+    }
+
+
 @pytest.fixture(autouse=True)
 def _fresh_outcome():
     api_base.reset_search_outcome()
@@ -175,6 +190,22 @@ def test_partial_preprint_results_retain_later_parse_failure(monkeypatch):
     assert outcome["attempts"] == 3
     assert outcome["explicit_reason"] == "parse_failure"
     assert outcome["explicit_detail"] == {"detail": "empty_or_invalid_json"}
+
+
+def test_oapen_uses_json_negotiation_and_one_deadline_across_pages(monkeypatch):
+    monkeypatch.setattr(api_oapen, "_PAGE_SIZE", 1)
+    calls = _recording_sequence(monkeypatch, api_oapen, [
+        FakeResponse([_oapen_record()]),
+        FakeResponse([_oapen_record("20.500.12657/85023")]),
+    ])
+
+    rows = api_oapen.OapenClient().search("water", max_results=2)
+
+    assert len(rows) == 2
+    assert [call["params"]["offset"] for call in calls] == [0, 1]
+    assert calls[0]["deadline"] == calls[1]["deadline"]
+    assert all(call["headers"] == {"Accept": "application/json"} for call in calls)
+    assert all(call["timeout"] == 10.0 and call["max_retries"] == 1 for call in calls)
 
 
 @pytest.mark.parametrize("module,client,payload", [
@@ -378,6 +409,78 @@ def test_real_httpx_empty_body_is_bounded_and_truthful(
     assert outcome["explicit_detail"] == {"detail": "empty_or_invalid_json"}
 
 
+def test_eric_real_httpx_retry_and_successive_clients_share_production_pacing(
+    monkeypatch,
+):
+    """The first admission is immediate; every later ERIC wire arrival is spaced."""
+    class RecordingLimiter(api_base.RateLimiter):
+        def __init__(self):
+            super().__init__(requests_per_second=0.5)
+            self.admissions = []
+            self.waits = []
+
+        def acquire(self, *, deadline=None):
+            began = time.monotonic()
+            super().acquire(deadline=deadline)
+            self.waits.append(time.monotonic() - began)
+            self.admissions.append(self._last_call)
+
+    class EricHandler(BaseHTTPRequestHandler):
+        arrivals = []
+
+        def do_GET(self):
+            type(self).arrivals.append(time.monotonic())
+            if len(type(self).arrivals) == 1:
+                body = b'{"message":"temporary upstream failure"}'
+                self.send_response(504)
+            else:
+                body = json.dumps(_eric_payload()).encode()
+                self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    with _server(EricHandler) as base:
+        limiter = RecordingLimiter()
+        monkeypatch.setattr(api_eric, "_ERIC_API_URL", base)
+        monkeypatch.setattr(api_eric, "_RATE_LIMITER", limiter)
+        monkeypatch.setattr(api_eric, "_SEARCH_BUDGET_SECONDS", 10.0)
+        monkeypatch.setattr(api_eric, "_REQUEST_TIMEOUT_SECONDS", 1.0)
+        began = time.monotonic()
+        first = api_eric.EricClient().search(query="climate", max_results=1)
+        second = api_eric.EricClient().search(query="climate", max_results=1)
+        elapsed = time.monotonic() - began
+
+    assert len(first) == len(second) == 1
+    assert len(EricHandler.arrivals) == 3
+    spacings = [
+        later - earlier
+        for earlier, later in zip(EricHandler.arrivals, EricHandler.arrivals[1:])
+    ]
+    admission_spacings = [
+        later - earlier
+        for earlier, later in zip(limiter.admissions, limiter.admissions[1:])
+    ]
+    assert len(limiter.admissions) == 3
+    assert all(spacing >= 2.0 for spacing in admission_spacings), admission_spacings
+    assert limiter.waits[0] < 0.25
+    assert all(wait >= 0.0 for wait in limiter.waits), limiter.waits
+    # Allow only local scheduling jitter; the configured two-second intervals
+    # are exact at limiter admission and remain visible at the owned server.
+    assert all(spacing >= 1.8 for spacing in spacings), spacings
+    assert elapsed >= 3.6
+    print(json.dumps({
+        "admission_spacings": admission_spacings,
+        "acquire_waits": limiter.waits,
+        "wire_arrival_spacings": spacings,
+        "first_call_wait_is_zero_eligible": True,
+    }, sort_keys=True))
+
+
 def test_progressing_body_cannot_outlive_shared_deadline(monkeypatch):
     class TrickleHandler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -403,6 +506,88 @@ def test_progressing_body_cannot_outlive_shared_deadline(monkeypatch):
         monkeypatch.setattr(api_dblp, "_MAX_RESPONSE_ATTEMPTS", 1)
         began = time.monotonic()
         assert api_dblp.DblpClient().search(query="climate", max_results=1) == []
+        elapsed = time.monotonic() - began
+
+    outcome = api_base.search_outcome().snapshot()
+    assert elapsed < 1.5
+    assert outcome["attempts"] == 1
+    assert outcome["last_call_failed"] is True
+    assert outcome["last_detail"] == "operation_deadline"
+
+
+def test_oapen_real_httpx_retry_pagination_and_json_negotiation(monkeypatch):
+    class OapenHandler(BaseHTTPRequestHandler):
+        requests = []
+
+        def do_GET(self):
+            from urllib.parse import parse_qs, urlsplit
+
+            query = parse_qs(urlsplit(self.path).query)
+            type(self).requests.append({
+                "offset": query.get("offset", [None])[0],
+                "accept": self.headers.get("Accept"),
+            })
+            if len(type(self).requests) == 1:
+                body = b"{}"
+                self.send_response(503)
+            else:
+                offset = query.get("offset", ["0"])[0]
+                handle = (
+                    "20.500.12657/100210"
+                    if offset == "0" else "20.500.12657/85023"
+                )
+                body = json.dumps([_oapen_record(handle)]).encode()
+                self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    with _server(OapenHandler) as base:
+        monkeypatch.setattr(api_oapen, "_URL", base)
+        monkeypatch.setattr(api_oapen, "_PAGE_SIZE", 1)
+        monkeypatch.setattr(api_oapen, "_RATE_LIMITER", api_base.RateLimiter(1000))
+        rows = api_oapen.OapenClient().search("water", max_results=2)
+
+    assert [row.external_id for row in rows] == [
+        "20.500.12657/100210", "20.500.12657/85023",
+    ]
+    assert [request["offset"] for request in OapenHandler.requests] == ["0", "0", "1"]
+    assert all(request["accept"] == "application/json" for request in OapenHandler.requests)
+    outcome = api_base.search_outcome().snapshot()
+    assert outcome["attempts"] == 3
+    assert outcome["last_call_failed"] is False
+
+
+def test_oapen_progressing_body_cannot_outlive_shared_deadline(monkeypatch):
+    class TrickleHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            body = json.dumps([_oapen_record()]).encode()
+            for byte in body:
+                try:
+                    self.wfile.write(bytes([byte]))
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+                time.sleep(0.05)
+
+        def log_message(self, *_args):
+            pass
+
+    with _server(TrickleHandler) as base:
+        monkeypatch.setattr(api_oapen, "_URL", base)
+        monkeypatch.setattr(api_oapen, "_RATE_LIMITER", api_base.RateLimiter(1000))
+        monkeypatch.setattr(api_oapen, "_SEARCH_BUDGET_SECONDS", 0.2)
+        monkeypatch.setattr(api_oapen, "_REQUEST_TIMEOUT_SECONDS", 1.0)
+        monkeypatch.setattr(api_oapen, "_MAX_REQUEST_RETRIES", 0)
+        began = time.monotonic()
+        assert api_oapen.OapenClient().search("water", max_results=1) == []
         elapsed = time.monotonic() - began
 
     outcome = api_base.search_outcome().snapshot()
