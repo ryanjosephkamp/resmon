@@ -836,7 +836,8 @@ def test_the_committed_fixture_is_what_v210s_own_code_produces(tmp_path_factory)
     """
     tree = _v210_worktree(tmp_path_factory)
     if tree is None:
-        assert os.environ.get("RESMON_REQUIRE_V210_TAG") != "1", (
+        required = os.environ.get("RESMON_REQUIRE_V210_TAG") == "1"
+        assert not required, (
             "RESMON_REQUIRE_V210_TAG=1 but tag v2.1.0 could not be checked out here")
         pytest.skip("tag v2.1.0 is not in this checkout")
     try:
