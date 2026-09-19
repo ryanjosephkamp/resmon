@@ -324,9 +324,11 @@ def seed(database, watch_profiles, assistant_store, conn) -> None:
     # routines.execution_location = 'cloud' cannot be written by v2.1.0:
     # insert_routine raises ValueError on anything but 'local', because
     # cloud-scheduled routines went away with the cloud service. The CHECK
-    # still admits it and a database written by resmon 2.0 can still hold one,
-    # so the fixture carries the row that only history could have produced --
-    # written the way 2.0's insert_routine wrote it.
+    # still admits it. v2.1.0's own init_db rewrites any such row to 'local',
+    # so a database v2.1.0 has opened cannot hold one either: this row stands
+    # in for a pre-2.1.0 corpus opened for the first time by today's code, and
+    # keeps the rewrite in _migrate_routines_columns under test. Written the
+    # way 2.0's insert_routine wrote it.
     conn.execute(
         "INSERT INTO routines (name, schedule_cron, parameters, intent, is_active, "
         "email_enabled, email_ai_summary_enabled, ai_enabled, ai_settings, "

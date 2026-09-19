@@ -21,10 +21,11 @@ check that it was collected rather than a separate command:
 .venv/bin/python -m pytest -q resmon_scripts/verification_scripts/test_cumulative_upgrade.py
 ```
 
-One case in it — the one that regenerates the fixture from tag v2.1.0 and
-diffs — skips where the tag is not in the checkout, which includes CI's depth-1
-clone. Run it on a machine with the full history before the tag is cut, and
-record whether it ran or skipped:
+One case in it regenerates the fixture from tag v2.1.0 and diffs it against
+the committed file. CI fetches that tag explicitly (the "Fetch the v2.1.0 tag"
+step in `.github/workflows/ci.yml`) and sets `RESMON_REQUIRE_V210_TAG=1`, so in
+CI a missing tag is a failure, not a skip. Elsewhere — a shallow clone, a source
+tarball — the case skips; with `-rs` a local run says which happened:
 
 ```sh
 git fetch --tags upstream
@@ -43,7 +44,11 @@ way, so the next release walks from it:
    version has, at every value of every CHECK-constrained column it has.
 2. Commit the dump beside the generator, with the tag's commit hash in its
    header.
-3. Point a cumulative test at it. The walk that matters is always *the last
+3. Add the new tag to the tag-fetch step in `.github/workflows/ci.yml` and have
+   the new provenance case honour the same "required in CI" switch. Without
+   this the case skips in CI and the new fixture is unguarded — prove the step
+   by altering one fixture row on the PR and watching the Backend jobs go red.
+4. Point a cumulative test at it. The walk that matters is always *the last
    released version to the one about to ship*, not the previous schema step to
    this one; the per-step tests already cover the steps.
 
