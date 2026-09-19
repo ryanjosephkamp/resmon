@@ -23,6 +23,36 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "resmon_scripts"))
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
+from implementation_scripts import api_auth as _api_auth  # noqa: E402
+
+# 2.2: every request to a resmon backend carries its local API token. The
+# backends this file starts are handed the suite's token in RESMON_API_TOKEN,
+# exactly as Electron hands its own over, and test-side calls go through this
+# shim. The code under test builds its own headers; nothing here adds any.
+_TOKEN = _api_auth.current_token()
+
+
+class _WithToken:
+    """httpx's module-level ``get``/``post``/``stream``/…, plus the token header.
+
+    A shim over the functions rather than a shared ``httpx.Client``: each call
+    keeps its own throwaway client, so a stream a test abandons is closed exactly
+    as before — a pooled connection outlived one and hid a disconnect.
+    """
+
+    def __getattr__(self, name):
+        function = getattr(httpx, name)
+
+        def call(*args, **kwargs):
+            auth = _api_auth.bearer(_TOKEN) if _TOKEN else {}
+            kwargs["headers"] = {**auth, **dict(kwargs.get("headers") or {})}
+            return function(*args, **kwargs)
+        return call
+
+
+_API = _WithToken()
 import pytest
 import mcp_server as mcp
 from implementation_scripts import database as db, reference_export
@@ -80,7 +110,7 @@ def boundary(tmp_path_factory):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     assert port != 8742
-    env = {**os.environ, "RESMON_STATE_DIR": str(state), "RESMON_DB_PATH": str(path),
+    env = {**os.environ, **({"RESMON_API_TOKEN": _TOKEN} if _TOKEN else {}), "RESMON_STATE_DIR": str(state), "RESMON_DB_PATH": str(path),
            "RESMON_REPORTS_DIR": str(state / "reports"), "RESMON_PORT_FILE": str(state / "backend.port"),
            "RESMON_CHROMIUM_PROFILE": str(state / "chromium"), "RESMON_DISABLE_SCHEDULER": "1",
            "PYTHONDONTWRITEBYTECODE": "1", "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring"}
@@ -93,7 +123,7 @@ def boundary(tmp_path_factory):
             for _ in range(150):
                 assert proc.poll() is None, (state / "backend.log").read_text()
                 try:
-                    response = httpx.get(base + "/api/health", timeout=1)
+                    response = _API.get(base + "/api/health", timeout=1)
                     response.raise_for_status()
                     health = response.json()
                     break
@@ -106,7 +136,7 @@ def boundary(tmp_path_factory):
             assert requested - 2 <= started <= time.time()
             assert (state / "backend.port").read_text().strip() == str(port)
             # Match a live HTTP response to the synthetic data in the pinned DB.
-            raw = httpx.get(f"{base}/api/executions/{fixture['execution_ids'][0]}/references",
+            raw = _API.get(f"{base}/api/executions/{fixture['execution_ids'][0]}/references",
                             params={"format": "json"}).json()
             assert fixture["marker"] in {d["external_id"] for d in raw}
             from test_mcp_settings_boundary import _source_receipt
@@ -129,7 +159,7 @@ def boundary(tmp_path_factory):
 def call(base: str, tool: str, args: dict) -> dict:
     old = mcp.backend._base
     try:
-        mcp.backend._base = base
+        mcp.backend.pin(base, _TOKEN)
         return json.loads(mcp.call_tool(tool, args)["content"][0]["text"])
     finally:
         mcp.backend._base = old
@@ -164,7 +194,7 @@ def test_mcp_result_ids_continue_to_the_same_paper_explanation(boundary):
 def test_combined_export_unions_ids_and_preserves_single_run_formats(boundary, fmt):
     base, path, fixture = boundary
     runs = fixture["selected_execution_ids"]
-    combined = httpx.post(base + "/api/export/references", json={"execution_ids": runs, "format": fmt})
+    combined = _API.post(base + "/api/export/references", json={"execution_ids": runs, "format": fmt})
     combined.raise_for_status()
     assert combined.headers["X-Resmon-Document-Count"] == "3"
     with sqlite3.connect(path) as conn:
@@ -172,12 +202,12 @@ def test_combined_export_unions_ids_and_preserves_single_run_formats(boundary, f
         docs = db.get_documents_by_ids(conn, fixture["document_ids"])
     # One real serializer call: no per-run concatenation; the ordering is global.
     assert combined.text == reference_export.render(docs, fmt)[0]
-    reversed_runs = httpx.post(base + "/api/export/references", json={"execution_ids": runs[::-1] + runs, "format": fmt})
+    reversed_runs = _API.post(base + "/api/export/references", json={"execution_ids": runs[::-1] + runs, "format": fmt})
     assert reversed_runs.text == combined.text
-    single = httpx.get(f"{base}/api/executions/{runs[0]}/references", params={"format": fmt})
-    via_selection = httpx.post(base + "/api/export/references", json={"execution_ids": [runs[0]], "format": fmt})
+    single = _API.get(f"{base}/api/executions/{runs[0]}/references", params={"format": fmt})
+    via_selection = _API.post(base + "/api/export/references", json={"execution_ids": [runs[0]], "format": fmt})
     assert single.text == via_selection.text
-    explicit = httpx.post(base + "/api/export/references", json={"document_ids": fixture["document_ids"], "format": fmt})
+    explicit = _API.post(base + "/api/export/references", json={"document_ids": fixture["document_ids"], "format": fmt})
     assert explicit.text == combined.text
     if fmt == "bibtex":
         keys = re.findall(r"^@\w+\{([^,]+),", combined.text, re.M)
@@ -198,15 +228,15 @@ def test_combined_export_unions_ids_and_preserves_single_run_formats(boundary, f
 def test_export_empty_stale_mixed_and_id_option(boundary):
     base, _, fixture = boundary
     url = base + "/api/export/references"
-    assert httpx.post(url, json={"execution_ids": [], "format": "json"}).json() == []
-    assert httpx.post(url, json={"execution_ids": [999999], "format": "bibtex"}).status_code == 404
-    assert httpx.post(url, json={"execution_ids": fixture["execution_ids"], "document_ids": [1]}).status_code == 400
+    assert _API.post(url, json={"execution_ids": [], "format": "json"}).json() == []
+    assert _API.post(url, json={"execution_ids": [999999], "format": "bibtex"}).status_code == 404
+    assert _API.post(url, json={"execution_ids": fixture["execution_ids"], "document_ids": [1]}).status_code == 400
     route = f"{base}/api/executions/{fixture['execution_ids'][0]}/references"
-    plain = httpx.get(route, params={"format": "json"}).json()
-    identified = httpx.get(route, params={"format": "json", "include_ids": "true"}).json()
+    plain = _API.get(route, params={"format": "json"}).json()
+    identified = _API.get(route, params={"format": "json", "include_ids": "true"}).json()
     assert [{k: v for k, v in d.items() if k != "id"} for d in identified] == plain
     assert [d["id"] for d in identified] == list(reversed(fixture["document_ids"][:2]))
-    assert httpx.get(route, params={"format": "csv", "include_ids": "true"}).status_code == 400
+    assert _API.get(route, params={"format": "csv", "include_ids": "true"}).status_code == 400
 
 
 def variable_limit(conn: sqlite3.Connection) -> int:

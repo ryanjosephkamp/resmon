@@ -113,12 +113,18 @@ def test_lock_present_probe_succeeds(lock_path, monkeypatch):
         def __exit__(self, *_):
             return False
 
-        def get(self, _url):
+        def get(self, _url, headers=None):
+            sent.append(dict(headers or {}))
             return _FakeResponse()
 
     import httpx
+    from implementation_scripts import api_auth
 
+    sent: list[dict] = []
     monkeypatch.setattr(httpx, "Client", _FakeClient)
+    # The daemon's token file sits beside its lock; the probe must send it (2.2).
+    daemon_token = api_auth.mint_token()
+    api_auth.write_token_file(8742, daemon_token, lock_path.parent)
 
     lock_path.write_text(
         json.dumps({"pid": 4242, "port": 8742, "version": APP_VERSION}),
@@ -136,3 +142,4 @@ def test_lock_present_probe_succeeds(lock_path, monkeypatch):
     assert body["version"] == APP_VERSION
     assert body["started_at"] == "2026-05-05T00:00:00+00:00"
     assert body["error"] is None
+    assert sent == [{"Authorization": f"Bearer {daemon_token}"}]

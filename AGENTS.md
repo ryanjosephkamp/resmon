@@ -30,7 +30,7 @@ implies more certainty than it earns is rejected even when the code is correct.
 
 ```
 resmon_scripts/
-├── resmon.py                       FastAPI app — 165 routes, the API seam
+├── resmon.py                       FastAPI app — 166 routes, the API seam
 ├── implementation_scripts/         backend modules
 │   ├── api_base.py                 BaseAPIClient, NormalizedResult, RateLimiter, safe_request
 │   ├── api_<slug>.py               one source client each; self-registering
@@ -123,6 +123,14 @@ that column alone goes red, suspect a shared `sqlite3.Connection`.
   Rules: `live_evidence.py`; proofs at a real exit status: `test_live_suite.py`.
 - `conftest.py` installs an in-memory keyring and joins execution worker threads before
   fixture teardown. Both fixed real flakiness; both stay.
+- **Every backend request needs the local API token** (2.2; `docs/local-api-security.md`).
+  `conftest.py` configures a real token and swaps `TestClient` for one that addresses
+  `http://127.0.0.1:<port>` and sends it; `RawTestClient` is the unauthenticated original.
+  There is no switch that turns the guard off, and `Host: testserver` is refused. A test
+  that starts its own backend process reads the token from `<RESMON_STATE_DIR>/api-token-<port>`;
+  e2e specs call the backend through `e2eFetch` / `e2eAuth` from `fixtures/resmon-app.ts`,
+  never a bare `fetch`, while the app's own requests are left untouched so the suite proves
+  the renderer sends the token itself. Properties: `test_local_api_auth.py`.
 - `_db_path = ":memory:"` is backed by a temp file, not a true in-memory database, so
   every thread's connection sees the same data.
 - A test that asserts on the scheduler needs it live — CI deliberately leaves

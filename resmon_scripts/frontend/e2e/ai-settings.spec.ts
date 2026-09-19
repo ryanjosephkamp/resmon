@@ -150,7 +150,7 @@ async function cliStatus(win: Page): Promise<CliStatus[]> {
   const data = await win.evaluate(async () => {
     const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
       .resmonAPI.getBackendPort();
-    return (await fetch(`http://127.0.0.1:${port}/api/settings/ai/cli-status`)).json();
+    return (await e2eFetch(`http://127.0.0.1:${port}/api/settings/ai/cli-status`)).json();
   });
   return data.providers as CliStatus[];
 }
@@ -160,7 +160,7 @@ async function savedSettings(win: Page): Promise<Record<string, unknown>> {
   return win.evaluate(async () => {
     const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
       .resmonAPI.getBackendPort();
-    return (await fetch(`http://127.0.0.1:${port}/api/settings/ai`)).json();
+    return (await e2eFetch(`http://127.0.0.1:${port}/api/settings/ai`)).json();
   });
 }
 
@@ -237,7 +237,7 @@ test('P10b: the proposal never overwrites a provider that is already chosen', as
     await win.evaluate(async () => {
       const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
         .resmonAPI.getBackendPort();
-      const res = await fetch(`http://127.0.0.1:${port}/api/settings/ai`, {
+      const res = await e2eFetch(`http://127.0.0.1:${port}/api/settings/ai`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

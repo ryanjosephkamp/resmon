@@ -2,7 +2,7 @@ import React from 'react';
 import { DedupBlock, SearchRecordData, SearchRecordState, useSearchRecord } from '../../api/searchRecord';
 import CoverageSummary from './CoverageSummary';
 type SourceRow = SearchRecordData['sources'][number];
-import { getBaseUrl } from '../../api/client';
+import { backendFetch } from '../../api/client';
 
 /**
  * The reproducible search record for one execution.
@@ -58,8 +58,34 @@ const count = (value: number | null): React.ReactNode =>
     ? <em className="record-absent">not recorded</em>
     : nf.format(value);
 
+/**
+ * Download the backend's markdown rendering of one record.
+ *
+ * This was a plain `<a href>` to the API, which opened the backend's own
+ * response in a new window. Since 2.2 every request must carry the local API
+ * token in a header, and a link cannot — putting the token in the URL instead
+ * would leave it in history, logs and `Referer`. So the file is fetched with the
+ * token and handed to the browser as a blob, which also lands it in the app's
+ * own Downloads list rather than in a separate window's session. The name is
+ * the one the backend's `Content-Disposition` gives it, which a cross-origin
+ * fetch cannot read, so it is repeated here.
+ */
+export async function downloadSearchRecordMarkdown(executionId: number): Promise<void> {
+  const response = await backendFetch(`/api/executions/${executionId}/search-record?format=markdown`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`The markdown record could not be downloaded (HTTP ${response.status}).`);
+  const url = URL.createObjectURL(await response.blob());
+  const a = document.createElement('a');
+  try {
+    a.href = url;
+    a.download = `resmon-search-record-${executionId}.md`;
+    document.body.appendChild(a);
+    a.click();
+  } finally { a.remove(); URL.revokeObjectURL(url); }
+}
+
 const SearchRecord: React.FC<{ executionId: number; recordState?: SearchRecordState }> = ({ executionId, recordState }) => {
   const ownState = useSearchRecord(executionId, !recordState);
+  const [downloadError, setDownloadError] = React.useState<string | null>(null);
   const { data, error, retry } = recordState ?? ownState;
   if (error) return <div role="alert" className="form-error">Search record for execution #{executionId}: {error} <button className="btn btn-sm" onClick={retry}>Retry search record</button></div>;
   if (!data || data.search.execution_id !== executionId) return <p className="text-muted">Building the record for execution #{executionId}…</p>;
@@ -84,18 +110,19 @@ const SearchRecord: React.FC<{ executionId: number; recordState?: SearchRecordSt
           The complete, dated account of this search, in the shape a PRISMA flow
           diagram needs. Generated from saved facts; missing history remains unknown. Execution #{executionId}. Generated {data.generated_at}.
         </p>
-        {/*
-          A plain link, not a scripted download: this opens the backend's own
-          markdown response, which sets its own Content-Disposition.
-        */}
-        <a
+        <button
+          type="button"
           className="btn btn-sm"
-          href={`${getBaseUrl()}/api/executions/${executionId}/search-record?format=markdown`}
-          target="_blank"
-          rel="noreferrer noopener"
+          onClick={() => {
+            setDownloadError(null);
+            downloadSearchRecordMarkdown(executionId).catch((e: unknown) => {
+              setDownloadError(e instanceof Error ? e.message : String(e));
+            });
+          }}
         >
           Download as Markdown
-        </a>
+        </button>
+        {downloadError && <p role="alert" className="form-error">{downloadError}</p>}
       </div>
 
       {data.coverage && <CoverageSummary coverage={data.coverage} details />}

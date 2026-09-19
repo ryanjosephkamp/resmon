@@ -17,6 +17,36 @@ import sys
 import time
 
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
+from implementation_scripts import api_auth as _api_auth  # noqa: E402
+
+# 2.2: every request to a resmon backend carries its local API token. The
+# backends this file starts are handed the suite's token in RESMON_API_TOKEN,
+# exactly as Electron hands its own over, and test-side calls go through this
+# shim. The code under test builds its own headers; nothing here adds any.
+_TOKEN = _api_auth.current_token()
+
+
+class _WithToken:
+    """httpx's module-level ``get``/``post``/``stream``/…, plus the token header.
+
+    A shim over the functions rather than a shared ``httpx.Client``: each call
+    keeps its own throwaway client, so a stream a test abandons is closed exactly
+    as before — a pooled connection outlived one and hid a disconnect.
+    """
+
+    def __getattr__(self, name):
+        function = getattr(httpx, name)
+
+        def call(*args, **kwargs):
+            auth = _api_auth.bearer(_TOKEN) if _TOKEN else {}
+            kwargs["headers"] = {**auth, **dict(kwargs.get("headers") or {})}
+            return function(*args, **kwargs)
+        return call
+
+
+_API = _WithToken()
 import pytest
 
 import mcp_server as mcp
@@ -55,7 +85,7 @@ def isolated_backend(tmp_path_factory):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     assert port != 8742
-    env = {**os.environ, "RESMON_STATE_DIR": str(state),
+    env = {**os.environ, **({"RESMON_API_TOKEN": _TOKEN} if _TOKEN else {}), "RESMON_STATE_DIR": str(state),
            "RESMON_DB_PATH": str(state / "corpus.db"),
            "RESMON_REPORTS_DIR": str(state / "reports"),
            "RESMON_PORT_FILE": str(state / "backend.port"),
@@ -71,7 +101,7 @@ def isolated_backend(tmp_path_factory):
             for _ in range(150):
                 assert proc.poll() is None, (state / "backend.log").read_text()
                 try:
-                    health = httpx.get(base + "/api/health", timeout=1).json()
+                    health = _API.get(base + "/api/health", timeout=1).json()
                     break
                 except (httpx.HTTPError, ValueError):
                     time.sleep(0.2)
@@ -81,14 +111,14 @@ def isolated_backend(tmp_path_factory):
             backend_started = datetime.fromisoformat(health["started_at"].replace("Z", "+00:00")).timestamp()
             assert started - 2 <= backend_started <= time.time()
             assert (state / "backend.port").read_text().strip() == str(port)
-            marker = httpx.post(base + "/api/profiles", json={"display_name": "Trust synthetic marker"}).json()
+            marker = _API.post(base + "/api/profiles", json={"display_name": "Trust synthetic marker"}).json()
             with sqlite3.connect(state / "corpus.db") as conn:
                 assert conn.execute("SELECT display_name FROM watch_profiles WHERE id=?", (marker["id"],)).fetchone()[0] == "Trust synthetic marker"
             print("INSTANCE", json.dumps({"port": port, "pid": proc.pid, "launch_requested_at": started, "health_started_at": health["started_at"], "health_pid": health["pid"],
                   "state": str(state), "version": health.get("version"), "corpus_marker": marker["id"],
                   "source": _source_receipt(ROOT)}))
             old_base = mcp.backend._base
-            mcp.backend._base = base
+            mcp.backend.pin(base, _TOKEN)
             yield base, state
             mcp.backend._base = old_base
         finally:
@@ -101,7 +131,7 @@ def isolated_backend(tmp_path_factory):
 
 
 def _settings(base: str, group: str) -> dict:
-    response = httpx.get(f"{base}/api/settings/{group}", timeout=10)
+    response = _API.get(f"{base}/api/settings/{group}", timeout=10)
     response.raise_for_status()
     body = response.json()
     return body["settings"] if group == "embeddings" else body

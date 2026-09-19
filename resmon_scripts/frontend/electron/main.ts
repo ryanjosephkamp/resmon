@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'ele
 import { installDownloads } from './downloads';
 import { autoUpdater } from 'electron-updater';
 import { ChildProcess, spawn } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as net from 'net';
@@ -15,6 +16,14 @@ let rendererServer: http.Server | null = null;
 let rendererPort: number | null = null;
 /** True when we attached to an already-running daemon and must not kill it on quit. */
 let attachedToDaemon: boolean = false;
+/**
+ * The backend's local API token (2.2 lock-down). Minted here for a backend this
+ * process spawns; read from the daemon's owner-only token file when attaching.
+ * It reaches the backend through the child's environment and the renderer
+ * through the preload's synchronous IPC — never argv (world-readable in `ps`),
+ * never a URL, never a log line.
+ */
+let backendToken: string | null = null;
 
 /** Platform-appropriate state directory for resmon. Mirrors daemon.state_dir(). */
 function stateDir(): string {
@@ -32,6 +41,28 @@ function stateDir(): string {
 
 function lockFilePath(): string {
   return path.join(stateDir(), 'daemon.lock');
+}
+
+/** 32 bytes from the OS CSPRNG, URL-safe base64: the shape `api_auth.valid_token` accepts. */
+function mintToken(): string {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+/**
+ * The token a backend on `port` published beside the daemon lock, or null.
+ * Mirrors `api_auth.token_file`/`read_token_file`: `<state dir>/api-token-<port>`.
+ */
+function readTokenFile(port: number): string | null {
+  try {
+    const text = fs.readFileSync(path.join(stateDir(), `api-token-${port}`), 'ascii').trim();
+    return /^[A-Za-z0-9_-]{43,128}$/.test(text) ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+function bearer(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
 }
 
 interface LockPayload {
@@ -61,10 +92,10 @@ interface HealthPayload {
 }
 
 /** GET /api/health with a hard timeout. Resolves the parsed payload on 200, null otherwise. */
-function fetchHealth(port: number, timeoutMs: number = 3000): Promise<HealthPayload | null> {
+function fetchHealth(port: number, token: string, timeoutMs: number = 3000): Promise<HealthPayload | null> {
   return new Promise((resolve) => {
     const req = http.get(
-      { host: '127.0.0.1', port, path: '/api/health', timeout: timeoutMs },
+      { host: '127.0.0.1', port, path: '/api/health', timeout: timeoutMs, headers: bearer(token) },
       (res) => {
         if (res.statusCode !== 200) {
           res.resume();
@@ -84,6 +115,31 @@ function fetchHealth(port: number, timeoutMs: number = 3000): Promise<HealthPayl
     );
     req.on('timeout', () => { req.destroy(); resolve(null); });
     req.on('error', () => resolve(null));
+  });
+}
+
+/**
+ * Tell an attached daemon the exact origin of this window's renderer.
+ *
+ * The daemon starts under launchd before any window exists, so unlike a backend
+ * this process spawns it cannot be told the origin in its environment — and
+ * "any loopback origin", which the old Library guard trusted, is what the
+ * lock-down removed. Sent from here, with the token and without an Origin
+ * header, which is the only way the backend accepts it.
+ */
+function registerRendererOrigin(port: number, token: string, origin: string, timeoutMs = 3000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ origin });
+    const req = http.request(
+      {
+        host: '127.0.0.1', port, method: 'POST', path: '/api/auth/renderer-origin', timeout: timeoutMs,
+        headers: { ...bearer(token), 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      },
+      (res) => { res.resume(); resolve(res.statusCode === 200); },
+    );
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+    req.end(body);
   });
 }
 
@@ -112,15 +168,26 @@ function fetchHealth(port: number, timeoutMs: number = 3000): Promise<HealthPayl
  * bundled backend on a free port and leaves the daemon alone.
  */
 async function tryAttachToDaemon(
+  rendererOrigin: string,
   attempts: number = 3,
   perAttemptTimeoutMs: number = 1500,
   backoffMs: number = 250,
-): Promise<number | null> {
+): Promise<{ port: number; token: string } | null> {
   for (let i = 0; i < attempts; i++) {
     const lock = readLockFile();
     if (lock) {
-      const health = await fetchHealth(lock.port, perAttemptTimeoutMs);
-      if (health) {
+      // 2.2: a daemon with no token file is treated exactly like a
+      // version-mismatched one — never probed, never attached to. It is either
+      // a daemon from before the lock-down or one whose file this user cannot
+      // read, and in both cases the app spawns its own backend and leaves the
+      // daemon alone. It is retried like an unanswered probe, because a daemon
+      // mid-start writes its lock a moment before its token file.
+      const token = readTokenFile(lock.port);
+      if (!token) {
+        console.warn(`[main] Daemon on port ${lock.port} has published no API token (attempt ${i + 1}/${attempts}).`);
+      }
+      const health = token ? await fetchHealth(lock.port, token, perAttemptTimeoutMs) : null;
+      if (token && health) {
         // Trust the live process over the lock file for the version.
         const daemonVersion = health.version ?? lock.version ?? 'unknown';
         if (daemonVersion !== app.getVersion()) {
@@ -130,11 +197,15 @@ async function tryAttachToDaemon(
           );
           return null;
         }
+        if (!(await registerRendererOrigin(lock.port, token, rendererOrigin))) {
+          console.warn(`[main] Daemon on port ${lock.port} did not accept this window's origin — not attaching.`);
+          return null;
+        }
         console.log(
           `[main] Attached to existing resmon-daemon on port ${lock.port} ` +
           `(pid=${lock.pid}, v${daemonVersion}, attempt=${i + 1}/${attempts})`,
         );
-        return lock.port;
+        return { port: lock.port, token };
       }
     }
     if (i + 1 < attempts) {
@@ -162,8 +233,26 @@ function findFreePort(): Promise<number> {
   });
 }
 
+/**
+ * The command, argv and environment a spawned backend gets.
+ *
+ * Separate from `startBackend` so the one property that matters most here —
+ * the token is in `env` and not in `args` — is a fact about a value that can be
+ * inspected, rather than about a call that already happened.
+ */
+function backendSpawnSpec(
+  pythonPath: string, resmonScript: string, port: number, token: string, rendererOrigin: string,
+  baseEnv: NodeJS.ProcessEnv,
+): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
+  return {
+    command: pythonPath,
+    args: [resmonScript, String(port)],
+    env: { ...baseEnv, RESMON_API_TOKEN: token, RESMON_RENDERER_ORIGIN: rendererOrigin },
+  };
+}
+
 /** Spawn the Python backend and return the child process. */
-function startBackend(port: number): ChildProcess {
+function startBackend(port: number, token: string, rendererOrigin: string): ChildProcess {
   // Where the Python backend lives depends on whether we are running from a
   // checkout or from an installed .app.
   //
@@ -213,10 +302,11 @@ function startBackend(port: number): ChildProcess {
       || path.join(state, 'resmon_reports');
   }
 
-  const child = spawn(pythonPath, [resmonScript, String(port)], {
+  const spec = backendSpawnSpec(pythonPath, resmonScript, port, token, rendererOrigin, backendEnv);
+  const child = spawn(spec.command, spec.args, {
     cwd: scriptDir,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: backendEnv,
+    env: spec.env,
   });
 
   child.stdout?.on('data', (data: Buffer) => {
@@ -236,12 +326,13 @@ function startBackend(port: number): ChildProcess {
 }
 
 /** Poll GET /api/health until the backend responds with 200. */
-function waitForBackend(port: number, retries = 30, delay = 500): Promise<void> {
+function waitForBackend(port: number, token: string, retries = 30, delay = 500): Promise<void> {
   return new Promise((resolve, reject) => {
     let attempts = 0;
     const check = () => {
       attempts++;
-      const req = http.get(`http://127.0.0.1:${port}/api/health`, (res) => {
+      const req = http.get({ host: '127.0.0.1', port, path: '/api/health', headers: bearer(token) }, (res) => {
+        res.resume();
         if (res.statusCode === 200) {
           resolve();
         } else if (attempts < retries) {
@@ -381,9 +472,8 @@ function createWindow(): void {
       // renderer was loaded over file:// and could not make cross-origin
       // requests to the backend. The renderer is now served by a local HTTP
       // server (startRendererServer below), so it has an ordinary
-      // http://127.0.0.1:<port> origin, and the backend answers with
-      // Access-Control-Allow-Origin: * plus Access-Control-Allow-Private-Network
-      // on both simple and preflight requests. Disabling the same-origin policy
+      // http://127.0.0.1:<port> origin, and since 2.2 the backend answers CORS
+      // for exactly that origin and no other. Disabling the same-origin policy
       // for the whole window bought nothing and cost real protection.
       // Enable the <webview> tag so the About resmon → Blog tab can embed
       // the public GitHub Pages blog at https://ryanjosephkamp.github.io/resmon/
@@ -392,7 +482,9 @@ function createWindow(): void {
       // to any other origin open in the user's default browser via
       // ``shell.openExternal`` rather than inside the embed.
       webviewTag: true,
-      additionalArguments: [`--backend-port=${backendPort}`],
+      // No additionalArguments: they land in the renderer process's argv, which
+      // `ps` shows to every user. The preload asks for the port and token over
+      // the synchronous `resmon:backend-connection` IPC instead.
     },
   });
 
@@ -423,6 +515,24 @@ function createWindow(): void {
     openLinkWindow(url);
     return { action: 'deny' };
   });
+
+  // The main window only ever shows the renderer. A navigation anywhere else —
+  // a plain link without a target, a script setting `location` — opens in a
+  // link window instead, the way `window.open` already does. Since 2.2 this is
+  // also what keeps the backend's token in resmon's own document: the preload
+  // hands it to the main window's top frame, so that frame must never hold
+  // somebody else's page.
+  const rendererOrigin = `http://127.0.0.1:${rendererPort}`;
+  const keepToRenderer = (event: Electron.Event, url: string) => {
+    let origin = '';
+    try { origin = new URL(url).origin; } catch { /* unparseable: refuse */ }
+    if (origin !== rendererOrigin) {
+      event.preventDefault();
+      if (origin) openLinkWindow(url);
+    }
+  };
+  mainWindow.webContents.on('will-navigate', keepToRenderer);
+  mainWindow.webContents.on('will-redirect', keepToRenderer);
 
   mainWindow.loadURL(`http://127.0.0.1:${rendererPort}/index.html`);
 
@@ -674,22 +784,53 @@ function initAutoUpdater(): void {
 
 app.whenReady().then(async () => {
   try {
+    // The renderer server comes first (2.2): the backend has to be told the
+    // renderer's exact origin, which is only known once this port is bound.
+    const rendererRoot = path.join(__dirname, '..', 'renderer');
+    const rendererOrigin = `http://127.0.0.1:${await startRendererServer(rendererRoot)}`;
+
     // Attach-or-spawn: if the lock file points to a live daemon, attach.
     // Update 4 / Fix C — retry with a longer per-attempt timeout so a
     // launchd-respawn-in-progress (lock file rewritten but FastAPI not
     // yet bound) does not cause a single-shot 500 ms probe to time out
     // and trigger a competing-backend spawn.
-    const attachedPort = await tryAttachToDaemon();
-    if (attachedPort !== null) {
-      backendPort = attachedPort;
+    const attached = await tryAttachToDaemon(rendererOrigin);
+    if (attached !== null) {
+      backendPort = attached.port;
+      backendToken = attached.token;
       attachedToDaemon = true;
     } else {
       backendPort = await findFreePort();
+      backendToken = mintToken();
       console.log(`[main] Starting backend on port ${backendPort}`);
-      backendProcess = startBackend(backendPort);
-      await waitForBackend(backendPort);
+      backendProcess = startBackend(backendPort, backendToken, rendererOrigin);
+      await waitForBackend(backendPort, backendToken);
       console.log('[main] Backend is ready');
     }
+
+    // IPC: the backend's port and token, for the preload only. Synchronous
+    // because the renderer's `getBaseUrl()` is, and it is called during the
+    // first render. Answered only to the main window's own top frame. That
+    // frame can only ever hold a document from the renderer origin — the
+    // `will-navigate` guard in `createWindow` sends every other navigation to a
+    // link window, which has no preload — so the frame check is the origin
+    // check. The frame's own URL cannot be used for it: while the preload runs
+    // it is still "" (observed under Playwright), and a handler that throws
+    // never sets `returnValue`, which leaves the renderer blocked in sendSync.
+    // The Blog <webview> and link windows have no preload and are refused anyway.
+    ipcMain.on('resmon:backend-connection', (event) => {
+      let answer: { port: string; token: string | null } | null = null;
+      try {
+        const frame = event.senderFrame;
+        const fromRenderer = mainWindow !== null
+          && event.sender === mainWindow.webContents
+          && frame !== null && frame === mainWindow.webContents.mainFrame
+          && (frame.url === '' || frame.url.startsWith(`${rendererOrigin}/`));
+        if (fromRenderer) answer = { port: String(backendPort), token: backendToken };
+      } finally {
+        event.returnValue = answer;
+      }
+    });
 
     // IPC: choose a directory via native folder picker.
     ipcMain.handle('resmon:choose-directory', async (_evt, defaultPath?: string) => {
@@ -755,8 +896,6 @@ app.whenReady().then(async () => {
       return true;
     });
 
-    const rendererRoot = path.join(__dirname, '..', 'renderer');
-    await startRendererServer(rendererRoot);
     installApplicationMenu();
     createWindow();
     if (mainWindow) installDownloads(mainWindow);

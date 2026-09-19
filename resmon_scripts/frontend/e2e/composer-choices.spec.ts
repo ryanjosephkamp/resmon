@@ -74,8 +74,8 @@ print(json.dumps({t:c.execute('SELECT * FROM "'+t+'" ORDER BY 1').fetchall() for
   const identity=await app.evaluate(({app})=>({pid:process.pid,state:process.env.RESMON_STATE_DIR,db:process.env.RESMON_DB_PATH,reports:process.env.RESMON_REPORTS_DIR,portFile:process.env.RESMON_PORT_FILE,profile:app.getPath('userData')}));
   instances.push({...identity,started,source:REPO_ROOT,port});receipt('instances',instances);
  };
- const get=async(url:string)=>(await fetch(base+url)).json();
- const put=async(url:string,settings:object)=>{const r=await fetch(base+url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings})});expect(r.ok).toBe(true);};
+ const get=async(url:string)=>(await e2eFetch(base+url)).json();
+ const put=async(url:string,settings:object)=>{const r=await e2eFetch(base+url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings})});expect(r.ok).toBe(true);};
  const open=async(id:number)=>{await win!.getByLabel('Earlier conversations',{exact:true}).click();await win!.locator('.assistant-session-open').filter({hasText:id===1?'Historical claude_cli':id===2?'Historical api_key':'SAY:R04c CLI'}).first().click();};
  const send=async(text:string,confirm=false)=>{
   const response=win!.waitForResponse(r=>/\/assistant\/sessions\/\d+\/messages$/.test(r.url())&&r.request().method()==='POST');
@@ -111,16 +111,16 @@ print(json.dumps({t:c.execute('SELECT * FROM "'+t+'" ORDER BY 1').fetchall() for
    const prior=await get('/api/routines');const stream=win!.waitForResponse(r=>r.url().endsWith(`/${id}/messages`));
    await win!.getByLabel('Message the assistant').fill('CALL:create_routine '+JSON.stringify(args));await win!.getByRole('button',{name:'Send',exact:true}).click();
    const card=win!.getByTestId('permission-card');await expect(card).toBeVisible();await expect(card.locator('pre')).toHaveText(`create_routine(${JSON.stringify(args,null,2)})`);
-   const wrong=await fetch(base+'/api/assistant/permissions/not-the-request',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"allow":true}'});expect(wrong.status).toBe(409);
+   const wrong=await e2eFetch(base+'/api/assistant/permissions/not-the-request',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"allow":true}'});expect(wrong.status).toBe(409);
    expect(await get('/api/routines')).toEqual(prior);
    const answer=win!.waitForResponse(r=>r.url().includes('/permissions/')&&r.request().method()==='POST');await card.getByRole('button',{name:decision,exact:true}).click();const approved=await answer;
    const streamResponse=await stream;await streamResponse.finished();await expect(win!.getByRole('button',{name:'Stop',exact:true})).toBeHidden();
    const after=await get('/api/routines');if(decision==='Deny')expect(after).toEqual(prior);else{const created=after.find((r:{name:string})=>r.name===args.name);expect(created.is_active).toBe(0);expect(created.last_executed_at).toBeNull();expect(after).toHaveLength(prior.length+1);}
-   const replay=await fetch(approved.url(),{method:'POST',headers:{'Content-Type':'application/json'},body:'{"allow":true}'});expect(replay.status).toBe(409);expect(await get('/api/routines')).toEqual(after);
+   const replay=await e2eFetch(approved.url(),{method:'POST',headers:{'Content-Type':'application/json'},body:'{"allow":true}'});expect(replay.status).toBe(409);expect(await get('/api/routines')).toEqual(after);
    receipt('cli-consent-'+decision,{request:approved.request().postDataJSON(),request_id:approved.url().split('/').pop(),prior,after,replay:replay.status,wrong:wrong.status});
   }
   await open(1);expect((await get('/api/assistant/sessions/1')).session.choices).toBeNull();
-  const beforeLegacy=rows();const unconfirmed=await fetch(base+'/api/assistant/sessions/1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"text":"no confirmation"}'});expect(unconfirmed.status).toBe(409);expect(rows()).toEqual(beforeLegacy);
+  const beforeLegacy=rows();const unconfirmed=await e2eFetch(base+'/api/assistant/sessions/1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"text":"no confirmation"}'});expect(unconfirmed.status).toBe(409);expect(rows()).toEqual(beforeLegacy);
   await win!.getByLabel('Message the assistant').fill('SAY:legacy future');await win!.getByRole('button',{name:'Send',exact:true}).click();
   await expect(win!.getByText('Earlier messages remain here; this new Claude session will receive your new message, not the earlier conversation.')).toBeVisible();await win!.getByText('Cancel continuation',{exact:true}).click();expect(rows()).toEqual(beforeLegacy);
   await send('SAY:legacy future',true);const legacyCapture=lastCapture()!;

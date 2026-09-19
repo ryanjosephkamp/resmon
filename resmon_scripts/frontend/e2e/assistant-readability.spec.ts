@@ -23,7 +23,7 @@ const test = baseTest.extend({
 const output = () => ensureScreenshotDir();
 async function json(win: Page, port: string, url: string, body?: object) {
   return win.evaluate(async ({ port, url, body }) => {
-    const response = await fetch(`http://127.0.0.1:${port}${url}`, body ? {
+    const response = await e2eFetch(`http://127.0.0.1:${port}${url}`, body ? {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     } : undefined);
     if (!response.ok) throw new Error(`${url}: ${response.status}`);

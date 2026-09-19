@@ -178,12 +178,39 @@ describe('SearchRecord', () => {
     expect(screen.getByText('2026-01-01 to 2026-06-30')).toBeInTheDocument();
   });
 
-  test('the markdown export links to the backend, which names the file', async () => {
+  test('the markdown export is fetched with the token in a header, never in the URL', async () => {
     await renderRecord();
+    const token = 'T'.repeat(43);
+    (window as any).resmonAPI = { getBackendPort: () => '51234', getApiToken: () => token, platform: 'darwin', versions: { node: '', electron: '' } };
+    const markdown = { ok: true, status: 200, blob: async () => new Blob(['# record']) };
+    (global as any).fetch = jest.fn(async () => markdown);
+    const created = jest.fn(() => 'blob:record');
+    const revoked = jest.fn();
+    Object.assign(URL, { createObjectURL: created, revokeObjectURL: revoked });
+    const clicked: string[] = [];
+    const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this.download);
+    });
+    try {
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: /download as markdown/i })); });
+      const [url, init] = (global as any).fetch.mock.calls[0];
+      expect(url).toBe('http://127.0.0.1:51234/api/executions/42/search-record?format=markdown');
+      expect(url).not.toContain(token);
+      expect(new Headers(init.headers).get('Authorization')).toBe(`Bearer ${token}`);
+      // The backend's own file name, repeated because a cross-origin fetch cannot read it.
+      expect(clicked).toEqual(['resmon-search-record-42.md']);
+      expect(revoked).toHaveBeenCalledWith('blob:record');
+    } finally {
+      click.mockRestore();
+      delete (window as any).resmonAPI;
+    }
+  });
 
-    const link = screen.getByRole('link', { name: /download as markdown/i });
-    expect(link).toHaveAttribute(
-      'href', expect.stringContaining('/search-record?format=markdown'));
+  test('a refused markdown download says so', async () => {
+    await renderRecord();
+    (global as any).fetch = jest.fn(async () => ({ ok: false, status: 401 }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /download as markdown/i })); });
+    expect(screen.getByRole('alert')).toHaveTextContent('HTTP 401');
   });
 
   test('a failure says so instead of rendering an empty record', async () => {
@@ -215,7 +242,11 @@ test.each(['success', 'failure'])('late %s from a previous execution cannot repl
   await act(async () => { finish(response(RECORD, mode === 'success')); });
   expect(screen.getByText('RUN B')).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Download as Markdown' })).toHaveAttribute('href', expect.stringContaining('/43/search-record'));
+  // The download still targets the current execution, not the late one.
+  const download = jest.fn(async () => ({ ok: false, status: 404 }));
+  global.fetch = download as unknown as typeof fetch;
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Download as Markdown' })); });
+  expect(download.mock.calls[0]).toEqual([expect.stringContaining('/43/search-record'), expect.anything()]);
 });
 
 test('failed record has a retry and cannot become empty success', async () => {
@@ -223,9 +254,9 @@ test('failed record has a retry and cannot become empty success', async () => {
     ok: true, headers: { get: () => 'application/json' }, json: async () => RECORD });
   await act(async () => { render(<SearchRecord executionId={42} />); });
   expect(screen.getByRole('alert')).toHaveTextContent('authored outage');
-  expect(screen.queryByRole('link', { name: 'Download as Markdown' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Download as Markdown' })).not.toBeInTheDocument();
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry search record' })); });
-  expect(screen.getByRole('link', { name: 'Download as Markdown' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Download as Markdown' })).toBeInTheDocument();
 });
 
 

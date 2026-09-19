@@ -70,7 +70,7 @@ async function api(win: Page, method: string, route: string, body?: unknown): Pr
   return win.evaluate(async ([m, r, b]) => {
     const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
       .resmonAPI.getBackendPort();
-    const res = await fetch(`http://127.0.0.1:${port}${r as string}`, {
+    const res = await e2eFetch(`http://127.0.0.1:${port}${r as string}`, {
       method: m as string,
       headers: { 'Content-Type': 'application/json' },
       body: b === undefined ? undefined : JSON.stringify(b),

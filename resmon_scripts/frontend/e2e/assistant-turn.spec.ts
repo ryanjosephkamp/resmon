@@ -43,16 +43,16 @@ test.describe('the assistant, in an Electron-spawned backend', () => {
     const result = await win.evaluate(async ([p, cliPath]) => {
       const base = `http://127.0.0.1:${p}`;
       const j = { 'Content-Type': 'application/json' };
-      await fetch(`${base}/api/settings/ai`, {
+      await e2eFetch(`${base}/api/settings/ai`, {
         method: 'PUT', headers: j,
         body: JSON.stringify({ settings: { ai_cli_path: cliPath } }),
       });
-      const session = await (await fetch(`${base}/api/assistant/sessions`, {
+      const session = await (await e2eFetch(`${base}/api/assistant/sessions`, {
         method: 'POST', headers: j, body: '{}',
       })).json();
 
       const began = Date.now();
-      const res = await fetch(`${base}/api/assistant/sessions/${session.id}/messages`, {
+      const res = await e2eFetch(`${base}/api/assistant/sessions/${session.id}/messages`, {
         method: 'POST', headers: j,
         body: JSON.stringify({ text: 'SAY:hello from the fake CLI' }),
       });
@@ -102,15 +102,15 @@ test.describe('the assistant, in an Electron-spawned backend', () => {
     const result = await win.evaluate(async ([p, cliPath]) => {
       const base = `http://127.0.0.1:${p}`;
       const j = { 'Content-Type': 'application/json' };
-      await fetch(`${base}/api/settings/ai`, {
+      await e2eFetch(`${base}/api/settings/ai`, {
         method: 'PUT', headers: j,
         body: JSON.stringify({ settings: { ai_cli_path: cliPath } }),
       });
-      const session = await (await fetch(`${base}/api/assistant/sessions`, {
+      const session = await (await e2eFetch(`${base}/api/assistant/sessions`, {
         method: 'POST', headers: j, body: '{}',
       })).json();
       const began = Date.now();
-      const res = await fetch(`${base}/api/assistant/sessions/${session.id}/messages`, {
+      const res = await e2eFetch(`${base}/api/assistant/sessions/${session.id}/messages`, {
         method: 'POST', headers: j, body: JSON.stringify({ text: 'SILENT:120' }),
       });
       const reader = res.body!.getReader();

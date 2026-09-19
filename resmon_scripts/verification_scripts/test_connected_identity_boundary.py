@@ -12,6 +12,36 @@ import sys
 import time
 from uuid import uuid4
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
+from implementation_scripts import api_auth as _api_auth  # noqa: E402
+
+# 2.2: every request to a resmon backend carries its local API token. The
+# backends this file starts are handed the suite's token in RESMON_API_TOKEN,
+# exactly as Electron hands its own over, and test-side calls go through this
+# shim. The code under test builds its own headers; nothing here adds any.
+_TOKEN = _api_auth.current_token()
+
+
+class _WithToken:
+    """httpx's module-level ``get``/``post``/``stream``/…, plus the token header.
+
+    A shim over the functions rather than a shared ``httpx.Client``: each call
+    keeps its own throwaway client, so a stream a test abandons is closed exactly
+    as before — a pooled connection outlived one and hid a disconnect.
+    """
+
+    def __getattr__(self, name):
+        function = getattr(httpx, name)
+
+        def call(*args, **kwargs):
+            auth = _api_auth.bearer(_TOKEN) if _TOKEN else {}
+            kwargs["headers"] = {**auth, **dict(kwargs.get("headers") or {})}
+            return function(*args, **kwargs)
+        return call
+
+
+_API = _WithToken()
 import pytest
 from test_coverage_reports import seed
 
@@ -37,7 +67,7 @@ def serving(state: Path, port: int = 0):
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
     assert port != 8742
-    env = {**os.environ, "RESMON_STATE_DIR": str(state), "RESMON_DB_PATH": str(path),
+    env = {**os.environ, **({"RESMON_API_TOKEN": _TOKEN} if _TOKEN else {}), "RESMON_STATE_DIR": str(state), "RESMON_DB_PATH": str(path),
         "RESMON_REPORTS_DIR": str(state / "reports"), "RESMON_PORT_FILE": str(state / "backend.port"),
         "RESMON_CHROMIUM_PROFILE": str(state / "chromium"), "RESMON_DISABLE_SCHEDULER": "1",
         "RESMON_PORT": str(port), "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring",
@@ -52,7 +82,7 @@ def serving(state: Path, port: int = 0):
             for _ in range(150):
                 assert proc.poll() is None, log_path.read_text()
                 try:
-                    response = httpx.get(base + "/api/health", timeout=1)
+                    response = _API.get(base + "/api/health", timeout=1)
                     response.raise_for_status()
                     health = response.json()
                     break
@@ -106,20 +136,20 @@ def test_two_actual_processes_http_stdio_and_same_state_restart(tmp_path):
         assert eid == fb["execution_ids"][0] and aid != bid
         assert ha["version"] == hb["version"]
         with ThreadPoolExecutor(max_workers=8) as pool:
-            identities = list(pool.map(lambda _: httpx.get(a + "/api/health").json()["identity"], range(16)))
+            identities = list(pool.map(lambda _: _API.get(a + "/api/health").json()["identity"], range(16)))
         assert all(identity == ha["identity"] for identity in identities)
         assert ha["identity"]["schema_version"] == 18
         assert ha["identity"]["corpus_id"] is None and ha["identity"]["build_id"] is None
         for route in ("/api/health", f"/api/executions/{eid}"):
-            matched = httpx.get(a + route, params={"expected_runtime_id": aid})
+            matched = _API.get(a + route, params={"expected_runtime_id": aid})
             assert matched.status_code == 200 and matched.json()["identity"] == ha["identity"]
-            wrong = httpx.get(a + route, params={"expected_runtime_id": bid})
+            wrong = _API.get(a + route, params={"expected_runtime_id": bid})
             assert wrong.status_code == 409 and wrong.json()["detail"]["code"] == "instance_mismatch"
             assert set(wrong.json()) == {"detail"}
             for malformed in ("", "bad", aid.upper()):
-                assert httpx.get(a + route, params={"expected_runtime_id": malformed}).status_code == 422
-        assert httpx.get(a + "/api/executions/999999", params={"expected_runtime_id": bid}).status_code == 409
-        assert httpx.get(a + "/api/executions/999999", params={"expected_runtime_id": aid}).status_code == 404
+                assert _API.get(a + route, params={"expected_runtime_id": malformed}).status_code == 422
+        assert _API.get(a + "/api/executions/999999", params={"expected_runtime_id": bid}).status_code == 409
+        assert _API.get(a + "/api/executions/999999", params={"expected_runtime_id": aid}).status_code == 404
         replies = stdio(env, [{"method": "initialize"}, {"method": "tools/list"},
             tool("health"), tool("health", expected_runtime_id=aid),
             tool("get_execution", exec_id=eid, expected_runtime_id=aid),
@@ -135,7 +165,7 @@ def test_two_actual_processes_http_stdio_and_same_state_restart(tmp_path):
         port = int(env["RESMON_PORT"])
     with serving(tmp_path / "A", port) as (a, restarted, _, _):
         assert restarted["identity"]["runtime_id"] not in (aid, bid)
-        assert httpx.get(a + "/api/executions/1", params={"expected_runtime_id": aid}).status_code == 409
+        assert _API.get(a + "/api/executions/1", params={"expected_runtime_id": aid}).status_code == 409
         print("IDENTITY_RESTART", json.dumps({"before": ha, "after": restarted, "same_state": True, "same_port": port}), flush=True)
 
 

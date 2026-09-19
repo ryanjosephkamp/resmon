@@ -30,7 +30,7 @@ test('a zero says why, on the results row and in the search record', async ({
   const execId = await win.evaluate(async () => {
     const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
       .resmonAPI.getBackendPort();
-    const res = await fetch(`http://127.0.0.1:${port}/api/search/dive`, {
+    const res = await e2eFetch(`http://127.0.0.1:${port}/api/search/dive`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -55,7 +55,7 @@ test('a zero says why, on the results row and in the search record', async ({
     const deadline = Date.now() + 90_000;
     let status = 'running';
     while (Date.now() < deadline) {
-      const res = await fetch(`http://127.0.0.1:${port}/api/executions/${id}`);
+      const res = await e2eFetch(`http://127.0.0.1:${port}/api/executions/${id}`);
       status = (await res.json()).status;
       if (status !== 'running') return status;
       await new Promise((r) => setTimeout(r, 500));
@@ -69,7 +69,7 @@ test('a zero says why, on the results row and in the search record', async ({
   const outcomes = await win.evaluate(async (id) => {
     const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
       .resmonAPI.getBackendPort();
-    const res = await fetch(`http://127.0.0.1:${port}/api/executions/${id}`);
+    const res = await e2eFetch(`http://127.0.0.1:${port}/api/executions/${id}`);
     return (await res.json()).source_outcomes;
   }, execId);
   console.log('ZERO REASON source_outcomes', JSON.stringify(outcomes));

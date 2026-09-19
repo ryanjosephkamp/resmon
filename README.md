@@ -374,6 +374,13 @@ when neither names one. A port that was named and is not answering is reported a
 unavailable rather than widened to the default — otherwise a harness can silently attach to a
 different resmon installation and answer truthfully about the wrong corpus.
 
+**The backend asks every caller for its local API token** (2.2), and the MCP server reads it
+from the owner-only file the backend writes beside its daemon lock, `api-token-<port>` in
+resmon's state directory. Nothing needs configuring for the installed app. For a development
+instance with its own state directory, set `RESMON_STATE_DIR` for the MCP server too; a named
+port whose token cannot be found is reported as unavailable, naming that instance. See
+[`docs/local-api-security.md`](docs/local-api-security.md).
+
 ### Running a routine on demand
 
 `POST /api/routines/{id}/run` runs a saved routine immediately, outside its schedule. It is a
@@ -660,7 +667,7 @@ resmon is a local-first desktop application composed of two cooperating processe
 
 ### Backend — FastAPI + SQLite
 
-The backend is a single FastAPI application constructed at module load in `resmon_scripts/resmon.py`. A shared `sqlite3.Connection` backs every request, the database path defaults to `resmon.db` at the project root, and the schema is owned by `implementation_scripts/database.py` with a version-tracked migration path on startup. Two ASGI middlewares wrap the app: a custom `PrivateNetworkMiddleware` that injects `Access-Control-Allow-Private-Network: true` so Chromium's Private Network Access policy permits the `file://` renderer to reach loopback, and `CORSMiddleware` with permissive origins (safe because the server binds to `127.0.0.1` only). All SQL is parameterized; all credentials flow through a single `credential_manager.py` module that owns OS-keyring access.
+The backend is a single FastAPI application constructed at module load in `resmon_scripts/resmon.py`. A shared `sqlite3.Connection` backs every request, the database path defaults to `resmon.db` at the project root, and the schema is owned by `implementation_scripts/database.py` with a version-tracked migration path on startup. Binding to `127.0.0.1` is not a boundary on its own — any web page in any browser on the machine can send requests to loopback — so since 2.2 the outermost ASGI layer (`LocalApiGuard`) refuses every request, on every route, that does not name a loopback `Host` on the backend's own port, come from the app's own renderer origin when it has an `Origin`, and carry the backend's per-instance token in `Authorization: Bearer`. CORS answers the renderer's exact origin and nothing else, and `Access-Control-Allow-Private-Network` is sent only on a preflight from that origin that asks for it. What this defends and what it does not: [`docs/local-api-security.md`](docs/local-api-security.md). All SQL is parameterized; all credentials flow through a single `credential_manager.py` module that owns OS-keyring access.
 
 The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), which orchestrates query → normalize → dedup → link → report → summarize → finalize for both manual and routine-fired runs. Per-source API clients (19 repositories) live under `implementation_scripts/api_*.py` and are registered through `api_registry.py`. Results are normalized by `normalizer.py`, deduplicated by DOI and by (title, first author), and rendered by `report_generator.py` into Markdown, with optional PDF and LaTeX exports through `report_exporter.py`.
 
@@ -845,7 +852,7 @@ Imports are always additive: a new row is inserted with a fresh integer id. Noth
 
 ## API Reference
 
-All REST endpoints are served by the local FastAPI daemon (`resmon_scripts/resmon.py`) bound to `127.0.0.1:8742` by default. Requests and responses are JSON unless noted; error responses use FastAPI's standard `{"detail": "..."}` envelope and the shared frontend API client (`api/client.ts`) unwraps it into a single readable message. The groups below are summarized from the Backend sections of the corresponding info docs under `resmon_reports/info_docs/`.
+All REST endpoints are served by the local FastAPI daemon (`resmon_scripts/resmon.py`) bound to `127.0.0.1:8742` by default. Every request needs the backend's local API token in `Authorization: Bearer <token>` and a loopback `Host`; refusals are `401 token_missing` / `401 token_invalid` / `403 host_refused` / `403 origin_refused` ([security model](docs/local-api-security.md)). Requests and responses are JSON unless noted; error responses use FastAPI's standard `{"detail": "..."}` envelope and the shared frontend API client (`api/client.ts`) unwraps it into a single readable message. The groups below are summarized from the Backend sections of the corresponding info docs under `resmon_reports/info_docs/`.
 
 ### `/api/health`
 

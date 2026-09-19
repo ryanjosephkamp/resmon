@@ -51,11 +51,11 @@ c.commit();c.close()`,env.RESMON_DB_PATH);
    const g=globalThis as unknown as {libraryOpenPaths:string[];libraryOpenFailure:boolean};g.libraryOpenPaths=[];g.libraryOpenFailure=false;
    shell.openPath=async target=>{g.libraryOpenPaths.push(target);return g.libraryOpenFailure?'authored OS-open refusal':'';};
   },parent);
-  const health=await fetch(base+'/api/health');const h=await health.json();expect(h.pid).toBe(backendPid);expect(h.identity.schema_version).toBe(18);
+  const health=await e2eFetch(base+'/api/health');const h=await health.json();expect(h.pid).toBe(backendPid);expect(h.identity.schema_version).toBe(18);
   await win.evaluate(()=>{location.hash='/library';});await win.waitForSelector('.library-page');
  };
  const req=async<T>(suffix:string,method='GET',body?:unknown):Promise<T>=>{
-  const r=await fetch(base+'/api/library'+suffix,{method,headers:{Origin:origin,'X-Resmon-Library':'1',...(body===undefined?{}:{'Content-Type':'application/json'})},body:body===undefined?undefined:JSON.stringify(body)});
+  const r=await e2eFetch(base+'/api/library'+suffix,{method,headers:{Origin:origin,'X-Resmon-Library':'1',...(body===undefined?{}:{'Content-Type':'application/json'})},body:body===undefined?undefined:JSON.stringify(body)});
   expect(r.ok,await r.clone().text()).toBe(true);return r.json() as Promise<T>;
  };
  const select=async(name:string)=>{await win.getByRole('button',{name:new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+' (text/|application/)')}).click();await expect(win.getByRole('heading',{name,exact:true})).toBeVisible();};
@@ -116,7 +116,7 @@ c.commit();c.close()`,env.RESMON_DB_PATH);
   const pdfRead=win.getByRole('link',{name:'Read PDF in Evidence',exact:true});
   await expect(pdfRead).toHaveAttribute('href','#/evidence?'+new URLSearchParams({vault_id:vid,file_id:pdf.file_id,version_id:pdf.version_id}).toString());
   expect(await win.getByRole('button',{name:'Read text',exact:true}).count()).toBe(0);
-  const pdfText=await fetch(base+`/api/library/files/${pdf.file_id}/text`+q+`&expected_version_id=${pdf.version_id}`,{headers:{Origin:origin,'X-Resmon-Library':'1'}});
+  const pdfText=await e2eFetch(base+`/api/library/files/${pdf.file_id}/text`+q+`&expected_version_id=${pdf.version_id}`,{headers:{Origin:origin,'X-Resmon-Library':'1'}});
   expect(pdfText.status).toBe(415);expect(await pdfText.text()).toContain('PDF is retained');
   await pdfRead.click();await expect(win.getByRole('region',{name:'Selected Library handoff'})).toContainText(pdf.version_id);
   await expect(win.getByRole('button',{name:'Add selected Library file to project'})).toBeDisabled();
@@ -146,7 +146,7 @@ c.commit();c.close()`,env.RESMON_DB_PATH);
   }
   receipt('marker-restoration',{sha256:hash(fs.readFileSync(marker)),originalSha256:hash(markerBytes)});
   for(let i=0;i<119;i++){
-   const bytes=Buffer.from(`authored item ${i}`);const r=await fetch(base+`/api/library/files${q}&filename=${encodeURIComponent(`item-${String(i).padStart(3,'0')}.txt`)}`,{method:'POST',headers:{Origin:origin,'X-Resmon-Library':'1','Content-Type':'application/octet-stream'},body:bytes});expect(r.status).toBe(201);
+   const bytes=Buffer.from(`authored item ${i}`);const r=await e2eFetch(base+`/api/library/files${q}&filename=${encodeURIComponent(`item-${String(i).padStart(3,'0')}.txt`)}`,{method:'POST',headers:{Origin:origin,'X-Resmon-Library':'1','Content-Type':'application/octet-stream'},body:bytes});expect(r.status).toBe(201);
   }
   await win.getByText('Refresh Library',{exact:true}).click();await expect(win.getByRole('region',{name:'Library files'}).locator('.library-item')).toHaveCount(50);await win.getByText('Next 50 items',{exact:true}).click();await expect(win.getByRole('region',{name:'Library files'}).locator('.library-item')).toHaveCount(50);await win.getByText('Next 50 items',{exact:true}).click();await expect(win.getByRole('region',{name:'Library files'}).locator('.library-item')).toHaveCount(23);
   page=await req<LibraryPage>('/files'+q);const all=[...page.files];const ceiling=page.through_id;while(page.has_more){page=await req<LibraryPage>(`/files${q}&through_id=${ceiling}&before_id=${page.next_before_id}`);all.push(...page.files);}expect(new Set(all.map(f=>f.file_id)).size).toBe(123);receipt('paging',{ceiling,count:all.length,ids:all.map(f=>f.file_id)});

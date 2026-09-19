@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import httpx
+from implementation_scripts import api_auth
 from implementation_scripts.runtime_identity import valid_runtime_id, valid_identity
 
 # The contract this server implements: docs/api-contract/mcp.md.
@@ -177,11 +178,34 @@ def _candidate_ports() -> list[int]:
 
 
 class Backend:
-    """A thin HTTP client for the running resmon backend."""
+    """A thin HTTP client for the running resmon backend.
+
+    **Every request carries the backend's local API token** (2.2). The token is
+    read from ``<state dir>/api-token-<port>``, which the backend writes
+    owner-only at start, for the port this server has already chosen — so a
+    named port whose token cannot be found is an error naming that instance,
+    never a reason to try another port. The token travels in the
+    ``Authorization`` header and nowhere else: not in a URL, a tool argument, a
+    tool result or an error (``_result`` redacts it defensively).
+    """
 
     def __init__(self) -> None:
         self._base: Optional[str] = None
+        self._token: Optional[str] = None
         self._tried: list[str] = []
+
+    def pin(self, base: str, token: Optional[str]) -> None:
+        """Point this client at one backend, with its token, skipping discovery.
+
+        For the API-key assistant, which runs this module inside the backend
+        process and therefore knows both without reading a file.
+        """
+        self._base = base
+        self._token = token
+        self._tried = []
+
+    def token(self) -> Optional[str]:
+        return self._token
 
     def base_url(self) -> str:
         """Resolve, confirm and cache the backend's address."""
@@ -190,12 +214,27 @@ class Backend:
 
         self._tried = []
         rejected: list[str] = []
+        tokenless: list[str] = []
+        refused: list[str] = []
         for port in _candidate_ports():
             base = f"http://127.0.0.1:{port}"
             self._tried.append(base)
+            token = api_auth.read_token_file(port)
+            if token is None:
+                # Not probed. A current backend always publishes one, so no
+                # file means this is not the instance the caller named — or it
+                # predates 2.2, which this server no longer speaks to: it ships
+                # beside a backend that asks for the token, and the daemon is
+                # upgraded with the app.
+                tokenless.append(base)
+                continue
             try:
-                resp = httpx.get(f"{base}/api/health", timeout=httpx.Timeout(3.0))
+                resp = httpx.get(f"{base}/api/health", headers=api_auth.bearer(token),
+                                 timeout=httpx.Timeout(3.0))
             except httpx.HTTPError:
+                continue
+            if resp.status_code == 401:
+                refused.append(base)
                 continue
             if resp.status_code != 200:
                 continue
@@ -211,6 +250,7 @@ class Backend:
                 continue
 
             self._base = base
+            self._token = token
             return base
 
         if rejected:
@@ -222,6 +262,24 @@ class Backend:
                 "usually an older resmon still running in the background. Start the "
                 "current app and try again.",
                 {"tried": list(self._tried), "rejected": rejected},
+            )
+
+        if refused:
+            raise ToolError(
+                "backend_unavailable",
+                f"resmon at {refused[0]} refused the local API token found for it. The "
+                "token file is left over from an earlier run of that port; start "
+                "resmon again, or point RESMON_STATE_DIR at the instance you mean.",
+                {"tried": list(self._tried), "token_refused": refused},
+            )
+
+        if tokenless:
+            raise ToolError(
+                "backend_unavailable",
+                f"No local API token was found for resmon at {tokenless[0]} (looked in "
+                f"{api_auth.state_dir()}). Start resmon, or set RESMON_STATE_DIR to the "
+                "state directory of the instance you mean.",
+                {"tried": list(self._tried), "no_token": tokenless},
             )
 
         raise ToolError(
@@ -237,18 +295,31 @@ class Backend:
                 raise ToolError("invalid_argument", "expected_runtime_id must be a canonical lowercase UUID4")
             kwargs["params"] = {**kwargs.get("params", {}), "expected_runtime_id": expected_runtime_id}
         base = self.base_url()
+        token = self._token
+        headers = {**kwargs.pop("headers", {}), **(api_auth.bearer(token) if token else {})}
         try:
-            resp = httpx.request(method, f"{base}{path}", timeout=_TIMEOUT, **kwargs)
+            resp = httpx.request(method, f"{base}{path}", headers=headers, timeout=_TIMEOUT, **kwargs)
         except httpx.HTTPError as exc:
             # The address answered /api/health a moment ago, so treat a failure
             # now as the backend having gone away rather than as a tool bug.
             self._base = None
+            self._token = None
             raise ToolError(
                 "backend_unavailable",
                 "resmon stopped responding part-way through the request.",
                 {"tried": list(self._tried), "reason": type(exc).__name__},
             ) from None
 
+        if resp.status_code == 401:
+            # The backend restarted on the same port with a new token. Forget
+            # both so the next call rediscovers rather than repeating a refusal.
+            self._base = None
+            self._token = None
+            raise ToolError(
+                "backend_unavailable",
+                "resmon refused this server's local API token; it has probably restarted. Try again.",
+                {"tried": list(self._tried)},
+            )
         if resp.status_code == 404:
             raise ToolError("not_found", _detail_of(resp, "That item does not exist."))
         if resp.status_code in (400, 422):
@@ -1426,8 +1497,11 @@ def call_tool(name: str, args: Optional[dict]) -> dict:
 
 
 def _result(payload: Any, is_error: bool = False) -> dict:
+    # The token never belongs in a result. Nothing puts it there; this is the
+    # second layer, for an error that one day relays text it should not.
+    text = api_auth.redact(json.dumps(payload, default=str), backend.token())
     return {
-        "content": [{"type": "text", "text": json.dumps(payload, default=str)}],
+        "content": [{"type": "text", "text": text}],
         "isError": is_error,
     }
 

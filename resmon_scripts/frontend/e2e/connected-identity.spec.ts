@@ -7,7 +7,7 @@ import * as http from 'http';
 import { spawn, execFileSync, ChildProcess } from 'child_process';
 import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication } from '@playwright/test';
-import { FRONTEND_ROOT, REPO_ROOT, launchEnv, ensureScreenshotDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, launchEnv, ensureScreenshotDir, e2eAuth, registerStateDir } from './fixtures/resmon-app';
 
 test('connected header observes real runtime change, explicit keyboard reaccept and legacy/error status', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-connected-identity-'));
@@ -24,6 +24,8 @@ test('connected header observes real runtime change, explicit keyboard reaccept 
   const portB = (reservation.address() as net.AddressInfo).port;
   expect(portB).not.toBe(8742);
   await new Promise<void>((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
+  // B is started here rather than by Electron, so its token file is registered by hand.
+  registerStateDir(b);
   const backendLog = fs.openSync(path.join(b, 'backend.log'), 'w');
   const backend = spawn(envB.RESMON_PYTHON, [path.join(REPO_ROOT, 'resmon_scripts/resmon.py'), String(portB)],
     { cwd: b, env: envB, stdio: ['ignore', backendLog, backendLog] });
@@ -39,13 +41,24 @@ test('connected header observes real runtime change, explicit keyboard reaccept 
     const portA = fs.readFileSync(envA.RESMON_PORT_FILE, 'utf8').trim();
     expect(portA).not.toBe('8742');
     const baseA = `http://127.0.0.1:${portA}`; const baseB = `http://127.0.0.1:${portB}`;
-    const healthA = await (await win.request.get(baseA + '/api/health')).json();
+    const healthA = await (await win.request.get(baseA + '/api/health', { headers: e2eAuth(baseA + '/api/health') })).json();
     backendPidA = Number(healthA.pid);
     if (process.platform !== 'win32') expect(Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(backendPidA)], { encoding: 'utf8' }).trim())).toBe(appProcess.pid);
-    await expect.poll(async () => (await win.request.get(baseB + '/api/health')).status()).toBe(200);
-    const healthB = await (await win.request.get(baseB + '/api/health')).json();
+    await expect.poll(async () => (await win.request.get(baseB + '/api/health', { headers: e2eAuth(baseB + '/api/health') })).status()).toBe(200);
+    const healthB = await (await win.request.get(baseB + '/api/health', { headers: e2eAuth(baseB + '/api/health') })).json();
     expect(healthB.pid).toBe(backend.pid);
     expect(healthA.identity.runtime_id).not.toBe(healthB.identity.runtime_id);
+    // 2.2: B is a different instance, with its own token, and it answers only
+    // origins it has been told about. It is told about this renderer the way an
+    // attached daemon is (main process, B's token, no Origin), and the forwarded
+    // requests below carry B's token — what the app would hold had it attached
+    // to B. What is under test is the identity display, not the credential.
+    const rendererOrigin = new URL(win.url()).origin;
+    const registered = await e2eFetch(baseB + '/api/auth/renderer-origin', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ origin: rendererOrigin }) });
+    expect(registered.status).toBe(200);
+    const authB = e2eAuth(baseB + '/');
+    expect(authB.Authorization).toMatch(/^Bearer /);
     const beforeA = snapshot(envA); const beforeB = snapshot(envB);
     const summary = win.getByLabel('Connected app details');
     await summary.focus(); await win.keyboard.press('Enter');
@@ -58,7 +71,8 @@ test('connected header observes real runtime change, explicit keyboard reaccept 
     const forwarded: string[] = [];
     await win.route(pattern, route => {
       const incoming = new URL(route.request().url()); forwarded.push(incoming.search);
-      return route.continue({ url: baseB + incoming.pathname + incoming.search });
+      return route.continue({ url: baseB + incoming.pathname + incoming.search,
+        headers: { ...route.request().headers(), authorization: authB.Authorization } });
     });
     await details.getByRole('button', { name: 'Refresh status' }).click();
     await expect(win.locator('.connection-identity [role="status"]')).toHaveText('Running app changed');
@@ -77,8 +91,15 @@ test('connected header observes real runtime change, explicit keyboard reaccept 
     let legacyMode: 'legacy' | 'failure' = 'legacy';
     legacy = http.createServer((_request, reply) => {
       reply.setHeader('Access-Control-Allow-Origin', '*');
+      // The renderer's health check carries Authorization since 2.2, so the
+      // browser preflights it; a pre-2.2 backend answered that preflight (its
+      // CORS mirrored any requested header), and so does this stand-in.
+      if (_request.method === 'OPTIONS') {
+        reply.writeHead(204, { 'Access-Control-Allow-Headers': 'authorization', 'Access-Control-Allow-Methods': 'GET' });
+        reply.end(); return;
+      }
       if (legacyMode === 'failure') { reply.writeHead(503); reply.end('{}'); return; }
-      http.get(baseB + '/api/health', response => {
+      http.get(baseB + '/api/health', { headers: authB }, response => {
         let text = ''; response.on('data', chunk => { text += String(chunk); });
         response.on('end', () => {
           const body = JSON.parse(text) as Record<string, unknown>; delete body.identity;

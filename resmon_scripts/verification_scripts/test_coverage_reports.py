@@ -16,6 +16,36 @@ import time
 import zipfile
 from datetime import datetime
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
+from implementation_scripts import api_auth as _api_auth  # noqa: E402
+
+# 2.2: every request to a resmon backend carries its local API token. The
+# backends this file starts are handed the suite's token in RESMON_API_TOKEN,
+# exactly as Electron hands its own over, and test-side calls go through this
+# shim. The code under test builds its own headers; nothing here adds any.
+_TOKEN = _api_auth.current_token()
+
+
+class _WithToken:
+    """httpx's module-level ``get``/``post``/``stream``/…, plus the token header.
+
+    A shim over the functions rather than a shared ``httpx.Client``: each call
+    keeps its own throwaway client, so a stream a test abandons is closed exactly
+    as before — a pooled connection outlived one and hid a disconnect.
+    """
+
+    def __getattr__(self, name):
+        function = getattr(httpx, name)
+
+        def call(*args, **kwargs):
+            auth = _api_auth.bearer(_TOKEN) if _TOKEN else {}
+            kwargs["headers"] = {**auth, **dict(kwargs.get("headers") or {})}
+            return function(*args, **kwargs)
+        return call
+
+
+_API = _WithToken()
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -113,7 +143,7 @@ def boundary(tmp_path_factory):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     assert port != 8742
-    env = {**os.environ, "RESMON_STATE_DIR": str(state), "RESMON_DB_PATH": str(path),
+    env = {**os.environ, **({"RESMON_API_TOKEN": _TOKEN} if _TOKEN else {}), "RESMON_STATE_DIR": str(state), "RESMON_DB_PATH": str(path),
            "RESMON_REPORTS_DIR": str(state / "reports"), "RESMON_PORT_FILE": str(state / "backend.port"),
            "RESMON_CHROMIUM_PROFILE": str(state / "chromium"), "RESMON_DISABLE_SCHEDULER": "1",
            "PYTHONDONTWRITEBYTECODE": "1", "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring"}
@@ -126,7 +156,7 @@ def boundary(tmp_path_factory):
             for _ in range(150):
                 assert proc.poll() is None, (state / "backend.log").read_text()
                 try:
-                    response = httpx.get(base + "/api/health", timeout=1)
+                    response = _API.get(base + "/api/health", timeout=1)
                     response.raise_for_status()
                     health = response.json()
                     break
@@ -139,7 +169,7 @@ def boundary(tmp_path_factory):
             assert requested - 2 <= started <= time.time()
             assert (state / "backend.port").read_text().strip() == str(port)
             # Match a live HTTP response to the synthetic data in the pinned DB.
-            raw = httpx.get(f"{base}/api/executions/{fixture['execution_ids'][0]}/references",
+            raw = _API.get(f"{base}/api/executions/{fixture['execution_ids'][0]}/references",
                             params={"format": "json"}).json()
             assert fixture["marker"] in {d["external_id"] for d in raw}
             from test_mcp_settings_boundary import _source_receipt
@@ -162,9 +192,9 @@ def boundary(tmp_path_factory):
 
 def test_history_account_arrives_in_http_markdown_list_and_detail(boundary):
     base, path, fixture = boundary
-    listed = {r["id"]: r for r in httpx.get(base + "/api/executions").json()}
+    listed = {r["id"]: r for r in _API.get(base + "/api/executions").json()}
     for name, eid in fixture["coverage_ids"].items():
-        response = httpx.get(f"{base}/api/executions/{eid}/search-record")
+        response = _API.get(f"{base}/api/executions/{eid}/search-record")
         assert response.status_code == 200, response.text
         record = response.json()
         c = record["coverage"]
@@ -173,8 +203,8 @@ def test_history_account_arrives_in_http_markdown_list_and_detail(boundary):
             expected = search_record.build(conn, eid)
         assert c == expected["coverage"]
         assert c == listed[eid]["coverage"]
-        assert c == httpx.get(f"{base}/api/executions/{eid}").json()["coverage"]
-        md = httpx.get(f"{base}/api/executions/{eid}/search-record?format=markdown").text
+        assert c == _API.get(f"{base}/api/executions/{eid}").json()["coverage"]
+        md = _API.get(f"{base}/api/executions/{eid}/search-record?format=markdown").text
         assert f"resmon execution id | {eid}" in md
         assert "Source coverage" in md
         if name == "mixed":
@@ -193,13 +223,13 @@ def test_history_account_arrives_in_http_markdown_list_and_detail(boundary):
             assert c["sources"][0]["note"] == PARTIAL_SENTENCE
             assert search_record._text(PARTIAL_SENTENCE) in md
         print("COVERAGE_HISTORY", json.dumps({"name": name, "coverage": c}))
-    assert httpx.get(f"{base}/api/executions/999999/search-record").status_code == 404
+    assert _API.get(f"{base}/api/executions/999999/search-record").status_code == 404
 
 
 def test_explicit_multi_run_zip_matches_saved_facts_and_original_bytes(boundary):
     base, path, fixture = boundary
     ids = [fixture["coverage_ids"][name] for name in ("mixed", "no-history")]
-    response = httpx.post(base + "/api/executions/export", json={"ids": ids})
+    response = _API.post(base + "/api/executions/export", json={"ids": ids})
     assert response.status_code == 200, response.text
     assert response.json()["count"] == 2
     receipts = []
@@ -227,10 +257,10 @@ def test_actual_read_adapter_returns_same_coverage(boundary):
     base, path, fixture = boundary
     prior = mcp.backend._base
     try:
-        mcp.backend._base = base
+        mcp.backend.pin(base, _TOKEN)
         for eid in fixture["coverage_ids"].values():
             result = mcp.t_get_search_record({"exec_id": eid})
-            assert result["coverage"] == httpx.get(f"{base}/api/executions/{eid}/search-record").json()["coverage"]
+            assert result["coverage"] == _API.get(f"{base}/api/executions/{eid}/search-record").json()["coverage"]
         print("COVERAGE_MCP", json.dumps({"exercised":["get_search_record"],"declared_tools":len(mcp.TOOLS),"runs":len(fixture["coverage_ids"])}))
     finally:
         mcp.backend._base = prior

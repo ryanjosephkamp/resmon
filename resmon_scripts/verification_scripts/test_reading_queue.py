@@ -42,6 +42,36 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "resmon_scripts"))
 import httpx  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
+from implementation_scripts import api_auth as _api_auth  # noqa: E402
+
+# 2.2: every request to a resmon backend carries its local API token. The
+# backends this file starts are handed the suite's token in RESMON_API_TOKEN,
+# exactly as Electron hands its own over, and test-side calls go through this
+# shim. The code under test builds its own headers; nothing here adds any.
+_TOKEN = _api_auth.current_token()
+
+
+class _WithToken:
+    """httpx's module-level ``get``/``post``/``stream``/…, plus the token header.
+
+    A shim over the functions rather than a shared ``httpx.Client``: each call
+    keeps its own throwaway client, so a stream a test abandons is closed exactly
+    as before — a pooled connection outlived one and hid a disconnect.
+    """
+
+    def __getattr__(self, name):
+        function = getattr(httpx, name)
+
+        def call(*args, **kwargs):
+            auth = _api_auth.bearer(_TOKEN) if _TOKEN else {}
+            kwargs["headers"] = {**auth, **dict(kwargs.get("headers") or {})}
+            return function(*args, **kwargs)
+        return call
+
+
+_API = _WithToken()
 from implementation_scripts import database as db, reading_queue, reference_export  # noqa: E402
 
 #: How many papers the big run holds. Above the default page of 50 on purpose:
@@ -158,7 +188,7 @@ def boundary(tmp_path_factory):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     assert port != 8742, "the launchd daemon's port is never bound by a test"
-    env = {**os.environ, "RESMON_STATE_DIR": str(state), "RESMON_DB_PATH": str(path),
+    env = {**os.environ, **({"RESMON_API_TOKEN": _TOKEN} if _TOKEN else {}), "RESMON_STATE_DIR": str(state), "RESMON_DB_PATH": str(path),
            "RESMON_REPORTS_DIR": str(state / "reports"),
            "RESMON_PORT_FILE": str(state / "backend.port"),
            "RESMON_CHROMIUM_PROFILE": str(state / "chromium"),
@@ -173,7 +203,7 @@ def boundary(tmp_path_factory):
             for _ in range(150):
                 assert proc.poll() is None, (state / "backend.log").read_text()
                 try:
-                    health = httpx.get(base + "/api/health", timeout=1).json()
+                    health = _API.get(base + "/api/health", timeout=1).json()
                     break
                 except (httpx.HTTPError, ValueError):
                     time.sleep(0.2)
@@ -222,13 +252,13 @@ def entries_of(payload: dict) -> list[int]:
 
 def test_a_paper_read_out_of_a_run_saves_under_that_same_stored_id(clean_queue):
     base, path, fixture = clean_queue
-    page = httpx.get(f"{base}/api/executions/{fixture['big_run_id']}/documents",
+    page = _API.get(f"{base}/api/executions/{fixture['big_run_id']}/documents",
                      params={"limit": 3}).json()
     assert page["total"] == fixture["big_run_size"]
     assert [p["queue_status"] for p in page["papers"]] == [None, None, None]
 
     paper = page["papers"][0]
-    saved = httpx.post(base + "/api/reading-queue", json={"document_id": paper["id"]})
+    saved = _API.post(base + "/api/reading-queue", json={"document_id": paper["id"]})
     assert saved.status_code == 201
     assert saved.json()["document_id"] == paper["id"]
 
@@ -237,14 +267,14 @@ def test_a_paper_read_out_of_a_run_saves_under_that_same_stored_id(clean_queue):
         rows = conn.execute("SELECT * FROM reading_queue").fetchall()
     assert [dict(r)["document_id"] for r in rows] == [paper["id"]]
 
-    listed = httpx.get(base + "/api/reading-queue").json()
+    listed = _API.get(base + "/api/reading-queue").json()
     assert entries_of(listed) == [paper["id"]]
     # The queue renders the paper, not a copy of it.
     assert listed["entries"][0]["document"]["title"] == paper["title"]
     assert listed["entries"][0]["document"]["external_id"] == paper["external_id"]
 
     # And the run's own view now agrees, because it reads the same table.
-    again = httpx.get(f"{base}/api/executions/{fixture['big_run_id']}/documents",
+    again = _API.get(f"{base}/api/executions/{fixture['big_run_id']}/documents",
                       params={"limit": 3}).json()
     assert again["papers"][0]["queue_status"] == "to_read"
     print("P1_SAVE", json.dumps({"document_id": paper["id"],
@@ -255,23 +285,23 @@ def test_rediscovery_of_the_same_id_keeps_the_state_the_user_gave_it(clean_queue
     """The regression a weekly routine would otherwise cause every week."""
     base, _, fixture = clean_queue
     shared = fixture["shared_document_id"]
-    httpx.post(base + "/api/reading-queue", json={"document_id": shared})
-    httpx.put(f"{base}/api/reading-queue/{shared}", json={"status": "read"})
-    first = httpx.get(base + "/api/reading-queue", params={"status": "read"}).json()
+    _API.post(base + "/api/reading-queue", json={"document_id": shared})
+    _API.put(f"{base}/api/reading-queue/{shared}", json={"status": "read"})
+    first = _API.get(base + "/api/reading-queue", params={"status": "read"}).json()
     saved_at = first["entries"][0]["saved_at"]
 
     # The second run found the same stored record. Saving from *its* Papers tab
     # must not put a paper the user has read back on the to-read pile.
-    rediscovered = httpx.get(
+    rediscovered = _API.get(
         f"{base}/api/executions/{fixture['rediscovery_run_id']}/documents").json()
     assert shared in [p["id"] for p in rediscovered["papers"]]
     assert next(p for p in rediscovered["papers"] if p["id"] == shared)["queue_status"] == "read"
 
-    again = httpx.post(base + "/api/reading-queue", json={"document_id": shared})
+    again = _API.post(base + "/api/reading-queue", json={"document_id": shared})
     assert again.status_code == 201
     assert again.json()["status"] == "read"
     assert again.json()["saved_at"] == saved_at, "an idempotent save moved the save time"
-    assert httpx.get(base + "/api/reading-queue",
+    assert _API.get(base + "/api/reading-queue",
                      params={"status": "to_read"}).json()["total"] == 0
 
 
@@ -280,11 +310,11 @@ def test_two_records_that_look_alike_stay_two_entries(clean_queue):
     base, _, fixture = clean_queue
     first, second = fixture["twin_document_ids"]
     assert first != second
-    httpx.post(base + "/api/reading-queue", json={"document_id": first})
-    httpx.put(f"{base}/api/reading-queue/{first}", json={"status": "read"})
-    httpx.post(base + "/api/reading-queue", json={"document_id": second})
+    _API.post(base + "/api/reading-queue", json={"document_id": first})
+    _API.put(f"{base}/api/reading-queue/{first}", json={"status": "read"})
+    _API.post(base + "/api/reading-queue", json={"document_id": second})
 
-    listed = httpx.get(base + "/api/reading-queue").json()
+    listed = _API.get(base + "/api/reading-queue").json()
     assert sorted(entries_of(listed)) == sorted([first, second])
     states = {e["document_id"]: e["status"] for e in listed["entries"]}
     assert states == {first: "read", second: "to_read"}
@@ -300,17 +330,17 @@ def test_two_records_that_look_alike_stay_two_entries(clean_queue):
 def test_the_state_controls_do_what_they_say_and_nothing_more(clean_queue):
     base, path, fixture = clean_queue
     doc = fixture["big_document_ids"][5]
-    httpx.post(base + "/api/reading-queue", json={"document_id": doc})
+    _API.post(base + "/api/reading-queue", json={"document_id": doc})
 
-    read = httpx.put(f"{base}/api/reading-queue/{doc}", json={"status": "read"}).json()
+    read = _API.put(f"{base}/api/reading-queue/{doc}", json={"status": "read"}).json()
     assert read["status"] == "read" and read["read_at"] is not None
 
-    unread = httpx.put(f"{base}/api/reading-queue/{doc}", json={"status": "to_read"}).json()
+    unread = _API.put(f"{base}/api/reading-queue/{doc}", json={"status": "to_read"}).json()
     assert unread["status"] == "to_read"
     assert unread["read_at"] is None, "an unread paper must not carry a read date"
     assert unread["saved_at"] == read["saved_at"]
 
-    counts = httpx.get(base + "/api/reading-queue").json()["counts"]
+    counts = _API.get(base + "/api/reading-queue").json()["counts"]
     assert counts == {"to_read": 1, "read": 0, "all": 1}
 
 
@@ -332,8 +362,8 @@ def test_a_state_request_that_changes_nothing_writes_nothing(clean_queue):
     """
     base, path, fixture = clean_queue
     doc = fixture["big_document_ids"][6]
-    httpx.post(base + "/api/reading-queue", json={"document_id": doc})
-    httpx.put(f"{base}/api/reading-queue/{doc}", json={"status": "read"})
+    _API.post(base + "/api/reading-queue", json={"document_id": doc})
+    _API.put(f"{base}/api/reading-queue/{doc}", json={"status": "read"})
 
     pinned = ("2020-01-01 00:00:00", "2020-01-02 00:00:00", "2020-01-03 00:00:00")
     with sqlite3.connect(path) as conn:
@@ -347,8 +377,8 @@ def test_a_state_request_that_changes_nothing_writes_nothing(clean_queue):
         before_version = conn.execute("PRAGMA data_version").fetchone()[0]
     assert (before_row["saved_at"], before_row["updated_at"], before_row["read_at"]) == pinned
 
-    repeated = httpx.put(f"{base}/api/reading-queue/{doc}", json={"status": "read"}).json()
-    resaved = httpx.post(base + "/api/reading-queue", json={"document_id": doc}).json()
+    repeated = _API.put(f"{base}/api/reading-queue/{doc}", json={"status": "read"}).json()
+    resaved = _API.post(base + "/api/reading-queue", json={"document_id": doc}).json()
     assert repeated["updated_at"] == pinned[1]
     assert repeated["read_at"] == pinned[2]
     assert resaved["saved_at"] == pinned[0]
@@ -370,7 +400,7 @@ def test_concurrent_saves_of_the_same_paper_make_one_entry(clean_queue):
 
     def save():
         barrier.wait()
-        results.append(httpx.post(base + "/api/reading-queue",
+        results.append(_API.post(base + "/api/reading-queue",
                                   json={"document_id": doc}).status_code)
 
     threads = [threading.Thread(target=save) for _ in range(8)]
@@ -391,30 +421,30 @@ def test_bad_input_is_refused_rather_than_answered(clean_queue):
     base, _, fixture = clean_queue
     doc = fixture["big_document_ids"][8]
 
-    assert httpx.post(base + "/api/reading-queue",
+    assert _API.post(base + "/api/reading-queue",
                       json={"document_id": 999999}).status_code == 404
-    assert httpx.put(f"{base}/api/reading-queue/{doc}",
+    assert _API.put(f"{base}/api/reading-queue/{doc}",
                      json={"status": "read"}).status_code == 404, \
         "a paper that was never saved cannot be marked read"
-    assert httpx.delete(f"{base}/api/reading-queue/{doc}").status_code == 404
+    assert _API.delete(f"{base}/api/reading-queue/{doc}").status_code == 404
 
-    httpx.post(base + "/api/reading-queue", json={"document_id": doc})
-    bad_status = httpx.put(f"{base}/api/reading-queue/{doc}", json={"status": "skimmed"})
+    _API.post(base + "/api/reading-queue", json={"document_id": doc})
+    bad_status = _API.put(f"{base}/api/reading-queue/{doc}", json={"status": "skimmed"})
     assert bad_status.status_code == 400
     assert "skimmed" in bad_status.json()["detail"]
-    assert httpx.get(base + "/api/reading-queue",
+    assert _API.get(base + "/api/reading-queue",
                      params={"status": "skimmed"}).status_code == 400
-    assert httpx.get(base + "/api/reading-queue", params={"limit": 0}).status_code == 400
-    assert httpx.get(base + "/api/reading-queue", params={"limit": 201}).status_code == 400
-    assert httpx.get(base + "/api/reading-queue", params={"offset": -1}).status_code == 400
+    assert _API.get(base + "/api/reading-queue", params={"limit": 0}).status_code == 400
+    assert _API.get(base + "/api/reading-queue", params={"limit": 201}).status_code == 400
+    assert _API.get(base + "/api/reading-queue", params={"offset": -1}).status_code == 400
     # The refusals left the entry exactly as it was.
-    assert httpx.get(base + "/api/reading-queue").json()["counts"] == {
+    assert _API.get(base + "/api/reading-queue").json()["counts"] == {
         "to_read": 1, "read": 0, "all": 1}
 
-    assert httpx.get(f"{base}/api/executions/999999/documents").status_code == 404
-    assert httpx.get(f"{base}/api/executions/{fixture['big_run_id']}/documents",
+    assert _API.get(f"{base}/api/executions/999999/documents").status_code == 404
+    assert _API.get(f"{base}/api/executions/{fixture['big_run_id']}/documents",
                      params={"limit": 500}).status_code == 400
-    empty = httpx.get(f"{base}/api/executions/{fixture['empty_run_id']}/documents").json()
+    empty = _API.get(f"{base}/api/executions/{fixture['empty_run_id']}/documents").json()
     assert empty == {"papers": [], "total": 0, "limit": 50, "offset": 0, "only_new": False}
 
 
@@ -424,18 +454,18 @@ def test_removing_an_entry_removes_membership_and_nothing_else(clean_queue):
     doc = fixture["big_document_ids"][9]
     before = snapshot(path)
 
-    httpx.post(base + "/api/reading-queue", json={"document_id": doc})
-    httpx.put(f"{base}/api/reading-queue/{doc}", json={"status": "read"})
-    removed = httpx.delete(f"{base}/api/reading-queue/{doc}")
+    _API.post(base + "/api/reading-queue", json={"document_id": doc})
+    _API.put(f"{base}/api/reading-queue/{doc}", json={"status": "read"})
+    removed = _API.delete(f"{base}/api/reading-queue/{doc}")
     assert removed.status_code == 200 and removed.json()["removed"] is True
 
     assert snapshot(path) == before, "removing a queue entry touched the corpus"
-    assert httpx.get(base + "/api/reading-queue").json()["total"] == 0
-    still_there = httpx.get(f"{base}/api/documents/{doc}/why").json()
+    assert _API.get(base + "/api/reading-queue").json()["total"] == 0
+    still_there = _API.get(f"{base}/api/documents/{doc}/why").json()
     assert still_there["document"]["id"] == doc
 
     # Saving it again starts fresh rather than restoring what was removed.
-    again = httpx.post(base + "/api/reading-queue", json={"document_id": doc}).json()
+    again = _API.post(base + "/api/reading-queue", json={"document_id": doc}).json()
     assert again["status"] == "to_read" and again["read_at"] is None
 
 
@@ -444,8 +474,8 @@ def test_paging_the_queue_shows_every_entry_exactly_once(clean_queue):
     ids = fixture["big_document_ids"][:BIG_RUN_SIZE]
     seed_queue(path, ids)
 
-    first = httpx.get(base + "/api/reading-queue", params={"limit": 50}).json()
-    second = httpx.get(base + "/api/reading-queue",
+    first = _API.get(base + "/api/reading-queue", params={"limit": 50}).json()
+    second = _API.get(base + "/api/reading-queue",
                        params={"limit": 50, "offset": 50}).json()
     assert first["total"] == second["total"] == BIG_RUN_SIZE
     assert len(first["entries"]) == 50 and len(second["entries"]) == 1
@@ -455,11 +485,11 @@ def test_paging_the_queue_shows_every_entry_exactly_once(clean_queue):
 
     # A filter that matches nothing is an empty page, not an error and not the
     # unfiltered list.
-    assert httpx.get(base + "/api/reading-queue",
+    assert _API.get(base + "/api/reading-queue",
                      params={"status": "read"}).json() == {
         "entries": [], "total": 0, "limit": 50, "offset": 0, "status": "read",
         "counts": {"to_read": BIG_RUN_SIZE, "read": 0, "all": BIG_RUN_SIZE}}
-    beyond = httpx.get(base + "/api/reading-queue",
+    beyond = _API.get(base + "/api/reading-queue",
                        params={"limit": 50, "offset": 500}).json()
     assert beyond["entries"] == [] and beyond["total"] == BIG_RUN_SIZE
 
@@ -529,7 +559,7 @@ def test_the_queue_exports_through_the_shared_serializer(clean_queue, fmt):
     selection = fixture["twin_document_ids"] + fixture["big_document_ids"][:3]
     seed_queue(path, selection)
 
-    response = httpx.post(base + "/api/export/references",
+    response = _API.post(base + "/api/export/references",
                           json={"document_ids": selection, "format": fmt})
     response.raise_for_status()
     assert response.headers["X-Resmon-Document-Count"] == str(len(selection))
@@ -541,7 +571,7 @@ def test_the_queue_exports_through_the_shared_serializer(clean_queue, fmt):
     assert response.text == reference_export.render(documents, fmt)[0]
 
     # Selection order does not change the file, and a repeated id is one entry.
-    repeated = httpx.post(base + "/api/export/references",
+    repeated = _API.post(base + "/api/export/references",
                           json={"document_ids": selection[::-1] + selection, "format": fmt})
     assert repeated.text == response.text
 
@@ -565,7 +595,7 @@ def test_the_queue_exports_through_the_shared_serializer(clean_queue, fmt):
 def test_an_export_failure_is_reported_rather_than_saved(clean_queue):
     base, path, fixture = clean_queue
     seed_queue(path, fixture["big_document_ids"][:2])
-    bad = httpx.post(base + "/api/export/references",
+    bad = _API.post(base + "/api/export/references",
                      json={"document_ids": fixture["big_document_ids"][:2],
                            "format": "endnote"})
     assert bad.status_code == 400
@@ -582,7 +612,7 @@ def _start_backend(state: Path, path: Path) -> tuple[subprocess.Popen, str]:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     assert port != 8742
-    env = {**os.environ, "RESMON_STATE_DIR": str(state), "RESMON_DB_PATH": str(path),
+    env = {**os.environ, **({"RESMON_API_TOKEN": _TOKEN} if _TOKEN else {}), "RESMON_STATE_DIR": str(state), "RESMON_DB_PATH": str(path),
            "RESMON_REPORTS_DIR": str(state / "reports"),
            "RESMON_PORT_FILE": str(state / "backend.port"),
            "RESMON_DISABLE_SCHEDULER": "1", "PYTHONDONTWRITEBYTECODE": "1",
@@ -595,7 +625,7 @@ def _start_backend(state: Path, path: Path) -> tuple[subprocess.Popen, str]:
     for _ in range(150):
         assert proc.poll() is None, (state / f"backend-{port}.log").read_text()
         try:
-            assert httpx.get(base + "/api/health", timeout=1).json()["pid"] == proc.pid
+            assert _API.get(base + "/api/health", timeout=1).json()["pid"] == proc.pid
             return proc, base
         except (httpx.HTTPError, ValueError, AssertionError):
             time.sleep(0.2)
@@ -622,10 +652,10 @@ def test_the_queue_survives_a_backend_restart_unchanged(tmp_path):
     try:
         kept = fixture["big_document_ids"][:3]
         for doc in kept:
-            assert httpx.post(base + "/api/reading-queue",
+            assert _API.post(base + "/api/reading-queue",
                               json={"document_id": doc}).status_code == 201
-        httpx.put(f"{base}/api/reading-queue/{kept[1]}", json={"status": "read"})
-        before = httpx.get(base + "/api/reading-queue", params={"status": "all"}).json()
+        _API.put(f"{base}/api/reading-queue/{kept[1]}", json={"status": "read"})
+        before = _API.get(base + "/api/reading-queue", params={"status": "all"}).json()
     finally:
         _stop(proc)
 
@@ -636,7 +666,7 @@ def test_the_queue_survives_a_backend_restart_unchanged(tmp_path):
 
     proc, base = _start_backend(state, path)
     try:
-        after = httpx.get(base + "/api/reading-queue", params={"status": "all"}).json()
+        after = _API.get(base + "/api/reading-queue", params={"status": "all"}).json()
         assert after["counts"] == {"to_read": 2, "read": 1, "all": 3}
         # Row values, not just counts: a restart that rewrote a timestamp would
         # pass a count check and lose the user's history.

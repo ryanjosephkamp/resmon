@@ -32,7 +32,7 @@ interface QueueDownloadReceipt {
   totalBytes: number;
 }
 type DownloadGlobal = typeof globalThis & { queueDownload: QueueDownloadReceipt };
-import { FRONTEND_ROOT, launchEnv, ensureScreenshotDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, launchEnv, ensureScreenshotDir, e2eAuth } from './fixtures/resmon-app';
 
 const HELPER = path.resolve(FRONTEND_ROOT, '../verification_scripts/test_reading_queue.py');
 
@@ -81,7 +81,7 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
       () => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort());
     expect(port).not.toBe('8742');
     const base = `http://127.0.0.1:${port}`;
-    const health = await (await win.request.get(`${base}/api/health`)).json();
+    const health = await (await win.request.get(`${base}/api/health`, { headers: e2eAuth(`${base}/api/health`) })).json();
     expect(Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(health.pid)],
       { encoding: 'utf8' }).trim())).toBe(app.process().pid);
     console.log('READING_QUEUE_INSTANCE', JSON.stringify({
@@ -135,7 +135,7 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     await expect(win.getByTestId(`saved-${newestId}`)).toHaveText('In queue · To read');
     await win.screenshot({ path: path.join(shots, '31-reading-queue-papers-tab.png') });
 
-    const savedRows = await (await win.request.get(`${base}/api/reading-queue?status=all`)).json();
+    const savedRows = await (await win.request.get(`${base}/api/reading-queue?status=all`, { headers: e2eAuth(`${base}/api/reading-queue?status=all`) })).json();
     expect(savedRows.entries.map((e: { document_id: number }) => e.document_id)).toEqual([newestId]);
 
     /* An empty run has nothing to save, and says so rather than showing a
@@ -162,7 +162,7 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     await win.getByTestId(`toggle-${newestId}`).click();
     await expect(win.getByTestId('queue-empty'))
       .toContainText('Everything you saved has been read');
-    const afterRead = await (await win.request.get(`${base}/api/reading-queue?status=read`)).json();
+    const afterRead = await (await win.request.get(`${base}/api/reading-queue?status=read`, { headers: e2eAuth(`${base}/api/reading-queue?status=read`) })).json();
     expect(afterRead.entries[0].document_id).toBe(newestId);
     expect(afterRead.entries[0].read_at).not.toBeNull();
 
@@ -177,7 +177,7 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     await expect(win.getByTestId('queue-empty')).toBeVisible();
     await win.getByTestId('filter-all').click();
     await expect(win.getByTestId(`state-${newestId}`)).toHaveText('To read');
-    const afterUnread = await (await win.request.get(`${base}/api/reading-queue?status=all`)).json();
+    const afterUnread = await (await win.request.get(`${base}/api/reading-queue?status=all`, { headers: e2eAuth(`${base}/api/reading-queue?status=all`) })).json();
     expect(afterUnread.entries[0].read_at).toBeNull();
 
     /* ---------------------------------------------------------------- */
@@ -187,6 +187,7 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     // path is proven above, and what is under test here is the pager.
     for (const id of ids.filter((id) => id !== newestId)) {
       const response = await win.request.post(`${base}/api/reading-queue`, {
+        headers: e2eAuth(base + '/'),
         data: { document_id: id },
       });
       expect(response.status()).toBe(201);
@@ -299,7 +300,7 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     await expect(win.getByTestId(`paper-${leavingId}`)).toHaveCount(0);
     await expect(win.getByText(/selected on this page/)).toContainText('0 selected');
     await expect(win.getByRole('button', { name: 'BibTeX', exact: true })).toBeDisabled();
-    const afterMark = await (await win.request.get(`${base}/api/reading-queue?status=read`)).json();
+    const afterMark = await (await win.request.get(`${base}/api/reading-queue?status=read`, { headers: e2eAuth(`${base}/api/reading-queue?status=read`) })).json();
     expect(afterMark.entries.map((e: { document_id: number }) => e.document_id))
       .toContain(leavingId);
     console.log('R1_HIDDEN_SELECTION_CLOSED', JSON.stringify({
@@ -366,7 +367,7 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     console.log('R2_REAL_RESPONSE_HELD', JSON.stringify(heldResponse));
     // The backend really has it before the renderer is told.
     await expect.poll(async () => {
-      const read = await (await win.request.get(`${base}/api/reading-queue?status=read`)).json();
+      const read = await (await win.request.get(`${base}/api/reading-queue?status=read`, { headers: e2eAuth(`${base}/api/reading-queue?status=read`) })).json();
       return read.entries.some((e: { document_id: number }) => e.document_id === staleId);
     }).toBe(true);
 
@@ -403,7 +404,7 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
     // under test — hence the API rather than the buttons.
     for (const id of [leavingId, staleId]) {
       const restored = await win.request.put(`${base}/api/reading-queue/${id}`,
-        { data: { status: 'to_read' } });
+        { headers: e2eAuth(base + '/'), data: { status: 'to_read' } });
       expect(restored.status()).toBe(200);
     }
     await win.getByTestId('filter-to_read').click();
@@ -417,7 +418,7 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
         // Back to 51 for the second pass: one more paper, newest save first,
         // so the oldest is again alone on page two.
         const saved = await win.request.post(`${base}/api/reading-queue`,
-          { data: { document_id: fixture.twin_document_ids[0] } });
+          { headers: e2eAuth(base + '/'), data: { document_id: fixture.twin_document_ids[0] } });
         expect(saved.status()).toBe(201);
         await win.getByTestId('filter-read').click();
         await win.getByTestId('filter-to_read').click();
@@ -443,7 +444,7 @@ test('a paper saved from a run is the paper the queue holds, in the real app', a
       await expect(win.getByTestId('filter-to_read')).toHaveAttribute('aria-pressed', 'true');
       // The backend agrees with what is on screen.
       const settled = await (await win.request.get(
-        `${base}/api/reading-queue?status=to_read&limit=50&offset=0`)).json();
+        `${base}/api/reading-queue?status=to_read&limit=50&offset=0`, { headers: e2eAuth(base + '/') })).json();
       expect(settled.total).toBe(50);
       expect(settled.entries).toHaveLength(50);
       console.log('R4_LAST_PAGE_RECOVERED', JSON.stringify({

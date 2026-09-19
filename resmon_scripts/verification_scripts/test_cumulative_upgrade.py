@@ -53,6 +53,36 @@ sys.path.insert(0, str(ROOT / "resmon_scripts"))
 
 import httpx  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
+from implementation_scripts import api_auth as _api_auth  # noqa: E402
+
+# 2.2: every request to a resmon backend carries its local API token. The
+# backends this file starts are handed the suite's token in RESMON_API_TOKEN,
+# exactly as Electron hands its own over, and test-side calls go through this
+# shim. The code under test builds its own headers; nothing here adds any.
+_TOKEN = _api_auth.current_token()
+
+
+class _WithToken:
+    """httpx's module-level ``get``/``post``/``stream``/…, plus the token header.
+
+    A shim over the functions rather than a shared ``httpx.Client``: each call
+    keeps its own throwaway client, so a stream a test abandons is closed exactly
+    as before — a pooled connection outlived one and hid a disconnect.
+    """
+
+    def __getattr__(self, name):
+        function = getattr(httpx, name)
+
+        def call(*args, **kwargs):
+            auth = _api_auth.bearer(_TOKEN) if _TOKEN else {}
+            kwargs["headers"] = {**auth, **dict(kwargs.get("headers") or {})}
+            return function(*args, **kwargs)
+        return call
+
+
+_API = _WithToken()
+
 from implementation_scripts import database  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures/v2.1.0/corpus_schema_13.sql"
@@ -696,7 +726,7 @@ def upgraded_backend(walked, tmp_path_factory):
         port = sock.getsockname()[1]
     assert port != 8742
 
-    env = {**os.environ,
+    env = {**os.environ, **({"RESMON_API_TOKEN": _TOKEN} if _TOKEN else {}),
            "RESMON_STATE_DIR": str(state), "RESMON_DB_PATH": str(path),
            "RESMON_REPORTS_DIR": str(state / "reports"),
            "RESMON_PORT_FILE": str(state / "backend.port"),
@@ -712,7 +742,7 @@ def upgraded_backend(walked, tmp_path_factory):
         for _ in range(150):
             assert proc.poll() is None, (state / "backend.log").read_text()
             try:
-                httpx.get(base + "/api/health", timeout=1).raise_for_status()
+                _API.get(base + "/api/health", timeout=1).raise_for_status()
                 break
             except (httpx.HTTPError, ValueError):
                 time.sleep(0.2)
@@ -741,12 +771,12 @@ def test_the_real_backend_serves_the_upgraded_database_over_http(upgraded_backen
     base, _ = upgraded_backend
     conn = walked["conn"]
 
-    health = httpx.get(base + "/api/health", timeout=10).json()
+    health = _API.get(base + "/api/health", timeout=10).json()
     assert health.get("status") in ("ok", "healthy", "degraded"), health
 
     expected_docs = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
     # The Explorer's own endpoint, over the FTS index the walk carried across.
-    search = httpx.post(base + "/api/explorer/search",
+    search = _API.post(base + "/api/explorer/search",
                         json={"query": "diffusion", "limit": 10}, timeout=20)
     search.raise_for_status()
     found = search.json()
@@ -761,7 +791,7 @@ def test_the_real_backend_serves_the_upgraded_database_over_http(upgraded_backen
     # for and what a rebuilt documents table would break.
     seen, cursor = set(), None
     for _ in range(20):
-        page = httpx.post(base + "/api/explorer/search",
+        page = _API.post(base + "/api/explorer/search",
                           json={"limit": 5, "cursor": cursor}, timeout=20)
         page.raise_for_status()
         body = page.json()
@@ -773,7 +803,7 @@ def test_the_real_backend_serves_the_upgraded_database_over_http(upgraded_backen
         f"{expected_docs} documents in the upgraded database, {len(seen)} reachable "
         "through paged search")
 
-    runs = httpx.get(base + "/api/executions", params={"limit": 50}, timeout=20)
+    runs = _API.get(base + "/api/executions", params={"limit": 50}, timeout=20)
     runs.raise_for_status()
     served_runs = runs.json()
     served_runs = served_runs["executions"] if isinstance(served_runs, dict) else served_runs
@@ -790,7 +820,7 @@ def test_the_real_backend_serves_the_upgraded_database_over_http(upgraded_backen
     assert {"ok", "error", "skipped_missing_key"} <= statuses or statuses == set(), (
         f"per-source outcomes came back as {statuses}")
 
-    routines = httpx.get(base + "/api/routines", timeout=20)
+    routines = _API.get(base + "/api/routines", timeout=20)
     routines.raise_for_status()
     served_routines = routines.json()
     served_routines = (served_routines["routines"]

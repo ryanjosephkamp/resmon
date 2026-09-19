@@ -8,6 +8,8 @@ Responsibilities:
   daemon instance runs at a time.
 * Write ``{pid, port, version}`` into the lock file so the Electron main
   process can decide whether to attach to a live daemon or spawn a new one.
+* Mint this run's local API token and write it, owner-only, to
+  ``api-token-<port>`` beside the lock (see ``api_auth``); remove it on exit.
 * Install a SIGTERM/SIGINT handler that cooperatively cancels running
   executions, flushes the APScheduler SQLAlchemy jobstore (when one is
   registered), and closes the shared SQLite connection before exit.
@@ -319,18 +321,30 @@ def run(argv: Optional[list[str]] = None) -> int:
     from resmon import create_app  # type: ignore
     from implementation_scripts.config import APP_NAME, APP_VERSION  # type: ignore
 
+    from implementation_scripts import api_auth  # type: ignore
+
     try:
         with daemon_lock(pid=os.getpid(), port=port, version=APP_VERSION):
-            app = create_app()
-            install_signal_handlers()
-            logger.info("%s daemon v%s listening on 127.0.0.1:%d (pid=%d)",
-                        APP_NAME, APP_VERSION, port, os.getpid())
-            config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
-            server = uvicorn.Server(config)
+            # A fresh token on every start, written beside the lock only once
+            # the lock is ours. No Electron parent exists to hand one over, so
+            # the file is how Electron's attach path and the MCP server find
+            # it. A token file a crashed daemon left behind is overwritten here
+            # and never accepted: this process knows only the token it minted.
+            token = api_auth.configure_from_environment()
+            api_auth.write_token_file(port, token)
             try:
-                server.run()
+                app = create_app()
+                install_signal_handlers()
+                logger.info("%s daemon v%s listening on 127.0.0.1:%d (pid=%d)",
+                            APP_NAME, APP_VERSION, port, os.getpid())
+                config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
+                server = uvicorn.Server(config)
+                try:
+                    server.run()
+                finally:
+                    perform_graceful_shutdown(reason="daemon_restart")
             finally:
-                perform_graceful_shutdown(reason="daemon_restart")
+                api_auth.remove_token_file(port, token)
     except DaemonLockError as exc:
         print(f"resmon-daemon: {exc}", file=sys.stderr)
         return 2

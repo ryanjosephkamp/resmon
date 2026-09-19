@@ -447,9 +447,12 @@ class ApiKeyRuntime:
         if not self.backend_port:
             return
         import mcp_server  # noqa: PLC0415
+        from implementation_scripts import api_auth  # noqa: PLC0415
 
-        mcp_server.backend._base = f"http://127.0.0.1:{self.backend_port}"
-        mcp_server.backend._tried = []
+        # The token comes from this process's memory; the tools send it in a
+        # header and ``mcp_server._result`` keeps it out of anything the model
+        # is shown.
+        mcp_server.backend.pin(f"http://127.0.0.1:{self.backend_port}", api_auth.current_token())
 
     def _run_one_tool(
         self, session_id: int, family: str, conversation: dict, call: dict,
@@ -503,9 +506,14 @@ class ApiKeyRuntime:
             return {"behavior": "deny",
                     "message": ("resmon could not be reached to ask you about this, "
                                 "so it was not run.")}
+        from implementation_scripts import api_auth  # noqa: PLC0415
+
+        # This process *is* the backend, so its token is in memory: nothing is
+        # read from a file and nothing is passed to anyone.
         return ask_backend(
             f"http://127.0.0.1:{self.backend_port}", session_id,
             call["name"], call["arguments"], call["id"],
+            token=api_auth.current_token(),
         )
 
     # -- the provider call ----------------------------------------------

@@ -18,6 +18,8 @@
  * fixture paper before the trusted tab click. This is not an arXiv availability
  * test; the scoped source fixture refuses external connections.
  */
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { test, expect } from '@playwright/test';
 import { ensureScreenshotDir } from './fixtures/resmon-app';
@@ -38,7 +40,7 @@ test('Q4: the Search record tab activates under a real Playwright click', async 
     const execId = await win.evaluate(async () => {
       const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
         .resmonAPI.getBackendPort();
-      const res = await fetch(`http://127.0.0.1:${port}/api/search/dive`, {
+      const res = await e2eFetch(`http://127.0.0.1:${port}/api/search/dive`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -63,7 +65,7 @@ test('Q4: the Search record tab activates under a real Playwright click', async 
       const deadline = Date.now() + 90_000;
       let status = 'running';
       while (Date.now() < deadline) {
-        const res = await fetch(`http://127.0.0.1:${port}/api/executions/${id}`);
+        const res = await e2eFetch(`http://127.0.0.1:${port}/api/executions/${id}`);
         status = (await res.json()).status;
         if (status !== 'running') return status;
         await new Promise((r) => setTimeout(r, 500));
@@ -122,6 +124,36 @@ test('Q4: the Search record tab activates under a real Playwright click', async 
       path: path.join(ensureScreenshotDir(), '30-search-record-tab.png'),
       fullPage: false,
     });
+
+    // --- the markdown download (2.2) ---------------------------------------
+    // This was a plain link to the API. The backend now refuses any request
+    // without its token and a link cannot carry one, so the button fetches with
+    // the token in a header and saves a blob. What is proven here is the whole
+    // path through the real app: the request the renderer itself sent carried
+    // the token in its header and not its URL, the backend served it, and the
+    // file Electron saved is the backend's markdown for this execution.
+    const destination = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-record-')), 'record.md');
+    await source.app.evaluate(({ BrowserWindow }, target) => {
+      BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => item.setSavePath(target));
+    }, destination);
+    const token = await win.evaluate(() => (window as unknown as { resmonAPI: { getApiToken(): string } }).resmonAPI.getApiToken());
+    const markdown = win.waitForResponse((r) => r.url().includes(`/api/executions/${execId}/search-record?format=markdown`));
+    await win.getByRole('button', { name: 'Download as Markdown' }).click();
+    const response = await markdown;
+    expect(response.status()).toBe(200);
+    expect(response.url()).not.toContain(token);
+    expect((await response.request().allHeaders()).authorization).toBe(`Bearer ${token}`);
+    await expect.poll(() => fs.existsSync(destination) && fs.readFileSync(destination, 'utf8').length > 0).toBe(true);
+    // The page consumed the body, so Playwright cannot replay it; ask the backend
+    // again. The record is generated per request and stamps the second it was
+    // generated, so that one line is compared by shape, everything else exactly.
+    const stamp = (text: string) => text.replace(/^Generated \S+ by /m, 'Generated <time> by ');
+    const saved = fs.readFileSync(destination, 'utf8');
+    expect(saved).toMatch(/^Generated \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ by /m);
+    expect(stamp(saved)).toBe(stamp(await (await e2eFetch(response.url())).text()));
+    expect(fs.readFileSync(destination, 'utf8')).toContain('graph neural network');
+    console.log('SEARCH_RECORD_DOWNLOAD', JSON.stringify({ execId, bytes: fs.statSync(destination).size,
+      method: 'scripted will-download setSavePath; no native chooser observation' }));
 
     expect(consoleErrors).toEqual([]);
   } finally { await source.close(); }

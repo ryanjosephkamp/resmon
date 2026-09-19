@@ -14,6 +14,12 @@ import time
 import uuid
 import httpx
 import pytest
+from implementation_scripts import api_auth
+
+# 2.2: the run-owned backend is handed this process's test token and renderer
+# origin, exactly as Electron hands its own over, and every request carries it.
+TOKEN=api_auth.current_token()
+AUTH=f'Authorization: Bearer {TOKEN}\r\n'
 
 ROUTES=[('GET',''),('POST','/vault'),('GET','/files'),('POST','/files'),('GET','/files/{file}'),('POST','/files/{file}/paper-links'),('POST','/files/{file}/open'),('GET','/export'),('GET','/files/{file}/text')]
 HEADERS={'Origin':'http://127.0.0.1:12345','X-Resmon-Library':'1'}
@@ -23,14 +29,17 @@ HEADERS={'Origin':'http://127.0.0.1:12345','X-Resmon-Library':'1'}
 def http_library(tmp_path, request):
     state=tmp_path/'state';state.mkdir();reports=state/'reports';reports.mkdir()
     repo=Path(__file__).parents[2];backend=repo/'resmon_scripts';port_file=state/'resmon.port'
-    env=dict(os.environ);env.update({'RESMON_STATE_DIR':str(state),'RESMON_DB_PATH':str(state/'resmon.db'),'RESMON_REPORTS_DIR':str(reports),'RESMON_PORT_FILE':str(port_file),'RESMON_DISABLE_SCHEDULER':'1','PYTHON_KEYRING_BACKEND':'keyring.backends.null.Keyring'})
+    env=dict(os.environ);env.update({'RESMON_STATE_DIR':str(state),'RESMON_DB_PATH':str(state/'resmon.db'),'RESMON_REPORTS_DIR':str(reports),'RESMON_PORT_FILE':str(port_file),'RESMON_DISABLE_SCHEDULER':'1','PYTHON_KEYRING_BACKEND':'keyring.backends.null.Keyring','RESMON_API_TOKEN':TOKEN,'RESMON_RENDERER_ORIGIN':HEADERS['Origin']})
     script='''import socket,sys,os,json,datetime
 import uvicorn,resmon
+from implementation_scripts import api_auth
+_TOKEN=api_auth.configure_from_environment()
 from implementation_scripts import library
 if sys.argv[2] != 'production': library.MAX_FILE_BYTES=int(sys.argv[2])
 s=socket.socket();s.bind(('127.0.0.1',0));s.listen(128)
 port=s.getsockname()[1]
 assert port!=8742
+api_auth.write_token_file(port,_TOKEN)
 with open(sys.argv[1]+'.tmp','w') as f:json.dump({'pid':os.getpid(),'port':port,'source':os.getcwd(),'state':os.environ['RESMON_STATE_DIR'],'database':os.environ['RESMON_DB_PATH'],'start':datetime.datetime.now(datetime.timezone.utc).isoformat()},f)
 os.replace(sys.argv[1]+'.tmp',sys.argv[1])
 uvicorn.Server(uvicorn.Config(resmon.app,log_level='error')).run(sockets=[s])
@@ -44,7 +53,7 @@ uvicorn.Server(uvicorn.Config(resmon.app,log_level='error')).run(sockets=[s])
                 assert proc.poll() is None,log.read_text();time.sleep(.02)
             record=json.loads(receipt.read_text());assert record['pid']==proc.pid and record['port']!=8742
             assert record['source']==str(backend) and record['database']==str(state/'resmon.db')
-            with httpx.Client(base_url=f"http://127.0.0.1:{record['port']}",timeout=15) as client:
+            with httpx.Client(base_url=f"http://127.0.0.1:{record['port']}",headers=api_auth.bearer(TOKEN),timeout=15) as client:
                 for _ in range(300):
                     try:
                         response=client.get('/api/library',headers=HEADERS)
@@ -148,7 +157,7 @@ def test_real_disconnect_and_false_content_length_never_publish_partial_rows(htt
     # a real socket disconnect, not a mocked request.stream exception.
     target = f"/api/library/files?expected_vault_id={vault['vault_id']}&filename=interrupted.txt"
     with socket.create_connection(('127.0.0.1', record['port']), timeout=10) as connection:
-        request = (f'POST {target} HTTP/1.1\r\nHost: 127.0.0.1:{record["port"]}\r\nOrigin: {HEADERS["Origin"]}\r\nX-Resmon-Library: 1\r\nContent-Type: application/octet-stream\r\nContent-Length: 100\r\n\r\n').encode() + b'partial'
+        request = (f'POST {target} HTTP/1.1\r\nHost: 127.0.0.1:{record["port"]}\r\n{AUTH}Origin: {HEADERS["Origin"]}\r\nX-Resmon-Library: 1\r\nContent-Type: application/octet-stream\r\nContent-Length: 100\r\n\r\n').encode() + b'partial'
         connection.sendall(request)
         # Observe entry into the actual importer before closing this socket.
         for _ in range(300):

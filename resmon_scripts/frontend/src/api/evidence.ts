@@ -1,4 +1,4 @@
-import { getBaseUrl } from './client';
+import { authHeaders, getBaseUrl } from './client';
 import { object, uuid, LibraryFile } from './library';
 
 export type EvidenceFile = Pick<LibraryFile, 'file_id'|'version_id'|'vault_id'|'sha256'|'byte_size'|'media_type'|'original_name'|'created_at_utc'>;
@@ -41,7 +41,7 @@ export function evidenceBaseUrl():string {
   const base=getBaseUrl();if(base!==`http://127.0.0.1:${port}`)throw new Error('The selected backend changed.');return base;
 }
 export async function evidenceRequest(path:string,method='GET',body?:unknown,signal?:AbortSignal):Promise<Response>{
-  const response=await fetch(`${evidenceBaseUrl()}/api/evidence${path}`,{method,signal,cache:'no-store',headers:{'X-Resmon-Library':'1',...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+  const response=await fetch(`${evidenceBaseUrl()}/api/evidence${path}`,{method,signal,cache:'no-store',headers:{...authHeaders(),'X-Resmon-Library':'1',...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
   if(!response.ok){let message=`Evidence request refused (${response.status}).`;try{const x=object(await response.json());const d=x.detail;if(typeof d==='string')message=d;else if(d&&typeof d==='object'&&typeof object(d).message==='string')message=String(object(d).message);}catch{/* Keep redacted status. */}throw new Error(message);}
   return response;
 }

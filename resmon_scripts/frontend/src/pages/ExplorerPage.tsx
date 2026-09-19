@@ -8,7 +8,7 @@ import DuplicateLinks, { DuplicateLink } from '../components/Explain/DuplicateLi
 import LifecycleBadge, { LifecycleEvent } from '../components/Explain/LifecycleBadge';
 import BasisBadge from '../components/Profiles/BasisBadge';
 import { DocumentMatch, profilesApi } from '../api/profiles';
-import { apiClient, getBaseUrl } from '../api/client';
+import { apiClient, backendFetch } from '../api/client';
 import { useEmbeddingCapability } from '../hooks/useEmbeddingCapability';
 
 /**
@@ -304,7 +304,7 @@ const ExplorerPage: React.FC = () => {
     setExporting(true);
     setError('');
     try {
-      const resp = await fetch(`${getBaseUrl()}/api/explorer/export`, {
+      const resp = await backendFetch('/api/explorer/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
         body: JSON.stringify({ ...filters, format: fmt }),

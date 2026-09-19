@@ -1,4 +1,4 @@
-import { getBaseUrl } from './client';
+import { authHeaders, getBaseUrl } from './client';
 
 export const MAX_BATCH_FILES = 20;
 export const MAX_FILE_BYTES = 64 * 1024 * 1024;
@@ -63,7 +63,7 @@ export function validateText(value: unknown, file: LibraryFile): TextEnvelope {
 }
 async function request(path: string, method = 'GET', body?: BodyInit, raw = false): Promise<unknown> {
   const response = await fetch(`${getBaseUrl()}/api/library${path}`, {
-    method, body, cache: 'no-store', headers: {'X-Resmon-Library':'1', ...(body !== undefined ? {'Content-Type':raw ? 'application/octet-stream' : 'application/json'} : {})},
+    method, body, cache: 'no-store', headers: {...authHeaders(), 'X-Resmon-Library':'1', ...(body !== undefined ? {'Content-Type':raw ? 'application/octet-stream' : 'application/json'} : {})},
   });
   const value: unknown = await response.json();
   if (!response.ok) {
