@@ -809,9 +809,10 @@ def test_the_real_backend_serves_the_upgraded_database_over_http(upgraded_backen
 def _v210_worktree(tmp_path_factory):
     """A disposable checkout of tag v2.1.0, or None where the tag is not here.
 
-    CI checks out at depth 1 and has no tags, so this returns None there and the
-    test skips. That is the honest shape: this check runs where the history is,
-    and it is the one check in this file that needs the old code itself.
+    A checkout without the tag (a depth-1 clone, a source tarball) returns None
+    and the test skips. CI fetches the tag explicitly and sets
+    ``RESMON_REQUIRE_V210_TAG=1``, which turns that skip into a failure, so the
+    committed fixture cannot drift from v2.1.0's output between local runs.
     """
     if not (ROOT / ".git").exists():
         return None
@@ -835,7 +836,9 @@ def test_the_committed_fixture_is_what_v210s_own_code_produces(tmp_path_factory)
     """
     tree = _v210_worktree(tmp_path_factory)
     if tree is None:
-        pytest.skip("tag v2.1.0 is not in this checkout (CI clones at depth 1)")
+        assert os.environ.get("RESMON_REQUIRE_V210_TAG") != "1", (
+            "RESMON_REQUIRE_V210_TAG=1 but tag v2.1.0 could not be checked out here")
+        pytest.skip("tag v2.1.0 is not in this checkout")
     try:
         result = subprocess.run(
             [sys.executable, str(GENERATOR), "--source-tree", str(tree),

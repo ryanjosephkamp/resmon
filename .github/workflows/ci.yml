@@ -40,6 +40,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The cumulative upgrade test regenerates its schema-13 fixture from the
+      # released v2.1.0 code and diffs it against the committed file. The
+      # checkout above is depth 1 and carries no tags, so fetch that one tag
+      # (depth 1 is enough for a worktree of it) and tell the test that a
+      # missing tag is a failure here, not a skip.
+      - name: Fetch the v2.1.0 tag for the fixture-provenance check
+        run: git fetch --depth=1 origin "refs/tags/v2.1.0:refs/tags/v2.1.0"
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -70,6 +78,8 @@ jobs:
         # item it killed, so a hang in quiet mode leaves only a row of dots to
         # count. With -v the last line printed is the last test that finished,
         # which names the culprit immediately.
+        env:
+          RESMON_REQUIRE_V210_TAG: '1'
         run: pytest -v
 
   frontend:
