@@ -120,7 +120,22 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
 
     if reason == "upstream_failure":
         kind = str(detail.get("detail") or "")
-        if kind == "operation_deadline":
+        if kind == "server_cooldown":
+            status = detail.get("status")
+            status_text = f"HTTP {status} " if status else ""
+            attempts = int(detail.get("attempts") or 0)
+            if attempts:
+                what = (
+                    f"a retained server-directed {status_text}cooldown was still "
+                    f"active after {_attempts(detail)}, so resmon sent no "
+                    "additional request"
+                )
+            else:
+                what = (
+                    f"a retained server-directed {status_text}cooldown from an "
+                    "earlier request was still active, so resmon sent no new request"
+                )
+        elif kind == "operation_deadline":
             what = f"the search operation budget expired after {_attempts(detail)}"
         elif kind == "timeout":
             what = f"the request timed out after {_attempts(detail)}"
@@ -197,6 +212,79 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
     raise ValueError(f"no sentence for zero reason {reason!r}")
 
 
+def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
+    """Return an observed terminal issue that can make retained results partial.
+
+    This deliberately excludes empty-answer and filtering reasons. A positive
+    result is partial only when the client observed a terminal parse failure,
+    its last request invocation failed, or a retained server cooldown stopped
+    it before another transport.
+    """
+    if not snapshot:
+        return None
+
+    if snapshot.get("explicit_reason") == "parse_failure":
+        return "parse_failure", {
+            **dict(snapshot.get("explicit_detail") or {}),
+            "attempts": snapshot.get("attempts") or 0,
+        }
+
+    if snapshot.get("failures") and snapshot.get("last_call_failed"):
+        return "upstream_failure", {
+            "detail": snapshot.get("last_detail") or "request_error",
+            "status": snapshot.get("last_status"),
+            "attempts": snapshot.get("attempts") or 0,
+        }
+
+    if snapshot.get("retained_cooldown_status"):
+        return "upstream_failure", {
+            "detail": "server_cooldown",
+            "status": snapshot.get("retained_cooldown_status"),
+            "attempts": snapshot.get("attempts") or 0,
+        }
+
+    return None
+
+
+def partial_sentence(
+    source: str,
+    reason: str,
+    detail: dict | None,
+    returned: int,
+) -> str:
+    """Describe usable records retained before an observed terminal issue."""
+    detail = detail or {}
+    count = int(returned)
+    records = f"{count} usable record{'s' if count != 1 else ''}"
+    if reason == "parse_failure":
+        ending = "a later HTTP 200 reply could not be read"
+    elif reason == "upstream_failure":
+        kind = str(detail.get("detail") or "")
+        status = detail.get("status")
+        status_text = f"HTTP {status} " if status else ""
+        if kind == "server_cooldown":
+            ending = (
+                f"a retained server-directed {status_text}cooldown prevented "
+                "another request"
+            )
+        elif kind == "operation_deadline":
+            ending = "the search operation budget expired"
+        elif kind == "timeout":
+            ending = "a later request timed out"
+        elif kind == "connect":
+            ending = "a later connection could not be opened"
+        elif kind == "request_error":
+            ending = "a later request failed"
+        else:
+            ending = f"a later {status_text}request failed" if status else "a later request failed"
+    else:
+        raise ValueError(f"no partial sentence for reason {reason!r}")
+    return (
+        f"{source} returned {records} before {ending}. "
+        "The retained set may be incomplete."
+    )
+
+
 def derive(snapshot: dict | None) -> tuple[str, dict]:
     """Turn one search's outcome channel into a reason and its detail.
 
@@ -219,12 +307,9 @@ def derive(snapshot: dict | None) -> tuple[str, dict]:
     if explicit:
         return explicit, dict(snapshot.get("explicit_detail") or {})
 
-    if snapshot.get("failures") and snapshot.get("last_call_failed"):
-        return "upstream_failure", {
-            "detail": snapshot.get("last_detail") or "request_error",
-            "status": snapshot.get("last_status"),
-            "attempts": snapshot.get("attempts") or 0,
-        }
+    issue = terminal_issue(snapshot)
+    if issue:
+        return issue
 
     if (snapshot.get("attempts") or 0) >= 1:
         return "answered_empty", {"attempts": snapshot.get("attempts") or 0}

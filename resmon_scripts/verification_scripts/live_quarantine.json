@@ -1,0 +1,34 @@
+{
+  "schema": "resmon.live-quarantine.v1",
+  "policy": "A quarantined live case still runs and still asserts. Its failure is excused only when the case recorded that its source's last call failed and that the search's failure history contains the entry's signature. Any other failure counts. A pass is reported as a recovery. An expired entry is ignored. At most 2 entries, each lasting at most 30 days after first observed, each admitted on the excused status captured from two vantage points. Rules and checks: live_evidence.py and test_live_suite.py.",
+  "entries": [
+    {
+      "nodeid": "resmon_scripts/verification_scripts/test_api_tier4.py::test_oapen_live_search",
+      "source": "oapen",
+      "signature": "http_500",
+      "first_observed": "2026-09-18",
+      "expires": "2026-10-18",
+      "reason": "OAPEN's DSpace REST search intermittently answers HTTP 500 with a server-side JDBC 'Could not open connection' error. The fault is the provider's database connection, and no client setting changes it.",
+      "evidence": [
+        {
+          "vantage": "GitHub-hosted runner (ubuntu-latest)",
+          "observed": "2026-09-18",
+          "status": "http_500",
+          "reference": "live-network.yml run 35320546397: transient 500 on the dated search, then a timeout on the retry"
+        },
+        {
+          "vantage": "GitHub-hosted runner (ubuntu-latest)",
+          "observed": "2026-09-18",
+          "status": "http_500",
+          "reference": "live-network.yml run 35322206062: transient 500 on the dated search, then a timeout on the retry"
+        },
+        {
+          "vantage": "maintainer workstation (macOS)",
+          "observed": "2026-09-18",
+          "status": "http_500",
+          "reference": "direct request to the same endpoint: an identical 17,771-byte GenericJDBCException error page, three times across six hours"
+        }
+      ]
+    }
+  ]
+}

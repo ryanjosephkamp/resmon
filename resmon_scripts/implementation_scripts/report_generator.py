@@ -153,7 +153,7 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
             lines.extend(_format_paper_entry(doc))
             lines.append("")
 
-    # --- Footer: every source that returned nothing, and why ---
+    # --- Footer: every incomplete or empty source result, and why ---
     #
     # This used to name only the sources missing an API key, which was the one
     # zero resmon could explain. Every other zero -- an outage, a window the
@@ -197,16 +197,28 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
 
     zero_notes = metadata.get("zero_notes")
     if isinstance(zero_notes, list) and zero_notes:
-        lines.append("---")
-        lines.append("")
-        lines.append("## Sources that returned nothing, and why")
-        lines.append("")
-        for note in zero_notes:
-            source = str(note.get("source", "")) if isinstance(note, dict) else ""
-            sentence = str(note.get("sentence", "")) if isinstance(note, dict) else ""
-            if source and sentence:
-                lines.append(f"- **{source}**: {sentence}")
-        lines.append("")
+        groups = (
+            ("## Sources with retained partial results", True),
+            ("## Sources that returned nothing, and why", False),
+        )
+        wrote_section = False
+        for heading, partial in groups:
+            notes = [
+                note for note in zero_notes
+                if isinstance(note, dict) and bool(note.get("partial")) is partial
+            ]
+            if not notes:
+                continue
+            if not wrote_section:
+                lines.extend(["---", ""])
+                wrote_section = True
+            lines.extend([heading, ""])
+            for note in notes:
+                source = str(note.get("source", ""))
+                sentence = str(note.get("sentence", ""))
+                if source and sentence:
+                    lines.append(f"- **{source}**: {sentence}")
+            lines.append("")
     elif missing_key_repos:
         # A report built without the per-source outcomes still says what it
         # always said rather than saying nothing.

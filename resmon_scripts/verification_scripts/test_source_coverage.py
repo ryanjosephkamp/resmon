@@ -29,7 +29,7 @@ def test_unusable_selection_never_becomes_zero_selected(params):
 def test_exact_slug_selection_missing_and_additional_sources():
     result = project({"repositories": ["a", "a", "A", "missing"]}, [row(), row("extra")])
     assert [s["source"] for s in result["sources"]] == ["a", "A", "missing"]
-    assert result["counts"] == {"answered": 1, "non_answer": 0, "unknown": 2, "genuine_empty": 1}
+    assert result["counts"] == {"answered": 1, "non_answer": 0, "unknown": 2, "genuine_empty": 1, "partial": 0}
     assert [s["source"] for s in result["additional_sources"]] == ["extra"]
     assert all(not s["outcome_recorded"] for s in result["sources"][1:])
     assert "no attempt" in result["sources"][1]["note"]
@@ -68,7 +68,7 @@ def test_mixed_run_positive_rights_unusable_and_cap_do_not_mean_new_or_empty():
             row("parse", reason="parse_failure"), row("old", reason=None),
             row("rights", reason="rights_filtered"), row("unusable", reason="records_unusable")]
     result = project({"repositories": [r["source"] for r in rows], "max_results": 100}, rows)
-    assert result["counts"] == {"answered": 4, "non_answer": 2, "unknown": 1, "genuine_empty": 1}
+    assert result["counts"] == {"answered": 4, "non_answer": 2, "unknown": 1, "genuine_empty": 1, "partial": 0}
     assert "could not read" in result["sources"][3]["note"]
     assert "newly added" in result["sources"][0]["note"]
     assert any("does not prove truncation" in n for n in result["notes"])
@@ -77,3 +77,32 @@ def test_mixed_run_positive_rights_unusable_and_cap_do_not_mean_new_or_empty():
 def test_running_and_cancelled_keep_incomplete_note():
     for status in ("running", "cancelled", "failed"):
         assert any("not completed" in n for n in project({"repository": "a"}, status=status)["notes"])
+
+
+@pytest.mark.parametrize("reason,detail", [
+    ("upstream_failure", {"detail": "http_503", "status": 503, "attempts": 2}),
+    ("upstream_failure", {"detail": "server_cooldown", "status": 429, "attempts": 1}),
+    ("parse_failure", {"detail": "json"}),
+])
+def test_positive_terminal_issue_is_answered_and_partial(reason, detail):
+    message = "Catalog Name returned 2 usable records before a terminal issue. The retained set may be incomplete."
+    result = project({"repository": "a"}, [row(
+        count=2, reason=reason,
+        zero_detail={**detail, "partial": True, "returned": 2, "message": message},
+    )])
+    source = result["sources"][0]
+    assert source["category"] == "answered"
+    assert source["label"] == "answered, partial"
+    assert source["partial"] is True
+    assert result["counts"]["partial"] == 1
+    assert source["note"] == message
+    assert "may be incomplete" in source["note"]
+
+
+def test_positive_reason_without_partial_fact_keeps_historical_rendering():
+    result = project({"repository": "a"}, [row(
+        count=2, reason="upstream_failure",
+        zero_detail={"detail": "http_503", "status": 503, "attempts": 2},
+    )])
+    assert result["counts"]["partial"] == 0
+    assert result["sources"][0]["label"] == "answered"

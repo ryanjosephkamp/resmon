@@ -44,7 +44,13 @@ HISTORIES = [
     ("hostile", {"repository": "a", "keywords": ["<script>bad()</script>|\n# forged"]}, [("a", 0, "retired")]),
     ("empty-selection", {"repositories": []}, []),
     ("singular", {"repository": "a"}, [("a", 0, "answered_empty")]),
+    ("partial", {"repository": "arxiv"}, [("arxiv", 2, "upstream_failure")]),
 ]
+
+PARTIAL_SENTENCE = (
+    "arXiv returned 2 usable records before a later HTTP 503 request failed. "
+    "The retained set may be incomplete."
+)
 
 
 def seed(path: Path) -> dict:
@@ -64,6 +70,11 @@ def seed(path: Path) -> dict:
             "start_time": "2026-09-01T12:00:00Z", "parameters": json.dumps(params)})
         for source, count, reason in sources:
             detail = {"attempts": 1, "status": 503} if source == "503" else {}
+            if name == "partial":
+                detail = {
+                    "attempts": 2, "detail": "http_503", "status": 503,
+                    "partial": True, "returned": 2, "message": PARTIAL_SENTENCE,
+                }
             if name == "hostile":
                 detail = {"detail": "<img src=x onerror=bad()>|\n# forged [link](javascript:bad)"}
             db.record_execution_source(conn, eid, source, "ok", result_count=count,
@@ -71,8 +82,22 @@ def seed(path: Path) -> dict:
         report, log = reports / f"original-{eid}.md", reports / f"original-{eid}.log"
         report.write_bytes(f"# Historical report {eid}\nPreserved bytes.\n".encode())
         log.write_bytes(f"Original log {eid}\r\n".encode())
-        conn.execute("UPDATE executions SET result_path=?,log_path=?,dedup_new=0 WHERE id=?", (str(report),str(log),eid))
+        progress = None
+        if name == "partial":
+            progress = json.dumps([{
+                "type": "repo_done", "repository": "arxiv", "index": 1,
+                "total_repos": 1, "result_count": 2,
+                "zero_reason": "upstream_failure", "zero_detail": detail,
+                "zero_message": PARTIAL_SENTENCE,
+                "timestamp": "2026-09-01T12:00:01Z",
+            }])
+        conn.execute(
+            "UPDATE executions SET result_path=?,log_path=?,dedup_new=0,"
+            "result_count=?,progress_events=COALESCE(?,progress_events) WHERE id=?",
+            (str(report), str(log), sum(s[1] for s in sources), progress, eid),
+        )
         fixture["coverage_ids"][name] = eid
+    fixture["partial_sentence"] = PARTIAL_SENTENCE
     conn.commit()
     conn.close()
     return fixture
@@ -153,7 +178,7 @@ def test_history_account_arrives_in_http_markdown_list_and_detail(boundary):
         assert f"resmon execution id | {eid}" in md
         assert "Source coverage" in md
         if name == "mixed":
-            assert c["counts"] == {"answered": 2, "non_answer": 2, "unknown": 2, "genuine_empty": 1}
+            assert c["counts"] == {"answered": 2, "non_answer": 2, "unknown": 2, "genuine_empty": 1, "partial": 0}
             assert [r["source"] for r in c["sources"]] == ["positive", "empty", "503", "parse", "old", "missing"]
             assert "Recorded at" in md and "Outcome not recorded" in md
         if name == "malformed":
@@ -163,6 +188,10 @@ def test_history_account_arrives_in_http_markdown_list_and_detail(boundary):
         if name == "hostile":
             assert "<img" not in md
             assert "\\|" in md and "&lt;img" in md
+        if name == "partial":
+            assert c["counts"] == {"answered": 1, "non_answer": 0, "unknown": 0, "genuine_empty": 0, "partial": 1}
+            assert c["sources"][0]["note"] == PARTIAL_SENTENCE
+            assert search_record._text(PARTIAL_SENTENCE) in md
         print("COVERAGE_HISTORY", json.dumps({"name": name, "coverage": c}))
     assert httpx.get(f"{base}/api/executions/999999/search-record").status_code == 404
 

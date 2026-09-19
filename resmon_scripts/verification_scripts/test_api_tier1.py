@@ -1,5 +1,6 @@
 # resmon_scripts/verification_scripts/test_api_tier1.py
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -1455,6 +1456,7 @@ def _eric_payload(docs, *, total=None, start=0):
 
 def test_eric_search_builds_year_query_and_normalizes_text_plain_json(monkeypatch):
     calls = []
+    began = time.monotonic()
 
     def _request(method, url, **kwargs):
         calls.append((method, url, kwargs))
@@ -1469,23 +1471,25 @@ def test_eric_search_builds_year_query_and_normalizes_text_plain_json(monkeypatc
         max_results=5,
     )
 
-    assert calls == [(
-        "GET",
-        "https://api.ies.ed.gov/eric/",
-        {
-            "params": {
-                "search": "(climate education) AND publicationdateyear:2024",
-                "format": "json",
-                "start": 0,
-                "rows": 5,
-                "fields": (
-                    "id,title,author,description,publicationdateyear,subject,"
-                    "url"
-                ),
-            },
-            "rate_limiter": api_eric._RATE_LIMITER,
+    assert len(calls) == 1
+    method, url, options = calls[0]
+    assert method == "GET" and url == "https://api.ies.ed.gov/eric/"
+    assert options.pop("deadline") >= began + 44.9
+    assert options == {
+        "params": {
+            "search": "(climate education) AND publicationdateyear:2024",
+            "format": "json",
+            "start": 0,
+            "rows": 5,
+            "fields": (
+                "id,title,author,description,publicationdateyear,subject,"
+                "url"
+            ),
         },
-    )]
+        "rate_limiter": api_eric._RATE_LIMITER,
+        "timeout": 10.0,
+        "max_retries": 0,
+    }
     assert api_eric._RATE_LIMITER._interval == pytest.approx(2.0)
     assert results == [NormalizedResult(
         source_repository="eric",
@@ -2883,26 +2887,32 @@ def test_pubmed_search():
 
 @pytest.mark.live_network
 def test_biorxiv_search():
-    """bioRxiv client returns results for a date-range query."""
+    """bioRxiv returns useful normalized records for the requested query."""
+    api_base.reset_search_outcome()
     client = get_client("biorxiv")
-    try:
-        results = client.search(query="neuroscience", max_results=3,
-                                date_from="2026-04-01", date_to="2026-04-15")
-    except RuntimeError as exc:
-        # The bioRxiv /details endpoint reports upstream unavailability via a
-        # sentinel status message. Surface this as a skip rather than a
-        # failure so transient outages don't turn the whole suite red.
-        if "unavailable" in str(exc).lower():
-            pytest.skip(f"bioRxiv /details endpoint unavailable: {exc}")
-        raise
-    assert isinstance(results, list)
-    if results:
-        assert isinstance(results[0], NormalizedResult)
+    results = client.search(query="neuroscience", max_results=3,
+                            date_from="2026-04-01", date_to="2026-04-15")
+
+    outcome = api_base.search_outcome().snapshot()
+    assert outcome["attempts"] > 0, outcome
+    assert outcome["last_call_failed"] is False, outcome
+    assert outcome["retained_cooldown_status"] is None, outcome
+    assert outcome["explicit_reason"] is None, outcome
+    assert 1 <= len(results) <= 3
+    assert all(isinstance(result, NormalizedResult) for result in results)
+    assert all(result.source_repository == "biorxiv" for result in results)
+    assert all(result.title and result.external_id for result in results)
+    assert all(
+        result.publication_date is not None
+        and "2026-04-01" <= result.publication_date <= "2026-04-15"
+        for result in results
+    )
 
 
 @pytest.mark.live_network
 def test_medrxiv_search_respects_date_window():
     """medRxiv returns normalized records inside the requested date range."""
+    api_base.reset_search_outcome()
     date_from = "2024-01-01"
     date_to = "2024-01-07"
     results = get_client("medrxiv").search(
@@ -2912,9 +2922,15 @@ def test_medrxiv_search_respects_date_window():
         date_to=date_to,
     )
 
-    assert results
+    outcome = api_base.search_outcome().snapshot()
+    assert outcome["attempts"] > 0, outcome
+    assert outcome["last_call_failed"] is False, outcome
+    assert outcome["retained_cooldown_status"] is None, outcome
+    assert outcome["explicit_reason"] is None, outcome
+    assert 1 <= len(results) <= 3
     assert all(isinstance(result, NormalizedResult) for result in results)
     assert all(result.source_repository == "medrxiv" for result in results)
+    assert all(result.title and result.external_id for result in results)
     assert all(
         result.publication_date is not None
         and date_from <= result.publication_date <= date_to
@@ -2945,6 +2961,7 @@ def test_datacite_search_respects_publication_year_window():
 @pytest.mark.live_network
 def test_eric_search_respects_publication_year_window():
     """ERIC returns publication metadata inside the requested full year."""
+    api_base.reset_search_outcome()
     results = get_client("eric").search(
         query="climate",
         max_results=3,
@@ -2952,9 +2969,15 @@ def test_eric_search_respects_publication_year_window():
         date_to="2024-12-31",
     )
 
-    assert results
+    outcome = api_base.search_outcome().snapshot()
+    assert outcome["attempts"] > 0, outcome
+    assert outcome["last_call_failed"] is False, outcome
+    assert outcome["retained_cooldown_status"] is None, outcome
+    assert outcome["explicit_reason"] is None, outcome
+    assert 1 <= len(results) <= 3
     assert all(isinstance(result, NormalizedResult) for result in results)
     assert all(result.source_repository == "eric" for result in results)
+    assert all(result.title and result.external_id for result in results)
     assert all(result.publication_date == "2024" for result in results)
 
 
@@ -3007,6 +3030,7 @@ def test_zenodo_search_respects_date_window():
     outcome = api_base.search_outcome().snapshot()
     assert outcome["attempts"] > 0, outcome
     assert outcome["last_call_failed"] is False, outcome
+    assert outcome["retained_cooldown_status"] is None, outcome
     assert outcome["explicit_reason"] is None, outcome
     assert results
     assert all(isinstance(result, NormalizedResult) for result in results)

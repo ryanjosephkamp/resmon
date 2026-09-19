@@ -10,6 +10,7 @@ export interface CoverageSource {
   recorded_at: string | null;
   outcome_recorded: boolean;
   genuine_empty: boolean;
+  partial?: boolean;
 }
 export interface SourceCoverage {
   execution_id: number;
@@ -17,7 +18,7 @@ export interface SourceCoverage {
   basis_label: string;
   selection_known: boolean;
   total: number;
-  counts: { answered: number; non_answer: number; unknown: number; genuine_empty: number };
+  counts: { answered: number; non_answer: number; unknown: number; genuine_empty: number; partial?: number };
   summary: string;
   sources: CoverageSource[];
   additional_sources: CoverageSource[];

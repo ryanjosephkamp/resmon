@@ -51,8 +51,8 @@ function eventMessage(ev: ProgressEvent): string {
     case 'repo_done':
       // A zero now says why, in the sentence the backend rendered. The
       // renderer never composes this wording: one vocabulary, one place.
-      if ((ev.result_count ?? 0) === 0 && ev.zero_message) {
-        return `${ev.repository}: 0 results — ${ev.zero_message}`;
+      if (ev.zero_message) {
+        return `${ev.repository}: ${ev.result_count ?? 0} results — ${ev.zero_message}`;
       }
       return `${ev.repository}: ${ev.result_count ?? 0} results`;
     case 'repo_skipped_missing_key':

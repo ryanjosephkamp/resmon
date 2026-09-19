@@ -138,6 +138,39 @@ def test_a_429_is_recorded_as_rate_limited(http_server, fast_retries):
     assert detail["status"] == 429
 
 
+def test_retained_cooldown_derives_and_renders_without_inventing_an_attempt():
+    outcome = api_base.search_outcome()
+    outcome.note_retained_cooldown(429)
+
+    snapshot = outcome.snapshot()
+    reason, detail = zero_reason.derive(snapshot)
+
+    assert snapshot["attempts"] == 0
+    assert snapshot["failures"] == 0
+    assert snapshot["last_call_failed"] is False
+    assert reason == "upstream_failure"
+    assert detail == {
+        "detail": "server_cooldown", "status": 429, "attempts": 0,
+    }
+    assert zero_reason.sentence("ERIC", reason, detail) == (
+        "ERIC could not be queried: a retained server-directed HTTP 429 "
+        "cooldown from an earlier request was still active, so resmon sent no "
+        "new request. This is not a zero — the source did not answer."
+    )
+
+
+def test_current_search_http_failure_precedes_retained_cooldown_detail():
+    outcome = api_base.search_outcome()
+    outcome.note_attempt()
+    outcome.note_failure(503)
+    outcome.note_retained_cooldown(429)
+
+    reason, detail = zero_reason.derive(outcome.snapshot())
+
+    assert reason == "upstream_failure"
+    assert detail == {"detail": "http_503", "status": 503, "attempts": 1}
+
+
 def test_a_200_records_no_failure(http_server, fast_retries):
     http_server.reply = (200, '{"results": []}')
 
@@ -666,6 +699,82 @@ def test_a_source_that_answered_with_records_carries_no_reason(
     assert record["sources"][0]["note"] is None
     assert record["identification"]["sources_that_answered"] == 1
     conn.close()
+
+
+@pytest.mark.parametrize(
+    "ending,reason,detail_text,attempts",
+    [
+        ("http", "upstream_failure", "http_503", 2),
+        ("cooldown", "upstream_failure", "server_cooldown", 1),
+        ("parse", "parse_failure", "json", 2),
+    ],
+)
+def test_engine_retains_records_and_surfaces_terminal_partial_issue(
+    monkeypatch, ending, reason, detail_text, attempts,
+):
+    """One shared sentence reaches the row, event, log and search record."""
+
+    class _PartialClient(BaseAPIClient):
+        def get_name(self):
+            return "arxiv"
+
+        def search(self, query, date_from=None, date_to=None, max_results=100, **kw):
+            outcome = api_base.search_outcome()
+            outcome.note_attempt()
+            if ending == "http":
+                outcome.note_attempt()
+                outcome.note_failure(503)
+            elif ending == "cooldown":
+                outcome.note_retained_cooldown(429)
+            else:
+                outcome.note_attempt()
+                outcome.note_parse_failure("json")
+            from resmon_scripts.implementation_scripts.api_base import NormalizedResult
+            return [NormalizedResult(
+                source_repository="arxiv", external_id="1", doi=None,
+                title="A retained paper", authors=["A"], abstract=None,
+                publication_date="2024-01-01", url="https://example.org/1",
+            )]
+
+    conn, result = _run_dive(monkeypatch, _PartialClient())
+    try:
+        row = get_execution_sources(conn, result["execution_id"])[0]
+        assert row["status"] == "ok"
+        assert row["result_count"] == 1
+        assert row["zero_reason"] == reason
+        detail = json.loads(row["zero_detail"])
+        assert detail["partial"] is True
+        assert detail["returned"] == 1
+        assert detail["attempts"] == attempts
+        if reason == "upstream_failure":
+            assert detail["detail"] == detail_text
+        else:
+            assert detail["detail"] == "json"
+
+        event, note, log = _one_sentence_everywhere(conn, result, "arxiv")
+        assert event["result_count"] == 1
+        assert event["zero_reason"] == reason
+        assert event["zero_message"] == note
+        assert event["zero_detail"]["message"] == note
+        assert event["zero_message"] in log
+        assert "1 usable record" in note
+        assert "may be incomplete" in note
+
+        record = search_record.build(conn, result["execution_id"])
+        assert record["sources"][0]["answered"] is True
+        assert record["sources"][0]["coverage"]["partial"] is True
+        assert record["sources"][0]["coverage"]["note"] == event["zero_message"]
+        assert record["coverage"]["counts"]["partial"] == 1
+        assert any("may be incomplete" in caveat for caveat in record["caveats"])
+        markdown = search_record.to_markdown(record)
+        assert "may be incomplete" in markdown
+        from pathlib import Path
+        report = Path(result["report_path"]).read_text(encoding="utf-8")
+        assert "## Sources with retained partial results" in report
+        assert "## Sources that returned nothing, and why" not in report
+        assert note in report
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

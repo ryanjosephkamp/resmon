@@ -22,9 +22,10 @@ function formatTime(iso: string): string {
   }
 }
 
-function eventIcon(type: string): string {
-  switch (type) {
+function eventIcon(ev: ProgressEvent): string {
+  switch (ev.type) {
     case 'repo_done':
+      return ev.zero_message && (ev.result_count ?? 0) > 0 ? '⚠' : '✓';
     case 'complete':
       return '✓';
     case 'repo_error':
@@ -41,9 +42,11 @@ function eventIcon(type: string): string {
   }
 }
 
-function eventSeverity(type: string): string {
-  switch (type) {
+function eventSeverity(ev: ProgressEvent): string {
+  switch (ev.type) {
     case 'repo_done':
+      return ev.zero_message && (ev.result_count ?? 0) > 0
+        ? 'pv-warning' : 'pv-success';
     case 'complete':
       return 'pv-success';
     case 'repo_error':
@@ -67,7 +70,7 @@ function eventText(ev: ProgressEvent): string {
     case 'repo_start':
       return `Querying: ${ev.repository} (${ev.index}/${ev.total_repos})`;
     case 'repo_done':
-      return `${ev.repository}: ${ev.result_count ?? 0} results`;
+      return `${ev.repository}: ${ev.result_count ?? 0} results${ev.zero_message ? ` — ${ev.zero_message}` : ''}`;
     case 'repo_error':
       return `${ev.repository}: error — ${ev.error ?? 'unknown'}`;
     case 'dedup_stats':
@@ -108,8 +111,8 @@ const ProgressTimeline: React.FC<{ events: ProgressEvent[] }> = ({ events }) => 
   return (
     <div className="pv-timeline">
       {filteredEvents.map((ev, i) => (
-        <div key={i} className={`pv-entry ${eventSeverity(ev.type)}`}>
-          <span className="pv-icon">{eventIcon(ev.type)}</span>
+        <div key={i} className={`pv-entry ${eventSeverity(ev)}`}>
+          <span className="pv-icon">{eventIcon(ev)}</span>
           <span className="pv-time">{formatTime(ev.timestamp)}</span>
           <span className="pv-text">{eventText(ev)}</span>
           {ev.type === 'stage' && (

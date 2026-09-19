@@ -7,6 +7,7 @@ Metadata terms: https://www.oapen.org/oapen/posi-self-audit
 
 import logging
 import re
+import time
 
 from .api_base import (
     BaseAPIClient, NormalizedResult, RateLimiter, note_filtered,
@@ -24,6 +25,22 @@ _URL = "https://library.oapen.org/rest/search"
 _RATE_LIMITER = RateLimiter(requests_per_second=0.5)
 _PAGE_SIZE = 100
 _MIN_SCAN_BUDGET = 10000
+_SEARCH_BUDGET_SECONDS = 45.0
+# Twenty seconds, not ten, because ten was shorter than the provider's own
+# replies. Under the 30 s default the dated live case passed on 2026-09-17 in
+# ~1.6 s and again in ~23.8 s of whole-test time. OAPEN's HTTP 500 error page
+# takes ~11.7 s to its first byte. A 10 s timeout cannot wait for a reply that
+# slow, so a slow answer, or the error page itself, was recorded as a timeout
+# instead of as what it was. Twenty lets a reply that arrives between 10 and
+# 20 s be read. The worst case, two timeouts, is 20 + 1 s backoff + 20 = 41 s,
+# inside the 45 s budget and well inside pytest's 120 s watchdog.
+#
+# This does not fix a genuine 500. From 2026-09-18 OAPEN's DSpace server has
+# intermittently answered HTTP 500 (a JDBC "Could not open connection" error)
+# to GitHub runners and to a workstation alike. No client setting changes
+# that. The timeout only makes the 500 legible as a 500.
+_REQUEST_TIMEOUT_SECONDS = 20.0
+_MAX_REQUEST_RETRIES = 1
 _HANDLE = re.compile(r"^\d+(?:\.\d+)*/[A-Za-z0-9._~-]+$")
 
 
@@ -44,6 +61,7 @@ class OapenClient(BaseAPIClient):
             note_unanswerable("year_granularity")
             return []
         lower, upper, _, _ = bounds
+        deadline = time.monotonic() + _SEARCH_BUDGET_SECONDS
         start = f"{lower:04d}-01-01T00:00:00Z" if lower else "*"
         end = f"{upper:04d}-12-31T23:59:59.999Z" if upper else "*"
         results: list[NormalizedResult] = []
@@ -62,19 +80,27 @@ class OapenClient(BaseAPIClient):
             if lower or upper:
                 params["fq"] = f"dc.date.issued_dt:[{start} TO {end}]"
             try:
-                response = safe_request("GET", _URL, params=params, rate_limiter=_RATE_LIMITER)
+                response = safe_request(
+                    "GET", _URL,
+                    params=params,
+                    headers={"Accept": "application/json"},
+                    rate_limiter=_RATE_LIMITER,
+                    timeout=_REQUEST_TIMEOUT_SECONDS,
+                    max_retries=_MAX_REQUEST_RETRIES,
+                    deadline=deadline,
+                )
                 if response.status_code != 200:
                     logger.error("OAPEN returned HTTP %d", response.status_code)
-                    return []
+                    return results
                 records = response.json()
             except Exception as exc:
                 logger.warning("OAPEN request failed (%s)", type(exc).__name__)
                 note_parse_failure_unless_transport(exc)
-                return []
+                return results
             if not isinstance(records, list) or len(records) > page_size:
                 logger.error("OAPEN returned an invalid page")
                 note_parse_failure()
-                return []
+                return results
             duplicates = 0
             for record in records:
                 parsed = self._parse_record(record)
@@ -94,7 +120,7 @@ class OapenClient(BaseAPIClient):
                     # Do not present a page that did not obey its query as empty.
                     logger.error("OAPEN returned a publication year outside its requested filter")
                     note_parse_failure()
-                    return []
+                    return results
                 results.append(parsed)
                 if len(results) == max_results:
                     return results
@@ -108,7 +134,7 @@ class OapenClient(BaseAPIClient):
                 # progress. Malformed rows instead consume the scan budget.
                 logger.error("OAPEN pagination made no identifiable progress")
                 note_parse_failure()
-                return []
+                return results
         logger.warning("oapen metadata scan budget reached after %d rows; retained %d", offset, len(results))
         if not results and incomplete:
             note_filtered(offset, 0, "records_unusable", rights=0, incomplete=incomplete)

@@ -12,6 +12,7 @@ import pytest
 
 from implementation_scripts import api_base, api_govinfo, api_oapen, api_registry, zero_reason
 from implementation_scripts.repo_catalog import REPOSITORY_CATALOG
+from resmon_scripts.verification_scripts.live_evidence import source_outcome_property
 
 
 def oapen_record(handle="20.500.12657/100210", year="2024"):
@@ -42,11 +43,14 @@ def wire(monkeypatch):
     calls = []
     replies = []
     limiters = []
-    monkeypatch.setattr(api_base.RateLimiter, "acquire", lambda self: limiters.append(self))
+    monkeypatch.setattr(
+        api_base.RateLimiter, "acquire",
+        lambda self, *args, **kwargs: limiters.append(self),
+    )
     monkeypatch.setattr(api_govinfo, "get_credential_for", lambda *a: "test-only-key")
     api_base.reset_search_outcome()
 
-    def request(self, method, url, **kwargs):
+    def response(method, url, kwargs):
         calls.append((method, url, kwargs))
         assert replies, "client requested an unexpected page"
         reply = replies.pop(0)
@@ -56,7 +60,14 @@ def wire(monkeypatch):
         return httpx.Response(status, content=body if isinstance(body, bytes) else json.dumps(body).encode(),
                               request=httpx.Request(method, url))
 
+    def request(self, method, url, **kwargs):
+        return response(method, url, kwargs)
+
+    async def async_request(self, method, url, **kwargs):
+        return response(method, url, kwargs)
+
     monkeypatch.setattr(httpx.Client, "request", request)
+    monkeypatch.setattr(httpx.AsyncClient, "request", async_request)
     monkeypatch.setattr(api_base.config, "DEFAULT_MAX_RETRIES", 0)
     return calls, replies, limiters
 
@@ -95,6 +106,7 @@ def test_oapen_query_year_precision_pagination_and_metadata(wire, monkeypatch):
     assert all(p["limit"] == 2 and p["expand"] == "metadata" for p in params)
     assert params[0]["query"] == "water AND fire"
     assert params[0]["fq"] == "dc.date.issued_dt:[2024-01-01T00:00:00Z TO 2024-12-31T23:59:59.999Z]"
+    assert all(c[2]["headers"]["Accept"] == "application/json" for c in calls)
     assert limiters == [api_oapen._RATE_LIMITER] * 2
 
 
@@ -172,19 +184,26 @@ def test_unreadable_reply_is_not_empty_answer(wire, slug, body):
 @pytest.mark.parametrize("slug", ["oapen", "govinfo"])
 @pytest.mark.parametrize("failure", [(503, {}), httpx.ConnectError("unreachable")])
 def test_transport_failure_is_not_parse_failure(wire, slug, failure):
-    wire[1].append(failure)
+    wire[1].extend([failure] * (2 if slug == "oapen" else 1))
     assert api_registry.get_client(slug).search("water") == []
     assert reason() == "upstream_failure"
 
 
 @pytest.mark.parametrize("slug", ["oapen", "govinfo"])
-def test_second_page_outage_discards_partial_results(wire, monkeypatch, slug):
+def test_second_page_outage_uses_each_source_partial_result_contract(
+    wire, monkeypatch, slug,
+):
     module = api_oapen if slug == "oapen" else api_govinfo
     monkeypatch.setattr(module, "_PAGE_SIZE", 1)
     record = oapen_record() if slug == "oapen" else govinfo_record()
-    wire[1].extend([(200, page(slug, [record], 2)), (503, {})])
-    assert api_registry.get_client(slug).search("water", max_results=2) == []
-    assert reason() == "upstream_failure"
+    failures = [(503, {})] * (2 if slug == "oapen" else 1)
+    wire[1].extend([(200, page(slug, [record], 2)), *failures])
+    rows = api_registry.get_client(slug).search("water", max_results=2)
+    if slug == "oapen":
+        assert [row.external_id for row in rows] == [record["handle"]]
+    else:
+        assert rows == []
+    assert api_base.search_outcome().snapshot()["last_call_failed"] is True
 
 
 @pytest.mark.parametrize("slug", ["oapen", "govinfo"])
@@ -194,7 +213,11 @@ def test_repeated_page_fails_closed(wire, monkeypatch, slug):
     record = oapen_record() if slug == "oapen" else govinfo_record()
     wire[1].extend([(200, page(slug, [record], 3, "cursor1")),
                     (200, page(slug, [record], 3, "cursor2"))])
-    assert api_registry.get_client(slug).search("water", max_results=3) == []
+    rows = api_registry.get_client(slug).search("water", max_results=3)
+    if slug == "oapen":
+        assert [row.external_id for row in rows] == [record["handle"]]
+    else:
+        assert rows == []
     assert len(wire[0]) == 2
     assert reason() == "parse_failure"
 
@@ -243,10 +266,21 @@ BATCH_LIVE_CASES = {"oapen": "test_oapen_live_search", "govinfo": "test_govinfo_
 
 
 @pytest.mark.live_network
-def test_oapen_live_search():
+def test_oapen_live_search(record_property):
     api_base.reset_search_outcome()
     rows = api_registry.get_client("oapen").search("water AND fire", "2020", "2024", 2)
-    assert len(rows) == 2, api_base.search_outcome().snapshot()
+    outcome = api_base.search_outcome().snapshot()
+    # Recorded before any assertion. The provider-outage quarantine
+    # (live_quarantine.json) matches its signature against this outcome, and
+    # the durable live evidence reports the failure history from it.
+    record_property("source_outcome", source_outcome_property("oapen", outcome))
+    history = " -> ".join(outcome["failure_history"]) or "none"
+    assert len(rows) == 2, (
+        f"OAPEN returned {len(rows)} of 2 rows; failure history: {history}; {outcome}")
+    assert outcome["attempts"] > 0, outcome
+    assert outcome["last_call_failed"] is False, outcome
+    assert outcome["retained_cooldown_status"] is None, outcome
+    assert outcome["explicit_reason"] is None, outcome
     assert all(r.source_repository == "oapen" and "2020" <= r.publication_date <= "2024" for r in rows)
     assert all(r.title and r.external_id and r.url.startswith("https://library.oapen.org/handle/") for r in rows)
     api_base.reset_search_outcome()

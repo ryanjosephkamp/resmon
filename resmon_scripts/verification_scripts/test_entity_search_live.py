@@ -25,11 +25,11 @@ and grading their precision is the field test.
 ## Two honest arms rather than one optimistic one
 
 A source that needs a key this machine does not hold, and a source that is simply
-down, are different facts and neither is a failure of resmon's code. Both are
-**reported by name** rather than silently passed: the first skips with the
-credential it wanted, the second fails only if *no* source answered at all, so a
-transient outage at one endpoint does not turn the suite red while a systematic
-break still does.
+down, are different facts. Keyed sources skip with the credential they need.
+Most keyless sources report an empty answer by name and remain in the aggregate
+denominator; DBLP, ERIC, and OAPEN are strict response gates and fail on an empty
+or authorless result. The aggregate consumes those same current-run records in
+catalog order and never performs a second provider sweep.
 
 Weekly rather than per-commit, through the scheduled half of the live suite —
 these are twenty real requests to other people's servers and a routine that runs
@@ -38,6 +38,7 @@ them on every push would be rude.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -46,10 +47,15 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
+from implementation_scripts.api_base import (  # noqa: E402
+    reset_search_outcome,
+    search_outcome,
+)
 from implementation_scripts.api_registry import get_client  # noqa: E402
 from implementation_scripts.credential_manager import get_credential_for  # noqa: E402
 from implementation_scripts.entity_matching import fold_name  # noqa: E402
 from implementation_scripts.repo_catalog import REPOSITORY_CATALOG  # noqa: E402
+from live_evidence import CurrentRunSourceLedger, stable_hash  # noqa: E402
 
 pytestmark = pytest.mark.live_network
 
@@ -59,6 +65,7 @@ pytestmark = pytest.mark.live_network
 # without reaching into another module's internals.
 _KEYED = {"core": "core_api_key", "nasa_ads": "nasa_ads_api_key",
           "springer": "springer_api_key"}
+_STRICT_AUTHOR = {"dblp", "eric", "oapen"}
 
 # The person each source is asked about, and why.
 #
@@ -114,11 +121,65 @@ def _askable() -> list[str]:
     return sorted(e.slug for e in REPOSITORY_CATALOG if e.entity_search.supported)
 
 
+def _keyless_askable() -> list[str]:
+    return [slug for slug in _askable() if slug not in _KEYED]
+
+
 def _profile(name: str) -> dict:
     """The minimum a client needs. No identifier: the query is by name."""
     return {"kind": "person", "display_name": name,
             "names": [{"value": name, "script": "latin"}],
             "identifiers": {}, "affiliations": [], "field_hints": []}
+
+
+def _query_id(slug: str) -> str:
+    return stable_hash({
+        "slug": slug,
+        "profile": _profile(_ASK_ABOUT[slug]),
+        "max_results": 10,
+    })
+
+
+def _canonical_author_nodeids(rootpath: Path) -> dict[str, str]:
+    """Return the full catalog map independently of pytest post-selection."""
+    module = Path(__file__).resolve()
+    try:
+        relative = module.relative_to(rootpath.resolve()).as_posix()
+    except ValueError as exc:
+        raise AssertionError("live source module is outside pytest root") from exc
+    prefix = (
+        f"{relative}::"
+        "test_a_real_source_answers_a_real_author_query"
+    )
+    return {slug: f"{prefix}[{slug}]" for slug in _askable()}
+
+
+@pytest.fixture(scope="session")
+def source_response_ledger(request) -> CurrentRunSourceLedger:
+    expected = _keyless_askable()
+    query_ids = {slug: _query_id(slug) for slug in expected}
+    all_source_nodeids = _canonical_author_nodeids(Path(request.config.rootpath))
+    source_case_nodeids = {slug: all_source_nodeids[slug] for slug in expected}
+    excluded_keyed_nodeids = {
+        slug: all_source_nodeids[slug]
+        for slug in sorted(set(_KEYED) & set(all_source_nodeids))
+    }
+    source_contract = {
+        "module": Path(__file__).name,
+        "markexpr": request.config.option.markexpr,
+        "catalog_sources": _askable(),
+        "expected_nodeids": source_case_nodeids,
+        "excluded_keyed_nodeids": excluded_keyed_nodeids,
+        "query_ids": query_ids,
+    }
+    return CurrentRunSourceLedger(
+        expected,
+        candidate_head=os.environ.get("RESMON_LIVE_CANDIDATE_SHA", "local-unbound"),
+        selection_id=stable_hash(source_contract),
+        query_ids=query_ids,
+        nodeids=source_case_nodeids,
+        source_contract=source_contract,
+    )
 
 
 def test_every_askable_source_has_a_live_case():
@@ -145,7 +206,9 @@ def test_the_keyed_sources_list_matches_the_engines():
 
 
 @pytest.mark.parametrize("slug", _askable())
-def test_a_real_source_answers_a_real_author_query(slug, record_property):
+def test_a_real_source_answers_a_real_author_query(
+    slug, record_property, request, source_response_ledger,
+):
     """resmon's own client asks, and what comes back really carries that author.
 
     The name check is the whole point. A source that answers *anything* proves
@@ -163,15 +226,70 @@ def test_a_real_source_answers_a_real_author_query(slug, record_property):
 
     name = _ASK_ABOUT[slug]
     client = get_client(slug)
-    records = client.search_entity(_profile(name), max_results=10)
+    keyless = slug not in _KEYED
+    if keyless:
+        source_response_ledger.start(
+            slug, nodeid=request.node.nodeid, query_id=_query_id(slug),
+        )
+    reset_search_outcome()
+    try:
+        records = client.search_entity(_profile(name), max_results=10)
+    except Exception as exc:
+        if keyless:
+            source_response_ledger.finish(
+                slug, result="raised", returned_count=None,
+                outcome=search_outcome().snapshot(), error=exc,
+            )
+            record_property("source_ledger", source_response_ledger.record(slug))
+        raise
+    outcome = search_outcome().snapshot()
+    if keyless:
+        source_response_ledger.finish(
+            slug,
+            result="answered_nonempty" if records else "answered_empty",
+            returned_count=len(records),
+            outcome=outcome,
+        )
+        record_property("source_ledger", source_response_ledger.record(slug))
     record_property("returned", len(records))
 
     if not records:
+        if slug in _STRICT_AUTHOR:
+            pytest.fail(
+                f"{slug} is a strict source-response gate: its real author query "
+                f"for {name!r} returned no useful records; outcome={outcome!r}"
+            )
         pytest.skip(
             f"NOT VERIFIED — {slug} returned nothing for '{name}'. That is either "
             f"an outage or a change upstream, and this run cannot tell which. "
             f"test_at_least_most_sources_answered fails when this happens broadly.")
 
+    if slug in _STRICT_AUTHOR:
+        assert outcome["attempts"] > 0, outcome
+        assert outcome["last_call_failed"] is False, outcome
+        assert outcome["retained_cooldown_status"] is None, outcome
+        assert outcome["explicit_reason"] is None, outcome
+
+    if slug == "dblp":
+        assert 1 <= len(records) <= 10
+        assert all(record.source_repository == "dblp" for record in records)
+        assert all(record.title and record.external_id for record in records)
+        assert all(not record.external_id.startswith("http") for record in records)
+        assert all(record.url.startswith("https://dblp.org/rec/") for record in records)
+        assert all(
+            record.publication_date is None
+            or (
+                len(record.publication_date) == 10
+                and record.publication_date.endswith("-01-01")
+                and record.publication_date[:4].isdigit()
+            )
+            for record in records
+        )
+        assert any(
+            any(namespace == "dblp" and source_id
+                for namespace, source_id in author.source_ids)
+            for record in records for author in record.authors
+        )
     # A source whose records carry **no author at all** is a third fact, and it
     # is neither a pass nor the failure below. NDL is the case: its author query
     # works and its records use `dc:creator`, which resmon's NDL parser does not
@@ -180,6 +298,11 @@ def test_a_real_source_answers_a_real_author_query(slug, record_property):
     # open item and said out loud here rather than being hidden inside a green
     # assertion or a red one that blames the query.
     if not any(r.authors for r in records):
+        if slug in _STRICT_AUTHOR:
+            pytest.fail(
+                f"{slug} returned records for its strict author query but none "
+                f"had a parsed author; outcome={outcome!r}"
+            )
         pytest.skip(
             f"NOT VERIFIED — {slug} answered the author query with "
             f"{len(records)} record(s) and resmon parsed no author from any of "
@@ -225,31 +348,21 @@ def test_a_real_source_answers_a_real_author_query(slug, record_property):
     )
 
 
-def test_at_least_most_sources_answered():
+def test_at_least_most_sources_answered(
+    source_response_ledger, record_property, request,
+):
     """A systematic break goes red; one endpoint having a bad day does not.
 
-    Each case above skips rather than fails when a source is silent, because a
-    single outage is not resmon being broken. This is the guard that stops that
-    leniency from hiding the case where *everything* stopped working — a change
-    to `search_entity`'s signature, say, or to the profile shape it takes.
+    Most cases skip after recording a silent source; DBLP, ERIC, and OAPEN fail
+    directly because this stage makes them strict response gates. This guard
+    consumes the same calls' current-session evidence so broader breakage cannot
+    hide behind individual skips, without making a duplicate provider sweep.
     """
-    askable = [s for s in _askable() if s not in _KEYED]
-    answered = []
-    for slug in askable:
-        try:
-            records = get_client(slug).search_entity(
-                _profile(_ASK_ABOUT[slug]), max_results=3)
-        except Exception:                       # an outage, not a contract break
-            continue
-        if records:
-            answered.append(slug)
-
-    # Half, deliberately loosely. The number is a smoke threshold and not a
-    # measurement: it exists to distinguish "the internet is having a day" from
-    # "resmon can no longer ask anybody anything", and a tighter one would make
-    # a green suite depend on other people's uptime.
-    assert len(answered) >= max(1, len(askable) // 2), (
-        f"only {len(answered)} of {len(askable)} keyless askable sources "
-        f"answered an author query at all: {answered}. That is broad enough to "
-        f"be resmon rather than the weather."
+    # Half, deliberately loosely, and over the exact current catalog-derived
+    # denominator. The existing source cases made the real calls; this assertion
+    # consumes their current-session evidence and makes no duplicate sweep.
+    record_property(
+        "source_aggregate",
+        source_response_ledger.durable_summary(nodeid=request.node.nodeid),
     )
+    source_response_ledger.assert_threshold()

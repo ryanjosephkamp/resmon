@@ -6,6 +6,7 @@ const CoverageSummary: React.FC<{ coverage: SourceCoverage; onDetails?: () => vo
     <h4>Source coverage · Execution #{coverage.execution_id}</h4>
     <p className="coverage-counts">{coverage.summary}</p>
     <p>Genuine empty answers: {coverage.counts.genuine_empty} (included in answered).</p>
+    {(coverage.counts.partial ?? 0) > 0 && <p>Partial answers: {coverage.counts.partial} (included in answered).</p>}
     <p>{coverage.notes[0]}</p>
     {coverage.additional_sources.length > 0 && <p>{coverage.additional_sources.length} additional recorded sources outside saved selection; excluded from selected counts.</p>}
     {!details && coverage.notes.filter(n => n.startsWith('This run')).map(n => <p key={n}>{n}</p>)}

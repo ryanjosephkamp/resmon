@@ -390,30 +390,44 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         name="DBLP",
         description="Computer-science bibliography maintained by Schloss Dagstuhl",
         subject_coverage="Computer science",
-        endpoint="https://dblp.org/search/publ/api",
-        query_method="GET with q={query} paginated by f and h",
-        rate_limit="2.0 req/s",
+        endpoint="https://dblp.org/search/publ/api; https://sparql.dblp.org/sparql",
+        query_method=(
+            "GET keyword search with q={query}, f/h pagination; POST SPARQL "
+            "exact-label authored-publication search with bounded pagination"
+        ),
+        rate_limit="0.5 req/s (shared; at least 2 seconds between requests)",
         client_module="api_dblp.py",
         requirement="none",
         credential_name=None,
         website="https://dblp.org",
         registration_url=None,
-        upstream_policy="No published rate; keep request volume low",
-        parallel_safe="Yes",
-        notes="",
+        upstream_policy="DBLP asks automated clients to leave one or two seconds between requests",
+        parallel_safe="Shared limiter across REST and SPARQL",
+        notes=(
+            "Keyword REST and author SPARQL share a 45-second cooperative budget. "
+            "DBLP dates have year precision; YYYY-01-01 is storage encoding, not a "
+            "known day. Exact-label author search may match several people and aliases "
+            "may be missed. A bounded 2026-09-17 diagnostic observed REST challenge "
+            "pages and useful SPARQL JSON; future hosted availability is not guaranteed."
+        ),
         keyword_combination="Relevance-ranked (upstream-default, unverified)",
         keyword_combination_notes="DBLP forwards the space-separated query string verbatim; the upstream search box's exact combination semantics are not authoritatively documented.",
         attribution='Bibliographic data from the dblp computer science bibliography',
         attribution_requirement="requested",
         attribution_source='https://dblp.org/faq/1474677.html',
-        # api_dblp.py:88-90 — DBLP has no date parameter; resmon filters the returned records on their year.
+        # DBLP exposes year precision. REST is filtered locally; the SPARQL
+        # author route filters xsd:gYear values upstream and validates them locally.
         date_granularity="year",
         entity_search=_entity(
-            "field", author_syntax="author:{name}:",
+            "endpoint", author_syntax='SPARQL exact rdfs:label "{name}" + dblp:authoredBy',
             established=(
-                f"{ENTITY_PROBED_ON}: `author:Geoffrey_Hinton:` returned a hit and the nonsense author 0. "
-                "DBLP carries neither an ORCID nor an affiliation in the publication "
-                "record."),
+                "2026-09-06 historical REST evidence: `author:Geoffrey_Hinton:` "
+                "returned a hit and the nonsense author 0. That dated observation is "
+                "not a current REST success; a bounded 2026-09-17 diagnostic observed "
+                "REST challenge pages. On 2026-09-17, a bounded official SPARQL "
+                "diagnostic returned useful exact-label authored-publication bindings. "
+                "Exact-label ambiguity and alias misses remain; candidate hosted "
+                "acceptance is pending."),
         ),
     ),
     _entry(

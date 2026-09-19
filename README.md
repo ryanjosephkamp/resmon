@@ -90,7 +90,7 @@ The table below lists the 27 active sources registered in the repository catalog
 | NASA ADS | REST (Solr JSON) | Required (Bearer) | 1.0 req/s (≈5000/day cap) | Astronomy, Astrophysics, Planetary science |
 | NDL Search | SRU (DC-NDL v3 XML) | Not required | 0.5 req/s (conservative; no published numeric API limit) | Japanese national bibliography, Books, Articles, Cultural heritage metadata |
 | NIST Resource Metadata Management | REST (JSON) | Not required | 0.5 req/s (conservative; no published API limit) | Engineering, Government technical publications |
-| OAPEN Library | REST (JSON) | Not required | 0.5 req/s (conservative) | Books and chapters; whole publication years only |
+| OAPEN Library | REST (explicit JSON) | Not required | 0.5 req/s (conservative) | Books and chapters; whole publication years only; one 45 s search budget |
 | OpenAIRE | REST (XML-derived JSON) | Not required | 0.0167 req/s (60/hour) | Multi-disciplinary publications, Research outputs |
 | OpenAlex | REST (JSON) | Not required | 10.0 req/s (polite pool via mailto) | All disciplines |
 | Open Library | REST (JSON) | Not required | 1.0 req/s (unidentified-client ceiling) | Books, Humanities, General bibliography |
@@ -106,6 +106,13 @@ rate-limit waits. Budget exhaustion is recorded as an upstream failure; an empty
 successful response remains distinct. Already normalized records are retained.
 DNS shutdown and blocking CPU work can exceed this budget; see
 [HAL request reliability](docs/hal-reliability.md).
+
+OAPEN searches likewise negotiate JSON explicitly and share one 45-second
+cooperative I/O budget across pagination, one retry per request, rate-limit waits,
+and response reads. If a later page fails, already normalized records remain
+available while the source outcome records the failure; a first-page failure
+remains empty. As with HAL, DNS shutdown, blocking CPU work, or an operating-system
+call that does not yield can exceed this cooperative budget.
 
 Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in `.ai:/prep/repos.md` and are not queried at runtime.
 

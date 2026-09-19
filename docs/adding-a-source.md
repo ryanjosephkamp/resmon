@@ -108,7 +108,11 @@ Every part of this is pinned by an existing test. Break one and the suite tells 
   `max_results`, and returns **`[]` on upstream failure** — logged, never raised. A source
   being down degrades a sweep; it does not fail it.
 - Every HTTP call goes through `safe_request()` with a **module-level** `RateLimiter`, shared
-  by every instance of that client, so concurrent sweeps contend on one object.
+  by every instance of that client, so concurrent sweeps contend on one object. The same
+  limiter carries a valid upstream `Retry-After` cooldown across retries and client
+  instances. Do not add a client-local `sleep`: a cooldown that cannot fit the operation
+  deadline fails without sending an early request, and an unbounded caller will not accept
+  an arbitrary header-length delay beyond its ordinary limiter wait.
 - The rate limit is whatever the upstream publishes, **or slower**. Where none is published,
   pick a conservative number and record the reasoning in a comment. Cite the published
   figure; do not carry over a number from another source.
@@ -284,10 +288,17 @@ The hermeticity guard blocks any non-loopback socket from a test that is not mar
 `live_network`. A new test that needs the network carries the marker — and a source's
 live search test is then run every Monday by `.github/workflows/live-network.yml`,
 so a source that stops answering is heard about within a week rather than at the
-next time somebody happens to type the command.
+next time somebody happens to type the command. The workflow writes a flushed
+JSONL record of collection, test starts, phase reports, and completion to a
+dedicated artifact directory. Per-case fields are bounded and sanitized; the raw
+`pytest.log` is retained and is not subject to an application byte cap. The
+always-run validator rejects stale identities, missing starts or phases, mixed
+selections, and unfinished selected tests; the pytest exit status remains
+authoritative.
 
-**Run the live tests yourself.** CI does not, so an unverified client reaches review with its
-central claim untested.
+**Run the live tests yourself before review.** Weekly CI is a continuing signal,
+not a substitute for candidate-specific evidence and the provider-safe pacing
+review required before a new client is accepted.
 
 ### Tests that bite
 

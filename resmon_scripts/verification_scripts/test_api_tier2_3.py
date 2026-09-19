@@ -55,6 +55,7 @@ def test_hal_search():
     assert 1 <= len(results) <= 3, "HAL did not return usable records"
     assert snapshot["attempts"] >= 1
     assert not snapshot["last_call_failed"] and snapshot["explicit_reason"] is None
+    assert snapshot["retained_cooldown_status"] is None
     for result in results:
         assert isinstance(result, NormalizedResult)
         assert result.source_repository == "hal"

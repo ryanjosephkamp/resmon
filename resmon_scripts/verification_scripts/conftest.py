@@ -34,6 +34,165 @@ for _path in (_REPO_ROOT, _REPO_ROOT / "resmon_scripts"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+from resmon_scripts.verification_scripts.live_evidence import (  # noqa: E402
+    LiveEvidenceWriter,
+    QuarantineEntry,
+    disposition_sentence,
+    load_quarantine,
+    quarantine_disposition,
+    quarantine_line,
+    utc_today,
+)
+
+
+_LIVE_EVIDENCE: LiveEvidenceWriter | None = None
+
+# The provider-outage quarantine for this session: live node id -> entry.
+# Empty unless the session collected live cases. See ``live_evidence.py``.
+_QUARANTINE: dict[str, QuarantineEntry] = {}
+_QUARANTINE_STATE: dict = {"line": None, "today": None, "error": None, "seen": []}
+
+
+def pytest_configure(config):
+    """Enable durable live evidence only when the workflow supplies a directory."""
+    global _LIVE_EVIDENCE
+    root = os.environ.get("RESMON_LIVE_EVIDENCE_DIR")
+    if not root:
+        return
+    identity = {
+        "candidate_sha": os.environ.get("RESMON_LIVE_CANDIDATE_SHA", "unknown"),
+        "checkout_sha": os.environ.get("RESMON_LIVE_CHECKOUT_SHA", "unknown"),
+        "selection": os.environ.get("RESMON_LIVE_SELECTION", "unknown"),
+        "github_run_id": os.environ.get("GITHUB_RUN_ID", "local"),
+        "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "local"),
+        "github_job": os.environ.get("GITHUB_JOB", "local"),
+    }
+    try:
+        _LIVE_EVIDENCE = LiveEvidenceWriter(Path(root), identity)
+    except Exception as exc:
+        config._resmon_live_evidence_error = True
+        print(
+            f"live evidence reporter initialization failed: {type(exc).__name__}",
+            file=sys.stderr,
+        )
+
+
+def pytest_collection_finish(session):
+    records: list[dict] = []
+    live = {
+        item.nodeid for item in session.items
+        if item.get_closest_marker("live_network") is not None
+    }
+    _QUARANTINE.clear()
+    if live:
+        # Loaded only when live cases were collected, so a hermetic run never
+        # depends on it. An unreadable policy excuses nothing and fails the
+        # session at the end, rather than being silently ignored.
+        today = utc_today()
+        try:
+            entries = load_quarantine()
+        except Exception as exc:
+            entries = []
+            _QUARANTINE_STATE["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+        _QUARANTINE.update({entry.nodeid: entry for entry in entries if entry.nodeid in live})
+        _QUARANTINE_STATE["today"] = today
+        _QUARANTINE_STATE["line"] = quarantine_line(live, entries, today)
+        records = [entry.record(today) for entry in _QUARANTINE.values()]
+    writer = _LIVE_EVIDENCE
+    if writer is not None:
+        writer.safe(
+            writer.collection,
+            [item.nodeid for item in session.items],
+            os.environ.get("RESMON_LIVE_SELECTION", "unknown"),
+            records,
+        )
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Apply the provider-outage quarantine to one live call.
+
+    Only the call phase of a quarantined live case is considered. A failure
+    is excused only when ``quarantine_disposition`` says so, and it becomes
+    an xfail: pytest's own vocabulary for "ran, failed, expected to", so the
+    exit status and the evidence agree without a second mechanism. Every
+    other disposition leaves the report as it was and says what happened.
+    """
+    report = yield
+    entry = _QUARANTINE.get(item.nodeid)
+    if entry is None or call.when != "call":
+        return report
+    today = _QUARANTINE_STATE["today"]
+    disposition, history = quarantine_disposition(
+        entry, today,
+        call_outcome=report.outcome,
+        assertion_failure=(
+            call.excinfo is not None and call.excinfo.errisinstance(AssertionError)
+        ),
+        recorded=[value for name, value in item.user_properties if name == "source_outcome"],
+    )
+    if disposition is None:
+        return report
+    record = entry.record(today)
+    if disposition == "excused":
+        report.outcome = "skipped"
+        report.wasxfail = disposition_sentence(item.nodeid, disposition, record, history)
+    report.user_properties.append(
+        ("quarantine", {"entry": record, "disposition": disposition, "history": history}))
+    _QUARANTINE_STATE["seen"].append(
+        disposition_sentence(item.nodeid, disposition, record, history))
+    return report
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print the quarantine's denominator whenever live cases were collected."""
+    if _QUARANTINE_STATE["line"] is None:
+        return
+    terminalreporter.write_sep("-", "live quarantine")
+    terminalreporter.write_line(_QUARANTINE_STATE["line"])
+    for sentence in _QUARANTINE_STATE["seen"]:
+        terminalreporter.write_line(sentence)
+    if _QUARANTINE_STATE["error"]:
+        terminalreporter.write_line(
+            "QUARANTINE UNREADABLE — nothing was excused: " + _QUARANTINE_STATE["error"])
+
+
+def pytest_runtest_logstart(nodeid, location):
+    writer = _LIVE_EVIDENCE
+    if writer is not None:
+        writer.safe(writer.start, nodeid)
+
+
+def pytest_runtest_logreport(report):
+    writer = _LIVE_EVIDENCE
+    if writer is not None:
+        writer.safe(writer.report, report)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    writer = _LIVE_EVIDENCE
+    initialization_failed = getattr(session.config, "_resmon_live_evidence_error", False)
+    if writer is not None:
+        try:
+            reduction = writer.finish(int(exitstatus))
+            if reduction["unfinished"]:
+                writer.integrity_error = True
+        except Exception as exc:
+            writer.integrity_error = True
+            print(
+                f"live evidence reporter finalization failed: {type(exc).__name__}",
+                file=sys.stderr,
+            )
+    if (
+        (
+            initialization_failed
+            or (writer is not None and writer.integrity_error)
+            or _QUARANTINE_STATE["error"] is not None
+        )
+        and int(session.exitstatus) == int(pytest.ExitCode.OK)
+    ):
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
 # ---------------------------------------------------------------------------
 # Keyring isolation
 # ---------------------------------------------------------------------------
