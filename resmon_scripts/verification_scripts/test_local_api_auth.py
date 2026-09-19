@@ -404,9 +404,17 @@ def test_an_electron_handed_token_is_the_one_served_and_leaves_no_trace_in_argv(
     try:
         assert b.token == handed
         assert handed not in " ".join(b.argv)
-        observed = subprocess.run(["ps", "-o", "command=", "-p", str(b.proc.pid)],
-                                  capture_output=True, text=True).stdout if sys.platform != "win32" else ""
-        assert str(b.port) in observed or sys.platform == "win32"
+        # The argv another user would see. Linux: /proc/<pid>/cmdline is exact
+        # (``ps`` stops at the first newline, and the wrapper's -c script has
+        # several). macOS: ``ps -ww``. Windows: not observed here.
+        if sys.platform.startswith("linux"):
+            observed = Path(f"/proc/{b.proc.pid}/cmdline").read_bytes().replace(b"\0", b" ").decode()
+        elif sys.platform != "win32":
+            observed = subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(b.proc.pid)],
+                                      capture_output=True, text=True).stdout
+        else:
+            observed = ""
+        assert str(b.port) in observed or sys.platform == "win32", "the observation must include the argv tail"
         assert handed not in observed
     finally:
         code = b.stop()
