@@ -111,27 +111,18 @@ const RENDERER_E2E_FETCH = `(() => {
   };
 })();`;
 
-async function installRendererE2EFetch(page: Page): Promise<void> {
-  await page.addInitScript(RENDERER_E2E_FETCH);
-  await page.waitForLoadState('domcontentloaded').catch(() => { /* closed */ });
-  await page.evaluate(RENDERER_E2E_FETCH).catch(() => { /* closed */ });
-}
-
 // Every launch in the suite goes through `_electron.launch`, whether from
 // `launchResmon` or a spec's own call, so this is the one place both halves
-// are wired: the state directory is recorded for `e2eAuth`, and the renderer
-// gets `e2eFetch` before `firstWindow()` hands the page to the spec.
+// are wired: the state directory is recorded for `e2eAuth`, and `e2eFetch` is
+// registered as a context init script before the app has created its window
+// (the backend starts first), so it exists in every renderer document from the
+// first. Nothing else about the launched app is wrapped.
 const realLaunch = electron.launch.bind(electron);
 electron.launch = (async (options?: Parameters<typeof electron.launch>[0]) => {
   const dir = options?.env?.RESMON_STATE_DIR;
   if (dir) launchedStateDirs.add(dir);
   const launched = await realLaunch(options);
-  const realFirstWindow = launched.firstWindow.bind(launched);
-  launched.firstWindow = (async (opts?: Parameters<typeof launched.firstWindow>[0]) => {
-    const page = await realFirstWindow(opts);
-    await installRendererE2EFetch(page);
-    return page;
-  }) as typeof launched.firstWindow;
+  await launched.context().addInitScript(RENDERER_E2E_FETCH);
   return launched;
 }) as typeof electron.launch;
 

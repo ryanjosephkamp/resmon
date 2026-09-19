@@ -409,8 +409,12 @@ def test_an_electron_handed_token_is_the_one_served_and_leaves_no_trace_in_argv(
         assert str(b.port) in observed or sys.platform == "win32"
         assert handed not in observed
     finally:
-        b.stop()
+        code = b.stop()
+    # Dies of SIGTERM as it always did (a SystemExit here once let a backend with
+    # a live worker thread hang instead of exiting), and cleans up first.
+    assert code == -signal.SIGTERM or sys.platform == "win32"
     assert not api_auth.token_file(b.port, b.state).exists(), "a clean shutdown removes the token file"
+    assert not (b.state / "resmon.port").exists()
 
 
 def test_a_malformed_handed_token_refuses_to_start(tmp_path):

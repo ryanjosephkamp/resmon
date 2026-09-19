@@ -144,7 +144,8 @@ test('Q4: the Search record tab activates under a real Playwright click', async 
     expect(response.url()).not.toContain(token);
     expect((await response.request().allHeaders()).authorization).toBe(`Bearer ${token}`);
     await expect.poll(() => fs.existsSync(destination) && fs.readFileSync(destination, 'utf8').length > 0).toBe(true);
-    expect(fs.readFileSync(destination, 'utf8')).toBe(await response.text());
+    // The page consumed the body, so Playwright cannot replay it; ask the backend again.
+    expect(fs.readFileSync(destination, 'utf8')).toBe(await (await e2eFetch(response.url())).text());
     expect(fs.readFileSync(destination, 'utf8')).toContain('graph neural network');
     console.log('SEARCH_RECORD_DOWNLOAD', JSON.stringify({ execId, bytes: fs.statSync(destination).size,
       method: 'scripted will-download setSavePath; no native chooser observation' }));

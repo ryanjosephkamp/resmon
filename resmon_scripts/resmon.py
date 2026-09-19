@@ -6332,13 +6332,20 @@ def main():
     # into whatever handler was installed before it started. With the default
     # handler that kills the process on the spot and the ``finally`` below never
     # ran — so the port file, and now the token file, outlived every backend
-    # Electron stopped. A handler that raises SystemExit lets it run.
+    # Electron stopped. This handler removes both and then dies of the same
+    # signal, exactly as before. It must not raise SystemExit instead: an
+    # interpreter exiting normally waits for non-daemon threads (a running
+    # sweep, an assistant turn), and a backend that ignores SIGTERM is worse
+    # than a stale file.
     import signal
 
-    def _exit_after_shutdown(signum, _frame):
-        raise SystemExit(128 + signum)
+    def _clean_up_and_die(signum, _frame):
+        api_auth.remove_token_file(port, token)
+        remove_port_file()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
 
-    signal.signal(signal.SIGTERM, _exit_after_shutdown)
+    signal.signal(signal.SIGTERM, _clean_up_and_die)
     try:
         uvicorn.run(app, host="127.0.0.1", port=port)
     finally:

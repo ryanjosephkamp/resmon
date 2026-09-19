@@ -516,6 +516,24 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
+  // The main window only ever shows the renderer. A navigation anywhere else —
+  // a plain link without a target, a script setting `location` — opens in a
+  // link window instead, the way `window.open` already does. Since 2.2 this is
+  // also what keeps the backend's token in resmon's own document: the preload
+  // hands it to the main window's top frame, so that frame must never hold
+  // somebody else's page.
+  const rendererOrigin = `http://127.0.0.1:${rendererPort}`;
+  const keepToRenderer = (event: Electron.Event, url: string) => {
+    let origin = '';
+    try { origin = new URL(url).origin; } catch { /* unparseable: refuse */ }
+    if (origin !== rendererOrigin) {
+      event.preventDefault();
+      if (origin) openLinkWindow(url);
+    }
+  };
+  mainWindow.webContents.on('will-navigate', keepToRenderer);
+  mainWindow.webContents.on('will-redirect', keepToRenderer);
+
   mainWindow.loadURL(`http://127.0.0.1:${rendererPort}/index.html`);
 
   // Open maximized by default (not full-screen) for a more spacious default
@@ -792,16 +810,26 @@ app.whenReady().then(async () => {
 
     // IPC: the backend's port and token, for the preload only. Synchronous
     // because the renderer's `getBaseUrl()` is, and it is called during the
-    // first render. Answered only to the main window's own top frame, loaded
-    // from the renderer origin: the Blog <webview> and link windows have no
-    // preload, and this refuses them anyway should that ever change.
+    // first render. Answered only to the main window's own top frame. That
+    // frame can only ever hold a document from the renderer origin — the
+    // `will-navigate` guard in `createWindow` sends every other navigation to a
+    // link window, which has no preload — so the frame check is the origin
+    // check. The frame's own URL cannot be used for it: while the preload runs
+    // it is still "" (observed under Playwright), and a handler that throws
+    // never sets `returnValue`, which leaves the renderer blocked in sendSync.
+    // The Blog <webview> and link windows have no preload and are refused anyway.
     ipcMain.on('resmon:backend-connection', (event) => {
-      const frame = event.senderFrame;
-      const fromRenderer = mainWindow !== null
-        && event.sender === mainWindow.webContents
-        && frame !== null && frame === mainWindow.webContents.mainFrame
-        && new URL(frame.url).origin === rendererOrigin;
-      event.returnValue = fromRenderer ? { port: String(backendPort), token: backendToken } : null;
+      let answer: { port: string; token: string | null } | null = null;
+      try {
+        const frame = event.senderFrame;
+        const fromRenderer = mainWindow !== null
+          && event.sender === mainWindow.webContents
+          && frame !== null && frame === mainWindow.webContents.mainFrame
+          && (frame.url === '' || frame.url.startsWith(`${rendererOrigin}/`));
+        if (fromRenderer) answer = { port: String(backendPort), token: backendToken };
+      } finally {
+        event.returnValue = answer;
+      }
     });
 
     // IPC: choose a directory via native folder picker.
