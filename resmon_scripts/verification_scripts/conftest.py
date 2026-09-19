@@ -240,6 +240,62 @@ keyring.set_keyring(InMemoryKeyring())
 
 
 # ---------------------------------------------------------------------------
+# The local API token (2.2 lock-down)
+# ---------------------------------------------------------------------------
+#
+# The backend refuses every request that does not carry its token, name a
+# loopback Host on its own port, and — when it has an Origin — come from its
+# renderer. The suite drives ``resmon.app`` in-process through ``TestClient``
+# fifty-odd times, so rather than edit each one, this is the one helper that
+# supplies what a real client supplies:
+#
+# * ``api_auth.configure`` installs a real, freshly minted token and one
+#   renderer origin for this process. Nothing is switched off: there is no
+#   environment variable or flag that disables the guard, in tests or anywhere.
+# * ``TestClient`` is replaced by a subclass that addresses
+#   ``http://127.0.0.1:<TEST_API_PORT>`` (so Host and the ASGI ``server`` agree,
+#   exactly as they do under uvicorn — ``Host: testserver`` is *not* accepted by
+#   production code) and sends ``Authorization: Bearer <token>`` by default.
+#
+# A test that needs an unauthenticated or foreign request passes its own
+# headers (``headers={"Authorization": ""}``), uses ``RawTestClient``, or talks
+# to a real server — ``test_local_api_auth.py`` does all three.
+from implementation_scripts import api_auth  # noqa: E402
+
+# Token files live in the state directory, and discovery code (the MCP server,
+# the daemon-status probe) reads them. Without this, a test exercising
+# discovery would read the developer's real Application Support directory —
+# and, on a machine running resmon, find a real daemon's token there. The suite
+# gets a state directory of its own; a test that needs another sets its own.
+import tempfile  # noqa: E402
+
+os.environ["RESMON_STATE_DIR"] = tempfile.mkdtemp(prefix="resmon-test-state-")
+
+TEST_API_TOKEN = api_auth.mint_token()
+TEST_API_PORT = 18743
+TEST_RENDERER_ORIGIN = "http://127.0.0.1:12345"
+api_auth.configure(TEST_API_TOKEN, [TEST_RENDERER_ORIGIN])
+
+import fastapi.testclient  # noqa: E402
+import starlette.testclient  # noqa: E402
+
+RawTestClient = starlette.testclient.TestClient
+
+
+class AuthedTestClient(RawTestClient):
+    """``TestClient`` as the app's own renderer-less clients would call it."""
+
+    def __init__(self, app, base_url: str = f"http://127.0.0.1:{TEST_API_PORT}",
+                 headers=None, **kwargs) -> None:
+        merged = {**api_auth.bearer(TEST_API_TOKEN), **dict(headers or {})}
+        super().__init__(app, base_url=base_url, headers=merged, **kwargs)
+
+
+fastapi.testclient.TestClient = AuthedTestClient  # type: ignore[misc]
+starlette.testclient.TestClient = AuthedTestClient  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
 # Execution-thread quiescence
 # ---------------------------------------------------------------------------
 

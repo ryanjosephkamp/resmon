@@ -13,6 +13,7 @@ import time
 import uuid
 import zipfile
 import httpx
+from implementation_scripts import api_auth
 import pytest
 from test_evidence_boundary import _setup, HEADERS, ROOT, _json
 from test_selected_evidence_runtime import fake_cli
@@ -21,10 +22,12 @@ from test_selected_evidence_runtime import fake_cli
 def http_selected(tmp_path):
     state=tmp_path/'state';state.mkdir();reports=state/'reports';reports.mkdir()
     source=Path(__file__).parents[2];receipt=state/'identity.json';log=state/'backend.log'
-    env=dict(os.environ);env.update(RESMON_STATE_DIR=str(state),RESMON_DB_PATH=str(state/'resmon.db'),RESMON_REPORTS_DIR=str(reports),RESMON_PORT_FILE=str(state/'resmon.port'),RESMON_DISABLE_SCHEDULER='1',PYTHON_KEYRING_BACKEND='keyring.backends.null.Keyring')
+    env=dict(os.environ);env.update(RESMON_API_TOKEN=api_auth.current_token(),RESMON_RENDERER_ORIGIN='http://127.0.0.1:12345',RESMON_STATE_DIR=str(state),RESMON_DB_PATH=str(state/'resmon.db'),RESMON_REPORTS_DIR=str(reports),RESMON_PORT_FILE=str(state/'resmon.port'),RESMON_DISABLE_SCHEDULER='1',PYTHON_KEYRING_BACKEND='keyring.backends.null.Keyring')
     script='''import os,socket,sys,json,datetime
 import uvicorn,resmon
-s=socket.socket();s.bind(('127.0.0.1',0));s.listen(128);port=s.getsockname()[1];assert port!=8742
+from implementation_scripts import api_auth as _auth
+_TOKEN=_auth.configure_from_environment()
+s=socket.socket();s.bind(('127.0.0.1',0));s.listen(128);port=s.getsockname()[1];assert port!=8742;_auth.write_token_file(port,_TOKEN)
 resmon.serving_port=lambda:port
 record={'pid':os.getpid(),'port':port,'source':os.getcwd(),'state':os.environ['RESMON_STATE_DIR'],'database':os.environ['RESMON_DB_PATH'],'start':datetime.datetime.now(datetime.timezone.utc).isoformat()}
 with open(sys.argv[1]+'.pending','w') as receipt:json.dump(record,receipt)
@@ -38,7 +41,7 @@ uvicorn.Server(uvicorn.Config(resmon.app,log_level='error')).run(sockets=[s])
             while not receipt.exists():
                 assert process.poll() is None,log.read_text();assert time.monotonic()<deadline;time.sleep(.02)
             record=json.loads(receipt.read_text());assert record['pid']==process.pid and record['port']!=8742
-            with httpx.Client(base_url=f"http://127.0.0.1:{record['port']}",timeout=15) as client:
+            with httpx.Client(base_url=f"http://127.0.0.1:{record['port']}",headers=api_auth.bearer(api_auth.current_token()),timeout=15) as client:
                 while True:
                     try:
                         if client.get('/api/library',headers=HEADERS).status_code==200:break
@@ -72,7 +75,8 @@ def test_exact_seven_additive_routes_and_prebody_origin_guards(http_selected):
                 if isinstance(d,ast.Call) and isinstance(d.func,ast.Attribute) and isinstance(d.func.value,ast.Name) and d.func.value.id=='app' and d.args and isinstance(d.args[0],ast.Constant) and isinstance(d.args[0].value,str):
                     all_routes.append((d.func.attr,d.args[0].value))
                     if '/answer' in d.args[0].value:routes.append((d.func.attr,d.args[0].value))
-    assert len(routes)==7 and len(all_routes)==165
+    # 166 since 2.2: POST /api/auth/renderer-origin, the daemon's origin registration.
+    assert len(routes)==7 and len(all_routes)==166
     for method,path in routes:
         path=path.replace('{project_id}',c['project_id']).replace('{answer_id}',str(uuid.uuid4()))
         for headers in ({},{'Origin':'null','X-Resmon-Library':'1'},{'Origin':'https://other.invalid','X-Resmon-Library':'1'}):
@@ -209,15 +213,17 @@ def test_real_http_html_escaped_expansion_hits_actual_4mib_413_without_spool(htt
     root=c['tmp']/'html-expansion';root.mkdir();state=root/'state';state.mkdir();spools=root/'tmp';spools.mkdir()
     destination=state/'resmon.db'
     with sqlite3.connect(c['record']['database']) as old,sqlite3.connect(destination) as new:old.backup(new)
-    env=dict(os.environ);env.update(RESMON_STATE_DIR=str(state),RESMON_DB_PATH=str(destination),RESMON_REPORTS_DIR=str(root/'reports'),RESMON_PORT_FILE=str(state/'resmon.port'),RESMON_DISABLE_SCHEDULER='1',TMPDIR=str(spools),PYTHON_KEYRING_BACKEND='keyring.backends.null.Keyring')
+    env=dict(os.environ);env.update(RESMON_API_TOKEN=api_auth.current_token(),RESMON_RENDERER_ORIGIN='http://127.0.0.1:12345',RESMON_STATE_DIR=str(state),RESMON_DB_PATH=str(destination),RESMON_REPORTS_DIR=str(root/'reports'),RESMON_PORT_FILE=str(state/'resmon.port'),RESMON_DISABLE_SCHEDULER='1',TMPDIR=str(spools),PYTHON_KEYRING_BACKEND='keyring.backends.null.Keyring')
     source=Path(__file__).parents[2];identity=root/'identity.json';log=root/'server.log'
     script='''import os,socket,sys,json,datetime,subprocess
 import uvicorn,resmon
+from implementation_scripts import api_auth as _auth
+_TOKEN=_auth.configure_from_environment()
 from implementation_scripts import selected_evidence_html as document
 original=document._text
 document._text=lambda value:original(value)*1000
 assert document.MAX_BYTES==4194304
-s=socket.socket();s.bind(('127.0.0.1',0));s.listen(128);port=s.getsockname()[1];assert port!=8742
+s=socket.socket();s.bind(('127.0.0.1',0));s.listen(128);port=s.getsockname()[1];assert port!=8742;_auth.write_token_file(port,_TOKEN)
 resmon.serving_port=lambda:port
 record={'pid':os.getpid(),'port':port,'source':os.getcwd(),'state':os.environ['RESMON_STATE_DIR'],'database':os.environ['RESMON_DB_PATH'],'start':datetime.datetime.now(datetime.timezone.utc).isoformat(),'process_start':subprocess.check_output(['ps','-p',str(os.getpid()),'-o','lstart='],text=True).strip(),'fault':'1000x escaped literal expansion; actual 4MiB guard unchanged'}
 # Publish a complete receipt; existence of a newly opened file is not readiness.
@@ -231,7 +237,7 @@ uvicorn.Server(uvicorn.Config(resmon.app,log_level='error')).run(sockets=[s])
             deadline=time.monotonic()+10
             while not identity.exists():assert process.poll() is None;assert time.monotonic()<deadline;time.sleep(.02)
             record=json.loads(identity.read_text());assert record['pid']==process.pid and record['port']!=8742
-            with httpx.Client(base_url=f"http://127.0.0.1:{record['port']}",timeout=15) as client:
+            with httpx.Client(base_url=f"http://127.0.0.1:{record['port']}",headers=api_auth.bearer(api_auth.current_token()),timeout=15) as client:
                 while True:
                     try:
                         if client.get('/api/library',headers=HEADERS).status_code==200:break

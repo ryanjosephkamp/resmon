@@ -7,6 +7,7 @@ declare global {
   interface Window {
     resmonAPI?: {
       getBackendPort: () => string;
+      getApiToken?: () => string | null;
       getDownloads?: () => Promise<DownloadRecord[]>;
       revealDownload?: (id: string) => Promise<boolean>;
       onDownloadsChanged?: (callback: (records: DownloadRecord[]) => void) => (() => void);
@@ -25,6 +26,27 @@ export function getBaseUrl(): string {
   return `http://127.0.0.1:${port}`;
 }
 
+/**
+ * The header every request to the backend carries (2.2 lock-down).
+ *
+ * The backend refuses anything without its token, so a call site that builds
+ * its own `fetch` must spread this in — or, better, use `backendFetch`. The
+ * token only ever travels in this header: never in a URL, where it would land
+ * in history, logs and `Referer`. That is why a plain `<a href>` to the API no
+ * longer works and downloads fetch to a blob instead.
+ */
+export function authHeaders(): Record<string, string> {
+  const token = window.resmonAPI?.getApiToken?.();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** `fetch` against the backend: `path` is appended to `getBaseUrl()`, the token is added. */
+export function backendFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  for (const [name, value] of Object.entries(authHeaders())) headers.set(name, value);
+  return fetch(`${getBaseUrl()}${path}`, { ...init, headers });
+}
+
 async function request<T = any>(
   method: string,
   path: string,
@@ -36,6 +58,7 @@ async function request<T = any>(
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
       Pragma: 'no-cache',
+      ...authHeaders(),
     },
     cache: 'no-store',
   };

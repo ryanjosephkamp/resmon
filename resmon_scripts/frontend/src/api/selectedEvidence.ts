@@ -2,6 +2,7 @@ import {Anchor,boundedBytes,evidenceBaseUrl,evidenceRequest,integer,Page,Project
 import {object,uuid} from './library';
 import {ChoiceRequest,ChoicesDescriptor,SavedChoices} from '../components/Assistant/ComposerChoices';
 import {fetchConnection} from './connection';
+import {authHeaders} from './client';
 
 export interface Selection {file_id:string;version_id:string;sha256:string;page_number:number;range:Omit<Anchor,'page_number'>|null}
 export interface SelectedNote {note_id:string;expected_note_revision:number}
@@ -72,7 +73,7 @@ const base=(p:Project)=>`/projects/${p.project_id}`;
 const query=(p:Project,extra:Record<string,string|number|undefined>={})=>'?'+new URLSearchParams(Object.entries({expected_vault_id:p.vault_id,...extra}).filter(([,v])=>v!==undefined).map(([k,v])=>[k,String(v)]));
 async function read(path:string,method='GET',body?:unknown,signal?:AbortSignal):Promise<unknown>{const r=await evidenceRequest(path,method,body,signal);return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await boundedBytes(r,1048576)));}
 export const selectedApi={
-  setup:async():Promise<{runtimeId:string;descriptor:ChoicesDescriptor}>=>{evidenceBaseUrl();const connection=await fetchConnection();if(!connection.identity)fail();const r=await fetch(evidenceBaseUrl()+'/api/assistant/status',{cache:'no-store'});if(!r.ok)fail();const x=object(await r.json());const descriptor=object(x.composer_choices);if(descriptor.version!==1||!Array.isArray(descriptor.connections)||!Array.isArray(descriptor.claude_aliases)||!Array.isArray(descriptor.claude_efforts))fail();return {runtimeId:connection.identity!.runtime_id,descriptor:descriptor as unknown as ChoicesDescriptor};},
+  setup:async():Promise<{runtimeId:string;descriptor:ChoicesDescriptor}>=>{evidenceBaseUrl();const connection=await fetchConnection();if(!connection.identity)fail();const r=await fetch(evidenceBaseUrl()+'/api/assistant/status',{cache:'no-store',headers:authHeaders()});if(!r.ok)fail();const x=object(await r.json());const descriptor=object(x.composer_choices);if(descriptor.version!==1||!Array.isArray(descriptor.connections)||!Array.isArray(descriptor.claude_aliases)||!Array.isArray(descriptor.claude_efforts))fail();return {runtimeId:connection.identity!.runtime_id,descriptor:descriptor as unknown as ChoicesDescriptor};},
   preview:async(p:Project,runtime:string,selections:Selection[],notes:SelectedNote[],mode:'question'|'briefing',instruction:string,choices:ChoiceRequest,signal?:AbortSignal):Promise<Preview>=>{
     const x=object(await read(base(p)+'/answer-previews','POST',{expected_vault_id:p.vault_id,expected_revision:p.revision,expected_runtime_id:runtime,selections,notes,mode,instruction,choices},signal));
     if(x.contract_version!==1||!uuid(x.preview_id)||x.vault_id!==p.vault_id||x.project_id!==p.project_id||x.owner_runtime_id!==runtime||typeof x.expires_at_utc!=='string')fail();

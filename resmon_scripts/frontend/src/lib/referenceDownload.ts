@@ -13,7 +13,7 @@
  * because a renderer-initiated `Blob` download names its own file; the header
  * still matters to anything speaking to the API directly.
  */
-import { getBaseUrl } from '../api/client';
+import { backendFetch } from '../api/client';
 
 export type ReferenceFormat = 'bibtex' | 'ris' | 'csv';
 
@@ -37,7 +37,7 @@ export async function downloadReferences(
   fmt: ReferenceFormat,
   filenameStem: string,
 ): Promise<void> {
-  const resp = await fetch(`${getBaseUrl()}/api/export/references`, {
+  const resp = await backendFetch('/api/export/references', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
     body: JSON.stringify({ ...body, format: fmt }),

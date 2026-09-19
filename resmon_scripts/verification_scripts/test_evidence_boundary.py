@@ -22,6 +22,7 @@ import uuid
 from urllib.parse import urlencode
 
 import httpx
+from implementation_scripts import api_auth
 import pytest
 
 # Reuse the existing real-socket, explicitly isolated Library fixture. It inherits
@@ -248,7 +249,7 @@ def test_streamed_body_limit_and_incomplete_transport_leave_rows_unchanged(selec
     assert port != 8742
     with socket.create_connection(('127.0.0.1', port), timeout=5) as connection:
         request = (f'POST {ROOT} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n'
-                   f'Origin: {HEADERS["Origin"]}\r\nX-Resmon-Library: 1\r\n'
+                   f'Authorization: Bearer {api_auth.current_token()}\r\nOrigin: {HEADERS["Origin"]}\r\nX-Resmon-Library: 1\r\n'
                    'Content-Type: application/json\r\nContent-Length: 10000\r\n\r\n{"partial":').encode()
         connection.sendall(request)
     # A subsequent request traverses the live backend after the disconnect.
@@ -379,6 +380,8 @@ def test_parser_cleanup_error_cannot_permanently_hold_lease(tmp_path, monkeypatc
 _OBSERVED_SERVER = r'''
 import datetime, hashlib, json, os, pathlib, socket, subprocess, sys, threading
 import uvicorn, resmon
+from implementation_scripts import api_auth as _auth
+_TOKEN = _auth.configure_from_environment()
 from implementation_scripts import evidence_pdf, runtime_identity
 receipt, journal, worker = map(pathlib.Path, sys.argv[1:4])
 lock = threading.Lock()
@@ -405,6 +408,7 @@ evidence_pdf.subprocess.Popen = observed_popen
 evidence_pdf.extract = observed_extract
 s = socket.socket(); s.bind(('127.0.0.1',0)); s.listen(128)
 port = s.getsockname()[1]
+_auth.write_token_file(port, _TOKEN)
 assert port != 8742
 record = {'pid':os.getpid(),'port':port,'source':os.getcwd(),
           'state':os.environ['RESMON_STATE_DIR'],'database':os.environ['RESMON_DB_PATH'],
@@ -450,7 +454,8 @@ def _observed_backend(tmp):
     env.update({'RESMON_STATE_DIR': str(state), 'RESMON_DB_PATH': str(state / 'resmon.db'),
                 'RESMON_REPORTS_DIR': str(tmp / 'reports'), 'RESMON_PORT_FILE': str(state / 'resmon.port'),
                 'RESMON_DISABLE_SCHEDULER': '1', 'TMPDIR': str(tmp / 'scratch'),
-                'PYTHON_KEYRING_BACKEND': 'keyring.backends.null.Keyring'})
+                'PYTHON_KEYRING_BACKEND': 'keyring.backends.null.Keyring',
+                'RESMON_API_TOKEN': api_auth.current_token(), 'RESMON_RENDERER_ORIGIN': HEADERS['Origin']})
     with (tmp / 'backend.log').open('w') as log:
         proc = subprocess.Popen([sys.executable, '-c', _OBSERVED_SERVER, str(receipt), str(journal), str(worker)],
                                 cwd=source, env=env, stdout=log, stderr=log)
@@ -461,7 +466,7 @@ def _observed_backend(tmp):
             assert record['pid'] == proc.pid and record['port'] != 8742
             assert record['source'] == str(source) and record['database'] == str(state / 'resmon.db')
             assert record['source_sha256'] == hashlib.sha256((source / 'resmon.py').read_bytes()).hexdigest()
-            with httpx.Client(base_url=f"http://127.0.0.1:{record['port']}", timeout=10, trust_env=False) as client:
+            with httpx.Client(base_url=f"http://127.0.0.1:{record['port']}", headers=api_auth.bearer(api_auth.current_token()), timeout=10, trust_env=False) as client:
                 def ready():
                     try:
                         return client.get('/api/health', params={'expected_runtime_id': record['runtime_id']})
@@ -494,7 +499,7 @@ def test_real_http_disconnect_reaps_hung_parser_and_busy_second_request(tmp_path
         port = record['port']; assert port != 8742
         with socket.create_connection(('127.0.0.1', port), timeout=5) as connection:
             wire = (f'GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n'
-                    f'Origin: {HEADERS["Origin"]}\r\nX-Resmon-Library: 1\r\n\r\n').encode()
+                    f'Authorization: Bearer {api_auth.current_token()}\r\nOrigin: {HEADERS["Origin"]}\r\nX-Resmon-Library: 1\r\n\r\n').encode()
             connection.sendall(wire)
             spawned = _wait_until(lambda: next((r for r in _journal(journal) if r['event'] == 'spawn'), None))
             os.kill(spawned['pid'], 0)  # Observe alive while the first HTTP owner is connected.
@@ -585,6 +590,9 @@ def test_named_mcp_unavailable_port_never_tries_default(tmp_path, monkeypatch):
         port = reserved.getsockname()[1]; assert port != 8742
         monkeypatch.setenv('RESMON_PORT', str(port))
         monkeypatch.setattr(config, 'PORT_FILE', tmp_path / 'absent-mcp.port')
+        # 2.2: discovery probes a port only once it has that port's token file.
+        monkeypatch.setenv('RESMON_STATE_DIR', str(tmp_path / 'mcp-state'))
+        api_auth.write_token_file(port, api_auth.mint_token())
         assert mcp._candidate_ports() == [port]
         actual_get = httpx.get
         attempts = []

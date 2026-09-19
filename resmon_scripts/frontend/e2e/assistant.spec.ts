@@ -62,7 +62,7 @@ test.describe('the assistant panel', () => {
       const port = await backendPort();
       const setCliPath = (value: string) => win.evaluate(
         async ([p, v]) => {
-          await fetch(`http://127.0.0.1:${p}/api/settings/ai`, {
+          await e2eFetch(`http://127.0.0.1:${p}/api/settings/ai`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ settings: { ai_cli_path: v } }),
@@ -70,7 +70,7 @@ test.describe('the assistant panel', () => {
         }, [port, value] as const);
 
       const original = await win.evaluate(async (p) => {
-        const res = await fetch(`http://127.0.0.1:${p}/api/settings/ai`);
+        const res = await e2eFetch(`http://127.0.0.1:${p}/api/settings/ai`);
         return (await res.json()).ai_cli_path as string;
       }, port);
 

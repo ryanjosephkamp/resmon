@@ -30,7 +30,7 @@ test('Portable briefing: exact saved downloads, stale guards, seven offline stat
  const originalHashes=Object.fromEntries(originals.map(n=>[n,hash(fs.readFileSync(path.join(dirs.originals,n)))]));
  let app:ElectronApplication|undefined,reader:ElectronApplication|undefined,win!:Page,base='',origin='',vid='',pid='',vaultRoot='',runtime='';
  const backends:number[]=[],mainPids:number[]=[],instances:unknown[]=[],exports:{label:string;target:string;answer:Answer;sha256:string}[]=[],errors:string[]=[];
- const req=async<T>(url:string,method='GET',body?:unknown):Promise<T>=>{const r=await fetch(base+url,{method,headers:{Origin:origin,'X-Resmon-Library':'1',...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});expect(r.ok,await r.clone().text()).toBe(true);return r.json() as Promise<T>;};
+ const req=async<T>(url:string,method='GET',body?:unknown):Promise<T>=>{const r=await e2eFetch(base+url,{method,headers:{Origin:origin,'X-Resmon-Library':'1',...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});expect(r.ok,await r.clone().text()).toBe(true);return r.json() as Promise<T>;};
  const detail=(id:string)=>req<Answer>(`/api/evidence/projects/${pid}/answers/${id}?expected_vault_id=${vid}`);
  const calls=()=>fake.captures().length+fake.requests.length;
  const launch=async()=>{
@@ -60,7 +60,7 @@ test('Portable briefing: exact saved downloads, stale guards, seven offline stat
   await win.getByRole('button',{name:format==='html'?'Export HTML':'Export ZIP',exact:true}).click();
   await expect(win.getByRole('status').filter({hasText:new RegExp(`selected ${format.toUpperCase()} was handed`)})).toBeVisible();
   await expect.poll(()=>fs.existsSync(target)&&fs.statSync(target).size>0).toBe(true);
-  const r=await fetch(base+`/api/evidence/projects/${pid}/answers/${a.answer_id}/export?expected_vault_id=${vid}&format=${format}`,{headers:{Origin:origin,'X-Resmon-Library':'1'}});expect(r.status).toBe(200);
+  const r=await e2eFetch(base+`/api/evidence/projects/${pid}/answers/${a.answer_id}/export?expected_vault_id=${vid}&format=${format}`,{headers:{Origin:origin,'X-Resmon-Library':'1'}});expect(r.status).toBe(200);
   const raw=Buffer.from(await r.arrayBuffer());await expect.poll(()=>hash(fs.readFileSync(target))).toBe(hash(raw));
   await expect.poll(()=>win.evaluate(target=>window.resmonAPI!.getDownloads!().then(items=>items.find(item=>item.path===target)?.state),target)).toBe('completed');
   const completed=await win.evaluate(target=>window.resmonAPI!.getDownloads!().then(items=>items.find(item=>item.path===target)!),target);

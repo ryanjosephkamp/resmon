@@ -251,7 +251,7 @@ export async function sourceApi(win: Page, route: string): Promise<Record<string
     const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
       .resmonAPI.getBackendPort();
     if (!port || port === '8742') throw new Error('unidentified backend');
-    const response = await fetch(`http://127.0.0.1:${port}${suffix}`);
+    const response = await e2eFetch(`http://127.0.0.1:${port}${suffix}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${suffix}`);
     return response.json();
   }, route);

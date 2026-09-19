@@ -27,7 +27,7 @@ test('Evidence actual collection, PDF/text passages, notes, restart, exact selec
  const preservation=()=>Object.fromEntries(names.map(name=>[name,hash(fs.readFileSync(path.join(originals,name)))]));const originalHashes=preservation();
  let app:ElectronApplication|undefined,win!:Page,base='',origin='';const rendererErrors:string[]=[];const backends:number[]=[];const instances:unknown[]=[];let vid='',pid='',vaultRoot='';
  const req=async<T>(url:string,method='GET',body?:unknown):Promise<T>=>{
-  const response=await fetch(base+url,{method,headers:{Origin:origin,'X-Resmon-Library':'1',...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+  const response=await e2eFetch(base+url,{method,headers:{Origin:origin,'X-Resmon-Library':'1',...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});
   expect(response.ok,await response.clone().text()).toBe(true);return response.json() as Promise<T>;
  };
  const project=async()=> (await req<{project:Project}>(`/api/evidence/projects/${pid}?expected_vault_id=${vid}`)).project;

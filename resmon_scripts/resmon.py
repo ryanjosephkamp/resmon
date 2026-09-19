@@ -24,13 +24,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from contextlib import asynccontextmanager, contextmanager
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Response
-from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field
 
-from implementation_scripts import runtime_identity, library, library_export, library_text, evidence, evidence_reader, evidence_export
+from implementation_scripts import api_auth, runtime_identity, library, library_export, library_text, evidence, evidence_reader, evidence_export
 from implementation_scripts import selected_evidence, selected_evidence_runtime, selected_evidence_export
 from implementation_scripts.config import (
     APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
@@ -142,38 +141,23 @@ async def _lifespan(_app: FastAPI):
 app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=_lifespan)
 
 
-class PrivateNetworkMiddleware:
-    """Allow Chromium Private Network Access from file:// origins.
-
-    Implemented as a raw ASGI middleware (not BaseHTTPMiddleware) so that
-    streaming responses (SSE) are not buffered.
-    """
-
-    def __init__(self, app: ASGIApp) -> None:
-        self.app = app
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        async def _send_with_header(message):
-            if message["type"] == "http.response.start":
-                headers = list(message.get("headers", []))
-                headers.append((b"access-control-allow-private-network", b"true"))
-                message = {**message, "headers": headers}
-            await send(message)
-
-        await self.app(scope, receive, _send_with_header)
-
-
-app.add_middleware(PrivateNetworkMiddleware)
-
+# CORS answers the renderer's origin and nothing else, read live from
+# ``api_auth`` because an attached daemon learns that origin after it starts.
+#
+# This used to be ``allow_origins=["*"]`` plus a ``PrivateNetworkMiddleware``
+# that stamped ``Access-Control-Allow-Private-Network: true`` on every response —
+# a leftover from the renderer being loaded over file://. Together they let any
+# web page in any browser on the machine read and drive the API. Private
+# Network Access is now answered only on a preflight that asks for it, from the
+# renderer. The authoritative checks (Host, Origin, token) are ``LocalApiGuard``,
+# registered below the Library guard so that it runs outermost; see
+# ``implementation_scripts/api_auth.py``.
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
+    api_auth.RendererCORSMiddleware,
+    allow_origins=(),
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_private_network=True,
 )
 
 # ---------------------------------------------------------------------------
@@ -2348,7 +2332,6 @@ class LibraryOriginGuard:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         import re
-        from urllib.parse import urlsplit
         path = scope.get("path", "")
         if scope.get("type") == "http" and (re.fullmatch(r"/api/library/files/[^/]+/text", path) or path.startswith("/api/evidence/")):
             original_send = send
@@ -2374,24 +2357,54 @@ class LibraryOriginGuard:
             headers = scope.get("headers", [])
             origins = [v.decode("latin1") for k, v in headers if k.lower() == b"origin"]
             custom = [v for k, v in headers if k.lower() == b"x-resmon-library"]
-            valid = False
-            if len(origins) == 1 and custom == [b"1"]:
-                try:
-                    origin = urlsplit(origins[0])
-                    port = origin.port
-                    valid = (origin.scheme == "http" and origin.hostname == "127.0.0.1"
-                             and port is not None and 1 <= port <= 65535
-                             and origins[0] == f"http://127.0.0.1:{port}")
-                except ValueError:
-                    pass
+            # Exactly this instance's renderer origin. This used to accept any
+            # canonical http://127.0.0.1:<port>, which every other local web
+            # server also has; ``LocalApiGuard`` now refuses a foreign origin
+            # before this runs, and this stays as the Library's own second layer.
+            valid = len(origins) == 1 and custom == [b"1"] and api_auth.origin_allowed(origins[0])
             if not valid:
                 from starlette.responses import JSONResponse
-                await JSONResponse({"detail": {"reason": "origin_refused", "message": "Library requires the loopback renderer Origin and X-Resmon-Library header."}}, status_code=403)(scope, receive, send)
+                await JSONResponse({"detail": {"reason": "origin_refused", "message": "Library requires the renderer Origin and X-Resmon-Library header."}}, status_code=403)(scope, receive, send)
                 return
         await self.app(scope, receive, send)
 
 
 app.add_middleware(LibraryOriginGuard)
+
+# Registered last so it is the outermost layer: Host, Origin and token are
+# checked before the Library guard, before CORS and before any body is read.
+# ``test_local_api_auth.py`` fails if anything is ever added outside it.
+app.add_middleware(api_auth.LocalApiGuard)
+
+
+class RendererOriginBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    origin: str = Field(min_length=1, max_length=64)
+
+
+@app.post("/api/auth/renderer-origin")
+def register_renderer_origin(body: RendererOriginBody, request: Request):
+    """Allow one more exact renderer origin on this backend.
+
+    Exists for the daemon. launchd starts it long before any window exists, so
+    unlike an Electron-spawned backend it cannot be told its renderer's origin
+    at spawn — and "any loopback origin" is what the old Library guard trusted
+    and what this lock-down removes. Electron's main process, which read the
+    token from the daemon's token file, registers its renderer's origin here
+    once it has bound the renderer server.
+
+    Refused from a browser: a request carrying an Origin is a page, and a page
+    must not be able to widen the set of pages the backend trusts, even the
+    renderer itself.
+    """
+    if request.headers.get("origin") is not None:
+        raise HTTPException(403, {"reason": "origin_refused",
+                                  "message": "Only the app itself can register a renderer origin."})
+    try:
+        origin = api_auth.register_renderer_origin(body.origin)
+    except ValueError as exc:
+        raise HTTPException(422, {"reason": "invalid_origin", "message": str(exc)})
+    return {"registered": origin}
 
 
 class LibraryVaultBody(BaseModel):
@@ -4983,9 +4996,15 @@ def service_daemon_status():
 
     # Probe the daemon's actual port. Short timeout — this endpoint is
     # polled from the Advanced tab on a 5 s cadence.
+    # The daemon is a separate backend with its own token, published in its
+    # token file. A daemon from before the lock-down has no file and no guard,
+    # so it is probed bare, as it always was; a current daemon without a
+    # readable file answers 401 and is reported as such.
+    daemon_token = api_auth.read_token_file(lock_port, _daemon.lock_path().parent)
     try:
         with httpx.Client(timeout=1.5) as client:
-            resp = client.get(f"http://127.0.0.1:{lock_port}/api/health")
+            resp = client.get(f"http://127.0.0.1:{lock_port}/api/health",
+                              headers=api_auth.bearer(daemon_token) if daemon_token else None)
         if resp.status_code != 200:
             base["error"] = f"health probe HTTP {resp.status_code}"
             return base
@@ -6294,12 +6313,36 @@ def main():
     import uvicorn
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8742
     _serving_port = port
+    # Electron hands its minted token and its renderer's origin over in the
+    # environment; a bare ``python resmon.py <port>`` mints its own. Either way
+    # the token is written beside the daemon lock for clients that did not
+    # start this process (the MCP server under a harness) and is never printed.
+    token = api_auth.configure_from_environment()
     create_app()
     print(f"{APP_NAME} v{APP_VERSION}")
     write_port_file(port)
     try:
+        api_auth.write_token_file(port, token)
+    except OSError:
+        logging.getLogger(__name__).warning(
+            "Could not write the API token file in %s; only the process that "
+            "started this backend can reach it.", api_auth.state_dir(),
+        )
+    # uvicorn shuts down gracefully on SIGTERM and then re-raises the signal
+    # into whatever handler was installed before it started. With the default
+    # handler that kills the process on the spot and the ``finally`` below never
+    # ran — so the port file, and now the token file, outlived every backend
+    # Electron stopped. A handler that raises SystemExit lets it run.
+    import signal
+
+    def _exit_after_shutdown(signum, _frame):
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, _exit_after_shutdown)
+    try:
         uvicorn.run(app, host="127.0.0.1", port=port)
     finally:
+        api_auth.remove_token_file(port, token)
         remove_port_file()
 
 

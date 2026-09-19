@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
-import { apiClient } from '../api/client';
+import { apiClient, backendFetch } from '../api/client';
 import PageHelp from '../components/Help/PageHelp';
 import { notifyConfigurationsChanged } from '../lib/configurationsBus';
 import RepositorySelector from '../components/Forms/RepositorySelector';
@@ -172,7 +172,7 @@ const ConfigurationsPage: React.FC = () => {
     }
 
     try {
-      const resp = await fetch(`${getBaseUrl()}/api/configurations/import`, {
+      const resp = await backendFetch('/api/configurations/import', {
         method: 'POST',
         body: formData,
       });
@@ -732,10 +732,5 @@ const ConfigurationsPage: React.FC = () => {
     </div>
   );
 };
-
-function getBaseUrl(): string {
-  const port = window.resmonAPI?.getBackendPort() || '8742';
-  return `http://127.0.0.1:${port}`;
-}
 
 export default ConfigurationsPage;

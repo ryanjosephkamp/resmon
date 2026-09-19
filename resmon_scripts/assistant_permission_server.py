@@ -76,6 +76,25 @@ def _backend_base() -> Optional[str]:
         return None
 
 
+def _backend_token() -> Optional[str]:
+    """The token of the backend that started us, from its token file.
+
+    Read from ``<state dir>/api-token-<port>`` for the port resmon named, never
+    from argv or the MCP config, so the credential is not written anywhere the
+    CLI or the model could read it back. No token means every question is a
+    deny, like every other way this process can fail to reach the panel.
+    """
+    port = os.environ.get("RESMON_PORT")
+    if not port:
+        return None
+    try:
+        from implementation_scripts import api_auth  # noqa: PLC0415
+
+        return api_auth.read_token_file(int(port))
+    except (ImportError, ValueError):
+        return None
+
+
 def _session_id() -> Optional[int]:
     try:
         return int(os.environ["RESMON_ASSISTANT_SESSION"])
@@ -93,6 +112,8 @@ def ask_backend(
     tool_name: str,
     tool_input: Optional[dict],
     tool_use_id: Optional[str] = None,
+    *,
+    token: Optional[str] = None,
 ) -> dict:
     """Put one question to the panel and block until it is answered.
 
@@ -125,6 +146,7 @@ def ask_backend(
                 "input": tool_input,
                 "tool_use_id": tool_use_id,
             },
+            headers={"Authorization": f"Bearer {token}"} if token else None,
             timeout=_HTTP_TIMEOUT,
         )
     except httpx.HTTPError:
@@ -158,6 +180,7 @@ def ask(arguments: dict) -> dict:
         str(arguments.get("tool_name") or ""),
         tool_input if isinstance(tool_input, dict) else {},
         arguments.get("tool_use_id"),
+        token=_backend_token(),
     )
 
 

@@ -38,6 +38,34 @@ import time
 from pathlib import Path
 
 import httpx
+
+from implementation_scripts import api_auth as _api_auth  # noqa: E402
+
+# 2.2: every request to a resmon backend carries its local API token. The
+# backends this file starts are handed the suite's token in RESMON_API_TOKEN,
+# exactly as Electron hands its own over, and test-side calls go through this
+# shim. The code under test builds its own headers; nothing here adds any.
+_TOKEN = _api_auth.current_token()
+
+
+class _WithToken:
+    """httpx's module-level ``get``/``post``/``stream``/…, plus the token header.
+
+    A shim over the functions rather than a shared ``httpx.Client``: each call
+    keeps its own throwaway client, so a stream a test abandons is closed exactly
+    as before — a pooled connection outlived one and hid a disconnect.
+    """
+
+    def __getattr__(self, name):
+        function = getattr(httpx, name)
+
+        def call(*args, **kwargs):
+            kwargs["headers"] = {**_api_auth.bearer(_TOKEN), **dict(kwargs.get("headers") or {})}
+            return function(*args, **kwargs)
+        return call
+
+
+_API = _WithToken()
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -80,7 +108,7 @@ def backend(tmp_path_factory):
     state = tmp_path_factory.mktemp("assistant-budget")
     port = _free_port()
     env = {
-        **os.environ,
+        **os.environ, "RESMON_API_TOKEN": _TOKEN,
         "RESMON_DB_PATH": str(state / "resmon.db"),
         "RESMON_REPORTS_DIR": str(state / "reports"),
         "RESMON_PORT_FILE": str(state / "resmon.port"),
@@ -98,15 +126,15 @@ def backend(tmp_path_factory):
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             try:
-                if httpx.get(f"{base}/api/health", timeout=1.0).status_code == 200:
+                if _API.get(f"{base}/api/health", timeout=1.0).status_code == 200:
                     break
             except httpx.HTTPError:
                 time.sleep(0.3)
         else:
             raise RuntimeError("backend did not become ready")
-        httpx.put(f"{base}/api/settings/ai",
+        _API.put(f"{base}/api/settings/ai",
                   json={"settings": {"ai_cli_path": found.path}}, timeout=20)
-        httpx.post(f"{base}/api/routines", json={
+        _API.post(f"{base}/api/routines", json={
             "name": "Graphene (weekly)", "schedule_cron": "0 9 * * 1",
             "parameters": {"query": "graphene", "repositories": ["arxiv"]},
             "is_active": False,
@@ -122,13 +150,13 @@ def backend(tmp_path_factory):
 
 @pytest.mark.parametrize("label,prompt", GUARDED, ids=[g[0] for g in GUARDED])
 def test_a_canonical_request_stays_under_the_ceiling(backend, label, prompt):
-    session = httpx.post(f"{backend}/api/assistant/sessions", json={}, timeout=30)
+    session = _API.post(f"{backend}/api/assistant/sessions", json={}, timeout=30)
     if session.status_code == 409:
         pytest.skip(f"no assistant runtime: {session.text}")
     session_id = session.json()["id"]
 
     events: list[dict] = []
-    with httpx.stream("POST", f"{backend}/api/assistant/sessions/{session_id}/messages",
+    with _API.stream("POST", f"{backend}/api/assistant/sessions/{session_id}/messages",
                       json={"text": prompt}, timeout=600) as response:
         for line in response.iter_lines():
             if not line.startswith("data: "):
@@ -138,7 +166,7 @@ def test_a_canonical_request_stays_under_the_ceiling(backend, label, prompt):
             if event.get("type") == "permission_request":
                 # Denied, so what is measured is the cost of working out what to
                 # propose — the part that happens whichever way a person answers.
-                httpx.post(f"{backend}/api/assistant/permissions/{event['request_id']}",
+                _API.post(f"{backend}/api/assistant/permissions/{event['request_id']}",
                            json={"allow": False, "reason": "budget guard"}, timeout=30)
             if event.get("type") == "closed":
                 break

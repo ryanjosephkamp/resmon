@@ -15,7 +15,7 @@
  * asserts the discovered backend port is not 8742.
  *
  * **The backend port is discovered, not fixed.** `main.ts` picks a free port and
- * passes it to the renderer through the preload's `--backend-port=` argument, so
+ * hands it to the preload over the `resmon:backend-connection` IPC, so
  * `backendPort()` reads it back out of the renderer rather than pinning a port
  * the app would have to be told about. Nothing here needs a fixed port, which is
  * one fewer `RESMON_E2E` branch in `main.ts`.
@@ -46,6 +46,94 @@ import type { ElectronApplication, Page, ConsoleMessage, Request } from '@playwr
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+
+// ---------------------------------------------------------------------------
+// The local API token, for the suite's own backend calls (2.2 lock-down)
+// ---------------------------------------------------------------------------
+//
+// The backend now refuses any request without its token. The *app* gets the
+// token from the preload and sends it itself — that is what the suite is here
+// to prove, so nothing below touches `window.fetch` or the app's own requests.
+//
+// What needs the token is the suite's own seeding and inspection: a spec that
+// creates a routine through the API instead of forty clicks, or reads back what
+// a click saved. Those calls go through `e2eFetch` (defined in Node and, by the
+// launch hook below, in the renderer) or carry `e2eAuth(url)` headers on
+// `win.request`. A spec that calls the backend with plain `fetch` gets a 401,
+// which is the point: nothing is silently authenticated.
+//
+// Node side: the token is read from `<RESMON_STATE_DIR>/api-token-<port>`, the
+// file the spawned backend publishes, for every state directory a spec has
+// launched the app with. Renderer side: from `window.resmonAPI.getApiToken()`,
+// the same bridge the app uses.
+const launchedStateDirs = new Set<string>();
+
+function tokenForPort(port: string): string | null {
+  for (const dir of launchedStateDirs) {
+    try {
+      const token = fs.readFileSync(path.join(dir, `api-token-${port}`), 'ascii').trim();
+      if (token) return token;
+    } catch { /* not this instance */ }
+  }
+  return null;
+}
+
+/** `Authorization` for a suite-side request to a backend this suite launched; `{}` for any other URL. */
+export function e2eAuth(url: string): Record<string, string> {
+  const match = /^http:\/\/127\.0\.0\.1:(\d+)\//.exec(url);
+  const token = match ? tokenForPort(match[1]) : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+declare global {
+  /** `fetch` plus the backend's token, for the suite's own calls. Defined in Node and in the renderer. */
+  function e2eFetch(input: string, init?: RequestInit): Promise<Response>;
+}
+
+(globalThis as unknown as { e2eFetch: typeof e2eFetch }).e2eFetch = (input, init) => {
+  const headers = new Headers(init?.headers);
+  for (const [name, value] of Object.entries(e2eAuth(String(input)))) {
+    if (!headers.has(name)) headers.set(name, value);
+  }
+  return fetch(input, { ...init, headers });
+};
+
+const RENDERER_E2E_FETCH = `(() => {
+  const api = window.resmonAPI;
+  window.e2eFetch = (input, init) => {
+    const headers = new Headers(init && init.headers);
+    const token = api && api.getApiToken ? api.getApiToken() : null;
+    const base = api ? 'http://127.0.0.1:' + api.getBackendPort() + '/' : null;
+    if (token && base && String(input).startsWith(base) && !headers.has('Authorization')) {
+      headers.set('Authorization', 'Bearer ' + token);
+    }
+    return fetch(input, Object.assign({}, init, { headers }));
+  };
+})();`;
+
+async function installRendererE2EFetch(page: Page): Promise<void> {
+  await page.addInitScript(RENDERER_E2E_FETCH);
+  await page.waitForLoadState('domcontentloaded').catch(() => { /* closed */ });
+  await page.evaluate(RENDERER_E2E_FETCH).catch(() => { /* closed */ });
+}
+
+// Every launch in the suite goes through `_electron.launch`, whether from
+// `launchResmon` or a spec's own call, so this is the one place both halves
+// are wired: the state directory is recorded for `e2eAuth`, and the renderer
+// gets `e2eFetch` before `firstWindow()` hands the page to the spec.
+const realLaunch = electron.launch.bind(electron);
+electron.launch = (async (options?: Parameters<typeof electron.launch>[0]) => {
+  const dir = options?.env?.RESMON_STATE_DIR;
+  if (dir) launchedStateDirs.add(dir);
+  const launched = await realLaunch(options);
+  const realFirstWindow = launched.firstWindow.bind(launched);
+  launched.firstWindow = (async (opts?: Parameters<typeof launched.firstWindow>[0]) => {
+    const page = await realFirstWindow(opts);
+    await installRendererE2EFetch(page);
+    return page;
+  }) as typeof launched.firstWindow;
+  return launched;
+}) as typeof electron.launch;
 
 export const FRONTEND_ROOT = path.resolve(__dirname, '..', '..');
 export const REPO_ROOT = path.resolve(FRONTEND_ROOT, '..', '..');

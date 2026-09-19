@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { test, expect, _electron as electron } from '@playwright/test';
-import { FRONTEND_ROOT, launchEnv, ensureScreenshotDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, launchEnv, ensureScreenshotDir, e2eAuth } from './fixtures/resmon-app';
 import { launchSourceApp, sourceApi } from './fixtures/source-boundary';
 
 test('coverage history opens with keyboard, exports and preserves source identity and corpus', async () => {
@@ -112,7 +112,7 @@ test('coverage history opens with keyboard, exports and preserves source identit
     await expect(win.locator('.tab-bar .tab-active')).toHaveText('Search record');
     await expect(win.locator('.search-record')).toContainText(`Execution #${mixed}`);
     // Missing record is an actual backend 404, not an empty-success response.
-    const missing = await win.request.get(`http://127.0.0.1:${port}/api/executions/999999/search-record`);
+    const missing = await win.request.get(`http://127.0.0.1:${port}/api/executions/999999/search-record`, { headers: e2eAuth(`http://127.0.0.1:${port}/api/executions/999999/search-record`) });
     expect(missing.status()).toBe(404);
     expect(snapshot()).toBe(before);
     console.log('COVERAGE_UI', JSON.stringify({ mixed, partial, empty, exported, partialExport, sixTabs: true, keyboardDetails: true, corpusUnchanged: true }));
@@ -132,7 +132,7 @@ for (const mode of ['503', 'malformed'] as const) {
       const id = await win.evaluate(async () => {
         const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
         if (!port || port === '8742') throw new Error('unidentified backend');
-        const response = await fetch(`http://127.0.0.1:${port}/api/search/dive`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repository: 'arxiv', query: 'coverage fixture', max_results: 3, ai_enabled: false }) });
+        const response = await e2eFetch(`http://127.0.0.1:${port}/api/search/dive`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repository: 'arxiv', query: 'coverage fixture', max_results: 3, ai_enabled: false }) });
         if (!response.ok) throw new Error(`search failed ${response.status}`);
         return (await response.json()).execution_id as number;
       });

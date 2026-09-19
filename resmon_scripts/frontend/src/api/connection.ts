@@ -1,4 +1,4 @@
-import { getBaseUrl } from './client';
+import { authHeaders, getBaseUrl } from './client';
 
 export interface RuntimeIdentity {
   contract_version: 1;
@@ -34,7 +34,7 @@ function identityOf(value: unknown): RuntimeIdentity | null {
 }
 export async function fetchConnection(expected?: string): Promise<ConnectionObservation> {
   const query = expected === undefined ? '' : `?expected_runtime_id=${encodeURIComponent(expected)}`;
-  const response = await fetch(`${getBaseUrl()}/api/health${query}`, { cache: 'no-store' });
+  const response = await fetch(`${getBaseUrl()}/api/health${query}`, { cache: 'no-store', headers: authHeaders() });
   const body: unknown = await response.json();
   if (!response.ok) {
     if (response.status === 409 && record(body) && record(body.detail)

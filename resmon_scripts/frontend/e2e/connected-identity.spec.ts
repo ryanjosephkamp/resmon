@@ -7,7 +7,7 @@ import * as http from 'http';
 import { spawn, execFileSync, ChildProcess } from 'child_process';
 import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication } from '@playwright/test';
-import { FRONTEND_ROOT, REPO_ROOT, launchEnv, ensureScreenshotDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, launchEnv, ensureScreenshotDir, e2eAuth } from './fixtures/resmon-app';
 
 test('connected header observes real runtime change, explicit keyboard reaccept and legacy/error status', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-connected-identity-'));
@@ -39,11 +39,11 @@ test('connected header observes real runtime change, explicit keyboard reaccept 
     const portA = fs.readFileSync(envA.RESMON_PORT_FILE, 'utf8').trim();
     expect(portA).not.toBe('8742');
     const baseA = `http://127.0.0.1:${portA}`; const baseB = `http://127.0.0.1:${portB}`;
-    const healthA = await (await win.request.get(baseA + '/api/health')).json();
+    const healthA = await (await win.request.get(baseA + '/api/health', { headers: e2eAuth(baseA + '/api/health') })).json();
     backendPidA = Number(healthA.pid);
     if (process.platform !== 'win32') expect(Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(backendPidA)], { encoding: 'utf8' }).trim())).toBe(appProcess.pid);
-    await expect.poll(async () => (await win.request.get(baseB + '/api/health')).status()).toBe(200);
-    const healthB = await (await win.request.get(baseB + '/api/health')).json();
+    await expect.poll(async () => (await win.request.get(baseB + '/api/health', { headers: e2eAuth(baseB + '/api/health') })).status()).toBe(200);
+    const healthB = await (await win.request.get(baseB + '/api/health', { headers: e2eAuth(baseB + '/api/health') })).json();
     expect(healthB.pid).toBe(backend.pid);
     expect(healthA.identity.runtime_id).not.toBe(healthB.identity.runtime_id);
     const beforeA = snapshot(envA); const beforeB = snapshot(envB);

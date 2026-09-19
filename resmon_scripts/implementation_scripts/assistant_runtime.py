@@ -368,6 +368,13 @@ class ClaudeCliRuntime(AssistantRuntime):
         env = {"PYTHONPATH": server_dir}
         if self.backend_port:
             env["RESMON_PORT"] = str(self.backend_port)
+        # Where the backend's token file is — a directory, not the token. The
+        # token itself never goes into this config, which is written to disk
+        # and read by the CLI: both servers read it from the owner-only file
+        # for RESMON_PORT, the same way a harness-started MCP server does.
+        from . import api_auth  # noqa: PLC0415
+
+        env["RESMON_STATE_DIR"] = str(api_auth.state_dir())
 
         return {"mcpServers": {
             "resmon": {

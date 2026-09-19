@@ -24,11 +24,26 @@ import mcp_server as mcp  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _reset_backend():
+def _reset_backend(monkeypatch, tmp_path):
+    """A clean client, and token files for every port these tests name (2.2).
+
+    Discovery now reads ``<state dir>/api-token-<port>`` before probing a port,
+    so each test gets its own state directory holding one for each port used
+    below. The HTTP doubles here do not check the header; that the header is
+    sent, and that a real backend refuses without it, is
+    ``test_local_api_auth.py``'s job, against a real process.
+    """
+    from implementation_scripts import api_auth
+
+    monkeypatch.setenv("RESMON_STATE_DIR", str(tmp_path / "state"))
+    for port in (mcp.DEFAULT_PORT, 8791, 9001, 9002, 9999):
+        api_auth.write_token_file(port, api_auth.mint_token())
     mcp.backend._base = None
+    mcp.backend._token = None
     mcp.backend._tried = []
     yield
     mcp.backend._base = None
+    mcp.backend._token = None
 
 
 def _payload(result: dict) -> dict:

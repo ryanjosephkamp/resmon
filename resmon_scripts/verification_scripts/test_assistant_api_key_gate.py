@@ -34,6 +34,34 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
+
+from implementation_scripts import api_auth as _api_auth  # noqa: E402
+
+# 2.2: every request to a resmon backend carries its local API token. The
+# backends this file starts are handed the suite's token in RESMON_API_TOKEN,
+# exactly as Electron hands its own over, and test-side calls go through this
+# shim. The code under test builds its own headers; nothing here adds any.
+_TOKEN = _api_auth.current_token()
+
+
+class _WithToken:
+    """httpx's module-level ``get``/``post``/``stream``/…, plus the token header.
+
+    A shim over the functions rather than a shared ``httpx.Client``: each call
+    keeps its own throwaway client, so a stream a test abandons is closed exactly
+    as before — a pooled connection outlived one and hid a disconnect.
+    """
+
+    def __getattr__(self, name):
+        function = getattr(httpx, name)
+
+        def call(*args, **kwargs):
+            kwargs["headers"] = {**_api_auth.bearer(_TOKEN), **dict(kwargs.get("headers") or {})}
+            return function(*args, **kwargs)
+        return call
+
+
+_API = _WithToken()
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -96,7 +124,7 @@ keyring.set_keyring(_Memory())
 ''', encoding="utf-8")
 
         env = {
-            **os.environ,
+            **os.environ, "RESMON_API_TOKEN": _TOKEN,
             "RESMON_DB_PATH": str(self.state / "resmon.db"),
             "RESMON_REPORTS_DIR": str(self.state / "reports"),
             "RESMON_PORT_FILE": str(self.state / "resmon.port"),
@@ -125,7 +153,7 @@ keyring.set_keyring(_Memory())
             if self.proc.poll() is not None:
                 raise RuntimeError(f"backend exited: {self.log.read_text()[:2000]}")
             try:
-                if httpx.get(f"{self.base}/api/health", timeout=1.0).status_code == 200:
+                if _API.get(f"{self.base}/api/health", timeout=1.0).status_code == 200:
                     return
             except httpx.HTTPError:
                 time.sleep(0.3)
@@ -166,11 +194,11 @@ def backend(tmp_path_factory, provider):
     with _started_backend(server):
         # Configured through the real settings API — nothing monkeypatched, which
         # is the point: Ledger 33 was a setting the PUT stored and no run read.
-        httpx.put(f"{server.base}/api/settings/ai", json={"settings": {
+        _API.put(f"{server.base}/api/settings/ai", json={"settings": {
             "ai_provider": "custom",
             "ai_custom_base_url": provider.base_url,
         }}, timeout=20).raise_for_status()
-        httpx.put(f"{server.base}/api/settings/assistant", json={"settings": {
+        _API.put(f"{server.base}/api/settings/assistant", json={"settings": {
             "assistant_runtime": "api_key",
             "assistant_provider": "custom",
             "assistant_model": "test-model",
@@ -178,7 +206,7 @@ def backend(tmp_path_factory, provider):
 
         # The canary really is readable by this backend, so "it never appeared"
         # is a statement about restraint rather than about an empty keyring.
-        presence = httpx.get(f"{server.base}/api/credentials", timeout=20).json()
+        presence = _API.get(f"{server.base}/api/credentials", timeout=20).json()
         assert presence["credentials"]["custom_llm_api_key"]["status"] == "present", (
             "the canary was not installed, so P14f would pass vacuously")
         yield server
@@ -202,7 +230,7 @@ def test_startup_failure_reaps_the_owned_backend(monkeypatch, tmp_path):
 
 
 def _session(base: str) -> dict:
-    response = httpx.post(f"{base}/api/assistant/sessions", json={}, timeout=20)
+    response = _API.post(f"{base}/api/assistant/sessions", json={}, timeout=20)
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -215,7 +243,7 @@ def _turn(base: str, session_id: int, text: str, *,
     what closing the panel does and which must deny.
     """
     events: list[dict] = []
-    with httpx.stream("POST", f"{base}/api/assistant/sessions/{session_id}/messages",
+    with _API.stream("POST", f"{base}/api/assistant/sessions/{session_id}/messages",
                       json={"text": text}, timeout=timeout) as response:
         assert response.status_code == 200, response.read()[:500]
         for line in response.iter_lines():
@@ -226,7 +254,7 @@ def _turn(base: str, session_id: int, text: str, *,
             if event.get("type") == "permission_request":
                 if allow is None:
                     break
-                httpx.post(f"{base}/api/assistant/permissions/{event['request_id']}",
+                _API.post(f"{base}/api/assistant/permissions/{event['request_id']}",
                            json={"allow": allow}, timeout=20).raise_for_status()
             if event.get("type") == "closed":
                 break
@@ -234,7 +262,7 @@ def _turn(base: str, session_id: int, text: str, *,
 
 
 def _routines(base: str) -> list[dict]:
-    body = httpx.get(f"{base}/api/routines", timeout=20).json()
+    body = _API.get(f"{base}/api/routines", timeout=20).json()
     return body if isinstance(body, list) else body.get("routines", [])
 
 
@@ -322,7 +350,7 @@ def test_the_write_is_still_waiting_while_the_card_is_open(backend, provider):
     names_while_blocked: list[list[str]] = []
 
     def drive() -> None:
-        with httpx.stream(
+        with _API.stream(
             "POST", f"{backend.base}/api/assistant/sessions/{session_id}/messages",
             json={"text": "make me a routine"}, timeout=90,
         ) as response:
@@ -335,7 +363,7 @@ def test_the_write_is_still_waiting_while_the_card_is_open(backend, provider):
                     # Read the corpus with the card open and the loop stopped.
                     names_while_blocked.append(
                         [r["name"] for r in _routines(backend.base)])
-                    httpx.post(
+                    _API.post(
                         f"{backend.base}/api/assistant/permissions/{event['request_id']}",
                         json={"allow": False}, timeout=20)
                 if event.get("type") == "closed":
@@ -393,14 +421,14 @@ def test_the_key_never_appears_in_anything_a_person_or_a_transcript_can_see(
 
     assert CANARY not in json.dumps(events)
 
-    stored = httpx.get(f"{backend.base}/api/assistant/sessions/{session_id}",
+    stored = _API.get(f"{backend.base}/api/assistant/sessions/{session_id}",
                        timeout=20).json()
     assert CANARY not in json.dumps(stored)
 
-    listed = httpx.get(f"{backend.base}/api/assistant/sessions", timeout=20).json()
+    listed = _API.get(f"{backend.base}/api/assistant/sessions", timeout=20).json()
     assert CANARY not in json.dumps(listed)
 
-    status = httpx.get(f"{backend.base}/api/assistant/status", timeout=20).json()
+    status = _API.get(f"{backend.base}/api/assistant/status", timeout=20).json()
     assert CANARY not in json.dumps(status)
 
     assert CANARY not in backend.log.read_text(encoding="utf-8", errors="replace")
@@ -442,7 +470,7 @@ def test_a_conversation_is_stored_and_the_next_turn_carries_it(backend, provider
     assert "remember the number 4271" in sent
     assert "Noted: 4271." in sent
 
-    stored = httpx.get(f"{backend.base}/api/assistant/sessions/{session_id}",
+    stored = _API.get(f"{backend.base}/api/assistant/sessions/{session_id}",
                        timeout=20).json()
     assert [m["role"] for m in stored["messages"]] == [
         "user", "assistant", "user", "assistant"]
@@ -452,7 +480,7 @@ def test_a_conversation_is_stored_and_the_next_turn_carries_it(backend, provider
 
 
 def test_the_status_reports_the_api_key_runtime_and_the_other_route(backend):
-    status = httpx.get(f"{backend.base}/api/assistant/status", timeout=20).json()
+    status = _API.get(f"{backend.base}/api/assistant/status", timeout=20).json()
     assert status["runtime"]["kind"] == "api_key"
     assert status["available"] is True
     assert status["provider"] == "custom"

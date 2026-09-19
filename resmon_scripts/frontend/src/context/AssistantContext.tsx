@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { apiClient, getBaseUrl } from '../api/client';
+import { apiClient, backendFetch } from '../api/client';
 import type { ChoiceRequest, SavedChoices, UnreadableChoices, ChoicesDescriptor, TurnChoices, ModelReport } from '../components/Assistant/ComposerChoices';
 
 /**
@@ -487,7 +487,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (turn.stopping) return;
       const id = turn.id;
       setMessages((current) => [...current, { role: 'user', content: trimmed }]);
-      const response = await fetch(`${getBaseUrl()}/api/assistant/sessions/${id}/messages`, {
+      const response = await backendFetch(`/api/assistant/sessions/${id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: trimmed, ...(adopting ? { legacy_adoption: { choices: chosen, confirmed: true } } : {}) }),

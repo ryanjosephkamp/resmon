@@ -5,7 +5,7 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { test, expect, _electron as electron } from '@playwright/test';
-import { FRONTEND_ROOT, launchEnv, ensureScreenshotDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, launchEnv, ensureScreenshotDir, e2eAuth } from './fixtures/resmon-app';
 
 test('selected runs save one entry per stored paper with globally unique keys', async () => {
   const state = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-reading-export-'));
@@ -25,7 +25,7 @@ test('selected runs save one entry per stored paper with globally unique keys', 
     await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
     const port = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort());
     expect(port).not.toBe('8742');
-    const health = await (await win.request.get(`http://127.0.0.1:${port}/api/health`)).json();
+    const health = await (await win.request.get(`http://127.0.0.1:${port}/api/health`, { headers: e2eAuth(`http://127.0.0.1:${port}/api/health`) })).json();
     expect(Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(health.pid)], { encoding: 'utf8' }).trim())).toBe(app.process().pid);
     console.log('READING_INSTANCE', JSON.stringify({ state, port, health, parentPid: app.process().pid, fixture }));
     await win.evaluate(() => { window.location.hash = '#/results'; });

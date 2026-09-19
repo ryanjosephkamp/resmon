@@ -83,7 +83,7 @@ async function settled(win: Page, id: number): Promise<Record<string, unknown>> 
     const deadline = Date.now() + 120_000;
     let row: Record<string, unknown> = {};
     while (Date.now() < deadline) {
-      row = await (await fetch(`http://127.0.0.1:${port}/api/executions/${execId}`)).json();
+      row = await (await e2eFetch(`http://127.0.0.1:${port}/api/executions/${execId}`)).json();
       if (row.status !== 'running') return row;
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -96,7 +96,7 @@ async function recordedReasons(win: Page, id: number): Promise<Record<string, st
   return win.evaluate(async (execId) => {
     const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
       .resmonAPI.getBackendPort();
-    const rec = await (await fetch(
+    const rec = await (await e2eFetch(
       `http://127.0.0.1:${port}/api/executions/${execId}/search-record`)).json();
     const out: Record<string, string> = {};
     // `source` is the slug — measured, not assumed: the record keys read back
@@ -231,7 +231,7 @@ test('P13c: not_recorded — resmon did not observe why, and says exactly that',
     const id = await win.evaluate(async () => {
       const p = (window as unknown as { resmonAPI: { getBackendPort(): string } })
         .resmonAPI.getBackendPort();
-      const res = await fetch(`http://127.0.0.1:${p}/api/search/dive`, {
+      const res = await e2eFetch(`http://127.0.0.1:${p}/api/search/dive`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

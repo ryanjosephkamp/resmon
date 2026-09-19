@@ -166,7 +166,7 @@ test('Q6: the packaged app launches under Playwright and serves every route', as
     // interpreter directly; this is the half its report named as not
     // established: Electron launching a backend that imports it.
     const health = await win.evaluate(async (p: string) => {
-      const res = await fetch(`http://127.0.0.1:${p}/api/health`);
+      const res = await e2eFetch(`http://127.0.0.1:${p}/api/health`);
       return res.json() as Promise<{ embeddings?: { extension: string | null; reason: string | null } }>;
     }, port);
     console.log('Q6 PACKAGED EMBEDDINGS', JSON.stringify(health.embeddings));

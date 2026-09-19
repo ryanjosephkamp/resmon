@@ -32,6 +32,34 @@ import time
 from pathlib import Path
 
 import httpx
+
+from implementation_scripts import api_auth as _api_auth  # noqa: E402
+
+# 2.2: every request to a resmon backend carries its local API token. The
+# backends this file starts are handed the suite's token in RESMON_API_TOKEN,
+# exactly as Electron hands its own over, and test-side calls go through this
+# shim. The code under test builds its own headers; nothing here adds any.
+_TOKEN = _api_auth.current_token()
+
+
+class _WithToken:
+    """httpx's module-level ``get``/``post``/``stream``/…, plus the token header.
+
+    A shim over the functions rather than a shared ``httpx.Client``: each call
+    keeps its own throwaway client, so a stream a test abandons is closed exactly
+    as before — a pooled connection outlived one and hid a disconnect.
+    """
+
+    def __getattr__(self, name):
+        function = getattr(httpx, name)
+
+        def call(*args, **kwargs):
+            kwargs["headers"] = {**_api_auth.bearer(_TOKEN), **dict(kwargs.get("headers") or {})}
+            return function(*args, **kwargs)
+        return call
+
+
+_API = _WithToken()
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -69,7 +97,7 @@ class Backend:
 
     def start(self) -> None:
         env = {
-            **os.environ,
+            **os.environ, "RESMON_API_TOKEN": _TOKEN,
             "RESMON_DB_PATH": self.db_path,
             "RESMON_REPORTS_DIR": str(self.state / "reports"),
             "RESMON_PORT_FILE": str(self.state / "resmon.port"),
@@ -95,7 +123,7 @@ class Backend:
                 raise RuntimeError(
                     f"backend exited early: {self.proc.communicate()[0][:2000]}")
             try:
-                if httpx.get(f"{self.base}/api/health", timeout=1.0).status_code == 200:
+                if _API.get(f"{self.base}/api/health", timeout=1.0).status_code == 200:
                     return
             except httpx.HTTPError:
                 time.sleep(0.3)
@@ -120,7 +148,7 @@ def backend(tmp_path_factory, shim):
     try:
         # Point the assistant at the double, through the same setting a user
         # would fill in. Nothing is monkeypatched: the read path is the real one.
-        httpx.put(f"{server.base}/api/settings/ai",
+        _API.put(f"{server.base}/api/settings/ai",
                   json={"settings": {"ai_cli_path": shim}}, timeout=20).raise_for_status()
         yield server
     finally:
@@ -128,7 +156,7 @@ def backend(tmp_path_factory, shim):
 
 
 def _session(base: str) -> dict:
-    response = httpx.post(f"{base}/api/assistant/sessions", json={}, timeout=20)
+    response = _API.post(f"{base}/api/assistant/sessions", json={}, timeout=20)
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -142,7 +170,7 @@ def _turn(base: str, session_id: int, prompt: str, timeout: float = 90.0,
     the turn to start by watching the return value waits for ever.
     """
     events: list[dict] = sink if sink is not None else []
-    with httpx.stream("POST", f"{base}/api/assistant/sessions/{session_id}/messages",
+    with _API.stream("POST", f"{base}/api/assistant/sessions/{session_id}/messages",
                       json={"text": prompt}, timeout=timeout) as response:
         assert response.status_code == 200, response.read()[:500]
         for line in response.iter_lines():
@@ -161,7 +189,7 @@ def _turn_answering(base: str, session_id: int, prompt: str, *, allow: bool,
     and it must deny.
     """
     events: list[dict] = []
-    with httpx.stream("POST", f"{base}/api/assistant/sessions/{session_id}/messages",
+    with _API.stream("POST", f"{base}/api/assistant/sessions/{session_id}/messages",
                       json={"text": prompt}, timeout=timeout) as response:
         assert response.status_code == 200, response.read()[:500]
         for line in response.iter_lines():
@@ -172,7 +200,7 @@ def _turn_answering(base: str, session_id: int, prompt: str, *, allow: bool,
             if event.get("type") == "permission_request":
                 if not answer:
                     break                       # the panel goes away
-                httpx.post(
+                _API.post(
                     f"{base}/api/assistant/permissions/{event['request_id']}",
                     json={"allow": allow}, timeout=20,
                 ).raise_for_status()
@@ -182,7 +210,7 @@ def _turn_answering(base: str, session_id: int, prompt: str, *, allow: bool,
 
 
 def _routine(base: str, name: str) -> int:
-    created = httpx.post(f"{base}/api/routines", json={
+    created = _API.post(f"{base}/api/routines", json={
         "name": name, "schedule_cron": "0 9 * * 1",
         "parameters": {"query": "graphene", "repositories": ["arxiv"]},
         "is_active": False,
@@ -192,7 +220,7 @@ def _routine(base: str, name: str) -> int:
 
 
 def _is_active(base: str, routine_id: int) -> bool:
-    return bool(httpx.get(f"{base}/api/routines/{routine_id}", timeout=20)
+    return bool(_API.get(f"{base}/api/routines/{routine_id}", timeout=20)
                 .json()["is_active"])
 
 
@@ -201,7 +229,7 @@ def _is_active(base: str, routine_id: int) -> bool:
 # ---------------------------------------------------------------------------
 
 def test_status_reports_the_runtime_and_why_codex_is_not_one(backend):
-    status = httpx.get(f"{backend.base}/api/assistant/status", timeout=20).json()
+    status = _API.get(f"{backend.base}/api/assistant/status", timeout=20).json()
     assert status["available"] is True
     assert status["runtime"]["kind"] == "claude_cli"
     # Read from the server rather than pinned to a literal a second time: the
@@ -213,18 +241,18 @@ def test_status_reports_the_runtime_and_why_codex_is_not_one(backend):
 
 def test_status_says_why_when_there_is_no_runtime(backend, tmp_path):
     """Absent with a reason, never absent silently. The panel renders the reason."""
-    original = httpx.get(f"{backend.base}/api/settings/ai", timeout=20).json()["ai_cli_path"]
+    original = _API.get(f"{backend.base}/api/settings/ai", timeout=20).json()["ai_cli_path"]
     try:
-        httpx.put(f"{backend.base}/api/settings/ai",
+        _API.put(f"{backend.base}/api/settings/ai",
                   json={"settings": {"ai_cli_path": str(tmp_path / "nothing-here")}},
                   timeout=20).raise_for_status()
-        status = httpx.get(f"{backend.base}/api/assistant/status", timeout=20).json()
+        status = _API.get(f"{backend.base}/api/assistant/status", timeout=20).json()
         assert status["available"] is False
         assert status["reason"].strip()
-        refused = httpx.post(f"{backend.base}/api/assistant/sessions", json={}, timeout=20)
+        refused = _API.post(f"{backend.base}/api/assistant/sessions", json={}, timeout=20)
         assert refused.status_code == 409
     finally:
-        httpx.put(f"{backend.base}/api/settings/ai",
+        _API.put(f"{backend.base}/api/settings/ai",
                   json={"settings": {"ai_cli_path": original}}, timeout=20)
 
 
@@ -240,19 +268,19 @@ def test_the_assistant_settings_ride_both_key_lists(backend):
 
     written = {"assistant_runtime": "claude_cli", "assistant_model": "sonnet",
                "assistant_effort": "medium"}
-    httpx.put(f"{backend.base}/api/settings/assistant",
+    _API.put(f"{backend.base}/api/settings/assistant",
               json={"settings": written}, timeout=20).raise_for_status()
-    read = httpx.get(f"{backend.base}/api/settings/assistant", timeout=20).json()
+    read = _API.get(f"{backend.base}/api/settings/assistant", timeout=20).json()
     assert {k: read[k] for k in written} == written
 
-    status = httpx.get(f"{backend.base}/api/assistant/status", timeout=20).json()
+    status = _API.get(f"{backend.base}/api/assistant/status", timeout=20).json()
     assert status["model"] == "sonnet" and status["effort"] == "medium", (
         "the settings were stored and the runtime never read them"
     )
     assert set(written) == set(assistant_runtime.RUNTIME_KINDS) | {
         "assistant_model", "assistant_effort"} - {"claude_cli"} or True
 
-    httpx.put(f"{backend.base}/api/settings/assistant", json={"settings": {
+    _API.put(f"{backend.base}/api/settings/assistant", json={"settings": {
         "assistant_model": "", "assistant_effort": ""}}, timeout=20)
 
 
@@ -266,7 +294,7 @@ def test_a_conversation_streams_text_and_is_stored(backend):
     assert [e["type"] for e in events if e["type"] == "text_delta"]
     assert any(e["type"] == "done" for e in events)
 
-    stored = httpx.get(f"{backend.base}/api/assistant/sessions/{session['id']}",
+    stored = _API.get(f"{backend.base}/api/assistant/sessions/{session['id']}",
                        timeout=20).json()
     assert [m["role"] for m in stored["messages"]] == ["user", "assistant"]
     assert stored["messages"][1]["content"] == "hello there"
@@ -279,7 +307,7 @@ def test_a_second_turn_resumes_rather_than_starting_over(backend):
     session = _session(backend.base)
     _turn(backend.base, session["id"], "SAY:one")
     _turn(backend.base, session["id"], "SAY:two")
-    stored = httpx.get(f"{backend.base}/api/assistant/sessions/{session['id']}",
+    stored = _API.get(f"{backend.base}/api/assistant/sessions/{session['id']}",
                        timeout=20).json()
     assert len(stored["messages"]) == 4
     assert stored["session"]["cli_session_id"] == session["cli_session_id"]
@@ -326,14 +354,14 @@ def test_a_second_turn_is_refused_while_one_is_running(backend):
         else:
             pytest.fail("the first turn never started")
 
-        second = httpx.post(
+        second = _API.post(
             f"{backend.base}/api/assistant/sessions/{session['id']}/messages",
             json={"text": "SAY:me too"}, timeout=20)
         assert second.status_code == 409, (
             f"a concurrent turn on one conversation was accepted: {second.status_code}"
         )
     finally:
-        httpx.post(f"{backend.base}/api/assistant/sessions/{session['id']}/cancel",
+        _API.post(f"{backend.base}/api/assistant/sessions/{session['id']}/cancel",
                    timeout=20)
         worker.join(timeout=40)
 
@@ -359,7 +387,7 @@ def test_cancel_ends_the_turn(backend):
         pytest.fail("the turn never produced anything")
 
     started = time.monotonic()
-    cancelled = httpx.post(
+    cancelled = _API.post(
         f"{backend.base}/api/assistant/sessions/{session['id']}/cancel", timeout=20)
     assert cancelled.json()["cancelled"] is True
     worker.join(timeout=40)
@@ -371,9 +399,9 @@ def test_cancel_ends_the_turn(backend):
 def test_a_conversation_can_be_deleted(backend):
     session = _session(backend.base)
     _turn(backend.base, session["id"], "SAY:x")
-    assert httpx.delete(f"{backend.base}/api/assistant/sessions/{session['id']}",
+    assert _API.delete(f"{backend.base}/api/assistant/sessions/{session['id']}",
                         timeout=20).status_code == 200
-    assert httpx.get(f"{backend.base}/api/assistant/sessions/{session['id']}",
+    assert _API.get(f"{backend.base}/api/assistant/sessions/{session['id']}",
                      timeout=20).status_code == 404
 
 
@@ -399,7 +427,7 @@ def test_an_allowed_write_runs_and_the_backend_changes(backend):
 def test_a_denied_write_leaves_the_backend_exactly_as_it_was(backend):
     """P3. The claim is about the database, not about the transcript."""
     routine_id = _routine(backend.base, "assistant-deny")
-    before = httpx.get(f"{backend.base}/api/routines/{routine_id}", timeout=20).json()
+    before = _API.get(f"{backend.base}/api/routines/{routine_id}", timeout=20).json()
 
     session = _session(backend.base)
     events = _turn_answering(
@@ -409,7 +437,7 @@ def test_a_denied_write_leaves_the_backend_exactly_as_it_was(backend):
     card = next(e for e in events if e["type"] == "permission_request")
     assert card["tool_name"] == "mcp__resmon__activate_routine"
     assert card["input"] == {"routine_id": routine_id}
-    assert httpx.get(f"{backend.base}/api/routines/{routine_id}", timeout=20).json() == before
+    assert _API.get(f"{backend.base}/api/routines/{routine_id}", timeout=20).json() == before
     result = next(e for e in events if e["type"] == "tool_result")
     assert result["is_error"] is True
 
@@ -433,7 +461,7 @@ def test_walking_away_from_a_card_denies_it(backend):
     assert not _is_active(backend.base, routine_id), (
         "a write ran for a card nobody was there to answer"
     )
-    httpx.post(f"{backend.base}/api/assistant/sessions/{session['id']}/cancel", timeout=20)
+    _API.post(f"{backend.base}/api/assistant/sessions/{session['id']}/cancel", timeout=20)
 
 
 def test_a_card_cannot_be_answered_twice(backend):
@@ -441,7 +469,7 @@ def test_a_card_cannot_be_answered_twice(backend):
     session = _session(backend.base)
 
     answered: list[str] = []
-    with httpx.stream("POST",
+    with _API.stream("POST",
                       f"{backend.base}/api/assistant/sessions/{session['id']}/messages",
                       json={"text": f'CALL:activate_routine {{"routine_id": {routine_id}}}'},
                       timeout=90) as response:
@@ -450,10 +478,10 @@ def test_a_card_cannot_be_answered_twice(backend):
                 continue
             event = json.loads(line[6:])
             if event.get("type") == "permission_request":
-                first = httpx.post(
+                first = _API.post(
                     f"{backend.base}/api/assistant/permissions/{event['request_id']}",
                     json={"allow": False}, timeout=20)
-                second = httpx.post(
+                second = _API.post(
                     f"{backend.base}/api/assistant/permissions/{event['request_id']}",
                     json={"allow": True}, timeout=20)
                 answered += [str(first.status_code), str(second.status_code)]
@@ -496,14 +524,14 @@ def test_conversations_survive_a_backend_restart(backend):
     backend.stop()
     backend.start()
 
-    reopened = httpx.get(f"{backend.base}/api/assistant/sessions/{session['id']}",
+    reopened = _API.get(f"{backend.base}/api/assistant/sessions/{session['id']}",
                          timeout=20).json()
     assert [m["content"] for m in reopened["messages"]] == ["SAY:remember me",
                                                             "remember me"]
     assert reopened["session"]["cli_session_id"] == session["cli_session_id"]
     assert reopened["running"] is False
     assert any(s["id"] == session["id"] for s in
-               httpx.get(f"{backend.base}/api/assistant/sessions", timeout=20)
+               _API.get(f"{backend.base}/api/assistant/sessions", timeout=20)
                .json()["sessions"])
 
 
@@ -533,7 +561,7 @@ def test_a_conversation_the_cli_has_lost_says_so_and_carries_on(backend):
     assert [e["text"] for e in events if e["type"] == "text_delta"] == [
         "answered anyway"]
 
-    stored = httpx.get(f"{backend.base}/api/assistant/sessions/{session['id']}",
+    stored = _API.get(f"{backend.base}/api/assistant/sessions/{session['id']}",
                        timeout=20).json()
     roles = [m["role"] for m in stored["messages"]]
     assert roles == ["user", "assistant", "user", "system", "assistant"], roles
@@ -596,7 +624,7 @@ def test_a_session_with_no_cli_id_starts_one_rather_than_resuming_it(backend):
 
 
 def _profiles(base: str) -> list[dict]:
-    return httpx.get(f"{base}/api/profiles", timeout=20).json()["profiles"]
+    return _API.get(f"{base}/api/profiles", timeout=20).json()["profiles"]
 
 
 def test_watching_a_person_produces_a_card_for_the_profile_and_one_for_the_routine(backend):
@@ -634,7 +662,7 @@ def test_refusing_the_profile_card_leaves_no_profile_and_no_routine(backend):
     validation rather than by the assistant deciding to give up.
     """
     before_profiles = len(_profiles(backend.base))
-    before_routines = len(httpx.get(f"{backend.base}/api/routines", timeout=20).json())
+    before_routines = len(_API.get(f"{backend.base}/api/routines", timeout=20).json())
 
     session = _session(backend.base)
     events = _turn_answering(
@@ -648,7 +676,7 @@ def test_refusing_the_profile_card_leaves_no_profile_and_no_routine(backend):
     assert [e["tool_name"] for e in events if e["type"] == "permission_request"] == [
         "mcp__resmon__create_watch_profile", "mcp__resmon__create_routine"]
     assert len(_profiles(backend.base)) == before_profiles
-    assert len(httpx.get(f"{backend.base}/api/routines", timeout=20).json()) == before_routines
+    assert len(_API.get(f"{backend.base}/api/routines", timeout=20).json()) == before_routines
     assert all(e["is_error"] for e in events if e["type"] == "tool_result")
 
 
@@ -681,7 +709,7 @@ def test_chats_read_http_paging_export_and_validation(backend):
     tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
     before = {t:[tuple(r) for r in c.execute('SELECT * FROM "'+t+'" ORDER BY 1')] for t in tables}
     gathered=[];params={'q':marker};sizes=[]
-    with httpx.Client(base_url=backend.base,timeout=30) as client:
+    with httpx.Client(headers=_api_auth.bearer(_TOKEN), base_url=backend.base,timeout=30) as client:
         while True:
             resp=client.get('/api/assistant/sessions/browse',params=params)
             assert resp.status_code==200,resp.text
@@ -717,25 +745,25 @@ def test_choice_http_rejects_overrides_and_changed_route_without_writing(backend
     request={'version':1,'runtime':'claude_cli','provider':'claude_code','model':'opus','effort':'high'}
     before=_choice_rows(backend)
     for change in ({'runtime':'codex_cli'},{'model':'bad\nmodel'},{'effort':'unknown'},{'extra':True}):
-        result=httpx.post(backend.base+'/api/assistant/sessions',json={'choices':{**request,**change}},timeout=20)
+        result=_API.post(backend.base+'/api/assistant/sessions',json={'choices':{**request,**change}},timeout=20)
         assert result.status_code==400,result.text
         assert _choice_rows(backend)==before
-    result=httpx.post(backend.base+'/api/assistant/sessions',json={'choices':request},timeout=20)
+    result=_API.post(backend.base+'/api/assistant/sessions',json={'choices':request},timeout=20)
     assert result.status_code==201,result.text
     sid=result.json()['id'];url=f'{backend.base}/api/assistant/sessions/{sid}/messages'
     before=_choice_rows(backend)
-    result=httpx.post(url,json={'text':'override','choices':{**request,'model':'fable'}},timeout=20)
+    result=_API.post(url,json={'text':'override','choices':{**request,'model':'fable'}},timeout=20)
     assert result.status_code==422 and _choice_rows(backend)==before
     try:
-        httpx.put(backend.base+'/api/settings/ai',json={'settings':{'ai_cli_path':shim+'-changed'}},timeout=20).raise_for_status()
-        result=httpx.post(url,json={'text':'must refuse'},timeout=20)
+        _API.put(backend.base+'/api/settings/ai',json={'settings':{'ai_cli_path':shim+'-changed'}},timeout=20).raise_for_status()
+        result=_API.post(url,json={'text':'must refuse'},timeout=20)
         assert result.status_code==409 and result.json()['detail']['code']=='configuration_changed'
         assert _choice_rows(backend)==before
     finally:
-        httpx.put(backend.base+'/api/settings/ai',json={'settings':{'ai_cli_path':shim}},timeout=20).raise_for_status()
+        _API.put(backend.base+'/api/settings/ai',json={'settings':{'ai_cli_path':shim}},timeout=20).raise_for_status()
     events=_turn(backend.base,sid,'SAY:restored route')
     request_event=next(e for e in events if e['type']=='turn_choices')
-    snapshot=httpx.get(f'{backend.base}/api/assistant/sessions/{sid}',timeout=20).json()
+    snapshot=_API.get(f'{backend.base}/api/assistant/sessions/{sid}',timeout=20).json()
     assert snapshot['turn_choices'][0]['requested']==request_event['requested']
     assert snapshot['turn_choices'][0]['user_message_id']==request_event['user_message_id']
     assert snapshot['turn_choices'][0]['assistant_message_id'] is not None
@@ -754,10 +782,10 @@ def test_legacy_http_requires_explicit_same_kind_confirmation_once(backend):
         cli={'version':1,'runtime':'claude_cli','provider':'claude_code','model':None,'effort':None}
         api={**cli,'runtime':'api_key','provider':'openai','model':'authored'}
         for adoption in (None,{'confirmed':False,'choices':cli},{'confirmed':True,'choices':api}):
-            response=httpx.post(url,json={'text':'future',**({'legacy_adoption':adoption} if adoption else {})},timeout=20)
+            response=_API.post(url,json={'text':'future',**({'legacy_adoption':adoption} if adoption else {})},timeout=20)
             assert response.status_code==409,response.text
             assert _choice_rows(backend)==before
-        response=httpx.post(url,json={'text':'SAY:future','legacy_adoption':{'confirmed':True,'choices':cli}},timeout=60)
+        response=_API.post(url,json={'text':'SAY:future','legacy_adoption':{'confirmed':True,'choices':cli}},timeout=60)
         assert response.status_code==200,response.text
         assert 'session not found' not in response.text.lower()
         saved=store.get_session(conn,sid)
@@ -765,7 +793,7 @@ def test_legacy_http_requires_explicit_same_kind_confirmation_once(backend):
         assert saved['choices']['binding_basis']=='legacy_confirmed'
         assert [m['content'] for m in store.list_messages(conn,sid)][:2]==['historical user','historical answer']
         before=_choice_rows(backend)
-        response=httpx.post(url,json={'text':'reconfirm','legacy_adoption':{'confirmed':True,'choices':cli}},timeout=20)
+        response=_API.post(url,json={'text':'reconfirm','legacy_adoption':{'confirmed':True,'choices':cli}},timeout=20)
         assert response.status_code==409 and response.json()['detail']['code']=='already_bound'
         assert _choice_rows(backend)==before
     finally:conn.close()
@@ -790,6 +818,8 @@ def held(*args):
   time.sleep(.02)
  original(*args)
 resmon._run_assistant_turn=held
+from implementation_scripts import api_auth
+api_auth.configure_from_environment()
 uvicorn.run(resmon.app,host='127.0.0.1',port=int(os.environ['RESMON_PORT']),log_level='warning')
 ''')
     server.entrypoint=wrapper
@@ -798,7 +828,7 @@ uvicorn.run(resmon.app,host='127.0.0.1',port=int(os.environ['RESMON_PORT']),log_
     server.start();events=[];errors=[];worker=None
     try:
         choice={'version':1,'runtime':'claude_cli','provider':'claude_code','model':'opus','effort':'max'}
-        created=httpx.post(server.base+'/api/assistant/sessions',json={'choices':choice},timeout=20);created.raise_for_status();sid=created.json()['id']
+        created=_API.post(server.base+'/api/assistant/sessions',json={'choices':choice},timeout=20);created.raise_for_status();sid=created.json()['id']
         def send():
             try:_turn(server.base,sid,'SAY:captured runtime',sink=events)
             except BaseException as exc:errors.append(repr(exc))
@@ -810,14 +840,14 @@ uvicorn.run(resmon.app,host='127.0.0.1',port=int(os.environ['RESMON_PORT']),log_
         assert len(before['assistant_messages'])==len(before['assistant_turn_choices'])==1
         # Retargeting here would select an unavailable API adapter; the admitted
         # worker must still launch the original captured fake CLI/path/model.
-        httpx.put(server.base+'/api/settings/assistant',json={'settings':{'assistant_runtime':'api_key','assistant_provider':'openai','assistant_model':'not-the-request'}},timeout=20).raise_for_status()
-        httpx.put(server.base+'/api/settings/ai',json={'settings':{'ai_cli_path':shim+'-changed'}},timeout=20).raise_for_status()
-        rival=httpx.post(f'{server.base}/api/assistant/sessions/{sid}/messages',json={'text':'rival'},timeout=20)
+        _API.put(server.base+'/api/settings/assistant',json={'settings':{'assistant_runtime':'api_key','assistant_provider':'openai','assistant_model':'not-the-request'}},timeout=20).raise_for_status()
+        _API.put(server.base+'/api/settings/ai',json={'settings':{'ai_cli_path':shim+'-changed'}},timeout=20).raise_for_status()
+        rival=_API.post(f'{server.base}/api/assistant/sessions/{sid}/messages',json={'text':'rival'},timeout=20)
         assert rival.status_code==409 and _choice_rows(server)==before
         release.write_text('continue');worker.join(30)
         assert not worker.is_alive() and not errors
         assert any(e.get('text')=='captured runtime' for e in events),events
-        saved=httpx.get(f'{server.base}/api/assistant/sessions/{sid}',timeout=20).json()
+        saved=_API.get(f'{server.base}/api/assistant/sessions/{sid}',timeout=20).json()
         assert saved['turn_choices'][0]['requested']['requested_model']=='opus'
         assert saved['turn_choices'][0]['requested']['requested_effort']=='max'
         assert saved['turn_choices'][0]['assistant_message_id'] is not None

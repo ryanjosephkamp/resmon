@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { createHash } from 'crypto';
-import { FRONTEND_ROOT, REPO_ROOT, launchEnv, ensureScreenshotDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, launchEnv, ensureScreenshotDir, e2eAuth } from './fixtures/resmon-app';
 
 const hostile = '<script>window.chatInjected=true</script>\n[unsafe](https://example.invalid)\n``````\n雪\n' + 'longword'.repeat(150);
 
@@ -51,7 +51,7 @@ print(json.dumps({x:c.execute('SELECT * FROM "'+x+'" ORDER BY 1').fetchall() for
     await win.route('https://**/*', route => {contacts.push(route.request().url());return route.abort();});
     const port = await win.evaluate(()=>(window as unknown as {resmonAPI:{getBackendPort():string}}).resmonAPI.getBackendPort());
     expect(port).not.toBe('8742');
-    const get = async (url:string) => {const r=await win.request.get(`http://127.0.0.1:${port}${url}`);expect(r.ok()).toBe(true);return r.json();};
+    const get = async (url:string) => {const r=await win.request.get(`http://127.0.0.1:${port}${url}`, { headers: e2eAuth(`http://127.0.0.1:${port}${url}`) });expect(r.ok()).toBe(true);return r.json();};
     const instance = await app.evaluate(({app})=>({pid:process.pid,profile:app.getPath('userData'),state:process.env.RESMON_STATE_DIR,db:process.env.RESMON_DB_PATH,reports:process.env.RESMON_REPORTS_DIR,portFile:process.env.RESMON_PORT_FILE}));
     receipt('instance',{...instance,port,source:REPO_ROOT,health:await get('/api/health'),at:new Date().toISOString()});
     const before=inventory();receipt('before',before);
