@@ -78,6 +78,11 @@ function tokenForPort(port: string): string | null {
   return null;
 }
 
+/** For a backend a spec starts itself (not through Electron): where its token file is. */
+export function registerStateDir(dir: string): void {
+  launchedStateDirs.add(dir);
+}
+
 /** `Authorization` for a suite-side request to a backend this suite launched; `{}` for any other URL. */
 export function e2eAuth(url: string): Record<string, string> {
   const match = /^http:\/\/127\.0\.0\.1:(\d+)\//.exec(url);

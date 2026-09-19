@@ -33,6 +33,7 @@ from pathlib import Path
 
 import httpx
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # also run as a script by e2e specs
 from implementation_scripts import api_auth as _api_auth  # noqa: E402
 
 # 2.2: every request to a resmon backend carries its local API token. The
@@ -54,7 +55,8 @@ class _WithToken:
         function = getattr(httpx, name)
 
         def call(*args, **kwargs):
-            kwargs["headers"] = {**_api_auth.bearer(_TOKEN), **dict(kwargs.get("headers") or {})}
+            auth = _api_auth.bearer(_TOKEN) if _TOKEN else {}
+            kwargs["headers"] = {**auth, **dict(kwargs.get("headers") or {})}
             return function(*args, **kwargs)
         return call
 
@@ -97,7 +99,7 @@ class Backend:
 
     def start(self) -> None:
         env = {
-            **os.environ, "RESMON_API_TOKEN": _TOKEN,
+            **os.environ, **({"RESMON_API_TOKEN": _TOKEN} if _TOKEN else {}),
             "RESMON_DB_PATH": self.db_path,
             "RESMON_REPORTS_DIR": str(self.state / "reports"),
             "RESMON_PORT_FILE": str(self.state / "resmon.port"),
@@ -709,7 +711,7 @@ def test_chats_read_http_paging_export_and_validation(backend):
     tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
     before = {t:[tuple(r) for r in c.execute('SELECT * FROM "'+t+'" ORDER BY 1')] for t in tables}
     gathered=[];params={'q':marker};sizes=[]
-    with httpx.Client(headers=_api_auth.bearer(_TOKEN), base_url=backend.base,timeout=30) as client:
+    with httpx.Client(headers=_api_auth.bearer(_TOKEN) if _TOKEN else {}, base_url=backend.base,timeout=30) as client:
         while True:
             resp=client.get('/api/assistant/sessions/browse',params=params)
             assert resp.status_code==200,resp.text

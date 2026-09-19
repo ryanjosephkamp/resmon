@@ -18,6 +18,7 @@ import time
 
 import httpx
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # also run as a script by e2e specs
 from implementation_scripts import api_auth as _api_auth  # noqa: E402
 
 # 2.2: every request to a resmon backend carries its local API token. The
@@ -39,7 +40,8 @@ class _WithToken:
         function = getattr(httpx, name)
 
         def call(*args, **kwargs):
-            kwargs["headers"] = {**_api_auth.bearer(_TOKEN), **dict(kwargs.get("headers") or {})}
+            auth = _api_auth.bearer(_TOKEN) if _TOKEN else {}
+            kwargs["headers"] = {**auth, **dict(kwargs.get("headers") or {})}
             return function(*args, **kwargs)
         return call
 
@@ -83,7 +85,7 @@ def isolated_backend(tmp_path_factory):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     assert port != 8742
-    env = {**os.environ, "RESMON_API_TOKEN": _TOKEN, "RESMON_STATE_DIR": str(state),
+    env = {**os.environ, **({"RESMON_API_TOKEN": _TOKEN} if _TOKEN else {}), "RESMON_STATE_DIR": str(state),
            "RESMON_DB_PATH": str(state / "corpus.db"),
            "RESMON_REPORTS_DIR": str(state / "reports"),
            "RESMON_PORT_FILE": str(state / "backend.port"),
