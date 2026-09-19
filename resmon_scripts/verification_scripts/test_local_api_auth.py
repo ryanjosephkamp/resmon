@@ -351,6 +351,59 @@ def test_cors_second_layer_drops_private_network_for_a_failed_origin():
 
 
 # ---------------------------------------------------------------------------
+# The preflight carve-out is exactly OPTIONS + the renderer Origin + ACRM
+# ---------------------------------------------------------------------------
+#
+# The guard's one deliberate token exemption: a CORS preflight carries no
+# credentials by specification, so it is answered without the token. It is a
+# second allowlist beside ``AUTH_EXEMPT_PATHS``, and it is pinned the same way:
+# each of its three conditions has a request below that must still be refused
+# when that condition alone is not met. ``Origin`` cannot be forged by a page,
+# but another local user's process forges it trivially, and the renderer's port
+# is visible to it — which is exactly the principal the token keeps out.
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+@pytest.mark.parametrize("request_method_header", [False, True], ids=["plain", "with-ACRM"])
+def test_the_renderer_origin_without_the_token_is_refused_on_every_non_preflight(backend, method,
+                                                                                request_method_header):
+    """Not OPTIONS, so not a preflight — even with the renderer's Origin and an ACRM header."""
+    headers = {"Origin": RENDERER_ORIGIN}
+    if request_method_header:
+        headers["Access-Control-Request-Method"] = method
+    with backend.client(token=None) as c:
+        response = c.request(method, "/api/health" if method == "GET" else "/api/routines",
+                             headers=headers, content=b"{not json" if method == "POST" else None)
+    assert _refusal(response) == (401, "token_missing")
+    assert "access-control-allow-origin" not in response.headers
+
+
+@pytest.mark.parametrize("path", ["/api/health", "/api/routines"])
+def test_an_options_request_without_an_origin_is_not_a_preflight(backend, path):
+    """OPTIONS + ACRM, no Origin, no token: refused — the carve-out requires the renderer's Origin."""
+    with backend.client(token=None) as c:
+        response = c.options(path, headers={"Access-Control-Request-Method": "GET"})
+    assert _refusal(response) == (401, "token_missing")
+
+
+@pytest.mark.parametrize("path", ["/api/health", "/api/routines"])
+def test_an_options_request_without_a_request_method_is_not_a_preflight(backend, path):
+    """OPTIONS from the renderer's Origin with no ACRM, no token: refused — the carve-out requires ACRM."""
+    with backend.client(token=None) as c:
+        response = c.options(path, headers={"Origin": RENDERER_ORIGIN})
+    assert _refusal(response) == (401, "token_missing")
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_the_real_preflight_is_still_answered_without_the_token(backend):
+    """The positive control for the three refusals above: all three conditions met → CORS answers."""
+    with backend.client(token=None) as c:
+        response = c.options("/api/health", headers={"Origin": RENDERER_ORIGIN,
+                                                     "Access-Control-Request-Method": "GET"})
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == RENDERER_ORIGIN
+
+
+# ---------------------------------------------------------------------------
 # The daemon's origin registration
 # ---------------------------------------------------------------------------
 
@@ -370,6 +423,30 @@ def test_a_renderer_origin_is_registered_only_by_a_token_holder_without_an_origi
     registered = _preflight(backend, late, True)
     assert registered.status_code == 200
     assert registered.headers["access-control-allow-origin"] == late
+
+
+def test_the_registered_origins_are_bounded_and_the_oldest_is_evicted(tmp_path):
+    """Eight further registrations evict the first origin; the eight newest are still trusted.
+
+    Its own backend, because this evicts the fixture's renderer origin.
+    """
+    first = "http://127.0.0.1:30000"
+    b = Backend(tmp_path / "state", env={"RESMON_RENDERER_ORIGIN": first})
+    try:
+        assert _preflight(b, first, False).status_code == 200
+        later = [f"http://127.0.0.1:{30001 + i}" for i in range(8)]
+        with b.client() as c:
+            for origin in later:
+                assert c.post("/api/auth/renderer-origin", json={"origin": origin}).status_code == 200
+        evicted = _preflight(b, first, False)
+        assert evicted.status_code == 403
+        assert "access-control-allow-origin" not in evicted.headers
+        with b.client() as c:
+            assert _refusal(c.get("/api/routines", headers={"Origin": first})) == (403, "origin_refused")
+        for origin in later:
+            assert _preflight(b, origin, False).status_code == 200
+    finally:
+        b.stop()
 
 
 def test_the_library_guard_trusts_only_the_exact_renderer_origin(backend):
