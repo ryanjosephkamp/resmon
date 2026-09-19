@@ -246,6 +246,45 @@ def test_the_upgraded_schema_is_object_for_object_a_fresh_installs(walked, fresh
     print(f"P3 sqlite_master: {equal} of {len(fresh_objects)} objects equal")
 
 
+def test_nothing_v210_owned_was_dropped_on_the_way(walked):
+    """The absolute anchor. The test above is a comparison, and a comparison is
+    blind to anything that moves both sides.
+
+    An edit that deletes an index in a migration deletes it from a fresh install
+    too, and "upgraded equals fresh" stays green while every existing user loses
+    it. The schema-13 fixture is a committed file that no edit to `database.py`
+    can move, so this is the check that cannot be satisfied by breaking both.
+
+    Growth is allowed and expected -- five schemas' worth of new objects and new
+    CHECK values. Loss is not.
+    """
+    old = sqlite3.connect(":memory:")
+    try:
+        old.executescript(FIXTURE.read_text(encoding="utf-8"))
+        old_objects = {r[0] for r in old.execute(
+            "SELECT name FROM sqlite_master WHERE sql IS NOT NULL")} - SHADOW
+        old_checks = {(t, c): set(v) for t, c, v in _enumerated_checks(old)}
+    finally:
+        old.close()
+
+    now = {r[0] for r in walked["conn"].execute(
+        "SELECT name FROM sqlite_master WHERE sql IS NOT NULL")} - SHADOW
+    lost = sorted(old_objects - now)
+    assert not lost, f"the walk dropped objects v2.1.0 owned: {lost}"
+
+    new_checks = {(t, c): set(v) for t, c, v in _enumerated_checks(walked["conn"])}
+    for key, values in old_checks.items():
+        assert key in new_checks, (
+            f"{key[0]}.{key[1]} lost its CHECK entirely -- a table rebuild that "
+            "keeps every row and quietly stops constraining them")
+        assert values <= new_checks[key], (
+            f"{key[0]}.{key[1]} lost the values "
+            f"{sorted(values - new_checks[key])} from its CHECK")
+    print(f"P3 anchor: {len(old_objects)} of {len(old_objects)} schema-13 objects "
+          f"and {len(old_checks)} of {len(old_checks)} schema-13 enumerated CHECKs "
+          "still present")
+
+
 def test_every_table_has_the_fresh_installs_columns_keys_and_indexes(walked, fresh):
     """The per-table PRAGMAs, which `sqlite_master` SQL equality does not imply.
 
