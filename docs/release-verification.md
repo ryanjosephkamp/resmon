@@ -1,5 +1,56 @@
 # Published release verification
 
+## Before the release is cut — the cumulative upgrade gate
+
+This section is the only part of this document that runs *before* a tag exists.
+Everything below it observes a published installer; this observes what that
+installer will do to a database someone already has.
+
+A release that changes `SCHEMA_VERSION` upgrades every existing user in one
+launch. v2.2.0 is the first to move a real corpus five steps at once (13 → 18),
+and each of those five steps had a green test that started from the step before
+it — none from a database a *released* resmon wrote.
+
+**Gate:** `resmon_scripts/verification_scripts/test_cumulative_upgrade.py` is
+green. It replays `verification_scripts/fixtures/v2.1.0/corpus_schema_13.sql`,
+a corpus produced by tag v2.1.0's own code, and calls today's `init_db` once.
+It runs in the ordinary hermetic suite on every PR, so in practice this is a
+check that it was collected rather than a separate command:
+
+```sh
+.venv/bin/python -m pytest -q resmon_scripts/verification_scripts/test_cumulative_upgrade.py
+```
+
+One case in it — the one that regenerates the fixture from tag v2.1.0 and
+diffs — skips where the tag is not in the checkout, which includes CI's depth-1
+clone. Run it on a machine with the full history before the tag is cut, and
+record whether it ran or skipped:
+
+```sh
+git fetch --tags upstream
+.venv/bin/python -m pytest -q -rs \
+  resmon_scripts/verification_scripts/test_cumulative_upgrade.py \
+  -k the_committed_fixture_is_what
+```
+
+**The rule for every release after this one.** A release that ships a new
+`SCHEMA_VERSION` adds the fixture of the version *it* ships, generated the same
+way, so the next release walks from it:
+
+1. After the tag is published, run the generator against it —
+   `python resmon_scripts/verification_scripts/fixtures/<tag>/generate_corpus.py
+   --source-tree <a disposable worktree of the tag>` — seeding every table that
+   version has, at every value of every CHECK-constrained column it has.
+2. Commit the dump beside the generator, with the tag's commit hash in its
+   header.
+3. Point a cumulative test at it. The walk that matters is always *the last
+   released version to the one about to ship*, not the previous schema step to
+   this one; the per-step tests already cover the steps.
+
+Skipping step 1 for a release costs nothing that release and leaves the next
+one with no way to walk from a real database. That is how five untested steps
+accumulated.
+
 ## Procedure
 
 This procedure observes a published installer on the host that runs it. It does not
