@@ -144,8 +144,13 @@ test('Q4: the Search record tab activates under a real Playwright click', async 
     expect(response.url()).not.toContain(token);
     expect((await response.request().allHeaders()).authorization).toBe(`Bearer ${token}`);
     await expect.poll(() => fs.existsSync(destination) && fs.readFileSync(destination, 'utf8').length > 0).toBe(true);
-    // The page consumed the body, so Playwright cannot replay it; ask the backend again.
-    expect(fs.readFileSync(destination, 'utf8')).toBe(await (await e2eFetch(response.url())).text());
+    // The page consumed the body, so Playwright cannot replay it; ask the backend
+    // again. The record is generated per request and stamps the second it was
+    // generated, so that one line is compared by shape, everything else exactly.
+    const stamp = (text: string) => text.replace(/^Generated \S+ by /m, 'Generated <time> by ');
+    const saved = fs.readFileSync(destination, 'utf8');
+    expect(saved).toMatch(/^Generated \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ by /m);
+    expect(stamp(saved)).toBe(stamp(await (await e2eFetch(response.url())).text()));
     expect(fs.readFileSync(destination, 'utf8')).toContain('graph neural network');
     console.log('SEARCH_RECORD_DOWNLOAD', JSON.stringify({ execId, bytes: fs.statSync(destination).size,
       method: 'scripted will-download setSavePath; no native chooser observation' }));

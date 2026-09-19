@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "resmon_scripts"))
 import httpx
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # also run as a script by e2e specs
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
 from implementation_scripts import api_auth as _api_auth  # noqa: E402
 
 # 2.2: every request to a resmon backend carries its local API token. The
