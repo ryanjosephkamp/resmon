@@ -481,8 +481,8 @@ The full terms review behind both changes, covering every shipped source, is in 
 resmon is a hybrid Python + Electron application, so both runtimes must be available on the host machine before installation.
 
 - **Python 3.10, 3.11, or 3.12** — required by the FastAPI backend (`resmon_scripts/resmon.py`) and its dependencies. Verify with `python3 --version`. All three are covered by CI on every push.
-- **Node.js 18 or newer** — required to build the React renderer with Webpack and to run the Electron shell. Verify with `node --version`.
-- **npm 9 or newer** — bundled with recent Node.js releases; used to install frontend dependencies and invoke the build/start scripts. Verify with `npm --version`.
+- **Node.js 22.13 or newer** — required to build the React renderer with Webpack and to run the Electron shell; declared as `engines.node` in `resmon_scripts/frontend/package.json` and pinned for `nvm`/`fnm` in `.nvmrc`. Verify with `node --version`.
+- **npm 10 or newer** — bundled with Node.js 22.13 and later; used to install frontend dependencies and invoke the build/start scripts. Verify with `npm --version`.
 - **Git** — required to clone the repository.
 - **Platform** — macOS, Linux, or Windows. The packaged desktop app is built with `electron-builder` and the headless-daemon split supports launchd (macOS), `systemd --user` (Linux), and Task Scheduler (Windows).
 
@@ -716,10 +716,9 @@ Standard SSE headers are set (`Cache-Control: no-cache`, `Connection: keep-alive
 | **Backend** | cryptography 46, keyring 25.7 | OS-keyring credential storage, envelope encryption helpers |
 | **Backend** | google-api-python-client 2.194, google-auth-oauthlib 1.3 | Google Drive artifact backup (OAuth 2.0, `drive.file` scope) |
 | **Backend** | nltk 3.9, tiktoken 0.12 | Text normalization and token-aware chunking for summarization |
-| **Frontend** | Electron 41, Node.js 18+, npm 9+ | Desktop shell, main-process bridging |
+| **Frontend** | Electron 41, Node.js 22.13+, npm 10+ | Desktop shell, main-process bridging |
 | **Frontend** | React 19, React Router 7 (`HashRouter`), TypeScript 6 | Renderer SPA and routing |
 | **Frontend** | Webpack 5, ts-loader 9, css-loader 7, style-loader 4, html-webpack-plugin 5 | Build pipeline |
-| **Frontend** | Tailwind CSS 4 | Utility-first styling |
 | **Frontend** | FullCalendar 6 (`@fullcalendar/react`, `daygrid`, `timegrid`, `interaction`) | Calendar page rendering |
 | **Frontend** | `electron-builder` 26 | Packaged-app distribution |
 | **Database** | SQLite 3 (stdlib `sqlite3`), SQLAlchemy 2.0 | Local state, schema migrations, APScheduler job store |

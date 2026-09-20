@@ -94,8 +94,11 @@ The costs: **18.1 MiB** of `node_modules`, **zero** bytes in any installer, and
 | Playwright | **`@playwright/test@1.62.1`**, pinned exact |
 | CI | `ubuntu-latest`, Node 20, Python 3.11 |
 
-`@playwright/test@1.62.1` declares `"engines": {"node": ">=20"}`. CI runs Node
-20 — exactly at the floor, which is worth knowing before anyone lowers it.
+`@playwright/test@1.62.1` declares `"engines": {"node": ">=20"}`. CI ran Node
+20 when these numbers were taken — exactly at the floor, which is worth knowing
+before anyone lowers it. It no longer does: the trim PR moved all six
+`node-version` lines to 22 and `package.json` now declares
+`"engines": {"node": ">=22.13"}`. The table above is left as it was measured.
 
 ---
 
@@ -473,7 +476,8 @@ too, because the app under test spawns the real FastAPI backend; without that
 the window opens and every page reads *Backend: Offline*.
 
 **Yes — the app launches and every route is walked under xvfb**, on
-`ubuntu-24.04` (runner image `20260831.293`), Node 20.
+`ubuntu-24.04` (runner image `20260831.293`), Node 20 (as measured; CI runs Node 22 since
+the trim PR).
 
 | Run | What it shows | Result |
 |---|---|---|
