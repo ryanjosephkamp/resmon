@@ -60,7 +60,7 @@ jobs:
           python-version: '3.11'
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Snapshot source into scratch and record its commit
         working-directory: ${{ github.workspace }}
