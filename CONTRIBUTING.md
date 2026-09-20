@@ -43,7 +43,7 @@ should not be described as if it had been.
 All five must pass:
 
 ```bash
-.venv/bin/python -m pytest -q                    # hermetic backend suite — 2997 pass, 2 skip, 108 deselected (CI, Python 3.11)
+.venv/bin/python -m pytest -q                    # hermetic backend suite — 2995 pass, 4 skip, 108 deselected (CI, Python 3.11)
 .venv/bin/python -m pytest -m live_network -q    # real APIs; CI runs the half that needs no CLI, weekly
 cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
 npm run e2e                                      # 107 cases in 32 files, 29 routes; report actual pass/skip counts; assistant-readability.spec.ts includes the local model-double journey
