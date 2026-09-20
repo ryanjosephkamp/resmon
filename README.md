@@ -347,16 +347,17 @@ To register it with Claude Code:
 claude mcp add resmon -- python3 /full/path/to/resmon_scripts/mcp_server.py
 ```
 
-Twenty-one tools cover search (keyword and semantic), similar papers, sources, routines,
+Twenty-five tools cover search (keyword and semantic), similar papers, sources, routines,
 executions, match transparency, paper lifecycle, analytics, the watchdog and reference
-export, plus six that change something: `run_sweep`, `create_routine`, `run_routine`,
-`activate_routine`, `deactivate_routine` and `update_settings`.
+export, plus seven that change something: `run_sweep`, `create_routine`,
+`create_watch_profile`, `run_routine`, `activate_routine`, `deactivate_routine` and
+`update_settings`.
 `create_routine` takes an optional `intent` — the sentence the coverage audit compares
 against — and `get_routine` returns that audit's summary alongside the configuration.
 
 **Every tool says whether it needs a person.** `tools/list` carries
-`requires_confirmation` on all twenty-one — `true` on the six above, `false` on the
-fifteen reads — so a harness knows which calls to put in front of you before running
+`requires_confirmation` on all twenty-five — `true` on the seven above, `false` on the
+eighteen reads — so a harness knows which calls to put in front of you before running
 them, rather than inferring that an unmarked tool is safe.
 
 **Nothing destructive is exposed** — no delete, no erase, no factory reset, and no tool
@@ -380,6 +381,11 @@ resmon's state directory. Nothing needs configuring for the installed app. For a
 instance with its own state directory, set `RESMON_STATE_DIR` for the MCP server too; a named
 port whose token cannot be found is reported as unavailable, naming that instance. See
 [`docs/local-api-security.md`](docs/local-api-security.md).
+
+**If you run the MCP server from a separate checkout, update it in the same sitting as the
+app.** A pre-2.2 MCP server sends no `Authorization` header, and no route is exempt — not
+even `/api/health` — so every call it makes to a 2.2 backend is refused with
+`401 token_missing`.
 
 ### Running a routine on demand
 
@@ -669,7 +675,7 @@ resmon is a local-first desktop application composed of two cooperating processe
 
 The backend is a single FastAPI application constructed at module load in `resmon_scripts/resmon.py`. A shared `sqlite3.Connection` backs every request, the database path defaults to `resmon.db` at the project root, and the schema is owned by `implementation_scripts/database.py` with a version-tracked migration path on startup. Binding to `127.0.0.1` is not a boundary on its own — any web page in any browser on the machine can send requests to loopback — so since 2.2 the outermost ASGI layer (`LocalApiGuard`) refuses every request, on every route, that does not name a loopback `Host` on the backend's own port, come from the app's own renderer origin when it has an `Origin`, and carry the backend's per-instance token in `Authorization: Bearer`. CORS answers the renderer's exact origin and nothing else, and `Access-Control-Allow-Private-Network` is sent only on a preflight from that origin that asks for it. What this defends and what it does not: [`docs/local-api-security.md`](docs/local-api-security.md). All SQL is parameterized; all credentials flow through a single `credential_manager.py` module that owns OS-keyring access.
 
-The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), which orchestrates query → normalize → dedup → link → report → summarize → finalize for both manual and routine-fired runs. Per-source API clients (19 repositories) live under `implementation_scripts/api_*.py` and are registered through `api_registry.py`. Results are normalized by `normalizer.py`, deduplicated by DOI and by (title, first author), and rendered by `report_generator.py` into Markdown, with optional PDF and LaTeX exports through `report_exporter.py`.
+The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), which orchestrates query → normalize → dedup → link → report → summarize → finalize for both manual and routine-fired runs. Per-source API clients (27 repositories) live under `implementation_scripts/api_*.py` and are registered through `api_registry.py`. Results are normalized by `normalizer.py`, deduplicated by DOI and by (title, first author), and rendered by `report_generator.py` into Markdown, with optional PDF and LaTeX exports through `report_exporter.py`.
 
 ### Frontend — Electron + React
 
@@ -743,7 +749,7 @@ resmon/
 │   │   ├── analytics.py              # Corpus analytics queries (thin-corpus policy).
 │   │   ├── explorer.py               # Corpus-wide search, faceting, keyset pagination.
 │   │   ├── ai_models.py              # Provider model-catalog probing.
-│   │   ├── api_*.py                  # Per-repository API clients (19 active sources).
+│   │   ├── api_*.py                  # Per-repository API clients (27 active sources).
 │   │   ├── api_base.py               # Shared rate limiter + HTTP client base class.
 │   │   ├── api_registry.py           # Slug → client dispatch table.
 │   │   ├── citation_graph.py         # Citation and context graphing.
@@ -1479,7 +1485,7 @@ resmon is built on top of a broad ecosystem of open-access scholarly repositorie
 
 ### Open-Access Repository Providers
 
-The 19 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
+The 27 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible. Eighteen of them are credited by name below; the remaining nine are registered in the catalog and have not yet been written into this list:
 
 - **arXiv** — Cornell University / arXiv.org, for the Atom XML API and the decades-long commitment to open preprint distribution in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics.
 - **bioRxiv** and **medRxiv** — openRxiv, for the date-range JSON API serving the life- and health-sciences communities.

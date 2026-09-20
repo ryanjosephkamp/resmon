@@ -38,7 +38,7 @@ PORT_FILE = Path(
 
 # Application metadata
 APP_NAME = "resmon"
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 
 # API Client defaults
 DEFAULT_REQUEST_TIMEOUT = 30  # seconds
