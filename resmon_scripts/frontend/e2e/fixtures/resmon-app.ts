@@ -356,23 +356,25 @@ export { expect } from '@playwright/test';
  * True when a console message or a request belongs to resmon rather than to
  * something resmon embeds.
  *
- * resmon deliberately renders two origins it does not own: six
- * `youtube-nocookie.com` iframes on About resmon → Tutorials, and the GitHub
- * Pages blog in a `<webview>` on About resmon → Blog. Both emit their own
- * console output and both leave requests in flight when the user navigates
- * away, and neither is resmon failing:
+ * resmon renders **one** origin it does not own: the GitHub Pages blog in a
+ * `<webview>` on About resmon → Blog. It emits its own console output and
+ * leaves requests in flight when the user navigates away, and neither is
+ * resmon failing.
  *
- *   - "Permissions policy violation: compute-pressure is not allowed in this
- *     document", from inside YouTube's player bundle. Appeared on 1 of 5 runs,
- *     from a `player_embed_es6` build number that changes between runs.
- *   - `net::ERR_ABORTED` on 2–6 `youtube-nocookie.com` URLs per run, when the
- *     next route is entered before the embeds finish loading.
+ * There used to be a second. About resmon → Tutorials embedded seventeen
+ * `youtube-nocookie.com` iframes, and they contributed most of the noise this
+ * scoping exists for: a "Permissions policy violation: compute-pressure is not
+ * allowed in this document" from inside YouTube's player bundle on 1 of 5
+ * runs, and `net::ERR_ABORTED` on 2–6 embed URLs per run when the next route
+ * was entered before they finished loading. The embeds are gone — the tab
+ * links to the videos instead — and `third-party.spec.ts` P9a now asserts that
+ * the tab reaches no YouTube host at all.
  *
- * Asserting on those makes the suite red for reasons no change to this
- * repository can fix. Asserting only on resmon's own origins makes it a signal.
- * The cost is real and is recorded in the report under P2: **a broken YouTube
- * embed or a broken blog webview is now invisible to the smoke suite.** Third
- * party events are printed rather than dropped, so a person reading the log can
+ * Asserting on a third party's own output makes the suite red for reasons no
+ * change to this repository can fix. Asserting only on resmon's own origins
+ * makes it a signal. The cost is real and is recorded in the report under P2:
+ * **a broken blog webview is invisible to the smoke suite.** Third-party
+ * events are printed rather than dropped, so a person reading the log can
  * still see them.
  *
  * "resmon's own" is: the renderer's static server and the backend, both on
