@@ -704,6 +704,14 @@ def t_list_executions(args: dict) -> Any:
             "started": r.get("start_time"),
             "finished": r.get("end_time"),
             "result_count": r.get("result_count"),
+            # Schema 19. ``interrupted`` is a fifth status here, and an agent
+            # reading this list has to be able to tell it from ``failed``:
+            # nothing went wrong with the search, the process it was running
+            # inside went away. ``restarted_from`` is the link back to the run
+            # a restart came from, so a list of five rows does not read as five
+            # unrelated attempts.
+            "interrupted_reason": r.get("interrupted_reason"),
+            "restarted_from": r.get("restarted_from"),
         } for r in page],
         "count": len(page),
         "total": len(rows),
@@ -1266,7 +1274,7 @@ TOOLS: list[dict] = [
          "routine_id": {"type": "integer"}}}},
 
     {"name": "list_executions", "fn": t_list_executions,
-     "description": "Past and running executions, newest first.",
+     "description": "Past and running executions, newest first. status is one of running, completed, failed, cancelled, interrupted.",
      "schema": {"type": "object", "properties": {
          "routine_id": {"type": "integer"}, "status": {"type": "string"},
          "limit": {"type": "integer", "default": DEFAULT_LIMIT},
@@ -1353,7 +1361,7 @@ TOOLS: list[dict] = [
          "format": {"type": "string", "enum": ["bibtex", "ris", "csv", "json"]}}}},
 
     {"name": "run_sweep", "fn": t_run_sweep, "requires_confirmation": True,
-     "description": "Search sources now and store what comes back. Returns immediately.",
+     "description": "Search sources now and store what comes back. Returns immediately. Poll get_execution: a run whose backend was killed ends interrupted, not failed.",
      "schema": {"type": "object", "required": ["query", "sources"], "properties": {
          "query": {"type": "string"},
          "sources": {"type": "array", "items": {"type": "string"}},

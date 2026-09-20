@@ -3,9 +3,12 @@
 
 import json
 import logging
+import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
+from . import runtime_identity
 from .config import DEFAULT_DB_PATH
 
 # ---------------------------------------------------------------------------
@@ -13,6 +16,12 @@ from .config import DEFAULT_DB_PATH
 # ---------------------------------------------------------------------------
 
 logger = logging.getLogger(__name__)
+
+
+def utc_now_iso() -> str:
+    """Now, in UTC, in the ISO-8601 shape every timestamp column here uses."""
+    return datetime.now(timezone.utc).isoformat()
+
 
 _SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS documents (
@@ -623,7 +632,7 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # one membership row per saved paper, additive, with nothing backfilled --
 # resmon never observed which papers a user meant to read before the queue
 # existed, so an upgraded database starts empty and says so.
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -699,6 +708,9 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_library(conn)
     _migrate_evidence(conn)
     _migrate_selected_evidence(conn)
+    # Last, because it is the only step that replaces a table ``_SCHEMA_SQL``
+    # created: every earlier step must have finished with the old one.
+    _migrate_executions_interrupted(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
     # invisible to every other -- an in-memory database shared through
@@ -710,16 +722,23 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
         conn.close()
 
 
-def _migrate_executions_columns(conn: sqlite3.Connection) -> None:
-    """Add progress_events, current_stage, cancel_reason, saved_configuration_id columns if missing."""
-    cursor = conn.execute("PRAGMA table_info(executions)")
+def _add_executions_additive_columns(conn: sqlite3.Connection, table: str) -> None:
+    """Add the nullable columns later schemas bolted onto ``executions``.
+
+    Split out of ``_migrate_executions_columns`` so the schema-19 rebuild can
+    run the *same* statements in the *same* order against its replacement
+    table. Column order is part of a table's stored DDL, and the cumulative
+    upgrade test compares an upgraded database's DDL against a fresh install's
+    character for character.
+    """
+    cursor = conn.execute(f'PRAGMA table_info("{table}")')
     existing = {row[1] for row in cursor.fetchall()}
     if "progress_events" not in existing:
-        conn.execute("ALTER TABLE executions ADD COLUMN progress_events TEXT")
+        conn.execute(f'ALTER TABLE "{table}" ADD COLUMN progress_events TEXT')
     if "current_stage" not in existing:
-        conn.execute("ALTER TABLE executions ADD COLUMN current_stage TEXT")
+        conn.execute(f'ALTER TABLE "{table}" ADD COLUMN current_stage TEXT')
     if "cancel_reason" not in existing:
-        conn.execute("ALTER TABLE executions ADD COLUMN cancel_reason TEXT")
+        conn.execute(f'ALTER TABLE "{table}" ADD COLUMN cancel_reason TEXT')
     # Update 3 / 4_27_26: link each manual execution back to the saved
     # configuration it was launched from (ConfigLoader-initiated runs)
     # or saved as later (Save Config button on Calendar/Dashboard/
@@ -731,7 +750,7 @@ def _migrate_executions_columns(conn: sqlite3.Connection) -> None:
     # also a no-op when the column is NULL.
     if "saved_configuration_id" not in existing:
         conn.execute(
-            "ALTER TABLE executions ADD COLUMN saved_configuration_id INTEGER"
+            f'ALTER TABLE "{table}" ADD COLUMN saved_configuration_id INTEGER'
         )
     # 1.7 / reproducible search record. The deduplication figures a systematic
     # reviewer has to report were computed on every run and then thrown away
@@ -747,7 +766,12 @@ def _migrate_executions_columns(conn: sqlite3.Connection) -> None:
     for column in ("dedup_total", "dedup_new", "dedup_duplicates",
                    "dedup_invalid", "dedup_cross_source"):
         if column not in existing:
-            conn.execute(f"ALTER TABLE executions ADD COLUMN {column} INTEGER")
+            conn.execute(f'ALTER TABLE "{table}" ADD COLUMN {column} INTEGER')
+
+
+def _migrate_executions_columns(conn: sqlite3.Connection) -> None:
+    """Add the additive ``executions`` columns to the live table, if missing."""
+    _add_executions_additive_columns(conn, "executions")
     conn.commit()
 
 
@@ -1453,6 +1477,199 @@ def _migrate_selected_evidence(conn: sqlite3.Connection) -> None:
         raise
 
 
+# ---------------------------------------------------------------------------
+# Schema 19: an execution nobody watched die says so
+# ---------------------------------------------------------------------------
+#
+# The note at the top of this file explains why ``zero_reason`` was added as a
+# nullable column rather than as a fifth ``execution_sources.status`` value: a
+# CHECK constraint is not alterable in place and the rebuild was not worth it.
+# This is the case where it is worth it. ``executions.status`` had four values
+# and none of them is true of a run whose backend was SIGKILLed, force-quit, or
+# killed by Electron on the way out. It is not ``running`` -- nothing is running
+# -- and it is not ``failed``, because resmon never observed a failure; the
+# graceful shutdown path wrote ``failed`` for years and that was an overclaim.
+# ``evidence_answers.state`` has carried the honest word since schema 18 and it
+# is the same word here: **interrupted**.
+#
+# The four ownership columns are what makes the reconciliation on the next
+# start a fact rather than a guess. ``owner_pid`` / ``owner_runtime_id`` say
+# which process claimed the row; ``last_seen_at_utc`` says when that process was
+# last observed to be working on it; ``interrupted_reason`` says which of the
+# two ways resmon found out. ``restarted_from`` is the link a new run carries
+# back to the one it was started from -- the source row is never edited, so the
+# history stays exactly as it happened.
+#
+# The rebuild below is the twelve-step ALTER TABLE procedure, with the two
+# details that matter for this table specifically:
+#
+#   * ``PRAGMA foreign_keys`` is turned **off** around it. With it on, dropping
+#     the old ``executions`` runs an implicit ``DELETE FROM`` that fires
+#     ``execution_documents``' ``ON DELETE CASCADE`` and silently empties a
+#     user's entire result history. That is the failure this pragma is here to
+#     prevent and the reason the rebuild cannot live inside an open transaction.
+#   * The new table is built under a temporary name and *renamed* into place,
+#     never the other way round. Renaming the live ``executions`` rewrites the
+#     ``REFERENCES executions`` clause in every child table to point at the
+#     temporary name -- SQLite 3.41 does this whether ``foreign_keys`` and
+#     ``legacy_alter_table`` are on or off -- and the children would be left
+#     referencing a table that is about to be dropped.
+#
+# ``ALTER TABLE ... RENAME TO`` writes the new name back into `sqlite_master`
+# quoted, so ``_SCHEMA_SQL`` names this one table quoted too and both paths end
+# up with byte-identical DDL. `test_cumulative_upgrade.py` compares the upgraded
+# schema against a fresh install's object for object and would otherwise report
+# a difference that is only punctuation.
+
+_EXECUTIONS_V19_DDL = (
+    'CREATE TABLE "executions" (\n'
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+    "    execution_type TEXT NOT NULL CHECK(execution_type IN ('deep_dive', 'deep_sweep', 'automated_sweep')),\n"
+    "    routine_id INTEGER,\n"
+    "    saved_configuration_id INTEGER,\n"
+    "    parameters TEXT NOT NULL,\n"
+    "    start_time TEXT NOT NULL,\n"
+    "    end_time TEXT,\n"
+    "    status TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running', 'completed', 'failed', 'cancelled', 'interrupted')),\n"
+    "    result_count INTEGER DEFAULT 0,\n"
+    "    new_result_count INTEGER DEFAULT 0,\n"
+    "    log_path TEXT,\n"
+    "    result_path TEXT,\n"
+    "    error_message TEXT,\n"
+    "    progress_events TEXT,\n"
+    "    current_stage TEXT,\n"
+    "    owner_pid INTEGER,\n"
+    "    owner_runtime_id TEXT,\n"
+    "    last_seen_at_utc TEXT,\n"
+    "    interrupted_reason TEXT CHECK(interrupted_reason IS NULL OR interrupted_reason IN ('owner_dead', 'daemon_restart', 'unknown')),\n"
+    "    restarted_from INTEGER REFERENCES executions(id) ON DELETE SET NULL,\n"
+    "    FOREIGN KEY (routine_id) REFERENCES routines(id) ON DELETE SET NULL,\n"
+    "    FOREIGN KEY (saved_configuration_id) REFERENCES saved_configurations(id) ON DELETE SET NULL\n"
+    ")"
+)
+
+# The vocabulary ``interrupted_reason`` is allowed to hold, as the CHECK above
+# enumerates it. NULL is the fifth value and means the row was never
+# interrupted, not that the reason was lost.
+INTERRUPTED_REASONS = ("owner_dead", "daemon_restart", "unknown")
+
+
+def _executions_status_check_admits_interrupted(conn: sqlite3.Connection) -> bool:
+    """True when this database's ``executions`` table is already at schema 19."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='executions'"
+    ).fetchone()
+    return bool(row) and "'interrupted'" in (row[0] or "")
+
+
+def _migrate_executions_interrupted(conn: sqlite3.Connection) -> None:
+    """Rebuild ``executions`` with the widened status CHECK and the owner columns.
+
+    Runs on fresh databases too. ``_SCHEMA_SQL`` still creates the schema-18
+    table -- other tables' foreign keys need it to exist before this point --
+    and this replaces it on the first launch, on an empty table, at a cost of
+    nothing. One authoritative DDL string means the upgrade path and the fresh
+    path cannot drift apart, which two hand-synchronised copies eventually do.
+
+    Nothing about the *rows* changes. A row that was already ``failed`` with
+    ``cancel_reason='daemon_restart'`` -- what every graceful shutdown before
+    this schema wrote -- stays exactly that. Relabelling it now would be
+    inventing an observation after the fact, which is the same mistake in the
+    opposite direction.
+    """
+    if _executions_status_check_admits_interrupted(conn):
+        # Already at 19. Still advance the marker: a database can reach this
+        # shape and then have the marker rolled back by a failed later step.
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+            "WHERE CAST(app_settings.value AS INTEGER)<19",
+            (_SCHEMA_VERSION_KEY, "19"),
+        )
+        conn.commit()
+        return
+
+    # ``PRAGMA foreign_keys`` is a no-op inside a transaction, so the rebuild
+    # begins from a clean connection state.
+    conn.commit()
+    had_foreign_keys = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute("SAVEPOINT executions_v19")
+        try:
+            # The AUTOINCREMENT high-water mark is the one thing a copy cannot
+            # reproduce: inserting the rows back sets the sequence to the
+            # highest id present, which is lower than the recorded mark as soon
+            # as the user has deleted their most recent execution. Reusing an
+            # id would hand a deleted run's ``execution_documents`` to a new one.
+            seq_row = conn.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name='executions'"
+            ).fetchone()
+            previous_seq = int(seq_row[0]) if seq_row else None
+
+            # Authored indexes and triggers on this table, replayed after the
+            # rename. There are none today; a later one must not be silently
+            # dropped by a migration written before it existed.
+            carried = [
+                (row[0], row[1])
+                for row in conn.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE tbl_name='executions' "
+                    "AND type IN ('index','trigger') AND sql IS NOT NULL"
+                ).fetchall()
+            ]
+
+            conn.execute(
+                _EXECUTIONS_V19_DDL.replace('"executions"', "executions_v19_new", 1)
+            )
+            # The additive columns arrive on the new table by exactly the same
+            # ALTER statements, in exactly the same order, as on a fresh install,
+            # so the two tables' stored DDL matches to the character.
+            _add_executions_additive_columns(conn, "executions_v19_new")
+
+            old_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(executions)")
+            }
+            new_columns = [
+                row[1] for row in conn.execute("PRAGMA table_info(executions_v19_new)")
+            ]
+            carried_columns = [c for c in new_columns if c in old_columns]
+            column_list = ", ".join(f'"{c}"' for c in carried_columns)
+            conn.execute(
+                f"INSERT INTO executions_v19_new ({column_list}) "
+                f"SELECT {column_list} FROM executions"
+            )
+
+            conn.execute("DROP TABLE executions")
+            conn.execute("ALTER TABLE executions_v19_new RENAME TO executions")
+            for _name, sql in carried:
+                conn.execute(sql)
+            if previous_seq is not None:
+                # ``sqlite_sequence`` has no unique index, so this is a delete
+                # and an insert rather than an upsert. The recorded mark is
+                # never below the highest surviving id, so restoring it wholesale
+                # cannot lower the sequence.
+                conn.execute("DELETE FROM sqlite_sequence WHERE name='executions'")
+                conn.execute(
+                    "INSERT INTO sqlite_sequence(name, seq) VALUES ('executions', ?)",
+                    (previous_seq,),
+                )
+
+            conn.execute(
+                "INSERT INTO app_settings(key,value) VALUES (?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+                "WHERE CAST(app_settings.value AS INTEGER)<19",
+                (_SCHEMA_VERSION_KEY, "19"),
+            )
+            conn.execute("RELEASE executions_v19")
+        except BaseException:
+            conn.execute("ROLLBACK TO executions_v19")
+            conn.execute("RELEASE executions_v19")
+            raise
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys=" + ("ON" if had_foreign_keys else "OFF"))
+
+
 def get_schema_version(conn: sqlite3.Connection) -> int:
     """Return the current SQLite schema version (0 if never initialized)."""
     row = conn.execute(
@@ -1531,8 +1748,9 @@ def insert_execution(conn: sqlite3.Connection, exec_dict: dict) -> int:
     """
     sql = """\
         INSERT INTO executions
-            (execution_type, routine_id, saved_configuration_id, parameters, start_time, status)
-        VALUES (?, ?, ?, ?, ?, ?)
+            (execution_type, routine_id, saved_configuration_id, parameters, start_time, status,
+             owner_pid, owner_runtime_id, last_seen_at_utc, restarted_from)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     cursor = conn.execute(sql, (
         exec_dict["execution_type"],
@@ -1541,6 +1759,10 @@ def insert_execution(conn: sqlite3.Connection, exec_dict: dict) -> int:
         exec_dict["parameters"],
         exec_dict["start_time"],
         exec_dict.get("status", "running"),
+        exec_dict.get("owner_pid", os.getpid()),
+        exec_dict.get("owner_runtime_id") or runtime_identity.current_runtime_id(),
+        exec_dict.get("last_seen_at_utc") or utc_now_iso(),
+        exec_dict.get("restarted_from"),
     ))
     conn.commit()
     return cursor.lastrowid
@@ -1558,8 +1780,15 @@ def update_execution_status(
     result_path: str | None = None,
     error_message: str | None = None,
     cancel_reason: str | None = None,
+    interrupted_reason: str | None = None,
 ) -> None:
-    """Update execution fields (status and optional kwargs)."""
+    """Update execution fields (status and optional kwargs).
+
+    ``interrupted_reason`` (schema 19) is written only alongside
+    ``status='interrupted'`` and says how resmon found out: ``daemon_restart``
+    when it watched itself stop, ``owner_dead`` when a later start found the
+    owning process gone, ``unknown`` when neither is establishable.
+    """
     fields = ["status = ?"]
     params: list = [status]
 
@@ -1571,6 +1800,7 @@ def update_execution_status(
         "result_path": result_path,
         "error_message": error_message,
         "cancel_reason": cancel_reason,
+        "interrupted_reason": interrupted_reason,
     }
     for col, val in optional.items():
         if val is not None:
@@ -2206,9 +2436,43 @@ def get_progress_events(conn: sqlite3.Connection, exec_id: int) -> list[dict]:
 
 
 def update_current_stage(conn: sqlite3.Connection, exec_id: int, stage: str) -> None:
-    """Update the current_stage column for a running execution."""
+    """Update the current_stage column for a running execution.
+
+    Also stamps ``last_seen_at_utc`` (schema 19). Every stage boundary the
+    engine crosses is already a write to this row, so the liveness fact rides
+    along for free and a run that dies mid-stage still carries the last moment
+    resmon can honestly say it was working. The periodic heartbeat in
+    ``resmon._launch_execution`` covers the inside of a long stage.
+    """
     conn.execute(
-        "UPDATE executions SET current_stage = ? WHERE id = ?",
-        (stage, exec_id),
+        "UPDATE executions SET current_stage = ?, last_seen_at_utc = ? WHERE id = ?",
+        (stage, utc_now_iso(), exec_id),
     )
     conn.commit()
+
+
+def touch_execution_heartbeat(conn: sqlite3.Connection, exec_id: int) -> bool:
+    """Stamp ``last_seen_at_utc`` on a row that is still ``running``.
+
+    Returns False when the row is no longer running, which is how the heartbeat
+    thread learns it has nothing left to do. Scoped to ``status='running'`` so a
+    late heartbeat can never touch a row another process has already
+    reconciled.
+    """
+    cursor = conn.execute(
+        "UPDATE executions SET last_seen_at_utc = ? WHERE id = ? AND status = 'running'",
+        (utc_now_iso(), exec_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def get_executions_restarted_from(conn: sqlite3.Connection, exec_id: int) -> list[int]:
+    """The ids of the executions started from this one, oldest first."""
+    return [
+        int(row[0])
+        for row in conn.execute(
+            "SELECT id FROM executions WHERE restarted_from = ? ORDER BY id",
+            (exec_id,),
+        ).fetchall()
+    ]

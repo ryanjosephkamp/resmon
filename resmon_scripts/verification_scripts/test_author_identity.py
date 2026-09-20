@@ -295,8 +295,8 @@ def test_schema_13_is_the_version_and_its_columns_exist(conn):
     # 16 since Library; 13's columns are still what this file is
     # about, and they are asserted directly below rather than through the
     # version number.
-    assert database.SCHEMA_VERSION == 18
-    assert database.get_schema_version(conn) == 18
+    assert database.SCHEMA_VERSION == 19
+    assert database.get_schema_version(conn) == 19
     columns = {row[1] for row in conn.execute("PRAGMA table_info(document_authors)")}
     assert {"orcid", "affiliation", "source_author_id"} <= columns
 

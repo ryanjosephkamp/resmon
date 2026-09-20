@@ -375,6 +375,8 @@ export const sections: TutorialSection[] = [
     instructions: [
       'The `Search record` tab on any execution builds the complete, dated account of that search — exact terms, publication window, per-database record counts, deduplication figures, date and software version — in the shape a PRISMA flow diagram needs. `Download as Markdown` saves it for a methods section.',
       'Browse executions in reverse-chronological order; filter by Type and Status.',
+      'A run whose backend stopped before it finished shows as `interrupted`, with the reason resmon can establish \u2014 the process running it stopped, or resmon was shut down \u2014 and the last moment it saw the run working. It is not `failed`: nothing went wrong with the search, the process it was running inside went away.',
+      'Click `Restart` on an interrupted, failed or cancelled row to start a fresh run with the same search terms, databases and date window, linked to the one it came from, and follow it on the Monitor page. The original row is never changed.',
       'The coverage panel uses saved selected sources when established, otherwise recorded sources with the full selection unknown. Missing outcomes stay unknown. Genuine empty answers are included in answered; unreadable replies are recorded non-answers. Use View source details for the evidence.',
       'Explicit report ZIP exports add search-record.json and search-record.md companions per execution, generated from saved facts now. Original report/log bytes and existing PDF behavior are unchanged; routine mail bundles keep their existing behavior.',
       'Click a row to open the viewer and switch between the Report, Log, Metadata, Progress, Search record, and Papers tabs.',
@@ -391,6 +393,9 @@ export const sections: TutorialSection[] = [
       'resmon flags cross-source duplicates and keeps both copies rather than deleting either, so the record reports duplicates *found*, never duplicates *removed*. Saying otherwise would describe an operation that never happened.',
       '`Already held from an earlier run` has no PRISMA box. It is a consequence of monitoring the literature over time rather than running a single search, and the record says so instead of filing it under a heading it does not belong in.',
       'A figure that was never measured shows as `not recorded`, never as 0 — a reviewer reads 0 as a measurement.',
+      'Restart is not resume. Progress is written to the database once, at the end of a run, so an interrupted run has nothing left to carry forward and the restart searches again from the beginning.',
+      'A restart reproduces whether AI summarisation was on, not the provider, model or key that ran it \u2014 those were never stored on the run.',
+      'Runs started before resmon 2.3 carry no record of which process owned them. One still marked `running` is only adopted as interrupted once it is more than a day old \u2014 a judgement, not a measurement: resmon puts no ceiling on how long a sweep may take, so there was no shorter number to borrow.',
       'The record covers one execution. A review that searched on several dates needs the record from each.',
       'A source that was unreachable is recorded as a completed run with zero results, because every source client degrades rather than failing the sweep. The record no longer counts it among the sources that answered — a strategy listing it as searched would overstate its coverage.',
       'resmon records no screening decisions. Nothing in the record should be presented as an include/exclude outcome.',

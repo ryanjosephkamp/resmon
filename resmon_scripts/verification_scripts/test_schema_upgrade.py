@@ -135,15 +135,33 @@ def choices_legacy(path):
     return c
 
 
-def choices_rows(c):
+# Schema 19 rebuilt ``executions`` with a wider ``status`` CHECK and five new
+# nullable columns, so its DDL and the width of its row tuples both change on
+# an upgrade. That is growth, which this file allows; what it does not allow is
+# a value being rewritten or a row disappearing, and the projections below keep
+# that claim exact by re-reading the table through the columns it had before.
+
+
+def choices_rows(c, widths=None):
     tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")
               if not r[0].startswith(('sqlite_', 'documents_fts', 'assistant_session_choices', 'assistant_turn_choices'))
               and r[0] not in ('library_vault', 'library_files', 'library_file_documents',
                                   'evidence_projects', 'evidence_project_files', 'evidence_notes', 'evidence_answers')]
     result = {}
     for name in tables:
-        result[name] = sorted([tuple(r) for r in c.execute('SELECT * FROM "' + name + '"')], key=repr)
+        columns = [r[1] for r in c.execute('PRAGMA table_info("' + name + '")')]
+        if widths and name in widths:
+            columns = [col for col in columns if col in widths[name]]
+        order = ', '.join('"' + col + '"' for col in columns)
+        result[name] = sorted([tuple(r) for r in c.execute(
+            'SELECT ' + order + ' FROM "' + name + '"')], key=repr)
     return result
+
+
+def choices_widths(c):
+    """Each table's column names, so a later step's new column is not a rewrite."""
+    return {r[0]: [x[1] for x in c.execute('PRAGMA table_info("' + r[0] + '")')]
+            for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
 
 def choices_objects(c):
@@ -154,18 +172,27 @@ def test_choices_upgrade_preserves_every_baseline_row_and_fts(tmp_path):
     from implementation_scripts import database
     c = choices_legacy(tmp_path / 'legacy.db')
     before = choices_rows(c)
+    widths = choices_widths(c)
     old_objects = choices_objects(c)
     fts = [tuple(r) for r in c.execute("SELECT rowid FROM documents_fts WHERE documents_fts MATCH 'diffusion'")]
     assert fts == [(1,)]  # Exercise the populated index, not two empty answers.
     assert len(before) == 22 and all(before.values())
     database.init_db(conn=c)
-    assert database.get_schema_version(c) == 18
-    after = choices_rows(c)
+    assert database.get_schema_version(c) == 19
+    after = choices_rows(c, widths)
     after['app_settings'] = [(k, '14' if k == 'schema_version' else v) for k, v in after['app_settings']]
     assert after == before
     assert [tuple(r) for r in c.execute("SELECT rowid FROM documents_fts WHERE documents_fts MATCH 'diffusion'")] == fts
     assert set(choices_objects(c)) - set(old_objects) == set(database._ASSISTANT_CHOICES_DDL) | set(database._LIBRARY_DDL) | set(database._EVIDENCE_DDL) | {"evidence_answers", "idx_evidence_answers_project_order"}
     for name, ddl in old_objects.items():
+        if name == 'executions':
+            # The one object schema 19 rebuilds on purpose. Asserted on rather
+            # than skipped: it must gain exactly the widened status vocabulary
+            # and keep every column it had.
+            rebuilt = choices_objects(c)[name]
+            assert "'interrupted'" in rebuilt
+            assert set(widths[name]) <= {x[1] for x in c.execute('PRAGMA table_info("executions")')}
+            continue
         assert choices_objects(c)[name] == ddl
     for name in ('assistant_session_choices', 'assistant_turn_choices'):
         assert c.execute('SELECT COUNT(*) FROM ' + name).fetchone()[0] == 0
@@ -177,7 +204,7 @@ def test_choices_upgrade_preserves_every_baseline_row_and_fts(tmp_path):
     c.close()
     c = sqlite3.connect(tmp_path / 'legacy.db')
     database.init_db(conn=c)
-    assert database.get_schema_version(c) == 18
+    assert database.get_schema_version(c) == 19
     assert c.execute('SELECT COUNT(*) FROM assistant_session_choices').fetchone()[0] == 0
     c.close(); fresh.close()
 
@@ -227,5 +254,5 @@ def test_choices_actual_sql_authorizer_failure_rolls_back(tmp_path, stage):
     assert choices_objects(c) == before
     assert choices_rows(c) == rows
     database.init_db(conn=c)
-    assert database.get_schema_version(c) == 18
+    assert database.get_schema_version(c) == 19
     c.close()

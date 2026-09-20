@@ -32,6 +32,10 @@ interface Execution {
   new_results?: number;
   coverage?: SourceCoverage;
   source_outcomes?: SourceOutcomes | null;
+  /** Schema 19. Only ever set on an ``interrupted`` row. */
+  interrupted_reason?: string | null;
+  /** Schema 19. The last moment resmon saw the run being worked on. */
+  last_seen_at_utc?: string | null;
 }
 
 interface Props {
@@ -46,6 +50,10 @@ interface Props {
   statusFilter: string;
   onTypeFilterChange: (v: string) => void;
   onStatusFilterChange: (v: string) => void;
+  /** Start a fresh run from a stopped one. Absent means the button is not offered. */
+  onRestart?: (exec: Execution) => void;
+  /** The execution a restart is in flight for, so the button cannot be double-clicked. */
+  restarting?: number | null;
 }
 
 // Map execution_type → badge CSS class. Each type gets a distinct palette
@@ -69,8 +77,35 @@ const statusBadgeClass = (s: string): string => {
   if (s === 'completed') return 'badge-success';
   if (s === 'failed') return 'badge-error';
   if (s === 'cancelled') return 'badge-cancelled';
+  // ``interrupted`` deliberately shares the cancelled palette rather than the
+  // error one. Nothing failed: the process the run was inside went away.
+  if (s === 'interrupted') return 'badge-cancelled';
   return 'badge-info';
 };
+
+// Schema 19. The three words the backend is allowed to write, and what each
+// one means to someone reading a row. NULL is not in the map: a row can be
+// interrupted without a recorded reason and that reads as "reason not
+// recorded", never as a guess.
+const INTERRUPTED_REASON_TEXT: Record<string, string> = {
+  owner_dead: 'the process running it stopped',
+  daemon_restart: 'resmon was shut down',
+  unknown: 'reason not recorded',
+};
+
+const interruptedNote = (e: Execution): string | null => {
+  if (e.status !== 'interrupted') return null;
+  const why = INTERRUPTED_REASON_TEXT[e.interrupted_reason || ''] || 'reason not recorded';
+  const seen = e.last_seen_at_utc
+    ? `; last seen working ${e.last_seen_at_utc.slice(0, 16).replace('T', ' ')} UTC`
+    : '';
+  return `Interrupted — ${why}${seen}.`;
+};
+
+// The three states a run can be started again from. Mirrors
+// ``resmon._RESTARTABLE_STATES``; the backend refuses anything else with 409,
+// so this only decides whether the button is worth offering.
+const RESTARTABLE = ['interrupted', 'failed', 'cancelled'];
 
 // Parse a flat query string into keywords, respecting double/single quotes
 // so "machine learning" robotics → ['machine learning', 'robotics']. This is
@@ -174,6 +209,8 @@ const ResultsList: React.FC<Props> = ({
   statusFilter,
   onTypeFilterChange,
   onStatusFilterChange,
+  onRestart,
+  restarting,
 }) => {
   const filtered = executions.filter((e) => {
     if (typeFilter && e.execution_type !== typeFilter) return false;
@@ -199,6 +236,7 @@ const ResultsList: React.FC<Props> = ({
           <option value="failed">Failed</option>
           <option value="running">Running</option>
           <option value="cancelled">Cancelled</option>
+          <option value="interrupted">Interrupted</option>
         </select>
       </div>
       <table className="simple-table">
@@ -213,11 +251,12 @@ const ResultsList: React.FC<Props> = ({
             <th>Status</th>
             <th>Results</th>
             <th>New</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           {filtered.length === 0 && (
-            <tr><td colSpan={9} className="text-muted text-center">No executions found.</td></tr>
+            <tr><td colSpan={10} className="text-muted text-center">No executions found.</td></tr>
           )}
           {filtered.map((e) => (
               <tr
@@ -237,12 +276,29 @@ const ResultsList: React.FC<Props> = ({
                   <span className={`badge ${statusBadgeClass(e.status)}`}>
                     {e.status}
                   </span>
+                  {interruptedNote(e) && (
+                    <div className="text-muted small" data-testid={`interrupted-note-${e.id}`}>
+                      {interruptedNote(e)}
+                    </div>
+                  )}
                 </td>
                 <td>
                   {e.total_results ?? '—'}
                   <CoverageNote exec={e} onOpen={onOpenSearchRecord} />
                 </td>
                 <td>{e.new_results ?? '—'}</td>
+                <td onClick={(ev) => ev.stopPropagation()}>
+                  {onRestart && RESTARTABLE.includes(e.status) && (
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={restarting === e.id}
+                      onClick={() => onRestart(e)}
+                    >
+                      {restarting === e.id ? 'Restarting…' : 'Restart'}
+                    </button>
+                  )}
+                </td>
               </tr>
           ))}
         </tbody>

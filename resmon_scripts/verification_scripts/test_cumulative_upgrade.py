@@ -2,10 +2,10 @@
 
 Every schema step since 13 has its own upgrade test, and each one starts from a
 fixture of the step immediately before it -- 13 -> 14, 14 -> 15, 15 -> 16,
-16 -> 17, 17 -> 18. Five green tests, and none of them is the journey a user
-takes. A user who has been on v2.1.0 since it shipped launches v2.2.0 once and
-their database crosses **all five** steps in one `init_db` call, with the rows
-v2.1.0 wrote still in it.
+16 -> 17, 17 -> 18, 18 -> 19. Six green tests, and none of them is the journey a
+user takes. A user who has been on v2.1.0 since it shipped launches the next
+release once and their database crosses **all six** steps in one `init_db`
+call, with the rows v2.1.0 wrote still in it.
 
 That is what this file tests, and the fixture it starts from is not hand-written:
 `fixtures/v2.1.0/corpus_schema_13.sql` was produced by checking out tag v2.1.0
@@ -30,9 +30,11 @@ What each test establishes is written on it. The short version:
     `test_cumulative_upgrade_boundary`-style style below)
   * every released fixture is byte-identical to what that release's own code
     produces, regenerated out of process against a worktree of its tag (P1)
-  * and the fixture of the release that ships *today's* schema is walked too:
-    v2.2.0 wrote schema 18 and nothing migrates past it yet, so that walk is
-    18 -> 18 and must change nothing at all (P9).
+  * and the newest released fixture is walked too. While the schema it was
+    written at is still the one this code ships, that walk must change nothing
+    at all; once a step has been added past it -- as schema 19 is now -- the
+    walk is the single step a user of the newest release will take, and every
+    row of it has to come out the other side (P9).
 
 `RELEASED` near the bottom is the list both of those last two are parametrised
 over. A release that ships a schema adds one row to it and one directory under
@@ -93,14 +95,14 @@ class _WithToken:
 
 _API = _WithToken()
 
-from implementation_scripts import database  # noqa: E402
+from implementation_scripts import config, database  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures/v2.1.0/corpus_schema_13.sql"
 GENERATOR = Path(__file__).parent / "fixtures/v2.1.0/generate_corpus.py"
 
 # The version the fixture was written at, and the version it must reach.
 FIXTURE_SCHEMA_VERSION = 13
-TARGET_SCHEMA_VERSION = 18
+TARGET_SCHEMA_VERSION = 19
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +239,7 @@ def _objects(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def test_one_init_db_takes_a_v210_database_from_13_to_18(walked):
+def test_one_init_db_takes_a_v210_database_from_13_to_19(walked):
     """The upgrade a user's first v2.2.0 launch performs, in one call, on a file."""
     conn = walked["conn"]
     assert database.get_schema_version(conn) == TARGET_SCHEMA_VERSION
@@ -966,68 +968,128 @@ def test_the_fixture_holds_every_object_the_release_owns_and_no_shadow_table(rel
 
 
 # ---------------------------------------------------------------------------
-# P9 -- the fixture of the release that shipped this schema is walked too,
-#       and today that walk has to change nothing at all
+# P9 -- the newest released fixture is walked by today's code
 # ---------------------------------------------------------------------------
+
+
+NEWEST = max(RELEASED, key=lambda r: r.schema_version)
 
 
 def test_the_release_that_shipped_this_schema_left_a_fixture():
     """A schema bump owes a fixture, and this is where the debt is called in.
 
-    Fails rather than skips: an empty `CURRENT` would otherwise turn the no-op
-    walk below into zero parametrised cases and a green run.
+    The debt falls due at the *release*, not at the bump: a branch that adds a
+    migration cannot commit a fixture of a version nobody has shipped. So while
+    `SCHEMA_VERSION` is ahead of every released fixture, this checks that the
+    schema is genuinely unreleased -- `config.APP_VERSION` is still the newest
+    released tag -- and says so. The release that ships it bumps `config.py`
+    (and `package.json`) and this fails on that commit, which is exactly the
+    moment the fixture is owed.
+
+    Never skips. An empty `CURRENT` with a bumped `APP_VERSION` is a release
+    that shipped a schema and left no evidence of what it wrote.
     """
-    assert CURRENT, (
-        f"SCHEMA_VERSION is {database.SCHEMA_VERSION} and no entry in RELEASED "
-        "was written at it. The release that ships a schema commits a fixture "
-        "of it -- see docs/release-verification.md.")
-    assert len(CURRENT) == 1, f"two releases claim schema {database.SCHEMA_VERSION}"
+    assert len(CURRENT) <= 1, f"two releases claim schema {database.SCHEMA_VERSION}"
+    if CURRENT:
+        return
+    assert database.SCHEMA_VERSION > NEWEST.schema_version, (
+        f"SCHEMA_VERSION is {database.SCHEMA_VERSION}, below the {NEWEST.schema_version} "
+        f"{NEWEST.tag} shipped. Schemas only move forward.")
+    assert config.APP_VERSION == NEWEST.tag.lstrip("v"), (
+        f"APP_VERSION is {config.APP_VERSION} and SCHEMA_VERSION is "
+        f"{database.SCHEMA_VERSION}, which no entry in RELEASED was written at. "
+        "A release that ships a schema commits a fixture of it -- see "
+        "docs/release-verification.md.")
 
 
-@pytest.mark.parametrize("release", CURRENT, ids=[r.tag for r in CURRENT])
-def test_one_init_db_over_the_current_releases_fixture_changes_nothing(
+@pytest.mark.parametrize("release", [NEWEST], ids=[NEWEST.tag])
+def test_one_init_db_over_the_newest_releases_fixture_keeps_every_row(
         release, tmp_path_factory):
-    """The walk a user of the newest release takes today: 18 -> 18, a no-op.
+    """The walk a user of the newest release takes today.
 
-    `test_a_second_and_third_launch_change_nothing` already says a second
-    launch changes nothing about a database *this* code upgraded. This says it
-    about a database a *released* build wrote, which is the only version of the
-    claim a user is in -- and it is the case that will fail first when the next
-    migration lands, which is what makes it the right guard to leave here:
-    once schema 19 exists, `CURRENT` moves to the release that ships it.
+    While the newest released fixture is at the schema this code still ships,
+    that walk is a no-op and the whole fingerprint has to come back identical.
+    Once a step has been added past it -- 18 -> 19 today -- the fingerprint
+    legitimately changes, because `executions` is rebuilt with a wider `status`
+    CHECK and five new columns, and the schema marker moves. What must not
+    change is the data: every row of every application table the release wrote,
+    column for column, and every AUTOINCREMENT high-water mark.
+
+    That second half is the assertion that matters for a table rebuild. A
+    rebuild is the one migration shape that can lose a column's values, drop a
+    row, or reset a sequence while leaving a row count perfectly intact.
 
     File-backed, and reopened afterwards, because reopening is what a launch
-    does. The comparison is `_fingerprint`, which covers every authored object,
-    every row of every application table and the AUTOINCREMENT high-water
-    marks -- a reset sequence is invisible in a row count.
+    does.
     """
-    path = tmp_path_factory.mktemp(f"noop-{release.tag}") / "corpus.db"
+    path = tmp_path_factory.mktemp(f"newest-{release.tag}") / "corpus.db"
     conn = _open(path)
     conn.executescript(release.corpus.read_text(encoding="utf-8"))
     conn.commit()
     assert database.get_schema_version(conn) == release.schema_version
-    before = _fingerprint(conn)
+    before_print = _fingerprint(conn)
+    before = _snapshot(conn)
+    before_objects = _objects(conn)
     tables = len(_app_tables(conn))
-    rows = sum(conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
-               for t in _app_tables(conn))
+    rows = sum(len(before["rows"][t]) for t in before["tables"])
     conn.close()
 
     database.init_db(str(path))            # the launch
 
     conn = _open(path)
     try:
-        assert database.get_schema_version(conn) == release.schema_version, (
-            "today's code moved the schema marker on a fixture written at the "
-            "version it still ships")
-        assert _fingerprint(conn) == before, (
-            f"one init_db changed the {release.tag} fixture: same objects, same "
-            "rows and the same sequences were expected")
-        # A fingerprint of nothing is equal to a fingerprint of nothing, so the
-        # denominator is stated rather than assumed.
+        assert database.get_schema_version(conn) == database.SCHEMA_VERSION
         assert tables >= 30 and rows >= 150, (
             f"{tables} tables and {rows} rows were compared -- too few for this "
             "assertion to mean anything")
-        print(f"P9 {release.tag}: {rows} rows across {tables} application tables "
-              "unchanged by one init_db")
+
+        if release.schema_version == database.SCHEMA_VERSION:
+            assert _fingerprint(conn) == before_print, (
+                f"one init_db changed the {release.tag} fixture: same objects, "
+                "same rows and the same sequences were expected")
+            print(f"P9 {release.tag}: {rows} rows across {tables} application "
+                  "tables unchanged by one init_db")
+            return
+
+        after = _snapshot(conn)
+        assert after["tables"] == before["tables"] or set(before["tables"]) <= set(
+            after["tables"]), "the walk dropped an application table"
+        compared = 0
+        marker_moved: list = []
+        for table in before["tables"]:
+            old_rows, new_rows = before["rows"][table], after["rows"][table]
+            assert len(old_rows) == len(new_rows), (
+                f"{table}: {len(old_rows)} rows before, {len(new_rows)} after")
+            for old, new in zip(old_rows, new_rows):
+                for column, value in old.items():
+                    # The one rewrite the walk is for: the marker advances from
+                    # the version this fixture was written at to the version
+                    # today's code ships. Spelled out here rather than reusing
+                    # `_INTENDED`, whose predicate is pinned to the schema-13
+                    # fixture the walk above starts from.
+                    if (table == "app_settings" and column == "value"
+                            and old["key"] == "schema_version"
+                            and value == str(release.schema_version)
+                            and new["value"] == str(database.SCHEMA_VERSION)):
+                        marker_moved.append(new["value"])
+                        continue
+                    assert new[column] == value, (
+                        f"{table}.{column} changed: {value!r} -> {new[column]!r}")
+                compared += 1
+        assert compared == rows
+        assert marker_moved == [str(database.SCHEMA_VERSION)], (
+            "the schema marker did not advance exactly once; the walk is the "
+            "whole point of this case")
+        for name, seq in before["sequences"].items():
+            assert after["sequences"].get(name) == seq, (
+                f"the AUTOINCREMENT high-water mark for {name} moved: "
+                f"{seq} -> {after['sequences'].get(name)}")
+        lost = sorted(set(before_objects) - set(_objects(conn)))
+        assert not lost, f"the walk dropped objects {release.tag} owned: {lost}"
+        print(f"P9 {release.tag}: {compared} of {rows} rows across {tables} "
+              f"application tables survived the walk to schema "
+              f"{database.SCHEMA_VERSION}, with "
+              f"{len(before['sequences'])} of {len(before['sequences'])} "
+              "sequences held")
     finally:
         conn.close()

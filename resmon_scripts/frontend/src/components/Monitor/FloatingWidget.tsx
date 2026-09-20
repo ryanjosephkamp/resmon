@@ -40,6 +40,7 @@ function statusLabel(status: string): string {
   if (status === 'completed') return 'Completed';
   if (status === 'failed') return 'Failed';
   if (status === 'cancelled') return 'Cancelled';
+  if (status === 'interrupted') return 'Interrupted';
   if (status === 'cancelling') return 'Stopping…';
   return 'Running';
 }
@@ -97,7 +98,10 @@ const FloatingWidget: React.FC = () => {
   const isCancelling = exec.status === 'cancelling';
   const isActive = isRunning || isCancelling;
   const isSuccess = exec.status === 'completed';
-  const isFailure = exec.status === 'failed' || exec.status === 'cancelled';
+  // ``interrupted`` groups with the ended-without-results states for layout.
+  // The word itself is what carries the distinction, not the colour.
+  const isFailure = exec.status === 'failed' || exec.status === 'cancelled'
+    || exec.status === 'interrupted';
 
   const pulseClass = isWidgetPulsing
     ? (isSuccess ? ' floating-widget--pulse-success' :

@@ -17,9 +17,28 @@ def old_database(path):
     return c
 
 
-def contents(c):
+# Schema 19 rebuilt ``executions`` with a wider ``status`` CHECK and five new
+# nullable columns, so its DDL and the width of its row tuples both change on
+# an upgrade. That is growth, which this file allows; what it does not allow is
+# a value being rewritten or a row disappearing, and the projections below keep
+# that claim exact by re-reading the table through the columns it had before.
+
+
+def contents(c, widths=None):
     tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'library_%' AND name NOT IN ('evidence_projects','evidence_project_files','evidence_notes','evidence_answers')")]
-    return {t: sorted([tuple(r) for r in c.execute(f'SELECT * FROM "{t}"')], key=repr) for t in tables}
+    out = {}
+    for t in tables:
+        columns = [r[1] for r in c.execute(f'PRAGMA table_info("{t}")')]
+        if widths and t in widths:
+            columns = [col for col in columns if col in widths[t]]
+        order = ', '.join(f'"{col}"' for col in columns)
+        out[t] = sorted([tuple(r) for r in c.execute(f'SELECT {order} FROM "{t}"')], key=repr)
+    return out
+
+
+def column_names(c):
+    return {r[0]: [x[1] for x in c.execute(f'PRAGMA table_info("{r[0]}")')]
+            for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
 
 def objects(c):
@@ -29,9 +48,10 @@ def objects(c):
 
 def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tmp_path):
     path = tmp_path / 'old.db'; c = old_database(path); before = contents(c)
+    widths = column_names(c)
     db.init_db(conn=c)
-    assert db.get_schema_version(c) == 18
-    after = contents(c)
+    assert db.get_schema_version(c) == 19
+    after = contents(c, widths)
     after['app_settings'] = [(k, '15' if k == 'schema_version' else v) for k, v in after['app_settings']]
     assert after == before
     ddl = objects(c)
@@ -43,7 +63,7 @@ def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tm
     c.close(); db.init_db(path); db.init_db(path)
     with db.get_connection(path) as reopened:
         assert objects(reopened) == ddl
-        assert db.get_schema_version(reopened) == 18
+        assert db.get_schema_version(reopened) == 19
     assert not list(tmp_path.glob('resmon-library-*'))
     fresh = db.get_connection(tmp_path / 'fresh.db'); db.init_db(conn=fresh)
     assert objects(fresh) == ddl

@@ -56,6 +56,26 @@ POPULATED_TABLES = (
 )
 
 
+
+
+# Schema 19 rebuilt `executions` with a wider `status` CHECK and five new
+# nullable columns. A positional row tuple therefore grows by five trailing
+# NULLs, which is growth, not a rewrite -- and what this file claims is that
+# nothing the older schema wrote was altered. Re-reading the upgraded table
+# through the columns it had before keeps that claim exact and keeps this file
+# from having to be edited again by the next additive column.
+
+
+def as_before(conn: sqlite3.Connection, table: str, before: dict) -> dict:
+    """`table` as it reads now, through the columns it had before the upgrade."""
+    order = ", ".join(f'"{c}"' for c in before["columns"])
+    return {
+        "columns": before["columns"],
+        "rows": [tuple(r) for r in conn.execute(
+            f'SELECT {order} FROM "{table}" ORDER BY {order}')],
+    }
+
+
 def contents(conn: sqlite3.Connection, tables=POPULATED_TABLES) -> dict:
     """Every named column of every row, in a stable order.
 
@@ -274,7 +294,7 @@ def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
 
     database.init_db(conn=legacy)
 
-    assert database.get_schema_version(legacy) == 18
+    assert database.get_schema_version(legacy) == 19
     tables = {r[0] for r in legacy.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
     assert "reading_queue" in tables
@@ -283,12 +303,13 @@ def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
     # app_settings is the one table the upgrade is allowed to touch, and only
     # in the schema_version row.
     assert after["app_settings"]["rows"] != before["app_settings"]["rows"]
-    assert (dict(before["app_settings"]["rows"]) | {"schema_version": "18"}
+    assert (dict(before["app_settings"]["rows"]) | {"schema_version": "19"}
             == dict(after["app_settings"]["rows"]))
     for table in POPULATED_TABLES:
         if table == "app_settings":
             continue
-        assert after[table] == before[table], f"{table} was modified by the upgrade"
+        assert as_before(legacy, table, before[table]) == before[table], (
+            f"{table} was modified by the upgrade")
 
 
 def test_the_upgraded_queue_starts_empty_and_infers_no_history(legacy):
@@ -321,7 +342,7 @@ def test_upgrading_twice_more_is_a_no_op(legacy):
     database.init_db(conn=legacy)
 
     assert contents(legacy, POPULATED_TABLES + ("reading_queue",)) == settled
-    assert database.get_schema_version(legacy) == 18
+    assert database.get_schema_version(legacy) == 19
 
 
 def test_a_failed_migration_does_not_claim_to_have_succeeded(legacy):
@@ -346,7 +367,7 @@ def test_a_failed_migration_does_not_claim_to_have_succeeded(legacy):
     legacy.commit()
     database.init_db(conn=legacy)
 
-    assert database.get_schema_version(legacy) == 18
+    assert database.get_schema_version(legacy) == 19
     assert reading_queue.counts(legacy) == {"to_read": 0, "read": 0, "all": 0}
 
 
@@ -369,7 +390,7 @@ def test_a_fresh_database_gets_the_same_table_as_an_upgraded_one(tmp_path, legac
         }
 
     assert shape(legacy) == shape(fresh)
-    assert database.get_schema_version(fresh) == 18
+    assert database.get_schema_version(fresh) == 19
     fresh.close()
 
 
@@ -496,6 +517,6 @@ def test_the_settings_a_user_had_survive_the_upgrade(legacy):
     before = dict(legacy.execute("SELECT key, value FROM app_settings"))
     database.init_db(conn=legacy)
     after = dict(legacy.execute("SELECT key, value FROM app_settings"))
-    assert after.pop("schema_version") == "18"
+    assert after.pop("schema_version") == "19"
     assert before.pop("schema_version") == "13"
     assert after == before

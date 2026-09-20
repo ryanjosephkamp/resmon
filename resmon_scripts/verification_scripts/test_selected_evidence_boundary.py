@@ -75,8 +75,9 @@ def test_exact_seven_additive_routes_and_prebody_origin_guards(http_selected):
                 if isinstance(d,ast.Call) and isinstance(d.func,ast.Attribute) and isinstance(d.func.value,ast.Name) and d.func.value.id=='app' and d.args and isinstance(d.args[0],ast.Constant) and isinstance(d.args[0].value,str):
                     all_routes.append((d.func.attr,d.args[0].value))
                     if '/answer' in d.args[0].value:routes.append((d.func.attr,d.args[0].value))
-    # 166 since 2.2: POST /api/auth/renderer-origin, the daemon's origin registration.
-    assert len(routes)==7 and len(all_routes)==166
+    # 166 since 2.2: POST /api/auth/renderer-origin, the daemon's origin
+    # registration. 167 since schema 19: POST /api/executions/{id}/restart.
+    assert len(routes)==7 and len(all_routes)==167
     for method,path in routes:
         path=path.replace('{project_id}',c['project_id']).replace('{answer_id}',str(uuid.uuid4()))
         for headers in ({},{'Origin':'null','X-Resmon-Library':'1'},{'Origin':'https://other.invalid','X-Resmon-Library':'1'}):

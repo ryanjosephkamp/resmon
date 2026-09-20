@@ -45,10 +45,14 @@ from implementation_scripts.database import (
     get_executions,
     get_execution_by_id,
     get_execution_sources,
+    get_execution_ai,
     get_execution_documents,
     get_execution_documents_page,
     get_documents_by_ids,
     update_execution_status,
+    touch_execution_heartbeat,
+    get_executions_restarted_from,
+    insert_execution,
     set_execution_saved_configuration,
     get_configurations,
     insert_configuration,
@@ -61,6 +65,7 @@ from implementation_scripts.database import (
     get_lifecycle_for_document,
     SCHEMA_VERSION,
     get_schema_version,
+    utc_now_iso,
 )
 from implementation_scripts.credential_manager import (
     store_credential,
@@ -129,6 +134,9 @@ async def _lifespan(_app: FastAPI):
     """
     _init_admission_on_startup()
     _migrate_legacy_ai_key_on_startup()
+    # Before the scheduler: a routine that fires the moment it starts must not
+    # be mistaken for a leftover of the process that died (schema 19).
+    _reconcile_executions_on_startup()
     _init_scheduler_on_startup()
     _selected_startup()
     try:
@@ -845,6 +853,50 @@ def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
         )
 
 
+# How often a running execution stamps ``last_seen_at_utc`` from inside a stage.
+# ``update_current_stage`` already stamps it at every stage boundary the engine
+# crosses, which is enough for the stages that are short; ``querying`` against
+# twenty-two sources is not one of those, and a run that dies forty minutes into
+# it would otherwise carry a liveness stamp forty minutes old. 30 s is one
+# ``UPDATE ... WHERE id=? AND status='running'`` per execution per half minute,
+# which is nothing against a WAL database with one writer.
+_HEARTBEAT_SECONDS = 30.0
+
+
+def _start_execution_heartbeat(exec_id: int) -> tuple[threading.Thread, threading.Event]:
+    """Stamp ``last_seen_at_utc`` every 30 s until the row stops being ``running``.
+
+    Its own thread with its own connection (BUG-020), and a daemon thread so a
+    shutdown never waits on it. The stop event is set by the execution thread's
+    ``finally``; the ``status='running'`` scope in the UPDATE means that even if
+    that never happened, the heartbeat stops as soon as the row is terminal
+    rather than writing to a row another process has reconciled.
+    """
+    stop = threading.Event()
+
+    def _beat() -> None:
+        conn = None
+        try:
+            conn = _get_db()
+            while not stop.wait(_HEARTBEAT_SECONDS):
+                try:
+                    if not touch_execution_heartbeat(conn, exec_id):
+                        return
+                except sqlite3.Error:
+                    logging.getLogger(__name__).debug(
+                        "Heartbeat write failed for exec_id=%s", exec_id, exc_info=True)
+        finally:
+            if conn is not None:
+                try:
+                    _close_db(conn)
+                except Exception:
+                    pass
+
+    t = threading.Thread(target=_beat, daemon=True, name=f"heartbeat-{exec_id}")
+    t.start()
+    return t, stop
+
+
 def _launch_execution(
     engine: SweepEngine,
     exec_id: int,
@@ -855,6 +907,7 @@ def _launch_execution(
 
     def _run() -> None:
         admission.note_admitted(exec_id)
+        heartbeat_thread, heartbeat_stop = _start_execution_heartbeat(exec_id)
         # Take this thread's own connection rather than reusing the request
         # thread's (BUG-020). The two run concurrently -- the endpoint returns
         # as soon as the thread is started -- and sharing one sqlite3.Connection
@@ -887,6 +940,8 @@ def _launch_execution(
             except Exception:
                 pass  # SweepEngine already marks status='failed' and emits error events
         finally:
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=5)
             pop_ephemeral(exec_id)
             progress_store.mark_complete(exec_id)
             # Routine completion email hook (IMPL-R7). Fires only for
@@ -1631,6 +1686,10 @@ def get_execution(exec_id: int, expected_runtime_id: Optional[str] = None):
         row["coverage"] = source_coverage.build(row, get_execution_sources(conn, exec_id))
         _enrich_execution_row(row)
         row["source_outcomes"] = _source_outcomes(conn, [exec_id]).get(exec_id)
+        # The other half of the restart link. ``restarted_from`` is a column;
+        # this is the reverse lookup, so a user reading an interrupted run can
+        # see what they started from it without hunting for it in the list.
+        row["restarted_into"] = get_executions_restarted_from(conn, exec_id)
         return row
     finally:
         _close_db(conn)
@@ -1793,13 +1852,110 @@ def _build_execution_zip(rows: list[dict], out_path: Path, *,
     return out_path
 
 
+# The states a run can be started again from: the three that mean it stopped
+# without producing the run the user asked for. ``completed`` is excluded
+# because "run it again" there is a new search, not a restart, and ``running``
+# because the thing to do with a live run is cancel it.
+_RESTARTABLE_STATES = ("interrupted", "failed", "cancelled")
+
+# Every ``executions.status`` that means the run is over. The
+# ``executions.status`` CHECK minus ``running``.
+_TERMINAL_EXECUTION_STATES = ("completed", "failed", "cancelled", "interrupted")
+
+
 @app.post("/api/executions/{exec_id}/cancel")
 def cancel_execution(exec_id: int):
-    """Request cooperative cancellation of a running execution."""
+    """Request cooperative cancellation of a running execution.
+
+    A row that is not in the in-memory ``ProgressStore`` is not cancellable,
+    and this used to say only "Execution not running" -- which read, on an
+    interrupted row, as if resmon had lost track of something. The row's own
+    state belongs in the sentence.
+
+    ``detail`` stays a **string**. FastAPI will serialise a dict there happily,
+    and a renderer that renders ``detail`` directly -- which several of
+    resmon's do -- would then show ``[object Object]``. Anything that needs the
+    state structurally reads ``status`` off the row it already has.
+    """
     if not progress_store.is_active(exec_id):
-        raise HTTPException(409, "Execution not running")
+        conn = _get_db()
+        try:
+            row = get_execution_by_id(conn, exec_id)
+        finally:
+            _close_db(conn)
+        # 409 even where there is no such row. That is what this endpoint has
+        # always answered for an id the progress store does not hold.
+        if not row:
+            raise HTTPException(409, f"resmon has no record of execution {exec_id}.")
+        raise HTTPException(409, (
+            f"Execution {exec_id} is {row.get('status')}; only a running "
+            "execution can be cancelled."))
     progress_store.request_cancel(exec_id)
     return {"status": "cancellation_requested"}
+
+
+@app.post("/api/executions/{exec_id}/restart", status_code=202)
+def restart_execution(exec_id: int):
+    """Start a fresh execution with the source's parameters, linked back to it.
+
+    Restart is not resume. ``progress_events`` is persisted once, at the end,
+    so an interrupted run has nothing to resume *from* -- there is no durable
+    record of which sources it had already asked. What resmon can honestly
+    offer is the same search again, and a link saying where it came from.
+
+    The source row is never touched. Its history is what happened, and a
+    restart is a second thing that happened, not a correction of the first.
+    """
+    conn = _get_db()
+    try:
+        row = get_execution_by_id(conn, exec_id)
+        if not row:
+            raise HTTPException(404, "Execution not found")
+        state = row.get("status")
+        if state not in _RESTARTABLE_STATES:
+            # A string, for the same reason ``cancel_execution`` gives one.
+            raise HTTPException(409, (
+                f"Execution {exec_id} is {state}; only an interrupted, failed "
+                "or cancelled run can be restarted."))
+        # The same door a manual Deep Dive or Deep Sweep comes through, so a
+        # restart cannot get resmon past its own concurrency cap. Like those
+        # two, it only *checks* the cap here; the slot is claimed by
+        # ``admission.note_admitted`` on the worker thread.
+        _reject_if_at_manual_cap()
+        # The AI lane, reproduced as far as the record allows. ``parameters``
+        # holds the search, never the AI settings, so what the source row can
+        # answer is whether AI ran at all: ``execution_ai`` has one row per lane
+        # that was tried. A restart therefore reproduces the *choice* -- AI on
+        # or off -- and runs it against whatever is configured today, which is
+        # the same thing a second click of Deep Sweep would do. Reconstructing
+        # the provider, model and credential of the day from a lane record would
+        # be a guess wearing the original run's clothes.
+        ai_enabled = bool(get_execution_ai(conn, exec_id))
+        # ``parameters`` is copied verbatim and ``ai_enabled`` is deliberately
+        # **not** written into it. That JSON is the search the user asked for --
+        # terms, databases, date window -- and the search record and the
+        # reference exports render it as such; an AI flag in there would be read
+        # as part of the query. The fact is durable anyway: the new run writes
+        # its own ``execution_ai`` rows, which is where this decision was read
+        # from in the first place.
+        new_id = insert_execution(conn, {
+            "execution_type": row["execution_type"],
+            "routine_id": row.get("routine_id"),
+            "saved_configuration_id": row.get("saved_configuration_id"),
+            "parameters": row["parameters"],
+            "start_time": utc_now_iso(),
+            "restarted_from": exec_id,
+        })
+        # No ``prepare_execution``: the row exists, and ``run_prepared`` reads
+        # the repositories and query parameters back out of it. Passing them a
+        # second time would be a second copy to keep honest.
+        engine = SweepEngine(db_conn=conn, config={"ai_enabled": ai_enabled, "ai_settings": None})
+        progress_store.register(new_id)
+        _launch_execution(engine, new_id, conn)
+        return {"execution_id": new_id, "restarted_from": exec_id,
+                "ai_enabled": ai_enabled}
+    finally:
+        _close_db(conn)
 
 
 @app.get("/api/executions/{exec_id}/progress/stream")
@@ -1823,7 +1979,11 @@ async def stream_progress(exec_id: int, last_event_id: int = 0):
     if not progress_store.is_active(exec_id):
         # Re-read status in case it was updated after the initial fetch
         fresh = get_execution_by_id(conn, exec_id)
-        if fresh and fresh["status"] in ("completed", "failed", "cancelled"):
+        # ``interrupted`` belongs with the other three (schema 19). A run whose
+        # backend went away has no live store entry and never will, so without
+        # it here the request falls through to the live stream below and waits
+        # on events nothing is left to emit.
+        if fresh and fresh["status"] in _TERMINAL_EXECUTION_STATES:
             return StreamingResponse(
                 _batch_from_db(last_event_id),
                 media_type="text/event-stream",
@@ -5076,10 +5236,22 @@ def create_app(db_path: str | None = None) -> FastAPI:
 
 
 def flush_running_executions(reason: str = "daemon_restart") -> int:
-    """Mark any ``running`` executions as ``failed`` with the given cancel_reason.
+    """Mark any ``running`` executions ``interrupted`` on a graceful shutdown.
 
     Called during graceful shutdown so that rows are not left in a permanent
     ``running`` state after the daemon exits. Returns the number of rows flushed.
+
+    This wrote ``'failed'`` until schema 19, and that was an overclaim in the
+    one place the claim was easiest to make: the daemon *did* observe itself
+    stopping, so the row is not a mystery -- but the run did not fail. Nothing
+    went wrong with the search; the process it was running inside went away.
+    ``interrupted`` with ``interrupted_reason='daemon_restart'`` is the whole of
+    what resmon knows, and it is what the Restart button acts on.
+
+    ``cancel_reason`` keeps carrying the same word it always did. Rows written
+    before schema 19 have it and nothing else, and the renderer and the search
+    record both read it; dropping it here would make old and new rows read
+    differently for no gain.
     """
     try:
         conn = _get_db()
@@ -5090,17 +5262,174 @@ def flush_running_executions(reason: str = "daemon_restart") -> int:
     ).fetchall()
     if not rows:
         return 0
-    now = datetime.now(timezone.utc).isoformat()
+    now = utc_now_iso()
     for row in rows:
         update_execution_status(
             conn,
             int(row["id"]),
-            "failed",
+            "interrupted",
             end_time=now,
             cancel_reason=reason,
-            error_message=f"Execution flushed on {reason}",
+            interrupted_reason="daemon_restart",
+            error_message=f"Execution interrupted on {reason}",
         )
     return len(rows)
+
+
+# ---------------------------------------------------------------------------
+# Startup reconciliation (schema 19)
+# ---------------------------------------------------------------------------
+#
+# ``flush_running_executions`` only fires on the way out, and only on the way
+# out *gracefully*. A SIGKILL, a power cut, a force-quit, or Electron killing
+# the backend it spawned all leave the row exactly as the worker thread last
+# wrote it: ``status='running'``, ``progress_events`` NULL, and no in-memory
+# ``ProgressStore`` entry on the next start -- so the row was listed nowhere,
+# could not be cancelled, and sat in Results claiming to be running forever.
+#
+# The rule below is deliberately one-sided. A row is adopted only where resmon
+# can *establish* that the process which owned it is gone; everything else is
+# left running and counted in the log. That asymmetry is the same one
+# ``selected_evidence_runtime._startup`` makes, for the same reason recorded
+# there: PID reuse is a conservative refusal, never proof of death.
+
+# How old a ``running`` row with no recorded owner has to be before a start
+# will adopt it. Such a row was written by a resmon from before schema 19,
+# which had nowhere to record who was running it, so there is no liveness fact
+# to read and the only remaining evidence is the clock.
+#
+# 24 hours, because resmon puts no ceiling on how long a sweep may take -- the
+# admission queue makes a routine fire wait for a slot with no timeout at all,
+# so there is no shorter number in the code to borrow. A day is longer than any
+# sweep observed against the twenty-two shipped sources and short enough that a
+# user who reopens resmon the next morning is not still looking at a phantom.
+# Rows that carry an owner never reach this branch, so it goes stale on its own
+# as pre-19 history ages out.
+_ORPHAN_RUNNING_ADOPT_AFTER = timedelta(hours=24)
+
+
+def _owner_process_is_alive(pid: object) -> bool:
+    """Whether ``pid`` names a live process, erring towards alive.
+
+    ``os.kill(pid, 0)`` raises ``ProcessLookupError`` only when the kernel is
+    certain there is no such process. A ``PermissionError`` (the pid belongs to
+    another user) or any other ``OSError`` means we could not tell, and a pid
+    that has been reused since answers for whatever holds it now -- both read
+    as alive, because the cost of being wrong in that direction is a row that
+    stays ``running`` a little longer, and the cost in the other direction is
+    resmon telling the user a live run is dead.
+    """
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def _running_row_is_orphaned(row: dict, now: datetime) -> bool:
+    """Whether this ``running`` row's owner can be established to be gone."""
+    if row.get("owner_runtime_id") == runtime_identity.current_runtime_id():
+        # Our own row. At startup this can only be a pre-existing row that
+        # happens to carry a runtime id we have just minted, which is a
+        # 122-bit coincidence; treat it as ours and leave it alone.
+        return False
+    if row.get("owner_pid") is not None:
+        return not _owner_process_is_alive(row.get("owner_pid"))
+    if row.get("owner_runtime_id") is not None:
+        # An owner was recorded, but not a pid we can ask about. There is no
+        # liveness fact here at all, and the clock rule below is for rows that
+        # predate ownership entirely -- this row is newer than that and would
+        # be adopted on nothing. Err toward alive, which is what the whole
+        # asymmetry in this function is for.
+        return False
+    # Pre-19 row: no owner was ever recorded. Adopt only when nothing has been
+    # heard from it either -- a heartbeat would mean the row is newer than it
+    # looks -- and it is older than the threshold above.
+    if row.get("last_seen_at_utc"):
+        return False
+    stamp = row.get("start_time")
+    if not stamp:
+        return False
+    try:
+        started = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return now - started > _ORPHAN_RUNNING_ADOPT_AFTER
+
+
+def _reconcile_executions_on_startup() -> dict:
+    """Turn ``running`` rows whose owner is gone into ``interrupted`` rows.
+
+    Runs before the scheduler, so a routine that fires immediately cannot be
+    reconciled by the sweep that is meant to be cleaning up after the *last*
+    process. Returns the counts it logs, for the tests and for the daemon
+    status line.
+
+    ``progress_events`` is left as it is -- NULL, for every row this touches,
+    because the worker persists them once at the end and never got there.
+    ``error_message`` is left as it is too: an execution that recorded an error
+    and was then interrupted recorded that error, and overwriting it with the
+    interruption would lose the more specific fact.
+    """
+    result = {"interrupted": 0, "left_running": 0, "runtime_id": runtime_identity.current_runtime_id()}
+    try:
+        conn = _get_db()
+    except Exception:
+        logging.getLogger(__name__).exception("Startup reconciliation could not open the database")
+        return result
+    try:
+        try:
+            rows = [dict(r) for r in conn.execute(
+                "SELECT id, owner_pid, owner_runtime_id, last_seen_at_utc, start_time "
+                "FROM executions WHERE status = 'running'"
+            ).fetchall()]
+        except sqlite3.Error:
+            logging.getLogger(__name__).exception("Startup reconciliation could not read executions")
+            return result
+        if not rows:
+            return result
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            if not _running_row_is_orphaned(row, now):
+                result["left_running"] += 1
+                continue
+            try:
+                update_execution_status(
+                    conn,
+                    int(row["id"]),
+                    "interrupted",
+                    end_time=utc_now_iso(),
+                    interrupted_reason="owner_dead",
+                )
+            except sqlite3.Error:
+                logging.getLogger(__name__).exception(
+                    "Startup reconciliation could not adopt exec_id=%s", row["id"])
+                result["left_running"] += 1
+                continue
+            result["interrupted"] += 1
+    finally:
+        # ``_close_db`` is a deliberate no-op today -- a thread keeps its
+        # connection for its lifetime -- so this releases nothing and the three
+        # early returns above were not leaking anything. It is here for the
+        # shape: every other route and startup hook in this file pairs
+        # ``_get_db`` with ``_close_db`` in a ``finally``, and the day that
+        # function grows a body, the hook that skipped it is the one that
+        # breaks. A later edit copies the nearest example, so the nearest
+        # example should be right.
+        _close_db(conn)
+    logging.getLogger(__name__).info(
+        "Startup reconciliation: %d of %d running executions adopted as "
+        "interrupted (owner_dead); %d left running because their owner may "
+        "still be alive.",
+        result["interrupted"], len(rows), result["left_running"],
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------

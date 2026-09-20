@@ -19,6 +19,8 @@ interface Execution {
   end_time?: string;
   total_results?: number;
   new_results?: number;
+  interrupted_reason?: string | null;
+  last_seen_at_utc?: string | null;
 }
 
 const ResultsPage: React.FC = () => {
@@ -31,7 +33,8 @@ const ResultsPage: React.FC = () => {
   const [exportPath, setExportPath] = useState('');
   const [exportError, setExportError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const { completionCounter } = useExecution();
+  const [restarting, setRestarting] = useState<number | null>(null);
+  const { completionCounter, startExecution, setMonitorVisible } = useExecution();
   const reportRef = useRef<HTMLDivElement | null>(null);
   const {
     executions,
@@ -85,6 +88,34 @@ const ResultsPage: React.FC = () => {
       setSelected(new Set());
     } else {
       setSelected(new Set(filtered.map((e) => e.id as number)));
+    }
+  };
+
+  /**
+   * Start a fresh run from a stopped one and follow it into Monitor.
+   *
+   * The backend decides what may be restarted and answers 409 with a sentence
+   * when it may not; this does not second-guess it beyond hiding the button on
+   * rows where the answer is certain. The new execution is handed to
+   * ``startExecution`` so Monitor picks it up on the next poll rather than
+   * waiting for the three-second active sweep to notice it.
+   */
+  const handleRestart = async (exec: Execution) => {
+    setError('');
+    setRestarting(exec.id);
+    try {
+      const resp = await apiClient.post<{ execution_id: number }>(
+        `/api/executions/${exec.id}/restart`,
+        {},
+      );
+      startExecution(resp.execution_id, exec.execution_type, exec.repositories || []);
+      setMonitorVisible(true);
+      window.location.hash = '#/monitor';
+      refresh();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setRestarting(null);
     }
   };
 
@@ -175,6 +206,28 @@ const ResultsPage: React.FC = () => {
         title="Results & Logs"
         summary="Browse every execution, read its report, and export or delete selected runs."
         sections={[
+          {
+            heading: 'Interrupted runs, and Restart',
+            body: (
+              <p>
+                A run whose backend stopped before it finished — a force-quit, a
+                power cut, resmon being closed mid-sweep — is recorded as{' '}
+                <strong>interrupted</strong>, not failed. Nothing went wrong with the
+                search; the process it was running inside went away. The row says
+                which of the two ways resmon found out (the process running it
+                stopped, or resmon was shut down) and the last moment it saw the run
+                working. <strong>Restart</strong> begins a fresh execution with the
+                same search terms, databases and date window, linked to the one it
+                came from; the original row is never changed, because it is a record
+                of what happened. Restart is not resume: progress is written once, at
+                the end, so an interrupted run has nothing left to carry forward. It
+                reproduces whether AI summarisation was on, not the provider, model or
+                key of the day — those were never stored on the run. Runs started
+                before resmon 2.3 carry no record of which process owned them, so one
+                still marked running is only adopted once it is more than a day old.
+              </p>
+            ),
+          },
           {
             heading: 'The search record',
             body: (
@@ -311,6 +364,8 @@ const ResultsPage: React.FC = () => {
           statusFilter={statusFilter}
           onTypeFilterChange={setTypeFilter}
           onStatusFilterChange={setStatusFilter}
+          onRestart={handleRestart}
+          restarting={restarting}
         />
       </div>
 
