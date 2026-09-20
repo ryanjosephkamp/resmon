@@ -822,9 +822,10 @@ listener before, during and after; port 8742 was never contacted.
 ### Asset inventory against v2.1.0
 
 All **7/7** names matched the v2.1.0 matrix after substituting the version. Downloaded
-byte sizes matched the release metadata **7/7**. Every binary grew by 1.3–1.5%, which is
-the retained-PDF reader's pinned PDF.js assets and `pypdf` (PR #121); the two updater feed
-files are byte-for-byte the same size.
+byte sizes matched the release metadata **7/7**. The four large binaries grew by 1.3–1.5%
+and the blockmap by 0.97%; that is consistent with the retained-PDF reader's pinned PDF.js
+assets and `pypdf` (PR #121), though the growth was not attributed by measurement. The two
+updater feed files are byte-for-byte the same size.
 
 | Asset | v2.1.0 bytes | v2.2.0 release bytes | Downloaded bytes |
 |---|---:|---:|---:|
@@ -850,7 +851,7 @@ the published backend on its own ephemeral port, from `curl` on the same host:
 |---|---|
 | no `Authorization` header | `401` |
 | `Authorization: Bearer not-the-token` | `401` |
-| the token from `api-token-55952` | `200`, body `{"status": "ok", "version": "2.2.0"}` |
+| the token from `api-token-55952` | `200`; of the body's six keys, `status` was `ok` and `version` was `2.2.0` |
 | right token, `Origin: https://evil.example` | `403` |
 | right token, `Host: attacker.example` | `403` |
 
