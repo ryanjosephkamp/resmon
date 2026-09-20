@@ -17,10 +17,11 @@ into its state directory *before* uvicorn binds, so a caller that waits for the
 file and then polls with it can never be told "wait longer" about a credential
 problem.
 
-**The three ways a start can fail are three different sentences.** The process
-died; the token never appeared; the token was refused. "did not become ready"
-covers all three and points at none of them, and a reader who believed it spent
-the morning in startup code looking for a fault that lived in a header.
+**The ways a start can fail are different sentences.** The process died; the
+token never appeared; the token was refused; nothing answered in time. "did not
+become ready" covers all four and points at none of them, and a reader who
+believed it spent the morning in startup code looking for a fault that lived in
+a header.
 
 Nothing here is a test double. The subprocess, the socket and the token file are
 all real; the only thing a caller supplies is which process to watch.

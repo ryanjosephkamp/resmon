@@ -157,7 +157,7 @@ def test_a_refused_token_is_reported_as_a_refusal_inside_the_deadline(stub, tmp_
 
 
 def test_a_process_that_exited_is_reported_as_an_exit(stub, tmp_path):
-    """The third ending: whatever the caller captured, not a guess about tokens."""
+    """A process that is gone: whatever the caller captured, not a guess about tokens."""
     port = stub.server_address[1]
     api_auth.write_token_file(port, stub.accepted_token, tmp_path)
 
