@@ -1,12 +1,28 @@
 import React, { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import TutorialsPlaylistThumbnail from './TutorialsPlaylistThumbnail';
 
-// Tutorial demo videos are hosted on YouTube and embedded here via
-// privacy-enhanced ``youtube-nocookie.com`` <iframe> elements. An
-// earlier iteration bundled local ``.mp4`` files through webpack, but
-// the resulting renderer bundle (~918 MiB across 17 videos) was
-// untenable and two single files exceeded GitHub's 100 MB limit, so
-// the embed model switched to per-section YouTube videos.
+// Tutorial demo videos are hosted on YouTube and **linked**, never
+// embedded. This tab renders no third-party frame of any kind.
+//
+// The history, because the shape of this file still carries it: local
+// ``.mp4`` files were bundled first and produced a ~918 MiB renderer
+// bundle across 17 videos, with two single files over GitHub's 100 MB
+// limit; that became one privacy-enhanced ``youtube-nocookie.com``
+// <iframe> per section. The iframes worked, and cost more than they
+// were worth — opening the tab handed YouTube a request for every
+// video near the viewport, and the merge gate grew a check
+// (``e2e/third-party.spec.ts`` P9a) that could only be green while
+// somebody else's service was reachable from the runner.
+//
+// So the videos leave the app instead. Every one of them is still one
+// tap away: the card at the top opens the whole set as a temporary
+// YouTube playlist, and each section that has a video carries its own
+// "Watch on YouTube" link. Both go through
+// ``window.resmonAPI.openPath``, the same preload bridge the Library's
+// "Open externally" and the Issues tab use, which ends in
+// ``shell.openExternal`` in the main process — the user's own browser,
+// not this window and not a renderer ``window.open``.
 
 interface TutorialSection {
   /** DOM id used for in-page anchors (e.g. ``dashboard``). */
@@ -16,18 +32,16 @@ interface TutorialSection {
   /** Short description rendered above the media. */
   blurb: string;
   /**
-   * Caption rendered under the embedded YouTube player (or, when
-   * ``youtubeId`` is unset, inside the placeholder card). Update 3 /
-   * 4_27_26 follow-up: tutorial media are now per-section YouTube
-   * embeds rather than bundled GIFs / ``.mp4`` files; GIFs hit
-   * free-tier converter size limits and bundled ``.mp4`` files made
-   * the renderer bundle too large to ship.
+   * Caption rendered beside the section's "Watch on YouTube" link (or,
+   * when ``youtubeId`` is unset, inside the placeholder card).
    */
   mediaCaption: string;
   /**
-   * Optional YouTube video ID. When set, the tutorial section renders
-   * a privacy-enhanced ``youtube-nocookie.com`` <iframe> in a 16:9
-   * container. When unset, the dashed placeholder card is rendered so
+   * Optional YouTube video ID. It is the **link target**, not an embed
+   * source: when set, the section renders a "Watch on YouTube" link to
+   * ``youtube.com/watch?v=<id>`` that opens in the user's own browser,
+   * and the ID joins the playlist URL the card at the top of the tab
+   * builds. When unset, the dashed placeholder card is rendered so
    * deep-links keep working before the video is recorded.
    */
   youtubeId?: string;
@@ -46,22 +60,28 @@ interface TutorialSection {
 }
 
 /**
- * Section list — order matters for the prev/next nav buttons. The
- * first entry is the full-app YouTube placeholder; the remaining
- * entries cover every existing top-level page (10) and every Settings
- * sub-tab (7), each with its own anchor.
+ * Section list — order matters for the prev/next nav buttons and for
+ * the playlist URL, which is built by walking this array in order. The
+ * first entry is the full-app overview; the remaining entries cover
+ * every existing top-level page (10) and every Settings sub-tab (7),
+ * each with its own anchor.
+ *
+ * Exported because it is the denominator. The renderer suite asks this
+ * array how many sections have a video and checks the rendered links
+ * against it, so a video added or removed here moves the test with it
+ * rather than leaving a hand-written number behind.
  *
  * Every fact below is grounded in the corresponding ``*_info.md``
  * document under ``resmon_reports/info_docs/`` and in the matching
  * page / panel component. Keep this list in lock-step with those
  * sources; any drift is a documentation bug.
  */
-const sections: TutorialSection[] = [
+export const sections: TutorialSection[] = [
   {
     anchor: 'full-app',
     title: 'Full App Overview',
     blurb: 'A guided walk-through of resmon end-to-end, from launch to first scheduled fire.',
-    mediaCaption: 'YouTube walk-through.',
+    mediaCaption: 'Full app walk-through.',
     youtubeId: 'vOSICNFJW7I',
     instructions: [
       'Use the left sidebar to switch between the ten top-level pages: Dashboard, Deep Dive, Deep Sweep, Routines, Calendar, Results & Logs, Configurations, Monitor, Repositories & API Keys, and Settings.',
@@ -746,6 +766,26 @@ const sections: TutorialSection[] = [
   },
 ];
 
+/** A single video's public watch page. */
+export function watchUrl(youtubeId: string): string {
+  return `https://www.youtube.com/watch?v=${youtubeId}`;
+}
+
+/**
+ * The whole set, as one link.
+ *
+ * ``watch_videos?video_ids=a,b,c`` is YouTube's anonymous temporary-playlist
+ * endpoint: it plays the listed videos in the listed order without anybody
+ * having to own a playlist, which is why there is no playlist ID written
+ * anywhere in this repository. The order is section order, and the list is
+ * every section that has an ID — derived here, never typed out, so it cannot
+ * drift from what the tab shows.
+ */
+export function playlistUrl(from: TutorialSection[] = sections): string {
+  const ids = from.map((s) => s.youtubeId).filter((id): id is string => !!id);
+  return `https://www.youtube.com/watch_videos?video_ids=${ids.join(',')}`;
+}
+
 const TutorialsTab: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -767,6 +807,22 @@ const TutorialsTab: React.FC = () => {
     navigate({ pathname: '/about-resmon/tutorials', hash: anchor });
   };
 
+  // Hand the URL to the shell, which opens it in the user's default browser.
+  // ``preventDefault`` only once the bridge has been found: outside Electron
+  // — a webpack preview, or the jsdom suite — there is nothing to hand it to,
+  // and swallowing the click there would leave a link that does nothing at
+  // all. The renderer never calls ``window.open``; the main process decides
+  // what happens to an external URL.
+  const openExternally = (event: React.MouseEvent<HTMLAnchorElement>, url: string) => {
+    const opener = window.resmonAPI?.openPath;
+    if (!opener) return;
+    event.preventDefault();
+    void opener(url);
+  };
+
+  const playlist = playlistUrl();
+  const videoCount = sections.filter((s) => s.youtubeId).length;
+
   return (
     <div className="tutorials-tab settings-panel" ref={containerRef}>
       <h2>Tutorials</h2>
@@ -775,6 +831,26 @@ const TutorialsTab: React.FC = () => {
         contents below, or use the <strong>Tutorial</strong> button next to any page or
         Settings-tab title to jump straight to its section.
       </p>
+
+      <aside className="tutorial-playlist-card" aria-labelledby="tutorial-playlist-title">
+        <TutorialsPlaylistThumbnail />
+        <div className="tutorial-playlist-copy">
+          <h3 id="tutorial-playlist-title">The video walk-throughs</h3>
+          <p>
+            {videoCount} of the {sections.length} sections below have a recorded walk-through. The
+            videos are on YouTube and are not played inside resmon — this tab embeds nothing, so
+            opening it sends no request to YouTube. Each link opens in your own browser.
+          </p>
+          <a
+            className="tutorial-playlist-link"
+            href={playlist}
+            onClick={(e) => openExternally(e, playlist)}
+            data-testid="tutorial-playlist-link"
+          >
+            Watch the walkthroughs on YouTube
+          </a>
+        </div>
+      </aside>
 
       <nav className="tutorial-toc" aria-label="Tutorial table of contents">
         <h3>Table of contents</h3>
@@ -819,34 +895,16 @@ const TutorialsTab: React.FC = () => {
             </div>
             <p>{s.blurb}</p>
             {s.youtubeId ? (
-              <figure className="tutorial-media" aria-label={s.mediaCaption}>
-                <div className="tutorial-media-iframe">
-                  <iframe
-                    src={`https://www.youtube-nocookie.com/embed/${s.youtubeId}?rel=0&modestbranding=1&playsinline=1`}
-                    title={s.mediaCaption}
-                    loading="lazy"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    referrerPolicy="strict-origin-when-cross-origin"
-                    data-testid={`tutorial-iframe-${s.anchor}`}
-                  />
-                </div>
-                <figcaption>
-                  {s.mediaCaption}{' '}
-                  <a
-                    href={`https://www.youtube.com/watch?v=${s.youtubeId}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      const api = (window as unknown as { resmonAPI?: { openPath?: (p: string) => void } }).resmonAPI;
-                      if (api?.openPath) {
-                        api.openPath(`https://www.youtube.com/watch?v=${s.youtubeId}`);
-                      }
-                    }}
-                  >
-                    (Watch on YouTube)
-                  </a>
-                </figcaption>
-              </figure>
+              <p className="tutorial-media-link">
+                <span className="tutorial-media-caption">{s.mediaCaption}</span>{' '}
+                <a
+                  href={watchUrl(s.youtubeId)}
+                  onClick={(e) => openExternally(e, watchUrl(s.youtubeId as string))}
+                  data-testid={`tutorial-watch-${s.anchor}`}
+                >
+                  Watch on YouTube
+                </a>
+              </p>
             ) : (
               <div className="tutorial-media-placeholder" role="img" aria-label={s.mediaCaption}>
                 <span>{s.mediaCaption}</span>

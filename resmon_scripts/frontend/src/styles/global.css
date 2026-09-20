@@ -2687,41 +2687,88 @@ html, body, #root {
   margin-bottom: 12px;
 }
 
-/* Update 3 / 4_27_26 follow-up: when a tutorial section provides a
-  ``youtubeId``, render a privacy-enhanced YouTube ``<iframe>`` in a
-  16:9 aspect-ratio container. Local ``.mp4`` bundling was attempted
-  first but produced an unsustainably large renderer bundle (~918 MiB
-  for 17 videos, with two single files exceeding GitHub's 100 MB
-  limit), so the embed model switched to per-section YouTube videos. */
-.tutorial-media {
+/* The videos are linked, not embedded. What used to be a 16:9
+  ``youtube-nocookie.com`` <iframe> per section is now one line: the
+  caption, and a link that the Electron shell opens in the user's own
+  browser. Nothing here is fetched from a third party, so the tab has
+  no layout that depends on somebody else's service answering. */
+.tutorial-media-link {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
   margin: 0 0 12px 0;
+  font-size: 0.85rem;
 }
 
-.tutorial-media-iframe {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
+.tutorial-media-link .tutorial-media-caption {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.tutorial-media-link a {
+  color: var(--color-accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.tutorial-media-link a:hover {
+  color: var(--color-accent-hover);
+  border-bottom-color: var(--color-accent-hover);
+}
+
+/* The card at the top of the tab: the whole set in one link, over a
+  thumbnail drawn in ``TutorialsPlaylistThumbnail.tsx`` rather than
+  fetched from YouTube's poster-image host. */
+.tutorial-playlist-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  margin-bottom: 20px;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: #000;
-  overflow: hidden;
+  border-radius: 8px;
+  background: var(--color-surface);
 }
 
-.tutorial-media-iframe iframe {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
+.tutorial-playlist-thumb {
+  width: 160px;
+  height: 90px;
+  flex: 0 0 auto;
   display: block;
 }
 
-.tutorial-media figcaption {
-  color: var(--color-text-muted);
-  font-style: italic;
+.tutorial-playlist-copy {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.tutorial-playlist-copy h3 {
+  margin: 0 0 6px 0;
+  font-size: 1rem;
+  color: var(--color-text);
+}
+
+.tutorial-playlist-copy p {
+  margin: 0 0 10px 0;
   font-size: 0.85rem;
-  margin-top: 4px;
-  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.tutorial-playlist-link {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid var(--color-accent);
+  border-radius: 6px;
+  color: var(--color-accent);
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.tutorial-playlist-link:hover {
+  background: var(--color-accent);
+  color: var(--color-bg);
 }
 
 .tutorial-nav {

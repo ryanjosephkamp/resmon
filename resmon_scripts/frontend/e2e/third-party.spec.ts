@@ -1,45 +1,41 @@
 /**
- * P9 — the two surfaces the rest of the suite is deliberately blind to.
+ * P9 — the third-party surfaces, and the one that is no longer here.
  *
  * Every other assertion in `e2e/` is scoped by `isOwnOrigin()` to
  * `http://127.0.0.1:*`, and that scoping is what makes the suite a signal
- * rather than a coin flip: About resmon embeds six `youtube-nocookie.com`
- * iframes and a GitHub Pages `<webview>`, and both emit console errors and
- * leave requests in flight that no change to this repository can fix. The
- * spike recorded the cost of that scoping plainly — **a broken YouTube embed or
- * a broken blog webview is invisible to the smoke suite** — and left the
- * decision to this phase.
+ * rather than a coin flip: an origin resmon does not own emits its own console
+ * output and leaves its own requests in flight, and no change to this
+ * repository can fix either. The cost of the scoping is that a surface resmon
+ * renders but does not own is invisible to the smoke suite, so each one gets a
+ * positive check here instead — "nothing failed" and "it loaded" are different
+ * claims.
  *
- * The decision is the positive check. "Nothing failed" and "it loaded" are
- * different claims, and only the second one can be made about somebody else's
- * origin without also inheriting their noise: an `ERR_ABORTED` when the user
- * navigates away says nothing about whether the embed works, while an HTTP
- * error status on the embed document does.
+ * **P9a used to be the YouTube embeds, and the embeds are gone.** The Tutorials
+ * tab rendered one privacy-enhanced `youtube-nocookie.com` <iframe> per section
+ * with a video (seventeen of them), and P9a scrolled to each one, waited for
+ * the frame, and asked the player inside it whether it had actually mounted —
+ * because a removed, private or region-blocked video still answers with 200 and
+ * renders "Video unavailable". It was a good check of a thing that should not
+ * have been there: opening the tab handed somebody else's service a request per
+ * video, and a merge gate could only be green while that service was reachable
+ * from the runner.
  *
- * **An HTTP status is not enough, and that is why this reads the frame.** A
- * YouTube video that has been removed, made private, or blocked in a region
- * still answers the embed request with **200** and renders "Video unavailable"
- * inside the player — so a status check would call a dead tutorial healthy.
- * Playwright can evaluate inside a cross-origin frame in Chromium, so each
- * embed is asked directly whether its player mounted, whether YouTube put an
- * error in it, and what the video is called. A removed video is a
- * `.ytp-error`; a wrong id is a title of bare "YouTube".
+ * So the videos are linked now, not embedded, and the check inverts. P9a below
+ * is the same name for the opposite property: **no request to YouTube at all
+ * while the Tutorials tab renders**, which is not something the origin-scoped
+ * smoke suite can see either. P9c is the other half — the links still work, and
+ * they leave through the shell rather than navigating this window.
  *
- * **The embeds are lazy, and the first version of this missed it.** Chromium
- * only fetches an iframe near the viewport: 17 embeds are rendered and 3 load.
- * Each one is scrolled into view in turn, which is also what a reader does.
- *
- * **And it does not turn a network outage into a red build.** A machine that
- * cannot reach the origin at all skips, printing what it did not verify —
- * the same shape `default-behaviour.spec.ts` uses for the window manager.
- * Failing there would make the suite red for the one reason the scoping
- * existed to avoid.
+ * P9b, the blog `<webview>`, is unchanged: it is still a real third-party
+ * surface, and it still skips rather than going red when this machine cannot
+ * reach the network. Failing there would make the suite red for the one reason
+ * the scoping existed to avoid.
  */
 import { test, expect } from './fixtures/resmon-app';
+import { installIpcGuards, readGuards, NOTHING_ESCAPED } from './fixtures/ipc-guards';
 
 test.describe.configure({ mode: 'serial' });
 
-const YOUTUBE = 'youtube-nocookie.com';
 const BLOG_ORIGIN = 'https://ryanjosephkamp.github.io';
 
 /**
@@ -65,115 +61,137 @@ function looksOffline(text: string): boolean {
   return OFFLINE.some((e) => text.includes(e));
 }
 
-interface EmbedReport {
-  src: string;
-  loaded: boolean;
-  hasPlayer: boolean;
-  hasError: boolean;
-  title: string;
-  errorText: string;
-}
+/** Any host with `youtube` or `ytimg` in it — the embed host, the watch host,
+ * the poster-image host and the player CDN all match, and so does anything new
+ * that a future thumbnail might reach for. */
+const YOUTUBE_HOST = /youtube|ytimg|youtu\.be/i;
 
-test('P9a: every YouTube embed the Tutorials tab renders actually plays', async ({
-  win, goto,
-}) => {
-  test.setTimeout(300_000);
-  const failures: { url: string; failure: string }[] = [];
-  const onFailed = (r: { url(): string; failure(): { errorText: string } | null }) => {
-    if (r.url().includes(YOUTUBE)) {
-      failures.push({ url: r.url(), failure: r.failure()?.errorText ?? 'unknown' });
-    }
+test('P9a: the Tutorials tab sends nothing to YouTube', async ({ win, goto }) => {
+  // The renderer's own request stream, unscoped — this is the one place in the
+  // suite that deliberately looks at somebody else's origin, and here it is
+  // looking for the absence of one. Both events are collected: a request that
+  // was made and then failed is still a request that was made.
+  const seen: { phase: string; kind: string; url: string }[] = [];
+  let phase = 'before';
+  const onRequest = (r: { url(): string }) => {
+    if (YOUTUBE_HOST.test(r.url())) seen.push({ phase, kind: 'request', url: r.url() });
   };
+  const onFailed = (r: { url(): string }) => {
+    if (YOUTUBE_HOST.test(r.url())) seen.push({ phase, kind: 'requestfailed', url: r.url() });
+  };
+  win.on('request', onRequest);
   win.on('requestfailed', onFailed);
 
   try {
+    phase = 'tutorials';
     await goto('/about-resmon/tutorials');
 
-    // The denominator is what the page rendered, not a number written here.
-    // `TutorialsTab.tsx` builds one iframe per step that has a `youtubeId`, so
-    // a seventeenth video — or an eighteenth — is under this check the moment
-    // it is added. The spike's report said six; there are seventeen.
-    const iframes = win.locator(`iframe[src*="${YOUTUBE}"]`);
-    const srcs = await iframes.evaluateAll(
-      (els) => els.map((e) => (e as HTMLIFrameElement).src));
-    console.log('P9a EMBEDS RENDERED', srcs.length);
-    expect(srcs.length).toBeGreaterThan(0);
-
-    const reports: EmbedReport[] = [];
-    for (let i = 0; i < srcs.length; i += 1) {
-      const src = srcs[i];
-      // Lazy loading is per-viewport, so this is the reader's own action:
-      // scroll to the video, then look at it.
-      await iframes.nth(i).scrollIntoViewIfNeeded();
-      let frame = null as ReturnType<typeof win.frames>[number] | null;
-      const deadline = Date.now() + 20_000;
-      while (Date.now() < deadline) {
-        frame = win.frames().find((f) => f.url() === src) ?? null;
-        if (frame) break;
-        await win.waitForTimeout(250);
-      }
-      if (!frame) {
-        reports.push({
-          src, loaded: false, hasPlayer: false, hasError: false, title: '', errorText: '',
-        });
-        continue;
-      }
-      // The player mounts a tick or two after the document arrives.
-      const probe = async () => frame.evaluate(() => ({
-        title: document.title,
-        hasPlayer: !!document.querySelector('.html5-video-player'),
-        hasError: !!document.querySelector('.ytp-error'),
-        errorText:
-          (document.querySelector('.ytp-error-content-wrap') as HTMLElement | null)
-            ?.innerText ?? '',
-      }));
-      let seen = await probe().catch(() => null);
-      const playerDeadline = Date.now() + 15_000;
-      while (Date.now() < playerDeadline && (!seen || (!seen.hasPlayer && !seen.hasError))) {
-        await win.waitForTimeout(500);
-        seen = await probe().catch(() => null);
-      }
-      reports.push({
-        src,
-        loaded: true,
-        hasPlayer: seen?.hasPlayer ?? false,
-        hasError: seen?.hasError ?? false,
-        title: seen?.title ?? '',
-        errorText: seen?.errorText ?? '',
-      });
+    // Scroll the whole tab, because the embeds were lazy: Chromium only fetched
+    // an iframe near the viewport, and the first version of the old P9a missed
+    // fourteen of seventeen for exactly that reason. An embed that came back
+    // would come back the same way, so the check reads the page the way a
+    // reader does.
+    const height = await win.evaluate(() => {
+      const main = document.querySelector('.app-main') ?? document.body;
+      return main.scrollHeight;
+    });
+    for (let y = 0; y < height; y += 600) {
+      await win.mouse.wheel(0, 600);
+      await win.waitForTimeout(60);
     }
+    await win.waitForTimeout(1000);
 
-    console.log('P9a EMBED REPORT', JSON.stringify(
-      reports.map((r) => ({
-        id: r.src.split('/embed/')[1]?.split('?')[0],
-        loaded: r.loaded, player: r.hasPlayer, error: r.hasError, title: r.title,
-      })), null, 1));
-    if (failures.length) console.log('P9a EMBED REQUEST FAILURES', JSON.stringify(failures));
+    // The denominator, read from the DOM rather than written here: how many
+    // sections the tab rendered, and how many external links it offers.
+    const rendered = await win.evaluate(() => ({
+      sections: document.querySelectorAll('.tutorial-section').length,
+      iframes: document.querySelectorAll('iframe, webview, object, embed').length,
+      links: [...document.querySelectorAll('a[href]')]
+        .map((a) => a.getAttribute('href') ?? '')
+        .filter((h) => /^https?:/i.test(h)).length,
+    }));
+    console.log('P9a TUTORIALS RENDERED', JSON.stringify(rendered));
+    console.log('P9a YOUTUBE REQUESTS', JSON.stringify(seen));
 
-    const offline = failures.filter((f) => looksOffline(f.failure));
-    if (reports.every((r) => !r.loaded) && (offline.length > 0 || reports.length > 0)) {
-      console.log(
-        `P9a NOT VERIFIED — this machine could not reach ${YOUTUBE}: `
-        + JSON.stringify(offline.length ? offline : 'no embed frame ever appeared'),
-      );
-      test.skip(true, `cannot reach ${YOUTUBE} from this machine`);
-    }
-
-    const neverLoaded = reports.filter((r) => !r.loaded).map((r) => r.src);
-    expect(neverLoaded, `embeds whose frame never appeared:\n${
-      JSON.stringify(neverLoaded, null, 2)}`).toEqual([]);
-
-    // The two things a 200 cannot tell you.
-    const broken = reports.filter((r) => r.hasError || !r.hasPlayer);
-    expect(broken, `embeds that did not produce a player:\n${
-      JSON.stringify(broken, null, 2)}`).toEqual([]);
-    // A removed or wrong id gives the embed document the bare title "YouTube";
-    // a live video's title is the video's own.
-    const untitled = reports.filter((r) => r.title.trim() === 'YouTube' || r.title.trim() === '');
-    expect(untitled, `embeds with no video title — a wrong or withdrawn id:\n${
-      JSON.stringify(untitled, null, 2)}`).toEqual([]);
+    expect(rendered.sections).toBeGreaterThan(20);
+    // Every section is either a video link or a placeholder, plus the one
+    // playlist link at the top, so the link count is bounded by the sections.
+    expect(rendered.links).toBeGreaterThan(0);
+    expect(rendered.links).toBeLessThanOrEqual(rendered.sections + 1);
+    expect(rendered.iframes).toBe(0);
+    expect(seen, `the Tutorials tab reached YouTube:\n${JSON.stringify(seen, null, 2)}`)
+      .toEqual([]);
   } finally {
+    win.off('request', onRequest);
     win.off('requestfailed', onFailed);
+  }
+});
+
+test('P9c: a tutorial link leaves through the shell, not through this window', async ({
+  app, win, goto,
+}) => {
+  // The guards replace every OS-facing call in the main process with a counter
+  // and every preload IPC handler with a counting stub, so this observes the
+  // renderer's click arriving in the *main process* — out of process, over the
+  // real IPC channel — without a browser opening and without a byte leaving
+  // the machine. `ipc-stubs.spec.ts` runs earlier in the same worker and has
+  // already installed them; re-installing resets the counters.
+  await installIpcGuards(app);
+  const windowsBefore = app.windows().length;
+  const urlBefore = win.url();
+
+  const seen: string[] = [];
+  const onRequest = (r: { url(): string }) => {
+    if (YOUTUBE_HOST.test(r.url())) seen.push(r.url());
+  };
+  win.on('request', onRequest);
+
+  try {
+    await goto('/about-resmon/tutorials');
+    const before = await readGuards(app);
+
+    const link = win.locator('[data-testid="tutorial-playlist-link"]');
+    const href = await link.getAttribute('href');
+    console.log('P9c PLAYLIST HREF', href);
+    expect(href).toMatch(/^https:\/\/www\.youtube\.com\/watch_videos\?video_ids=/);
+
+    await link.scrollIntoViewIfNeeded();
+    await link.click();
+    await win.waitForTimeout(500);
+
+    const after = await readGuards(app);
+    console.log('P9c GUARDS', JSON.stringify({
+      openPath: after.stubbed.openPath - before.stubbed.openPath,
+      target: after.lastArgs.openPathTarget,
+      escaped: after.escaped,
+    }));
+
+    // The URL reached the main process on the channel the preload bridge
+    // exposes, and it is the playlist URL the tab rendered.
+    expect(after.stubbed.openPath - before.stubbed.openPath).toBe(1);
+    expect(after.lastArgs.openPathTarget).toBe(href);
+
+    // And nothing else happened: no new window, no navigation of this one, no
+    // request to YouTube, and nothing reached the operating system.
+    expect(app.windows().length).toBe(windowsBefore);
+    expect(win.url()).toBe(urlBefore);
+    expect(seen, `clicking the link fetched from YouTube:\n${JSON.stringify(seen)}`).toEqual([]);
+    expect(after.escaped).toEqual(NOTHING_ESCAPED);
+
+    // The per-section link takes the same road.
+    const watch = win.locator('[data-testid^="tutorial-watch-"]').first();
+    const watchHref = await watch.getAttribute('href');
+    expect(watchHref).toMatch(/^https:\/\/www\.youtube\.com\/watch\?v=/);
+    await watch.scrollIntoViewIfNeeded();
+    await watch.click();
+    await win.waitForTimeout(300);
+    const third = await readGuards(app);
+    expect(third.stubbed.openPath - after.stubbed.openPath).toBe(1);
+    expect(third.lastArgs.openPathTarget).toBe(watchHref);
+    expect(app.windows().length).toBe(windowsBefore);
+    expect(win.url()).toBe(urlBefore);
+  } finally {
+    win.off('request', onRequest);
   }
 });
 
