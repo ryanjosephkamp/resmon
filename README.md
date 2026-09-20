@@ -1485,7 +1485,7 @@ resmon is built on top of a broad ecosystem of open-access scholarly repositorie
 
 ### Open-Access Repository Providers
 
-The 27 scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible. Eighteen of them are credited by name below; the remaining nine are registered in the catalog and have not yet been written into this list:
+The scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
 
 - **arXiv** — Cornell University / arXiv.org, for the Atom XML API and the decades-long commitment to open preprint distribution in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics.
 - **bioRxiv** and **medRxiv** — openRxiv, for the date-range JSON API serving the life- and health-sciences communities.
