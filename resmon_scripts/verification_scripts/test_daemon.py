@@ -191,18 +191,25 @@ def test_graceful_shutdown_idempotent(tmp_path: Path, monkeypatch):
     second = perform_graceful_shutdown(reason="daemon_restart")
     assert second.get("already_shut_down") is True
 
-    # Reopen and confirm the row is now failed with the right cancel_reason.
+    # Reopen and confirm the row is now interrupted with the right reasons.
+    # Schema 19: a graceful shutdown observes the *stop*, not a failure of the
+    # run, so the row says ``interrupted`` and carries
+    # ``interrupted_reason='daemon_restart'``. ``cancel_reason`` keeps the same
+    # word it always carried, because rows written before schema 19 have only
+    # that and the renderer reads it.
     _reset_shutdown_flag()
     resmon_mod._db_path = str(db_file)
     resmon_mod._shared_conn = None
     resmon_mod._db_initialized = False
     conn2 = resmon_mod._get_db()
     row = conn2.execute(
-        "SELECT status, cancel_reason, end_time, error_message FROM executions WHERE id=?",
+        "SELECT status, cancel_reason, interrupted_reason, end_time, error_message "
+        "FROM executions WHERE id=?",
         (rid,),
     ).fetchone()
     assert row is not None
-    assert row["status"] == "failed"
+    assert row["status"] == "interrupted"
+    assert row["interrupted_reason"] == "daemon_restart"
     assert row["cancel_reason"] == "daemon_restart"
     assert row["end_time"]
     assert "daemon_restart" in (row["error_message"] or "")

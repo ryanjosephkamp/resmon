@@ -108,15 +108,33 @@ def objects(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str | None]]:
     }
 
 
-def contents(conn: sqlite3.Connection, names: set[str] | None = None) -> dict:
+# Schema 19 rebuilt ``executions`` with a wider ``status`` CHECK and five new
+# nullable columns, so its DDL and the width of its row tuples both change on an
+# upgrade. Growth this file allows; a rewritten value or a lost row it does not,
+# and the projection below keeps that claim exact.
+
+
+def contents(conn: sqlite3.Connection, names: set[str] | None = None,
+             widths: dict | None = None) -> dict:
     """Fresh value snapshots, including FTS shadows and SQLite sequences."""
     result = {}
     for table in sorted(table_names(conn) if names is None else names):
-        result[table] = {
-            "columns": [tuple(r) for r in conn.execute(f"PRAGMA table_xinfo({quoted(table)})")],
-            "rows": sorted(
-                [tuple(r) for r in conn.execute(f"SELECT * FROM {quoted(table)}")], key=repr),
-        }
+        columns = [tuple(r) for r in conn.execute(f"PRAGMA table_xinfo({quoted(table)})")]
+        narrowed = None
+        if widths and table in widths:
+            keep = {c[1] for c in widths[table]}
+            if {c[1] for c in columns} != keep:
+                narrowed = [c for c in columns if c[1] in keep]
+        if narrowed is None:
+            # ``SELECT *`` where nothing was added: an fts5 table's hidden
+            # columns are not in a column list anyone would write by hand, and
+            # naming them explicitly changes what comes back.
+            rows = [tuple(r) for r in conn.execute(f"SELECT * FROM {quoted(table)}")]
+        else:
+            columns = narrowed
+            order = ", ".join(f'"{c[1]}"' for c in columns)
+            rows = [tuple(r) for r in conn.execute(f"SELECT {order} FROM {quoted(table)}")]
+        result[table] = {"columns": columns, "rows": sorted(rows, key=repr)}
     return result
 
 
@@ -289,18 +307,36 @@ def test_populated_16_upgrade_preserves_all_old_rows_objects_and_files(
             for name in ("create_vault", "Import", "retained", "checked_vault"):
                 scoped.setattr(library, name, forbidden_io)
             db.init_db(conn=conn)
-        assert db.SCHEMA_VERSION == db.get_schema_version(conn) == 18
+        assert db.SCHEMA_VERSION == db.get_schema_version(conn) == 19
         assert table_names(conn) == set(before_rows) | set(TABLES) | {"evidence_answers"}
         assert len(table_names(conn)) == 37
-        after_rows = contents(conn, set(before_rows))
+        after_rows = contents(conn, set(before_rows),
+                              {t: before_rows[t]["columns"] for t in before_rows})
         assert before_rows_hash == row_digest(before_rows), "the before snapshot itself changed"
-        expected_settings = dict(before_rows["app_settings"]["rows"]) | {"schema_version": "18"}
+        expected_settings = dict(before_rows["app_settings"]["rows"]) | {"schema_version": "19"}
         assert dict(after_rows["app_settings"]["rows"]) == expected_settings
         for table in before_rows:
-            if table != "app_settings":
-                assert after_rows[table] == before_rows[table], table
+            if table == "app_settings":
+                continue
+            if table == "executions":
+                # Rebuilt by schema 19, so the surviving columns sit at new
+                # positions. Names and values are what preservation means here;
+                # a column index is not a fact about the user's data.
+                assert ([c[1] for c in after_rows[table]["columns"]]
+                        == [c[1] for c in before_rows[table]["columns"]]), table
+                assert after_rows[table]["rows"] == before_rows[table]["rows"], table
+                continue
+            assert after_rows[table] == before_rows[table], table
         assert after_rows["app_settings"]["columns"] == before_rows["app_settings"]["columns"]
-        assert {name: objects(conn)[name] for name in before_objects} == before_objects
+        # ``executions`` is the one object a later schema rebuilds on purpose
+        # (19, the widened status CHECK). Asserted on rather than excused: it
+        # must gain the new vocabulary and keep every column it had.
+        rebuilt = {"executions"}
+        assert {n: objects(conn)[n] for n in before_objects if n not in rebuilt} == {
+            n: v for n, v in before_objects.items() if n not in rebuilt}
+        assert "'interrupted'" in objects(conn)["executions"][2]
+        assert {c[1] for c in before_rows["executions"]["columns"]} <= {
+            r[1] for r in conn.execute("PRAGMA table_xinfo(\"executions\")")}
         for table in TABLES:
             assert conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
         assert_approved_shape(conn)
@@ -330,7 +366,7 @@ def test_fresh_upgraded_and_twice_reopened_schema_are_identical(legacy: Legacy, 
         assert evidence_shape(fresh) == expected_shape
         assert all(fresh.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
                    for table in (*LIBRARY_TABLES, *TABLES))
-        assert db.get_schema_version(fresh) == 18
+        assert db.get_schema_version(fresh) == 19
         assert len(table_names(fresh)) == 37
     finally:
         fresh.close()
@@ -342,7 +378,7 @@ def test_fresh_upgraded_and_twice_reopened_schema_are_identical(legacy: Legacy, 
             assert contents(reopened) == expected_rows
             assert objects(reopened) == expected_objects
             assert evidence_shape(reopened) == expected_shape
-            assert db.get_schema_version(reopened) == 18
+            assert db.get_schema_version(reopened) == 19
         finally:
             reopened.close()
     assert file_census(legacy.roots) == expected_files
@@ -405,7 +441,7 @@ def test_failed_migration_preserves_marker16_and_every_preexisting_object(
         conn.execute("DROP INDEX idx_evidence_notes_order")
     conn.commit()
     db.init_db(conn=conn)
-    assert db.get_schema_version(conn) == 18
+    assert db.get_schema_version(conn) == 19
     assert_approved_shape(conn)
 
 
