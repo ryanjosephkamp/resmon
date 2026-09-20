@@ -387,7 +387,7 @@ section describes. The three corrections here still stand.)*
 
 ## Versioning
 
-This document is contract **v2.2**. The server reports it in its MCP initialisation
+This document is contract **v2.3**. The server reports it in its MCP initialisation
 response (`mcp_server.CONTRACT_VERSION`). Additive changes — new tools, new optional arguments — bump the minor version and
 do not require a new contract document. Removing a tool, renaming an argument, or changing
 a return shape is a **breaking** change: new major version, new document, and the 2.0
@@ -432,7 +432,7 @@ discovery order/cache, write permission or default behavior changes.
 Successful `GET /api/health` and `GET /api/executions/{exec_id}` add:
 
 ```json
-{"identity":{"contract_version":1,"runtime_id":"<canonical lowercase UUID4>","schema_version":14,"corpus_id":null,"build_id":null}}
+{"identity":{"contract_version":1,"runtime_id":"<canonical lowercase UUID4>","schema_version":18,"corpus_id":null,"build_id":null}}
 ```
 
 The runtime token is random, stable in one serving process and new after restart, including
@@ -462,3 +462,44 @@ Legacy unbound reads remain available without inventing an identity.
 Example: call `health`, compare `identity.runtime_id` with the intended running app, then
 call `get_execution` with `exec_id` and `expected_runtime_id` set to that observed token.
 An explicit expectation applies to this call only, not other tools or future calls.
+
+
+## v2.3 — transport: every call carries the backend's local API token
+
+This is a change to how the server reaches the backend, not to the tool surface. The
+inventory is unchanged at 25 tools — 18 reads and 7 writes requiring confirmation — so the
+contract number stays 2.3. Nothing in `tools/list`, in any input schema or in any return
+shape is different. What changed is that a call that used to be answered is now refused
+unless it is carried correctly.
+
+From 2.2.0 the backend refuses every request, on every route, that does not carry its
+per-instance token in `Authorization: Bearer <token>`, name a loopback `Host` on the
+backend's own port, and — when it sends an `Origin` — send the app's own renderer origin.
+**There are no exempt routes:** `health` is authenticated like everything else. The full
+model, including what it deliberately does not defend, is
+[`docs/local-api-security.md`](../local-api-security.md).
+
+The server finds the token the same way it finds the port, and in the same order. It
+resolves the port from `RESMON_PORT`, then the port file, then the default only when
+nothing named a port; it then reads that port's token from `api-token-<port>` in resmon's
+state directory, beside `daemon.lock` and the port file. The file is written owner-only by
+the backend that minted the token and removed on clean shutdown. A stale file admits
+nothing: every backend start mints a fresh token and accepts only the one it holds, so a
+reader of a stale file is answered `401 token_invalid`.
+
+A harness has two things to get right:
+
+- **A named port whose token cannot be found is reported as unavailable, naming that
+  instance.** It never falls through to another port, because attaching to a different
+  installation would answer truthfully about the wrong corpus.
+- **A non-default state directory must be named to the server too.** Set `RESMON_STATE_DIR`
+  in the MCP server's environment when the instance it should reach does not use the
+  default one. The CLI runtime's MCP configuration names the port and the state directory
+  only; the token is never written into it, and tool results and relayed errors are
+  scrubbed of it.
+
+**A pre-2.2 MCP server gets `401 token_missing` from a 2.2 backend on every call**, because
+it sends no `Authorization` header and no route is exempt. Symmetrically, a 2.2 server does
+not attach to a backend that published no token file. So a separate MCP checkout is updated
+in the same sitting as the app; running one of each is not a degraded mode, it is no
+service at all.
