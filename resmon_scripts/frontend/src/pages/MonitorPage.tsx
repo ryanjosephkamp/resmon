@@ -72,12 +72,17 @@ function statusDotClass(status: ActiveExecution['status']): string {
     case 'completed': return 'mon-tab-dot mon-tab-dot-completed';
     case 'failed': return 'mon-tab-dot mon-tab-dot-failed';
     case 'cancelled': return 'mon-tab-dot mon-tab-dot-cancelled';
+    // Not the failure palette: nothing failed.
+    case 'interrupted': return 'mon-tab-dot mon-tab-dot-cancelled';
     default: return 'mon-tab-dot';
   }
 }
 
 function isTerminal(status: ActiveExecution['status']): boolean {
-  return status === 'completed' || status === 'failed' || status === 'cancelled';
+  // ``interrupted`` is terminal: the run is over and nothing will emit another
+  // event for it. A tab that kept spinning would be claiming otherwise.
+  return status === 'completed' || status === 'failed'
+    || status === 'cancelled' || status === 'interrupted';
 }
 
 function formatClock(seconds: number): string {

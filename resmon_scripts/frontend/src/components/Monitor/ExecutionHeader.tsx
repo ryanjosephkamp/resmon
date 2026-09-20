@@ -28,6 +28,7 @@ function statusBadgeClass(status: string): string {
     case 'failed':
       return 'mon-badge mon-badge--failed';
     case 'cancelled':
+    case 'interrupted':
       return 'mon-badge mon-badge--cancelled';
     default:
       return 'mon-badge';

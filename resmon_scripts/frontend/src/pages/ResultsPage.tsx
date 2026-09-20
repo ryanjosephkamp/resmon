@@ -19,6 +19,8 @@ interface Execution {
   end_time?: string;
   total_results?: number;
   new_results?: number;
+  interrupted_reason?: string | null;
+  last_seen_at_utc?: string | null;
 }
 
 const ResultsPage: React.FC = () => {
@@ -31,7 +33,8 @@ const ResultsPage: React.FC = () => {
   const [exportPath, setExportPath] = useState('');
   const [exportError, setExportError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const { completionCounter } = useExecution();
+  const [restarting, setRestarting] = useState<number | null>(null);
+  const { completionCounter, startExecution, setMonitorVisible } = useExecution();
   const reportRef = useRef<HTMLDivElement | null>(null);
   const {
     executions,
@@ -85,6 +88,34 @@ const ResultsPage: React.FC = () => {
       setSelected(new Set());
     } else {
       setSelected(new Set(filtered.map((e) => e.id as number)));
+    }
+  };
+
+  /**
+   * Start a fresh run from a stopped one and follow it into Monitor.
+   *
+   * The backend decides what may be restarted and answers 409 with a sentence
+   * when it may not; this does not second-guess it beyond hiding the button on
+   * rows where the answer is certain. The new execution is handed to
+   * ``startExecution`` so Monitor picks it up on the next poll rather than
+   * waiting for the three-second active sweep to notice it.
+   */
+  const handleRestart = async (exec: Execution) => {
+    setError('');
+    setRestarting(exec.id);
+    try {
+      const resp = await apiClient.post<{ execution_id: number }>(
+        `/api/executions/${exec.id}/restart`,
+        {},
+      );
+      startExecution(resp.execution_id, exec.execution_type, exec.repositories || []);
+      setMonitorVisible(true);
+      window.location.hash = '#/monitor';
+      refresh();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setRestarting(null);
     }
   };
 
@@ -311,6 +342,8 @@ const ResultsPage: React.FC = () => {
           statusFilter={statusFilter}
           onTypeFilterChange={setTypeFilter}
           onStatusFilterChange={setStatusFilter}
+          onRestart={handleRestart}
+          restarting={restarting}
         />
       </div>
 

@@ -25,7 +25,14 @@ export interface ActiveExecution {
   repositories: string[];
   startTime: string;
   events: ProgressEvent[];
-  status: 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
+  /**
+   * Schema 19 added ``interrupted``: the backend running this went away
+   * without finishing it. There is no ``interrupted`` progress event and
+   * there cannot be one -- nothing was there to emit it -- so this only
+   * ever arrives on the active-dropout path, which reads the row back from
+   * ``GET /api/executions/{id}`` after the id leaves the active set.
+   */
+  status: 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   currentRepo?: string;
   currentRepoIndex?: number;
   totalRepos?: number;
@@ -243,6 +250,13 @@ async function maybeNotifyCompletion(exec: ActiveExecution): Promise<void> {
 const ExecutionContext = createContext<ExecutionContextValue | null>(null);
 
 const VERBOSE_KEY = 'resmon.verboseLogging';
+
+/**
+ * The statuses that mean the run is over. Mirrors the `executions.status`
+ * CHECK minus `running`; `cancelling` is this context's own intermediate word
+ * and never comes back from the backend.
+ */
+const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled', 'interrupted'];
 
 export const ExecutionProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -617,6 +631,23 @@ export const ExecutionProvider: React.FC<{ children: React.ReactNode }> = ({
               elapsedSeconds: 0,
               routine_id: ex.routine_id ?? null,
             };
+            // Write the row's own status back into the store.
+            //
+            // The dropout path used this fetch for the notification only, and
+            // that was enough while every way a run could end also emitted a
+            // progress event the poller had already applied. ``interrupted``
+            // is the state with no event: the process that would have emitted
+            // one is what went away. Without this the tab keeps its running
+            // dot and the floating widget keeps spinning over a run that is
+            // over -- which is the same overclaim the status exists to end,
+            // relocated into the renderer.
+            if (TERMINAL_STATUSES.includes(ex.status)) {
+              setActiveExecutions((prev) => {
+                const existing = prev[id];
+                if (!existing || existing.status === ex.status) return prev;
+                return { ...prev, [id]: { ...existing, status: ex.status } };
+              });
+            }
             void maybeNotifyCompletion(snapshot);
           } catch {
             /* never block the dropout path on a notification fetch */
