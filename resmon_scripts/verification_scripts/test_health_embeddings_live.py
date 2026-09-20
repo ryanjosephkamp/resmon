@@ -24,34 +24,35 @@ and never touches the user's corpus: its own temp database on an unused port.
 from __future__ import annotations
 
 import os
-import socket
 import subprocess
 import sys
-import time
 from pathlib import Path
 
-import httpx
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
+import live_backend  # noqa: E402
+
 pytestmark = pytest.mark.live_network
 
-
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+# Every call below goes through this rather than ``httpx`` directly: since 2.2
+# the backend refuses an anonymous request to any route, ``/api/health``
+# included. The fixture fills in the token the backend it starts publishes.
+_API = live_backend.TokenedHttpx()
 
 
 @pytest.fixture(scope="module")
 def backend(tmp_path_factory):
     """A real resmon backend, in its own process, over its own empty database."""
     state = tmp_path_factory.mktemp("health-live")
-    port = _free_port()
+    port = live_backend.free_port()
     env = {
         **os.environ,
+        # Its own state directory, so the token file this fixture waits for is
+        # the one this backend wrote and not some other instance's.
+        "RESMON_STATE_DIR": str(state),
         "RESMON_DB_PATH": str(state / "resmon.db"),
         "RESMON_REPORTS_DIR": str(state / "reports"),
         "RESMON_PORT_FILE": str(state / "resmon.port"),
@@ -67,19 +68,16 @@ def backend(tmp_path_factory):
     )
     base = f"http://127.0.0.1:{port}"
     try:
-        deadline = time.monotonic() + 60
-        while time.monotonic() < deadline:
-            if proc.poll() is not None:
-                raise RuntimeError(f"backend exited early: {proc.communicate()[0][:2000]}")
-            try:
-                if httpx.get(f"{base}/api/health", timeout=1.0).status_code == 200:
-                    break
-            except httpx.HTTPError:
-                time.sleep(0.2)
-        else:  # pragma: no cover - only on a machine that cannot start the backend
-            raise RuntimeError("backend did not become healthy within 60s")
+        _API.token = live_backend.await_backend(
+            base,
+            port,
+            state,
+            alive=lambda: proc.poll() is None,
+            diagnosis=lambda: proc.communicate()[0][:2000].decode("utf-8", "replace"),
+        )
         yield base
     finally:
+        _API.token = None
         proc.terminate()
         try:
             proc.wait(timeout=15)
@@ -89,7 +87,7 @@ def backend(tmp_path_factory):
 
 def test_health_reports_the_extension_version_from_a_running_backend(backend):
     """P1. The version is the extension's, read out of a live process."""
-    payload = httpx.get(f"{backend}/api/health", timeout=10).json()
+    payload = _API.get(f"{backend}/api/health", timeout=10).json()
     assert payload["status"] == "ok"
     embeddings = payload["embeddings"]
 
@@ -116,14 +114,14 @@ def test_health_reports_the_extension_version_from_a_running_backend(backend):
 
 def test_health_answers_per_call_rather_than_from_a_cached_first_answer(backend):
     """Two calls, two live loads. A cached capability outlives the thing it names."""
-    first = httpx.get(f"{backend}/api/health", timeout=10).json()["embeddings"]
-    second = httpx.get(f"{backend}/api/health", timeout=10).json()["embeddings"]
+    first = _API.get(f"{backend}/api/health", timeout=10).json()["embeddings"]
+    second = _API.get(f"{backend}/api/health", timeout=10).json()["embeddings"]
     assert first == second
     # The backend serves requests on a thread pool and each thread holds its own
     # connection (BUG-020), so this also establishes that the load is not tied to
     # whichever thread happened to answer first.
     answers = {
-        httpx.get(f"{backend}/api/health", timeout=10).json()["embeddings"]["extension"]
+        _API.get(f"{backend}/api/health", timeout=10).json()["embeddings"]["extension"]
         for _ in range(8)
     }
     assert len(answers) == 1

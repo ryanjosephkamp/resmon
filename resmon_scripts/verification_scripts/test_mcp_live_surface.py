@@ -19,36 +19,37 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-import httpx
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
+import live_backend  # noqa: E402
 import mcp_server as mcp  # noqa: E402
 
 pytestmark = pytest.mark.live_network
 
-
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+# The test's own calls, with this backend's token attached. The MCP server under
+# test is not routed through it: it builds its own headers from the token the
+# fixture pins, which is half of what this file is here to check.
+_API = live_backend.TokenedHttpx()
 
 
 @pytest.fixture(scope="module")
 def backend(tmp_path_factory):
     """A real resmon backend on its own port, over its own empty database."""
     state = tmp_path_factory.mktemp("mcp-live")
-    port = _free_port()
+    port = live_backend.free_port()
     env = {
         **os.environ,
+        # Its own state directory: the token file this fixture waits for, and
+        # the one it hands the MCP client, must be this instance's.
+        "RESMON_STATE_DIR": str(state),
         "RESMON_DB_PATH": str(state / "resmon.db"),
         "RESMON_REPORTS_DIR": str(state / "reports"),
         "RESMON_PORT_FILE": str(state / "resmon.port"),
@@ -61,24 +62,23 @@ def backend(tmp_path_factory):
         cwd=str(PROJECT_ROOT),
     )
     base = f"http://127.0.0.1:{port}"
+    previous_base, previous_token = mcp.backend._base, mcp.backend._token
     try:
-        deadline = time.monotonic() + 60
-        while time.monotonic() < deadline:
-            if proc.poll() is not None:
-                raise RuntimeError(f"backend exited early: {proc.communicate()[0][:2000]}")
-            try:
-                if httpx.get(f"{base}/api/health", timeout=1.0).status_code == 200:
-                    break
-            except httpx.HTTPError:
-                time.sleep(0.4)
-        else:
-            raise RuntimeError("backend did not become ready")
-
-        mcp.backend._base = base
-        mcp.backend._tried = []
+        token = live_backend.await_backend(
+            base, port, state,
+            alive=lambda: proc.poll() is None,
+            diagnosis=lambda: proc.communicate()[0][:2000].decode("utf-8", "replace"),
+            poll=0.4,
+        )
+        _API.token = token
+        # ``pin`` rather than assigning ``_base``/``_tried``: since 2.2 an
+        # address without its token is not a usable backend, and pin is the one
+        # entry point that sets both at once.
+        mcp.backend.pin(base, token)
         yield base
     finally:
-        mcp.backend._base = None
+        _API.token = None
+        mcp.backend.pin(previous_base, previous_token)
         proc.terminate()
         try:
             proc.wait(timeout=15)
@@ -212,7 +212,7 @@ def test_semantic_search_and_find_similar_over_a_really_embedded_corpus(backend)
     from embedding_server import EmbeddingServer, deterministic_vector  # noqa: PLC0415
 
     with EmbeddingServer() as model:
-        configured = httpx.put(
+        configured = _API.put(
             f"{backend}/api/settings/embeddings",
             json={"settings": {
                 "embedding_enabled": "true",
@@ -226,7 +226,7 @@ def test_semantic_search_and_find_similar_over_a_really_embedded_corpus(backend)
 
         # Two papers, deliberately unalike, inserted through a real sweep so the
         # backend's own pipeline embeds them.
-        seeded = httpx.post(
+        seeded = _API.post(
             f"{backend}/api/search/sweep",
             json={"repositories": ["arxiv"], "query": "quantum error correction",
                   "max_results": 5},
@@ -237,7 +237,7 @@ def test_semantic_search_and_find_similar_over_a_really_embedded_corpus(backend)
 
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
-            status = httpx.get(f"{backend}/api/embeddings/status", timeout=10).json()
+            status = _API.get(f"{backend}/api/embeddings/status", timeout=10).json()
             if status["coverage"]["embedded"] > 0:
                 break
             time.sleep(0.5)
@@ -250,7 +250,7 @@ def test_semantic_search_and_find_similar_over_a_really_embedded_corpus(backend)
         # "quantum error correction" returned five papers, none matching the
         # corpus filter. A test that assumed otherwise would skip or fail for a
         # reason that has nothing to do with what it checks.
-        stored = httpx.post(
+        stored = _API.post(
             f"{backend}/api/explorer/search", json={"limit": 5}, timeout=30
         ).json()["results"]
         phrase = next(
@@ -316,7 +316,7 @@ def test_semantic_search_and_find_similar_over_a_really_embedded_corpus(backend)
     # The embedding server is gone once this block exits, so the lane is switched
     # off again rather than left pointing at a dead port for the rest of the
     # module's tests to trip over.
-    httpx.put(
+    _API.put(
         f"{backend}/api/settings/embeddings",
         json={"settings": {"embedding_enabled": "false"}}, timeout=30,
     )
@@ -328,7 +328,7 @@ def test_get_execution_results_works_for_a_real_execution(backend):
     A stub cannot establish this: the bug was that the backend rejected the
     format the tool asked for, and only the backend knows which formats exist.
     """
-    created = httpx.post(f"{backend}/api/search/dive", json={
+    created = _API.post(f"{backend}/api/search/dive", json={
         "repository": "arxiv", "query": "quantum", "max_results": 1,
     }, timeout=60)
     if created.status_code != 200:
@@ -337,7 +337,7 @@ def test_get_execution_results_works_for_a_real_execution(backend):
 
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
-        row = httpx.get(f"{backend}/api/executions/{exec_id}", timeout=10).json()
+        row = _API.get(f"{backend}/api/executions/{exec_id}", timeout=10).json()
         if row.get("status") in {"completed", "failed"}:
             break
         time.sleep(1.0)
@@ -349,7 +349,7 @@ def test_get_execution_results_works_for_a_real_execution(backend):
 
 
 def test_export_references_works_for_a_real_execution(backend):
-    rows = httpx.get(f"{backend}/api/executions", timeout=10).json()
+    rows = _API.get(f"{backend}/api/executions", timeout=10).json()
     if not rows:
         pytest.skip("no execution to export")
     exec_id = rows[0]["id"]
@@ -380,10 +380,10 @@ def test_activate_and_deactivate_really_move_a_routine_on_and_off_its_schedule(b
     )
 
     assert not mcp.call_tool("activate_routine", {"routine_id": routine_id})["isError"]
-    assert httpx.get(f"{backend}/api/routines/{routine_id}", timeout=10).json()["is_active"]
+    assert _API.get(f"{backend}/api/routines/{routine_id}", timeout=10).json()["is_active"]
 
     assert not mcp.call_tool("deactivate_routine", {"routine_id": routine_id})["isError"]
-    assert not httpx.get(f"{backend}/api/routines/{routine_id}", timeout=10).json()["is_active"]
+    assert not _API.get(f"{backend}/api/routines/{routine_id}", timeout=10).json()["is_active"]
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +501,7 @@ def test_update_settings_changes_exactly_the_keys_it_named(backend):
     Ledger 33 was about: ``ai_cli_path`` rode one key list and not the other for
     a whole release because the test that would have caught it patched the read.
     """
-    before = httpx.get(f"{backend}/api/settings/ai", timeout=10).json()
+    before = _API.get(f"{backend}/api/settings/ai", timeout=10).json()
     assert "ai_effort" in before, "the group's real key list is what this checks against"
     target = "low" if before.get("ai_effort") != "low" else "high"
 
@@ -509,7 +509,7 @@ def test_update_settings_changes_exactly_the_keys_it_named(backend):
         "update_settings", {"group": "ai", "settings": {"ai_effort": target}}))
     assert body["changed"] == {"ai_effort": {"from": before.get("ai_effort"), "to": target}}
 
-    after = httpx.get(f"{backend}/api/settings/ai", timeout=10).json()
+    after = _API.get(f"{backend}/api/settings/ai", timeout=10).json()
     assert after["ai_effort"] == target
     assert {k: v for k, v in after.items() if k != "ai_effort"} == \
            {k: v for k, v in before.items() if k != "ai_effort"}, (
@@ -524,7 +524,7 @@ def test_update_settings_reaches_every_group_on_its_allowlist(backend):
     tool that fails for every input in that group — the v1.8.2 defect shape.
     """
     for group in mcp.SETTINGS_GROUPS:
-        current = httpx.get(f"{backend}/api/settings/{group}", timeout=10)
+        current = _API.get(f"{backend}/api/settings/{group}", timeout=10)
         assert current.status_code == 200, f"{group}: {current.status_code}"
         keys = current.json()
         if group == "embeddings":
@@ -535,7 +535,7 @@ def test_update_settings_reaches_every_group_on_its_allowlist(backend):
         result = mcp.call_tool(
             "update_settings", {"group": group, "settings": {key: value}})
         assert not result["isError"], f"{group}/{key}: {_payload(result)}"
-        after = httpx.get(f"{backend}/api/settings/{group}", timeout=10).json()
+        after = _API.get(f"{backend}/api/settings/{group}", timeout=10).json()
         if group == "embeddings":
             after = after["settings"]
         assert after == keys, f"{group}/{key}: a no-op request changed settings"
@@ -550,7 +550,7 @@ def test_the_credential_denylist_excludes_nothing_that_exists(backend):
     """
     blocked: dict[str, list[str]] = {}
     for group in mcp.SETTINGS_GROUPS:
-        keys = httpx.get(f"{backend}/api/settings/{group}", timeout=10).json()
+        keys = _API.get(f"{backend}/api/settings/{group}", timeout=10).json()
         if group == "embeddings":
             keys = keys["settings"]
         hit = sorted(k for k in keys
@@ -568,7 +568,7 @@ def test_no_settings_group_the_app_has_is_silently_reachable(backend):
     failure of the app; it is a decision this test forces someone to make.
     """
     served = set()
-    for route in httpx.get(f"{backend}/openapi.json", timeout=10).json()["paths"]:
+    for route in _API.get(f"{backend}/openapi.json", timeout=10).json()["paths"]:
         if route.startswith("/api/settings/") and route.count("/") == 3:
             served.add(route.rsplit("/", 1)[1])
 
