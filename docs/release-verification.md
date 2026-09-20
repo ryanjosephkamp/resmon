@@ -786,3 +786,103 @@ assistant recheck is the scope; this run does not repeat Delegation 11's full
 route/onboarding/x64 walk or verify Windows/Linux, updating, source health,
 searches, summaries, notifications, email, backup or quarantined Gatekeeper
 launch. No application fix, dependency change or release judgment is included.
+
+## v2.2.0 run
+
+### Subject and launch conditions
+
+Observed on **2026-09-20**, macOS **26.3.1**, arm64 host, by the maintainer's lead agent.
+The subject was [the published v2.2.0 release](https://github.com/ryanjosephkamp/resmon/releases/tag/v2.2.0),
+published at `2026-09-20T20:03:28Z` from tag `v2.2.0` on `8f966d7` (PR #133). The
+pre-tag gate (`test_cumulative_upgrade.py`, 16 cases) was green on the tag's parent
+before the release PR was cut, and the release PR itself merged with every required job
+green on its exact head.
+
+All seven assets were downloaded with `gh release download v2.2.0 --repo
+ryanjosephkamp/resmon` into a scratch directory outside both checkouts. The arm64 DMG was
+mounted read-only (`hdiutil attach -readonly -nobrowse`) and its app copied with `ditto`
+into the scratch tree, never `/Applications`. The DMG carried `com.apple.provenance` and
+no quarantine attribute; nothing was changed. The copied bundle's `Info.plist` reported
+`CFBundleShortVersionString` **2.2.0**, `CFBundleVersion` **2.2.0**, identifier
+`com.resmon.app`. LaunchServices used the procedure's isolated form:
+
+```sh
+open -n -a <scratch>/arm64/resmon.app \
+  --env RESMON_STATE_DIR=<scratch>/arm64/state \
+  --stdout <scratch>/evidence/arm64-stdout.log \
+  --stderr <scratch>/evidence/arm64-stderr.log \
+  --args --user-data-dir=<scratch>/arm64/electron-user-data
+```
+
+Neither `RESMON_PYTHON` nor `RESMON_E2E` was supplied; the published bundle used its own
+Python. The startup log read `[main] Starting backend on port 55952` then
+`[main] Backend is ready`. `lsof -nP -iTCP:8742 -sTCP:LISTEN` showed the same pre-existing
+listener before, during and after; port 8742 was never contacted.
+
+### Asset inventory against v2.1.0
+
+All **7/7** names matched the v2.1.0 matrix after substituting the version. Downloaded
+byte sizes matched the release metadata **7/7**. The four large binaries grew by 1.3–1.5%
+and the blockmap by 0.97%; that is consistent with the retained-PDF reader's pinned PDF.js
+assets and `pypdf` (PR #121), though the growth was not attributed by measurement. The two
+updater feed files are byte-for-byte the same size.
+
+| Asset | v2.1.0 bytes | v2.2.0 release bytes | Downloaded bytes |
+|---|---:|---:|---:|
+| `latest-linux.yml` | 378 | 378 | 378 |
+| `latest.yml` | 349 | 349 | 349 |
+| `resmon-2.2.0-arm64.dmg` | 221,393,745 | 224,785,384 | 224,785,384 |
+| `resmon-2.2.0-setup-x64.exe` | 195,002,354 | 197,500,855 | 197,500,855 |
+| `resmon-2.2.0-setup-x64.exe.blockmap` | 204,618 | 206,594 | 206,594 |
+| `resmon-2.2.0-x64.dmg` | 223,260,473 | 226,694,739 | 226,694,739 |
+| `resmon-2.2.0-x86_64.AppImage` | 250,943,385 | 254,495,346 | 254,495,346 |
+
+The arm64 DMG SHA-256 was
+`166c28f129e4cf6dc8e88ba9d7943abff8bd06f434a2811be3c159c6533f197f`.
+
+### The local API guard in the published build
+
+This is the first time the token lock-down (PR #130, `docs/local-api-security.md`) ran
+in a packaged app rather than a checkout. The isolated state directory held
+`api-token-55952` (mode `0600`) beside `resmon.port` within seconds of launch. Against
+the published backend on its own ephemeral port, from `curl` on the same host:
+
+| Request to `GET /api/health` | Answer |
+|---|---|
+| no `Authorization` header | `401` |
+| `Authorization: Bearer not-the-token` | `401` |
+| the token from `api-token-55952` | `200`; of the body's six keys, `status` was `ok` and `version` was `2.2.0` |
+| right token, `Origin: https://evil.example` | `403` |
+| right token, `Host: attacker.example` | `403` |
+
+Five of five answers are the ones the security document specifies. This establishes the
+guard on the shipped arm64 bundle at the HTTP layer only; it does not establish Windows
+token-file permissions, a browser drive-by page, or DNS rebinding (L-105 stands for those).
+
+### Isolation and cleanup
+
+The five processes belonging to the copied app were sent `SIGTERM`. Five seconds later all
+five were still present, so they were sent `SIGKILL`. The token file was therefore **not**
+removed — that is the documented crash case ("a file left by a crash admits nothing"),
+not the clean-shutdown case, and it was not retried with a longer wait. Whether the
+packaged app exits cleanly on `SIGTERM` within a bounded time is recorded here as
+**unverified**. The image was detached (`disk4 ejected`); the downloaded installers, the
+copied app, its Chromium profile and its state directory were removed; the launch logs,
+size and digest receipts, plist excerpt and the guard table above were kept outside the
+repository.
+
+### What this run did not do
+
+No route walk was performed in the published window, so this run does not claim that the
+29 routes render; the built-app end-to-end job on the release head covers that surface for
+a locally built app, not the installer. The x64 DMG was not launched. Windows and Linux
+evidence is limited to asset names and byte sizes. No Gatekeeper prompt was exercised,
+because the command-line download carried no quarantine attribute. No assistant turn was
+attempted. The x64, Windows and Linux installers remain launch-unverified.
+
+### Evidence and scope
+
+Kept outside the repository: `release-metadata.txt`, `sizes.txt`, `sha256.txt`,
+`dmg-xattr.txt`, `info-plist.txt`, `lsof-before.txt`, `arm64-stdout.log`,
+`arm64-stderr.log`, `packaged-token-check.txt`. This section is the only file this PR
+changes.
