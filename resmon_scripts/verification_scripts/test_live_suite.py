@@ -1005,6 +1005,7 @@ from live_evidence import (  # noqa: E402
     QUARANTINE_MAX_ENTRIES,
     asserted_line,
     load_quarantine,
+    quarantine_disposition,
     quarantine_line,
     source_outcome_property,
     utc_today,
@@ -1394,3 +1395,214 @@ def test_source_outcome_property_keeps_categories_and_drops_text():
     snapshot["failure_history"] = ["GenericJDBCException: Could not open connection"]
     with pytest.raises(AssertionError, match="failure history"):
         source_outcome_property("oapen", snapshot)
+
+
+# ---------------------------------------------------------------------------
+# The author-query cases record what their source did
+# ---------------------------------------------------------------------------
+#
+# `test_api_tier4.py::test_oapen_live_search` records a `source_outcome`, which
+# is the only reason the shipped quarantine entry can excuse it. The *other*
+# OAPEN live case — the parametrised author query in
+# `test_entity_search_live.py` — recorded none, so an entry naming it would
+# have printed in the summary as a quarantine and excused nothing:
+# `quarantine_disposition` needs exactly one recorded outcome in total and
+# exactly one for the entry's source. Both halves are pinned below, and
+# neither opens a socket.
+
+import httpx  # noqa: E402
+
+from implementation_scripts import api_base  # noqa: E402
+
+import test_entity_search_live  # noqa: E402
+
+_AUTHOR_QUERY_MODULE = "resmon_scripts/verification_scripts/test_entity_search_live.py"
+_AUTHOR_QUERY_CASE = f"{_AUTHOR_QUERY_MODULE}::test_a_real_source_answers_a_real_author_query"
+
+
+def _outage_snapshot():
+    """The snapshot `safe_request` leaves behind on the OAPEN outage.
+
+    Driven through `SearchOutcome`'s own methods rather than typed out, so the
+    keys, the token vocabulary and the ordering are the ones production writes:
+    a 500 that was retried, and a timeout that ended the search.
+    """
+    outcome = api_base.SearchOutcome()
+    outcome.note_attempt()
+    outcome.note_retried_failure(500)
+    outcome.note_attempt()
+    outcome.note_failure(httpx.ReadTimeout("slow"))
+    return outcome.snapshot()
+
+
+def test_a_recorded_author_query_outcome_is_what_lets_the_quarantine_excuse_it(tmp_path):
+    """P1: with the property `excused`, without it `unmatched`.
+
+    The real `quarantine_disposition`, a real entry read back through
+    `load_quarantine`, and a real recorded property — no hand-written dicts.
+    The second half is what the author-query case did before this change, and
+    it is the whole reason an entry naming it would have been useless.
+    """
+    today = utc_today()
+    entry = load_quarantine(_write_quarantine(tmp_path / "q.json", [
+        _entry(f"{_AUTHOR_QUERY_CASE}[oapen]",
+               first=today - timedelta(days=1), expires=today + timedelta(days=29)),
+    ]))[0]
+    recorded = source_outcome_property("oapen", _outage_snapshot())
+    assert recorded["last_call_failed"] is True
+    assert "http_500" in recorded["failure_history"]
+
+    assert quarantine_disposition(
+        entry, today, call_outcome="failed", assertion_failure=True,
+        recorded=[recorded],
+    ) == ("excused", ["http_500", "timeout"])
+
+    # Today's behaviour without the property: the case is quarantined, runs,
+    # fails with exactly the signature the entry names — and counts anyway.
+    assert quarantine_disposition(
+        entry, today, call_outcome="failed", assertion_failure=True, recorded=[],
+    ) == ("unmatched", [])
+
+    # Two sources on one report cannot say whose outage the failure was, so
+    # the excuse fails closed rather than covering the second source too.
+    assert quarantine_disposition(
+        entry, today, call_outcome="failed", assertion_failure=True,
+        recorded=[recorded, source_outcome_property("dblp", _outage_snapshot())],
+    ) == ("unmatched", ["http_500", "timeout"])
+
+    # The gate is pytest's own question — an `AssertionError` in the call
+    # phase — and `pytest.fail` does not ask it. The strict-source branch of
+    # the author-query case calls `pytest.fail` when the source answers with
+    # nothing, which is the shape an OAPEN outage takes there, so that path
+    # would still be `unmatched`. Recording the property is what this change
+    # does; converting that branch is a separate decision, not one made here.
+    assert not issubclass(pytest.fail.Exception, AssertionError)
+
+
+# A client double for the real author-query module, registered with `-p` in a
+# child process. It replaces the two names that module imported — `get_client`
+# and `get_credential_for` — so every slug in the catalog denominator reaches a
+# client call and records what a real one would. No askable source needs a key
+# today; `get_credential_for` is replaced anyway so that a keyed source which
+# later gains `entity_search` is covered rather than silently skipped out of
+# the denominator. It also shuts the conftest socket guard again after that
+# conftest has opened it for these `live_network` items: nothing in this run
+# may leave the machine, and a double that leaked a real request fails here
+# rather than quietly succeeding.
+_ENTITY_DOUBLE_PLUGIN = '''
+"""A hermetic stand-in for every askable source's client."""
+
+import pytest
+
+
+class _Double:
+    """Answers one author query with one record that carries the asked name."""
+
+    def __init__(self, slug):
+        self.slug = slug
+
+    def search_entity(self, profile, max_results=10):
+        # Imported here, not at plugin load: the module under test puts
+        # `resmon_scripts/` on `sys.path` when pytest imports it, and
+        # `resmon_scripts.implementation_scripts.api_base` loaded any earlier
+        # is a *second* module object — its own search outcome, its own
+        # `Author` class, so `as_authors` would drop every author and the
+        # recorded snapshot would show no attempt.
+        from implementation_scripts import api_base  # noqa: PLC0415
+
+        # One real attempt on the shared outcome, so the snapshot the case
+        # records has the shape `safe_request` would have left behind: the
+        # strict sources assert on `attempts` and on `last_call_failed`.
+        api_base.search_outcome().note_attempt()
+        name = profile["display_name"]
+        url = ("https://dblp.org/rec/double1" if self.slug == "dblp"
+               else "https://example.invalid/double1")
+        return [api_base.NormalizedResult(
+            source_repository=self.slug,
+            external_id="double1",
+            doi=None,
+            title="A record from the hermetic double",
+            authors=[api_base.Author(name=name, source_ids=((self.slug, "a1"),))],
+            abstract=None,
+            publication_date="2024-01-01",
+            url=url,
+        )]
+
+
+def _shut_the_socket_guard(config):
+    """Re-close the guard the production conftest opens for live_network."""
+    closed = 0
+    for plugin in config.pluginmanager.get_plugins():
+        allow = getattr(plugin, "_allow_network", None)
+        if isinstance(allow, dict) and "value" in allow:
+            allow["value"] = False
+            closed += 1
+    assert closed == 1, f"expected one socket guard to shut, found {closed}"
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_runtest_setup(item):
+    module = getattr(item, "module", None)
+    if module is not None and module.__name__.rsplit(".", 1)[-1] == "test_entity_search_live":
+        module.get_client = _Double
+        module.get_credential_for = lambda *args, **kwargs: "hermetic-double-key"
+    _shut_the_socket_guard(item.config)
+'''
+
+
+def _run_author_query_hermetically(tmp_path):
+    """Run the real author-query module against the double. Returns (result, evidence)."""
+    (tmp_path / "entity_search_double.py").write_text(_ENTITY_DOUBLE_PLUGIN, encoding="utf-8")
+    evidence = tmp_path / "evidence"
+    env = os.environ.copy()
+    env.update({
+        "RESMON_LIVE_EVIDENCE_DIR": str(evidence),
+        "RESMON_LIVE_CANDIDATE_SHA": "candidate-proof",
+        "RESMON_LIVE_CHECKOUT_SHA": "checkout-proof",
+        "RESMON_LIVE_SELECTION": "live_network",
+        "PYTHONPATH": os.pathsep.join(
+            [str(tmp_path)] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])),
+    })
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "pytest",
+            "-c", str(PROJECT_ROOT / "pytest.ini"),
+            "-p", "timeout",
+            "-p", "entity_search_double",
+            "-p", "no:cacheprovider",
+            "-m", "live_network",
+            "--timeout=60", "-q", str(PROJECT_ROOT / _AUTHOR_QUERY_MODULE),
+        ],
+        cwd=PROJECT_ROOT, env=env, capture_output=True, text=True, timeout=300,
+    )
+    (tmp_path / "author-query.stdout").write_text(result.stdout, encoding="utf-8")
+    (tmp_path / "author-query.stderr").write_text(result.stderr, encoding="utf-8")
+    return result, evidence
+
+
+def test_every_author_query_case_records_one_source_outcome_for_its_own_slug(tmp_path):
+    """P2/D3: the property reaches pytest's own report, for every slug, in the call phase.
+
+    The denominator is `_askable()` — the capability table — not a list here,
+    so a source that gains `entity_search` and no recorded outcome fails. The
+    schema is not asserted by inspection: `validate_evidence` puts every
+    recorded property through `_canonical_source_outcome`, refuses one that
+    arrived outside the call phase, and the evidence writer refuses a second
+    `source_outcome` on one report — so a passing run is also the proof that
+    each case records exactly one.
+    """
+    result, evidence = _run_author_query_hermetically(tmp_path)
+    assert result.returncode == int(pytest.ExitCode.OK), (
+        result.stdout[-6000:], result.stderr[-2000:])
+
+    reduction = validate_evidence(evidence)
+    recorded = {
+        nodeid: value["source"]
+        for nodeid, value in reduction["quarantine"]["source_outcomes"].items()
+    }
+    slugs = test_entity_search_live._askable()
+    expected = {f"{_AUTHOR_QUERY_CASE}[{slug}]": slug for slug in slugs}
+    assert recorded == expected, (
+        f"{len(recorded)} of {len(slugs)} askable sources recorded a source "
+        f"outcome naming themselves; missing "
+        f"{sorted(set(expected) - set(recorded))}")
