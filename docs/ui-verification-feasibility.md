@@ -476,7 +476,8 @@ too, because the app under test spawns the real FastAPI backend; without that
 the window opens and every page reads *Backend: Offline*.
 
 **Yes — the app launches and every route is walked under xvfb**, on
-`ubuntu-24.04` (runner image `20260831.293`), Node 20.
+`ubuntu-24.04` (runner image `20260831.293`), Node 20 (as measured; CI runs Node 22 since
+the trim PR).
 
 | Run | What it shows | Result |
 |---|---|---|

@@ -123,9 +123,10 @@ jobs:
         # wrong, and the trim PR that removed tailwindcss proved it: the chain
         # is jest-resolve -> unrs-resolver -> @unrs/resolver-binding-wasm32-wasi
         # -> @napi-rs/wasm-runtime -> @emnapi/*, every link a devDependency of
-        # jest. Removing tailwindcss left 26 of those 27 lockfile entries in
-        # place - the 27th was a hoisted duplicate of a nested @emnapi/* that
-        # is still there - so `npm install` stays.
+        # jest. That family (@emnapi/*, @unrs/*, @napi-rs/*) is 27 lockfile
+        # entries; removing tailwindcss left 26 of them in place - the one that
+        # went was a hoisted duplicate of a nested @emnapi/* that is still
+        # there - so `npm install` stays.
         #
         # The lockfile is still committed and still honoured for everything it
         # does pin; this only relaxes the strict-equality check that npm itself
