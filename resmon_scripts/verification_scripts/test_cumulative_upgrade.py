@@ -26,8 +26,18 @@ What each test establishes is written on it. The short version:
     one -- a rebuilt table can lose a constraint and look identical in a row
     count (P6)
   * a second launch changes nothing (P7)
-  * and the real backend serves the upgraded file over HTTP (P8, in
-    `test_cumulative_upgrade_boundary`-style style below).
+  * the real backend serves the upgraded file over HTTP (P8, in
+    `test_cumulative_upgrade_boundary`-style style below)
+  * every released fixture is byte-identical to what that release's own code
+    produces, regenerated out of process against a worktree of its tag (P1)
+  * and the fixture of the release that ships *today's* schema is walked too:
+    v2.2.0 wrote schema 18 and nothing migrates past it yet, so that walk is
+    18 -> 18 and must change nothing at all (P9).
+
+`RELEASED` near the bottom is the list both of those last two are parametrised
+over. A release that ships a schema adds one row to it and one directory under
+`fixtures/`; it does not add a test, and it never touches a fixture that
+shipped before it.
 
 `CREATE TABLE IF NOT EXISTS` leaves an old table alone, so "the table exists"
 proves nothing here; every assertion below is on shape or on data.
@@ -832,71 +842,116 @@ def test_the_real_backend_serves_the_upgraded_database_over_http(upgraded_backen
 
 
 # ---------------------------------------------------------------------------
-# P1 -- the fixture is what v2.1.0 writes
+# P1 -- every released fixture is what the release that wrote it produced
 # ---------------------------------------------------------------------------
 
 
-def _v210_worktree(tmp_path_factory):
-    """A disposable checkout of tag v2.1.0, or None where the tag is not here.
+class _Released:
+    """A corpus a released resmon wrote, and how to regenerate it.
+
+    The table below is the whole per-release cost of the standing rule in
+    `docs/release-verification.md`: a release that ships a schema adds one row
+    here and one directory beside this file. It does not add a test, and it
+    does not touch any fixture that shipped before it -- those files are the
+    only evidence in the repository that an upgrade did not move, and an edit
+    to `database.py` must never be able to move them either.
+    """
+
+    def __init__(self, tag: str, schema_version: int, require_env: str):
+        self.tag = tag
+        self.schema_version = schema_version
+        # CI fetches the tag explicitly and sets this to '1', which turns the
+        # "tag is not here" skip below into a failure. A depth-1 clone or a
+        # source tarball has no tags and skips.
+        self.require_env = require_env
+        self.directory = Path(__file__).parent / "fixtures" / tag
+        self.corpus = self.directory / f"corpus_schema_{schema_version}.sql"
+        self.generator = self.directory / "generate_corpus.py"
+
+
+RELEASED = [
+    _Released("v2.1.0", 13, "RESMON_REQUIRE_V210_TAG"),
+    _Released("v2.2.0", 18, "RESMON_REQUIRE_V220_TAG"),
+]
+IDS = [r.tag for r in RELEASED]
+
+# The walk above starts from the oldest fixture. Asserting it here rather than
+# letting the two definitions drift: a renamed fixture would otherwise leave
+# `walked` testing one file and this section proving another.
+assert FIXTURE == RELEASED[0].corpus and GENERATOR == RELEASED[0].generator
+
+# The release whose schema today's code still ships. There is exactly one, and
+# the guard below fails rather than skips when a schema bump leaves none --
+# which is the moment the next fixture is owed.
+CURRENT = [r for r in RELEASED if r.schema_version == database.SCHEMA_VERSION]
+
+
+def _worktree(tag: str, tmp_path_factory):
+    """A disposable checkout of `tag`, or None where the tag is not here.
 
     A checkout without the tag (a depth-1 clone, a source tarball) returns None
-    and the test skips. CI fetches the tag explicitly and sets
-    ``RESMON_REQUIRE_V210_TAG=1``, which turns that skip into a failure, so the
-    committed fixture cannot drift from v2.1.0's output between local runs.
+    and the caller skips. CI fetches every tag in RELEASED explicitly and sets
+    each one's require_env, so a committed fixture cannot drift from the output
+    of the code that wrote it between local runs.
     """
     if not (ROOT / ".git").exists():
         return None
-    if subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--verify", "v2.1.0^{commit}"],
+    if subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--verify", f"{tag}^{{commit}}"],
                       capture_output=True).returncode != 0:
         return None
-    target = tmp_path_factory.mktemp("v210-source") / "tree"
+    target = tmp_path_factory.mktemp(f"{tag}-source") / "tree"
     result = subprocess.run(
-        ["git", "-C", str(ROOT), "worktree", "add", "--detach", str(target), "v2.1.0"],
+        ["git", "-C", str(ROOT), "worktree", "add", "--detach", str(target), tag],
         capture_output=True, text=True)
     if result.returncode != 0:
         return None
     return target
 
 
-def test_the_committed_fixture_is_what_v210s_own_code_produces(tmp_path_factory):
-    """Regenerate against the real v2.1.0 code, out of process, and diff.
+@pytest.mark.parametrize("release", RELEASED, ids=IDS)
+def test_the_committed_fixture_is_what_that_releases_own_code_produces(
+        release, tmp_path_factory):
+    """Regenerate against the real released code, out of process, and diff.
 
-    Without this the fixture is just a file someone committed, and the claim
-    that it is "what v2.1.0 wrote" is unfalsifiable from here on.
+    Without this a fixture is just a file someone committed, and the claim that
+    it is "what v2.1.0 wrote" -- or what v2.2.0 wrote -- is unfalsifiable from
+    here on.
     """
-    tree = _v210_worktree(tmp_path_factory)
+    tree = _worktree(release.tag, tmp_path_factory)
     if tree is None:
-        required = os.environ.get("RESMON_REQUIRE_V210_TAG") == "1"
+        required = os.environ.get(release.require_env) == "1"
         assert not required, (
-            "RESMON_REQUIRE_V210_TAG=1 but tag v2.1.0 could not be checked out here")
-        pytest.skip("tag v2.1.0 is not in this checkout")
+            f"{release.require_env}=1 but tag {release.tag} could not be checked out here")
+        pytest.skip(f"tag {release.tag} is not in this checkout")
     try:
         result = subprocess.run(
-            [sys.executable, str(GENERATOR), "--source-tree", str(tree),
-             "--out", str(FIXTURE), "--check"],
-            capture_output=True, text=True, timeout=300)
+            [sys.executable, str(release.generator), "--source-tree", str(tree),
+             "--out", str(release.corpus), "--check"],
+            capture_output=True, text=True, timeout=600)
         assert result.returncode == 0, (
-            "the committed fixture is not what v2.1.0's code produces:\n"
+            f"the committed fixture is not what {release.tag}'s code produces:\n"
             + result.stdout[-4000:] + result.stderr[-2000:])
     finally:
         subprocess.run(["git", "-C", str(ROOT), "worktree", "remove", "--force", str(tree)],
                        capture_output=True)
 
 
-def test_the_fixture_declares_the_commit_it_came_from(tmp_path_factory):
+@pytest.mark.parametrize("release", RELEASED, ids=IDS)
+def test_the_fixture_declares_the_commit_it_came_from(release):
     """Provenance in the file itself, so a reader does not have to take it on trust."""
-    header = FIXTURE.read_text(encoding="utf-8").split("\n\n", 1)[0]
-    assert "tag v2.1.0" in header
+    header = release.corpus.read_text(encoding="utf-8").split("\n\n", 1)[0]
+    assert f"tag {release.tag}" in header
     assert re.search(r"commit [0-9a-f]{40}", header), (
         "the fixture header must name the exact commit it was generated from")
     assert "generate_corpus.py" in header
 
 
-def test_the_fixture_holds_every_object_v210_owns_and_no_shadow_table():
+@pytest.mark.parametrize("release", RELEASED, ids=IDS)
+def test_the_fixture_holds_every_object_the_release_owns_and_no_shadow_table(release):
     """The lesson from the reading-queue fixture, kept as a test rather than a comment."""
     conn = sqlite3.connect(":memory:")
     try:
-        conn.executescript(FIXTURE.read_text(encoding="utf-8"))
+        conn.executescript(release.corpus.read_text(encoding="utf-8"))
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
     finally:
         conn.close()
@@ -904,7 +959,75 @@ def test_the_fixture_holds_every_object_v210_owns_and_no_shadow_table():
     # removed them along with the shadow tables.
     assert {"documents_fts_insert", "documents_fts_delete",
             "documents_fts_update"} <= names
-    text = FIXTURE.read_text(encoding="utf-8")
+    text = release.corpus.read_text(encoding="utf-8")
     for shadow in SHADOW:
         assert f'CREATE TABLE "{shadow}"' not in text and f"'{shadow}'" not in text, (
             f"{shadow} is fts5's own table and must not be in the fixture")
+
+
+# ---------------------------------------------------------------------------
+# P9 -- the fixture of the release that shipped this schema is walked too,
+#       and today that walk has to change nothing at all
+# ---------------------------------------------------------------------------
+
+
+def test_the_release_that_shipped_this_schema_left_a_fixture():
+    """A schema bump owes a fixture, and this is where the debt is called in.
+
+    Fails rather than skips: an empty `CURRENT` would otherwise turn the no-op
+    walk below into zero parametrised cases and a green run.
+    """
+    assert CURRENT, (
+        f"SCHEMA_VERSION is {database.SCHEMA_VERSION} and no entry in RELEASED "
+        "was written at it. The release that ships a schema commits a fixture "
+        "of it -- see docs/release-verification.md.")
+    assert len(CURRENT) == 1, f"two releases claim schema {database.SCHEMA_VERSION}"
+
+
+@pytest.mark.parametrize("release", CURRENT, ids=[r.tag for r in CURRENT])
+def test_one_init_db_over_the_current_releases_fixture_changes_nothing(
+        release, tmp_path_factory):
+    """The walk a user of the newest release takes today: 18 -> 18, a no-op.
+
+    `test_a_second_and_third_launch_change_nothing` already says a second
+    launch changes nothing about a database *this* code upgraded. This says it
+    about a database a *released* build wrote, which is the only version of the
+    claim a user is in -- and it is the case that will fail first when the next
+    migration lands, which is what makes it the right guard to leave here:
+    once schema 19 exists, `CURRENT` moves to the release that ships it.
+
+    File-backed, and reopened afterwards, because reopening is what a launch
+    does. The comparison is `_fingerprint`, which covers every authored object,
+    every row of every application table and the AUTOINCREMENT high-water
+    marks -- a reset sequence is invisible in a row count.
+    """
+    path = tmp_path_factory.mktemp(f"noop-{release.tag}") / "corpus.db"
+    conn = _open(path)
+    conn.executescript(release.corpus.read_text(encoding="utf-8"))
+    conn.commit()
+    assert database.get_schema_version(conn) == release.schema_version
+    before = _fingerprint(conn)
+    tables = len(_app_tables(conn))
+    rows = sum(conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
+               for t in _app_tables(conn))
+    conn.close()
+
+    database.init_db(str(path))            # the launch
+
+    conn = _open(path)
+    try:
+        assert database.get_schema_version(conn) == release.schema_version, (
+            "today's code moved the schema marker on a fixture written at the "
+            "version it still ships")
+        assert _fingerprint(conn) == before, (
+            f"one init_db changed the {release.tag} fixture: same objects, same "
+            "rows and the same sequences were expected")
+        # A fingerprint of nothing is equal to a fingerprint of nothing, so the
+        # denominator is stated rather than assumed.
+        assert tables >= 30 and rows >= 150, (
+            f"{tables} tables and {rows} rows were compared -- too few for this "
+            "assertion to mean anything")
+        print(f"P9 {release.tag}: {rows} rows across {tables} application tables "
+              "unchanged by one init_db")
+    finally:
+        conn.close()
