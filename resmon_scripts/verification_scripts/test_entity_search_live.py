@@ -55,7 +55,11 @@ from implementation_scripts.api_registry import get_client  # noqa: E402
 from implementation_scripts.credential_manager import get_credential_for  # noqa: E402
 from implementation_scripts.entity_matching import fold_name  # noqa: E402
 from implementation_scripts.repo_catalog import REPOSITORY_CATALOG  # noqa: E402
-from live_evidence import CurrentRunSourceLedger, stable_hash  # noqa: E402
+from live_evidence import (  # noqa: E402
+    CurrentRunSourceLedger,
+    source_outcome_property,
+    stable_hash,
+)
 
 pytestmark = pytest.mark.live_network
 
@@ -235,14 +239,23 @@ def test_a_real_source_answers_a_real_author_query(
     try:
         records = client.search_entity(_profile(name), max_results=10)
     except Exception as exc:
+        outcome = search_outcome().snapshot()
+        # Recorded before the exception continues on its way, and before any
+        # assertion below, for the same reason `test_oapen_live_search` records
+        # it: the provider-outage quarantine (live_quarantine.json) can only
+        # match its signature against an outcome that reached the report, and a
+        # case that records none can be quarantined but never excused. Exactly
+        # one property per case — the quarantine fails closed on two.
+        record_property("source_outcome", source_outcome_property(slug, outcome))
         if keyless:
             source_response_ledger.finish(
                 slug, result="raised", returned_count=None,
-                outcome=search_outcome().snapshot(), error=exc,
+                outcome=outcome, error=exc,
             )
             record_property("source_ledger", source_response_ledger.record(slug))
         raise
     outcome = search_outcome().snapshot()
+    record_property("source_outcome", source_outcome_property(slug, outcome))
     if keyless:
         source_response_ledger.finish(
             slug,

@@ -292,6 +292,13 @@ def quarantine_disposition(
     ``recorded`` is every ``source_outcome`` property the case recorded. The
     history is reported whatever the disposition. A skipped call has no
     disposition, because nothing was asserted.
+
+    **An excuse needs exactly one recorded source outcome in total and exactly
+    one for the entry's source**, so it fails closed: a case that records none
+    is never excused, and neither is a case that records two — with two sources
+    on one report there is no way to tell whose outage the failure was, and
+    quarantining the case would excuse the other source's failure too. So a
+    live case is only worth a quarantine entry once it records one.
     """
     outcomes = []
     for value in recorded:

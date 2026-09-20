@@ -66,15 +66,19 @@ above, a first-observed date, an expiry no more than 30 days later, and the
 excused status captured from two vantage points. A quarantined case still runs
 and still asserts. Its failure is excused only when it is an assertion and the
 case's recorded source outcome shows the search ended on a failed call whose
-history contains the signature. Any other failure fails the run: a different
-status, timeouts alone, a wrong answer after a successful retry, or a crash. A
-pass is reported as a recovery, so the entry can be lifted. An expired entry is
-ignored, and the case fails as it would without one. The run summary always
-prints the denominator from the collected suite, for example "91 of 92
-asserted; 1 quarantined (oapen, since 2026-09-18, http_500, expires
-2026-10-18)". The first entry is OAPEN's dated search. From 2026-09-18 its
-server intermittently answered HTTP 500 with a database connection error, both
-to GitHub runners and to a workstation.
+history contains the signature. A case qualifies for an entry only once it
+records exactly one source outcome, because an excuse needs exactly one in
+total and exactly one for the entry's source: a case that records none can be
+quarantined and never excused, and a case that records two does not say whose
+outage the failure was, so neither is excused. Any other failure fails the run:
+a different status, timeouts alone, a wrong answer after a successful retry, or
+a crash. A pass is reported as a recovery, so the entry can be lifted. An
+expired entry is ignored, and the case fails as it would without one. The run
+summary always prints the denominator from the collected suite, for example
+"91 of 92 asserted; 1 quarantined (oapen, since 2026-09-18, http_500,
+expires 2026-10-18)". The first entry is OAPEN's dated search. From 2026-09-18
+its server intermittently answered HTTP 500 with a database connection error,
+both to GitHub runners and to a workstation.
 
 These controls bound cooperative HTTP work. They do not hard-preempt DNS
 shutdown, OS scheduling, CPU-bound work, or another non-cooperative dependency.
