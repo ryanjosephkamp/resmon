@@ -268,7 +268,14 @@ def test_a_real_source_answers_a_real_author_query(
 
     if not records:
         if slug in _STRICT_AUTHOR:
-            pytest.fail(
+            # `raise AssertionError` rather than `pytest.fail`, and the difference
+            # is not stylistic: the provider-outage quarantine excuses only a call
+            # that failed by asserting (conftest.py asks
+            # `call.excinfo.errisinstance(AssertionError)`), and `pytest.fail`
+            # raises `Failed`, which is not one. A strict source going dark is
+            # exactly the shape an outage takes here, so a quarantine entry naming
+            # this case has to be able to reach it.
+            raise AssertionError(
                 f"{slug} is a strict source-response gate: its real author query "
                 f"for {name!r} returned no useful records; outcome={outcome!r}"
             )
@@ -312,7 +319,10 @@ def test_a_real_source_answers_a_real_author_query(
     # assertion or a red one that blames the query.
     if not any(r.authors for r in records):
         if slug in _STRICT_AUTHOR:
-            pytest.fail(
+            # An assertion for the same reason as the branch above: this is a
+            # failure of the source, and only an `AssertionError` can be excused
+            # by a quarantine entry naming this case.
+            raise AssertionError(
                 f"{slug} returned records for its strict author query but none "
                 f"had a parsed author; outcome={outcome!r}"
             )

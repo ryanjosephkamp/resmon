@@ -1470,13 +1470,23 @@ def test_a_recorded_author_query_outcome_is_what_lets_the_quarantine_excuse_it(t
         recorded=[recorded, source_outcome_property("dblp", _outage_snapshot())],
     ) == ("unmatched", ["http_500", "timeout"])
 
-    # The gate is pytest's own question — an `AssertionError` in the call
-    # phase — and `pytest.fail` does not ask it. The strict-source branch of
-    # the author-query case calls `pytest.fail` when the source answers with
-    # nothing, which is the shape an OAPEN outage takes there, so that path
-    # would still be `unmatched`. Recording the property is what this change
-    # does; converting that branch is a separate decision, not one made here.
-    assert not issubclass(pytest.fail.Exception, AssertionError)
+    # The gate is pytest's own question — an `AssertionError` in the call phase
+    # — and `pytest.fail` does not ask it, because `Failed` is not an
+    # `AssertionError`. The strict-source branch of the author-query case used
+    # to call `pytest.fail` when the source answered with nothing, which is the
+    # shape an outage takes there, so an entry naming that case printed as a
+    # quarantine and excused nothing. That gap is closed: the branch raises
+    # `AssertionError` with the same message, and
+    # `test_a_strict_source_that_answers_nothing_is_excusable_by_the_quarantine`
+    # below proves it at a real exit status for all three strict sources.
+    #
+    # The gate itself was deliberately not widened to `Failed`. Only an
+    # assertion says "the case asked the source a question and the answer was
+    # wrong"; `Failed` is also what the harness raises for its own reasons, and
+    # the `crash` branch above exists to keep a non-assertion failure — a
+    # `TypeError` from resmon's own parsing, say — from ever being excused as a
+    # provider outage. Widening the gate would have bought this one case at the
+    # cost of that rule.
 
 
 # A client double for the real author-query module, registered with `-p` in a
@@ -1492,7 +1502,14 @@ def test_a_recorded_author_query_outcome_is_what_lets_the_quarantine_excuse_it(t
 _ENTITY_DOUBLE_PLUGIN = '''
 """A hermetic stand-in for every askable source's client."""
 
+import os
+
 import pytest
+
+# The slugs this run makes answer with nothing, after a 500 that was retried
+# and a retry that timed out — the shape an outage takes in this case. Empty
+# unless a proof asks for it, so the default double stays the answering one.
+_OUTAGE = {slug for slug in os.environ.get("ENTITY_DOUBLE_OUTAGE", "").split(",") if slug}
 
 
 class _Double:
@@ -1502,6 +1519,8 @@ class _Double:
         self.slug = slug
 
     def search_entity(self, profile, max_results=10):
+        import httpx  # noqa: PLC0415
+
         # Imported here, not at plugin load: the module under test puts
         # `resmon_scripts/` on `sys.path` when pytest imports it, and
         # `resmon_scripts.implementation_scripts.api_base` loaded any earlier
@@ -1509,6 +1528,18 @@ class _Double:
         # `Author` class, so `as_authors` would drop every author and the
         # recorded snapshot would show no attempt.
         from implementation_scripts import api_base  # noqa: PLC0415
+
+        if self.slug in _OUTAGE:
+            # Driven through `SearchOutcome`'s own methods, not typed out, so
+            # the recorded snapshot is the one `safe_request` writes when a 500
+            # is retried and the retry times out. The client swallows the
+            # failure and returns nothing, which is what a real client does.
+            outcome = api_base.search_outcome()
+            outcome.note_attempt()
+            outcome.note_retried_failure(500)
+            outcome.note_attempt()
+            outcome.note_failure(httpx.ReadTimeout("slow"))
+            return []
 
         # One real attempt on the shared outcome, so the snapshot the case
         # records has the shape `safe_request` would have left behind: the
@@ -1550,12 +1581,24 @@ def pytest_runtest_setup(item):
 '''
 
 
-def _run_author_query_hermetically(tmp_path):
-    """Run the real author-query module against the double. Returns (result, evidence)."""
+def _run_author_query_hermetically(tmp_path, *, outage=(), quarantined=None, label="author-query"):
+    """Run the real author-query module against the double. Returns (result, evidence).
+
+    ``outage`` names the slugs whose double answers with nothing after a
+    retried 500 and a timeout. ``quarantined`` is the list of quarantine
+    entries this run's policy file carries; passing ``[]`` means a real,
+    readable policy that excuses nothing, which is what the unquarantined half
+    of the proof needs. Leaving it ``None`` uses the shipped policy, whose
+    entries name no case in this module.
+    """
     (tmp_path / "entity_search_double.py").write_text(_ENTITY_DOUBLE_PLUGIN, encoding="utf-8")
-    evidence = tmp_path / "evidence"
+    evidence = tmp_path / f"evidence-{label}"
     env = os.environ.copy()
+    if quarantined is not None:
+        env["RESMON_LIVE_QUARANTINE_FILE"] = str(
+            _write_quarantine(tmp_path / f"quarantine-{label}.json", quarantined))
     env.update({
+        "ENTITY_DOUBLE_OUTAGE": ",".join(outage),
         "RESMON_LIVE_EVIDENCE_DIR": str(evidence),
         "RESMON_LIVE_CANDIDATE_SHA": "candidate-proof",
         "RESMON_LIVE_CHECKOUT_SHA": "checkout-proof",
@@ -1575,8 +1618,8 @@ def _run_author_query_hermetically(tmp_path):
         ],
         cwd=PROJECT_ROOT, env=env, capture_output=True, text=True, timeout=300,
     )
-    (tmp_path / "author-query.stdout").write_text(result.stdout, encoding="utf-8")
-    (tmp_path / "author-query.stderr").write_text(result.stderr, encoding="utf-8")
+    (tmp_path / f"{label}.stdout").write_text(result.stdout, encoding="utf-8")
+    (tmp_path / f"{label}.stderr").write_text(result.stderr, encoding="utf-8")
     return result, evidence
 
 
@@ -1606,3 +1649,84 @@ def test_every_author_query_case_records_one_source_outcome_for_its_own_slug(tmp
         f"{len(recorded)} of {len(slugs)} askable sources recorded a source "
         f"outcome naming themselves; missing "
         f"{sorted(set(expected) - set(recorded))}")
+
+
+# ---------------------------------------------------------------------------
+# A strict source that answers nothing is excusable
+# ---------------------------------------------------------------------------
+#
+# The two proofs below are the other half of the guard above: that one pins the
+# disposition function, these drive the real author-query module in a child
+# pytest run and read the answer off pytest's own exit status. The double makes
+# one strict source answer with nothing after a retried 500 and a timeout —
+# the shape an outage takes in this case — and the only thing that turns that
+# failure into an xfail is that the strict branch raises `AssertionError`.
+
+
+def _strict_slugs():
+    """The strict-source denominator, read from the module rather than listed."""
+    return sorted(test_entity_search_live._STRICT_AUTHOR)
+
+
+@pytest.mark.parametrize("slug", _strict_slugs())
+def test_a_strict_source_that_answers_nothing_is_excusable_by_the_quarantine(tmp_path, slug):
+    """P1: for each of the three strict sources, an outage becomes an excused xfail.
+
+    Nothing here is hand-written except the policy file: the failure is the
+    real case's own strict branch, the recorded outcome is the real
+    `SearchOutcome`'s snapshot, the excuse is the real reporter's, and the
+    evidence is read back through `validate_evidence`. Because
+    `quarantine_disposition` excuses only an `AssertionError` in the call
+    phase, an `excused` disposition here *is* the proof that the branch no
+    longer raises `Failed`.
+    """
+    today = utc_today()
+    nodeid = f"{_AUTHOR_QUERY_CASE}[{slug}]"
+    result, evidence = _run_author_query_hermetically(
+        tmp_path, outage=[slug], label=f"outage-{slug}",
+        quarantined=[_entry(
+            nodeid, source=slug, signature="http_500",
+            first=today - timedelta(days=1), expires=today + timedelta(days=29),
+        )],
+    )
+    assert result.returncode == int(pytest.ExitCode.OK), (
+        result.stdout[-6000:], result.stderr[-2000:])
+    assert (
+        f"QUARANTINED {nodeid}: failed with the excused signature "
+        f"(observed http_500 -> timeout); not counted as a failure."
+    ) in result.stdout, result.stdout[-6000:]
+
+    reduction = validate_evidence(evidence)
+    assert reduction["finish"]["exitstatus"] == int(pytest.ExitCode.OK)
+    assert reduction["outcomes"][nodeid] == "skipped"
+    assert reduction["quarantine"]["dispositions"][nodeid]["disposition"] == "excused"
+    recorded = reduction["quarantine"]["source_outcomes"][nodeid]
+    assert recorded["source"] == slug
+    assert recorded["failure_history"] == ["http_500", "timeout"]
+
+
+def test_a_strict_source_that_answers_nothing_still_fails_an_unquarantined_run(tmp_path):
+    """P2: without an entry the failure is not softened — all three, at the exit status.
+
+    The policy file this run reads is real and readable and excuses nothing, so
+    a silent strict source is a red run exactly as before. Converting the
+    branch to an assertion changed which failures a quarantine *can* reach, not
+    whether a failure counts.
+    """
+    slugs = _strict_slugs()
+    result, evidence = _run_author_query_hermetically(
+        tmp_path, outage=slugs, quarantined=[], label="outage-unquarantined")
+    assert result.returncode == int(pytest.ExitCode.TESTS_FAILED), (
+        result.stdout[-6000:], result.stderr[-2000:])
+
+    reduction = validate_evidence(evidence)
+    assert reduction["finish"]["exitstatus"] == int(pytest.ExitCode.TESTS_FAILED)
+    failed = {
+        nodeid for nodeid, outcome in reduction["outcomes"].items() if outcome == "failed"
+    }
+    expected = {f"{_AUTHOR_QUERY_CASE}[{slug}]" for slug in slugs}
+    assert failed == expected, (
+        f"{len(failed & expected)} of {len(slugs)} strict sources failed the run "
+        f"unquarantined; unexpected {sorted(failed - expected)}, missing "
+        f"{sorted(expected - failed)}")
+    assert reduction["quarantine"]["dispositions"] == {}
