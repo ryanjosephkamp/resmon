@@ -21,9 +21,10 @@ check that it was collected rather than a separate command:
 .venv/bin/python -m pytest -q resmon_scripts/verification_scripts/test_cumulative_upgrade.py
 ```
 
-One case in it regenerates the fixture from tag v2.1.0 and diffs it against
-the committed file. CI fetches that tag explicitly (the "Fetch the v2.1.0 tag"
-step in `.github/workflows/ci.yml`) and sets `RESMON_REQUIRE_V210_TAG=1`, so in
+One case per released fixture regenerates it from that release's own tag and
+diffs it against the committed file. CI fetches those tags explicitly (the
+"Fetch the released tags" step in `.github/workflows/ci.yml`) and sets
+`RESMON_REQUIRE_V210_TAG=1` and `RESMON_REQUIRE_V220_TAG=1`, so in
 CI a missing tag is a failure, not a skip. Elsewhere — a shallow clone, a source
 tarball — the case skips; with `-rs` a local run says which happened:
 
@@ -55,6 +56,12 @@ way, so the next release walks from it:
 Skipping step 1 for a release costs nothing that release and leaves the next
 one with no way to walk from a real database. That is how five untested steps
 accumulated.
+
+**Applied for v2.2.0.** `fixtures/v2.2.0/corpus_schema_18.sql` and its generator
+are committed, the four steps above are done, and because nothing migrates past
+18 yet the walk they serve today is 18 → 18 — one `init_db` over that fixture
+must change no row, no object and no schema marker
+(`test_one_init_db_over_the_current_releases_fixture_changes_nothing`).
 
 ## Procedure
 

@@ -40,13 +40,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The cumulative upgrade test regenerates its schema-13 fixture from the
-      # released v2.1.0 code and diffs it against the committed file. The
-      # checkout above is depth 1 and carries no tags, so fetch that one tag
-      # (depth 1 is enough for a worktree of it) and tell the test that a
-      # missing tag is a failure here, not a skip.
-      - name: Fetch the v2.1.0 tag for the fixture-provenance check
-        run: git fetch --depth=1 origin "refs/tags/v2.1.0:refs/tags/v2.1.0"
+      # The cumulative upgrade test regenerates each released fixture from that
+      # release's own code and diffs it against the committed file. The
+      # checkout above is depth 1 and carries no tags, so fetch those tags
+      # (depth 1 is enough for a worktree of each) and tell the test that a
+      # missing tag is a failure here, not a skip. One tag per released
+      # fixture: the list here and `RELEASED` in
+      # verification_scripts/test_cumulative_upgrade.py grow together.
+      - name: Fetch the released tags for the fixture-provenance checks
+        run: |
+          for tag in v2.1.0 v2.2.0; do
+            git fetch --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
+          done
 
       - uses: actions/setup-python@v5
         with:
@@ -79,7 +84,13 @@ jobs:
         # count. With -v the last line printed is the last test that finished,
         # which names the culprit immediately.
         env:
+          # One switch per released fixture, each turning "the tag is not here"
+          # from a skip into a failure. A new release adds its own rather than
+          # widening an existing one: a single flag would have to mean "every
+          # tag", and the first tag that failed to fetch would take the others
+          # down with it without saying which one was missing.
           RESMON_REQUIRE_V210_TAG: '1'
+          RESMON_REQUIRE_V220_TAG: '1'
         run: pytest -v
 
   frontend:
