@@ -703,6 +703,24 @@ Live progress is streamed through `ProgressStore` (`implementation_scripts/progr
 
 Standard SSE headers are set (`Cache-Control: no-cache`, `Connection: keep-alive`, `X-Accel-Buffering: no`) and `PrivateNetworkMiddleware` does not buffer the stream. After an execution ends, buffered events are persisted into the `execution_progress` table so the Monitor and Results pages can reconstruct the stream after a process restart. Cancellation is cooperative: `POST /api/executions/{id}/cancel` sets the cancel flag, the pipeline's 2-second heartbeat notices, a partial report is flushed, and the execution finalizes as `cancelled`.
 
+#### Interrupted runs and Restart (schema 19)
+
+Cancellation is the *orderly* way a run stops, and it is the only one the paragraph above describes. A backend that is force-quit, loses power, or is killed by Electron on the way out does not get to flush anything, and the run's row used to sit at `running` for ever: it appeared in no active list, could not be cancelled, and claimed in Results & Logs to still be searching.
+
+`executions.status` has a fifth value for that: **`interrupted`**. It is deliberately not `failed` — nothing went wrong with the search, the process it was running inside went away, and saying `failed` was an overclaim resmon made about itself for several releases. The row records `interrupted_reason`, one of:
+
+| Reason | What resmon observed |
+|---|---|
+| `daemon_restart` | resmon watched itself stop and wrote the row on the way out. |
+| `owner_dead` | A later start found the process that owned the row gone. |
+| `unknown` | Neither could be established. |
+
+Each run records the pid and runtime id of the backend that owns it (`owner_pid`, `owner_runtime_id`) and stamps `last_seen_at_utc` at every pipeline stage boundary and every 30 seconds inside a long one. On startup, before the scheduler starts, `_reconcile_executions_on_startup` adopts every `running` row whose owner can be *established* to be gone. Everything else is left running and counted in the log: a pid that has been reused, or one belonging to another user, reads as alive, because telling a user that a live run has died is the worse mistake.
+
+Rows written before schema 19 recorded no owner at all, so there is no liveness fact to read and the only remaining evidence is the clock. Those are adopted after **24 hours**. That number is a judgement rather than a measurement: resmon puts no ceiling on how long a sweep may take and the admission queue makes a routine fire wait for a slot with no timeout, so there was no shorter number in the code to borrow. It goes stale on its own as pre-2.3 history ages out.
+
+From an interrupted, failed or cancelled row, **Restart** (`POST /api/executions/{id}/restart` → 202) begins a fresh execution with the source's search terms, databases and date window, carrying `restarted_from` back to it; `GET /api/executions/{id}` reports both that link and the `restarted_into` ids. The source row is never modified — it is a record of what happened. Restart is **not** resume: progress events are persisted once, at the end of a run, so an interrupted run has nothing durable to carry forward. It reproduces the search and the AI on/off choice (read from whether the source has `execution_ai` lane rows), not the provider, model or credential of the day — `parameters` never held those, and reconstructing them would be a guess. A restart goes through the same manual admission cap as a Deep Sweep, and cancelling a row that is not running now answers 409 with a sentence naming its state.
+
 ### Optional Google Drive Backup
 
 `implementation_scripts/cloud_storage.py` wraps the Drive v3 API with the least-privilege `drive.file` OAuth 2.0 scope. The token is stored in the OS keyring, and uploads are triggered by `SweepEngine._maybe_auto_backup` when the `cloud_auto_backup` setting is on. Configured under Settings → Cloud Storage. It is the only way any report leaves the machine, and it is off by default.

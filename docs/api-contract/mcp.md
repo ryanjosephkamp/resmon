@@ -116,7 +116,7 @@ called out explicitly.
 | `list_sources` | — | slug, name, coverage, whether a key is required and whether one is present | `GET /api/repositories/catalog` + `GET /api/credentials` |
 | `list_routines` | `active_only?` | id, name, schedule, sources, keywords, last run, active | `GET /api/routines` |
 | `get_routine` | `routine_id` | the full routine record | `GET /api/routines/{id}` |
-| `list_executions` | `routine_id?`, `status?`, `limit=25`, `offset=0` | id, type, status, started, finished, result count | `GET /api/executions` |
+| `list_executions` | `routine_id?`, `status?`, `limit=25`, `offset=0` | id, type, status, started, finished, result count, `interrupted_reason`, `restarted_from` | `GET /api/executions` |
 | `get_execution` | `exec_id` | status, per-source counts, timings, AI lane used | `GET /api/executions/{id}` |
 | `get_execution_results` | `exec_id`, `limit=25`, `offset=0` | the papers that run found, with existing corpus `id` usable by `explain_match` | `GET /api/executions/{id}/references?format=json&include_ids=true` |
 | `get_search_record` | `exec_id` | the PRISMA-shaped reproducible record | `GET /api/executions/{id}/search-record` |
@@ -212,6 +212,38 @@ Listed so the omissions are visible and arguable rather than silently missing.
 ---
 
 ## Amendments
+
+### Fields, not a version — 20 September 2026, schema 19
+
+**No tool arrives, none is removed, no return shape moves and the contract version does
+not change.** `executions.status` gains a fifth value, `interrupted`, and three fields
+ride along on the two tools that read executions.
+
+`status` is now one of `running`, `completed`, `failed`, `cancelled`, **`interrupted`**.
+The fifth one means the backend running that execution went away before it finished — a
+force-quit, a power cut, the app being closed mid-sweep. **It is not `failed`**, and the
+distinction is the whole reason it exists: nothing went wrong with the search, so a
+caller must not report it as a search that failed. A harness that branches on `failed`
+will now see `interrupted` fall through to its default arm, which is the correct place
+for it: the run did not produce results, and resmon is not claiming to know why beyond
+the process ending.
+
+- `get_execution` returns the row whole, so it gains `interrupted_reason`
+  (`owner_dead` | `daemon_restart` | `unknown`, or `null` — `null` means the run was
+  never interrupted, or that the reason was never recorded, and never a guess),
+  `owner_pid`, `owner_runtime_id`, `last_seen_at_utc`, `restarted_from`, and a computed
+  `restarted_into` list.
+- `list_executions` projects a fixed key set, so `interrupted_reason` and
+  `restarted_from` were added to it explicitly. A field absent from this projection is
+  invisible to a caller reading a list of runs, which is the usual way a status becomes
+  unreadable in practice.
+- `run_sweep`'s description now says the run may end `interrupted`, so a caller polling
+  `get_execution` after it is not surprised by a sixth word it has no branch for.
+
+**There is still no tool that cancels or restarts an execution.** `POST
+/api/executions/{id}/restart` exists in the API and is reachable from the app; exposing
+it through this surface is a separate decision about a write tool, and this amendment
+does not make it. **25 tools, unchanged.**
 
 ### v2.2 — 7 September 2026, phase 2.1a′
 
