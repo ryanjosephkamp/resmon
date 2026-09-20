@@ -45,6 +45,7 @@ from implementation_scripts.database import (
     get_executions,
     get_execution_by_id,
     get_execution_sources,
+    get_execution_ai,
     get_execution_documents,
     get_execution_documents_page,
     get_documents_by_ids,
@@ -1865,8 +1866,12 @@ def cancel_execution(exec_id: int):
     A row that is not in the in-memory ``ProgressStore`` is not cancellable,
     and this used to say only "Execution not running" -- which read, on an
     interrupted row, as if resmon had lost track of something. The row's own
-    state is the honest answer, and it is what the renderer needs to decide
-    whether to offer Restart instead.
+    state belongs in the sentence.
+
+    ``detail`` stays a **string**. FastAPI will serialise a dict there happily,
+    and a renderer that renders ``detail`` directly -- which several of
+    resmon's do -- would then show ``[object Object]``. Anything that needs the
+    state structurally reads ``status`` off the row it already has.
     """
     if not progress_store.is_active(exec_id):
         conn = _get_db()
@@ -1874,19 +1879,13 @@ def cancel_execution(exec_id: int):
             row = get_execution_by_id(conn, exec_id)
         finally:
             _close_db(conn)
-        state = row.get("status") if row else None
         # 409 even where there is no such row. That is what this endpoint has
-        # always answered for an id the progress store does not hold, and the
-        # renderer's cancel paths are built on it; ``state: null`` is the
-        # honest reading of "resmon has no record of this run".
-        raise HTTPException(409, {
-            "message": (
-                f"This execution is {state}; there is nothing to cancel."
-                if state else "resmon has no record of this execution."),
-            "state": state,
-            "interrupted_reason": row.get("interrupted_reason") if row else None,
-            "restartable": state in _RESTARTABLE_STATES,
-        })
+        # always answered for an id the progress store does not hold.
+        if not row:
+            raise HTTPException(409, f"resmon has no record of execution {exec_id}.")
+        raise HTTPException(409, (
+            f"Execution {exec_id} is {row.get('status')}; only a running "
+            "execution can be cancelled."))
     progress_store.request_cancel(exec_id)
     return {"status": "cancellation_requested"}
 
@@ -1910,35 +1909,45 @@ def restart_execution(exec_id: int):
             raise HTTPException(404, "Execution not found")
         state = row.get("status")
         if state not in _RESTARTABLE_STATES:
-            raise HTTPException(409, {
-                "message": (
-                    f"This execution is {state}. Only an interrupted, failed or "
-                    "cancelled run can be restarted."),
-                "state": state,
-                "restartable": False,
-            })
+            # A string, for the same reason ``cancel_execution`` gives one.
+            raise HTTPException(409, (
+                f"Execution {exec_id} is {state}; only an interrupted, failed "
+                "or cancelled run can be restarted."))
         # The same door a manual Deep Dive or Deep Sweep comes through, so a
         # restart cannot get resmon past its own concurrency cap. Like those
         # two, it only *checks* the cap here; the slot is claimed by
         # ``admission.note_admitted`` on the worker thread.
         _reject_if_at_manual_cap()
-        # ``parameters`` is copied verbatim rather than re-serialised, so the
-        # restart runs the search the source row records, down to the JSON.
+        # The AI lane, reproduced as far as the record allows. ``parameters``
+        # holds the search, never the AI settings, so what the source row can
+        # answer is whether AI ran at all: ``execution_ai`` has one row per lane
+        # that was tried. A restart therefore reproduces the *choice* -- AI on
+        # or off -- and runs it against whatever is configured today, which is
+        # the same thing a second click of Deep Sweep would do. Reconstructing
+        # the provider, model and credential of the day from a lane record would
+        # be a guess wearing the original run's clothes.
+        ai_enabled = bool(get_execution_ai(conn, exec_id))
+        # Written into the new row's ``parameters`` so the next reader -- a
+        # restart of the restart, the search record, a person -- does not have
+        # to infer it a second time. Everything else is the source's, verbatim.
+        params = json.loads(row["parameters"]) if row["parameters"] else {}
+        params["ai_enabled"] = ai_enabled
         new_id = insert_execution(conn, {
             "execution_type": row["execution_type"],
             "routine_id": row.get("routine_id"),
             "saved_configuration_id": row.get("saved_configuration_id"),
-            "parameters": row["parameters"],
+            "parameters": json.dumps(params, default=str),
             "start_time": utc_now_iso(),
             "restarted_from": exec_id,
         })
         # No ``prepare_execution``: the row exists, and ``run_prepared`` reads
         # the repositories and query parameters back out of it. Passing them a
         # second time would be a second copy to keep honest.
-        engine = SweepEngine(db_conn=conn, config={"ai_enabled": False, "ai_settings": None})
+        engine = SweepEngine(db_conn=conn, config={"ai_enabled": ai_enabled, "ai_settings": None})
         progress_store.register(new_id)
         _launch_execution(engine, new_id, conn)
-        return {"execution_id": new_id, "restarted_from": exec_id}
+        return {"execution_id": new_id, "restarted_from": exec_id,
+                "ai_enabled": ai_enabled}
     finally:
         _close_db(conn)
 

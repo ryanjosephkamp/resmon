@@ -14,9 +14,11 @@ available thing to that, and it is a fixture, not someone's corpus.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -363,7 +365,10 @@ def test_restart_makes_exactly_one_linked_run_from_a_stopped_one(client, state, 
         "SELECT id FROM executions WHERE restarted_from = ?", (source,))]
     assert made == [new_id], "a restart produced more or fewer than one run"
     new_row = dict(conn.execute("SELECT * FROM executions WHERE id = ?", (new_id,)).fetchone())
-    assert new_row["parameters"] == before["parameters"]
+    # Every search field the source recorded, plus the one thing the restart
+    # decides for itself and writes down rather than leaving to be inferred.
+    assert (json.loads(new_row["parameters"])
+            == {**json.loads(before["parameters"]), "ai_enabled": False})
     assert new_row["execution_type"] == before["execution_type"]
     assert new_row["restarted_from"] == source
     after = dict(conn.execute("SELECT * FROM executions WHERE id = ?", (source,)).fetchone())
@@ -376,8 +381,11 @@ def test_restart_refuses_a_live_or_finished_run_and_names_the_state(client, stat
     source = _row(client, state)
     resp = client.post(f"/api/executions/{source}/restart")
     assert resp.status_code == 409
-    assert resp.json()["detail"]["state"] == state
-    assert resp.json()["detail"]["restartable"] is False
+    detail = resp.json()["detail"]
+    # A string, not an object: a renderer that renders `detail` straight into
+    # the DOM would otherwise show `[object Object]`.
+    assert isinstance(detail, str)
+    assert state in detail and str(source) in detail
 
 
 def test_restart_goes_through_the_manual_admission_cap(client, monkeypatch):
@@ -395,13 +403,49 @@ def test_cancelling_an_interrupted_row_answers_with_its_state(client):
     resp = client.post(f"/api/executions/{source}/cancel")
     assert resp.status_code == 409
     detail = resp.json()["detail"]
-    assert detail["state"] == "interrupted"
-    assert detail["interrupted_reason"] == "owner_dead"
-    assert detail["restartable"] is True
+    assert isinstance(detail, str), "detail is rendered straight into the DOM"
+    assert "interrupted" in detail and str(source) in detail
+    # Anything that needs the state structurally reads it off the row.
+    assert client.get(f"/api/executions/{source}").json()["status"] == "interrupted"
 
 
 def test_cancelling_an_id_that_never_existed_still_answers_409(client):
-    """The shipped contract, kept: 409, with `state: null` rather than a guess."""
+    """The shipped contract, kept: 409, and a sentence that says why."""
     resp = client.post("/api/executions/99999/cancel")
     assert resp.status_code == 409
-    assert resp.json()["detail"]["state"] is None
+    assert isinstance(resp.json()["detail"], str)
+    assert "no record" in resp.json()["detail"]
+
+
+def test_restart_reproduces_the_ai_choice_the_source_row_records(client, monkeypatch):
+    """`execution_ai` is the only record of whether AI ran; it is the only claim made.
+
+    Not the provider, the model or the credential: `parameters` never held
+    those, and reconstructing them from a lane record would be a guess wearing
+    the original run's clothes. The restart records the choice it made in its
+    own `parameters`, so the next reader does not have to infer it again.
+    """
+    seen: list = []
+    monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared",
+                        lambda self, exec_id: seen.append(self.config.get("ai_enabled")))
+    conn = resmon_mod._get_db()
+
+    plain = _row(client, "interrupted")
+    resp = client.post(f"/api/executions/{plain}/restart")
+    assert resp.status_code == 202 and resp.json()["ai_enabled"] is False
+    assert json.loads(dict(conn.execute(
+        "SELECT * FROM executions WHERE id=?",
+        (resp.json()["execution_id"],)).fetchone())["parameters"])["ai_enabled"] is False
+
+    with_ai = _row(client, "interrupted")
+    db.start_ai_lane(conn, with_ai, 0, lane_label="Lane 1", lane_kind="api_key",
+                     provider="anthropic", model="a-model")
+    resp = client.post(f"/api/executions/{with_ai}/restart")
+    assert resp.status_code == 202 and resp.json()["ai_enabled"] is True
+    assert json.loads(dict(conn.execute(
+        "SELECT * FROM executions WHERE id=?",
+        (resp.json()["execution_id"],)).fetchone())["parameters"])["ai_enabled"] is True
+    deadline = time.monotonic() + 10
+    while len(seen) < 2 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert seen == [False, True], "the engine was not handed the recorded choice"
