@@ -1858,6 +1858,10 @@ def _build_execution_zip(rows: list[dict], out_path: Path, *,
 # because the thing to do with a live run is cancel it.
 _RESTARTABLE_STATES = ("interrupted", "failed", "cancelled")
 
+# Every ``executions.status`` that means the run is over. The
+# ``executions.status`` CHECK minus ``running``.
+_TERMINAL_EXECUTION_STATES = ("completed", "failed", "cancelled", "interrupted")
+
 
 @app.post("/api/executions/{exec_id}/cancel")
 def cancel_execution(exec_id: int):
@@ -1927,16 +1931,18 @@ def restart_execution(exec_id: int):
         # the provider, model and credential of the day from a lane record would
         # be a guess wearing the original run's clothes.
         ai_enabled = bool(get_execution_ai(conn, exec_id))
-        # Written into the new row's ``parameters`` so the next reader -- a
-        # restart of the restart, the search record, a person -- does not have
-        # to infer it a second time. Everything else is the source's, verbatim.
-        params = json.loads(row["parameters"]) if row["parameters"] else {}
-        params["ai_enabled"] = ai_enabled
+        # ``parameters`` is copied verbatim and ``ai_enabled`` is deliberately
+        # **not** written into it. That JSON is the search the user asked for --
+        # terms, databases, date window -- and the search record and the
+        # reference exports render it as such; an AI flag in there would be read
+        # as part of the query. The fact is durable anyway: the new run writes
+        # its own ``execution_ai`` rows, which is where this decision was read
+        # from in the first place.
         new_id = insert_execution(conn, {
             "execution_type": row["execution_type"],
             "routine_id": row.get("routine_id"),
             "saved_configuration_id": row.get("saved_configuration_id"),
-            "parameters": json.dumps(params, default=str),
+            "parameters": row["parameters"],
             "start_time": utc_now_iso(),
             "restarted_from": exec_id,
         })
@@ -1973,7 +1979,11 @@ async def stream_progress(exec_id: int, last_event_id: int = 0):
     if not progress_store.is_active(exec_id):
         # Re-read status in case it was updated after the initial fetch
         fresh = get_execution_by_id(conn, exec_id)
-        if fresh and fresh["status"] in ("completed", "failed", "cancelled"):
+        # ``interrupted`` belongs with the other three (schema 19). A run whose
+        # backend went away has no live store entry and never will, so without
+        # it here the request falls through to the live stream below and waits
+        # on events nothing is left to emit.
+        if fresh and fresh["status"] in _TERMINAL_EXECUTION_STATES:
             return StreamingResponse(
                 _batch_from_db(last_event_id),
                 media_type="text/event-stream",
@@ -5327,8 +5337,15 @@ def _running_row_is_orphaned(row: dict, now: datetime) -> bool:
         # happens to carry a runtime id we have just minted, which is a
         # 122-bit coincidence; treat it as ours and leave it alone.
         return False
-    if row.get("owner_pid") is not None or row.get("owner_runtime_id") is not None:
+    if row.get("owner_pid") is not None:
         return not _owner_process_is_alive(row.get("owner_pid"))
+    if row.get("owner_runtime_id") is not None:
+        # An owner was recorded, but not a pid we can ask about. There is no
+        # liveness fact here at all, and the clock rule below is for rows that
+        # predate ownership entirely -- this row is newer than that and would
+        # be adopted on nothing. Err toward alive, which is what the whole
+        # asymmetry in this function is for.
+        return False
     # Pre-19 row: no owner was ever recorded. Adopt only when nothing has been
     # heard from it either -- a heartbeat would mean the row is newer than it
     # looks -- and it is older than the threshold above.
@@ -5367,34 +5384,45 @@ def _reconcile_executions_on_startup() -> dict:
         logging.getLogger(__name__).exception("Startup reconciliation could not open the database")
         return result
     try:
-        rows = [dict(r) for r in conn.execute(
-            "SELECT id, owner_pid, owner_runtime_id, last_seen_at_utc, start_time "
-            "FROM executions WHERE status = 'running'"
-        ).fetchall()]
-    except sqlite3.Error:
-        logging.getLogger(__name__).exception("Startup reconciliation could not read executions")
-        return result
-    if not rows:
-        return result
-    now = datetime.now(timezone.utc)
-    for row in rows:
-        if not _running_row_is_orphaned(row, now):
-            result["left_running"] += 1
-            continue
         try:
-            update_execution_status(
-                conn,
-                int(row["id"]),
-                "interrupted",
-                end_time=utc_now_iso(),
-                interrupted_reason="owner_dead",
-            )
+            rows = [dict(r) for r in conn.execute(
+                "SELECT id, owner_pid, owner_runtime_id, last_seen_at_utc, start_time "
+                "FROM executions WHERE status = 'running'"
+            ).fetchall()]
         except sqlite3.Error:
-            logging.getLogger(__name__).exception(
-                "Startup reconciliation could not adopt exec_id=%s", row["id"])
-            result["left_running"] += 1
-            continue
-        result["interrupted"] += 1
+            logging.getLogger(__name__).exception("Startup reconciliation could not read executions")
+            return result
+        if not rows:
+            return result
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            if not _running_row_is_orphaned(row, now):
+                result["left_running"] += 1
+                continue
+            try:
+                update_execution_status(
+                    conn,
+                    int(row["id"]),
+                    "interrupted",
+                    end_time=utc_now_iso(),
+                    interrupted_reason="owner_dead",
+                )
+            except sqlite3.Error:
+                logging.getLogger(__name__).exception(
+                    "Startup reconciliation could not adopt exec_id=%s", row["id"])
+                result["left_running"] += 1
+                continue
+            result["interrupted"] += 1
+    finally:
+        # ``_close_db`` is a deliberate no-op today -- a thread keeps its
+        # connection for its lifetime -- so this releases nothing and the three
+        # early returns above were not leaking anything. It is here for the
+        # shape: every other route and startup hook in this file pairs
+        # ``_get_db`` with ``_close_db`` in a ``finally``, and the day that
+        # function grows a body, the hook that skipped it is the one that
+        # breaks. A later edit copies the nearest example, so the nearest
+        # example should be right.
+        _close_db(conn)
     logging.getLogger(__name__).info(
         "Startup reconciliation: %d of %d running executions adopted as "
         "interrupted (owner_dead); %d left running because their owner may "

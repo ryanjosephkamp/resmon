@@ -21,6 +21,7 @@ import sys
 import time
 from pathlib import Path
 
+import httpx
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -281,6 +282,29 @@ def test_a_running_row_whose_owner_is_gone_becomes_interrupted(db_conn):
     assert counts["interrupted"] == 1 and counts["left_running"] == 1
 
 
+def test_a_row_with_an_owner_but_no_pid_is_left_running(db_conn):
+    """An owner was recorded and a pid was not, so there is nothing to ask.
+
+    This is not a pre-19 row -- it carries a runtime id, so it was written by a
+    build that records ownership -- and the clock rule for pre-19 rows would
+    adopt it on no evidence at all. The rule this function states is to err
+    toward alive, and this is the case that tests whether it actually does.
+    """
+    from datetime import datetime, timedelta, timezone
+    orphanish = db_conn.execute(
+        "INSERT INTO executions (execution_type, parameters, start_time, status,"
+        " owner_runtime_id, owner_pid, last_seen_at_utc) VALUES"
+        " ('deep_dive','{}',?,'running','33333333-3333-4333-8333-333333333333',NULL,NULL)",
+        ((datetime.now(timezone.utc) - timedelta(days=9)).isoformat(),)).lastrowid
+    db_conn.commit()
+
+    counts = resmon_mod._reconcile_executions_on_startup()
+
+    assert db_conn.execute(
+        "SELECT status FROM executions WHERE id=?", (orphanish,)).fetchone()[0] == "running"
+    assert counts["interrupted"] == 0 and counts["left_running"] == 1
+
+
 def test_a_pre_schema_19_row_is_adopted_only_once_it_is_old_enough(db_conn):
     """No owner was ever recorded, so the clock is the only evidence there is."""
     from datetime import datetime, timedelta, timezone
@@ -365,10 +389,10 @@ def test_restart_makes_exactly_one_linked_run_from_a_stopped_one(client, state, 
         "SELECT id FROM executions WHERE restarted_from = ?", (source,))]
     assert made == [new_id], "a restart produced more or fewer than one run"
     new_row = dict(conn.execute("SELECT * FROM executions WHERE id = ?", (new_id,)).fetchone())
-    # Every search field the source recorded, plus the one thing the restart
-    # decides for itself and writes down rather than leaving to be inferred.
-    assert (json.loads(new_row["parameters"])
-            == {**json.loads(before["parameters"]), "ai_enabled": False})
+    # Byte-identical, not merely equivalent. This JSON is the search the user
+    # asked for, and the search record and the reference exports render it as
+    # such; anything the restart decides for itself belongs somewhere else.
+    assert new_row["parameters"] == before["parameters"]
     assert new_row["execution_type"] == before["execution_type"]
     assert new_row["restarted_from"] == source
     after = dict(conn.execute("SELECT * FROM executions WHERE id = ?", (source,)).fetchone())
@@ -433,19 +457,55 @@ def test_restart_reproduces_the_ai_choice_the_source_row_records(client, monkeyp
     plain = _row(client, "interrupted")
     resp = client.post(f"/api/executions/{plain}/restart")
     assert resp.status_code == 202 and resp.json()["ai_enabled"] is False
-    assert json.loads(dict(conn.execute(
-        "SELECT * FROM executions WHERE id=?",
-        (resp.json()["execution_id"],)).fetchone())["parameters"])["ai_enabled"] is False
 
     with_ai = _row(client, "interrupted")
     db.start_ai_lane(conn, with_ai, 0, lane_label="Lane 1", lane_kind="api_key",
                      provider="anthropic", model="a-model")
     resp = client.post(f"/api/executions/{with_ai}/restart")
     assert resp.status_code == 202 and resp.json()["ai_enabled"] is True
-    assert json.loads(dict(conn.execute(
-        "SELECT * FROM executions WHERE id=?",
-        (resp.json()["execution_id"],)).fetchone())["parameters"])["ai_enabled"] is True
+    # And it stays out of the stored search. The durable record of the choice
+    # is the new run's own ``execution_ai`` rows, which is where this decision
+    # was read from in the first place.
+    for restarted in (plain, with_ai):
+        stored = dict(conn.execute(
+            "SELECT parameters FROM executions WHERE restarted_from=?",
+            (restarted,)).fetchone())["parameters"]
+        assert "ai_enabled" not in json.loads(stored)
     deadline = time.monotonic() + 10
     while len(seen) < 2 and time.monotonic() < deadline:
         time.sleep(0.02)
     assert seen == [False, True], "the engine was not handed the recorded choice"
+
+
+def test_the_terminal_state_list_the_progress_stream_reads_is_complete():
+    """`stream_progress` branches on this tuple; it must hold every ended state.
+
+    Structural, and deliberately so. The behaviour — that an interrupted run
+    takes the persisted-batch path rather than the live generator — cannot be
+    checked through `TestClient`: an SSE endpoint that never yields blocks
+    inside the in-process portal, so the regression hangs the worker instead of
+    failing, and no httpx timeout reaches it. The real-socket version of this
+    check is in `test_executions_interrupted_boundary.py`, where a read timeout
+    is a read timeout.
+
+    What this one does see is the case that will actually happen: a sixth
+    status arrives and one of the places that enumerates them is missed. The
+    denominator is the CHECK in the shipped DDL, not a list retyped here.
+    """
+    import re
+    ddl = db._EXECUTIONS_V19_DDL
+    declared = set(re.search(r"status TEXT NOT NULL DEFAULT 'running' CHECK\(status IN \(([^)]*)\)\)",
+                             ddl).group(1).replace("'", "").replace(" ", "").split(","))
+    assert declared - {"running"} == set(resmon_mod._TERMINAL_EXECUTION_STATES), (
+        "the progress stream's terminal list and the status CHECK disagree")
+    assert set(resmon_mod._RESTARTABLE_STATES) < declared
+    print(f"terminal states: {len(resmon_mod._TERMINAL_EXECUTION_STATES)} of "
+          f"{len(declared)} statuses, M from database._EXECUTIONS_V19_DDL")
+
+
+# There is deliberately no test that the startup hook closes its connection.
+# `_close_db` is a no-op -- "a thread keeps its connection for its lifetime" --
+# so any such assertion passes whether or not the call is there, and a check
+# that cannot fail is worse than none: it reads like evidence. The `finally` in
+# `_reconcile_executions_on_startup` is a shape the file keeps, not a leak it
+# fixes, and its comment says so.

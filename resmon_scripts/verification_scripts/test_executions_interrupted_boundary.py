@@ -388,3 +388,56 @@ def test_the_mcp_tools_report_an_interrupted_run_and_its_restart(tmp_path):
         if mcp is not None:
             mcp.stop()
         second.stop()
+
+
+def test_the_progress_stream_of_an_interrupted_run_closes(tmp_path):
+    """R3-4 at the only boundary where its regression is legible.
+
+    `stream_progress` sends persisted events as a batch and closes when the run
+    is over, and opens a live generator that heartbeats for ever when it is
+    not. An interrupted run has no live store entry and never will: the process
+    that would have produced events is what went away. Before `interrupted`
+    joined the terminal list, this request opened the live generator and hung.
+
+    It has to be a real socket. Through `TestClient` the generator blocks inside
+    the in-process portal before yielding anything, so the failure is a hung
+    worker that no client-side timeout can reach; here it is a `ReadTimeout`.
+    """
+    state = tmp_path / "state"
+    state.mkdir()
+    db = state / "corpus.db"
+
+    first = Backend(state, db, "stream-first")
+    try:
+        first.wait_until_serving()
+        exec_id = _start_sweep(first)
+        _wait_for_running(db, exec_id)
+        first.sigkill()
+    finally:
+        first.stop()
+
+    second = Backend(state, db, "stream-second")
+    try:
+        second.wait_until_serving()
+        assert second.get(f"/api/executions/{exec_id}").json()["status"] == "interrupted"
+        # Bounded by the clock, not by a read timeout: the live generator
+        # heartbeats every ~300 ms, so the socket is never idle long enough for
+        # one to fire and the regression is an endless *busy* stream.
+        deadline, body, closed = time.monotonic() + 15, b"", False
+        with httpx.stream("GET",
+                          f"{second.base}/api/executions/{exec_id}/progress/stream",
+                          headers=_HEADERS, timeout=20.0) as resp:
+            assert resp.status_code == 200
+            for chunk in resp.iter_bytes():
+                body += chunk
+                if time.monotonic() > deadline:
+                    break
+            else:
+                closed = True
+        assert closed, (
+            "the live generator was opened for a run that is over; nothing is "
+            f"left to emit a real event, so the stream never closes "
+            f"({len(body)} bytes of heartbeat in 15s)")
+        assert b"heartbeat" not in body
+    finally:
+        second.stop()

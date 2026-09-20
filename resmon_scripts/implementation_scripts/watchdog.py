@@ -235,10 +235,22 @@ def _humanise_days(days: float | None) -> str:
 def _source_history(conn: sqlite3.Connection) -> dict[str, list[dict]]:
     """Every recorded run of every source, newest first.
 
-    Only executions that reached a terminal state are included. A run still in
+    Only ``completed`` and ``failed`` executions are included. A run still in
     flight has recorded some of its sources and not others, and counting the
     not-yet-recorded ones as absent would make a sweep in progress look like a
     source that stopped answering.
+
+    **``cancelled`` and ``interrupted`` runs are excluded on the same
+    reasoning, and that is deliberate.** Both stopped part-way through for a
+    reason that has nothing to do with the sources: the user cancelled, or the
+    backend went away (schema 19). Their ``execution_sources`` rows are a
+    partial record of which sources happened to have been reached by then, and
+    feeding that to the watchdog would report a source as having gone quiet
+    when what actually happened is that resmon stopped asking. The cost is that
+    a source which really did break during an interrupted run is not seen until
+    the next complete one -- which is the right way round: the watchdog exists
+    to say when monitoring has broken, and it must not say so on evidence it
+    does not have.
     """
     rows = conn.execute(
         """
@@ -254,7 +266,7 @@ def _source_history(conn: sqlite3.Connection) -> dict[str, list[dict]]:
                e.execution_type     AS execution_type
         FROM execution_sources es
         JOIN executions e ON e.id = es.execution_id
-        WHERE e.status IN ('completed', 'failed')
+        WHERE e.status IN ('completed', 'failed')   -- see the docstring: not cancelled, not interrupted
         ORDER BY e.start_time DESC, e.id DESC
         """
     ).fetchall()
