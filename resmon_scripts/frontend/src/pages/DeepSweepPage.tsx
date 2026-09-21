@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient } from '../api/client';
+import { newRequestId } from '../api/requestId';
 import { useExecution } from '../context/ExecutionContext';
 import RepositorySelector from '../components/Forms/RepositorySelector';
 import DateRangePicker from '../components/Forms/DateRangePicker';
@@ -91,6 +92,11 @@ const DeepSweepPage: React.FC = () => {
         date_to: dateTo || null,
         max_results: maxResults,
         ai_enabled: aiEnabled,
+        // Generated here, on the click, and never above at render time: the
+        // backend answers a repeat of the same id with the run it already
+        // started, so an id fixed for the life of the page would turn a user's
+        // second search into a replay of their first.
+        request_id: newRequestId(),
         ephemeral_credentials: Object.fromEntries(
           Object.entries(ephemeralKeys).filter(([, v]) => v.trim().length > 0),
         ),
@@ -99,7 +105,8 @@ const DeepSweepPage: React.FC = () => {
       if (loadedConfigIdRef.current !== null) {
         body.saved_configuration_id = loadedConfigIdRef.current;
       }
-      const resp = await apiClient.post<{ execution_id: number }>('/api/search/sweep', body);
+      const resp = await apiClient.post<{ execution_id: number; duplicate?: boolean }>(
+        '/api/search/sweep', body);
       pageExecIdRef.current = resp.execution_id;
       startExecution(resp.execution_id, 'deep_sweep', repositories);
     } catch (err: any) {

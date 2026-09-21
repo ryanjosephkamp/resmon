@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient } from '../api/client';
+import { newRequestId } from '../api/requestId';
 import { useExecution } from '../context/ExecutionContext';
 import RepositorySelector from '../components/Forms/RepositorySelector';
 import DateRangePicker from '../components/Forms/DateRangePicker';
@@ -98,6 +99,8 @@ const DeepDivePage: React.FC = () => {
         date_to: dateTo || null,
         max_results: maxResults,
         ai_enabled: aiEnabled,
+        // See DeepSweepPage: one id per click, never one per page.
+        request_id: newRequestId(),
         ephemeral_credentials: Object.fromEntries(
           Object.entries(ephemeralKeys).filter(([, v]) => v.trim().length > 0),
         ),
@@ -106,7 +109,8 @@ const DeepDivePage: React.FC = () => {
       if (loadedConfigIdRef.current !== null) {
         body.saved_configuration_id = loadedConfigIdRef.current;
       }
-      const resp = await apiClient.post<{ execution_id: number }>('/api/search/dive', body);
+      const resp = await apiClient.post<{ execution_id: number; duplicate?: boolean }>(
+        '/api/search/dive', body);
       pageExecIdRef.current = resp.execution_id;
       startExecution(resp.execution_id, 'deep_dive', [repository]);
     } catch (err: any) {

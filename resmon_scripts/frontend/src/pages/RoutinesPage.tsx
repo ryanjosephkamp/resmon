@@ -26,6 +26,13 @@ interface Routine {
   ai_settings?: string | Record<string, any> | null;
   last_execution?: string;
   last_status?: string;
+  /**
+   * Fires that came due while resmon was not running, counted from
+   * ``routine_missed_fires``. A count and the most recent overdue time, never
+   * a verdict: resmon knows the schedule was not kept, not what the run would
+   * have found. Optional because an older backend does not answer it.
+   */
+  missed_fires?: { count: number; last_due_at_utc: string | null };
 }
 
 // Mirror the status-badge palette used on Dashboard / Results & Logs so
@@ -148,6 +155,29 @@ const RoutinesPage: React.FC = () => {
             ),
           },
           {
+            heading: 'One run at a time, and the fires resmon missed',
+            body: (
+              <>
+                <p>
+                  A routine runs once at a time. If its schedule comes round
+                  while the previous run is still going &mdash; or you press
+                  Run now while one is in flight &mdash; resmon refuses the
+                  second fire and tells you which run already exists, rather
+                  than searching the same sources twice for one slot.
+                </p>
+                <p>
+                  If a routine was due while resmon was closed, its row says{' '}
+                  <em>missed N fires while resmon was closed</em> and when the
+                  last one was due. resmon does <strong>not</strong> run them
+                  now: opening your laptop on Monday would otherwise start a
+                  weekend&rsquo;s worth of sweeps at once. The line is there so
+                  the schedule you believe in and the schedule that ran are the
+                  same thing, or you can see that they are not.
+                </p>
+              </>
+            ),
+          },
+          {
             heading: 'How to use this page',
             body: (
               <ul>
@@ -244,7 +274,17 @@ const RoutinesPage: React.FC = () => {
                     {r.is_active ? 'Active' : 'Inactive'}
                   </span>
                 </td>
-                <td>{r.last_execution || '—'}</td>
+                <td>
+                  {r.last_execution || '—'}
+                  {r.missed_fires && r.missed_fires.count > 0 && (
+                    <div className="text-muted missed-fires-note">
+                      {`missed ${r.missed_fires.count} ${r.missed_fires.count === 1 ? 'fire' : 'fires'} while resmon was closed`}
+                      {r.missed_fires.last_due_at_utc
+                        ? `; last due ${r.missed_fires.last_due_at_utc}`
+                        : ''}
+                    </div>
+                  )}
+                </td>
                 <td>
                   {r.last_status
                     ? <span className={`badge ${lastStatusBadgeClass(r.last_status)}`}>{r.last_status}</span>

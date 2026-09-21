@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient } from '../api/client';
+import { newRequestId } from '../api/requestId';
 import { downloadReferences, ReferenceFormat } from '../lib/referenceDownload';
 import { useExecution } from '../context/ExecutionContext';
 import { useExecutions } from '../hooks/useExecutions';
@@ -104,9 +105,12 @@ const ResultsPage: React.FC = () => {
     setError('');
     setRestarting(exec.id);
     try {
-      const resp = await apiClient.post<{ execution_id: number }>(
+      // One id per click of Restart, so a second click while the first request
+      // is still in flight follows the run it already started instead of
+      // starting a second one.
+      const resp = await apiClient.post<{ execution_id: number; duplicate?: boolean }>(
         `/api/executions/${exec.id}/restart`,
-        {},
+        { request_id: newRequestId() },
       );
       startExecution(resp.execution_id, exec.execution_type, exec.repositories || []);
       setMonitorVisible(true);
