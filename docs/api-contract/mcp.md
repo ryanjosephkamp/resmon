@@ -215,6 +215,9 @@ Listed so the omissions are visible and arguable rather than silently missing.
 
 ### A field, not a version — 21 September 2026, schema 21
 
+**25 tools, 46 distinct method-and-path pairs.** The new one is
+`GET /api/routines/{id}/deliveries`, which `get_routine` calls for the summary below; it was 45.
+
 **No tool arrives, none is removed, no return shape moves and the contract version does
 not change.** `get_routine` gains one key, `delivery`, summarising where that routine's
 report is sent and whether the last one arrived:
