@@ -43,10 +43,10 @@ should not be described as if it had been.
 All five must pass:
 
 ```bash
-.venv/bin/python -m pytest -q                    # hermetic backend suite — 3110 pass, 4 skip, 108 deselected (CI, Python 3.11)
+.venv/bin/python -m pytest -q                    # hermetic backend suite — 3147 pass, 5 skip, 108 deselected (CI, Python 3.11)
 .venv/bin/python -m pytest -m live_network -q    # real APIs; CI runs the half that needs no CLI, weekly
 cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
-npm run e2e                                      # 110 cases in 34 files, 29 routes; report actual pass/skip counts; assistant-readability.spec.ts includes the local model-double journey
+npm run e2e                                      # 117 cases in 35 files, 29 routes; report actual pass/skip counts; assistant-readability.spec.ts includes the local model-double journey
 ```
 
 The e2e suite starts the backend with `RESMON_PYTHON` if you set it, otherwise the
