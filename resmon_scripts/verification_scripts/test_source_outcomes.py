@@ -1017,14 +1017,28 @@ def test_a_source_that_answered_emits_no_sentence(
 def test_hal_budget_expiry_is_stored_in_the_row_record_log_and_report(
     monkeypatch, http_server,
 ):
-    """An actual HAL request can fail before retry without becoming empty success."""
+    """An actual HAL request can fail before retry without becoming empty success.
+
+    The budget is spent by the upstream, not by the runner. An earlier version
+    of this case let a 503 exhaust a 0.3 s budget inside ``safe_request``'s own
+    backoff pause, so whether the second attempt happened depended on how
+    precisely ``time.sleep`` returned — a loaded runner could outrun it and see
+    two hits. Here the server holds the very first request open for far longer
+    than the budget, so the deadline expires while the one attempt is still in
+    flight on a real socket. What is asserted is behaviour: one attempt,
+    ``operation_deadline``, and that sentence stored in the row, the record, the
+    log and the report.
+    """
     from pathlib import Path
     from resmon_scripts.implementation_scripts import api_hal
 
+    budget_seconds = 0.2
+    http_server.behaviour = "sleep"
+    http_server.sleep_for = 30 * budget_seconds
     http_server.reply = (503, "synthetic unavailable")
     monkeypatch.setattr(api_hal, "_HAL_API_URL", http_server.url)
     monkeypatch.setattr(api_hal, "_RATE_LIMITER", api_base.RateLimiter(1000))
-    monkeypatch.setattr(api_hal, "_SEARCH_BUDGET_SECONDS", 0.3)
+    monkeypatch.setattr(api_hal, "_SEARCH_BUDGET_SECONDS", budget_seconds)
     conn, result = _run_dive(monkeypatch, api_hal.HalClient(), repo="hal")
     try:
         row = get_execution_sources(conn, result["execution_id"])[0]
