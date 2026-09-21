@@ -27,6 +27,16 @@ interface Manifest {
 
 interface FkViolation { table: string; rowid: number | null; parent: string; fkid: number }
 
+// Where a restore would put the Library vault on this machine, read out of the
+// bundle's own database. null for a bundle that carries no vault.
+interface VaultDestination {
+  root_path: string;
+  parent: string;
+  name: string;
+  parent_exists: boolean;
+  parent_writable: boolean;
+}
+
 interface VerifyReport {
   path: string;
   manifest: Manifest;
@@ -38,8 +48,12 @@ interface VerifyReport {
   ok: boolean;
   fk_violations: FkViolation[];
   fk_violations_total: number;
+  // null on a bundle written before the manifest recorded it: not measured,
+  // which is not the same as none, so the count is simply not shown.
+  fk_violations_rows?: number | null;
   fk_violations_message: string;
   needs_fk_acceptance: boolean;
+  vault_destination?: VaultDestination | null;
   will_not_restore: { credentials: string[]; process_state: string[]; note: string };
 }
 
@@ -54,6 +68,7 @@ interface LastState {
     acknowledged?: boolean;
     credentials_to_reenter?: string[];
     fk_violations_total?: number;
+    fk_violations_rows?: number | null;
     fk_violations_message?: string;
   } | null;
   undo_copies: string[];
@@ -73,6 +88,9 @@ const BackupRestore: React.FC = () => {
   const [error, setError] = useState('');
   const [report, setReport] = useState<VerifyReport | null>(null);
   const [acceptFk, setAcceptFk] = useState(false);
+  // Empty means "wherever the bundle's database says"; a path means the person
+  // restoring chose somewhere on this machine instead.
+  const [vaultParent, setVaultParent] = useState('');
   const [last, setLast] = useState<LastState | null>(null);
 
   const refresh = useCallback(async () => {
@@ -119,6 +137,7 @@ const BackupRestore: React.FC = () => {
     const picked = await picker();
     if (!picked) return;
     setBusy('verify'); setStatus(''); setError(''); setReport(null); setAcceptFk(false);
+    setVaultParent('');
     try {
       setReport(await apiClient.post('/api/backup/verify', { path: picked }));
     } catch (err: any) {
@@ -128,15 +147,32 @@ const BackupRestore: React.FC = () => {
     }
   };
 
+  const chooseVaultParent = async () => {
+    const picker = window.resmonAPI?.chooseDirectory;
+    if (!picker) {
+      setError('The folder picker is only available inside the resmon desktop app.');
+      return;
+    }
+    const picked = await picker();
+    if (picked) setVaultParent(picked);
+  };
+
   const stageRestore = async () => {
     if (!report) return;
     setBusy('restore'); setStatus(''); setError('');
     try {
       const result = await apiClient.post('/api/restore', {
-        confirm: 'CONFIRM', path: report.path, accept_fk_violations: acceptFk,
+        confirm: 'CONFIRM',
+        path: report.path,
+        accept_fk_violations: acceptFk,
+        // Sent only when it was chosen: a request without it means the path
+        // recorded in the bundle, which is the right answer on the machine the
+        // backup came from.
+        ...(vaultParent ? { vault_parent: vaultParent } : {}),
       });
       setStatus(result.next_step);
       setReport(null);
+      setVaultParent('');
       await refresh();
     } catch (err: any) {
       setError(describe(err));
@@ -198,8 +234,11 @@ const BackupRestore: React.FC = () => {
           {!!restored?.fk_violations_total && (
             <p data-testid="reentry-fk">
               This backup was restored with {restored.fk_violations_total} reference
-              {restored.fk_violations_total === 1 ? '' : 's'} to a missing parent that you
-              chose to keep.{' '}
+              {restored.fk_violations_total === 1 ? '' : 's'}
+              {typeof restored.fk_violations_rows === 'number' && restored.fk_violations_rows > 0
+                ? `, from ${restored.fk_violations_rows} row${restored.fk_violations_rows === 1 ? '' : 's'},`
+                : ''}{' '}
+              to a missing parent that you chose to keep.{' '}
               {restored.fk_violations_message}
             </p>
           )}
@@ -253,6 +292,48 @@ const BackupRestore: React.FC = () => {
             {report.manifest.schema_version}, {report.schema_relation} as this app’s).
           </p>
           <p>{VAULT_RELATION[report.vault_relation] ?? report.vault_relation}</p>
+          {report.vault_destination && (
+            <div data-testid="vault-destination">
+              {vaultParent ? (
+                <p>
+                  The Library vault will be restored into <code>{vaultParent}</code>, as{' '}
+                  <code>{report.vault_destination.name}</code>.
+                </p>
+              ) : (
+                <p>
+                  The Library vault will be restored to{' '}
+                  <code>{report.vault_destination.root_path}</code>, the folder this
+                  backup’s database records.
+                </p>
+              )}
+              {!vaultParent && !report.vault_destination.parent_exists && (
+                <p className="form-warning" data-testid="vault-parent-problem">
+                  <code>{report.vault_destination.parent}</code> does not exist on this
+                  machine. Choose where the vault should go, or the restore will fail on
+                  the next start.
+                </p>
+              )}
+              {!vaultParent && report.vault_destination.parent_exists
+                && !report.vault_destination.parent_writable && (
+                <p className="form-warning" data-testid="vault-parent-problem">
+                  resmon cannot write into <code>{report.vault_destination.parent}</code>.
+                  Choose somewhere else.
+                </p>
+              )}
+              <button type="button" className="btn btn-sm" onClick={chooseVaultParent}>
+                Restore the vault somewhere else…
+              </button>
+              {vaultParent && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setVaultParent('')}
+                >
+                  Use the folder in the backup
+                </button>
+              )}
+            </div>
+          )}
           {report.problems.length > 0 && (
             <ul className="form-error">
               {report.problems.map((problem) => <li key={problem}>{problem}</li>)}
@@ -311,8 +392,8 @@ const BackupRestore: React.FC = () => {
 
       {!!last?.undo_copies?.length && (
         <p className="text-muted" data-testid="undo-copies">
-          A copy of the database a restore replaced is kept at{' '}
-          <code>{last.undo_copies[0]}</code>.{' '}
+          What a restore replaced — the database, and the Library vault if it replaced
+          one — is kept at <code>{last.undo_copies[0]}</code>.{' '}
           <button type="button" className="btn btn-sm" onClick={deleteUndo} disabled={busy !== ''}>
             Delete undo copy
           </button>

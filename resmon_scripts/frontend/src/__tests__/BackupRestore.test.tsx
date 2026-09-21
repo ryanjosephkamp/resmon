@@ -34,6 +34,14 @@ const REPORT = {
   fk_violations_total: 0,
   fk_violations_message: '',
   needs_fk_acceptance: false,
+  fk_violations_rows: 0,
+  vault_destination: {
+    root_path: '/Users/someone/Documents/resmon-library-v1',
+    parent: '/Users/someone/Documents',
+    name: 'resmon-library-v1',
+    parent_exists: true,
+    parent_writable: true,
+  },
   will_not_restore: {
     credentials: ['smtp_password'],
     process_state: ['daemon.lock'],
@@ -146,7 +154,8 @@ test('after a restore the card names the credentials that did not come back', as
         ok: true, acknowledged: false, bundle: '/backups/b1',
         credentials_to_reenter: ['smtp_password', 'openai_api_key'],
         fk_violations_total: 2,
-        fk_violations_message: '2 references to a parent that is not there.',
+        fk_violations_rows: 1,
+        fk_violations_message: '2 references to a parent that is not there, from 1 row.',
       },
     },
   });
@@ -158,5 +167,94 @@ test('after a restore the card names the credentials that did not come back', as
   expect(card).toHaveTextContent(/row id/);
   // R2-3: the orphans the user chose to keep are named again after the fact.
   expect(screen.getByTestId('reentry-fk')).toHaveTextContent(
-    '2 references to a missing parent');
+    '2 references, from 1 row, to a missing parent');
+});
+
+test('a bundle written before the row count says references and no row count', async () => {
+  // The field is additive: an older bundle has no number here, and the card
+  // must not print one — "not measured" is not "none".
+  mockRoutedFetch({
+    '/api/backup/last': {
+      ...EMPTY,
+      last_restore: {
+        ok: true, acknowledged: false, bundle: '/backups/b1',
+        credentials_to_reenter: [],
+        fk_violations_total: 2,
+        fk_violations_message: '2 references to a parent that is not there.',
+      },
+    },
+  });
+  await renderWithProviders(<BackupRestore />);
+
+  const card = await screen.findByTestId('reentry-fk');
+  expect(card).toHaveTextContent('2 references to a missing parent');
+  expect(card).not.toHaveTextContent(/from \d+ rows?/);
+});
+
+test('the verify card says where the vault would go and can be pointed elsewhere', async () => {
+  const fetchMock = mockRoutedFetch({
+    '/api/backup/last': EMPTY,
+    '/api/backup/verify': REPORT,
+    '/api/restore': { success: true, staged: {}, report: REPORT, next_step: 'Restart resmon to restore.' },
+  });
+  const picked = ['/backups/resmon-backup-20260922T120000Z', '/Volumes/Archive/vaults'];
+  (window as any).resmonAPI = { getBackendPort: () => '1', platform: 'darwin',
+    versions: { node: '', electron: '' }, chooseDirectory: async () => picked.shift() };
+
+  await renderWithProviders(<BackupRestore />);
+  fireEvent.click(screen.getByRole('button', { name: /Restore from backup/i }));
+
+  const destination = await screen.findByTestId('vault-destination');
+  expect(destination).toHaveTextContent('/Users/someone/Documents/resmon-library-v1');
+  expect(screen.queryByTestId('vault-parent-problem')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: /Restore the vault somewhere else/i }));
+  await waitFor(() => expect(screen.getByTestId('vault-destination'))
+    .toHaveTextContent('/Volumes/Archive/vaults'));
+  expect(screen.getByTestId('vault-destination')).toHaveTextContent('resmon-library-v1');
+
+  fireEvent.click(screen.getByRole('button', { name: /Restart to restore/i }));
+  await waitFor(() => expect(callsTo(fetchMock, '/api/restore').length).toBe(1));
+  expect(JSON.parse(String(callsTo(fetchMock, '/api/restore')[0].init?.body))).toEqual({
+    confirm: 'CONFIRM',
+    path: REPORT.path,
+    accept_fk_violations: false,
+    vault_parent: '/Volumes/Archive/vaults',
+  });
+});
+
+test('a vault parent that is not on this machine is flagged before anything is staged', async () => {
+  mockRoutedFetch({
+    '/api/backup/last': EMPTY,
+    '/api/backup/verify': {
+      ...REPORT,
+      vault_destination: { ...REPORT.vault_destination, parent_exists: false, parent_writable: false },
+    },
+  });
+  (window as any).resmonAPI = { getBackendPort: () => '1', platform: 'darwin',
+    versions: { node: '', electron: '' }, chooseDirectory: async () => REPORT.path };
+
+  await renderWithProviders(<BackupRestore />);
+  fireEvent.click(screen.getByRole('button', { name: /Restore from backup/i }));
+
+  const problem = await screen.findByTestId('vault-parent-problem');
+  expect(problem).toHaveTextContent('/Users/someone/Documents');
+  expect(problem).toHaveTextContent('does not exist on this machine');
+});
+
+test('a backup with no vault shows no destination and no picker', async () => {
+  mockRoutedFetch({
+    '/api/backup/last': EMPTY,
+    '/api/backup/verify': { ...REPORT, vault_relation: 'none_in_backup', vault_destination: null },
+  });
+  (window as any).resmonAPI = { getBackendPort: () => '1', platform: 'darwin',
+    versions: { node: '', electron: '' }, chooseDirectory: async () => REPORT.path };
+
+  await renderWithProviders(<BackupRestore />);
+  fireEvent.click(screen.getByRole('button', { name: /Restore from backup/i }));
+
+  await screen.findByTestId('verify-report');
+  expect(screen.queryByTestId('vault-destination')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Restore the vault somewhere else/i }))
+    .not.toBeInTheDocument();
 });
