@@ -25,6 +25,8 @@ interface Manifest {
   excluded?: { credentials?: string[]; process_state?: string[] };
 }
 
+interface FkViolation { table: string; rowid: number | null; parent: string; fkid: number }
+
 interface VerifyReport {
   path: string;
   manifest: Manifest;
@@ -34,6 +36,10 @@ interface VerifyReport {
   vault_relation: string;
   problems: string[];
   ok: boolean;
+  fk_violations: FkViolation[];
+  fk_violations_total: number;
+  fk_violations_message: string;
+  needs_fk_acceptance: boolean;
   will_not_restore: { credentials: string[]; process_state: string[]; note: string };
 }
 
@@ -47,6 +53,8 @@ interface LastState {
     bundle?: string;
     acknowledged?: boolean;
     credentials_to_reenter?: string[];
+    fk_violations_total?: number;
+    fk_violations_message?: string;
   } | null;
   undo_copies: string[];
 }
@@ -64,6 +72,7 @@ const BackupRestore: React.FC = () => {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [report, setReport] = useState<VerifyReport | null>(null);
+  const [acceptFk, setAcceptFk] = useState(false);
   const [last, setLast] = useState<LastState | null>(null);
 
   const refresh = useCallback(async () => {
@@ -109,7 +118,7 @@ const BackupRestore: React.FC = () => {
     }
     const picked = await picker();
     if (!picked) return;
-    setBusy('verify'); setStatus(''); setError(''); setReport(null);
+    setBusy('verify'); setStatus(''); setError(''); setReport(null); setAcceptFk(false);
     try {
       setReport(await apiClient.post('/api/backup/verify', { path: picked }));
     } catch (err: any) {
@@ -124,7 +133,7 @@ const BackupRestore: React.FC = () => {
     setBusy('restore'); setStatus(''); setError('');
     try {
       const result = await apiClient.post('/api/restore', {
-        confirm: 'CONFIRM', path: report.path,
+        confirm: 'CONFIRM', path: report.path, accept_fk_violations: acceptFk,
       });
       setStatus(result.next_step);
       setReport(null);
@@ -186,6 +195,13 @@ const BackupRestore: React.FC = () => {
           ) : (
             <p>The backup recorded no credentials, so there is nothing to re-enter.</p>
           )}
+          {!!restored?.fk_violations_total && (
+            <p data-testid="reentry-fk">
+              This backup was restored with {restored.fk_violations_total} orphaned row
+              {restored.fk_violations_total === 1 ? '' : 's'} you chose to keep.{' '}
+              {restored.fk_violations_message}
+            </p>
+          )}
           <p className="text-muted">
             Webhook signing secrets are keyed to a delivery target’s row id. A target
             restored under a different id has no secret bound to it until you set one.
@@ -241,6 +257,27 @@ const BackupRestore: React.FC = () => {
               {report.problems.map((problem) => <li key={problem}>{problem}</li>)}
             </ul>
           )}
+          {report.needs_fk_acceptance && (
+            <div className="form-warning" data-testid="fk-violations">
+              <strong>This backup contains rows whose parent is missing.</strong>
+              <p>{report.fk_violations_message}</p>
+              <ul>
+                {report.fk_violations.slice(0, 10).map((v) => (
+                  <li key={`${v.table}-${v.rowid}-${v.parent}`}>
+                    <code>{v.table}</code> row {String(v.rowid)} → <code>{v.parent}</code>
+                  </li>
+                ))}
+              </ul>
+              <label className="form-label">
+                <input
+                  type="checkbox"
+                  checked={acceptFk}
+                  onChange={(e) => setAcceptFk(e.target.checked)}
+                />{' '}
+                Restore anyway, keeping these rows as they are
+              </label>
+            </div>
+          )}
           <p className="text-muted">
             Not restored: {report.will_not_restore.credentials.length} credential
             {report.will_not_restore.credentials.length === 1 ? '' : 's'} (by name only),
@@ -250,7 +287,7 @@ const BackupRestore: React.FC = () => {
             type="button"
             className="btn btn-primary"
             onClick={stageRestore}
-            disabled={!report.ok || busy !== ''}
+            disabled={!report.ok || busy !== '' || (report.needs_fk_acceptance && !acceptFk)}
           >
             Restart to restore
           </button>

@@ -78,6 +78,39 @@ def _seed_vault(conn, parent: Path, document_ids):
     return vault_id, root, files
 
 
+def _seed_deliveries(conn, exec_id):
+    """One ``delivering`` delivery, which a restore requeues, and one ``awaiting_review``, which it must not.
+
+    The review round found the deliveries half of ``_strip_process_state``
+    unguarded: replacing it with ``pass`` passed 58 tests, because no fixture
+    anywhere had a ``delivering`` row. Both states are seeded here, and both
+    are asserted, so that arm has a witness.
+    """
+    now = "2026-01-01T00:00:00Z"
+    conn.execute(
+        "INSERT INTO routines (name, schedule_cron, parameters, is_active, created_at) "
+        "VALUES ('nightly', '0 3 * * *', '{}', 0, ?)", (now,))
+    routine_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+    targets = {}
+    for channel in ("webhook", "email"):
+        conn.execute(
+            "INSERT INTO routine_delivery_targets "
+            "(routine_id, channel, target, enabled, mode, created_at_utc, updated_at_utc) "
+            "VALUES (?, ?, ?, 1, 'automatic', ?, ?)",
+            (routine_id, channel, f"{channel}://example.invalid", now, now))
+        targets[channel] = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+    states = {}
+    for channel, state in (("webhook", "delivering"), ("email", "awaiting_review")):
+        conn.execute(
+            "INSERT INTO deliveries (execution_id, target_id, channel, target_snapshot, "
+            "state, attempts, owner_pid, owner_runtime_id, queued_at_utc) "
+            "VALUES (?, ?, ?, '{}', ?, 1, 4242, 'runtime-from-another-life', ?)",
+            (exec_id, targets[channel], channel, state, now))
+        states[state] = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+    conn.commit()
+    return {"routine_id": routine_id, "targets": targets, "deliveries": states}
+
+
 def _seed_process_state(conn):
     """One running execution and one in-flight delivery -- the rows a restore rewrites."""
     exec_id = insert_execution(conn, {
@@ -104,10 +137,12 @@ def corpus(tmp_path):
     parent.mkdir()
     vault_id, root, files = _seed_vault(conn, parent, ids)
     exec_id = _seed_process_state(conn)
+    deliveries = _seed_deliveries(conn, exec_id)
     conn.commit()
     yield {
         "conn": conn, "db_path": db_path, "vault_id": vault_id, "vault_root": root,
         "files": files, "document_ids": ids, "exec_id": exec_id,
+        "deliveries": deliveries,
         "state_dir": db_path.parent, "tmp": tmp_path,
     }
     conn.close()
@@ -290,6 +325,10 @@ def test_a_vault_that_belongs_to_someone_else_is_refused(corpus, tmp_path):
 
 #: What the restore is expected to rewrite, said out loud so the comparison can
 #: be exact everywhere else.
+#: `executions`: a `running` row becomes `interrupted`/`unknown` with its owner
+#: cleared. `deliveries`: a `delivering` row becomes `queued` with its owner
+#: cleared, and an `awaiting_review` row is left exactly as it was -- it
+#: describes a decision the user has not made, not a process.
 _INTENDED_REWRITES = {
     "executions": ("status", "interrupted_reason", "owner_pid", "owner_runtime_id", "end_time"),
     "deliveries": ("state", "owner_pid", "owner_runtime_id"),
@@ -371,6 +410,21 @@ def test_the_restore_drill_is_the_identity(corpus, monkeypatch, tmp_path):
         assert row["status"] == "interrupted"
         assert row["interrupted_reason"] == "unknown"
         assert row["owner_pid"] is None and row["owner_runtime_id"] is None
+
+        # The deliveries arm, which had no witness until round two.
+        requeued = after_conn.execute(
+            "SELECT state, owner_pid, owner_runtime_id FROM deliveries WHERE id=?",
+            (corpus["deliveries"]["deliveries"]["delivering"],)).fetchone()
+        assert requeued["state"] == "queued"
+        assert requeued["owner_pid"] is None and requeued["owner_runtime_id"] is None
+
+        held = after_conn.execute(
+            "SELECT state, attempts FROM deliveries WHERE id=?",
+            (corpus["deliveries"]["deliveries"]["awaiting_review"],)).fetchone()
+        assert held["state"] == "awaiting_review", (
+            "a delivery the user has not decided on is not a process to reclaim")
+        assert held["attempts"] == 1
+        assert outcome["rewrites"] == {"executions_interrupted": 1, "deliveries_requeued": 1}
 
         assert after_conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert after_conn.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -606,3 +660,203 @@ def test_a_bundle_restores_into_a_fresh_state_directory_and_serves_over_http(
         assert isinstance(card["last_restore"]["credentials_to_reenter"], list)
     finally:
         resmon_mod.close_db()
+
+
+# ---------------------------------------------------------------------------
+# R2-2 -- a bundle from a released resmon, older than today's schema
+# ---------------------------------------------------------------------------
+
+V220_FIXTURE = (Path(__file__).parent / "fixtures/v2.2.0/corpus_schema_18.sql")
+V220_SCHEMA_VERSION = 18
+
+
+def test_a_v220_era_bundle_restores_through_the_startup_path(tmp_path, monkeypatch):
+    """The case that found the round-one bug: schema 18 has no ``deliveries`` table.
+
+    ``_strip_process_state`` used to run *before* ``init_db``, against the
+    bundle's own schema, and swallow ``sqlite3.Error``. On this fixture that is
+    "no such table: deliveries" -- and the restore carried on and reported
+    success. It now runs after the migrations and raises, so a failure there
+    restores the undo copy like any other.
+    """
+    import resmon as resmon_mod
+
+    source = tmp_path / "old" / "resmon.db"
+    source.parent.mkdir(parents=True)
+    old = db.get_connection(source)
+    try:
+        old.executescript(V220_FIXTURE.read_text(encoding="utf-8"))
+        old.commit()
+        assert db.get_schema_version(old) == V220_SCHEMA_VERSION
+        documents_before = old.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        assert not old.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='deliveries'"
+        ).fetchone(), "this fixture is only interesting while it predates deliveries"
+        # The fixture records a vault at a path this machine has never had. A
+        # backup of a corpus whose vault is missing correctly aborts (P7), and
+        # that is not what this case is about -- the schema walk is. The vault
+        # rows go, and the vault half is covered by the drill.
+        old.execute("DELETE FROM library_file_documents")
+        old.execute("DELETE FROM library_files")
+        old.execute("DELETE FROM library_vault")
+        old.commit()
+
+        manifest = backup_module.create_backup(
+            old, tmp_path / "backups", app_version="2.2.0",
+            schema_version=V220_SCHEMA_VERSION, include_reports=False,
+            reports_dir=None, state_dir=source.parent)
+    finally:
+        old.close()
+    assert manifest["schema_version"] == V220_SCHEMA_VERSION
+
+    state = tmp_path / "today"
+    state.mkdir()
+    target = state / "resmon.db"
+    report = backup_module.verify_bundle(bundle := Path(manifest["path"]),
+                                         this_schema_version=db.SCHEMA_VERSION)
+    assert report["ok"], report["problems"]
+    assert report["schema_relation"] == "older"
+    backup_module.stage_restore(bundle, state, report,
+                                accept_fk_violations=report["needs_fk_acceptance"])
+
+    monkeypatch.setattr(resmon_mod, "_db_path", str(target), raising=False)
+    monkeypatch.setattr(resmon_mod, "_backup_state_dir", lambda: state, raising=False)
+    outcome = resmon_mod._apply_pending_restore_on_startup()
+    assert outcome is not None and outcome["ok"], outcome
+    assert outcome["schema_relation"] == "older"
+
+    conn = db.get_connection(target)
+    try:
+        # The migrations ran, so the tables the strip needs now exist.
+        assert db.get_schema_version(conn) == db.SCHEMA_VERSION
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='deliveries'").fetchone()
+        assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == documents_before
+        assert conn.execute(
+            "SELECT COUNT(*) FROM executions WHERE status='running'").fetchone()[0] == 0
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        conn.close()
+
+
+def test_a_failure_in_the_strip_is_not_swallowed(corpus, monkeypatch, tmp_path):
+    """R2-2's other half: the strip raises, and the undo copy comes back.
+
+    Round one logged and continued, so a restore that reclaimed nothing still
+    answered ``ok``. The mutation here is the failure itself.
+    """
+    import resmon as resmon_mod
+
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    backup_module.stage_restore(bundle, corpus["state_dir"], report)
+    corpus["conn"].close()
+    before = corpus["db_path"].read_bytes()
+
+    def explode(conn):
+        raise sqlite3.OperationalError("no such table: deliveries")
+
+    monkeypatch.setattr(backup_module, "_strip_process_state", explode)
+    monkeypatch.setattr(resmon_mod, "_db_path", str(corpus["db_path"]), raising=False)
+    monkeypatch.setattr(resmon_mod, "_backup_state_dir",
+                        lambda: corpus["state_dir"], raising=False)
+
+    outcome = resmon_mod._apply_pending_restore_on_startup()
+    assert outcome is not None and not outcome["ok"]
+    assert "deliveries" in outcome["message"]
+    assert outcome["undone"] is True
+    assert corpus["db_path"].read_bytes() == before
+    assert backup_module.undo_copies(corpus["state_dir"]) == []
+
+
+# ---------------------------------------------------------------------------
+# R2-3 -- orphan rows are recorded at backup, not discovered at restore
+# ---------------------------------------------------------------------------
+
+
+def _orphan(conn):
+    """One row whose parent is not there. `foreign_key_check` finds it; opening does not."""
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.execute(
+        "INSERT INTO library_file_documents (file_id, document_id, linked_at_utc) "
+        "VALUES ('00000000-0000-4000-8000-000000000000', 999999, '2026-01-01T00:00:00Z')")
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=ON")
+
+
+def test_a_corpus_with_an_orphan_row_still_backs_up_and_records_it(corpus, tmp_path):
+    """The bundle is produced. Refusing here is what left a user with an unrestorable backup."""
+    _orphan(corpus["conn"])
+    manifest = _make_backup(corpus, tmp_path)
+    assert Path(manifest["path"]).is_dir()
+    # One row, two unsatisfied foreign keys (``library_files`` and
+    # ``documents``), so ``foreign_key_check`` reports it twice -- the pragma
+    # answers per constraint, not per row, and the manifest records what it says.
+    assert manifest["fk_violations_total"] == 2
+    assert {v["table"] for v in manifest["fk_violations"]} == {"library_file_documents"}
+    assert {v["parent"] for v in manifest["fk_violations"]} == {"library_files", "documents"}
+    assert "not there" in manifest["fk_violations_message"]
+
+    report = backup_module.verify_bundle(Path(manifest["path"]),
+                                         this_schema_version=db.SCHEMA_VERSION)
+    assert report["ok"], report["problems"]          # still a readable bundle
+    assert report["needs_fk_acceptance"] is True
+    assert report["fk_violations_total"] == 2
+
+
+def test_an_unaccepted_orphan_refuses_to_stage_and_an_accepted_one_restores(
+        corpus, monkeypatch, tmp_path):
+    """A test each way: refused without the flag, restored with it, named in the record."""
+    _orphan(corpus["conn"])
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+
+    with pytest.raises(backup_module.BackupError) as caught:
+        backup_module.stage_restore(bundle, corpus["state_dir"], report)
+    assert caught.value.reason == "fk_violations_not_accepted"
+    assert backup_module.pending_restore(corpus["state_dir"]) is None
+
+    backup_module.stage_restore(bundle, corpus["state_dir"], report,
+                                accept_fk_violations=True)
+    corpus["conn"].close()
+    outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
+    assert outcome is not None and outcome["ok"], outcome
+    assert outcome["fk_violations_total"] == 2
+    assert "not there" in outcome["fk_violations_message"]
+
+    conn = db.get_connection(corpus["db_path"])
+    try:
+        # Restored as it was: resmon did not quietly repair the corpus.
+        assert len(conn.execute("PRAGMA foreign_key_check").fetchall()) == 2
+    finally:
+        conn.close()
+
+
+def test_the_restore_route_refuses_an_unaccepted_orphan_over_http(tmp_path, monkeypatch):
+    client, mod, db_path = _route_client(tmp_path, monkeypatch)
+    try:
+        conn = mod._get_db()
+        ids = _seed_documents(conn, 3)
+        parent = tmp_path / "fk-vault"
+        parent.mkdir()
+        _seed_vault(conn, parent, ids)
+        _orphan(conn)
+
+        path = client.post("/api/backup", json={"confirm": "CONFIRM",
+                                                "include_reports": False}).json()["path"]
+        verified = client.post("/api/backup/verify", json={"path": path}).json()
+        assert verified["needs_fk_acceptance"] is True
+
+        refused = client.post("/api/restore", json={"confirm": "CONFIRM", "path": path})
+        assert refused.status_code == 400
+        assert refused.json()["detail"]["reason"] == "fk_violations_not_accepted"
+        assert refused.json()["detail"]["fk_violations_total"] == 2
+
+        accepted = client.post("/api/restore", json={
+            "confirm": "CONFIRM", "path": path, "accept_fk_violations": True})
+        assert accepted.status_code == 200, accepted.text
+        assert accepted.json()["staged"]["accept_fk_violations"] is True
+    finally:
+        mod.close_db()

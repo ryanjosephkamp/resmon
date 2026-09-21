@@ -6322,6 +6322,9 @@ class BundleBody(BaseModel):
 
 class RestoreRequest(AdminConfirmBody):
     path: str = ""
+    # A bundle whose database carries orphan rows can still be restored, but
+    # only deliberately: the verify report names them and the user says yes.
+    accept_fk_violations: bool = False
 
 
 @app.post("/api/backup")
@@ -6397,7 +6400,14 @@ def restore_stage(body: RestoreRequest):
     if not report["ok"]:
         raise HTTPException(400, detail={"reason": "verification_failed",
                                          "problems": report["problems"]})
-    pointer = backup_module.stage_restore(bundle, _backup_state_dir(), report)
+    try:
+        pointer = backup_module.stage_restore(
+            bundle, _backup_state_dir(), report,
+            accept_fk_violations=bool(body.accept_fk_violations))
+    except backup_module.BackupError as exc:
+        raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message,
+                                         "fk_violations": report["fk_violations"],
+                                         "fk_violations_total": report["fk_violations_total"]})
     return {
         "success": True,
         "staged": pointer,
@@ -6427,6 +6437,7 @@ def backup_last():
                 "vault_id": manifest.get("vault_id"),
                 "files": len(manifest.get("files", [])),
                 "includes_reports": manifest.get("includes_reports"),
+                "fk_violations_total": manifest.get("fk_violations_total") or 0,
             }
         except backup_module.BackupError:
             summary = None

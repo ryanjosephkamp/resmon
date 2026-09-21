@@ -30,6 +30,10 @@ const REPORT = {
   vault_relation: 'same',
   problems: [],
   ok: true,
+  fk_violations: [],
+  fk_violations_total: 0,
+  fk_violations_message: '',
+  needs_fk_acceptance: false,
   will_not_restore: {
     credentials: ['smtp_password'],
     process_state: ['daemon.lock'],
@@ -78,7 +82,40 @@ test('choosing a backup verifies it and restores nothing until a second click', 
   fireEvent.click(screen.getByRole('button', { name: /Restart to restore/i }));
   await waitFor(() => expect(callsTo(fetchMock, '/api/restore').length).toBe(1));
   expect(JSON.parse(String(callsTo(fetchMock, '/api/restore')[0].init?.body))).toEqual({
-    confirm: 'CONFIRM', path: REPORT.path,
+    confirm: 'CONFIRM', path: REPORT.path, accept_fk_violations: false,
+  });
+});
+
+test('orphaned rows must be accepted before the restore can be staged', async () => {
+  const fetchMock = mockRoutedFetch({
+    '/api/backup/last': EMPTY,
+    '/api/backup/verify': {
+      ...REPORT,
+      fk_violations: [{ table: 'library_file_documents', rowid: 4, parent: 'documents', fkid: 0 }],
+      fk_violations_total: 1,
+      fk_violations_message: '1 row references a parent that is not there.',
+      needs_fk_acceptance: true,
+    },
+    '/api/restore': { success: true, staged: {}, report: REPORT, next_step: 'Restart resmon to restore.' },
+  });
+  (window as any).resmonAPI = { getBackendPort: () => '1', platform: 'darwin',
+    versions: { node: '', electron: '' }, chooseDirectory: async () => REPORT.path };
+
+  await renderWithProviders(<BackupRestore />);
+  fireEvent.click(screen.getByRole('button', { name: /Restore from backup/i }));
+
+  const card = await screen.findByTestId('fk-violations');
+  expect(card).toHaveTextContent('library_file_documents');
+  // The bundle verifies fine; it is the orphans that hold the button.
+  expect(screen.getByRole('button', { name: /Restart to restore/i })).toBeDisabled();
+
+  fireEvent.click(screen.getByLabelText(/Restore anyway/i));
+  expect(screen.getByRole('button', { name: /Restart to restore/i })).toBeEnabled();
+
+  fireEvent.click(screen.getByRole('button', { name: /Restart to restore/i }));
+  await waitFor(() => expect(callsTo(fetchMock, '/api/restore').length).toBe(1));
+  expect(JSON.parse(String(callsTo(fetchMock, '/api/restore')[0].init?.body))).toEqual({
+    confirm: 'CONFIRM', path: REPORT.path, accept_fk_violations: true,
   });
 });
 
@@ -108,6 +145,8 @@ test('after a restore the card names the credentials that did not come back', as
       last_restore: {
         ok: true, acknowledged: false, bundle: '/backups/b1',
         credentials_to_reenter: ['smtp_password', 'openai_api_key'],
+        fk_violations_total: 2,
+        fk_violations_message: '2 rows reference a parent that is not there.',
       },
     },
   });
@@ -117,4 +156,6 @@ test('after a restore the card names the credentials that did not come back', as
   expect(card).toHaveTextContent('smtp_password');
   expect(card).toHaveTextContent('openai_api_key');
   expect(card).toHaveTextContent(/row id/);
+  // R2-3: the orphans the user chose to keep are named again after the fact.
+  expect(screen.getByTestId('reentry-fk')).toHaveTextContent('2 orphaned rows');
 });

@@ -68,6 +68,13 @@ RESTORE_LOG_NAME = "restore-last.json"
 PROCESS_STATE_FILES = ("daemon.lock", "resmon.port", "api-token-<port>")
 
 
+#: How many foreign-key violations a manifest lists individually. A corpus that
+#: has drifted badly enough to exceed this does not become more diagnosable by
+#: listing another thousand rows, and the manifest stays readable; the total is
+#: recorded either way.
+MAX_LISTED_FK_VIOLATIONS = 100
+
+
 class BackupError(RuntimeError):
     """A backup, verification or restore that cannot proceed, with a reason code."""
 
@@ -233,6 +240,44 @@ def _copy_vault(conn: sqlite3.Connection, vault_root: Path, into: Path) -> list[
     return entries
 
 
+def foreign_key_violations(conn: sqlite3.Connection) -> tuple[list[dict], int]:
+    """Every orphan row ``PRAGMA foreign_key_check`` can find, and the total.
+
+    Recorded at *backup* time, which is the point this exists. ``foreign_key_check``
+    already gated the restore, so a corpus carrying one orphan row -- which
+    resmon opens quite happily, because the pragma is a check and not a
+    constraint on existing rows -- could be backed up, could be verified, and
+    could then never be restored. The user found that out at the worst possible
+    moment. Now the bundle records what it found, verify reports it, and the
+    restore asks the user to accept it rather than refusing forever.
+
+    Rows come back as ``(table, rowid, parent, fkid)``; the rowid is NULL for a
+    WITHOUT ROWID table.
+    """
+    try:
+        rows = conn.execute("PRAGMA foreign_key_check").fetchall()
+    except sqlite3.Error:
+        logger.exception("Could not run foreign_key_check while backing up")
+        return [], 0
+    listed = [
+        {"table": r[0], "rowid": r[1], "parent": r[2], "fkid": r[3]}
+        for r in rows[:MAX_LISTED_FK_VIOLATIONS]
+    ]
+    return listed, len(rows)
+
+
+def describe_fk_violations(listed: list[dict], total: int) -> str:
+    """One sentence a person can act on, for the route answer and the card."""
+    if not total:
+        return ""
+    shown = ", ".join(
+        f"{v['table']} row {v['rowid']} -> {v['parent']}" for v in listed[:5])
+    more = "" if total <= 5 else f", and {total - 5} more"
+    return (f"{total} row{'' if total == 1 else 's'} reference a parent that is not "
+            f"there ({shown}{more}). resmon can restore this database, but those rows "
+            "will still be orphaned afterwards.")
+
+
 def _file_entry(path: Path, logical: str) -> dict:
     return {"path": logical, "size": path.stat().st_size, "sha256": sha256_file(path)}
 
@@ -272,6 +317,13 @@ def create_backup(
     bundle.mkdir(parents=True)
     try:
         snapshot_database(conn, bundle / DB_NAME)
+        # Measured on the bundle's own copy, which is what a restore will put
+        # back -- not on the live database, which may have moved on since.
+        snapshot = sqlite3.connect(str(bundle / DB_NAME))
+        try:
+            fk_listed, fk_total = foreign_key_violations(snapshot)
+        finally:
+            snapshot.close()
         files = [_file_entry(bundle / DB_NAME, DB_NAME)]
 
         vault_id = None
@@ -302,6 +354,8 @@ def create_backup(
             "table_counts": counts,
             "table_count_denominator": len(counts),
             "files": files,
+            "fk_violations": fk_listed,
+            "fk_violations_total": fk_total,
             "excluded": {
                 # Names only, never values. These are what a restore cannot
                 # bring back and the user must re-enter by hand.
@@ -319,6 +373,7 @@ def create_backup(
         (bundle / MANIFEST_NAME).write_text(json.dumps(manifest, indent=2, sort_keys=True))
         manifest["path"] = str(bundle)
         manifest["manifest_sha256"] = sha256_file(bundle / MANIFEST_NAME)
+        manifest["fk_violations_message"] = describe_fk_violations(fk_listed, fk_total)
         return manifest
     except BaseException:
         shutil.rmtree(bundle, ignore_errors=True)
@@ -404,6 +459,8 @@ def verify_bundle(
         vault_relation = "different"
 
     excluded = manifest.get("excluded", {}) or {}
+    fk_listed = list(manifest.get("fk_violations", []) or [])
+    fk_total = int(manifest.get("fk_violations_total") or 0)
     return {
         "path": str(bundle),
         "manifest": manifest,
@@ -413,6 +470,13 @@ def verify_bundle(
         "schema_relation": schema_relation,
         "vault_relation": vault_relation,
         "problems": problems,
+        # Orphan rows are reported, never a problem: they do not make the
+        # bundle unreadable, and refusing here is exactly the trap that put a
+        # user's only backup out of reach. The restore asks them to accept it.
+        "fk_violations": fk_listed,
+        "fk_violations_total": fk_total,
+        "fk_violations_message": describe_fk_violations(fk_listed, fk_total),
+        "needs_fk_acceptance": fk_total > 0,
         "ok": not problems,
         "will_not_restore": {
             "credentials": list(excluded.get("credentials", [])),
@@ -431,13 +495,25 @@ def verify_bundle(
 # ---------------------------------------------------------------------------
 
 
-def stage_restore(bundle: Path, state_dir: Path, report: dict) -> dict:
-    """Write the pointer the next start will act on. Nothing is moved here."""
+def stage_restore(bundle: Path, state_dir: Path, report: dict,
+                  *, accept_fk_violations: bool = False) -> dict:
+    """Write the pointer the next start will act on. Nothing is moved here.
+
+    A bundle carrying orphan rows is staged only when the caller says so: the
+    user is told what they are keeping before they keep it, and the decision
+    travels in the pointer so the start that acts on it does not have to guess.
+    """
     state_dir = Path(state_dir)
+    if report.get("needs_fk_acceptance") and not accept_fk_violations:
+        raise BackupError(
+            "fk_violations_not_accepted",
+            report.get("fk_violations_message")
+            or "This backup contains rows that reference a parent that is not there.")
     state_dir.mkdir(parents=True, exist_ok=True)
     pointer = {
         "bundle": str(Path(bundle).resolve()),
         "manifest_sha256": report["manifest_sha256"],
+        "accept_fk_violations": bool(accept_fk_violations),
         "staged_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     (state_dir / PENDING_NAME).write_text(json.dumps(pointer, indent=2))
@@ -505,24 +581,29 @@ def _strip_process_state(conn: sqlite3.Connection) -> dict:
     another machine never existed. A ``running`` row whose owner cannot be
     asked is ``interrupted`` with reason ``unknown`` -- not ``owner_dead``,
     which claims a fact this path did not establish.
+
+    **Runs after ``init_db``, and raises.** It used to run before, against the
+    bundle's own schema, and swallow ``sqlite3.Error``: on a v2.2.0-era bundle
+    that is "no such table: deliveries", and the restore carried on and
+    reported success while every ``delivering`` row it was meant to requeue was
+    still owned by a process on another machine. A failure here is a failure of
+    the restore and is treated like one -- the undo copy goes back.
+
+    ``awaiting_review`` is deliberately untouched: it describes a *decision the
+    user has not made*, not a process, and requeueing it would deliver
+    something they were still looking at.
     """
     result = {"executions_interrupted": 0, "deliveries_requeued": 0}
-    try:
-        cur = conn.execute(
-            "UPDATE executions SET status='interrupted', interrupted_reason='unknown', "
-            "owner_pid=NULL, owner_runtime_id=NULL WHERE status='running'")
-        result["executions_interrupted"] = cur.rowcount
-        conn.execute("UPDATE executions SET owner_pid=NULL, owner_runtime_id=NULL")
-    except sqlite3.Error:
-        logger.exception("Could not strip execution ownership after a restore")
-    try:
-        cur = conn.execute(
-            "UPDATE deliveries SET state='queued', owner_pid=NULL, owner_runtime_id=NULL "
-            "WHERE state='delivering'")
-        result["deliveries_requeued"] = cur.rowcount
-        conn.execute("UPDATE deliveries SET owner_pid=NULL, owner_runtime_id=NULL")
-    except sqlite3.Error:
-        logger.exception("Could not strip delivery ownership after a restore")
+    cur = conn.execute(
+        "UPDATE executions SET status='interrupted', interrupted_reason='unknown', "
+        "owner_pid=NULL, owner_runtime_id=NULL WHERE status='running'")
+    result["executions_interrupted"] = cur.rowcount
+    conn.execute("UPDATE executions SET owner_pid=NULL, owner_runtime_id=NULL")
+    cur = conn.execute(
+        "UPDATE deliveries SET state='queued', owner_pid=NULL, owner_runtime_id=NULL "
+        "WHERE state='delivering'")
+    result["deliveries_requeued"] = cur.rowcount
+    conn.execute("UPDATE deliveries SET owner_pid=NULL, owner_runtime_id=NULL")
     conn.commit()
     return result
 
@@ -677,35 +758,35 @@ def apply_pending_restore(
                     "The backup carries vault bytes but its database has no vault row.")
             vault_result = _restore_vault(bundle, manifest, Path(row["root_path"]))
 
+        # ``init_db`` first, and before anything writes a row. The migrations
+        # bring an older bundle to today's schema, and every statement below
+        # assumes today's tables and today's CHECK vocabularies -- a v2.2.0-era
+        # bundle has no ``deliveries`` table at all and no
+        # ``interrupted_reason`` column to write ``unknown`` into.
+        init_db(str(db_path))
+
         conn = sqlite3.connect(str(db_path))
         try:
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys=ON;")
             rewrites = _strip_process_state(conn)
+            # After the migrations, because ``init_db`` may have created the FTS
+            # table for the first time on an older bundle; the index then
+            # answers for exactly the rows that were restored.
             _rebuild_fts(conn)
-        finally:
-            conn.close()
-
-        init_db(str(db_path))
-
-        conn = sqlite3.connect(str(db_path))
-        try:
-            conn.execute("PRAGMA foreign_keys=ON;")
             integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
             fk_problems = conn.execute("PRAGMA foreign_key_check").fetchall()
-            # ``init_db`` may have created the FTS table for the first time on
-            # an older bundle; rebuild after the migrations either way so the
-            # index answers for exactly the rows that were restored.
-            _rebuild_fts(conn)
         finally:
             conn.close()
         if integrity != "ok":
             raise BackupError("integrity_check_failed",
                               f"The restored database failed integrity_check: {integrity}")
-        if fk_problems:
-            raise BackupError("foreign_key_check_failed",
-                              f"The restored database has {len(fk_problems)} foreign-key violations.")
+        if fk_problems and not pointer.get("accept_fk_violations"):
+            raise BackupError(
+                "foreign_key_check_failed",
+                f"The restored database has {len(fk_problems)} rows referencing a parent "
+                "that is not there, and the restore was not staged to accept them.")
     except BaseException as exc:
         for suffix in ("", "-wal", "-shm"):
             broken = Path(str(db_path) + suffix)
@@ -727,6 +808,9 @@ def apply_pending_restore(
         "vault": vault_result,
         "rewrites": rewrites,
         "credentials_to_reenter": report["will_not_restore"]["credentials"],
+        "fk_violations": report["fk_violations"],
+        "fk_violations_total": report["fk_violations_total"],
+        "fk_violations_message": report["fk_violations_message"],
         "acknowledged": False,
     }
     record = _record(state_dir, outcome)
