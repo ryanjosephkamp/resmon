@@ -3,6 +3,7 @@
 
 import logging
 import os
+import re
 import threading
 import time
 
@@ -147,10 +148,47 @@ AI_CREDENTIAL_NAMES: frozenset[str] = frozenset({
 
 SMTP_CREDENTIAL_NAMES: frozenset[str] = frozenset({"smtp_password"})
 
+# A webhook delivery destination's shared secret. One per destination, so the
+# name carries the ``routine_delivery_targets`` row id and cannot be written as
+# a fixed list. It is a *pattern* in the allowlist rather than a hole in it:
+# the id must be digits, so nothing outside this shape is accepted, and a
+# reader still sees at a glance which credentials this application holds.
+#
+# The value never leaves the keyring: resmon signs with it and a receiver
+# checks the signature with its own copy. ``GET /api/credentials`` reports
+# presence for the fixed names and these are asked about by name, because the
+# set of them is per corpus rather than per build.
+WEBHOOK_SECRET_RE = re.compile(r"^webhook_secret_[0-9]+$")
+
+
+def is_webhook_secret_name(name: str) -> bool:
+    """Whether *name* is a per-destination webhook signing secret."""
+    return bool(WEBHOOK_SECRET_RE.match(name or ""))
+
 
 def allowed_credential_names() -> frozenset[str]:
-    """Return the union of all non-catalog credential names."""
+    """Return the union of all non-catalog credential names.
+
+    The fixed ones only. Webhook destination secrets are named after a row id
+    and are answered for by :func:`is_allowed_credential_name`.
+    """
     return AI_CREDENTIAL_NAMES | SMTP_CREDENTIAL_NAMES
+
+
+def is_allowed_credential_name(name: str) -> bool:
+    """Whether resmon will store or delete a credential under this name.
+
+    The one place the question is answered, so a route, a test and the MCP
+    boundary cannot come to different conclusions about it.
+    """
+    from .repo_catalog import credential_names as catalog_credential_names
+
+    return (
+        name in AI_CREDENTIAL_NAMES
+        or name in SMTP_CREDENTIAL_NAMES
+        or name in catalog_credential_names()
+        or is_webhook_secret_name(name)
+    )
 
 
 # ---------------------------------------------------------------------------

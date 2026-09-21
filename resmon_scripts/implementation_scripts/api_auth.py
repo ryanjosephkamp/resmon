@@ -72,6 +72,24 @@ TOKEN_FILE_PREFIX = "api-token-"
 # runtime identity to nobody who could not already read the token.
 AUTH_EXEMPT_PATHS: frozenset[str] = frozenset()
 
+# The paths that carry their own proof instead of the token. **One entry, and a
+# test fails if it grows** (``test_local_api_auth.py``).
+#
+# The delivery bundle download exists for a webhook *receiver*: a program the
+# user pointed a routine at, which is not resmon's renderer and has no business
+# holding a credential that opens every route in this app. So the guard lets
+# the request past the token check and the route checks a per-destination HMAC
+# over the delivery id and an expiry instead. What the guard still enforces on
+# it is everything else -- Host must be this backend's own 127.0.0.1 address,
+# and a browser Origin must be the renderer's -- so this widens exactly one
+# route to one holder of one time-limited signature, and nothing else.
+#
+# This is *not* an exemption from authentication. A request here with no
+# signature, a wrong one or an expired one is refused by the route.
+AUTH_SIGNED_PATHS: tuple["re.Pattern[str]", ...] = (
+    re.compile(r"^/api/deliveries/[0-9]+/bundle$"),
+)
+
 # 32 bytes from a CSPRNG, URL-safe base64 without padding: 43 characters. A
 # presented token from the environment must look like one; anything shorter is
 # refused at start rather than silently accepted as a weak secret.
@@ -326,6 +344,14 @@ def check(scope: Scope) -> Optional[Response]:
         return None
 
     if scope.get("path") in AUTH_EXEMPT_PATHS:
+        return None
+
+    # A route that proves itself. See ``AUTH_SIGNED_PATHS``: the signature is
+    # checked by the route, which knows which destination's secret to check it
+    # against; the guard's job here is only to stop refusing the request for
+    # want of a token the receiver was never given.
+    path = scope.get("path") or ""
+    if any(pattern.match(path) for pattern in AUTH_SIGNED_PATHS):
         return None
 
     count, authorization = _single(headers, b"authorization")
