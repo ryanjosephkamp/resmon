@@ -77,6 +77,24 @@ PROCESS_STATE_FILES = ("daemon.lock", "resmon.port", "api-token-<port>")
 #: recorded either way.
 MAX_LISTED_FK_VIOLATIONS = 100
 
+#: Where a vault the restore replaces is kept inside ``restore-undo/<stamp>/``,
+#: beside the database files of the same restore. One name, so that deleting the
+#: stamp directory deletes both halves of the undo and nothing else.
+VAULT_UNDO_NAME = "vault-replaced"
+
+#: Every reason a vault parent chosen on the restoring machine can be refused.
+#: The route validates in this order and the property test parametrises over
+#: this tuple, so a check added without a case to cover it changes the
+#: denominator and fails that test rather than passing unnoticed.
+VAULT_PARENT_REFUSALS = (
+    "vault_parent_not_absolute",
+    "vault_parent_missing",
+    "vault_parent_not_a_directory",
+    "vault_parent_not_writable",
+    "vault_parent_inside_bundle",
+    "different_vault",
+)
+
 
 class BackupError(RuntimeError):
     """A backup, verification or restore that cannot proceed, with a reason code."""
@@ -243,8 +261,8 @@ def _copy_vault(conn: sqlite3.Connection, vault_root: Path, into: Path) -> list[
     return entries
 
 
-def foreign_key_violations(conn: sqlite3.Connection) -> tuple[list[dict], int]:
-    """Every orphan row ``PRAGMA foreign_key_check`` can find, and the total.
+def foreign_key_violations(conn: sqlite3.Connection) -> tuple[list[dict], int, int]:
+    """Every orphan row ``PRAGMA foreign_key_check`` can find, the total, and the rows.
 
     Recorded at *backup* time, which is the point this exists. ``foreign_key_check``
     already gated the restore, so a corpus carrying one orphan row -- which
@@ -254,40 +272,63 @@ def foreign_key_violations(conn: sqlite3.Connection) -> tuple[list[dict], int]:
     moment. Now the bundle records what it found, verify reports it, and the
     restore asks the user to accept it rather than refusing forever.
 
-    Rows come back as ``(table, rowid, parent, fkid)``; the rowid is NULL for a
-    WITHOUT ROWID table.
+    Rows come back as ``(table, rowid, parent, fkid)``. The pragma answers once
+    per unsatisfied foreign key, so one row with two broken keys appears twice;
+    the third return value de-duplicates by ``(table, rowid)`` and is therefore
+    a count of *rows*, which is the number a person is actually picturing.
+
+    **The rowid is NULL for a WITHOUT ROWID table**, and two such references
+    cannot be told apart -- they may be one row or two. Those references are
+    counted in the total and deliberately *not* in the row count, so the row
+    count is a count of the rows SQLite identified and never a guess. resmon's
+    own schema has no WITHOUT ROWID table today, so this is a guard rather than
+    a case; ``docs/backup.md`` says the same thing for anyone reading a manifest.
     """
     try:
         rows = conn.execute("PRAGMA foreign_key_check").fetchall()
     except sqlite3.Error:
         logger.exception("Could not run foreign_key_check while backing up")
-        return [], 0
+        return [], 0, 0
     listed = [
         {"table": r[0], "rowid": r[1], "parent": r[2], "fkid": r[3]}
         for r in rows[:MAX_LISTED_FK_VIOLATIONS]
     ]
-    return listed, len(rows)
+    # Over every row the pragma returned, not only the listed sample: a bundle
+    # with 400 references still records how many rows they came from.
+    distinct = {(r[0], r[1]) for r in rows if r[1] is not None}
+    return listed, len(rows), len(distinct)
 
 
-def describe_fk_violations(listed: list[dict], total: int) -> str:
+def describe_fk_violations(listed: list[dict], total: int, rows: int | None = None) -> str:
     """One sentence a person can act on, for the route answer and the card.
 
-    It counts **references**, not rows, because that is what
+    The leading number counts **references**, not rows, because that is what
     ``PRAGMA foreign_key_check`` counts: it answers once per unsatisfied
-    foreign key, so a single row with two broken keys appears twice. Saying
-    "2 rows" there would be a number the pragma never gave, and the whole point
-    of this surface is that a person can act on it. De-duplicating by
-    ``(table, rowid)`` to report rows as well is a separate change with its own
-    manifest field.
+    foreign key, so a single row with two broken keys appears twice. Reporting
+    only that number left a person dividing by an unknown, so the sentence now
+    carries the row count beside it -- de-duplicated by ``(table, rowid)``.
+
+    *rows* is ``None`` for a bundle written before the manifest recorded it, and
+    the sentence then reads exactly as it did: an old bundle does not acquire a
+    number nobody measured. It is ``0`` with a non-zero total only when every
+    reference came from a WITHOUT ROWID table, where the pragma gives no rowid
+    to de-duplicate on; the sentence says so rather than printing "from 0 rows".
     """
     if not total:
         return ""
     shown = ", ".join(
         f"{v['table']} row {v['rowid']} -> {v['parent']}" for v in listed[:5])
     more = "" if total <= 5 else f", and {total - 5} more"
-    return (f"{total} reference{'' if total == 1 else 's'} to a parent that is not "
-            f"there ({shown}{more}). resmon can restore this database, but those rows "
-            "will still be orphaned afterwards.")
+    references = f"{total} reference{'' if total == 1 else 's'} to a parent that is not there"
+    if rows is None:
+        opening = references
+    elif rows == 0:
+        opening = (f"{references}, from rows resmon cannot count (the tables "
+                   "involved have no rowid for it to tell them apart by)")
+    else:
+        opening = f"{references}, from {rows} row{'' if rows == 1 else 's'}"
+    return (f"{opening} ({shown}{more}). resmon can restore this database, but those "
+            "rows will still be orphaned afterwards.")
 
 
 def _file_entry(path: Path, logical: str) -> dict:
@@ -333,7 +374,7 @@ def create_backup(
         # back -- not on the live database, which may have moved on since.
         snapshot = sqlite3.connect(str(bundle / DB_NAME))
         try:
-            fk_listed, fk_total = foreign_key_violations(snapshot)
+            fk_listed, fk_total, fk_rows = foreign_key_violations(snapshot)
         finally:
             snapshot.close()
         files = [_file_entry(bundle / DB_NAME, DB_NAME)]
@@ -368,6 +409,10 @@ def create_backup(
             "files": files,
             "fk_violations": fk_listed,
             "fk_violations_total": fk_total,
+            # Additive in manifest version 1: a bundle written before this
+            # field existed has no row count, and everything downstream treats
+            # its absence as "not measured" rather than as zero.
+            "fk_violations_rows": fk_rows,
             "excluded": {
                 # Names only, never values. These are what a restore cannot
                 # bring back and the user must re-enter by hand.
@@ -385,7 +430,8 @@ def create_backup(
         (bundle / MANIFEST_NAME).write_text(json.dumps(manifest, indent=2, sort_keys=True))
         manifest["path"] = str(bundle)
         manifest["manifest_sha256"] = sha256_file(bundle / MANIFEST_NAME)
-        manifest["fk_violations_message"] = describe_fk_violations(fk_listed, fk_total)
+        manifest["fk_violations_message"] = describe_fk_violations(
+            fk_listed, fk_total, fk_rows)
         return manifest
     except BaseException:
         shutil.rmtree(bundle, ignore_errors=True)
@@ -395,6 +441,109 @@ def create_backup(
 # ---------------------------------------------------------------------------
 # D2 -- verify
 # ---------------------------------------------------------------------------
+
+
+def vault_dir_name(vault_id) -> str:
+    """The one name a vault directory may have. ``library.vault_row`` enforces it."""
+    return "resmon-library-" + str(vault_id)
+
+
+def bundle_vault_root(bundle: Path, manifest: dict) -> str | None:
+    """Where the bundle's own database says its vault lives, or ``None``.
+
+    The bundle does not carry the vault directory's *path* -- ``vault/`` is
+    copied relative-path for relative-path and the name is rebuilt from the
+    vault id -- so the only record of where it came from is
+    ``library_vault.root_path`` inside the snapshotted database. A person
+    restoring onto another machine needs to see that before they commit, which
+    is why verify opens the bundle's database for this one row.
+    """
+    if not manifest.get("vault_id"):
+        return None
+    database = Path(bundle) / DB_NAME
+    if not database.is_file():
+        return None
+    try:
+        probe = sqlite3.connect(str(database))
+    except sqlite3.Error:
+        return None
+    try:
+        row = probe.execute(
+            "SELECT root_path FROM library_vault WHERE singleton=1").fetchone()
+    except sqlite3.Error:
+        # A bundle whose database has no vault table at all is a bundle with no
+        # vault to place; the file checks above have already had their say.
+        return None
+    finally:
+        probe.close()
+    return str(row[0]) if row and row[0] else None
+
+
+def describe_vault_destination(bundle: Path, manifest: dict) -> dict | None:
+    """Where a restore would put the vault *here*, and whether that can work.
+
+    Reported, never a problem: a parent that is missing on this machine is the
+    ordinary case when a backup moves between machines, and the answer to it is
+    to choose another parent rather than to refuse the bundle.
+    """
+    root = bundle_vault_root(bundle, manifest)
+    if root is None:
+        return None
+    root_path = Path(root)
+    parent = root_path.parent
+    exists = parent.is_dir()
+    return {
+        "root_path": str(root_path),
+        "parent": str(parent),
+        "name": root_path.name,
+        "parent_exists": exists,
+        "parent_writable": bool(exists and os.access(parent, os.W_OK | os.X_OK)),
+    }
+
+
+def validate_vault_parent(vault_parent: str, *, bundle: Path, vault_id) -> Path:
+    """Refuse a chosen vault parent before anything is staged, or return it resolved.
+
+    Every refusal here is a reason in :data:`VAULT_PARENT_REFUSALS`, and the
+    order is the order of the checks: a path that does not exist cannot be
+    asked whether it is a directory. ``different_vault`` is the same refusal
+    ``_restore_vault`` makes on the next start, moved forward to the request so
+    the user hears it while they can still choose somewhere else.
+    """
+    parent = Path(vault_parent).expanduser()
+    if not parent.is_absolute():
+        raise BackupError(
+            "vault_parent_not_absolute",
+            f"{vault_parent} is not an absolute path; choose a folder rather than "
+            "a name relative to wherever resmon happens to be running.")
+    if not parent.exists():
+        raise BackupError("vault_parent_missing", f"{parent} does not exist on this machine.")
+    if not parent.is_dir():
+        raise BackupError("vault_parent_not_a_directory", f"{parent} is not a folder.")
+    if not os.access(parent, os.W_OK | os.X_OK):
+        raise BackupError("vault_parent_not_writable",
+                          f"resmon cannot write into {parent}.")
+    resolved = parent.resolve()
+    bundle_root = Path(bundle).resolve()
+    if resolved == bundle_root or bundle_root in resolved.parents:
+        raise BackupError(
+            "vault_parent_inside_bundle",
+            f"{resolved} is inside the backup itself. The vault would be restored "
+            "into the bundle it is being read from; choose a folder outside it.")
+    target = resolved / vault_dir_name(vault_id)
+    marker = target / "vault.json"
+    if marker.is_file():
+        try:
+            existing = (json.loads(marker.read_text()) or {}).get("vault_id")
+        except (ValueError, OSError):
+            existing = None
+        if existing is not None and str(existing) != str(vault_id):
+            raise BackupError(
+                "different_vault",
+                f"{target} already holds vault {existing}, and this backup carries "
+                f"vault {vault_id}. resmon will not overwrite another vault's "
+                "retained files; move or rename that directory first.")
+    return resolved
 
 
 def read_manifest(bundle: Path) -> dict:
@@ -473,6 +622,10 @@ def verify_bundle(
     excluded = manifest.get("excluded", {}) or {}
     fk_listed = list(manifest.get("fk_violations", []) or [])
     fk_total = int(manifest.get("fk_violations_total") or 0)
+    raw_rows = manifest.get("fk_violations_rows")
+    # Absent on a bundle written before the field existed. ``None`` travels all
+    # the way to the card, which then says what the old bundle said and no more.
+    fk_rows = int(raw_rows) if isinstance(raw_rows, int) else None
     return {
         "path": str(bundle),
         "manifest": manifest,
@@ -487,8 +640,10 @@ def verify_bundle(
         # user's only backup out of reach. The restore asks them to accept it.
         "fk_violations": fk_listed,
         "fk_violations_total": fk_total,
-        "fk_violations_message": describe_fk_violations(fk_listed, fk_total),
+        "fk_violations_rows": fk_rows,
+        "fk_violations_message": describe_fk_violations(fk_listed, fk_total, fk_rows),
         "needs_fk_acceptance": fk_total > 0,
+        "vault_destination": describe_vault_destination(bundle, manifest),
         "ok": not problems,
         "will_not_restore": {
             "credentials": list(excluded.get("credentials", [])),
@@ -508,12 +663,18 @@ def verify_bundle(
 
 
 def stage_restore(bundle: Path, state_dir: Path, report: dict,
-                  *, accept_fk_violations: bool = False) -> dict:
+                  *, accept_fk_violations: bool = False,
+                  vault_parent: str | None = None) -> dict:
     """Write the pointer the next start will act on. Nothing is moved here.
 
     A bundle carrying orphan rows is staged only when the caller says so: the
     user is told what they are keeping before they keep it, and the decision
     travels in the pointer so the start that acts on it does not have to guess.
+
+    *vault_parent* travels the same way. The start that acts on the pointer has
+    no request to ask, so a vault that is to land somewhere other than the path
+    recorded in the bundle's database has to be told here; the caller validates
+    it first (:func:`validate_vault_parent`).
     """
     state_dir = Path(state_dir)
     if report.get("needs_fk_acceptance") and not accept_fk_violations:
@@ -526,6 +687,7 @@ def stage_restore(bundle: Path, state_dir: Path, report: dict,
         "bundle": str(Path(bundle).resolve()),
         "manifest_sha256": report["manifest_sha256"],
         "accept_fk_violations": bool(accept_fk_violations),
+        "vault_parent": str(vault_parent) if vault_parent else None,
         "staged_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     (state_dir / PENDING_NAME).write_text(json.dumps(pointer, indent=2))
@@ -631,17 +793,33 @@ def _rebuild_fts(conn: sqlite3.Connection) -> bool:
         return False
 
 
-def _restore_vault(bundle: Path, manifest: dict, target_root: Path) -> dict:
+def _restore_vault(bundle: Path, manifest: dict, target_root: Path,
+                   *, undo_dir: Path | None = None,
+                   moved_aside: list | None = None) -> dict:
     """Put the vault bytes back beside the rows that describe them.
 
     Refuses to overwrite a *different* vault: a directory named for another
     vault_id holds someone's retained files, and the pair rule means this
     restore's database could never describe them.
+
+    A vault that *is* replaced is **moved aside, not deleted**, into the same
+    ``restore-undo/<stamp>/`` directory as the database files of the same
+    restore -- which is what makes the undo cover both halves of the pair. It
+    used to be removed outright, so a restore that failed after this point put
+    the database back and left the user's retained bytes gone.
+
+    ``shutil.move`` renames within a volume and copies between them, so a vault
+    on a different volume from the state directory costs a full copy of every
+    retained byte and the disk to hold it twice. That is the right trade: the
+    alternative is deleting the only copy of the user's files and hoping the
+    rest of the restore succeeds. The copy finishes before the original is
+    removed, so a failure during it leaves the original where it was.
     """
     source = Path(bundle) / VAULT_DIR
     if not source.is_dir():
         return {"restored": False, "reason": "no_vault_in_backup"}
-    expected_name = "resmon-library-" + str(manifest.get("vault_id"))
+    replaced: str | None = None
+    expected_name = vault_dir_name(manifest.get("vault_id"))
     if target_root.name != expected_name:
         raise BackupError(
             "vault_name_mismatch",
@@ -661,7 +839,24 @@ def _restore_vault(bundle: Path, manifest: dict, target_root: Path) -> dict:
                 f"{target_root} already holds vault {existing}, and this backup "
                 f"carries vault {manifest.get('vault_id')}. resmon will not overwrite "
                 "another vault's retained files; move or rename that directory first.")
-        shutil.rmtree(target_root)
+        if undo_dir is None:
+            shutil.rmtree(target_root)
+        else:
+            kept = Path(undo_dir) / VAULT_UNDO_NAME
+            Path(undo_dir).mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.move(str(target_root), str(kept))
+            except BaseException:
+                # Recorded only when the original is demonstrably gone from
+                # where it was: ``shutil.move`` removes the source only after
+                # the copy completed, so a copy interrupted here leaves the
+                # original intact and the half copy must not be mistaken for it.
+                if kept.exists() and not target_root.exists() and moved_aside is not None:
+                    moved_aside.append((target_root, kept))
+                raise
+            if moved_aside is not None:
+                moved_aside.append((target_root, kept))
+            replaced = str(kept)
     target_root.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, target_root)
     try:
@@ -673,7 +868,7 @@ def _restore_vault(bundle: Path, manifest: dict, target_root: Path) -> dict:
     lock = target_root / ".import.lock"
     if lock.exists():
         lock.unlink()
-    return {"restored": True, "root_path": str(target_root)}
+    return {"restored": True, "root_path": str(target_root), "replaced_kept_at": replaced}
 
 
 def apply_pending_restore(
@@ -734,9 +929,14 @@ def apply_pending_restore(
             logger.exception("Could not check the daemon lock before restoring")
 
     manifest = report["manifest"]
+    vault_parent = pointer.get("vault_parent") or None
     undo = state_dir / UNDO_DIR_NAME / utc_stamp()
     undo.mkdir(parents=True, exist_ok=True)
     moved: list[tuple[Path, Path]] = []
+    #: The vault this restore replaced, if it replaced one: (where it was,
+    #: where it is being kept). Filled in by ``_restore_vault`` *before* it
+    #: copies anything over, so a failure after that point can put it back.
+    vault_moved: list[tuple[Path, Path]] = []
     for suffix in ("", "-wal", "-shm"):
         current = Path(str(db_path) + suffix)
         if current.exists():
@@ -750,6 +950,15 @@ def apply_pending_restore(
                 current.unlink()
             if destination.exists():
                 shutil.move(str(destination), str(current))
+        for root, kept in vault_moved:
+            if not kept.exists():
+                # The move never reached the point of removing the original, so
+                # what is at *root* is still the user's own vault.
+                continue
+            if root.exists():
+                shutil.rmtree(root, ignore_errors=True)
+            root.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(kept), str(root))
 
     try:
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -768,7 +977,15 @@ def apply_pending_restore(
                 raise BackupError(
                     "vault_row_missing",
                     "The backup carries vault bytes but its database has no vault row.")
-            vault_result = _restore_vault(bundle, manifest, Path(row["root_path"]))
+            # Where the vault goes: the path the bundle's own database records,
+            # unless the person staging the restore said otherwise -- which is
+            # the case where that path names a machine they no longer have.
+            if vault_parent:
+                target_root = Path(vault_parent) / vault_dir_name(manifest["vault_id"])
+            else:
+                target_root = Path(row["root_path"])
+            vault_result = _restore_vault(bundle, manifest, target_root,
+                                          undo_dir=undo, moved_aside=vault_moved)
 
         # ``init_db`` first, and before anything writes a row. The migrations
         # bring an older bundle to today's schema, and every statement below
@@ -782,6 +999,15 @@ def apply_pending_restore(
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys=ON;")
+            if vault_parent and vault_result.get("restored"):
+                # After ``init_db`` -- the row is written against today's schema
+                # -- and inside the same envelope as everything else, so a
+                # failure below still puts both halves of the pair back.
+                # ``library.vault_row`` checks the directory *name* against the
+                # vault id, so only the parent may differ from the bundle.
+                conn.execute("UPDATE library_vault SET root_path=? WHERE singleton=1",
+                             (vault_result["root_path"],))
+                conn.commit()
             rewrites = _strip_process_state(conn)
             # After the migrations, because ``init_db`` may have created the FTS
             # table for the first time on an older bundle; the index then
@@ -815,16 +1041,23 @@ def apply_pending_restore(
     outcome = {
         "ok": True,
         "bundle": str(bundle),
-        "undo_copy": str(undo) if moved else None,
+        # Both halves of the pair live in this one directory, so it is the undo
+        # copy whenever either half was set aside.
+        "undo_copy": str(undo) if (moved or vault_moved) else None,
+        "undo_includes_vault": bool(vault_moved),
         "schema_relation": report["schema_relation"],
         "vault": vault_result,
+        "vault_parent": str(vault_parent) if vault_parent else None,
         "rewrites": rewrites,
         "credentials_to_reenter": report["will_not_restore"]["credentials"],
         "fk_violations": report["fk_violations"],
         "fk_violations_total": report["fk_violations_total"],
+        "fk_violations_rows": report["fk_violations_rows"],
         "fk_violations_message": report["fk_violations_message"],
         "acknowledged": False,
     }
+    if not (moved or vault_moved):
+        shutil.rmtree(undo, ignore_errors=True)
     record = _record(state_dir, outcome)
     clear_pending(state_dir)
     return record

@@ -6325,6 +6325,11 @@ class RestoreRequest(AdminConfirmBody):
     # A bundle whose database carries orphan rows can still be restored, but
     # only deliberately: the verify report names them and the user says yes.
     accept_fk_violations: bool = False
+    # Where the Library vault should go *on this machine*. Empty means the path
+    # the bundle's own database records, which is the right answer on the
+    # machine the backup came from and often a path that does not exist on any
+    # other one. Validated here, while the user can still choose again.
+    vault_parent: str = ""
 
 
 @app.post("/api/backup")
@@ -6400,10 +6405,22 @@ def restore_stage(body: RestoreRequest):
     if not report["ok"]:
         raise HTTPException(400, detail={"reason": "verification_failed",
                                          "problems": report["problems"]})
+    vault_parent: str | None = None
+    bundle_vault_id = (report["manifest"] or {}).get("vault_id")
+    if body.vault_parent and bundle_vault_id:
+        # Refused here rather than on the next start: a restore that only
+        # discovers its destination is unusable after it has moved the database
+        # aside is a restore the user watches fail.
+        try:
+            vault_parent = str(backup_module.validate_vault_parent(
+                body.vault_parent, bundle=bundle, vault_id=bundle_vault_id))
+        except backup_module.BackupError as exc:
+            raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message})
     try:
         pointer = backup_module.stage_restore(
             bundle, _backup_state_dir(), report,
-            accept_fk_violations=bool(body.accept_fk_violations))
+            accept_fk_violations=bool(body.accept_fk_violations),
+            vault_parent=vault_parent)
     except backup_module.BackupError as exc:
         raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message,
                                          "fk_violations": report["fk_violations"],
@@ -6438,6 +6455,9 @@ def backup_last():
                 "files": len(manifest.get("files", [])),
                 "includes_reports": manifest.get("includes_reports"),
                 "fk_violations_total": manifest.get("fk_violations_total") or 0,
+                # Absent on a bundle written before the row count existed, and
+                # reported as absent rather than as zero.
+                "fk_violations_rows": manifest.get("fk_violations_rows"),
             }
         except backup_module.BackupError:
             summary = None
