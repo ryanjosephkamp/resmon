@@ -1,5 +1,9 @@
 import React from 'react';
 import { SourceCoverage } from '../../api/searchRecord';
+import {
+  EXECUTION_STATUS_FILTER_OPTIONS,
+  RESTARTABLE_STATUSES,
+} from '../../context/executionStatus';
 
 /**
  * How many of an execution's sources actually answered.
@@ -102,10 +106,13 @@ const interruptedNote = (e: Execution): string | null => {
   return `Interrupted — ${why}${seen}.`;
 };
 
-// The three states a run can be started again from. Mirrors
-// ``resmon._RESTARTABLE_STATES``; the backend refuses anything else with 409,
-// so this only decides whether the button is worth offering.
-const RESTARTABLE = ['interrupted', 'failed', 'cancelled'];
+// The states a run can be started again from, and the filter's options, both
+// derived from the one status vocabulary in ``context/executionStatus.ts`` —
+// which is itself checked against the ``executions.status`` CHECK in
+// ``database.py``. They were two hand-written lists here, and a status added
+// to the schema reached neither: the row would show the stored word in its
+// badge and then be unfilterable and unrestartable without anybody noticing.
+const RESTARTABLE: readonly string[] = RESTARTABLE_STATUSES;
 
 // Parse a flat query string into keywords, respecting double/single quotes
 // so "machine learning" robotics → ['machine learning', 'robotics']. This is
@@ -232,11 +239,9 @@ const ResultsList: React.FC<Props> = ({
         </select>
         <select className="form-select" value={statusFilter} onChange={(e) => onStatusFilterChange(e.target.value)}>
           <option value="">All Statuses</option>
-          <option value="completed">Completed</option>
-          <option value="failed">Failed</option>
-          <option value="running">Running</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="interrupted">Interrupted</option>
+          {EXECUTION_STATUS_FILTER_OPTIONS.map((status) => (
+            <option key={status.value} value={status.value}>{status.label}</option>
+          ))}
         </select>
       </div>
       <table className="simple-table">
@@ -292,6 +297,9 @@ const ResultsList: React.FC<Props> = ({
                     <button
                       type="button"
                       className="btn btn-sm"
+                      // Named per row so a spec can click the Restart of one
+                      // execution rather than the first button it finds.
+                      data-testid={`restart-${e.id}`}
                       disabled={restarting === e.id}
                       onClick={() => onRestart(e)}
                     >

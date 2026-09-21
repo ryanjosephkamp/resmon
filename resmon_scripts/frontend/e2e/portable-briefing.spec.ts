@@ -4,6 +4,7 @@ import {test,expect,_electron,type ElectronApplication,type Page} from '@playwri
 import fs from 'fs';import os from 'os';import path from 'path';import {pathToFileURL} from 'url';
 import {execFileSync} from 'child_process';import {createHash} from 'crypto';
 import {FRONTEND_ROOT,REPO_ROOT,launchEnv,ensureScreenshotDir,selectedEvidenceTransport} from './fixtures/resmon-app';
+import { EXPECTED_SCHEMA_VERSION } from './schema';
 // Wire shape only: importing selectedEvidence.ts also reaches renderer TSX,
 // which is deliberately outside the existing e2e compiler's configuration.
 interface Answer {answer_id:string;request_sha256:string;state:string;cleanup_state:string;partial_text:string;result:{sections:{items:{citations:{source_id:string;start_codepoint:number;end_codepoint:number;quote:string}[]}[]}[]}|null}
@@ -36,7 +37,7 @@ test('Portable briefing: exact saved downloads, stale guards, seven offline stat
  const launch=async()=>{
   app=await _electron.launch({args:['.',`--user-data-dir=${dirs.profile}`],cwd:FRONTEND_ROOT,env});mainPids.push(app.process().pid!);win=await app.firstWindow();win.on('pageerror',e=>errors.push(e.message));await win.waitForSelector('.app-main');
   const port=await win.evaluate(()=>window.resmonAPI!.getBackendPort());expect(Number(port)).toBeGreaterThan(0);expect(port).not.toBe('8742');base=`http://127.0.0.1:${port}`;origin=new URL(win.url()).origin;
-  const health=await req<{pid:number;identity:{runtime_id:string;schema_version:number}}>('/api/health');expect(health.identity.schema_version).toBe(21);runtime=health.identity.runtime_id;backends.push(health.pid);
+  const health=await req<{pid:number;identity:{runtime_id:string;schema_version:number}}>('/api/health');expect(health.identity.schema_version).toBe(EXPECTED_SCHEMA_VERSION);runtime=health.identity.runtime_id;backends.push(health.pid);
   const identity=await app.evaluate(({app})=>({pid:process.pid,state:process.env.RESMON_STATE_DIR,database:process.env.RESMON_DB_PATH,profile:app.getPath('userData')}));
   expect(identity.state).toBe(dirs.state);expect(identity.database).toBe(env.RESMON_DB_PATH);expect(identity.profile).toBe(dirs.profile);expect(fs.readFileSync(env.RESMON_PORT_FILE,'utf8').trim()).toBe(port);
   instances.push({...identity,health,port,source:REPO_ROOT,mainStart:started(identity.pid),backendStart:started(health.pid)});receipt('instances',instances);
