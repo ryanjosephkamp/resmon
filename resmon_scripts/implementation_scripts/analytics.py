@@ -261,9 +261,21 @@ def routine_health(conn: sqlite3.Connection) -> dict:
             None,
         )
 
+        # Fires that came due while resmon was not running. A routine can look
+        # perfectly healthy by every measure above -- it returns new results
+        # whenever it runs -- while quietly running a third as often as the
+        # user believes it does, and only this column says so.
+        missed = conn.execute(
+            "SELECT COUNT(*) AS n, MAX(due_at_utc) AS last_due "
+            "FROM routine_missed_fires WHERE routine_id = ?",
+            (r["id"],),
+        ).fetchone()
+
         out.append({
             "routine_id": r["id"],
             "name": r["name"],
+            "missed_fires": int(missed["n"] or 0),
+            "last_missed_fire_at": missed["last_due"],
             "schedule_cron": r["schedule_cron"],
             "is_active": bool(r["is_active"]),
             "runs": n,

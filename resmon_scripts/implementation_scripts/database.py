@@ -632,7 +632,7 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # one membership row per saved paper, additive, with nothing backfilled --
 # resmon never observed which papers a user meant to read before the queue
 # existed, so an upgraded database starts empty and says so.
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -711,6 +711,9 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     # Last, because it is the only step that replaces a table ``_SCHEMA_SQL``
     # created: every earlier step must have finished with the old one.
     _migrate_executions_interrupted(conn)
+    # After it, because the schema-20 UNIQUE index is on the table that step
+    # rebuilds.
+    _migrate_jobs_duplicate_protection(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
     # invisible to every other -- an in-memory database shared through
@@ -1668,6 +1671,172 @@ def _migrate_executions_interrupted(conn: sqlite3.Connection) -> None:
         conn.commit()
     finally:
         conn.execute("PRAGMA foreign_keys=" + ("ON" if had_foreign_keys else "OFF"))
+
+
+# ---------------------------------------------------------------------------
+# Schema 20: one run per submission, and a record of the fires nobody was up for
+# ---------------------------------------------------------------------------
+#
+# Two additive things, no CHECK on an existing table, so no rebuild:
+#
+#   * ``executions.request_id`` plus a **partial** UNIQUE index over it. Partial
+#     because the column is NULL on every run that predates this and on every
+#     run started by something that sends no id -- and in SQLite a plain UNIQUE
+#     index treats NULLs as distinct, so it would work, but saying WHERE
+#     request_id IS NOT NULL states the rule the code actually relies on rather
+#     than leaning on that dialect detail. The index is what makes "one run per
+#     submission" a fact the database enforces and not a check the application
+#     hopes it won because it looked first.
+#   * ``routine_missed_fires``: one row per scheduled fire whose time had
+#     already passed when resmon next started. ``disposition`` is the column a
+#     later policy would write into; today the only value written is
+#     ``'recorded'``, which claims exactly what was observed -- that the
+#     jobstore's persisted next fire was in the past when we read it -- and not
+#     that the run did not happen. ``'ran_late'`` and ``'skipped'`` are in the
+#     vocabulary because APScheduler's one-hour misfire grace means a fire found
+#     in the past may still run, and a value invented later would need a
+#     migration; nothing writes them yet.
+#
+# No catch-up run is started for a missed fire. Whether resmon should silently
+# run a week of missed sweeps on the morning a laptop is opened is a decision
+# for the owner, not a default chosen by a migration.
+
+_JOBS_V20_DDL = {
+    "idx_executions_request_id": (
+        "CREATE UNIQUE INDEX idx_executions_request_id "
+        "ON executions(request_id) WHERE request_id IS NOT NULL"
+    ),
+    "routine_missed_fires": (
+        "CREATE TABLE routine_missed_fires (\n"
+        "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "    routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,\n"
+        "    due_at_utc TEXT NOT NULL,\n"
+        "    observed_at_utc TEXT NOT NULL,\n"
+        "    disposition TEXT NOT NULL DEFAULT 'recorded' "
+        "CHECK(disposition IN ('recorded', 'ran_late', 'skipped')),\n"
+        "    UNIQUE(routine_id, due_at_utc)\n"
+        ")"
+    ),
+    "idx_routine_missed_fires_routine": (
+        "CREATE INDEX idx_routine_missed_fires_routine "
+        "ON routine_missed_fires(routine_id, due_at_utc)"
+    ),
+}
+
+# What ``routine_missed_fires.disposition`` may hold, as the CHECK enumerates it.
+MISSED_FIRE_DISPOSITIONS = ("recorded", "ran_late", "skipped")
+
+
+def _migrate_jobs_duplicate_protection(conn: sqlite3.Connection) -> None:
+    """Create the schema-20 objects. Runs on fresh databases and on upgrades.
+
+    Ordered after ``_migrate_executions_interrupted`` because the UNIQUE index
+    is on ``executions`` and that step drops and rebuilds the table -- an index
+    created before it would be carried across by the rebuild's replay, which
+    works, but only by accident of ordering. Creating it after the table is in
+    its final shape is the version that stays true if either step moves.
+
+    One savepoint, and the same shape check the schema-18 step uses: an object
+    that already exists with different SQL is a conflict rather than something
+    to silently accept, because the cumulative upgrade test compares an upgraded
+    database's DDL against a fresh install's character for character.
+    """
+    conn.execute("SAVEPOINT jobs_v20")
+    try:
+        # ``request_id`` is added **here** rather than in
+        # ``_add_executions_additive_columns``, where every other nullable
+        # column on this table lives. That function runs near the top of
+        # ``init_db``, before the steps that can legitimately fail, and a column
+        # added there survives a later step's rollback -- which is exactly what
+        # the upgrade tests mean when they assert that a blocked migration left
+        # the database as it found it. Adding it inside this savepoint makes the
+        # schema-20 step all-or-nothing. Column order still matches a fresh
+        # install's, because a fresh install takes this same path.
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(executions)")}
+        if "request_id" not in existing:
+            conn.execute("ALTER TABLE executions ADD COLUMN request_id TEXT")
+        for name, ddl in _JOBS_V20_DDL.items():
+            row = conn.execute(
+                "SELECT type, sql FROM sqlite_master WHERE name = ?", (name,)
+            ).fetchone()
+            if row is None:
+                conn.execute(ddl)
+                row = conn.execute(
+                    "SELECT type, sql FROM sqlite_master WHERE name = ?", (name,)
+                ).fetchone()
+            expected_type = "table" if ddl.startswith("CREATE TABLE") else "index"
+            if (not row or row[0] != expected_type
+                    or " ".join((row[1] or "").split()) != " ".join(ddl.split())):
+                raise sqlite3.DatabaseError("Conflicting schema-20 shape: " + name)
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+            "WHERE CAST(app_settings.value AS INTEGER)<20",
+            (_SCHEMA_VERSION_KEY, "20"),
+        )
+        conn.execute("RELEASE jobs_v20")
+    except BaseException:
+        conn.execute("ROLLBACK TO jobs_v20")
+        conn.execute("RELEASE jobs_v20")
+        raise
+    conn.commit()
+
+
+def record_missed_fire(
+    conn: sqlite3.Connection,
+    routine_id: int,
+    due_at_utc: str,
+    *,
+    observed_at_utc: str | None = None,
+) -> bool:
+    """Record one missed fire. True when a new row was written.
+
+    Idempotent on ``(routine_id, due_at_utc)``: starting resmon twice without
+    the routine firing in between must not count the same missed fire twice,
+    and the persisted ``next_run_time`` is unchanged until something re-adds
+    the job, so the second start reads exactly the same due time.
+    """
+    cursor = conn.execute(
+        "INSERT OR IGNORE INTO routine_missed_fires "
+        "(routine_id, due_at_utc, observed_at_utc, disposition) "
+        "VALUES (?, ?, ?, 'recorded')",
+        (int(routine_id), due_at_utc, observed_at_utc or utc_now_iso()),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def get_missed_fires(conn: sqlite3.Connection, routine_id: int) -> list[dict]:
+    """Every recorded missed fire for one routine, oldest first."""
+    rows = conn.execute(
+        "SELECT id, routine_id, due_at_utc, observed_at_utc, disposition "
+        "FROM routine_missed_fires WHERE routine_id = ? ORDER BY due_at_utc ASC",
+        (int(routine_id),),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def missed_fire_summary(conn: sqlite3.Connection, routine_id: int) -> dict:
+    """``{count, last_due_at_utc}`` for one routine -- what a screen renders."""
+    row = conn.execute(
+        "SELECT COUNT(*) AS n, MAX(due_at_utc) AS last_due "
+        "FROM routine_missed_fires WHERE routine_id = ?",
+        (int(routine_id),),
+    ).fetchone()
+    return {
+        "count": int(row["n"] or 0),
+        "last_due_at_utc": row["last_due"],
+    }
+
+
+def get_execution_by_request_id(
+    conn: sqlite3.Connection, request_id: str
+) -> "dict | None":
+    """The execution a given client request id already started, if any."""
+    row = conn.execute(
+        "SELECT * FROM executions WHERE request_id = ?", (request_id,)
+    ).fetchone()
+    return dict(row) if row else None
 
 
 def get_schema_version(conn: sqlite3.Connection) -> int:

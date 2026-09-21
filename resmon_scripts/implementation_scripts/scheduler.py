@@ -263,7 +263,10 @@ class ResmonScheduler:
 
     def __init__(self, db_url: str | None = None) -> None:
         url = db_url or _DEFAULT_DB_URL
-        jobstores = {"default": SQLAlchemyJobStore(url=url)}
+        # Kept as an attribute, not only handed to the scheduler, so
+        # ``persisted_next_run_times`` can read the store before ``start()``.
+        self._jobstore = SQLAlchemyJobStore(url=url)
+        jobstores = {"default": self._jobstore}
         self._scheduler = BackgroundScheduler(jobstores=jobstores)
         self._running = False
         logger.info("ResmonScheduler initialized (job store: %s)", url)
@@ -379,6 +382,31 @@ class ResmonScheduler:
                 len(removed), removed,
             )
         return removed
+
+    def persisted_next_run_times(self) -> dict[str, "datetime"]:
+        """What the jobstore says each job's next fire *was*, before we touch it.
+
+        Read-only, and it has to be called **before** ``start()`` and before any
+        ``add_routine``. Both rewrite the answer: ``add_routine`` passes
+        ``replace_existing=True``, which recomputes ``next_run_time`` from now
+        and writes it back, and a started scheduler wakes up and processes due
+        jobs on its own. By the time either has run, the fact that a fire was
+        due at 07:00 while the laptop was shut is gone from the only place it
+        was ever written down.
+
+        Reading the store directly rather than through the scheduler is the
+        point: ``BackgroundScheduler.get_jobs()`` before ``start()`` returns the
+        jobs added in this process, which on a fresh start is none of them.
+
+        Jobs whose ``next_run_time`` is NULL (a paused job) are left out --
+        "paused" is not "missed".
+        """
+        self._jobstore.start(self._scheduler, "default")
+        out: dict[str, "datetime"] = {}
+        for job in self._jobstore.get_all_jobs():
+            if getattr(job, "next_run_time", None) is not None:
+                out[str(job.id)] = job.next_run_time
+        return out
 
     def get_active_jobs(self) -> list[dict]:
         """Return a list of dicts describing all active scheduled jobs."""
