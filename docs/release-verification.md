@@ -36,32 +36,75 @@ git fetch --tags upstream
 ```
 
 **The rule for every release after this one.** A release that ships a new
-`SCHEMA_VERSION` adds the fixture of the version *it* ships, generated the same
-way, so the next release walks from it:
+`SCHEMA_VERSION` adds the fixture of the version *it* ships, so the next release
+walks from it. The fixture is committed **in the release pull request**, and it
+is finished off after the tag — because
+`test_the_release_that_shipped_this_schema_left_a_fixture` falls due on the
+commit that bumps `APP_VERSION`, which is inside that pull request, and the tag
+does not exist until it merges. v2.2.0's fixture was generated from its tag only
+because its schema had already shipped; that is not the general case.
 
-1. After the tag is published, run the generator against it —
+**In the release PR:**
+
+1. Run the generator against a disposable worktree of **your own release branch
+   head** (the version-bump commit or later) —
    `python resmon_scripts/verification_scripts/fixtures/<tag>/generate_corpus.py
-   --source-tree <a disposable worktree of the tag>` — seeding every table that
-   version has, at every value of every CHECK-constrained column it has.
-2. Commit the dump beside the generator, with the tag's commit hash in its
-   header.
-3. Add the new tag to the tag-fetch step in `.github/workflows/ci.yml` and have
-   the new provenance case honour the same "required in CI" switch. Without
-   this the case skips in CI and the new fixture is unguarded — prove the step
-   by altering one fixture row on the PR and watching the Backend jobs go red.
-4. Point a cumulative test at it. The walk that matters is always *the last
-   released version to the one about to ship*, not the previous schema step to
-   this one; the per-step tests already cover the steps.
+   --source-tree <that worktree>` — seeding every table that version has, at
+   every value of every CHECK-constrained column it has. Where a value is in a
+   CHECK's vocabulary and nothing in the release writes it, leave it out and
+   name it in the generator with the reason; a fixture that invents a state the
+   release cannot produce is worse than one that is honestly incomplete.
+2. Commit the dump beside the generator. Its header names the **branch head**
+   the dump was generated from, says that commit is ahead of the tag, and says
+   what the follow-up replaces. The dump body depends on the shipped schema's
+   code alone, which the squash commit and the tag carry unchanged; only the
+   hash differs.
+3. Add the row to `RELEASED` in `test_cumulative_upgrade.py`, with its
+   `require_env` switch. Leave that switch **out** of
+   `.github/workflows/ci.yml`'s tag-fetch step: the fetch would fail on a tag
+   that does not exist yet, and the new release's provenance case is expected to
+   skip until the follow-up. Say so in the PR body — an unexplained skip and a
+   hidden hole look the same.
+4. Check that the cumulative walk case is parametrised over **every** row of
+   `RELEASED`, not only the newest. The walk that matters is *the last released
+   version to the one about to ship*, and a case pinned to "the newest" drops
+   exactly that walk on the commit that adds the new fixture.
+
+**In the post-tag follow-up, once the tag is published:**
+
+5. Regenerate from a disposable worktree of the tag itself, replace the header's
+   commit hash, and confirm nothing else in the dump moved. A body that changes
+   here means something other than the schema's code fed the dump, and that is
+   the finding, not a nuisance.
+6. Add the new tag to the tag-fetch step in `.github/workflows/ci.yml` and set
+   its `require_env` there, which turns the case's "tag is not here" skip into a
+   failure. Without this the case skips in CI and the new fixture is unguarded —
+   prove the step by altering one fixture row on that PR and watching the
+   Backend jobs go red, then revert it.
 
 Skipping step 1 for a release costs nothing that release and leaves the next
 one with no way to walk from a real database. That is how five untested steps
 accumulated.
 
 **Applied for v2.2.0.** `fixtures/v2.2.0/corpus_schema_18.sql` and its generator
-are committed, the four steps above are done, and because nothing migrates past
-18 yet the walk they serve today is 18 → 18 — one `init_db` over that fixture
-must change no row, no object and no schema marker
-(`test_one_init_db_over_the_current_releases_fixture_changes_nothing`).
+are committed and every step above is done for it, including the CI tag fetch
+and its required switch.
+
+**Applied for v2.3.0.** `fixtures/v2.3.0/corpus_schema_21.sql` and its generator
+are committed in the release PR, generated from the release branch head, with
+the header saying so. `RELEASED` carries the v2.3.0 row and
+`RESMON_REQUIRE_V230_TAG`; the tag-fetch step in `ci.yml` does **not** yet, so
+`test_the_committed_fixture_is_what_that_releases_own_code_produces[v2.3.0]`
+skips — locally and in CI — until the post-tag follow-up does steps 5 and 6. The
+red-once proof belongs to that follow-up, not to the release PR. Two enumerated
+CHECK values are deliberately unseeded and named in the generator's
+`UNWRITTEN_CHECK_VALUES`: `routine_missed_fires.disposition = 'skipped'`, which
+`database.py` says on the DDL that nothing writes yet, and
+`routines.execution_location = 'cloud'`, which `insert_routine` refuses and
+`init_db` rewrites — a row of it would make this fixture's no-op walk false.
+Because nothing migrates past 21 yet, the walk it serves today is 21 → 21; the
+18 → 21 walk a 2.2.0 user actually takes runs over the v2.2.0 fixture, which
+this release does not touch.
 
 ## Procedure
 
