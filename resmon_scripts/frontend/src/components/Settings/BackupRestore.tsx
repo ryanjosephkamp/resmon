@@ -309,8 +309,9 @@ const BackupRestore: React.FC = () => {
               {!vaultParent && !report.vault_destination.parent_exists && (
                 <p className="form-warning" data-testid="vault-parent-problem">
                   <code>{report.vault_destination.parent}</code> does not exist on this
-                  machine. Choose where the vault should go, or the restore will fail on
-                  the next start.
+                  machine. resmon would create it — which, for a folder that belonged to
+                  another machine, is rarely what you want. Choose where the vault should
+                  go instead.
                 </p>
               )}
               {!vaultParent && report.vault_destination.parent_exists
