@@ -7,7 +7,12 @@
 
 # --- Desktop backend ---------------------------------------------------------
 anthropic==0.95.0
-APScheduler==3.11.2
+# APScheduler's SQLAlchemy job store is what persists scheduled routines across
+# restarts (implementation_scripts/scheduler.py builds a SQLAlchemyJobStore), so
+# the [sqlalchemy] extra is declared here rather than left to the SQLAlchemy pin
+# below happening to satisfy it. The pin stays: the extra names the dependency,
+# the pin fixes its version.
+APScheduler[sqlalchemy]==3.11.2
 beautifulsoup4==4.14.3
 cryptography==46.0.7
 fastapi==0.135.3
