@@ -165,9 +165,12 @@ test('after a restore the card names the credentials that did not come back', as
   expect(card).toHaveTextContent('smtp_password');
   expect(card).toHaveTextContent('openai_api_key');
   expect(card).toHaveTextContent(/row id/);
-  // R2-3: the orphans the user chose to keep are named again after the fact.
-  expect(screen.getByTestId('reentry-fk')).toHaveTextContent(
-    '2 references, from 1 row, to a missing parent');
+  // R2-3: the orphans the user chose to keep are named again after the fact,
+  // and the row count is printed exactly once — in the backend's own sentence.
+  const fk = screen.getByTestId('reentry-fk');
+  expect(fk).toHaveTextContent('2 references to a missing parent');
+  expect(fk).toHaveTextContent('from 1 row');
+  expect(fk.textContent?.match(/from 1 row/g)).toHaveLength(1);
 });
 
 test('a bundle written before the row count says references and no row count', async () => {
@@ -189,6 +192,35 @@ test('a bundle written before the row count says references and no row count', a
   const card = await screen.findByTestId('reentry-fk');
   expect(card).toHaveTextContent('2 references to a missing parent');
   expect(card).not.toHaveTextContent(/from \d+ rows?/);
+});
+
+test('the undo card names every copy, because the button deletes all of them', async () => {
+  // F5: an interrupted-and-retried restore leaves two — the user's own database
+  // and vault in one, the retry's in the other. Showing one and deleting both is
+  // how someone deletes the copy they meant to keep.
+  mockRoutedFetch({
+    '/api/backup/last': {
+      ...EMPTY,
+      undo_copies: ['/state/restore-undo/20260921T100000Z', '/state/restore-undo/20260921T100500Z'],
+    },
+  });
+  await renderWithProviders(<BackupRestore />);
+
+  const card = await screen.findByTestId('undo-copies');
+  expect(card).toHaveTextContent('20260921T100000Z');
+  expect(card).toHaveTextContent('20260921T100500Z');
+  expect(screen.getByRole('button', { name: /Delete all 2 undo copies/i })).toBeInTheDocument();
+});
+
+test('one undo copy is named on its own and the button says so', async () => {
+  mockRoutedFetch({
+    '/api/backup/last': { ...EMPTY, undo_copies: ['/state/restore-undo/20260921T100000Z'] },
+  });
+  await renderWithProviders(<BackupRestore />);
+
+  const card = await screen.findByTestId('undo-copies');
+  expect(card).toHaveTextContent('20260921T100000Z');
+  expect(screen.getByRole('button', { name: /^Delete undo copy$/i })).toBeInTheDocument();
 });
 
 test('the verify card says where the vault would go and can be pointed elsewhere', async () => {

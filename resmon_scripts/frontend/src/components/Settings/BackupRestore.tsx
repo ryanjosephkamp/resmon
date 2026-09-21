@@ -191,7 +191,8 @@ const BackupRestore: React.FC = () => {
     setBusy('undo');
     try {
       const result = await apiClient.post('/api/restore/undo-copy/delete', { confirm: 'CONFIRM' });
-      setStatus(`Deleted ${result.deleted} saved copy of the previous database.`);
+      setStatus(`Deleted ${result.deleted} saved cop${result.deleted === 1 ? 'y' : 'ies'} of `
+        + 'what a restore replaced.');
       await refresh();
     } catch (err: any) {
       setError(describe(err));
@@ -234,11 +235,11 @@ const BackupRestore: React.FC = () => {
           {!!restored?.fk_violations_total && (
             <p data-testid="reentry-fk">
               This backup was restored with {restored.fk_violations_total} reference
-              {restored.fk_violations_total === 1 ? '' : 's'}
-              {typeof restored.fk_violations_rows === 'number' && restored.fk_violations_rows > 0
-                ? `, from ${restored.fk_violations_rows} row${restored.fk_violations_rows === 1 ? '' : 's'},`
-                : ''}{' '}
-              to a missing parent that you chose to keep.{' '}
+              {restored.fk_violations_total === 1 ? '' : 's'} to a missing parent that you
+              chose to keep.{' '}
+              {/* The row count lives in the sentence below and is not repeated here:
+                  `describe_fk_violations` already says "…, from N rows", and a bundle
+                  written before the manifest recorded one says nothing there. */}
               {restored.fk_violations_message}
             </p>
           )}
@@ -392,13 +393,26 @@ const BackupRestore: React.FC = () => {
       )}
 
       {!!last?.undo_copies?.length && (
-        <p className="text-muted" data-testid="undo-copies">
-          What a restore replaced — the database, and the Library vault if it replaced
-          one — is kept at <code>{last.undo_copies[0]}</code>.{' '}
+        <div className="text-muted" data-testid="undo-copies">
+          {/* Every one of them, not just the first: the button deletes all of
+              them, and a restore that was interrupted and retried leaves two —
+              the user's own database and vault in one, the retry's in the
+              other. Showing one and deleting several is how someone deletes the
+              copy they meant to keep. */}
+          <p style={{ marginBottom: '0.25rem' }}>
+            What a restore replaced — the database, and the Library vault if it replaced
+            one — is kept {last.undo_copies.length === 1 ? 'at' : `in these
+            ${last.undo_copies.length} folders, oldest first`}:
+          </p>
+          <ul>
+            {last.undo_copies.map((path) => <li key={path}><code>{path}</code></li>)}
+          </ul>
           <button type="button" className="btn btn-sm" onClick={deleteUndo} disabled={busy !== ''}>
-            Delete undo copy
+            {last.undo_copies.length === 1
+              ? 'Delete undo copy'
+              : `Delete all ${last.undo_copies.length} undo copies`}
           </button>
-        </p>
+        </div>
       )}
 
       {status && <div className="form-success">{status}</div>}
