@@ -527,3 +527,62 @@ def test_a_backup_of_a_corrupt_vault_fails_loudly_over_http(tmp_path, monkeypatc
         assert files[0]["relative_path"] in detail["message"]
     finally:
         mod.close_db()
+
+
+def test_a_bundle_restores_into_a_fresh_state_directory_and_serves_over_http(
+        corpus, tmp_path, monkeypatch):
+    """The second-machine shape: a state directory that has never held a corpus.
+
+    This is not two machines and does not claim to be -- it is one process, and
+    the vault comes back at the path the *backup's* database records rather
+    than at a parent this side chose, which is the limitation to widen next.
+    What it does establish is that a bundle restored into a state directory
+    with no database of its own produces a backend that serves the executions
+    and the library items over the real HTTP seam, and that the report names
+    the credentials the restore could not bring back.
+    """
+    import resmon as resmon_mod
+    from fastapi.testclient import TestClient
+
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    library_before = len(corpus["files"])
+    corpus["conn"].close()
+
+    fresh_state = tmp_path / "machine-b"
+    fresh_state.mkdir()
+    fresh_db = fresh_state / "resmon.db"
+    # Machine A's vault is out of the way: the restore must put the bytes back.
+    shutil.rmtree(corpus["vault_root"])
+
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    assert report["ok"], report["problems"]
+    backup_module.stage_restore(bundle, fresh_state, report)
+
+    monkeypatch.setattr(resmon_mod, "_db_path", str(fresh_db), raising=False)
+    monkeypatch.setattr(resmon_mod, "_shared_conn", None, raising=False)
+    monkeypatch.setattr(resmon_mod, "_db_initialized", False, raising=False)
+    monkeypatch.setattr(resmon_mod, "_backup_state_dir", lambda: fresh_state, raising=False)
+
+    outcome = resmon_mod._apply_pending_restore_on_startup()
+    assert outcome is not None and outcome["ok"], outcome
+    assert outcome["vault"]["restored"] is True
+
+    client = TestClient(resmon_mod.app)
+    try:
+        executions = client.get("/api/executions")
+        assert executions.status_code == 200, executions.text
+        # The Library routes sit behind the renderer-origin guard, which a
+        # TestClient cannot satisfy without impersonating the renderer; the
+        # library half is read through the same connection the backend serves
+        # from instead, and the HTTP boundary for Library is covered by
+        # ``test_library_boundary.py``.
+        listed = lib.list_files(resmon_mod._get_db(), corpus["vault_id"])
+        assert len(listed["files"]) == library_before
+        assert lib.status(resmon_mod._get_db())["status"] == "ready"
+
+        card = client.get("/api/backup/last").json()
+        assert card["last_restore"]["ok"] is True
+        assert isinstance(card["last_restore"]["credentials_to_reenter"], list)
+    finally:
+        resmon_mod.close_db()
