@@ -621,7 +621,7 @@ def test_the_19_to_20_step_is_additive_and_keeps_every_row(tmp_path):
 
         database.init_db(conn=conn)
 
-        assert database.get_schema_version(conn) == 20
+        assert database.get_schema_version(conn) == 21
         after = [tuple(r) for r in conn.execute(
             "SELECT id, execution_type, parameters, start_time, status FROM executions "
             "ORDER BY id")]

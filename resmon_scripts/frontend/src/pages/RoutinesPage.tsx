@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import CoveragePanel from '../components/Routines/CoveragePanel';
+import DeliveryPanel from '../components/Routines/DeliveryPanel';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient } from '../api/client';
 import { useExecution } from '../context/ExecutionContext';
@@ -62,6 +63,8 @@ const RoutinesPage: React.FC = () => {
 
   /* ---- modal state ---- */
   const [formOpen, setFormOpen] = useState(false);
+  /** Which rows have a Run now request in flight, so the button can say so. */
+  const [running, setRunning] = useState<Record<number, boolean>>({});
   const [editTarget, setEditTarget] = useState<Routine | null>(null);
 
   const fetchRoutines = useCallback(async () => {
@@ -114,6 +117,28 @@ const RoutinesPage: React.FC = () => {
       fetchRoutines();
     } catch (err: any) {
       setError(err.message);
+    }
+  };
+
+  /**
+   * Run now, from the missed-fire line.
+   *
+   * The same endpoint the MCP tool and the editor use, so a manual run and a
+   * scheduled fire stay one code path. The backend also marks this routine's
+   * ``recorded`` missed fires ``ran_late`` — the word schema 20 reserved for
+   * exactly this and nothing wrote until now. A 409 means the routine is
+   * already running and says which run; it is shown rather than swallowed.
+   */
+  const handleRunNow = async (r: Routine) => {
+    setError('');
+    setRunning((prev) => ({ ...prev, [r.id]: true }));
+    try {
+      await apiClient.post(`/api/routines/${r.id}/run`);
+      fetchRoutines();
+    } catch (err: any) {
+      setError(err?.message || 'Could not start that routine.');
+    } finally {
+      setRunning((prev) => ({ ...prev, [r.id]: false }));
     }
   };
 
@@ -282,6 +307,14 @@ const RoutinesPage: React.FC = () => {
                       {r.missed_fires.last_due_at_utc
                         ? `; last due ${r.missed_fires.last_due_at_utc}`
                         : ''}
+                      {' '}
+                      <button
+                        className="btn btn-sm"
+                        data-testid={`run-now-${r.id}`}
+                        disabled={!!running[r.id]}
+                        onClick={() => handleRunNow(r)}
+                        title="Run this routine once, now. The missed fires stay recorded; they are marked as answered by a late run, not as having each run."
+                      >{running[r.id] ? 'Starting…' : 'Run now'}</button>
                     </div>
                   )}
                 </td>
@@ -350,6 +383,11 @@ const RoutinesPage: React.FC = () => {
               <tr className="routine-coverage-row">
                 <td colSpan={9}>
                   <CoveragePanel routineId={r.id} />
+                  {/*
+                    Same treatment, same reason: the delivery record is a table
+                    of its own and is fetched only when it is opened.
+                  */}
+                  <DeliveryPanel routineId={r.id} />
                 </td>
               </tr>
               </React.Fragment>

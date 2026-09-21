@@ -1910,15 +1910,27 @@ def _migrate_delivery(conn: sqlite3.Connection) -> None:
         # that routine has no email target already -- the step must be safe to
         # re-run, because init_db runs on every start.
         stamp = utc_now_iso()
-        conn.execute(
-            "INSERT INTO routine_delivery_targets "
-            "(routine_id, channel, target, enabled, mode, created_at_utc, updated_at_utc) "
-            "SELECT r.id, 'email', '', 1, 'automatic', ?, ? FROM routines r "
-            "WHERE r.email_enabled = 1 AND NOT EXISTS ("
+        # Guarded by a SELECT rather than left to insert nothing: an
+        # ``INSERT ... SELECT`` that matches no rows still puts a
+        # ``routine_delivery_targets`` row into ``sqlite_sequence`` on an
+        # AUTOINCREMENT table, and a corpus with no email routines would then
+        # differ from a fresh install by a row nothing wrote.
+        needs_seed = conn.execute(
+            "SELECT 1 FROM routines r WHERE r.email_enabled = 1 AND NOT EXISTS ("
             "    SELECT 1 FROM routine_delivery_targets t "
-            "    WHERE t.routine_id = r.id AND t.channel = 'email')",
-            (stamp, stamp),
-        )
+            "    WHERE t.routine_id = r.id AND t.channel = 'email') LIMIT 1"
+        ).fetchone()
+        if needs_seed:
+            conn.execute(
+                "INSERT INTO routine_delivery_targets "
+                "(routine_id, channel, target, enabled, mode, created_at_utc, "
+                " updated_at_utc) "
+                "SELECT r.id, 'email', '', 1, 'automatic', ?, ? FROM routines r "
+                "WHERE r.email_enabled = 1 AND NOT EXISTS ("
+                "    SELECT 1 FROM routine_delivery_targets t "
+                "    WHERE t.routine_id = r.id AND t.channel = 'email')",
+                (stamp, stamp),
+            )
 
         conn.execute(
             "INSERT INTO app_settings(key,value) VALUES (?,?) "

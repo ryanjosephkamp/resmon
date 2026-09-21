@@ -25,7 +25,7 @@ def old_database(path):
 
 
 def contents(c, widths=None):
-    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'library_%' AND name NOT IN ('evidence_projects','evidence_project_files','evidence_notes','evidence_answers','routine_missed_fires')")]
+    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'library_%' AND name NOT IN ('evidence_projects','evidence_project_files','evidence_notes','evidence_answers','routine_missed_fires','routine_delivery_targets','deliveries')")]
     out = {}
     for t in tables:
         columns = [r[1] for r in c.execute(f'PRAGMA table_info("{t}")')]
@@ -50,7 +50,7 @@ def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tm
     path = tmp_path / 'old.db'; c = old_database(path); before = contents(c)
     widths = column_names(c)
     db.init_db(conn=c)
-    assert db.get_schema_version(c) == 20
+    assert db.get_schema_version(c) == 21
     after = contents(c, widths)
     after['app_settings'] = [(k, '15' if k == 'schema_version' else v) for k, v in after['app_settings']]
     assert after == before
@@ -63,7 +63,7 @@ def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tm
     c.close(); db.init_db(path); db.init_db(path)
     with db.get_connection(path) as reopened:
         assert objects(reopened) == ddl
-        assert db.get_schema_version(reopened) == 20
+        assert db.get_schema_version(reopened) == 21
     assert not list(tmp_path.glob('resmon-library-*'))
     fresh = db.get_connection(tmp_path / 'fresh.db'); db.init_db(conn=fresh)
     assert objects(fresh) == ddl
