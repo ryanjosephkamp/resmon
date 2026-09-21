@@ -36,8 +36,8 @@ const REPORT = {
   needs_fk_acceptance: false,
   fk_violations_rows: 0,
   vault_destination: {
-    root_path: '/Users/someone/Documents/resmon-library-v1',
-    parent: '/Users/someone/Documents',
+    root_path: '/Users/someone/Papers/resmon-library-v1',
+    parent: '/Users/someone/Papers',
     name: 'resmon-library-v1',
     parent_exists: true,
     parent_writable: true,
@@ -205,7 +205,7 @@ test('the verify card says where the vault would go and can be pointed elsewhere
   fireEvent.click(screen.getByRole('button', { name: /Restore from backup/i }));
 
   const destination = await screen.findByTestId('vault-destination');
-  expect(destination).toHaveTextContent('/Users/someone/Documents/resmon-library-v1');
+  expect(destination).toHaveTextContent('/Users/someone/Papers/resmon-library-v1');
   expect(screen.queryByTestId('vault-parent-problem')).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: /Restore the vault somewhere else/i }));
@@ -238,7 +238,7 @@ test('a vault parent that is not on this machine is flagged before anything is s
   fireEvent.click(screen.getByRole('button', { name: /Restore from backup/i }));
 
   const problem = await screen.findByTestId('vault-parent-problem');
-  expect(problem).toHaveTextContent('/Users/someone/Documents');
+  expect(problem).toHaveTextContent('/Users/someone/Papers');
   expect(problem).toHaveTextContent('does not exist on this machine');
 });
 
