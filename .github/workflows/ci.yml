@@ -69,7 +69,7 @@ jobs:
       # verification_scripts/test_cumulative_upgrade.py grow together.
       - name: Fetch the released tags for the fixture-provenance checks
         run: |
-          for tag in v2.1.0 v2.2.0; do
+          for tag in v2.1.0 v2.2.0 v2.3.0; do
             git fetch --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
           done
 
@@ -111,6 +111,7 @@ jobs:
           # down with it without saying which one was missing.
           RESMON_REQUIRE_V210_TAG: '1'
           RESMON_REQUIRE_V220_TAG: '1'
+          RESMON_REQUIRE_V230_TAG: '1'
         run: pytest -v
 
   frontend:

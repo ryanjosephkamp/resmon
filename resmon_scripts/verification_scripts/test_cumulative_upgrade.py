@@ -906,13 +906,13 @@ class _Released:
 RELEASED = [
     _Released("v2.1.0", 13, "RESMON_REQUIRE_V210_TAG", tables=21, rows=116),
     _Released("v2.2.0", 18, "RESMON_REQUIRE_V220_TAG", tables=31, rows=171),
-    # v2.3.0's fixture was generated from the release branch head rather than
-    # from the tag, because the test below that calls in a schema's fixture debt
-    # fails on the commit that bumps APP_VERSION -- which is inside the release
-    # PR, before the tag exists. The regeneration case therefore skips for
-    # v2.3.0 until the post-tag follow-up regenerates the file from the tag,
-    # refreshes the header's hash, adds v2.3.0 to CI's tag-fetch loop and sets
-    # RESMON_REQUIRE_V230_TAG there. The fixture's own header says the same.
+    # v2.3.0's fixture was first committed in the release PR, generated from the
+    # release branch head, because the test below that calls in a schema's
+    # fixture debt fails on the commit that bumps APP_VERSION -- which is inside
+    # that PR, before the tag exists. The post-tag follow-up regenerated it from
+    # the tag itself (only the header's hash moved), added v2.3.0 to CI's
+    # tag-fetch loop and set RESMON_REQUIRE_V230_TAG there, so this row is now
+    # guarded the same way the two above it are.
     _Released("v2.3.0", 21, "RESMON_REQUIRE_V230_TAG", tables=34, rows=191),
 ]
 IDS = [r.tag for r in RELEASED]

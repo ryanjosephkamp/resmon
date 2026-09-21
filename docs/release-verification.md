@@ -24,7 +24,8 @@ check that it was collected rather than a separate command:
 One case per released fixture regenerates it from that release's own tag and
 diffs it against the committed file. CI fetches those tags explicitly (the
 "Fetch the released tags" step in `.github/workflows/ci.yml`) and sets
-`RESMON_REQUIRE_V210_TAG=1` and `RESMON_REQUIRE_V220_TAG=1`, so in
+`RESMON_REQUIRE_V210_TAG=1`, `RESMON_REQUIRE_V220_TAG=1` and
+`RESMON_REQUIRE_V230_TAG=1`, so in
 CI a missing tag is a failure, not a skip. Elsewhere — a shallow clone, a source
 tarball — the case skips; with `-rs` a local run says which happened:
 
@@ -92,11 +93,12 @@ and its required switch.
 
 **Applied for v2.3.0.** `fixtures/v2.3.0/corpus_schema_21.sql` and its generator
 are committed in the release PR, generated from the release branch head, with
-the header saying so. `RELEASED` carries the v2.3.0 row and
-`RESMON_REQUIRE_V230_TAG`; the tag-fetch step in `ci.yml` does **not** yet, so
+the header saying so. Steps 5 and 6 were applied on 2026-09-21, once tag v2.3.0
+existed: the dump was regenerated from a disposable worktree of the tag, which
+replaced the header's commit hash and moved no other line, and `ci.yml` now
+fetches v2.3.0 beside the other two and sets `RESMON_REQUIRE_V230_TAG`, so
 `test_the_committed_fixture_is_what_that_releases_own_code_produces[v2.3.0]`
-skips — locally and in CI — until the post-tag follow-up does steps 5 and 6. The
-red-once proof belongs to that follow-up, not to the release PR. Two enumerated
+fails in CI rather than skipping. Two enumerated
 CHECK values are deliberately unseeded and named in the generator's
 `UNWRITTEN_CHECK_VALUES`: `routine_missed_fires.disposition = 'skipped'`, which
 `database.py` says on the DDL that nothing writes yet, and
