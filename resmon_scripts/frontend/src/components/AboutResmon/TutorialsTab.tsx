@@ -718,13 +718,14 @@ export const sections: TutorialSection[] = [
       'Click `Save` to persist via `PUT /api/settings/storage`.',
       'Under **Backup and restore**, click `Back up now` to write a bundle into the export directory: your database as a consistent snapshot, every byte in your Library vault, optionally the reports tree, and a manifest that hashes all of it.',
       'Click `Restore from backup…` and pick a bundle folder. resmon re-hashes every file and shows you the report before anything is committed; `Restart to restore` only schedules the work for the next start.',
+      'The report says where your Library vault would go — the folder the backup itself recorded. On another machine that folder usually does not exist, so `Restore the vault somewhere else…` lets you pick one here instead; resmon keeps the vault’s `resmon-library-<id>` name and updates the database to match.',
     ],
     features: [
       'Retention policy prunes reports older than the archive window on daemon startup.',
       'A backup carries the database and the Library vault together, because a database restored without its retained bytes leaves the vault refusing every import.',
-      'A restore moves your current database aside rather than deleting it, and puts it back if anything fails. The copy stays until you delete it here with `Delete undo copy` — nothing removes it on its own, and taking another backup does not.',
+      'A restore moves your current database aside rather than deleting it, and puts it back if anything fails. A Library vault it replaces is moved into the same folder, so a failure puts both halves of the pair back. The copy stays until you delete it here with `Delete undo copy` — nothing removes it on its own, and taking another backup does not.',
       'A backup written by an older resmon restores too — the migrations run on the restored database before anything else touches it.',
-      'A database containing references to rows that are not there is still backed up; the verify report lists them and asks you to accept them before the restore can be staged. The count is of references, not rows — SQLite reports one per broken link, so a row with two counts twice.',
+      'A database containing references to rows that are not there is still backed up; the verify report lists them and asks you to accept them before the restore can be staged. The leading count is of references, not rows — SQLite reports one per broken link, so a row with two counts twice — and the number of rows they come from is shown beside it. A backup taken by an earlier resmon has no row count in it, and resmon shows the reference count alone.',
     ],
     tips: [
       'PDF and TXT policies are reserved for a future per-paper artifact download feature and have no effect on current Deep Dive / Deep Sweep output.',
