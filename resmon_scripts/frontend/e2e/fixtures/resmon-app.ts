@@ -46,6 +46,7 @@ import type { ElectronApplication, Page, ConsoleMessage, Request } from '@playwr
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { resolveInterpreter } from './python-interpreter';
 
 // ---------------------------------------------------------------------------
 // The local API token, for the suite's own backend calls (2.2 lock-down)
@@ -205,14 +206,12 @@ export interface TestFixtures {
   freshCollectors: void;
 }
 
+// The interpreter, and the reasons for the order it is chosen in, live in
+// `python-interpreter.ts`; global setup has already resolved and verified it
+// before any spec runs, so a failure here is a sentence, not a silent offline
+// backend.
 function pythonPath(): string {
-  const venv = process.platform === 'win32'
-    ? path.join(REPO_ROOT, '.venv', 'Scripts', 'python.exe')
-    : path.join(REPO_ROOT, '.venv', 'bin', 'python');
-  if (fs.existsSync(venv)) return venv;
-  // CI installs the backend's requirements into the runner's own interpreter
-  // rather than into a venv inside the checkout.
-  return process.env.RESMON_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+  return resolveInterpreter().python;
 }
 
 /**
