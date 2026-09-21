@@ -4558,6 +4558,12 @@ button.duplicate-link-text:hover { color: var(--color-accent); }
   margin: 0;
 }
 
+.first-run-dismiss-error {
+  margin: 8px 0 0;
+  color: var(--color-error);
+  font-size: 13px;
+}
+
 .first-run-lede {
   margin: 8px 0 14px;
   color: var(--text-secondary);

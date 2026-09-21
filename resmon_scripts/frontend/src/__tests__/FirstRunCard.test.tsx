@@ -26,11 +26,21 @@ const FRESH = {
   ],
 };
 
-function mockBackend(state: unknown) {
+/**
+ * `gates` holds one path's response open (or rejects it), so a test can observe
+ * the card mid-request rather than only after it. A gate that rejects stands in
+ * for a backend that refused the write.
+ */
+function mockBackend(state: unknown, gates: Record<string, Promise<void>> = {}) {
   const calls: string[] = [];
+  // Mark every gate handled up front: an unawaited rejection between mounting
+  // and the click is an unhandled-rejection warning, not a test failure.
+  Object.values(gates).forEach((gate) => { void gate.catch(() => {}); });
   (global as any).fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input).replace(/^https?:\/\/[^/]+/, '');
     calls.push(`${init?.method || 'GET'} ${path}`);
+    const gate: Promise<void> | undefined = gates[path];
+    if (gate !== undefined) await gate;
     const payload = path === '/api/onboarding' ? state : { dismissed: true };
     return {
       ok: true, status: 200,
@@ -108,12 +118,41 @@ describe('the first-run card', () => {
     expect(screen.queryByTestId('first-run-card')).not.toBeInTheDocument();
   });
 
-  it('skips immediately and tells the backend to keep it that way', async () => {
-    const calls = mockBackend(FRESH);
+  it('tells the backend to keep it that way, and only then goes', async () => {
+    /* The card used to hide the instant Skip was pressed and let the POST fly
+       unawaited, so a reload that beat the write to the database brought it
+       back — a one-in-two flake on the xvfb e2e job. Holding the response open
+       here is what distinguishes "waited" from "happened to be fast": while the
+       request is in flight the card must still be on screen and the button
+       disabled, and only the resolution may hide it. */
+    let releaseDismiss: () => void = () => {};
+    const held = new Promise<void>((resolve) => { releaseDismiss = resolve; });
+    const calls = mockBackend(FRESH, { '/api/onboarding/dismiss': held });
+
     await mount();
     await waitFor(() => expect(screen.getByTestId('first-run-card')).toBeInTheDocument());
-    await act(async () => { fireEvent.click(screen.getByText('Skip')); });
-    expect(screen.queryByTestId('first-run-card')).not.toBeInTheDocument();
+
+    await act(async () => { fireEvent.click(screen.getByTestId('first-run-skip')); });
     expect(calls).toContain('POST /api/onboarding/dismiss');
+    expect(screen.getByTestId('first-run-card')).toBeInTheDocument();
+    expect(screen.getByTestId('first-run-skip')).toBeDisabled();
+
+    await act(async () => { releaseDismiss(); await held; });
+    await waitFor(() => expect(screen.queryByTestId('first-run-card')).not.toBeInTheDocument());
+  });
+
+  it('keeps the card, and says so, when the dismissal is refused', async () => {
+    /* P2. Boundary: jsdom with a stubbed fetch — a hermetic double, not the
+       real backend. It establishes what the component does with a rejection,
+       not that this backend ever rejects. */
+    mockBackend(FRESH, { '/api/onboarding/dismiss': Promise.reject(new Error('http 500')) });
+    await mount();
+    await waitFor(() => expect(screen.getByTestId('first-run-card')).toBeInTheDocument());
+
+    await act(async () => { fireEvent.click(screen.getByTestId('first-run-skip')); });
+
+    await waitFor(() => expect(screen.getByTestId('first-run-dismiss-error')).toBeInTheDocument());
+    expect(screen.getByTestId('first-run-card')).toBeInTheDocument();
+    expect(screen.getByTestId('first-run-skip')).not.toBeDisabled();
   });
 });
