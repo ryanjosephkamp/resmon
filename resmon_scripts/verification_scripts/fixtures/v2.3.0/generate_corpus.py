@@ -1018,6 +1018,34 @@ def seed(m, conn, vault_parent: Path) -> None:
         conn, restart_id, "completed",
         end_time="2026-02-13T04:41:00", result_count=4, new_result_count=1)
 
+    # One execution deleted, so `sqlite_sequence.executions` runs ahead of
+    # max(id) -- the same reason the routines section above deletes a routine,
+    # and now needed for this table too. Schema 19 *rebuilds* `executions`, and
+    # a rebuild is the one migration shape that resets an AUTOINCREMENT mark
+    # while leaving every row count perfectly intact; reusing an id would hand a
+    # deleted run's `execution_documents` to a new one. Neither released fixture
+    # before this carried such a row, so a walk over them could not tell a
+    # preserved mark from a reset one -- established by removing the
+    # restoration from `_migrate_executions_interrupted` and watching the whole
+    # cumulative file stay green.
+    #
+    # The DELETE is `resmon.py`'s own statement (the Results page's delete
+    # button); `database.py` has no `delete_execution`.
+    doomed = database.insert_execution(conn, {
+        "execution_type": "deep_dive",
+        "parameters": json.dumps({"keywords": "deleted before the dump"}),
+        "start_time": "2026-02-14T05:00:00",
+    })
+    conn.execute("DELETE FROM executions WHERE id = ?", (int(doomed),))
+    conn.commit()
+    highest = conn.execute("SELECT MAX(id) FROM executions").fetchone()[0]
+    mark = conn.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name='executions'").fetchone()[0]
+    if not mark > highest:
+        raise RuntimeError(
+            f"executions sequence is {mark} and the highest id is {highest}; the "
+            "fixture would not be able to tell a preserved mark from a reset one")
+
     # ======================================================================
     # Schema 20 -- one run per submission, and the missed-fire record
     # ======================================================================

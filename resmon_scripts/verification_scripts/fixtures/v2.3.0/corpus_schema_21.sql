@@ -819,7 +819,7 @@ UPDATE sqlite_sequence SET seq = 7 WHERE name = 'evidence_answers';
 UPDATE sqlite_sequence SET seq = 2 WHERE name = 'evidence_notes';
 UPDATE sqlite_sequence SET seq = 2 WHERE name = 'evidence_project_files';
 UPDATE sqlite_sequence SET seq = 2 WHERE name = 'evidence_projects';
-UPDATE sqlite_sequence SET seq = 9 WHERE name = 'executions';
+UPDATE sqlite_sequence SET seq = 10 WHERE name = 'executions';
 UPDATE sqlite_sequence SET seq = 3 WHERE name = 'library_files';
 UPDATE sqlite_sequence SET seq = 7 WHERE name = 'routine_delivery_targets';
 UPDATE sqlite_sequence SET seq = 3 WHERE name = 'routine_missed_fires';
