@@ -733,6 +733,23 @@ Finally, **missed fires**. A routine due at 07:00 on a morning the laptop stayed
 
 What that row claims is exactly what was observed: the next fire was in the past when resmon looked. It is not a claim that the run did not happen — APScheduler's one-hour misfire grace means a fire found a few minutes late can still run — and **nothing is run to catch up**. Whether resmon should quietly perform a weekend of missed sweeps the moment a laptop opens is a decision for its owner, not a default chosen by a migration; the `disposition` column exists to record that policy when there is one.
 
+### Delivery: where a report goes, and whether it got there
+
+Until schema 21 a routine had exactly one destination — an email, sent inline from the execution worker — and resmon recorded nothing about it. A mail server that had started refusing connections, a password that had been rotated, a laptop with no network: each produced a line in a log file nobody reads, and the user's completion emails simply stopped. For an application whose subject is *telling you when your monitoring has broken*, that was the wrong way round.
+
+A routine now has a list of **destinations** (`routine_delivery_targets`), and every attempt to reach one is a row in `deliveries`: which run, which destination, the state, how many attempts, the reason it has not arrived, and when the next attempt is due. Two channels ship:
+
+- **Email** — the existing sender, now behind a channel adapter. The bundle it attaches (when *Results in Email* is on) is the one `POST /api/executions/export` builds, search-record companions included; the old hook quietly left those out, so a mailed bundle was poorer than the same user's downloaded one. The SMTP password stays in the OS keyring and never reaches a table, a setting or an error message.
+- **Folder** — the same bundle, unpacked into a directory you choose, plus a `delivery.json` naming the run and the report's sha256. It is written to a temporary name and renamed into place, so a sync client watching the folder never uploads a half-written report. This is what makes iCloud, Dropbox, OneDrive or a shared drive a delivery destination with no code of ours on the wire. A directory that is not there — an unmounted drive, a folder that is not signed in — is refused with that said, and the reason is recorded rather than the delivery being dropped.
+
+Each destination is **automatic** or **waits for review**. A review destination's delivery is recorded as `awaiting_review` and sits there, through restarts, until a person releases it; nothing promotes it, ever. Delivery, skip and retry are the three decisions the queue is deliberately not allowed to make.
+
+The completion hook no longer sends anything: it enqueues one row per enabled destination and wakes a **drain thread**, which claims a due row by compare-and-swap, delivers it, and writes back. That matters beyond tidiness — the old hook talked to a mail server on the execution worker's thread, still holding that run's admission slot. Failures back off 1 minute, 5 minutes, 25 minutes and then stop with the reason on the row; `UNIQUE(execution_id, target_id)` plus the CAS is what makes "delivered exactly once" a fact the database enforces. A row left mid-delivery by a backend that was force-quit is re-queued on the next start, and only where that owner can be established to be gone — resmon would rather send a report twice than never.
+
+**B4, kept by the migration**: every routine that had `email_enabled = 1` gets one automatic email target, whose blank address means the recipient in Settings → Email. An existing user's completion emails keep arriving with nothing to edit, and `email_enabled` is still the switch the Routines page toggles — an email destination on a routine with the switch off is not queued.
+
+What resmon claims is what it did: that it handed the report to your mail server, or wrote it into the folder. Whether the message reached an inbox, or the folder finished syncing, it cannot see, and the panel says so.
+
 ### Optional Google Drive Backup
 
 `implementation_scripts/cloud_storage.py` wraps the Drive v3 API with the least-privilege `drive.file` OAuth 2.0 scope. The token is stored in the OS keyring, and uploads are triggered by `SweepEngine._maybe_auto_backup` when the `cloud_auto_backup` setting is on. Configured under Settings → Cloud Storage. It is the only way any report leaves the machine, and it is off by default.
@@ -911,6 +928,12 @@ CRUD, activation, and cancel control for scheduled Automated Deep Sweeps.
 - Both take an optional `intent` — the sentence the coverage audit compares the routine's results against, stored in `routines.intent`. It is never defaulted from the keywords: an intent copied from a query would make every routine claim its owner stated one. A field absent from the body leaves the stored value alone; an empty string clears it.
 - `DELETE /api/routines/{id}` — delete a routine; also removes the APScheduler job.
 - `POST /api/routines/{id}/activate` / `POST /api/routines/{id}/deactivate` — register or unregister the APScheduler job without deleting the DB row. Invoked from the Routines table and from the Calendar popover's routine toggle.
+- `POST /api/routines/{id}/run` — run once, now, outside the schedule. It also marks that routine's `recorded` missed fires `ran_late`: a run was started after those fires came due, which is what happened, and not that each missed fire produced its own run. The **Run now** button beside the missed-fire line on the Routines page is this endpoint.
+- `GET / POST /api/routines/{id}/delivery-targets` and `PUT / DELETE .../{target_id}` — the routine's delivery destinations. `channel` is `email` or `folder`; the schema's CHECK also admits `webhook` and `feed`, which have no adapter yet and are refused at the route with that said. A target's channel cannot be edited, because the deliveries already recorded against it were attempted over it.
+- `GET /api/routines/{id}/deliveries` and `GET /api/executions/{id}/deliveries` — the delivery record, either way round.
+- `POST /api/deliveries/{id}/deliver` — release one that was waiting for review. The only promotion out of `awaiting_review` there is.
+- `POST /api/deliveries/{id}/skip` — decide not to send one.
+- `POST /api/deliveries/{id}/retry` — a failed or skipped delivery back into the queue with the attempt counter reset: the human overruling the backoff, which is a different decision from the backoff's own retry and so a different route.
 
 ### `/api/executions`
 

@@ -211,7 +211,44 @@ const RoutinesPage: React.FC = () => {
                 <li>Per-routine <strong>Email</strong>, <strong>AI</strong>, and <strong>Notify</strong> toggles let you override those features on a single row without opening the editor.</li>
                 <li>Use <strong>Activate / Deactivate</strong> to pause a routine without deleting it.</li>
                 <li>If a routine is currently firing, a <strong>Cancel Run</strong> button appears on its row.</li>
+                <li>Where resmon recorded missed fires, a <strong>Run now</strong> button sits beside the count: it runs the routine once and marks those fires as answered by a late run &mdash; not as each having run.</li>
               </ul>
+            ),
+          },
+          {
+            heading: 'Where the report goes',
+            body: (
+              <>
+                <p>
+                  A routine&rsquo;s report can be <strong>delivered</strong> to as many
+                  destinations as you like: an <strong>email address</strong>, or a{' '}
+                  <strong>folder</strong> &mdash; which is how a cloud drive becomes a
+                  destination. resmon writes the report bundle into the folder and your
+                  drive&rsquo;s own client syncs it; nothing of ours goes over the wire.
+                  Add them in the routine&rsquo;s editor, under <em>Delivery</em>.
+                </p>
+                <p>
+                  Each destination is either <strong>automatic</strong> or{' '}
+                  <strong>waits for your review</strong>. A review destination records
+                  the delivery and holds it &mdash; through restarts, for as long as it
+                  takes &mdash; until you press <em>Deliver</em>. Nothing releases it on
+                  its own.
+                </p>
+                <p>
+                  <strong>Every attempt is recorded</strong>, including the ones that
+                  fail. Open <em>Where did this go?</em> under any routine for the state
+                  of each delivery, how many attempts it took, and the reason it has not
+                  arrived. A failure is retried after 1, 5 and 25 minutes and then waits
+                  for you to press <em>Retry</em>; a delivery cut short by a force-quit
+                  is picked up by the next start.
+                </p>
+                <p>
+                  What resmon can tell you is that it handed the report to your mail
+                  server, or wrote it into the folder.{' '}
+                  <strong>Whether the message reached an inbox, or the folder finished
+                  syncing, it cannot see</strong> &mdash; so it does not say.
+                </p>
+              </>
             ),
           },
           {
