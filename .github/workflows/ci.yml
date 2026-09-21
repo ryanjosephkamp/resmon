@@ -64,6 +64,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Refuse committed symlinks and local paths
+        # Twice in one day a worker's `git add -A` swept a symlink (node_modules,
+        # .venv) pointing into a maintainer's home directory past .gitignore,
+        # because a trailing-slash pattern matches a directory and not a symlink.
+        # A public repository must never carry either. This runs before anything
+        # is installed so it is the first red a bad commit sees.
+        run: |
+          links=$(git ls-tree -r HEAD | awk '$1 == "120000" {print $4}')
+          if [ -n "$links" ]; then
+            echo "Committed symlinks are not allowed:"; echo "$links"; exit 1
+          fi
+          # Placeholder paths in UI copy (/Users/you/…) are fine; a path into a
+          # maintainer's checkout or scratch space is not.
+          paths=$(git ls-files -z | xargs -0 grep -Il -E '/Users/[^/]+/Documents/resmon-|/private/tmp/claude-|/tmp/claude-' -- 2>/dev/null \
+                  | grep -v -E '^\.github/workflows/ci\.yml$' || true)
+          if [ -n "$paths" ]; then
+            echo "Tracked files carry a maintainer-machine path:"; echo "$paths"; exit 1
+          fi
+
       - name: Verify every module parses
         # Catches a syntax error hidden behind a missing dependency — a module
         # nothing imports on the happy path can stay broken indefinitely otherwise.
