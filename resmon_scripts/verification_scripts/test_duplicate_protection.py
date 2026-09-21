@@ -263,6 +263,33 @@ def test_two_different_routines_do_not_block_each_other(client):
     assert a.status_code == 200 and b.status_code == 200
 
 
+@patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
+def test_a_worker_that_dies_before_its_try_still_releases_the_routine(client):
+    """The claim outlives the pipeline's ``finally`` if the thread never gets there.
+
+    ``_launch_execution``'s worker does three things before the ``try`` that
+    releases the claim: it records the admission slot, starts the heartbeat, and
+    opens its own database connection. An exception in any of them -- a database
+    that will not open is the realistic one -- used to leave the routine claimed
+    for the life of the backend, and every later fire of it answered 409 naming
+    a run that had never started. Found by the reviewer of this change as a
+    mutation; kept as a test, because the release it checks is a second, outer
+    ``finally`` that nothing else exercises.
+    """
+    rid = _make_routine("dies-early")
+    boom = RuntimeError("no database today")
+    with patch.object(resmon_mod, "_start_execution_heartbeat",
+                      side_effect=boom):
+        exec_id = resmon_mod._dispatch_routine_fire(rid, "{}", allow_inactive=True)
+        assert exec_id is not None, "the fire was refused before it could fail"
+        _wait_for_claim_release(rid)
+
+    # And the routine is runnable again, which is the fact a user meets.
+    resp = client.post(f"/api/routines/{rid}/run")
+    assert resp.status_code == 200
+    assert resp.json()["execution_id"] != exec_id
+
+
 def _wait_for_claim_release(routine_id: int, timeout: float = 20.0) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:

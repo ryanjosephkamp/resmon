@@ -1,21 +1,26 @@
 /**
- * A fresh id for one submission, generated at the moment the user acts.
+ * A fresh id for one in-flight submission.
  *
  * The backend treats two requests carrying the same `request_id` as one
  * submission and answers the second with the run the first started. That makes
- * *when* this is called the whole of the guarantee:
+ * this id worth exactly as much as the discipline around it:
  *
- *   * at click time, which is here — a double click, a retried request or a
- *     component that remounted mid-flight all carry the same id, and resmon
- *     runs one search;
- *   * at page load, which would be a bug — the id would be fixed for the life
- *     of the page, and a user's genuine second search would be answered with
- *     their first one's results.
+ *   * **Per in-flight request**, which is what the pages do: the submit control
+ *     is disabled while the request is running and a ref refuses re-entry in
+ *     the window before React re-renders it, so a second click cannot start a
+ *     second run — and a *retry* of the same submission carries the same id and
+ *     is answered with the run already going.
+ *   * **Per page load** would be a bug: the id would be fixed for the life of
+ *     the page, and a user's genuine second search would be answered with their
+ *     first one's results.
+ *
+ * Minting a new id on every click would not, on its own, make a double click
+ * one run — the two clicks would be two submissions with two ids, which is what
+ * the disabled control and the ref are for.
  *
  * `crypto.randomUUID` is available in Electron's renderer and in every browser
  * the app is built for; the fallback exists for the jsdom environments in the
- * test suite, which do not all provide it. Both produce a value unique enough
- * for a key whose only job is to be different from the last one.
+ * test suite, which do not all provide it.
  */
 export function newRequestId(): string {
   const c = globalThis.crypto as Crypto | undefined;

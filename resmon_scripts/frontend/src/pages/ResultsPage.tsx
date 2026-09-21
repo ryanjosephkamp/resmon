@@ -35,6 +35,7 @@ const ResultsPage: React.FC = () => {
   const [exportError, setExportError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [restarting, setRestarting] = useState<number | null>(null);
+  const inFlightRestartId = useRef<string | null>(null);
   const { completionCounter, startExecution, setMonitorVisible } = useExecution();
   const reportRef = useRef<HTMLDivElement | null>(null);
   const {
@@ -102,15 +103,19 @@ const ResultsPage: React.FC = () => {
    * waiting for the three-second active sweep to notice it.
    */
   const handleRestart = async (exec: Execution) => {
+    // The Restart button is disabled while `restarting` names this row, but
+    // that is state and a second click can land before React re-renders. The
+    // ref refuses it outright, so the id minted below belongs to one in-flight
+    // request rather than to one click.
+    if (inFlightRestartId.current !== null) return;
     setError('');
+    const requestId = newRequestId();
+    inFlightRestartId.current = requestId;
     setRestarting(exec.id);
     try {
-      // One id per click of Restart, so a second click while the first request
-      // is still in flight follows the run it already started instead of
-      // starting a second one.
       const resp = await apiClient.post<{ execution_id: number; duplicate?: boolean }>(
         `/api/executions/${exec.id}/restart`,
-        { request_id: newRequestId() },
+        { request_id: requestId },
       );
       startExecution(resp.execution_id, exec.execution_type, exec.repositories || []);
       setMonitorVisible(true);
@@ -119,6 +124,7 @@ const ResultsPage: React.FC = () => {
     } catch (err: any) {
       setError(err.message);
     } finally {
+      inFlightRestartId.current = null;
       setRestarting(null);
     }
   };

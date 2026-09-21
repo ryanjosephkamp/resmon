@@ -943,6 +943,36 @@ def _launch_execution(
     """
 
     def _run() -> None:
+        """Release the claim whatever happens, then run the pipeline.
+
+        The pipeline's own ``finally`` (far below) releases the claim in the
+        right *order* -- before ``admission.note_finished``, which can hand a
+        queued fire of this same routine to a fresh thread. But it cannot be
+        the only release: ``note_admitted``, the heartbeat start and
+        ``_get_db()`` all run before that ``try``, and an exception there --
+        a database that will not open is the realistic one -- would leave the
+        routine claimed for the life of the backend, every later fire answered
+        409 for a run that never started. So the claim is released here too.
+        ``release`` is idempotent; releasing twice costs nothing and not
+        releasing costs the routine.
+        """
+        try:
+            _run_pipeline()
+        except BaseException:
+            # A worker thread that raises out of itself leaves a bare traceback
+            # on the interpreter's excepthook and tells the log nothing about
+            # which execution it was. The row is left exactly as it is: nothing
+            # here observed what the search did, and schema 19's startup
+            # reconciliation is what decides whether it was interrupted.
+            logging.getLogger(__name__).exception(
+                "Execution worker raised before its own error handling: "
+                "exec_id=%s", exec_id,
+            )
+        finally:
+            if claimed_routine_id is not None:
+                routine_claims.release(claimed_routine_id)
+
+    def _run_pipeline() -> None:
         admission.note_admitted(exec_id)
         heartbeat_thread, heartbeat_stop = _start_execution_heartbeat(exec_id)
         # Take this thread's own connection rather than reusing the request
