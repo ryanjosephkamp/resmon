@@ -76,6 +76,8 @@ function markOf(done: boolean | null): { glyph: string; label: string } {
 const FirstRunCard: React.FC = () => {
   const [state, setState] = React.useState<OnboardingState | null>(null);
   const [hidden, setHidden] = React.useState(false);
+  const [dismissing, setDismissing] = React.useState(false);
+  const [dismissError, setDismissError] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -88,11 +90,28 @@ const FirstRunCard: React.FC = () => {
     return () => { cancelled = true; };
   }, []);
 
-  const dismiss = React.useCallback(() => {
-    setHidden(true);
-    void apiClient.post('/api/onboarding/dismiss', {}).catch(() => {
-      /* it is gone for this session either way; the next launch will retry */
-    });
+  /**
+   * Skip waits for the backend to record the dismissal before the card goes.
+   *
+   * It used to hide optimistically and fire the POST off unawaited, which made
+   * "it disappeared" and "it will not come back" two different claims: a reload
+   * that beat the request to the database brought the card back. The e2e case
+   * caught it as a one-in-two flake on the xvfb job. So: no optimistic hide.
+   * The button disables while the request is in flight, and a dismissal the
+   * backend refuses leaves the card where it is and says so, because a card
+   * that vanishes on a failed write is a card that lies about what was stored.
+   */
+  const dismiss = React.useCallback(async () => {
+    setDismissing(true);
+    setDismissError(false);
+    try {
+      await apiClient.post('/api/onboarding/dismiss', {});
+      setHidden(true);
+    } catch {
+      setDismissError(true);
+    } finally {
+      setDismissing(false);
+    }
   }, []);
 
   if (!state || !state.show || hidden) return null;
@@ -101,10 +120,22 @@ const FirstRunCard: React.FC = () => {
     <div className="card first-run" data-testid="first-run-card">
       <div className="first-run-head">
         <h2>Getting started</h2>
-        <button type="button" className="btn btn-sm btn-secondary" onClick={dismiss}>
+        <button
+          type="button"
+          className="btn btn-sm btn-secondary"
+          onClick={() => { void dismiss(); }}
+          disabled={dismissing}
+          data-testid="first-run-skip"
+        >
           Skip
         </button>
       </div>
+
+      {dismissError && (
+        <p className="first-run-dismiss-error" role="alert" data-testid="first-run-dismiss-error">
+          Couldn’t save that — try again
+        </p>
+      )}
 
       <p className="first-run-lede">
         resmon has not run anything yet. It searches 25 sources with no AI and no

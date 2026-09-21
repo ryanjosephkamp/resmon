@@ -83,7 +83,16 @@ test('P15: a fresh install sees the card, and Skip retires it for good', async (
     // content rather than replacing it.
     await expect(win.locator('.card', { hasText: 'Active Routines' })).toBeVisible();
 
+    // Wait for the dismissal to land before reloading. Without this the reload
+    // could outrun the POST and the case failed about one run in two on the
+    // xvfb job — which made it a test of the race rather than of persistence.
+    // The card now hides only once the response is in, so the two waits agree.
+    const dismissed = win.waitForResponse(
+      (response) => response.url().includes('/api/onboarding/dismiss') && response.request().method() === 'POST',
+      { timeout: 30_000 },
+    );
     await win.getByRole('button', { name: 'Skip' }).click();
+    expect((await dismissed).ok()).toBe(true);
     await expect(card).toBeHidden({ timeout: 10_000 });
 
     // Reload the renderer against the same backend and the same database. This
