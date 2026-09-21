@@ -1008,7 +1008,9 @@ within one second**, and the state directory afterwards held only `resmon.db`, `
 `-shm`: the token file had been removed, which is the documented clean-shutdown case. The
 v2.2.0 run recorded this as unverified after a five-second wait and a `SIGKILL`; this run
 waited up to thirty seconds and needed one. The packaged app's exit on `SIGTERM` is now
-**verified on arm64 macOS**, and L-105 narrows accordingly. The image was detached; the
+**verified on arm64 macOS**, which closes the line the v2.2.0 section above left
+unverified (it is not part of L-105, which is about the token not stopping the owner's own
+processes). The image was detached; the
 downloaded installers, the copied app, its Chromium profile and its state directory were
 removed; the launch logs, size and digest receipts, plist excerpt, health body and the guard
 table above were kept outside the repository.
@@ -1029,4 +1031,4 @@ Kept outside the repository: `release-metadata.json`, `assets.tsv`, `prev-assets
 `sizes.txt`, `downloaded-vs-metadata.txt`, `sha256.txt`, `dmg-xattr.txt`, `info-plist.txt`,
 `lsof-8742-before.txt`, `lsof-8742-during.txt`, `lsof-8742-after.txt`, `arm64-stdout.log`,
 `arm64-stderr.log`, `packaged-token-check.txt`, `health-body.txt`, `processes.txt`,
-`state-after-stop.txt`. This section is the only change in this PR.
+`sigterm-exit.txt`, `state-after-stop.txt`. This section is the only change in this PR.
