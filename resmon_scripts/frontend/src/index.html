@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; worker-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src http://127.0.0.1:* https://ryanjosephkamp.github.io; frame-src https://ryanjosephkamp.github.io https://www.youtube-nocookie.com https://www.youtube.com; child-src https://ryanjosephkamp.github.io https://www.youtube-nocookie.com https://www.youtube.com;" />
+        content="default-src 'self'; worker-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src http://127.0.0.1:* https://ryanjosephkamp.github.io; frame-src https://ryanjosephkamp.github.io; child-src https://ryanjosephkamp.github.io;" />
   <!--
     ``font-src 'self' data:`` is not decoration and it is not a loosening for its
     own sake. FullCalendar ships its icon font inline, as a
@@ -18,6 +18,20 @@
     ``data:`` is added for fonts only, never to ``default-src``. A font cannot
     execute script, and the alternative -- unpacking a vendor's base64 font to a
     file at build time -- is more machinery for the same result.
+
+    ``frame-src`` / ``child-src`` carry one origin, the GitHub Pages site the
+    blog ``<webview>`` loads. They used to carry
+    ``https://www.youtube-nocookie.com`` and ``https://www.youtube.com`` as well,
+    for the per-section tutorial embeds. Those embeds were removed: the Tutorials
+    tab now renders a local poster image and a "Watch on YouTube" **link** that
+    opens in the user's own browser, so the renderer never frames a YouTube
+    document and nothing in the app can. Removing the origins loses no
+    functionality; it means a future ``<iframe src="https://www.youtube.com/...">``
+    reintroduced by accident is blocked and visible rather than silently working.
+
+    ``src/__tests__/contentSecurityPolicy.test.ts`` pins the directive set above
+    as an allowlist, so adding an origin here fails that test until the origin is
+    added there too, with its reason.
   -->
   <title>resmon</title>
 </head>
