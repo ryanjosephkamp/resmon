@@ -809,3 +809,50 @@ def test_actual_continuous_api_stream_stops_with_owned_cleanup(workspace,availab
         (tmp_path/'continuous-api-custody.json').write_text(json.dumps({'port':server.server_port,'fault':fault,'request':captured[0],'events':events,'elapsed':time.monotonic()-start,'cleanup':'owned continuous response closed, no retry'}))
     finally:
         runtime.cancel(-14);worker.join(5);server.shutdown();server.server_close();serving.join(5)
+
+
+def test_startup_binding_without_a_serving_pid_stays_blocked_and_is_not_interrupted(workspace,tmp_path):
+    """A durable row whose binding carries no ``serving_pid`` is read as alive.
+
+    ``Lane._startup`` has no liveness fact about such a row -- there is no pid
+    to ask ``runtime_identity.process_is_alive`` about -- and this module's
+    asymmetry is to stay blocked rather than declare somebody else's run over.
+    PR149 preserved that; the guard is one ``type(pid) is int and pid > 0``
+    away from being deleted by a refactor that reads it as redundant, so the
+    consequence is pinned here: the lane blocks, and the row is left exactly
+    as it was rather than rewritten to ``interrupted``.
+    """
+    from implementation_scripts import database
+    value,body,capture=real_lane(workspace,tmp_path)
+    _,_,result=admitted(workspace,value,body)
+    answer_id=result['answer_id']
+    job=value.subscribe(answer_id,workspace.vault_id,workspace.project_id,value.runtime_id)
+    assert job.completed.wait(10)
+    value.shutdown()
+
+    # The binding a *released* resmon wrote, minus the one key: the row is put
+    # back into the non-terminal state a backend that died mid-answer leaves.
+    # A connection of its own: the worker wrote the row on another one, and
+    # this fixture's connection is holding an older read snapshot.
+    conn=database.get_connection(str(workspace.database))
+    row=conn.execute('SELECT owner_runtime_id,private_binding_json FROM evidence_answers WHERE answer_id=?',(answer_id,)).fetchone()
+    binding=se.loads(row['private_binding_json'],4096)
+    assert 'serving_pid' in binding, 'a live answer binds its serving pid; this test removes it'
+    binding.pop('serving_pid')
+    stranger=str(uuid.uuid4())
+    conn.execute("UPDATE evidence_answers SET state='running',cleanup_state='pending',"
+                           "finished_at_utc=NULL,error_code=NULL,error_message=NULL,result_json=NULL,"
+                           "owner_runtime_id=?,private_binding_json=? WHERE answer_id=?",
+                           (stranger,json.dumps(binding),answer_id))
+    conn.commit()
+    before=dict(conn.execute('SELECT * FROM evidence_answers WHERE answer_id=?',(answer_id,)).fetchone())
+
+    restarted=lane.Lane(str(workspace.database),str(uuid.uuid4()),value.port,value.settings)
+    try:
+        assert restarted.blocked, 'no liveness fact must not be read as a dead worker'
+        conn.rollback()
+        after=dict(conn.execute('SELECT * FROM evidence_answers WHERE answer_id=?',(answer_id,)).fetchone())
+        assert after==before, after
+        assert after['state']=='running' and after['error_code'] is None
+    finally:
+        restarted.shutdown();conn.close()

@@ -93,7 +93,8 @@ class SMTPStub:
     message arrived" is counted rather than assumed.
     """
 
-    def __init__(self, *, refuse_first: int = 0, refuse_recipients: bool = False) -> None:
+    def __init__(self, *, refuse_first: int = 0, refuse_recipients: bool = False,
+                 echo_recipient=None) -> None:
         self.messages: list[str] = []
         self.refuse_first = refuse_first
         # ``refuse_recipients`` makes the server answer RCPT TO with 550, which
@@ -103,6 +104,13 @@ class SMTPStub:
         # so it is produced by a real server refusing a real RCPT rather than
         # by raising the exception by hand.
         self.refuse_recipients = refuse_recipients
+        # ``echo_recipient`` rewrites the address in the 550 line. SMTP
+        # addresses are not case-sensitive in their local part by any rule the
+        # sender can rely on, and a server is free to answer with whatever
+        # spelling it likes; several echo the canonicalised or display form.
+        # The scrub has to survive that, so a test can ask this server to
+        # answer in a case the client never sent.
+        self.echo_recipient = echo_recipient
         self.connections = 0
         self._cert, self._key = _self_signed()
         self._sock = socket.socket()
@@ -185,6 +193,8 @@ class SMTPStub:
                 send("235 Authentication successful")
             elif upper.startswith("RCPT TO") and self.refuse_recipients:
                 address = line.partition(":")[2].strip().strip("<>")
+                if self.echo_recipient is not None:
+                    address = self.echo_recipient(address)
                 send(f"550 5.1.1 <{address}>: Recipient address rejected")
             elif upper.startswith("MAIL FROM") or upper.startswith("RCPT TO"):
                 send("250 OK")
@@ -838,3 +848,114 @@ def test_a_channel_outside_the_schemas_vocabulary_is_refused_when_it_is_added(co
         delivery.add_target(conn, corpus["routine_id"], channel="carrier-pigeon",
                             target="loft 4")
     assert "channel must be one of" in str(caught.value)
+
+
+# ---------------------------------------------------------------------------
+# The address scrub is case-insensitive
+# ---------------------------------------------------------------------------
+
+
+def _mixed_case(address: str) -> str:
+    """``private@example.org`` -> ``Private@Example.ORG``.
+
+    Not a spelling resmon ever sends: the local part is capitalised, the
+    domain is title-cased and the TLD shouted, which is the sort of
+    canonicalisation a mail server does to the address it echoes back.
+    """
+    local, _, domain = address.partition("@")
+    host, _, tld = domain.rpartition(".")
+    return f"{local.capitalize()}@{host.title()}.{tld.upper()}"
+
+
+def test_the_address_scrub_is_not_defeated_by_the_case_the_server_answers_in(
+    corpus, smtp_no_verify,
+):
+    """A 550 that names the recipient in a case resmon never sent.
+
+    The addresses are stored lower-case, as the user typed them, and the
+    server answers about ``Private@Example.ORG``. A case-sensitive
+    ``str.replace`` leaves that spelling standing in ``deliveries.last_error``,
+    which the MCP ``get_routine`` summary returns -- so both spellings are
+    asserted absent, and the scrub is checked against the recipient, the
+    ``smtp_to`` fallback and the account username together.
+    """
+    conn = corpus["conn"]
+    stub = SMTPStub(refuse_recipients=True, echo_recipient=_mixed_case)
+    try:
+        _configure_smtp(conn, stub, recipient="fallback@example.org")
+        database.update_routine(conn, corpus["routine_id"], {"email_enabled": 1})
+        delivery.add_target(conn, corpus["routine_id"], channel="email",
+                            target="private@example.org")
+        _enqueue(corpus)
+        assert _queue().drain(conn) == 1
+    finally:
+        stub.close()
+
+    row = delivery.list_deliveries_for_execution(conn, corpus["exec_id"])[0]
+    assert row["state"] == "failed"
+    error = row["last_error"]
+    for private in ("private@example.org", "fallback@example.org",
+                    "resmon@example.org"):
+        assert private not in error, error
+        assert _mixed_case(private) not in error, error
+    # Nothing recognisable is left of either spelling, in any case.
+    assert "example.org" not in error.lower(), error
+    assert "<address>" in error, error
+    # The failure is still diagnosable, and the row still names the target.
+    assert "550" in error and "Recipient address rejected" in error
+    assert delivery.get_target(
+        conn, row["target_id"])["target"] == "private@example.org"
+
+
+def test_a_target_address_that_is_a_substring_of_another_leaves_no_tail(
+    corpus, smtp_no_verify,
+):
+    """``a@x.org`` inside ``zza@x.org``: shortest-first would leave ``zz``.
+
+    ``_without_address`` sorts longest-first for exactly this, and the comment
+    saying so was the only thing holding the ordering up. Replacing every
+    occurrence of the short address first turns ``zza@x.org`` into
+    ``zz<address>`` -- a fragment of somebody's address, in the row the MCP
+    ``get_routine`` summary returns. Dropping ``reverse=True`` fails here.
+    """
+    conn = corpus["conn"]
+    stub = SMTPStub(refuse_recipients=True)
+    try:
+        _configure_smtp(conn, stub, recipient="a@x.org")
+        database.update_routine(conn, corpus["routine_id"], {"email_enabled": 1})
+        delivery.add_target(conn, corpus["routine_id"], channel="email",
+                            target="zza@x.org")
+        _enqueue(corpus)
+        assert _queue().drain(conn) == 1
+    finally:
+        stub.close()
+
+    error = delivery.list_deliveries_for_execution(conn, corpus["exec_id"])[0]["last_error"]
+    assert "zza@x.org" not in error and "a@x.org" not in error, error
+    # The tail a shortest-first pass leaves behind.
+    assert "zz<address>" not in error, error
+    assert "zz" not in error, error
+    assert "<address>" in error, error
+
+
+def test_the_url_scrub_matches_the_host_in_any_case_and_the_path_exactly():
+    """``_without_url`` directly: the host is case-insensitive, the path is not.
+
+    RFC 3986 §6.2.2.1 makes scheme and host case-insensitive, and an httpx or
+    DNS error may name the host in a case the user never typed. A path is
+    case-sensitive and stays so: matching it loosely would be a claim about
+    someone else's receiver that resmon cannot make.
+    """
+    url = "https://Hooks.Example.org/Inbox/abc"
+    assert delivery._without_url(
+        "connect to https://hooks.EXAMPLE.ORG/Inbox/abc failed", [url], "<webhook>",
+    ) == "connect to <webhook> failed"
+    # The path in the wrong case is a different path, and is left alone.
+    left = delivery._without_url(
+        "connect to https://hooks.example.org/inbox/abc failed", [url], "<webhook>")
+    assert left == "connect to https://hooks.example.org/inbox/abc failed"
+    # Longest first here too.
+    assert delivery._without_url(
+        "https://h.example.org/a and https://h.example.org/ab",
+        ["https://h.example.org/a", "https://h.example.org/ab"], "<webhook>",
+    ) == "<webhook> and <webhook>"

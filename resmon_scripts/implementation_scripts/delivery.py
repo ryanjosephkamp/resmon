@@ -712,15 +712,31 @@ def _slug(value: str) -> str:
     return cleaned[:60] or "routine"
 
 
-def _without(text: str, values, placeholder: str) -> str:
-    """*text* with every non-empty string in *values* replaced.
+_SCHEME_AND_AUTHORITY = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://[^/?#]*")
 
-    Longest first, so replacing an address does not leave the domain of a
+
+def _without_url(text: str, values, placeholder: str) -> str:
+    """*text* with every non-empty URL in *values* replaced.
+
+    Longest first, so replacing a short URL does not leave the tail of a
     longer one that contained it standing on its own.
+
+    Split by case: a URL's scheme and host are case-insensitive by RFC 3986
+    §6.2.2.1, and an httpx or DNS error is free to report the host in a case
+    the user did not type -- so those are matched case-insensitively. The path
+    and query stay case-sensitive, because they are, and a case-insensitive
+    match there would be a claim about someone else's receiver that resmon
+    cannot make.
     """
     out = text
     for value in sorted({v for v in values if v}, key=len, reverse=True):
-        out = out.replace(value, placeholder)
+        # The scheme and authority as they appear in the string itself, not
+        # reassembled: the goal is to match the bytes the user's setting holds.
+        found = _SCHEME_AND_AUTHORITY.match(value)
+        head = found.group(0) if found else ""
+        tail = value[len(head):]
+        pattern = (("(?i:" + re.escape(head) + ")") if head else "") + re.escape(tail)
+        out = re.sub(pattern, placeholder, out)
     return out
 
 
@@ -756,8 +772,20 @@ def _without_address(text: str, addresses) -> str:
     *which* destination this was -- ``deliveries.target_id`` names it, and the
     app resolves that locally, where the user is already looking at their own
     settings.
+
+    The match is case-insensitive. Addresses are stored as the user typed
+    them, but the text being scrubbed is whatever the upstream SMTP server
+    said, and a server is free to echo a recipient back in any case it likes --
+    ``SMTPRecipientsRefused`` carrying ``Private@Example.ORG`` for an address
+    stored ``private@example.org`` would otherwise have walked straight through
+    a case-sensitive ``str.replace`` and into ``deliveries.last_error``.
     """
-    return _without(text, addresses, "<address>")
+    out = text
+    # Longest first, for the same reason ``_without`` sorts: replacing a short
+    # address must not leave the tail of a longer one that contained it.
+    for value in sorted({a for a in addresses if a}, key=len, reverse=True):
+        out = re.sub(re.escape(value), "<address>", out, flags=re.IGNORECASE)
+    return out
 
 
 def _without_path(text: str, root: Path) -> str:
@@ -974,7 +1002,7 @@ def _deliver_webhook(
         options = webhook_options(target)
     except ValueError as exc:
         # The message names the URL the user typed; the record must not.
-        raise DeliveryError(_without(str(exc), [target], "<webhook>")) from None
+        raise DeliveryError(_without_url(str(exc), [target], "<webhook>")) from None
     url = options["url"]
     target_id = delivery_row.get("target_id")
     secret = None
