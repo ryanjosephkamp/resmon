@@ -40,13 +40,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The cumulative upgrade test regenerates each released fixture from that
-      # release's own code and diffs it against the committed file. The
-      # checkout above is depth 1 and carries no tags, so fetch those tags
-      # (depth 1 is enough for a worktree of each) and tell the test that a
-      # missing tag is a failure here, not a skip. One tag per released
-      # fixture: the list here and `RELEASED` in
-      # verification_scripts/test_cumulative_upgrade.py grow together.
       - name: Refuse committed symlinks and local paths
         # Twice in one day a worker's `git add -A` swept a symlink (node_modules,
         # .venv) pointing into a maintainer's home directory past .gitignore,
@@ -67,6 +60,13 @@ jobs:
             echo "Tracked files carry a maintainer-machine path:"; echo "$paths"; exit 1
           fi
 
+      # The cumulative upgrade test regenerates each released fixture from that
+      # release's own code and diffs it against the committed file. The
+      # checkout above is depth 1 and carries no tags, so fetch those tags
+      # (depth 1 is enough for a worktree of each) and tell the test that a
+      # missing tag is a failure here, not a skip. One tag per released
+      # fixture: the list here and `RELEASED` in
+      # verification_scripts/test_cumulative_upgrade.py grow together.
       - name: Fetch the released tags for the fixture-provenance checks
         run: |
           for tag in v2.1.0 v2.2.0; do
