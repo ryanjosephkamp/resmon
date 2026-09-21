@@ -795,7 +795,8 @@ def _rebuild_fts(conn: sqlite3.Connection) -> bool:
 
 def _restore_vault(bundle: Path, manifest: dict, target_root: Path,
                    *, undo_dir: Path | None = None,
-                   moved_aside: list | None = None) -> dict:
+                   moved_aside: list | None = None,
+                   created: list | None = None) -> dict:
     """Put the vault bytes back beside the rows that describe them.
 
     Refuses to overwrite a *different* vault: a directory named for another
@@ -814,11 +815,21 @@ def _restore_vault(bundle: Path, manifest: dict, target_root: Path,
     alternative is deleting the only copy of the user's files and hoping the
     rest of the restore succeeds. The copy finishes before the original is
     removed, so a failure during it leaves the original where it was.
+
+    Where the destination held **no** vault -- the ordinary case on a second
+    machine, and the case ``vault_parent`` exists for -- there is nothing to
+    move aside and the tree about to be written is this restore's own. It is
+    appended to *created* before a byte is copied, so a failure afterwards can
+    remove it: a restore that reports it undid everything must not leave a
+    vault the user never had sitting in a folder they chose. Directories above
+    the vault root that ``mkdir(parents=True)`` had to create are not removed;
+    only the ``resmon-library-<id>`` tree itself is this restore's to delete.
     """
     source = Path(bundle) / VAULT_DIR
     if not source.is_dir():
         return {"restored": False, "reason": "no_vault_in_backup"}
     replaced: str | None = None
+    moved_here = False
     expected_name = vault_dir_name(manifest.get("vault_id"))
     if target_root.name != expected_name:
         raise BackupError(
@@ -833,12 +844,16 @@ def _restore_vault(bundle: Path, manifest: dict, target_root: Path,
                 existing = (json.loads(marker.read_text()) or {}).get("vault_id")
             except (ValueError, OSError):
                 existing = None
-        if existing is not None and existing != manifest.get("vault_id"):
+        # ``str()`` on both sides, as ``validate_vault_parent`` does: the route
+        # refusal and this one must agree, or the route accepts a parent the
+        # restart then refuses -- which is the refusal D3 moved forward.
+        if existing is not None and str(existing) != str(manifest.get("vault_id")):
             raise BackupError(
                 "different_vault",
                 f"{target_root} already holds vault {existing}, and this backup "
                 f"carries vault {manifest.get('vault_id')}. resmon will not overwrite "
                 "another vault's retained files; move or rename that directory first.")
+        moved_here = True
         if undo_dir is None:
             shutil.rmtree(target_root)
         else:
@@ -858,6 +873,8 @@ def _restore_vault(bundle: Path, manifest: dict, target_root: Path,
                 moved_aside.append((target_root, kept))
             replaced = str(kept)
     target_root.parent.mkdir(parents=True, exist_ok=True)
+    if not moved_here and created is not None:
+        created.append(target_root)
     shutil.copytree(source, target_root)
     try:
         os.chmod(target_root, 0o700)
@@ -937,6 +954,10 @@ def apply_pending_restore(
     #: where it is being kept). Filled in by ``_restore_vault`` *before* it
     #: copies anything over, so a failure after that point can put it back.
     vault_moved: list[tuple[Path, Path]] = []
+    #: The vault tree this restore *created* where the destination held none.
+    #: Nothing was set aside for it because there was nothing there, so the undo
+    #: removes it rather than leaving the bundle's vault behind.
+    vault_created: list[Path] = []
     for suffix in ("", "-wal", "-shm"):
         current = Path(str(db_path) + suffix)
         if current.exists():
@@ -950,6 +971,11 @@ def apply_pending_restore(
                 current.unlink()
             if destination.exists():
                 shutil.move(str(destination), str(current))
+        for root in vault_created:
+            # Not the user's bytes: this restore wrote them a moment ago, into a
+            # folder that had no vault in it.
+            if root.exists():
+                shutil.rmtree(root, ignore_errors=True)
         for root, kept in vault_moved:
             if not kept.exists():
                 # The move never reached the point of removing the original, so
@@ -985,7 +1011,8 @@ def apply_pending_restore(
             else:
                 target_root = Path(row["root_path"])
             vault_result = _restore_vault(bundle, manifest, target_root,
-                                          undo_dir=undo, moved_aside=vault_moved)
+                                          undo_dir=undo, moved_aside=vault_moved,
+                                          created=vault_created)
 
         # ``init_db`` first, and before anything writes a row. The migrations
         # bring an older bundle to today's schema, and every statement below
@@ -1031,12 +1058,30 @@ def apply_pending_restore(
             if broken.exists():
                 broken.unlink()
         undo_everything()
-        shutil.rmtree(undo, ignore_errors=True)
+        kept_vault = undo / VAULT_UNDO_NAME
+        if kept_vault.exists():
+            # The undo could not put this back -- the move that made it did not
+            # finish the way it must for that to be safe (residual risk: a
+            # cross-volume move interrupted while removing the original). It is
+            # then the only complete copy of the user's vault, so it survives
+            # the clean-up and Settings offers it, rather than being deleted
+            # one line after being made.
+            logger.error(
+                "The restore failed and left a copy of the Library vault at %s; "
+                "it was not put back automatically.", kept_vault)
+        else:
+            shutil.rmtree(undo, ignore_errors=True)
         reason = exc.reason if isinstance(exc, BackupError) else "restore_failed"
         message = exc.message if isinstance(exc, BackupError) else str(exc)
         clear_pending(state_dir)
-        return _record(state_dir, {"ok": False, "reason": reason, "message": message,
-                                   "bundle": str(bundle), "undone": True})
+        return _record(state_dir, {
+            "ok": False, "reason": reason, "message": message,
+            "bundle": str(bundle), "undone": True,
+            # Normally None. Set only in the window where the undo could not put
+            # the vault back by itself, so the record says where the copy is
+            # instead of leaving the user to find it.
+            "vault_copy_kept": str(kept_vault) if kept_vault.exists() else None,
+        })
 
     outcome = {
         "ok": True,

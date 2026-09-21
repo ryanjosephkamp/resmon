@@ -1054,6 +1054,105 @@ def test_a_restore_that_fails_after_the_vault_was_replaced_puts_the_vault_back(
     assert backup_module.undo_copies(corpus["state_dir"]) == []
 
 
+def test_a_vault_copy_the_undo_could_not_put_back_survives_the_clean_up(
+        corpus, monkeypatch, tmp_path):
+    """The one window where the undo cannot help: the copy must not be deleted too.
+
+    `shutil.move` between volumes copies and then removes, and a removal
+    interrupted part way leaves the original incomplete beside a *complete*
+    copy in the undo directory. The pair is deliberately not recorded then --
+    a copy that failed the other way round (copy interrupted, original intact)
+    must never be moved back over the original -- so the undo skips the vault,
+    and the clean-up used to delete the only whole copy one line later.
+
+    The move is faked rather than performed across a real volume: the fake does
+    exactly what `shutil.move`'s cross-device branch does in that window, which
+    is what the test is about. A genuine two-volume move stays unmeasured and
+    the handback says so.
+    """
+    import shutil as real_shutil
+
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    backup_module.stage_restore(bundle, corpus["state_dir"], report)
+    corpus["conn"].close()
+    before_db = corpus["db_path"].read_bytes()
+    vault_root = corpus["vault_root"]
+
+    class _HalfRemovedMove:
+        """`shutil` for this module only -- patching the module itself is global."""
+
+        def __getattr__(self, name):
+            return getattr(real_shutil, name)
+
+        def move(self, src, dst):
+            if Path(src) != vault_root:
+                return real_shutil.move(src, dst)
+            real_shutil.copytree(src, dst)                  # the copy completed
+            (Path(src) / "vault.json").unlink()             # the removal did not
+            raise OSError("interrupted while removing the original")
+
+    monkeypatch.setattr(backup_module, "shutil", _HalfRemovedMove())
+    outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
+
+    assert outcome is not None and not outcome["ok"]
+    assert corpus["db_path"].read_bytes() == before_db      # the database still came back
+    copies = backup_module.undo_copies(corpus["state_dir"])
+    assert len(copies) == 1, copies
+    kept = Path(copies[0]) / backup_module.VAULT_UNDO_NAME
+    assert kept.is_dir() and (kept / "vault.json").is_file()
+    for item in corpus["files"]:
+        assert hashlib.sha256((kept / item["relative_path"]).read_bytes()).hexdigest() \
+            == item["sha256"]
+    # And the record says where it is, rather than leaving the user to find it.
+    assert outcome["vault_copy_kept"] == str(kept)
+
+
+def test_a_failed_restore_to_an_empty_parent_leaves_that_parent_empty(
+        corpus, monkeypatch, tmp_path):
+    """P2, the `vault_parent` arm: nothing was set aside, so nothing may be left behind.
+
+    The review round found this hole. Where the chosen parent holds no vault --
+    the ordinary case on a second machine, and the case `vault_parent` exists
+    for -- `vault_moved` is empty, so the undo had nothing to put back and the
+    tree `_restore_vault` had just written stayed there: a full
+    `resmon-library-<id>` holding every retained byte the bundle carried, in a
+    folder the user chose, under a restore that reported `undone: True`.
+    """
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    chosen = tmp_path / "empty-chosen-parent"
+    chosen.mkdir()
+
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    backup_module.stage_restore(bundle, corpus["state_dir"], report,
+                                vault_parent=str(chosen))
+    corpus["conn"].close()
+    before_db = corpus["db_path"].read_bytes()
+
+    seen = {}
+
+    def explode(conn):
+        """Fail after `_restore_vault` returned, with the new tree on disk."""
+        seen["during"] = sorted(str(p.relative_to(chosen)) for p in chosen.rglob("*"))
+        raise sqlite3.OperationalError("no such table: deliveries")
+
+    monkeypatch.setattr(backup_module, "_strip_process_state", explode)
+    outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
+
+    assert outcome is not None and not outcome["ok"]
+    assert outcome["undone"] is True
+    # The vault really had been written there, so this case is measuring something.
+    assert any(name.startswith(backup_module.vault_dir_name(corpus["vault_id"]))
+               for name in seen["during"]), seen
+    assert list(chosen.iterdir()) == [], (
+        "a restore that reports it undid everything left a vault the user never had")
+    assert corpus["db_path"].read_bytes() == before_db
+    assert backup_module.undo_copies(corpus["state_dir"]) == []
+    assert outcome["vault_copy_kept"] is None
+
+
 def test_an_undo_copy_covers_both_halves_and_one_delete_removes_both(
         corpus, monkeypatch, tmp_path):
     """D2: ``undo_copies`` lists one directory holding both, and deleting it deletes both."""
