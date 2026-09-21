@@ -3,6 +3,7 @@
 import {test,expect,_electron,type ElectronApplication,type Page,type Route,type APIResponse} from '@playwright/test';
 import {execFileSync} from 'child_process';import fs from 'fs';import os from 'os';import path from 'path';import {createHash} from 'crypto';
 import {FRONTEND_ROOT,REPO_ROOT,launchEnv,ensureScreenshotDir} from './fixtures/resmon-app';
+import { EXPECTED_SCHEMA_VERSION } from './schema';
 import type {LibraryFile,LibraryPage,LibraryStatus} from '../src/api/library';
 import type {Project,SavedNote,TextPage} from '../src/api/evidence';
 const hash=(raw:Buffer|string)=>createHash('sha256').update(raw).digest('hex');
@@ -40,7 +41,7 @@ test('Evidence actual collection, PDF/text passages, notes, restart, exact selec
   expect(rows).toHaveLength(1);const backendPid=Number(rows[0]![1]);backends.push(backendPid);
   const identity=await app.evaluate(({app})=>({pid:process.pid,state:process.env.RESMON_STATE_DIR,database:process.env.RESMON_DB_PATH,reports:process.env.RESMON_REPORTS_DIR,portFile:process.env.RESMON_PORT_FILE,profile:app.getPath('userData')}));
   expect(identity.state).toBe(state);expect(identity.database).toBe(env.RESMON_DB_PATH);expect(identity.profile).toBe(profile);expect(fs.readFileSync(env.RESMON_PORT_FILE,'utf8').trim()).toBe(port);
-  const health=await req<{pid:number;started_at:string;identity:{runtime_id:string;schema_version:number}}>('/api/health');expect(health.pid).toBe(backendPid);expect(health.identity.schema_version).toBe(21);
+  const health=await req<{pid:number;started_at:string;identity:{runtime_id:string;schema_version:number}}>('/api/health');expect(health.pid).toBe(backendPid);expect(health.identity.schema_version).toBe(EXPECTED_SCHEMA_VERSION);
   instances.push({...identity,mainStart:started(mainPid),backendPid,backendStart:started(backendPid),health,source:REPO_ROOT,port,origin});receipt('instances',instances);
   await app.evaluate(({session,shell,dialog},args)=>{
    const g=globalThis as unknown as {evidenceNetwork:{allowed:string[];blocked:string[];opens:string[];downloads:string[];workerUrls:string[]}};g.evidenceNetwork={allowed:[],blocked:[],opens:[],downloads:[],workerUrls:[]};

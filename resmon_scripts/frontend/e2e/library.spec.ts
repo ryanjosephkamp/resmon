@@ -7,6 +7,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {createHash} from 'crypto';
 import {FRONTEND_ROOT,REPO_ROOT,launchEnv,ensureScreenshotDir} from './fixtures/resmon-app';
+import { EXPECTED_SCHEMA_VERSION } from './schema';
 import type {LibraryFile,LibraryPage,LibraryStatus,TextEnvelope} from '../src/api/library';
 const hash=(raw:Buffer|string)=>createHash('sha256').update(raw).digest('hex');
 const alive=(pid:number)=>{try{process.kill(pid,0);return true;}catch{return false;}};
@@ -51,7 +52,7 @@ c.commit();c.close()`,env.RESMON_DB_PATH);
    const g=globalThis as unknown as {libraryOpenPaths:string[];libraryOpenFailure:boolean};g.libraryOpenPaths=[];g.libraryOpenFailure=false;
    shell.openPath=async target=>{g.libraryOpenPaths.push(target);return g.libraryOpenFailure?'authored OS-open refusal':'';};
   },parent);
-  const health=await e2eFetch(base+'/api/health');const h=await health.json();expect(h.pid).toBe(backendPid);expect(h.identity.schema_version).toBe(21);
+  const health=await e2eFetch(base+'/api/health');const h=await health.json();expect(h.pid).toBe(backendPid);expect(h.identity.schema_version).toBe(EXPECTED_SCHEMA_VERSION);
   await win.evaluate(()=>{location.hash='/library';});await win.waitForSelector('.library-page');
  };
  const req=async<T>(suffix:string,method='GET',body?:unknown):Promise<T>=>{

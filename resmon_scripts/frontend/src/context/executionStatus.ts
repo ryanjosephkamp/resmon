@@ -54,3 +54,35 @@ export const RUNNING_STATUS: ExecutionDbStatus = 'running';
  */
 export const TERMINAL_STATUSES: readonly ExecutionDbStatus[] =
   EXECUTION_DB_STATUSES.filter((status) => status !== RUNNING_STATUS);
+
+/**
+ * The statuses a stopped run can be started again from.
+ *
+ * Mirrors ``resmon._RESTARTABLE_STATES``, and like `TERMINAL_STATUSES` it is
+ * derived rather than retyped: terminal, minus the one terminal status that
+ * means the run did what it was asked. The backend is still the decider — it
+ * answers 409 with a sentence for anything else — so this only decides whether
+ * offering the button is worth the user's attention.
+ */
+export const RESTARTABLE_STATUSES: readonly ExecutionDbStatus[] =
+  TERMINAL_STATUSES.filter((status) => status !== 'completed');
+
+/**
+ * The label the Results status filter shows for a stored status.
+ *
+ * Derived from the word itself rather than held in a map, so a status added to
+ * the vocabulary gets an option — and a readable one — without a second list
+ * to keep in step. The badge in the table deliberately shows the raw stored
+ * word instead; that column is reporting what the database holds.
+ */
+export const executionStatusLabel = (status: string): string =>
+  status.charAt(0).toUpperCase() + status.slice(1);
+
+/**
+ * The options of the Results status filter, in the order the DDL lists the
+ * statuses. A status added to `EXECUTION_DB_STATUSES` appears here; one that
+ * is renderer-only (`cancelling`) never does, because no row is ever stored
+ * with it and the filter compares against stored values.
+ */
+export const EXECUTION_STATUS_FILTER_OPTIONS: readonly { value: ExecutionDbStatus; label: string }[] =
+  EXECUTION_DB_STATUSES.map((status) => ({ value: status, label: executionStatusLabel(status) }));
