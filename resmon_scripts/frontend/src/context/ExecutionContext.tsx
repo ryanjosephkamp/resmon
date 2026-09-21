@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import { apiClient } from '../api/client';
+import { ExecutionStatus, TERMINAL_STATUSES } from './executionStatus';
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -32,7 +33,7 @@ export interface ActiveExecution {
    * ever arrives on the active-dropout path, which reads the row back from
    * ``GET /api/executions/{id}`` after the id leaves the active set.
    */
-  status: 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+  status: ExecutionStatus;
   currentRepo?: string;
   currentRepoIndex?: number;
   totalRepos?: number;
@@ -250,13 +251,6 @@ async function maybeNotifyCompletion(exec: ActiveExecution): Promise<void> {
 const ExecutionContext = createContext<ExecutionContextValue | null>(null);
 
 const VERBOSE_KEY = 'resmon.verboseLogging';
-
-/**
- * The statuses that mean the run is over. Mirrors the `executions.status`
- * CHECK minus `running`; `cancelling` is this context's own intermediate word
- * and never comes back from the backend.
- */
-const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled', 'interrupted'];
 
 export const ExecutionProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
