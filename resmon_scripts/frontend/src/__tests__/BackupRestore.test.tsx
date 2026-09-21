@@ -194,6 +194,40 @@ test('a bundle written before the row count says references and no row count', a
   expect(card).not.toHaveTextContent(/from \d+ rows?/);
 });
 
+test('a failed restore that kept a vault copy says where it is', async () => {
+  // R2: the one window where the undo copy is the only complete copy of the
+  // user's vault. The record is on the wire; the banner has to say so, because
+  // the same panel offers a button that deletes every undo copy.
+  mockRoutedFetch({
+    '/api/backup/last': {
+      ...EMPTY,
+      last_restore: {
+        ok: false, reason: 'restore_failed', message: 'copy interrupted',
+        vault_copy_kept: '/state/restore-undo/20260921T100000Z/vault-replaced/resmon-library-v1',
+      },
+      undo_copies: ['/state/restore-undo/20260921T100000Z'],
+    },
+  });
+  await renderWithProviders(<BackupRestore />);
+
+  const kept = await screen.findByTestId('restore-vault-copy-kept');
+  expect(kept).toHaveTextContent('/state/restore-undo/20260921T100000Z/vault-replaced/resmon-library-v1');
+  expect(screen.getByTestId('restore-failure')).toHaveTextContent('restore_failed');
+});
+
+test('a failed restore with no kept copy prints no path', async () => {
+  mockRoutedFetch({
+    '/api/backup/last': {
+      ...EMPTY,
+      last_restore: { ok: false, reason: 'integrity_check_failed', message: 'not ok', vault_copy_kept: null },
+    },
+  });
+  await renderWithProviders(<BackupRestore />);
+
+  await screen.findByTestId('restore-failure');
+  expect(screen.queryByTestId('restore-vault-copy-kept')).toBeNull();
+});
+
 test('the undo card names every copy, because the button deletes all of them', async () => {
   // F5: an interrupted-and-retried restore leaves two — the user's own database
   // and vault in one, the retry's in the other. Showing one and deleting both is

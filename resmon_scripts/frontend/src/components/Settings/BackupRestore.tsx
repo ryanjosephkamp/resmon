@@ -70,6 +70,7 @@ interface LastState {
     fk_violations_total?: number;
     fk_violations_rows?: number | null;
     fk_violations_message?: string;
+    vault_copy_kept?: string | null;
   } | null;
   undo_copies: string[];
 }
@@ -254,6 +255,13 @@ const BackupRestore: React.FC = () => {
       {restored && !restored.ok && (
         <div className="form-error" data-testid="restore-failure">
           The last staged restore did not run ({restored.reason}). {restored.message}
+          {restored.vault_copy_kept && (
+            <p data-testid="restore-vault-copy-kept">
+              resmon kept the complete copy it had made of your Library vault at{' '}
+              <code>{restored.vault_copy_kept}</code>. Put it back by hand before you delete
+              any undo copy: deleting them removes this copy too.
+            </p>
+          )}
         </div>
       )}
 
