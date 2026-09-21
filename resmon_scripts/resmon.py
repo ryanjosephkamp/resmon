@@ -943,18 +943,21 @@ def _launch_execution(
     """
 
     def _run() -> None:
-        """Release the claim whatever happens, then run the pipeline.
+        """Release the claim and the admission slot whatever happens, then run.
 
-        The pipeline's own ``finally`` (far below) releases the claim in the
-        right *order* -- before ``admission.note_finished``, which can hand a
-        queued fire of this same routine to a fresh thread. But it cannot be
+        The pipeline's own ``finally`` (far below) releases both in the right
+        *order* -- the claim before ``admission.note_finished``, which can hand
+        a queued fire of this same routine to a fresh thread. But it cannot be
         the only release: ``note_admitted``, the heartbeat start and
         ``_get_db()`` all run before that ``try``, and an exception there --
-        a database that will not open is the realistic one -- would leave the
-        routine claimed for the life of the backend, every later fire answered
-        409 for a run that never started. So the claim is released here too.
-        ``release`` is idempotent; releasing twice costs nothing and not
-        releasing costs the routine.
+        a database that will not open is the realistic one -- would strand both.
+        A stranded claim answers every later fire of that routine 409 for a run
+        that never started; a stranded slot is worse, because it is global --
+        ``max_concurrent`` such deaths and every Deep Dive and Deep Sweep is
+        refused 429 while nothing at all is running. So both are released here
+        too. Both calls are idempotent (see ``note_finished`` for why its drain
+        had to be made so); releasing twice costs nothing and not releasing
+        costs the backend until it restarts.
         """
         try:
             _run_pipeline()
@@ -969,8 +972,12 @@ def _launch_execution(
                 "exec_id=%s", exec_id,
             )
         finally:
+            # Same order as the pipeline's own release: the claim first, then
+            # the slot, because ``note_finished`` can dispatch a queued fire of
+            # this routine synchronously and that fire claims before it runs.
             if claimed_routine_id is not None:
                 routine_claims.release(claimed_routine_id)
+            admission.note_finished(exec_id)
 
     def _run_pipeline() -> None:
         admission.note_admitted(exec_id)

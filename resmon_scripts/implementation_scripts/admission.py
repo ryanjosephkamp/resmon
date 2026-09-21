@@ -161,12 +161,31 @@ class ExecutionAdmissionController:
 
         The drained fire is dispatched on a fresh daemon thread so the
         calling pipeline's ``finally`` never waits on a second pipeline.
+
+        **Idempotent, and the drain is the half that had to be made so.**
+        Releasing the slot always was -- ``discard`` on a set does not care
+        whether the id is there. The drain did not: a second call for an id
+        already released would find the queue non-empty and the active count
+        still below the cap, because a fire dispatched a moment earlier does
+        not join ``_active`` until *its* thread reaches ``note_admitted``, and
+        would hand out a second fire for one freed slot. That matters now that
+        the execution worker calls this from two nested ``finally`` blocks --
+        the pipeline's own, and the outer one that covers the statements before
+        the pipeline's ``try`` -- so the ordinary path calls it twice. A drain
+        therefore happens only when this call is the one that actually removed
+        the id.
         """
         drained: Optional[Tuple[int, str]] = None
         dispatcher: Optional[Callable[[int, str], None]] = None
         with self._lock:
+            was_active = int(exec_id) in self._active
             self._active.discard(int(exec_id))
-            if self._queue and len(self._active) < self._max and self._dispatcher is not None:
+            if (
+                was_active
+                and self._queue
+                and len(self._active) < self._max
+                and self._dispatcher is not None
+            ):
                 drained = self._queue.popleft()
                 dispatcher = self._dispatcher
 
