@@ -87,7 +87,7 @@ AUTH_EXEMPT_PATHS: frozenset[str] = frozenset()
 # This is *not* an exemption from authentication. A request here with no
 # signature, a wrong one or an expired one is refused by the route.
 AUTH_SIGNED_PATHS: tuple["re.Pattern[str]", ...] = (
-    re.compile(r"^/api/deliveries/[0-9]+/bundle$"),
+    re.compile(r"\A/api/deliveries/[0-9]+/bundle\Z"),
 )
 
 # 32 bytes from a CSPRNG, URL-safe base64 without padding: 43 characters. A

@@ -176,8 +176,11 @@ def test_exactly_one_route_proves_itself_instead_of_presenting_the_token():
     assert pattern.match("/api/deliveries/12/bundle")
     for near_miss in ("/api/deliveries/12/bundle/", "/api/deliveries//bundle",
                       "/api/deliveries/12/bundle?x=1", "/api/deliveries/x/bundle",
-                      "/api/routines", "/api/deliveries/12/retry"):
-        assert not pattern.match(near_miss), near_miss
+                      "/api/routines", "/api/deliveries/12/retry",
+                      # ``$`` would match before a trailing newline; the anchor is ``\Z``
+                      # so a path that ends in one takes the token check like any other.
+                      "/api/deliveries/12/bundle\n"):
+        assert not pattern.match(near_miss), repr(near_miss)
 
 
 def test_the_guard_is_the_outermost_layer():
