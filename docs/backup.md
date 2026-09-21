@@ -44,7 +44,11 @@ and the restore rebuilds it from `library_vault.root_path` in the restored datab
   "vault_id": "1f8a…" ,           // null when the database has no vault
   "includes_reports": true,
   "table_counts": { "documents": 18243, "executions": 61, … },
-  "table_count_denominator": 44,  // how many application tables were counted
+  "table_count_denominator": 34,  // how many application tables were counted
+  "fk_violations": [             // orphan rows PRAGMA foreign_key_check found, capped at 100
+    { "table": "library_file_documents", "rowid": 4, "parent": "documents", "fkid": 0 }
+  ],
+  "fk_violations_total": 1,      // the uncapped count
   "files": [                      // every file in the bundle except manifest.json itself
     { "path": "resmon.db", "size": 214958080, "sha256": "…" },
     { "path": "vault/vault.json", "size": 61, "sha256": "…" },
@@ -63,6 +67,14 @@ and the restore rebuilds it from `library_vault.root_path` in the restored datab
 `manifest.json` is not in its own list; the pointer a staged restore writes records the
 manifest's own SHA-256 separately, so a manifest edited after staging is caught.
 
+`fk_violations` is measured on the bundle's own database, not on the live one. A corpus can
+carry a row whose parent is missing — `foreign_key_check` is a check, not a constraint on rows
+that already exist — and resmon opens such a database quite happily. The backup records what it
+finds and **still writes the bundle**: refusing here is what once left a user with a backup that
+verified and could never be restored. Verify reports the rows, and the restore is staged only
+when the request carries `accept_fk_violations: true`. The pragma answers **per constraint, not
+per row**, so one row with two unsatisfied foreign keys appears twice.
+
 **`excluded.credentials` holds names, never values.** No credential value is written into
 a bundle under any circumstance. The names are there so that a restore can tell the user
 which keyring entries they must re-enter on the machine they restored onto. Webhook
@@ -80,7 +92,11 @@ row, so a target that comes back under a different id has no secret bound to it.
    database and copy `vault/` there, as `resmon-library-<vault_id>`, mode `0700`. Remove
    any `.import.lock`: it has no automatic stale-lock recovery, and one left behind makes
    the vault permanently busy.
-6. Reset the rows that describe a process that no longer exists:
+6. Start resmon once, or otherwise run the migrations, **before** the statements below. An older
+   bundle does not have the tables and columns they name — a v2.2.0-era database has no
+   `deliveries` table at all — and running them first is how resmon itself got this wrong.
+7. Reset the rows that describe a process that no longer exists. `awaiting_review` deliveries are
+   deliberately left alone: they describe a decision the user has not made, not a process.
 
    ```sql
    UPDATE executions SET status='interrupted', interrupted_reason='unknown',
@@ -93,9 +109,10 @@ row, so a target that comes back under a different id has no secret bound to it.
    ```
 
    The full-text index is derived and is not rebuilt for you by opening the database.
-7. Start resmon. Its migrations run on start, so a bundle from an older schema is walked
-   forward at that point. Check `PRAGMA integrity_check` and `PRAGMA foreign_key_check`.
-8. Re-enter every credential `manifest.excluded.credentials` names.
+8. Check `PRAGMA integrity_check`, and `PRAGMA foreign_key_check` against
+   `manifest.fk_violations` — rows already listed there were orphaned before the backup and are
+   not caused by the restore.
+9. Re-enter every credential `manifest.excluded.credentials` names.
 
 The application does all of this for you, in this order, on the start after you stage a
 restore in Settings → Storage. Doing it by hand is for the case where you no longer have

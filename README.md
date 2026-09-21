@@ -1481,6 +1481,10 @@ A bundle (`resmon-backup-<UTC stamp>/`) contains:
 
 resmon refuses, with the reason: a bundle whose files do not match its manifest; a bundle written by a newer resmon than the one you are running (update first); and a vault directory that belongs to a *different* vault — it will not overwrite someone else's retained files.
 
+If your database contains rows whose parent is missing, the backup **still runs** and records them in the manifest; the verify report lists them and asks you to tick *Restore anyway, keeping these rows as they are* before the restore can be staged. Refusing to back such a database up would leave you with no backup at all, which is the worse failure.
+
+A backup from an older resmon restores too: the migrations run on the restored database before anything else touches it, so a bundle written by v2.2.0 comes forward to today's schema on the way in.
+
 After a restore, Settings → Storage shows a one-time card listing the credentials the backup recorded and this machine does not have. Webhook signing secrets are bound to a delivery target's row id, so a target that came back under a different id has no secret until you set one; the card says so.
 
 The bundle format is documented in [`docs/backup.md`](docs/backup.md) for anyone restoring by hand.
