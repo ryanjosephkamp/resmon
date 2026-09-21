@@ -125,9 +125,20 @@ row, so a target that comes back under a different id has no secret bound to it.
    If a vault directory is already there, move it aside rather than deleting it — that is
    what the application does, into `restore-undo/<stamp>/vault-replaced/` beside the
    database files of the same restore, so one *Delete undo copies* removes both halves and
-   a restore that fails after this point puts **both** back. A vault on a different volume
-   from the state directory is copied rather than renamed, which costs a second copy of
-   every retained byte; that is the right trade against deleting the only copy there is.
+   a restore that fails after this point puts **both** back. Where the destination held no
+   vault at all, the application removes the tree it wrote instead, so a failed restore
+   leaves the folder you chose exactly as empty as it found it. A vault on a different
+   volume from the state directory is copied rather than renamed, which costs a second copy
+   of every retained byte; that is the right trade against deleting the only copy there is.
+
+   There is one case the undo cannot complete by itself: a move between volumes interrupted
+   while it was *removing* the original leaves the original incomplete and a whole copy in
+   `restore-undo/<stamp>/vault-replaced/`. Putting that copy back automatically would be
+   wrong — the other interruption, during the copy, leaves a *partial* copy beside an intact
+   original — so resmon keeps it instead of deleting it with the rest of the undo directory,
+   names it in `restore-last.json` as `vault_copy_kept`, and leaves it for you to put back by
+   hand. **A failed restore can therefore leave an undo copy that Settings → Storage offers
+   to delete;** check `restore-last.json` before you delete one.
 6. Start resmon once, or otherwise run the migrations, **before** the statements below. An older
    bundle does not have the tables and columns they name — a v2.2.0-era database has no
    `deliveries` table at all — and running them first is how resmon itself got this wrong.
