@@ -1,10 +1,17 @@
-"""IMPL-R7 — routine completion email hook in `_launch_execution`.
+"""IMPL-R7 — the routine completion email, through the schema-21 queue.
 
-Verifies the branch added inside ``_launch_execution._run``: when the
-execution is ``automated_sweep`` with a ``routine_id`` and the routine has
-``email_enabled`` truthy, ``email_sender.send_routine_completion_email``
-is called exactly once. When ``email_enabled`` is falsy, it is never
-called. Email failures must never fail the execution.
+The branch inside ``_launch_execution._run`` no longer sends anything: it
+enqueues one ``deliveries`` row per enabled target and wakes the drain. What
+this file has always claimed still holds and is still what is asserted --
+``email_sender.send_routine_completion_email`` is called exactly once for a
+routine with ``email_enabled`` truthy, never for one without it, never for a
+manual dive, and a failure inside it never fails the execution -- with the
+drain driven synchronously here rather than started as a thread, so the
+assertions read the record rather than a sleep.
+
+The one genuinely new claim is the last one: a failure is now *recorded*,
+with a reason and a time to try again, where before it produced a log line
+and nothing else.
 """
 
 from __future__ import annotations
@@ -18,7 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
 import resmon as resmon_mod  # noqa: E402
-from implementation_scripts import database  # noqa: E402
+from implementation_scripts import database, delivery  # noqa: E402
 from implementation_scripts.admission import admission  # noqa: E402
 from implementation_scripts.progress import progress_store  # noqa: E402
 
@@ -60,6 +67,36 @@ def _make_routine(*, email_enabled: int, email_ai_summary_enabled: int = 0) -> i
     return database.insert_routine(conn, body)
 
 
+def _configure_smtp() -> None:
+    """Enough SMTP settings for the email adapter to get as far as sending.
+
+    The adapter resolves the configuration itself now, so that "SMTP is not
+    configured" reaches ``deliveries.last_error`` as a reason the user can act
+    on instead of a log line. That makes these settings a precondition of the
+    send, where before they lived inside the function under patch. The password
+    goes to the keyring ``conftest`` installs in memory -- no credential
+    reaches a table or a setting (B12).
+    """
+    conn = resmon_mod._get_db()
+    database.set_setting(conn, "smtp_server", "127.0.0.1")
+    database.set_setting(conn, "smtp_port", "2525")
+    database.set_setting(conn, "smtp_username", "resmon@example.org")
+    database.set_setting(conn, "smtp_to", "reader@example.org")
+    from implementation_scripts.credential_manager import store_credential
+    store_credential("smtp_password", "not-a-real-password")
+
+
+def _drain() -> int:
+    """Run the delivery drain to exhaustion on this thread. Returns attempts."""
+    conn = resmon_mod._get_db()
+    return delivery.DeliveryQueue(lambda: conn).drain(conn)
+
+
+def _deliveries() -> list:
+    conn = resmon_mod._get_db()
+    return [dict(r) for r in conn.execute("SELECT * FROM deliveries ORDER BY id")]
+
+
 def _wait_for_completion(exec_id: int, timeout: float = 5.0) -> None:
     conn = resmon_mod._get_db()
     deadline = time.monotonic() + timeout
@@ -76,6 +113,7 @@ def _wait_for_completion(exec_id: int, timeout: float = 5.0) -> None:
 @patch("implementation_scripts.email_sender.send_routine_completion_email")
 def test_email_sent_when_enabled(mock_send):
     _reset_state()
+    _configure_smtp()
     rid = _make_routine(email_enabled=1, email_ai_summary_enabled=1)
     resmon_mod._dispatch_routine_fire(rid, '{"query":"x","repositories":[]}')
 
@@ -84,6 +122,12 @@ def test_email_sent_when_enabled(mock_send):
     assert len(rows) == 1
     exec_id = rows[0]["id"]
     _wait_for_completion(exec_id)
+
+    queued = _deliveries()
+    assert len(queued) == 1, queued
+    assert queued[0]["channel"] == "email"
+    assert queued[0]["state"] == "queued"
+    assert _drain() == 1
 
     assert mock_send.call_count == 1, mock_send.call_args_list
     kwargs = mock_send.call_args.kwargs
@@ -100,6 +144,11 @@ def test_email_sent_when_enabled(mock_send):
     assert kwargs["routine"]["id"] == rid
     assert int(kwargs["execution"]["routine_id"]) == rid
 
+    delivered = _deliveries()[0]
+    assert delivered["state"] == "delivered"
+    assert delivered["attempts"] == 1
+    assert delivered["last_error"] is None
+
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
 @patch("implementation_scripts.email_sender.send_routine_completion_email")
@@ -113,6 +162,8 @@ def test_email_skipped_when_disabled(mock_send):
     assert len(rows) == 1
     _wait_for_completion(rows[0]["id"])
 
+    assert _drain() == 0
+    assert _deliveries() == []
     assert mock_send.call_count == 0, mock_send.call_args_list
 
 
@@ -123,6 +174,7 @@ def test_email_skipped_when_disabled(mock_send):
 )
 def test_email_failure_does_not_fail_execution(mock_send):
     _reset_state()
+    _configure_smtp()
     rid = _make_routine(email_enabled=1)
     resmon_mod._dispatch_routine_fire(rid, '{"query":"x","repositories":[]}')
 
@@ -134,7 +186,16 @@ def test_email_failure_does_not_fail_execution(mock_send):
 
     final = database.get_execution_by_id(conn, exec_id)
     assert final["status"] == "completed"
+
+    assert _drain() == 1
     assert mock_send.call_count == 1
+    # The failure is recorded rather than lost: state, reason and a next
+    # attempt, which is the whole point of schema 21.
+    row = _deliveries()[0]
+    assert row["state"] == "failed"
+    assert "smtp boom" in row["last_error"]
+    assert row["attempts"] == 1
+    assert row["next_attempt_at_utc"] is not None
 
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
@@ -154,4 +215,5 @@ def test_email_skipped_for_manual_dive(mock_send):
     resmon_mod._launch_execution(engine, exec_id, conn)
     _wait_for_completion(exec_id)
 
+    assert _deliveries() == []
     assert mock_send.call_count == 0, mock_send.call_args_list

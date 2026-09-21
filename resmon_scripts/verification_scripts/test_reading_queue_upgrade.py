@@ -294,7 +294,7 @@ def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
 
     database.init_db(conn=legacy)
 
-    assert database.get_schema_version(legacy) == 20
+    assert database.get_schema_version(legacy) == database.SCHEMA_VERSION
     tables = {r[0] for r in legacy.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
     assert "reading_queue" in tables
@@ -303,7 +303,7 @@ def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
     # app_settings is the one table the upgrade is allowed to touch, and only
     # in the schema_version row.
     assert after["app_settings"]["rows"] != before["app_settings"]["rows"]
-    assert (dict(before["app_settings"]["rows"]) | {"schema_version": "20"}
+    assert (dict(before["app_settings"]["rows"]) | {"schema_version": str(database.SCHEMA_VERSION)}
             == dict(after["app_settings"]["rows"]))
     for table in POPULATED_TABLES:
         if table == "app_settings":
@@ -342,7 +342,7 @@ def test_upgrading_twice_more_is_a_no_op(legacy):
     database.init_db(conn=legacy)
 
     assert contents(legacy, POPULATED_TABLES + ("reading_queue",)) == settled
-    assert database.get_schema_version(legacy) == 20
+    assert database.get_schema_version(legacy) == database.SCHEMA_VERSION
 
 
 def test_a_failed_migration_does_not_claim_to_have_succeeded(legacy):
@@ -367,7 +367,7 @@ def test_a_failed_migration_does_not_claim_to_have_succeeded(legacy):
     legacy.commit()
     database.init_db(conn=legacy)
 
-    assert database.get_schema_version(legacy) == 20
+    assert database.get_schema_version(legacy) == database.SCHEMA_VERSION
     assert reading_queue.counts(legacy) == {"to_read": 0, "read": 0, "all": 0}
 
 
@@ -390,7 +390,7 @@ def test_a_fresh_database_gets_the_same_table_as_an_upgraded_one(tmp_path, legac
         }
 
     assert shape(legacy) == shape(fresh)
-    assert database.get_schema_version(fresh) == 20
+    assert database.get_schema_version(fresh) == database.SCHEMA_VERSION
     fresh.close()
 
 
@@ -431,7 +431,7 @@ def application_objects(conn: sqlite3.Connection) -> dict:
     }
 
 
-#: What schemas 14 through 20 add. Everything else in a fresh database must already be in
+#: What schemas 14 through 21 add. Everything else in a fresh database must already be in
 #: the schema-13 fixture, or the fixture is not schema 13.
 SCHEMA_14_TO_18_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
                             "assistant_session_choices", "assistant_turn_choices",
@@ -446,7 +446,13 @@ SCHEMA_14_TO_18_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
                             # an object schema 20 adds even though the table it
                             # is on is older.
                             "idx_executions_request_id", "routine_missed_fires",
-                            "idx_routine_missed_fires_routine"}
+                            "idx_routine_missed_fires_routine",
+                            # Schema 21: where a routine's report goes, and
+                            # whether it got there.
+                            "routine_delivery_targets",
+                            "idx_routine_delivery_targets_routine",
+                            "deliveries", "idx_deliveries_due",
+                            "idx_deliveries_execution"}
 
 
 def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):
@@ -523,6 +529,6 @@ def test_the_settings_a_user_had_survive_the_upgrade(legacy):
     before = dict(legacy.execute("SELECT key, value FROM app_settings"))
     database.init_db(conn=legacy)
     after = dict(legacy.execute("SELECT key, value FROM app_settings"))
-    assert after.pop("schema_version") == "20"
+    assert after.pop("schema_version") == str(database.SCHEMA_VERSION)
     assert before.pop("schema_version") == "13"
     assert after == before

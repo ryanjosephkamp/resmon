@@ -709,6 +709,29 @@ def t_get_routine(args: dict) -> Any:
         "reason": audit.get("reason"),
         "cannot_see": audit.get("cannot_see"),
     }
+    # Where this routine's report goes, and whether the last one got there.
+    # A summary for the same reason the coverage one is: counts by channel and
+    # the state of the most recent delivery, never the address or the
+    # directory -- a destination is the user's, and an assistant that can read
+    # a routine has no business reciting where its results are sent.
+    try:
+        deliveries = backend.request(
+            "GET", f"/api/routines/{routine_id}/deliveries", params={"limit": 1})
+    except ToolError:
+        return routine
+    if isinstance(deliveries, dict):
+        summary = deliveries.get("summary") or {}
+        last = summary.get("last")
+        routine["delivery"] = {
+            "targets_by_channel": summary.get("targets") or {},
+            "enabled_target_count": summary.get("enabled_target_count", 0),
+            "awaiting_review": summary.get("awaiting_review", 0),
+            "last_state": (last or {}).get("state"),
+            "last_channel": (last or {}).get("channel"),
+            "last_attempts": (last or {}).get("attempts"),
+            "last_error": (last or {}).get("last_error"),
+            "last_delivered_at_utc": (last or {}).get("delivered_at_utc"),
+        }
     return routine
 
 
