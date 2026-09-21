@@ -236,6 +236,26 @@ def test_a_tampered_file_is_refused_at_verify(corpus, tmp_path):
     assert any("size" in p or "hash" in p for p in report["problems"])
 
 
+def test_a_same_size_tamper_is_caught_by_the_hash_and_not_the_size(corpus, tmp_path):
+    """The size check would pass this. Only recomputing the hash catches it.
+
+    Written after a mutation that stopped verify recomputing hashes at all and
+    no test noticed: the existing tamper case appended bytes, so the size check
+    failed first and the hash was never the thing under test.
+    """
+    manifest = _make_backup(corpus, tmp_path)
+    victim = Path(manifest["path"]) / "vault" / corpus["files"][0]["relative_path"]
+    original = victim.read_bytes()
+    victim.write_bytes(b"X" + original[1:])
+    assert victim.stat().st_size == len(original)
+
+    report = backup_module.verify_bundle(
+        Path(manifest["path"]), this_schema_version=db.SCHEMA_VERSION)
+    assert not report["ok"]
+    assert any("hash" in problem for problem in report["problems"]), report["problems"]
+    assert report["files_checked"] < report["files_in_manifest"]
+
+
 def test_a_newer_schema_is_refused_with_the_sentence(corpus, tmp_path):
     manifest = _make_backup(corpus, tmp_path)
     path = Path(manifest["path"]) / "manifest.json"
