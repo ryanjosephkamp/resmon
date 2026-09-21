@@ -756,8 +756,20 @@ def _without_address(text: str, addresses) -> str:
     *which* destination this was -- ``deliveries.target_id`` names it, and the
     app resolves that locally, where the user is already looking at their own
     settings.
+
+    The match is case-insensitive. Addresses are stored as the user typed
+    them, but the text being scrubbed is whatever the upstream SMTP server
+    said, and a server is free to echo a recipient back in any case it likes --
+    ``SMTPRecipientsRefused`` carrying ``Private@Example.ORG`` for an address
+    stored ``private@example.org`` would otherwise have walked straight through
+    a case-sensitive ``str.replace`` and into ``deliveries.last_error``.
     """
-    return _without(text, addresses, "<address>")
+    out = text
+    # Longest first, for the same reason ``_without`` sorts: replacing a short
+    # address must not leave the tail of a longer one that contained it.
+    for value in sorted({a for a in addresses if a}, key=len, reverse=True):
+        out = re.sub(re.escape(value), "<address>", out, flags=re.IGNORECASE)
+    return out
 
 
 def _without_path(text: str, root: Path) -> str:
