@@ -329,3 +329,109 @@ def test_worker_dying_before_the_pipeline_try_releases_the_slot(
         f"the run after a worker died in {victim} was refused: {second.text}"
     )
     _await_idle()
+
+
+# ---------------------------------------------------------------------------
+# (i) the release order in the execution worker's two ``finally`` blocks
+# ---------------------------------------------------------------------------
+#
+# ``_launch_execution`` releases the routine claim *before*
+# ``admission.note_finished``, because ``note_finished`` can hand a queued fire
+# of this same routine to a fresh thread and that fire claims before it runs.
+# PR #143's reviewer inverted the two statements and 36 tests stayed green, so
+# the order was load-bearing and unguarded. This is the guard.
+#
+# It does not race a real drain thread against the two statements: inverted,
+# the claim is released microseconds later and a spawned thread usually still
+# wins, which is a flaky red and no guard at all. Instead it performs, at the
+# instant ``note_finished`` is entered and on that same thread, the one
+# decisive thing a drained fire does -- ``routine_claims.try_claim`` -- and
+# requires it to succeed. That can only be true if the claim was released
+# first. Named mutation: swap the two statements in either ``finally`` of
+# ``_launch_execution`` and the corresponding case here fails.
+#
+# Both ``finally`` blocks are covered, because they cover different deaths.
+# The pipeline's own runs on the ordinary path; the outer one in ``_run`` is
+# the only releaser when the worker dies before the pipeline's ``try``, which
+# is why ``_get_db`` is injected in the second case exactly as in (h) above.
+
+
+@pytest.fixture
+def release_order_client():
+    import resmon as resmon_mod
+    from fastapi.testclient import TestClient
+    from implementation_scripts.admission import admission
+
+    resmon_mod._db_path = ":memory:"
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+    _reset_admission_state()
+    with TestClient(resmon_mod.app) as tc:
+        yield tc
+    admission.set_max(3)
+    admission.set_queue_limit(16)
+    with admission._lock:
+        admission._active.clear()
+        admission._queue.clear()
+
+
+@pytest.mark.parametrize("die_before_pipeline_try", [False, True])
+def test_the_routine_claim_is_released_before_the_admission_slot(
+    release_order_client, monkeypatch, die_before_pipeline_try
+):
+    """A queued fire of this routine could claim it the moment the slot freed."""
+    import resmon as resmon_mod
+    from implementation_scripts.admission import admission, routine_claims
+
+    created = release_order_client.post(
+        "/api/routines",
+        json={
+            "name": "release order",
+            "schedule_cron": "0 8 * * *",
+            # No repositories: this is about the worker's ``finally``, and a
+            # sweep that queries a real source cannot run hermetically.
+            "parameters": {"keywords": ["release order"], "repositories": []},
+        },
+    )
+    assert created.status_code in (200, 201), created.text
+    routine_id = int(created.json()["id"])
+
+    if die_before_pipeline_try:
+        original_get_db = resmon_mod._get_db
+
+        def _boom(*args, **kwargs):
+            if threading.current_thread().name.startswith("exec-"):
+                raise RuntimeError("injected failure in _get_db")
+            return original_get_db(*args, **kwargs)
+
+        monkeypatch.setattr(resmon_mod, "_get_db", _boom)
+
+    observations: list[bool] = []
+    real_note_finished = admission.note_finished
+
+    def _observing_note_finished(exec_id: int) -> None:
+        if threading.current_thread().name.startswith("exec-"):
+            # What the drained fire would do, done here on the releasing
+            # thread so there is no race to lose.
+            claimed = routine_claims.try_claim(routine_id)
+            observations.append(claimed)
+            if claimed:
+                routine_claims.release(routine_id)
+        real_note_finished(exec_id)
+
+    monkeypatch.setattr(admission, "note_finished", _observing_note_finished)
+
+    run = release_order_client.post(f"/api/routines/{routine_id}/run")
+    assert run.status_code == 200, run.text
+
+    assert _await_idle() == 0
+    deadline = time.time() + 5.0
+    while not observations and time.time() < deadline:
+        time.sleep(0.02)
+
+    assert observations, "the execution worker never reached note_finished"
+    assert all(observations), (
+        "admission.note_finished was entered while this routine's claim was "
+        "still held: a fire drained from the queue would have been refused "
+        "for a run that had already finished"
+    )

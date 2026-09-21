@@ -5911,26 +5911,13 @@ def flush_running_executions(reason: str = "daemon_restart") -> int:
 _ORPHAN_RUNNING_ADOPT_AFTER = timedelta(hours=24)
 
 
-def _owner_process_is_alive(pid: object) -> bool:
-    """Whether ``pid`` names a live process, erring towards alive.
-
-    ``os.kill(pid, 0)`` raises ``ProcessLookupError`` only when the kernel is
-    certain there is no such process. A ``PermissionError`` (the pid belongs to
-    another user) or any other ``OSError`` means we could not tell, and a pid
-    that has been reused since answers for whatever holds it now -- both read
-    as alive, because the cost of being wrong in that direction is a row that
-    stays ``running`` a little longer, and the cost in the other direction is
-    resmon telling the user a live run is dead.
-    """
-    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except OSError:
-        return True
-    return True
+# The rule itself lives in ``runtime_identity.process_is_alive``, which is the
+# one implementation the three call sites that need it share. The name stays
+# here because this module's reconciliation reads as prose with it, and because
+# ``test_executions_interrupted.py`` asks for it by name. Here the cost of
+# being wrong towards alive is a row that stays ``running`` a little longer;
+# the cost in the other direction is resmon telling the user a live run is dead.
+_owner_process_is_alive = runtime_identity.process_is_alive
 
 
 def _running_row_is_orphaned(row: dict, now: datetime) -> bool:

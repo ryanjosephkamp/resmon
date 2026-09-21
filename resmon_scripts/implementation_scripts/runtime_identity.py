@@ -20,6 +20,35 @@ def current_runtime_id() -> str:
     return _runtime_id
 
 
+
+def process_is_alive(pid: object) -> bool:
+    """Whether ``pid`` names a live process, erring towards alive.
+
+    The one implementation of a rule three call sites used to restate: startup
+    reconciliation in ``resmon``, ``delivery.requeue_orphaned`` and
+    ``selected_evidence_runtime``'s ``_startup``. ``os.kill(pid, 0)`` raises
+    ``ProcessLookupError`` only when the kernel is certain there is no such
+    process. A ``PermissionError`` (the pid belongs to another user) or any
+    other ``OSError`` means we could not tell, and a pid that has been reused
+    since answers for whatever holds it now -- all of those read as alive,
+    because PID reuse is a conservative refusal and never proof of death.
+
+    A value that is not a positive ``int`` -- ``None``, ``True``, ``0``, a
+    string -- is not a pid at all and reads as dead: there is nothing to ask
+    about. Callers that treat "no pid recorded" as a reason to stay cautious
+    make that decision before calling, because it is a different question.
+    """
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
 def valid_runtime_id(value: object) -> bool:
     if not isinstance(value, str):
         return False

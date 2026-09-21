@@ -571,25 +571,11 @@ def retry(conn: sqlite3.Connection, delivery_id: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _owner_process_is_alive(pid: object) -> bool:
-    """Whether ``pid`` names a live process, erring towards alive.
-
-    The same one-sided rule as ``resmon._owner_process_is_alive`` and
-    ``selected_evidence_runtime._startup``, restated here rather than imported
-    because ``resmon`` imports this module and not the other way round. Only
-    ``ProcessLookupError`` -- the kernel being certain -- reads as dead. The
-    cost of being wrong towards alive is a delivery that waits for the next
-    restart; the cost in the other direction is sending a report twice.
-    """
-    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except OSError:
-        return True
-    return True
+# The shared one-sided rule; ``runtime_identity`` imports nothing of ours, so
+# taking it from there costs no cycle. Here the cost of being wrong towards
+# alive is a delivery that waits for the next restart; the cost in the other
+# direction is sending a report twice.
+_owner_process_is_alive = runtime_identity.process_is_alive
 
 
 def requeue_orphaned(

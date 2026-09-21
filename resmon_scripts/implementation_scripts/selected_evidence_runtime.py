@@ -15,6 +15,7 @@ import uuid
 from typing import Callable, Iterator
 
 from . import assistant_choices, assistant_runtime, database, evidence as ev
+from . import runtime_identity
 from . import selected_evidence as se, selected_evidence_context as context
 
 PREVIEW_SECONDS = 600
@@ -90,15 +91,16 @@ class Lane:
                     continue
                 binding = se.loads(row['private_binding_json'], 4096)
                 pid = binding.get('serving_pid')
-                # PID reuse is a conservative refusal, never proof of death.
+                # PID reuse is a conservative refusal, never proof of death:
+                # the shared rule is ``runtime_identity.process_is_alive``.
+                # The guard around it stays, and is not the helper's own: a
+                # binding with no ``serving_pid`` (or a junk one) is read here
+                # as *alive*, not dead, because there is no liveness fact and
+                # this module's whole asymmetry is to stay blocked rather than
+                # declare a run over. The helper answers only about a real pid.
                 alive = True
                 if type(pid) is int and pid > 0:
-                    try:
-                        os.kill(pid, 0)
-                    except ProcessLookupError:
-                        alive = False
-                    except OSError:
-                        pass
+                    alive = runtime_identity.process_is_alive(pid)
                 if alive:
                     self.blocked = True
                     continue
