@@ -197,8 +197,9 @@ const BackupRestore: React.FC = () => {
           )}
           {!!restored?.fk_violations_total && (
             <p data-testid="reentry-fk">
-              This backup was restored with {restored.fk_violations_total} orphaned row
-              {restored.fk_violations_total === 1 ? '' : 's'} you chose to keep.{' '}
+              This backup was restored with {restored.fk_violations_total} reference
+              {restored.fk_violations_total === 1 ? '' : 's'} to a missing parent that you
+              chose to keep.{' '}
               {restored.fk_violations_message}
             </p>
           )}
@@ -259,7 +260,7 @@ const BackupRestore: React.FC = () => {
           )}
           {report.needs_fk_acceptance && (
             <div className="form-warning" data-testid="fk-violations">
-              <strong>This backup contains rows whose parent is missing.</strong>
+              <strong>This backup contains references to rows that are not there.</strong>
               <p>{report.fk_violations_message}</p>
               <ul>
                 {report.fk_violations.slice(0, 10).map((v) => (

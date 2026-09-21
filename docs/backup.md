@@ -73,7 +73,9 @@ that already exist — and resmon opens such a database quite happily. The backu
 finds and **still writes the bundle**: refusing here is what once left a user with a backup that
 verified and could never be restored. Verify reports the rows, and the restore is staged only
 when the request carries `accept_fk_violations: true`. The pragma answers **per constraint, not
-per row**, so one row with two unsatisfied foreign keys appears twice.
+per row**, so one row with two unsatisfied foreign keys appears twice — `fk_violations_total`
+is therefore a count of unsatisfied *references*, not of rows, and resmon's own wording says
+"references" for that reason.
 
 **`excluded.credentials` holds names, never values.** No credential value is written into
 a bundle under any circumstance. The names are there so that a restore can tell the user

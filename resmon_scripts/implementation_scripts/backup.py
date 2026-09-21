@@ -56,8 +56,11 @@ MANIFEST_NAME = "manifest.json"
 
 #: The pointer a staged restore leaves in the state directory.
 PENDING_NAME = "restore.pending"
-#: Where the database being replaced is moved to. Kept until the next
-#: successful backup or until the user deletes it from Settings.
+#: Where the database being replaced is moved to. **Nothing removes it on its
+#: own** -- ``delete_undo_copies`` has one caller, the Settings route, so a copy
+#: stays until the user deletes it. That is deliberate (an undo the app can
+#: silently expire is not an undo), and it is why every copy is kept rather than
+#: only the most recent one.
 UNDO_DIR_NAME = "restore-undo"
 #: The record of the last restore attempt, successful or not.
 RESTORE_LOG_NAME = "restore-last.json"
@@ -267,13 +270,22 @@ def foreign_key_violations(conn: sqlite3.Connection) -> tuple[list[dict], int]:
 
 
 def describe_fk_violations(listed: list[dict], total: int) -> str:
-    """One sentence a person can act on, for the route answer and the card."""
+    """One sentence a person can act on, for the route answer and the card.
+
+    It counts **references**, not rows, because that is what
+    ``PRAGMA foreign_key_check`` counts: it answers once per unsatisfied
+    foreign key, so a single row with two broken keys appears twice. Saying
+    "2 rows" there would be a number the pragma never gave, and the whole point
+    of this surface is that a person can act on it. De-duplicating by
+    ``(table, rowid)`` to report rows as well is a separate change with its own
+    manifest field.
+    """
     if not total:
         return ""
     shown = ", ".join(
         f"{v['table']} row {v['rowid']} -> {v['parent']}" for v in listed[:5])
     more = "" if total <= 5 else f", and {total - 5} more"
-    return (f"{total} row{'' if total == 1 else 's'} reference a parent that is not "
+    return (f"{total} reference{'' if total == 1 else 's'} to a parent that is not "
             f"there ({shown}{more}). resmon can restore this database, but those rows "
             "will still be orphaned afterwards.")
 

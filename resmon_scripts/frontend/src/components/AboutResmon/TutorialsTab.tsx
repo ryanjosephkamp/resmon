@@ -722,9 +722,9 @@ export const sections: TutorialSection[] = [
     features: [
       'Retention policy prunes reports older than the archive window on daemon startup.',
       'A backup carries the database and the Library vault together, because a database restored without its retained bytes leaves the vault refusing every import.',
-      'A restore moves your current database aside rather than deleting it, and puts it back if anything fails. The copy is kept until your next backup or until you delete it here.',
+      'A restore moves your current database aside rather than deleting it, and puts it back if anything fails. The copy stays until you delete it here with `Delete undo copy` — nothing removes it on its own, and taking another backup does not.',
       'A backup written by an older resmon restores too — the migrations run on the restored database before anything else touches it.',
-      'A database with rows whose parent is missing is still backed up; the verify report lists those rows and asks you to accept them before the restore can be staged.',
+      'A database containing references to rows that are not there is still backed up; the verify report lists them and asks you to accept them before the restore can be staged. The count is of references, not rows — SQLite reports one per broken link, so a row with two counts twice.',
     ],
     tips: [
       'PDF and TXT policies are reserved for a future per-paper artifact download feature and have no effect on current Deep Dive / Deep Sweep output.',

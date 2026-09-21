@@ -796,7 +796,7 @@ def test_a_corpus_with_an_orphan_row_still_backs_up_and_records_it(corpus, tmp_p
     assert manifest["fk_violations_total"] == 2
     assert {v["table"] for v in manifest["fk_violations"]} == {"library_file_documents"}
     assert {v["parent"] for v in manifest["fk_violations"]} == {"library_files", "documents"}
-    assert "not there" in manifest["fk_violations_message"]
+    assert "2 references to a parent that is not there" in manifest["fk_violations_message"]
 
     report = backup_module.verify_bundle(Path(manifest["path"]),
                                          this_schema_version=db.SCHEMA_VERSION)
@@ -824,7 +824,7 @@ def test_an_unaccepted_orphan_refuses_to_stage_and_an_accepted_one_restores(
     outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
     assert outcome is not None and outcome["ok"], outcome
     assert outcome["fk_violations_total"] == 2
-    assert "not there" in outcome["fk_violations_message"]
+    assert "references to a parent that is not there" in outcome["fk_violations_message"]
 
     conn = db.get_connection(corpus["db_path"])
     try:

@@ -70,10 +70,12 @@ const StorageSettings: React.FC = () => {
                 manifest that hashes all of it. Credentials are never written
                 into a backup. <em>Restore from backup…</em> checks a folder and
                 then stages it: the restore itself runs the next time resmon
-                starts, and the database it replaces is kept so you can undo it.
-                A backup from an older resmon restores too, and a database with
-                rows whose parent is missing is still backed up — the report
-                lists those rows and asks you to accept them first.
+                starts, and the database it replaces is kept until you delete it
+                here, so you can undo it.
+                A backup from an older resmon restores too, and a database
+                containing references to rows that are not there is still
+                backed up — the report lists them and asks you to accept them
+                first.
               </p>
             ),
           },

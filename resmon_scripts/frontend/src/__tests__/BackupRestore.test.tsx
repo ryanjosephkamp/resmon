@@ -93,7 +93,7 @@ test('orphaned rows must be accepted before the restore can be staged', async ()
       ...REPORT,
       fk_violations: [{ table: 'library_file_documents', rowid: 4, parent: 'documents', fkid: 0 }],
       fk_violations_total: 1,
-      fk_violations_message: '1 row references a parent that is not there.',
+      fk_violations_message: '1 reference to a parent that is not there.',
       needs_fk_acceptance: true,
     },
     '/api/restore': { success: true, staged: {}, report: REPORT, next_step: 'Restart resmon to restore.' },
@@ -146,7 +146,7 @@ test('after a restore the card names the credentials that did not come back', as
         ok: true, acknowledged: false, bundle: '/backups/b1',
         credentials_to_reenter: ['smtp_password', 'openai_api_key'],
         fk_violations_total: 2,
-        fk_violations_message: '2 rows reference a parent that is not there.',
+        fk_violations_message: '2 references to a parent that is not there.',
       },
     },
   });
@@ -157,5 +157,6 @@ test('after a restore the card names the credentials that did not come back', as
   expect(card).toHaveTextContent('openai_api_key');
   expect(card).toHaveTextContent(/row id/);
   // R2-3: the orphans the user chose to keep are named again after the fact.
-  expect(screen.getByTestId('reentry-fk')).toHaveTextContent('2 orphaned rows');
+  expect(screen.getByTestId('reentry-fk')).toHaveTextContent(
+    '2 references to a missing parent');
 });
