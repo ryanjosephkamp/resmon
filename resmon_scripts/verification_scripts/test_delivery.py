@@ -93,9 +93,16 @@ class SMTPStub:
     message arrived" is counted rather than assumed.
     """
 
-    def __init__(self, *, refuse_first: int = 0) -> None:
+    def __init__(self, *, refuse_first: int = 0, refuse_recipients: bool = False) -> None:
         self.messages: list[str] = []
         self.refuse_first = refuse_first
+        # ``refuse_recipients`` makes the server answer RCPT TO with 550, which
+        # is what ``smtplib`` turns into ``SMTPRecipientsRefused`` -- an
+        # exception whose text *contains the address*. That is the one SMTP
+        # failure that could write a recipient into ``deliveries.last_error``,
+        # so it is produced by a real server refusing a real RCPT rather than
+        # by raising the exception by hand.
+        self.refuse_recipients = refuse_recipients
         self.connections = 0
         self._cert, self._key = _self_signed()
         self._sock = socket.socket()
@@ -176,6 +183,9 @@ class SMTPStub:
                     send("334 VXNlcm5hbWU6"); stream.readline()
                     send("334 UGFzc3dvcmQ6"); stream.readline()
                 send("235 Authentication successful")
+            elif upper.startswith("RCPT TO") and self.refuse_recipients:
+                address = line.partition(":")[2].strip().strip("<>")
+                send(f"550 5.1.1 <{address}>: Recipient address rejected")
             elif upper.startswith("MAIL FROM") or upper.startswith("RCPT TO"):
                 send("250 OK")
             elif upper == "DATA":
@@ -804,23 +814,27 @@ def test_our_own_rows_are_never_adopted_out_from_under_us(corpus):
 # ---------------------------------------------------------------------------
 
 
-def test_every_shipped_channel_has_an_adapter_and_is_driven_here():
-    """M is the CHECK's four; the two with adapters are both exercised above.
+def test_every_shipped_channel_has_an_adapter_and_is_driven_somewhere():
+    """M is the CHECK's four, and all four now ship.
 
-    If a third channel ships without a case in this file, this fails rather
-    than the suite quietly covering two of three.
+    ``email`` and ``folder`` are driven end to end in this file;
+    ``webhook`` and ``feed`` in ``test_delivery_webhook_and_feed.py``. The two
+    sets are named here so a fifth channel cannot ship with no case at all --
+    this fails rather than the suite quietly covering four of five.
     """
     assert set(delivery.ADAPTERS) == set(delivery.SHIPPED_CHANNELS)
-    assert set(delivery.SHIPPED_CHANNELS) <= set(database.DELIVERY_CHANNELS)
+    assert set(delivery.SHIPPED_CHANNELS) == set(database.DELIVERY_CHANNELS)
     assert len(database.DELIVERY_CHANNELS) == 4
-    driven = {"email", "folder"}
-    assert driven == set(delivery.SHIPPED_CHANNELS), (
-        "a newly shipped channel needs its own end-to-end case in this file")
+    driven_here = {"email", "folder"}
+    driven_next_door = {"webhook", "feed"}
+    assert driven_here | driven_next_door == set(delivery.SHIPPED_CHANNELS), (
+        "a newly shipped channel needs its own end-to-end case in one of the "
+        "two delivery test files")
 
 
-def test_a_channel_with_no_adapter_is_refused_when_it_is_added(corpus):
+def test_a_channel_outside_the_schemas_vocabulary_is_refused_when_it_is_added(corpus):
     conn = corpus["conn"]
     with pytest.raises(ValueError) as caught:
-        delivery.add_target(conn, corpus["routine_id"], channel="webhook",
-                            target="https://example.org/hook")
-    assert "no adapter yet" in str(caught.value)
+        delivery.add_target(conn, corpus["routine_id"], channel="carrier-pigeon",
+                            target="loft 4")
+    assert "channel must be one of" in str(caught.value)

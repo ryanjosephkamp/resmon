@@ -26,6 +26,17 @@ body is read and before any route code:
 There are no exempt routes. `/api/health` needs the token too: every client that probes it reads
 the token first. The exemption list is an explicit, empty constant, and a test fails if it grows.
 
+**One route proves itself instead.** `GET /api/deliveries/{id}/bundle` is fetched by a webhook
+*receiver* — a program the user pointed a routine at, which is not resmon and has no business
+holding a credential that opens every route in the app. The guard lets it past the token check
+(`AUTH_SIGNED_PATHS`, one entry, pinned by a test the same way the empty list is) and the route
+checks an HMAC-SHA256 over the delivery id and an expiry, keyed with that destination's own
+secret from the OS keyring. Host and Origin are still enforced, so this widens exactly one route
+to one holder of one 24-hour signature. A missing, wrong or expired signature — and a delivery
+that was not a webhook — all get the same `403 signature_invalid`. This is not an exemption from
+authentication; it is a different credential, scoped to one file. See
+[delivery.md](delivery.md).
+
 A CORS preflight (`OPTIONS` with `Access-Control-Request-Method`) carries no credentials by
 specification, so it is answered without the token — but only for the renderer's origin.
 `Access-Control-Allow-Private-Network: true` is sent only on such a preflight that asked for it.

@@ -157,6 +157,32 @@ def test_no_route_is_exempt_from_the_token():
     assert api_auth.AUTH_EXEMPT_PATHS == frozenset()
 
 
+#: The one route that answers without the token because it carries its own
+#: proof. Named here so the sweep below can require a *different* refusal from
+#: it rather than skipping it.
+SIGNED_PATH = "/api/deliveries/{delivery_id}/bundle"
+
+
+def test_exactly_one_route_proves_itself_instead_of_presenting_the_token():
+    """``AUTH_SIGNED_PATHS`` has one member and it is the webhook bundle link.
+
+    The delivery bundle is fetched by a webhook receiver, which is not resmon
+    and must not hold resmon's token. Adding a second pattern here widens the
+    surface that answers an unauthenticated caller, so it is a decision, and
+    this is where it is made.
+    """
+    assert len(api_auth.AUTH_SIGNED_PATHS) == 1
+    pattern = api_auth.AUTH_SIGNED_PATHS[0]
+    assert pattern.match("/api/deliveries/12/bundle")
+    for near_miss in ("/api/deliveries/12/bundle/", "/api/deliveries//bundle",
+                      "/api/deliveries/12/bundle?x=1", "/api/deliveries/x/bundle",
+                      "/api/routines", "/api/deliveries/12/retry",
+                      # ``$`` would match before a trailing newline; the anchor is ``\Z``
+                      # so a path that ends in one takes the token check like any other.
+                      "/api/deliveries/12/bundle\n"):
+        assert not pattern.match(near_miss), repr(near_miss)
+
+
 def test_the_guard_is_the_outermost_layer():
     """Registered last, so it wraps CORS, the Library guard and every body parser."""
     assert resmon.app.user_middleware[0].cls is api_auth.LocalApiGuard
@@ -205,6 +231,13 @@ def test_every_route_refuses_a_missing_or_wrong_token(backend, path, method):
         malformed = c.request(method, url, content=body, headers={"Authorization": f"Basic {backend.token}"})
     if method == "HEAD":
         assert (missing.status_code, wrong.status_code, malformed.status_code) == (401, 401, 401)
+        return
+    if path == SIGNED_PATH:
+        # The one route the guard lets past the token check. It still refuses
+        # all three of these requests -- with or without a token, none of them
+        # carries a valid signature -- and the refusal has the same shape.
+        for response in (missing, wrong, malformed):
+            assert _refusal(response) == (403, "signature_invalid")
         return
     assert _refusal(missing) == (401, "token_missing")
     assert _refusal(wrong) == (401, "token_invalid")

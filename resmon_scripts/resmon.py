@@ -86,6 +86,7 @@ from implementation_scripts.credential_manager import (
     AI_CREDENTIAL_NAMES,
     SMTP_CREDENTIAL_NAMES,
     migrate_legacy_global_ai_key,
+    is_allowed_credential_name,
 )
 from implementation_scripts.ai_lanes import SUBSCRIPTION_PROVIDERS, resolve_chain
 from implementation_scripts.ai_models import (
@@ -1782,6 +1783,69 @@ def skip_delivery(delivery_id: int):
         return {"id": delivery_id, "state": "skipped"}
     finally:
         _close_db(conn)
+
+
+@app.get("/api/deliveries/{delivery_id}/bundle")
+def delivery_bundle(delivery_id: int, exp: str = "", sig: str = ""):
+    """The report bundle a webhook envelope linked to, for whoever holds the link.
+
+    This is the one route in resmon that answers without the local API token,
+    and it is the one route that is not for resmon: a webhook receiver is a
+    program the user pointed a routine at, and handing it the token that opens
+    every route would be a far worse trade than a signature over one delivery
+    id with an expiry on it. ``api_auth.AUTH_SIGNED_PATHS`` is where the guard
+    steps aside; everything it checks before the token -- the Host, and a
+    browser's Origin -- still applies here.
+
+    Every way of not being entitled to the file gets the same 403: a wrong
+    signature, an expired one, a destination with no secret stored, and a
+    delivery that was not a webhook at all. A caller guessing learns only that
+    it did not work.
+    """
+    def refuse():
+        raise HTTPException(
+            403,
+            {
+                "reason": "signature_invalid",
+                "message": (
+                    "This link is not valid for that delivery, or it has "
+                    "expired. Webhook bundle links last 24 hours."
+                ),
+            },
+        )
+
+    conn = _get_db()
+    try:
+        row = delivery.get_delivery(conn, delivery_id)
+        if row is None or row["channel"] != "webhook" or row["target_id"] is None:
+            refuse()
+        secret = get_credential(delivery.webhook_secret_name(row["target_id"]))
+        if not delivery.bundle_link_is_valid(delivery_id, exp, sig, secret):
+            refuse()
+        execution = get_execution_by_id(conn, int(row["execution_id"]))
+        if execution is None:
+            raise HTTPException(404, "That execution no longer exists.")
+        # Built on demand rather than kept: the bundle is a derived artifact
+        # and a copy of every delivered report sitting in a cache is a second
+        # place the user's corpus lives without them asking for one.
+        staging = tempfile.mkdtemp(prefix="resmon_bundle_link_")
+        try:
+            zip_path = _delivery_bundle(conn, execution, Path(staging))
+            payload = zip_path.read_bytes()
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+    finally:
+        _close_db(conn)
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="resmon_execution_{int(row["execution_id"])}.zip"'
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.post("/api/deliveries/{delivery_id}/retry")
@@ -5518,8 +5582,7 @@ def list_ai_models(body: AIModelsRequest):
 
 @app.put("/api/credentials/{key_name}")
 def store_credential_endpoint(key_name: str, body: CredentialStore):
-    allowed = catalog_credential_names() | AI_CREDENTIAL_NAMES | SMTP_CREDENTIAL_NAMES
-    if key_name not in allowed:
+    if not is_allowed_credential_name(key_name):
         raise HTTPException(
             status_code=400,
             detail=f"Unknown credential name: {key_name}",

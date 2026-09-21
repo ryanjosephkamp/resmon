@@ -20,21 +20,29 @@ The shape here is a queue with a record:
   exactly once" a fact the database enforces rather than something the drain
   believes because it looked first.
 
-Two channels ship: ``email`` (the existing sender, now recorded and retried)
-and ``folder`` (the bundle written into a directory the user chose, which is
-what turns iCloud, Dropbox or a shared drive into a delivery destination with
-no code of ours on the wire). ``webhook`` and ``feed`` are in the schema's
-CHECK and have no adapter yet; asking for one is a refusal with a reason, not
-a crash.
+All four channels in the schema's CHECK now ship:
 
-Credentials never appear here. The SMTP password is read through
-``credential_manager`` inside the email adapter and is scrubbed out of any
-error text before it reaches ``deliveries.last_error``.
+* ``email`` -- the existing sender, now recorded and retried;
+* ``folder`` -- the bundle written into a directory the user chose, which is
+  what turns iCloud, Dropbox or a shared drive into a delivery destination
+  with no code of ours on the wire;
+* ``webhook`` -- a signed JSON envelope POSTed to an HTTPS endpoint the user
+  owns, carrying the run's facts and a time-limited link the receiver fetches
+  the bundle from (or the bundle inline, when the user asks for that);
+* ``feed`` -- an Atom 1.0 file rewritten in a folder the user chose, which any
+  feed reader or static site can point at.
+
+Credentials never appear here. The SMTP password and the per-target webhook
+secret are read through ``credential_manager`` inside their adapters, and
+nothing a user would call private -- a password, a recipient address, a
+webhook URL or a directory path -- is allowed into ``deliveries.last_error``,
+because that column is read back through the MCP tool surface.
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -53,10 +61,23 @@ from .database import DELIVERY_TARGET_MODES, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
-#: The channels that have an adapter behind them today. The other two values
-#: in ``DELIVERY_CHANNELS`` are the schema's vocabulary for PR two; a target
-#: naming one is refused with that said plainly rather than queued forever.
-SHIPPED_CHANNELS = ("email", "folder")
+#: The channels that have an adapter behind them today. This is the
+#: denominator every "N of M channels" claim in the tests is taken from, and
+#: it is now the whole of ``DELIVERY_CHANNELS``; a value outside it is refused
+#: when the target is added rather than queued forever.
+SHIPPED_CHANNELS = ("email", "folder", "webhook", "feed")
+
+#: How long a webhook receiver has to fetch the bundle from the link in the
+#: envelope. Long enough that a receiver which queues its own work overnight
+#: still succeeds, short enough that a link copied out of a log stops working.
+BUNDLE_LINK_TTL = timedelta(hours=24)
+
+#: How long resmon waits for a receiver before calling the attempt failed.
+WEBHOOK_TIMEOUT_SECONDS = 20.0
+
+#: How many entries a feed keeps. The newest ones; the file is rewritten whole
+#: each time, so this is a cap on the file rather than on the record.
+FEED_ENTRIES = 50
 
 #: How long to wait before each retry, indexed by the number of attempts
 #: already made. Three entries, so a row that has failed three times has no
@@ -133,6 +154,143 @@ def report_sha256(execution: dict) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# What a target's text means, per channel
+# ---------------------------------------------------------------------------
+#
+# ``routine_delivery_targets.target`` is one TEXT column for four channels: an
+# address for ``email``, a directory for ``folder`` and for ``feed``, and for
+# ``webhook`` either a bare URL or a small JSON object that carries the one
+# per-target choice a webhook has. Two accepted forms rather than a new
+# column: a schema migration to carry a single boolean would cost every corpus
+# an upgrade step to say something the field can say about itself.
+
+#: Hosts that may be reached over plain ``http``. Everything else is HTTPS or
+#: it is refused -- an envelope naming a user's research and carrying a signed
+#: link to their bundle is not something to put on the wire in clear. The
+#: loopback names are here because a test (and a receiver the user runs on
+#: their own machine) has nowhere to get a real certificate from.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
+
+
+def webhook_options(target: str) -> dict:
+    """``{"url": str, "inline": bool}`` for a webhook target's stored text.
+
+    Raises ``ValueError`` when there is no usable URL, so a mistyped
+    destination is refused at the moment it is added rather than three failed
+    deliveries later.
+    """
+    raw = (target or "").strip()
+    inline = False
+    if raw.startswith("{"):
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            raise ValueError(
+                "This webhook destination is not a URL and is not readable as "
+                "JSON. Give it the https:// address of your receiver."
+            ) from None
+        if not isinstance(parsed, dict):
+            raise ValueError("A webhook destination must be a URL.")
+        raw = str(parsed.get("url") or "").strip()
+        inline = bool(parsed.get("inline"))
+    return {"url": validate_webhook_url(raw), "inline": inline}
+
+
+def validate_webhook_url(url: str) -> str:
+    """Return *url* if resmon will POST to it; raise ``ValueError`` if not."""
+    from urllib.parse import urlsplit
+
+    raw = (url or "").strip()
+    if not raw:
+        raise ValueError(
+            "This webhook destination has no URL. Paste the https:// address "
+            "of the receiver you want the report sent to."
+        )
+    parsed = urlsplit(raw)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme == "https" and host:
+        return raw
+    if parsed.scheme == "http" and host in LOOPBACK_HOSTS:
+        # A receiver on this machine: nothing leaves the loopback, and there is
+        # no certificate authority that will issue for 127.0.0.1.
+        return raw
+    raise ValueError(
+        "A webhook destination must be an https:// URL. Plain http is "
+        "accepted only for a receiver running on this machine (127.0.0.1)."
+    )
+
+
+def validate_target(channel: str, target: str) -> None:
+    """Refuse a destination resmon can already tell will not work.
+
+    ``email`` and ``folder`` are deliberately not checked here: an empty email
+    target means "the address under Settings -> Email", and a folder that is
+    not mounted right now is a delivery failure with a reason, not a target
+    that was never valid.
+    """
+    if channel == "webhook":
+        webhook_options(target)
+    elif channel == "feed":
+        if not (target or "").strip():
+            raise ValueError(
+                "A feed destination needs the folder the feed file should be "
+                "written into."
+            )
+
+
+# ---------------------------------------------------------------------------
+# The signed bundle link
+# ---------------------------------------------------------------------------
+#
+# The envelope carries a link rather than always carrying the bundle, because
+# a report with a rendered PDF is megabytes and a receiver that wanted the
+# facts should not have to swallow them. The link is signed with a secret only
+# this corpus and that receiver hold, and it is deliberately *not* the app's
+# API token: a webhook receiver is not the app, and handing it a credential
+# that opens every route would be the wrong trade for one download.
+
+
+def webhook_secret_name(target_id: int) -> str:
+    """The keyring entry holding one webhook target's shared secret."""
+    return f"webhook_secret_{int(target_id)}"
+
+
+def _link_message(delivery_id: int, expires: int) -> bytes:
+    return f"{int(delivery_id)}.{int(expires)}".encode("utf-8")
+
+
+def sign_bundle_link(delivery_id: int, expires: int, secret: str) -> str:
+    """The signature the bundle route checks. HMAC-SHA256, hex."""
+    return hmac.new(
+        secret.encode("utf-8"), _link_message(delivery_id, expires), hashlib.sha256
+    ).hexdigest()
+
+
+def bundle_link_is_valid(
+    delivery_id: int, expires: object, signature: object, secret: Optional[str],
+    *, now: Optional[datetime] = None,
+) -> bool:
+    """Whether a ``sig``/``exp`` pair opens this delivery's bundle.
+
+    False for every way of not being valid -- no secret stored, a signature
+    that does not match, an expiry that is not a number or has passed -- so the
+    route has one answer to give and cannot accidentally distinguish "wrong
+    signature" from "no secret" to whoever is guessing.
+    """
+    if not secret or not signature:
+        return False
+    try:
+        deadline = int(str(expires))
+    except (TypeError, ValueError):
+        return False
+    moment = now or datetime.now(timezone.utc)
+    if deadline < int(moment.timestamp()):
+        return False
+    expected = sign_bundle_link(delivery_id, deadline, secret)
+    return hmac.compare_digest(expected, str(signature))
+
+
+# ---------------------------------------------------------------------------
 # Targets
 # ---------------------------------------------------------------------------
 
@@ -176,6 +334,7 @@ def add_target(
         )
     if mode not in DELIVERY_TARGET_MODES:
         raise ValueError(f"mode must be one of {', '.join(DELIVERY_TARGET_MODES)}")
+    validate_target(channel, target)
     stamp = utc_now_iso()
     cursor = conn.execute(
         "INSERT INTO routine_delivery_targets "
@@ -203,6 +362,10 @@ def update_target(conn: sqlite3.Connection, target_id: int, updates: dict) -> No
         raise ValueError(f"mode must be one of {', '.join(DELIVERY_TARGET_MODES)}")
     if "enabled" in filtered:
         filtered["enabled"] = 1 if filtered["enabled"] else 0
+    if "target" in filtered:
+        existing = get_target(conn, target_id)
+        if existing is not None:
+            validate_target(existing["channel"], filtered["target"])
     sets = ", ".join(f"{col} = ?" for col in filtered)
     params: list = list(filtered.values())
     params.append(utc_now_iso())
@@ -477,10 +640,12 @@ def requeue_orphaned(
 # ---------------------------------------------------------------------------
 #
 # An adapter is handed the execution, the routine, the address or directory
-# recorded on the target, and a callable that materialises the bundle .zip on
+# recorded on the target, the ``deliveries`` row itself (which is how an
+# adapter reaches its target id, and through that the keyring entry holding a
+# per-target secret), and a callable that materialises the bundle .zip on
 # demand -- the folder channel always needs it, the email channel needs it only
-# when the routine attaches results, and building it copies every report and
-# renders a PDF.
+# when the routine attaches results, the feed channel never does, and building
+# it copies every report and renders a PDF.
 
 
 def _deliver_email(
@@ -490,6 +655,7 @@ def _deliver_email(
     routine: dict,
     target: str,
     bundle: Callable[[], Path],
+    delivery_row: dict,
 ) -> None:
     """Send the completion email, recording why if it does not go.
 
@@ -530,10 +696,18 @@ def _deliver_email(
     except DeliveryError:
         raise
     except Exception as exc:
-        # ``email_notifier.send_email`` already scrubs the password out of the
-        # text it raises; scrubbing again here is the belt to that braces,
-        # because this string is written to a table the user can read.
-        raise DeliveryError(_scrub(str(exc) or exc.__class__.__name__)) from None
+        # Three things are stripped before this reaches a column the MCP
+        # surface reads back. The password: ``email_notifier.send_email``
+        # already scrubs it and this is the belt to that braces. The address:
+        # ``smtplib`` raises ``SMTPRecipientsRefused`` with the refused
+        # recipients *in the exception*, so the one error most likely to be
+        # shown to somebody else was the one carrying who the user writes to.
+        # And the exception class is kept, because "which failure" is the part
+        # that is actually actionable.
+        text = f"{exc.__class__.__name__}: {exc}" if str(exc) else exc.__class__.__name__
+        raise DeliveryError(
+            _scrub(_without_address(text, _addresses_in_play(conn, smtp_config, target)))
+        ) from None
 
 
 _SECRET_PATTERN = re.compile(
@@ -550,6 +724,54 @@ def _slug(value: str) -> str:
     """A routine name as a directory name: lowercase, ASCII-safe, non-empty."""
     cleaned = re.sub(r"[^A-Za-z0-9]+", "-", (value or "").strip()).strip("-").lower()
     return cleaned[:60] or "routine"
+
+
+def _without(text: str, values, placeholder: str) -> str:
+    """*text* with every non-empty string in *values* replaced.
+
+    Longest first, so replacing an address does not leave the domain of a
+    longer one that contained it standing on its own.
+    """
+    out = text
+    for value in sorted({v for v in values if v}, key=len, reverse=True):
+        out = out.replace(value, placeholder)
+    return out
+
+
+def _addresses_in_play(
+    conn: sqlite3.Connection, smtp_config: dict, target: str,
+) -> set[str]:
+    """Every address this delivery could name: the target, the configured
+    recipients, the account and the From.
+
+    ``smtp_to`` is read again from settings rather than only from
+    ``smtp_config``: the setting holds the list a user typed, which may be
+    several addresses separated by commas or semicolons, and an
+    ``SMTPRecipientsRefused`` names the individual ones.
+    """
+    from .database import get_setting
+
+    values: set[str] = set()
+    for raw in (target, smtp_config.get("recipient"), smtp_config.get("username"),
+                smtp_config.get("sender"), get_setting(conn, "smtp_to")):
+        text = (raw or "").strip()
+        if not text:
+            continue
+        values.add(text)
+        values.update(part.strip() for part in re.split(r"[,;]", text) if part.strip())
+    return {v for v in values if v}
+
+
+def _without_address(text: str, addresses) -> str:
+    """The message with every address the user configured replaced.
+
+    ``deliveries.last_error`` is returned by the MCP ``get_routine`` summary,
+    and who a person has their research sent to is theirs. The row still says
+    *which* destination this was -- ``deliveries.target_id`` names it, and the
+    app resolves that locally, where the user is already looking at their own
+    settings.
+    """
+    return _without(text, addresses, "<address>")
 
 
 def _without_path(text: str, root: Path) -> str:
@@ -578,6 +800,7 @@ def _deliver_folder(
     routine: dict,
     target: str,
     bundle: Callable[[], Path],
+    delivery_row: dict,
 ) -> None:
     """Write the bundle into the user's directory, atomically.
 
@@ -661,11 +884,437 @@ def _deliver_folder(
             f"Could not write the report to that folder: {exc}", root))) from None
 
 
+# ---------------------------------------------------------------------------
+# Webhook
+# ---------------------------------------------------------------------------
+
+
+def base_url(conn: sqlite3.Connection) -> Optional[str]:
+    """Where a receiver reaches this backend, or None if resmon cannot say.
+
+    resmon binds the loopback, so the honest default is
+    ``http://127.0.0.1:<the port this backend is serving on>`` -- correct for a
+    receiver the user runs on their own machine, which is what a local-first
+    app's webhook usually is. A user whose receiver lives elsewhere puts the
+    address their tunnel or reverse proxy answers on into the
+    ``delivery_base_url`` setting, and the envelope's links are built from
+    that. resmon does not open a port to the network to make this work and
+    does not pretend it has.
+
+    None rather than a guess when the serving port is unknown: a link to a
+    port this process is not answering on would be a broken promise in a
+    document somebody else is about to act on.
+    """
+    from .database import get_setting
+
+    configured = (get_setting(conn, "delivery_base_url") or "").strip()
+    if configured:
+        return configured.rstrip("/")
+    try:
+        import resmon as resmon_mod
+
+        port = resmon_mod.serving_port()
+    except Exception:  # pragma: no cover - an embedder without the app module
+        port = None
+    return f"http://127.0.0.1:{int(port)}" if port else None
+
+
+def build_envelope(
+    conn: sqlite3.Connection, *, execution: dict, routine: dict, delivery_row: dict,
+) -> dict:
+    """The JSON a receiver is sent. Facts only, and no credential in it.
+
+    Every value here is already in the corpus: what ran, when it finished, how
+    many results and how many of them were new, the read-time coverage line
+    (the sentence the app itself shows, not a fresh audit -- the drain is not
+    the place to embed a routine's intent), and the report's hash so a receiver
+    can check that the bundle it fetches is the one this envelope is about.
+    """
+    from . import source_coverage
+    from .database import get_execution_sources
+
+    exec_id = int(execution["id"])
+    root = base_url(conn)
+    try:
+        coverage = source_coverage.build(
+            execution, get_execution_sources(conn, exec_id)
+        )["summary"]
+    except Exception:  # a coverage line is never worth failing a delivery for
+        coverage = None
+    return {
+        "envelope_version": 1,
+        "delivery_id": int(delivery_row["id"]),
+        "routine": {"id": routine.get("id"), "name": routine.get("name")},
+        "execution_id": exec_id,
+        "status": execution.get("status"),
+        "started_at": execution.get("start_time"),
+        "completed_at": execution.get("end_time"),
+        "result_count": execution.get("result_count"),
+        "new_result_count": execution.get("new_result_count"),
+        "coverage_summary": coverage,
+        "report_sha256": report_sha256(execution),
+        "search_record_url": (
+            f"{root}/api/executions/{exec_id}/search-record?format=json"
+            if root else None
+        ),
+    }
+
+
+def _deliver_webhook(
+    conn: sqlite3.Connection,
+    *,
+    execution: dict,
+    routine: dict,
+    target: str,
+    bundle: Callable[[], Path],
+    delivery_row: dict,
+) -> None:
+    """POST the signed envelope to the receiver, and record what came back.
+
+    The signature is HMAC-SHA256 of the exact bytes posted, keyed with the
+    secret held in the keyring for this target, in ``X-Resmon-Signature``. A
+    receiver that does not check it is trusting anything that can reach it; a
+    receiver that does check it can be sure the envelope is this corpus's.
+
+    The bundle travels as a time-limited link by default and inline only when
+    the user asked for it: a report with a rendered PDF is megabytes, and a
+    receiver that wanted the facts should not have to swallow them.
+    """
+    import base64
+
+    import httpx
+
+    try:
+        options = webhook_options(target)
+    except ValueError as exc:
+        # The message names the URL the user typed; the record must not.
+        raise DeliveryError(_without(str(exc), [target], "<webhook>")) from None
+    url = options["url"]
+    target_id = delivery_row.get("target_id")
+    secret = None
+    if target_id is not None:
+        from . import credential_manager
+
+        secret = credential_manager.get_credential(webhook_secret_name(target_id))
+    if not secret:
+        raise DeliveryError(
+            "This webhook has no shared secret saved. Set one on the "
+            "destination in the routine's Delivery list, then retry: resmon "
+            "signs every envelope and will not send an unsigned one."
+        )
+
+    envelope = build_envelope(
+        conn, execution=execution, routine=routine, delivery_row=delivery_row,
+    )
+    if options["inline"]:
+        try:
+            blob = bundle().read_bytes()
+        except DeliveryError:
+            raise
+        except Exception as exc:
+            raise DeliveryError(
+                f"The report bundle could not be built: {exc.__class__.__name__}"
+            ) from None
+        # ``bundle_sha256`` is here and not in the link case on purpose. These
+        # are the exact bytes in this envelope, so the hash is a fact about
+        # them. A linked bundle is rebuilt when the receiver fetches it -- a
+        # zip carries its own timestamps and is not byte-reproducible -- so a
+        # hash promised in advance would be a promise resmon cannot keep. What
+        # identifies a linked bundle instead is ``report_sha256``, which is the
+        # hash of the report itself and is stable.
+        envelope["bundle_sha256"] = hashlib.sha256(blob).hexdigest()
+        envelope["bundle_bytes"] = len(blob)
+        envelope["bundle_base64"] = base64.b64encode(blob).decode("ascii")
+        envelope["bundle_url"] = None
+        envelope["bundle_expires_at"] = None
+    else:
+        # The bundle is deliberately *not* built here: a linked delivery costs
+        # one POST, and the PDF render happens only if the receiver actually
+        # asks for the file.
+        root = base_url(conn)
+        if not root:
+            raise DeliveryError(
+                "resmon cannot tell a receiver where to fetch the bundle from, "
+                "because it does not know which port it is serving on. Set "
+                "Delivery base URL in Settings, or turn on inline delivery for "
+                "this destination."
+            )
+        expires = int((datetime.now(timezone.utc) + BUNDLE_LINK_TTL).timestamp())
+        signature = sign_bundle_link(int(delivery_row["id"]), expires, secret)
+        envelope["bundle_url"] = (
+            f"{root}/api/deliveries/{int(delivery_row['id'])}/bundle"
+            f"?exp={expires}&sig={signature}"
+        )
+        envelope["bundle_expires_at"] = datetime.fromtimestamp(
+            expires, timezone.utc
+        ).isoformat()
+
+    body = json.dumps(envelope, separators=(",", ":")).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "resmon",
+        "X-Resmon-Delivery": str(int(delivery_row["id"])),
+        "X-Resmon-Signature": "sha256=" + hmac.new(
+            secret.encode("utf-8"), body, hashlib.sha256
+        ).hexdigest(),
+    }
+    try:
+        with httpx.Client(
+            timeout=WEBHOOK_TIMEOUT_SECONDS, follow_redirects=False,
+        ) as client:
+            response = client.post(url, content=body, headers=headers)
+    except Exception as exc:
+        # The URL is in the text of almost every httpx exception, so the class
+        # and nothing else is what gets recorded. Which destination this was is
+        # ``target_id``, which the app resolves locally.
+        raise DeliveryError(
+            f"The receiver could not be reached ({exc.__class__.__name__}); "
+            f"resmon waited up to {int(WEBHOOK_TIMEOUT_SECONDS)} seconds."
+        ) from None
+    if not 200 <= response.status_code < 300:
+        raise DeliveryError(
+            f"The receiver answered {response.status_code}. resmon records the "
+            "status code and not the address."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Feed
+# ---------------------------------------------------------------------------
+
+
+def _xml_escape(value: object) -> str:
+    """Every string that reaches the feed goes through here.
+
+    A feed is rendered by somebody else's reader, and the titles and summaries
+    in it derive from metadata resmon fetched from the internet, which is
+    untrusted (B12). Escaping here is not politeness about ampersands, it is
+    the boundary. Characters XML 1.0 cannot represent at all are dropped
+    rather than emitted as a reference a strict parser will reject.
+    """
+    text = "" if value is None else str(value)
+    text = "".join(
+        ch for ch in text
+        if ch in "\t\n\r" or 0x20 <= ord(ch) <= 0xD7FF
+        or 0xE000 <= ord(ch) <= 0xFFFD or ord(ch) >= 0x10000
+    )
+    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;").replace("'", "&apos;"))
+
+
+def _atom_timestamp(value: object) -> str:
+    """An RFC 3339 instant, which is what Atom's ``updated`` requires."""
+    raw = str(value or "").strip()
+    for candidate in (raw, raw.replace("Z", "+00:00")):
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _folder_bundle_link(
+    conn: sqlite3.Connection, routine: dict, exec_id: int,
+) -> Optional[str]:
+    """A ``file://`` link to the folder channel's bundle, when there is one.
+
+    Only when the directory is actually there: an entry whose link is a guess
+    at a path is worse than an entry with no link, because a reader renders
+    both the same way and only one of them opens.
+    """
+    from urllib.parse import quote
+
+    slug = _slug(str(routine.get("name") or ""))
+    for target in list_targets(conn, int(routine["id"])):
+        if target["channel"] != "folder" or not target["target"]:
+            continue
+        parent = Path(target["target"]).expanduser() / "resmon" / slug
+        try:
+            matches = sorted(parent.glob(f"{int(exec_id)}-*"))
+        except OSError:
+            continue
+        for match in reversed(matches):
+            if match.is_dir():
+                return "file://" + quote(str(match))
+    return None
+
+
+def _feed_entries(
+    conn: sqlite3.Connection, routine: dict, target_id: object, current: dict,
+) -> list[dict]:
+    """The newest ``FEED_ENTRIES`` runs this feed target has delivered.
+
+    Keyed by execution, newest first. ``UNIQUE(execution_id, target_id)``
+    already makes that one row per run, so a delivery retried after a
+    half-written file rewrites the same entry rather than adding a second one.
+    """
+    from .database import get_execution_by_id
+
+    rows = []
+    if target_id is not None:
+        rows = conn.execute(
+            "SELECT execution_id, delivered_at_utc FROM deliveries "
+            "WHERE target_id = ? AND state = 'delivered' "
+            "ORDER BY execution_id DESC LIMIT ?",
+            (int(target_id), FEED_ENTRIES),
+        ).fetchall()
+    ordered = [{"execution_id": int(current["execution_id"]),
+                "delivered_at_utc": utc_now_iso()}]
+    ordered.extend({"execution_id": int(r["execution_id"]),
+                    "delivered_at_utc": r["delivered_at_utc"]} for r in rows)
+    seen: dict[int, dict] = {}
+    for item in ordered:
+        if item["execution_id"] in seen:
+            continue
+        execution = get_execution_by_id(conn, item["execution_id"])
+        if execution is None:
+            continue
+        seen[item["execution_id"]] = {
+            "execution": execution,
+            "delivered_at_utc": item["delivered_at_utc"],
+        }
+        if len(seen) >= FEED_ENTRIES:
+            break
+    return [seen[key] for key in sorted(seen, reverse=True)]
+
+
+def render_feed(
+    conn: sqlite3.Connection, routine: dict, entries: list[dict], *, feed_id: str,
+) -> str:
+    """One Atom 1.0 document. No script, no tracker, no secret-bearing link.
+
+    The bundle link here is a ``file://`` path on this machine, never the
+    signed HTTP link the webhook envelope carries: a feed file is copied,
+    synced and read by things resmon has no relationship with, and a link in it
+    that carried a signature would be a credential inside a document the user
+    is about to put in a shared folder (PRODUCT-VISION.md:199).
+    """
+    from . import source_coverage
+    from .database import get_execution_sources
+
+    name = str(routine.get("name") or "resmon routine")
+    updated = (_atom_timestamp(entries[0]["delivered_at_utc"]) if entries
+               else _atom_timestamp(None))
+    out = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<feed xmlns="http://www.w3.org/2005/Atom">',
+        f"  <title>{_xml_escape(name)}</title>",
+        f"  <id>{_xml_escape(feed_id)}</id>",
+        f"  <updated>{updated}</updated>",
+        "  <generator>resmon</generator>",
+        f"  <subtitle>Runs of the resmon routine {_xml_escape(name)}.</subtitle>",
+    ]
+    for entry in entries:
+        execution = entry["execution"]
+        exec_id = int(execution["id"])
+        try:
+            coverage = source_coverage.build(
+                execution, get_execution_sources(conn, exec_id)
+            )["summary"]
+        except Exception:
+            coverage = None
+        results = execution.get("result_count")
+        fresh = execution.get("new_result_count")
+        summary = (
+            f"{results if results is not None else 'An unrecorded number of'} "
+            f"results, {fresh if fresh is not None else 'an unrecorded number'} new."
+        )
+        if coverage:
+            summary += " " + coverage
+        link = _folder_bundle_link(conn, routine, exec_id)
+        out.append("  <entry>")
+        out.append(f"    <title>{_xml_escape(name)} - run {exec_id}</title>")
+        out.append(f"    <id>{_xml_escape(feed_id)}/executions/{exec_id}</id>")
+        out.append(
+            f"    <updated>{_atom_timestamp(entry['delivered_at_utc'])}</updated>")
+        out.append(
+            "    <published>"
+            f"{_atom_timestamp(execution.get('end_time') or execution.get('start_time'))}"
+            "</published>")
+        if link:
+            out.append(
+                f'    <link rel="alternate" type="text/html" href="{_xml_escape(link)}"/>')
+        out.append(f"    <summary>{_xml_escape(summary)}</summary>")
+        out.append("  </entry>")
+    out.append("</feed>")
+    return "\n".join(out) + "\n"
+
+
+def _deliver_feed(
+    conn: sqlite3.Connection,
+    *,
+    execution: dict,
+    routine: dict,
+    target: str,
+    bundle: Callable[[], Path],
+    delivery_row: dict,
+) -> None:
+    """Rewrite ``<target>/resmon/<slug>/feed.xml``, atomically.
+
+    Whole-file each time rather than appended to: an Atom document has one
+    ``updated`` at the top and a capped list under it, and a feed half-written
+    by a crash mid-append is a file every reader in the world will refuse. It
+    is written beside the destination and renamed over it, so a reader polling
+    the folder sees the old file or the new one and never half of either.
+
+    This channel never builds the bundle -- the feed carries facts and a link
+    to what the folder channel wrote, so a routine delivering only a feed does
+    not pay for a PDF render on every run.
+    """
+    if not (target or "").strip():
+        raise DeliveryError(
+            "This feed destination has no folder set. Choose one in the "
+            "routine's Delivery list."
+        )
+    root = Path(target).expanduser()
+    # None of these messages names the directory; see ``_without_path``.
+    if not root.is_dir():
+        raise DeliveryError(
+            "That folder is not a directory resmon can see. It may be on a "
+            "drive that is not mounted, or in a synced folder that is not "
+            "signed in."
+        )
+    if not os.access(root, os.W_OK | os.X_OK):
+        raise DeliveryError("That folder exists but resmon cannot write to it.")
+
+    parent = root / "resmon" / _slug(str(routine.get("name") or ""))
+    final = parent / "feed.xml"
+    feed_id = f"urn:resmon:routine:{int(routine['id'])}"
+    entries = _feed_entries(
+        conn, routine, delivery_row.get("target_id"), delivery_row)
+    document = render_feed(conn, routine, entries, feed_id=feed_id)
+    tmp_path: Optional[Path] = None
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+        handle = tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=parent, prefix=".feed-", suffix=".xml",
+            delete=False,
+        )
+        tmp_path = Path(handle.name)
+        with handle:
+            handle.write(document)
+        os.replace(tmp_path, final)
+        tmp_path = None
+    except Exception as exc:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+        raise DeliveryError(_scrub(_without_path(
+            f"Could not write the feed file: {exc}", root))) from None
+
+
 #: Channel name -> adapter. The keys are the denominator every "N of M
 #: channels" claim in this module's tests is taken from.
 ADAPTERS: dict[str, Callable[..., None]] = {
     "email": _deliver_email,
     "folder": _deliver_folder,
+    "webhook": _deliver_webhook,
+    "feed": _deliver_feed,
 }
 
 
@@ -851,7 +1500,8 @@ class DeliveryQueue:
 
         try:
             adapter(conn, execution=execution, routine=routine,
-                    target=row["target_snapshot"], bundle=bundle)
+                    target=row["target_snapshot"], bundle=bundle,
+                    delivery_row=row)
         except DeliveryError as exc:
             self._record_failure(conn, row, str(exc))
         except Exception as exc:  # an adapter bug, recorded like any failure
