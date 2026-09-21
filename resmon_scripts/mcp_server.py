@@ -334,6 +334,26 @@ class Backend:
                     raise ToolError("instance_mismatch", "This request reached a different running app.", {
                         "expected_runtime_id": expected_runtime_id,
                         "actual_runtime_id": detail.get("actual_runtime_id")})
+            # A refusal the backend named for machines as well as for people.
+            # ``routine_already_running`` is the one that exists today: the
+            # sentence says which run holds the routine, and the header says it
+            # again as a number so a caller can act on it without parsing
+            # English. Unknown codes travel through unchanged -- this is a
+            # passthrough, not a vocabulary this file owns.
+            conflict_code = resp.headers.get("X-Resmon-Conflict")
+            if conflict_code:
+                data: dict = {"conflict": conflict_code}
+                running = resp.headers.get("X-Resmon-Execution-Id")
+                if running:
+                    try:
+                        data["execution_id"] = int(running)
+                    except ValueError:
+                        pass
+                raise ToolError(
+                    "conflict",
+                    _detail_of(resp, "resmon could not accept that right now."),
+                    data,
+                )
             raise ToolError("conflict", _detail_of(resp, "resmon could not accept that right now."))
         if resp.status_code == 429:
             raise ToolError("conflict", _detail_of(resp, "resmon is already at its execution limit."))
@@ -640,6 +660,10 @@ def t_list_routines(args: dict) -> Any:
             "schedule": r.get("schedule_cron"),
             "active": bool(r.get("is_active")),
             "last_run": r.get("last_executed_at"),
+            # Fires that came due while resmon was closed. A count, not a
+            # verdict: it says the schedule was not kept, not that the run
+            # would have found anything.
+            "missed_fires": (r.get("missed_fires") or {}).get("count", 0),
         } for r in rows],
         "count": len(rows),
     }
@@ -917,6 +941,15 @@ def t_create_routine(args: dict) -> Any:
 
 
 def t_run_routine(args: dict) -> Any:
+    """Run a routine now.
+
+    A routine that is already running is refused rather than started twice: the
+    error is ``conflict``, its data carries
+    ``{"conflict": "routine_already_running", "execution_id": N}``, and N is the
+    run that already exists -- which is what the caller wanted a run for. Two
+    concurrent sweeps of one routine would write two sets of results for the
+    same schedule slot and there is no question either of them answers.
+    """
     rid = _require_int(args, "routine_id")
     return backend.request("POST", f"/api/routines/{rid}/run")
 

@@ -114,8 +114,8 @@ called out explicitly.
 | `search_corpus` | `query`, `mode?` (keyword \| semantic), `sources?`, `date_from?`, `date_to?`, `limit=25`, `cursor?` | matching papers: id, title, authors, date, source, doi, url, plus `next_cursor`, `mode`, and in semantic mode `distance` per paper, `ranked_count`, `unranked_count`, `model` | `POST /api/explorer/search` |
 | `find_similar` | `doc_id`, `limit=25` | the nearest papers with distances and sources; `reason` when the list is empty | `GET /api/documents/{doc_id}/similar` |
 | `list_sources` | — | slug, name, coverage, whether a key is required and whether one is present | `GET /api/repositories/catalog` + `GET /api/credentials` |
-| `list_routines` | `active_only?` | id, name, schedule, sources, keywords, last run, active | `GET /api/routines` |
-| `get_routine` | `routine_id` | the full routine record | `GET /api/routines/{id}` |
+| `list_routines` | `active_only?` | id, name, schedule, sources, keywords, last run, active, `missed_fires` (fires that came due while resmon was closed) | `GET /api/routines` |
+| `get_routine` | `routine_id` | the full routine record, including `missed_fires` (`count` + `last_due_at_utc`) and `missed_fire_details` | `GET /api/routines/{id}` |
 | `list_executions` | `routine_id?`, `status?`, `limit=25`, `offset=0` | id, type, status, started, finished, result count, `interrupted_reason`, `restarted_from` | `GET /api/executions` |
 | `get_execution` | `exec_id` | status, per-source counts, timings, AI lane used | `GET /api/executions/{id}` |
 | `get_execution_results` | `exec_id`, `limit=25`, `offset=0` | the papers that run found, with existing corpus `id` usable by `explain_match` | `GET /api/executions/{id}/references?format=json&include_ids=true` |
@@ -148,7 +148,7 @@ would make an honest product dishonest through an integration.
 | `run_sweep` | `query`, `sources`, `date_from?`, `date_to?`, `max_results?`, `ai_enabled?` | `exec_id`, immediately | `POST /api/search/sweep` |
 | `create_routine` | `name`, `keywords`, `sources`, `schedule`, optional `intent`, optional `entity` (`profile_id` + `mode`), plus optional notification and AI settings | the created routine, plus `entity_warning` where none of the named sources can be asked about an author | `POST /api/routines` |
 | `create_watch_profile` | `name`, optional `orcid`, `orcid_cited`, `aliases`, `affiliations`, `field_hints` | the created profile, with `basis_warning` **lifted to the top of the answer** when it has no identifier | `POST /api/profiles` |
-| `run_routine` | `routine_id` | `exec_id`, immediately | **needs a new endpoint — see below** |
+| `run_routine` | `routine_id` | `exec_id`, immediately; or a `conflict` error carrying `{"conflict": "routine_already_running", "execution_id": N}` when that routine is already running | **needs a new endpoint — see below** |
 | `activate_routine` | `routine_id` | `id`, `is_active: true` | `POST /api/routines/{id}/activate` |
 | `deactivate_routine` | `routine_id` | `id`, `is_active: false` | `POST /api/routines/{id}/deactivate` |
 | `update_settings` | `group`, `settings` | `group`, `changed` (a per-key `{from, to}` diff), `requested`, `unchanged_key_count` | `GET` + `PUT /api/settings/{group}` |

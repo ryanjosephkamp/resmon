@@ -132,7 +132,10 @@ def test_the_18_to_19_step_keeps_every_row_link_and_sequence(tmp_path):
             " result_count, cancel_reason, error_message, dedup_total FROM executions ORDER BY id")]
         db.init_db(conn=conn)
 
-        assert db.get_schema_version(conn) == 19
+        # One ``init_db`` walks every remaining step, so the marker lands on the
+        # current schema; what this test is about is the 18 -> 19 rebuild in the
+        # middle of that walk, which is what the assertions below read.
+        assert db.get_schema_version(conn) == db.SCHEMA_VERSION
         after = [tuple(r) for r in conn.execute(
             "SELECT id, execution_type, parameters, start_time, end_time, status,"
             " result_count, cancel_reason, error_message, dedup_total FROM executions ORDER BY id")]

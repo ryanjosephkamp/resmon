@@ -44,6 +44,10 @@ from implementation_scripts.database import (
     delete_routine,
     get_executions,
     get_execution_by_id,
+    get_execution_by_request_id,
+    record_missed_fire,
+    missed_fire_summary,
+    get_missed_fires,
     get_execution_sources,
     get_execution_ai,
     get_execution_documents,
@@ -110,7 +114,11 @@ from implementation_scripts import (
 )
 from implementation_scripts.assistant_permissions import broker as permission_broker
 from implementation_scripts.progress import progress_store
-from implementation_scripts.admission import admission
+from implementation_scripts.admission import (
+    admission,
+    routine_claims,
+    RoutineAlreadyRunning,
+)
 from implementation_scripts.scheduler import ResmonScheduler, set_dispatcher
 from implementation_scripts.repo_catalog import (
     REPOSITORY_CATALOG,
@@ -296,6 +304,12 @@ class DiveRequest(BaseModel):
     # configuration via ConfigLoader, the frontend echoes that config's
     # id so the new execution row can be linked back to it.
     saved_configuration_id: Optional[int] = None
+    # 2.3 / duplicate protection. An optional client-generated id for *this
+    # submission*, so a double click, a retried request or a renderer that
+    # remounted mid-flight yields one run rather than two. Generated at click
+    # time, never at page load: an id fixed when the page rendered would make
+    # the user's genuine second search look like a duplicate of their first.
+    request_id: Optional[str] = None
 
 class SweepRequest(BaseModel):
     repositories: list[str]
@@ -309,6 +323,21 @@ class SweepRequest(BaseModel):
     ephemeral_credentials: Optional[dict[str, str]] = None
     # Update 3 / 4_27_26: see DiveRequest.saved_configuration_id.
     saved_configuration_id: Optional[int] = None
+    # See DiveRequest.request_id.
+    request_id: Optional[str] = None
+
+
+class RestartRequest(BaseModel):
+    """Body of ``POST /api/executions/{id}/restart``. Every field optional.
+
+    The route took no body at all before this; it still answers a request that
+    sends none, because the renderer's Restart button and every existing caller
+    do exactly that.
+    """
+
+    # See DiveRequest.request_id.
+    request_id: Optional[str] = None
+
 
 class RoutineCreate(BaseModel):
     name: str
@@ -902,10 +931,48 @@ def _launch_execution(
     exec_id: int,
     conn,
     ephemeral_credentials: Optional[dict[str, str]] = None,
+    claimed_routine_id: Optional[int] = None,
 ) -> None:
-    """Run the pipeline in a background thread, then persist progress events."""
+    """Run the pipeline in a background thread, then persist progress events.
+
+    ``claimed_routine_id`` is the routine whose per-routine claim this
+    execution holds (see ``RoutineClaimRegistry``). The claim is taken in
+    ``_dispatch_routine_fire`` *before* this thread starts -- that ordering is
+    the whole guard -- and released here, in the ``finally``, which is the only
+    place that runs whether the pipeline finished, failed or raised.
+    """
 
     def _run() -> None:
+        """Release the claim whatever happens, then run the pipeline.
+
+        The pipeline's own ``finally`` (far below) releases the claim in the
+        right *order* -- before ``admission.note_finished``, which can hand a
+        queued fire of this same routine to a fresh thread. But it cannot be
+        the only release: ``note_admitted``, the heartbeat start and
+        ``_get_db()`` all run before that ``try``, and an exception there --
+        a database that will not open is the realistic one -- would leave the
+        routine claimed for the life of the backend, every later fire answered
+        409 for a run that never started. So the claim is released here too.
+        ``release`` is idempotent; releasing twice costs nothing and not
+        releasing costs the routine.
+        """
+        try:
+            _run_pipeline()
+        except BaseException:
+            # A worker thread that raises out of itself leaves a bare traceback
+            # on the interpreter's excepthook and tells the log nothing about
+            # which execution it was. The row is left exactly as it is: nothing
+            # here observed what the search did, and schema 19's startup
+            # reconciliation is what decides whether it was interrupted.
+            logging.getLogger(__name__).exception(
+                "Execution worker raised before its own error handling: "
+                "exec_id=%s", exec_id,
+            )
+        finally:
+            if claimed_routine_id is not None:
+                routine_claims.release(claimed_routine_id)
+
+    def _run_pipeline() -> None:
         admission.note_admitted(exec_id)
         heartbeat_thread, heartbeat_stop = _start_execution_heartbeat(exec_id)
         # Take this thread's own connection rather than reusing the request
@@ -1037,10 +1104,69 @@ def _launch_execution(
                     logging.getLogger(__name__).exception(
                         "progress_store.cleanup failed for exec_id=%s", exec_id,
                     )
+                # Before ``note_finished``, which may synchronously hand a
+                # queued fire of this same routine to a fresh thread: that
+                # thread claims before it runs, and it must not meet a claim
+                # this execution is only about to drop.
+                if claimed_routine_id is not None:
+                    routine_claims.release(claimed_routine_id)
                 admission.note_finished(exec_id)
 
     t = threading.Thread(target=_run, daemon=True, name=f"exec-{exec_id}")
     t.start()
+
+
+# Duplicate protection for a *submission* rather than for a routine. The
+# mechanism is the partial UNIQUE index over ``executions.request_id``, and the
+# two helpers below are the check that comes first and the undo that runs when
+# the check and the insert raced anyway. There is deliberately no lock: the
+# index decides, the loser removes the row it had just prepared, and both
+# callers end up holding the same execution id. A lock would make the common
+# case look safer without covering the case that actually needs covering -- a
+# second backend process, which shares the database and not this module.
+
+
+def _duplicate_execution_for(conn, request_id: Optional[str]) -> Optional[dict]:
+    """The run this exact submission already started, or None.
+
+    ``None`` when no id was sent: a caller that does not send one is not asking
+    for duplicate protection and must not be given a previous run's id.
+    """
+    if not request_id:
+        return None
+    return get_execution_by_request_id(conn, request_id)
+
+
+def _reserve_request_id(conn, exec_id: int, request_id: Optional[str]) -> Optional[dict]:
+    """Stamp ``request_id`` on a freshly prepared row, or undo the row.
+
+    Returns the *winning* execution when the stamp collided with one written by
+    another process between the check and here, after deleting the row this
+    request prepared. Deleting it is safe precisely here and nowhere later: the
+    row is seconds old, no thread has been launched for it, and nothing else has
+    seen its id.
+    """
+    if not request_id:
+        return None
+    try:
+        conn.execute(
+            "UPDATE executions SET request_id = ? WHERE id = ?",
+            (request_id, int(exec_id)),
+        )
+        conn.commit()
+        return None
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        winner = get_execution_by_request_id(conn, request_id)
+        try:
+            conn.execute("DELETE FROM executions WHERE id = ?", (int(exec_id),))
+            conn.commit()
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Failed to remove the losing side of a request_id race: "
+                "exec_id=%s", exec_id,
+            )
+        return winner
 
 
 def _reject_if_at_manual_cap() -> None:
@@ -1059,8 +1185,15 @@ def _reject_if_at_manual_cap() -> None:
 
 @app.post("/api/search/dive")
 def search_dive(body: DiveRequest):
-    _reject_if_at_manual_cap()
     conn = _get_db()
+    # Before the cap check, deliberately: a resubmission of a run that is
+    # already going is not a new demand on capacity, and answering it with 429
+    # would tell the user resmon is busy when what it is busy with is their own
+    # first click.
+    existing = _duplicate_execution_for(conn, body.request_id)
+    if existing is not None:
+        return {"execution_id": existing["id"], "duplicate": True}
+    _reject_if_at_manual_cap()
     engine = SweepEngine(
         db_conn=conn,
         config={"ai_enabled": body.ai_enabled, "ai_settings": body.ai_settings},
@@ -1073,6 +1206,9 @@ def search_dive(body: DiveRequest):
         "max_results": body.max_results,
     }
     exec_id = engine.prepare_execution("deep_dive", [body.repository], query_params)
+    winner = _reserve_request_id(conn, exec_id, body.request_id)
+    if winner is not None:
+        return {"execution_id": winner["id"], "duplicate": True}
     # Update 3 / 4_27_26: link the new execution back to the saved
     # configuration the user picked in ConfigLoader (if any).
     if body.saved_configuration_id is not None:
@@ -1084,8 +1220,15 @@ def search_dive(body: DiveRequest):
 
 @app.post("/api/search/sweep")
 def search_sweep(body: SweepRequest):
-    _reject_if_at_manual_cap()
     conn = _get_db()
+    # Before the cap check, deliberately: a resubmission of a run that is
+    # already going is not a new demand on capacity, and answering it with 429
+    # would tell the user resmon is busy when what it is busy with is their own
+    # first click.
+    existing = _duplicate_execution_for(conn, body.request_id)
+    if existing is not None:
+        return {"execution_id": existing["id"], "duplicate": True}
+    _reject_if_at_manual_cap()
     engine = SweepEngine(
         db_conn=conn,
         config={"ai_enabled": body.ai_enabled, "ai_settings": body.ai_settings},
@@ -1098,6 +1241,9 @@ def search_sweep(body: SweepRequest):
         "max_results": body.max_results,
     }
     exec_id = engine.prepare_execution("deep_sweep", body.repositories, query_params)
+    winner = _reserve_request_id(conn, exec_id, body.request_id)
+    if winner is not None:
+        return {"execution_id": winner["id"], "duplicate": True}
     # Update 3 / 4_27_26: link the new execution back to the saved
     # configuration the user picked in ConfigLoader (if any).
     if body.saved_configuration_id is not None:
@@ -1287,6 +1433,15 @@ def list_routines():
                 except Exception:
                     last_status = None
             r["last_status"] = last_status
+            # Fires that came due while resmon was closed. ``{"count": 0,
+            # "last_due_at_utc": None}`` for a routine that has missed none,
+            # rather than an absent key -- the screen renders nothing either
+            # way, and a missing key would be indistinguishable from an older
+            # backend that cannot answer.
+            r["missed_fires"] = (
+                missed_fire_summary(conn, int(rid)) if rid is not None
+                else {"count": 0, "last_due_at_utc": None}
+            )
         return routines
     finally:
         _close_db(conn)
@@ -1319,6 +1474,10 @@ def get_routine(routine_id: int):
         ):
             if col in routine:
                 routine[col] = bool(routine[col])
+        routine["missed_fires"] = missed_fire_summary(conn, routine_id)
+        # The detail the summary counts, oldest first, for a screen that wants
+        # to list them rather than count them.
+        routine["missed_fire_details"] = get_missed_fires(conn, routine_id)
         return routine
     finally:
         _close_db(conn)
@@ -1507,9 +1666,31 @@ def run_routine_now(routine_id: int):
             raise HTTPException(404, "Routine not found")
 
         was_inactive = not bool(existing.get("is_active"))
-        exec_id = _dispatch_routine_fire(
-            routine_id, existing.get("parameters") or "{}", allow_inactive=True,
-        )
+        try:
+            exec_id = _dispatch_routine_fire(
+                routine_id, existing.get("parameters") or "{}",
+                allow_inactive=True, raise_on_conflict=True,
+            )
+        except RoutineAlreadyRunning as conflict:
+            # A string detail, for the reason ``cancel_execution`` gives one: a
+            # renderer that renders ``detail`` shows [object Object] for a dict.
+            # The machine-readable half goes in a header, so a caller that wants
+            # to branch on the reason does not have to parse English.
+            raise HTTPException(
+                409,
+                (f"This routine is already running as execution "
+                 f"{conflict.execution_id}. Wait for that run to finish, or "
+                 "cancel it, before starting another."
+                 if conflict.execution_id is not None else
+                 "This routine is already running. Wait for that run to "
+                 "finish, or cancel it, before starting another."),
+                headers={
+                    "X-Resmon-Conflict": "routine_already_running",
+                    "X-Resmon-Execution-Id": (
+                        str(conflict.execution_id)
+                        if conflict.execution_id is not None else ""),
+                },
+            )
 
         if exec_id is None:
             # The routine exists and we were willing to run it, so the only
@@ -1895,7 +2076,7 @@ def cancel_execution(exec_id: int):
 
 
 @app.post("/api/executions/{exec_id}/restart", status_code=202)
-def restart_execution(exec_id: int):
+def restart_execution(exec_id: int, body: Optional[RestartRequest] = None):
     """Start a fresh execution with the source's parameters, linked back to it.
 
     Restart is not resume. ``progress_events`` is persisted once, at the end,
@@ -1906,8 +2087,15 @@ def restart_execution(exec_id: int):
     The source row is never touched. Its history is what happened, and a
     restart is a second thing that happened, not a correction of the first.
     """
+    request_id = body.request_id if body is not None else None
     conn = _get_db()
     try:
+        duplicate = _duplicate_execution_for(conn, request_id)
+        if duplicate is not None:
+            return {"execution_id": duplicate["id"],
+                    "restarted_from": duplicate.get("restarted_from"),
+                    "ai_enabled": bool(get_execution_ai(conn, duplicate["id"])),
+                    "duplicate": True}
         row = get_execution_by_id(conn, exec_id)
         if not row:
             raise HTTPException(404, "Execution not found")
@@ -1946,6 +2134,12 @@ def restart_execution(exec_id: int):
             "start_time": utc_now_iso(),
             "restarted_from": exec_id,
         })
+        winner = _reserve_request_id(conn, new_id, request_id)
+        if winner is not None:
+            return {"execution_id": winner["id"],
+                    "restarted_from": winner.get("restarted_from"),
+                    "ai_enabled": bool(get_execution_ai(conn, winner["id"])),
+                    "duplicate": True}
         # No ``prepare_execution``: the row exists, and ``run_prepared`` reads
         # the repositories and query parameters back out of it. Passing them a
         # second time would be a second copy to keep honest.
@@ -4683,8 +4877,9 @@ def _dispatch_routine_fire(
     parameters: str,
     *,
     allow_inactive: bool = False,
+    raise_on_conflict: bool = False,
 ) -> int | None:
-    """Fire a routine: prepare execution, admit, launch, stamp.
+    """Fire a routine: claim, prepare execution, admit, launch, stamp.
 
     Follows the pseudocode in ``resmon_routines.md`` Appendix A.1. Returns the
     new execution id, or ``None`` if the routine row is missing or inactive, or
@@ -4702,6 +4897,16 @@ def _dispatch_routine_fire(
     The return value is new. The scheduler ignores it, which is why widening it
     is safe; the endpoint needs it, because "which execution did you just
     start" is the only useful thing to answer with.
+
+    ``raise_on_conflict`` decides how a routine that is *already running* is
+    reported. All three doors into this function -- the scheduler callback, the
+    ``run`` endpoint and the admission queue's drain -- take the same claim and
+    all three refuse, but they have different audiences. A person who clicked
+    Run now needs to be told, with the id of the run that already exists, so
+    the endpoint asks for the exception. The scheduler and the drain get
+    ``None`` and an info line: a fire arriving while the previous one is still
+    going is expected behaviour of a routine that runs longer than its period,
+    not a fault, and raising into APScheduler's worker would log it as one.
     """
     dispatch_logger = logging.getLogger(__name__)
     conn = _get_db()
@@ -4718,92 +4923,195 @@ def _dispatch_routine_fire(
             )
             return None
 
-        try:
-            params = json.loads(parameters or "{}")
-        except (json.JSONDecodeError, TypeError):
-            dispatch_logger.exception(
-                "Routine fire parameters unparseable: routine_id=%s", routine_id,
+        # The claim, taken before anything slow and before any thread exists.
+        # Ordering is the entire guard: a check made after ``prepare_execution``
+        # would already have lost the race it is here to win. Every path out of
+        # the block below either hands the claim to a worker thread -- which
+        # releases it in ``_launch_execution``'s ``finally`` -- or gives it back
+        # here.
+        if not routine_claims.try_claim(routine_id):
+            holder = routine_claims.holder(routine_id)
+            dispatch_logger.info(
+                "Routine fire refused: routine_id=%s is already running as "
+                "execution %s", routine_id, holder,
             )
+            if raise_on_conflict:
+                raise RoutineAlreadyRunning(routine_id, holder)
             return None
-        if not isinstance(params, dict):
-            params = {}
-        repositories = list(params.get("repositories") or [])
 
-        # 2.1 — a watch routine's profile is resolved **here**, once, and travels
-        # inside the execution's stored parameters. Two reasons it is not looked
-        # up later: ``run_prepared`` recovers its parameters from the execution
-        # row when the preparing instance is gone, so anything the run needs has
-        # to be in that row; and the profile a run used is then a recorded fact
-        # rather than whatever the table says afterwards. A profile edited or
-        # deleted mid-run cannot silently change what the run was watching.
-        entity = params.get("entity")
-        if isinstance(entity, dict):
-            profile = None
+        launched = False
+        try:
             try:
-                profile = watch_profiles.get_profile(
-                    conn, int(entity.get("profile_id")))
-            except (TypeError, ValueError):
+                params = json.loads(parameters or "{}")
+            except (json.JSONDecodeError, TypeError):
+                dispatch_logger.exception(
+                    "Routine fire parameters unparseable: routine_id=%s", routine_id,
+                )
+                return None
+            if not isinstance(params, dict):
+                params = {}
+            repositories = list(params.get("repositories") or [])
+
+            # 2.1 — a watch routine's profile is resolved **here**, once, and travels
+            # inside the execution's stored parameters. Two reasons it is not looked
+            # up later: ``run_prepared`` recovers its parameters from the execution
+            # row when the preparing instance is gone, so anything the run needs has
+            # to be in that row; and the profile a run used is then a recorded fact
+            # rather than whatever the table says afterwards. A profile edited or
+            # deleted mid-run cannot silently change what the run was watching.
+            entity = params.get("entity")
+            if isinstance(entity, dict):
                 profile = None
-            params["entity_mode"] = str(entity.get("mode") or "")
-            params["entity_profile_id"] = entity.get("profile_id")
-            params["entity_profile"] = profile
-            # `retractions` reads the corpus and queries no source. Leaving the
-            # routine's repository list in place would make the Monitor announce
-            # sources it never touches.
-            if params["entity_mode"] == "retractions":
-                repositories = []
-                params["repositories"] = []
+                try:
+                    profile = watch_profiles.get_profile(
+                        conn, int(entity.get("profile_id")))
+                except (TypeError, ValueError):
+                    profile = None
+                params["entity_mode"] = str(entity.get("mode") or "")
+                params["entity_profile_id"] = entity.get("profile_id")
+                params["entity_profile"] = profile
+                # `retractions` reads the corpus and queries no source. Leaving the
+                # routine's repository list in place would make the Monitor announce
+                # sources it never touches.
+                if params["entity_mode"] == "retractions":
+                    repositories = []
+                    params["repositories"] = []
 
-        if not admission.try_admit(
-            kind="routine", routine_id=routine_id, params_json=parameters,
-        ):
-            return None
+            if not admission.try_admit(
+                kind="routine", routine_id=routine_id, params_json=parameters,
+            ):
+                return None
 
-        ai_settings_raw = row.get("ai_settings")
-        try:
-            ai_settings = json.loads(ai_settings_raw) if ai_settings_raw else None
-        except (json.JSONDecodeError, TypeError):
-            ai_settings = None
+            ai_settings_raw = row.get("ai_settings")
+            try:
+                ai_settings = json.loads(ai_settings_raw) if ai_settings_raw else None
+            except (json.JSONDecodeError, TypeError):
+                ai_settings = None
 
-        engine = SweepEngine(
-            db_conn=conn,
-            config={
-                "ai_enabled": bool(row.get("ai_enabled")),
-                "ai_settings": ai_settings,
-            },
-        )
-        exec_id = engine.prepare_execution(
-            "automated_sweep", repositories, params,
-        )
-
-        try:
-            conn.execute(
-                "UPDATE executions SET routine_id = ? WHERE id = ?",
-                (int(routine_id), int(exec_id)),
+            engine = SweepEngine(
+                db_conn=conn,
+                config={
+                    "ai_enabled": bool(row.get("ai_enabled")),
+                    "ai_settings": ai_settings,
+                },
             )
-            conn.commit()
-        except Exception:
-            dispatch_logger.exception(
-                "Failed to stamp routine_id on execution row: routine_id=%s exec_id=%s",
-                routine_id, exec_id,
+            exec_id = engine.prepare_execution(
+                "automated_sweep", repositories, params,
             )
 
-        progress_store.register(exec_id)
-        _launch_execution(engine, exec_id, conn, ephemeral_credentials=None)
+            try:
+                conn.execute(
+                    "UPDATE executions SET routine_id = ? WHERE id = ?",
+                    (int(routine_id), int(exec_id)),
+                )
+                conn.commit()
+            except Exception:
+                dispatch_logger.exception(
+                    "Failed to stamp routine_id on execution row: routine_id=%s exec_id=%s",
+                    routine_id, exec_id,
+                )
 
-        try:
-            conn.execute(
-                "UPDATE routines SET last_executed_at = datetime('now') WHERE id = ?",
-                (int(routine_id),),
+            # Bind before the thread starts, so a second fire arriving in the
+            # window between the claim and the launch is told *which* run holds
+            # the routine rather than only that something does.
+            routine_claims.bind(routine_id, exec_id)
+            progress_store.register(exec_id)
+            _launch_execution(
+                engine, exec_id, conn, ephemeral_credentials=None,
+                claimed_routine_id=routine_id,
             )
-            conn.commit()
-        except Exception:
-            dispatch_logger.exception(
-                "Failed to stamp last_executed_at: routine_id=%s", routine_id,
-            )
-        return int(exec_id)
+            # From here the claim belongs to the execution thread's ``finally``.
+            launched = True
+
+            try:
+                conn.execute(
+                    "UPDATE routines SET last_executed_at = datetime('now') WHERE id = ?",
+                    (int(routine_id),),
+                )
+                conn.commit()
+            except Exception:
+                dispatch_logger.exception(
+                    "Failed to stamp last_executed_at: routine_id=%s", routine_id,
+                )
+            return int(exec_id)
+        finally:
+            if not launched:
+                routine_claims.release(routine_id)
     finally:
         _close_db(conn)
+
+
+def _record_missed_fires(sched: ResmonScheduler) -> int:
+    """Record every scheduled fire whose time had passed while resmon was shut.
+
+    Until now a fire that came due while the app was closed was not skipped
+    loudly -- it was skipped silently. The scheduler re-adds every active
+    routine on startup with ``replace_existing=True``, which recomputes
+    ``next_run_time`` from the present moment, so the overdue time was
+    overwritten before anything could notice it, and the routine simply looked
+    as though it had never been due. A user whose laptop was shut over a
+    weekend saw a routine that claimed to be healthy and a Monday with no run
+    in it.
+
+    What this records is exactly what it observed: the jobstore's persisted
+    next fire for this routine was in the past when resmon started. It is
+    deliberately **not** a claim that the run did not happen. APScheduler's
+    one-hour misfire grace means a fire found a few minutes in the past may
+    still run once the scheduler starts, and the two events are recorded
+    separately -- the execution row says a run happened, this row says a fire
+    was overdue. ``disposition`` is where a later policy would reconcile them.
+
+    Nothing is run to catch up. Whether resmon should quietly perform a
+    weekend's worth of sweeps the moment a laptop is opened is the owner's
+    decision, not a default a migration chose; see ``docs/routines.md``.
+
+    Returns the number of rows written, which is the number of *new* misses:
+    ``record_missed_fire`` is idempotent on (routine, due time), so starting
+    twice in a row without the routine firing counts the miss once.
+    """
+    logger_ = logging.getLogger(__name__)
+    try:
+        persisted = sched.persisted_next_run_times()
+    except Exception:
+        logger_.exception("Could not read persisted fire times; missed fires "
+                          "not accounted for this start")
+        return 0
+    if not persisted:
+        return 0
+
+    observed = utc_now_iso()
+    now = datetime.now(timezone.utc)
+    written = 0
+    conn = _get_db()
+    try:
+        active = {str(r["id"]) for r in get_routines(conn) if r.get("is_active")}
+        for job_id, due in persisted.items():
+            # An orphan job whose routine row is gone is reconciled away a few
+            # lines later; recording a miss against a routine that no longer
+            # exists would fail the foreign key anyway.
+            if job_id not in active:
+                continue
+            if due is None or due >= now:
+                continue
+            try:
+                if record_missed_fire(
+                    conn, int(job_id),
+                    due.astimezone(timezone.utc).isoformat(),
+                    observed_at_utc=observed,
+                ):
+                    written += 1
+            except Exception:
+                logger_.exception(
+                    "Failed to record a missed fire for routine_id=%s", job_id,
+                )
+    finally:
+        _close_db(conn)
+    if written:
+        logger_.info(
+            "Recorded %d missed routine fire(s) that came due while resmon was "
+            "not running", written,
+        )
+    return written
 
 
 def _init_scheduler_on_startup() -> None:
@@ -4833,6 +5141,11 @@ def _init_scheduler_on_startup() -> None:
         scheduler = ResmonScheduler(db_url=f"sqlite:///{_tmp.name}")
     else:
         scheduler = ResmonScheduler()
+    # Missed fires are read **before** ``start()``, because starting the
+    # scheduler and re-adding the routines below are both writes to the only
+    # record of when each job was next due. See
+    # ``ResmonScheduler.persisted_next_run_times``.
+    _record_missed_fires(scheduler)
     scheduler.start()
     conn = _get_db()
     try:

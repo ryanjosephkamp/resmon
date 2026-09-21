@@ -95,7 +95,7 @@ def test_saved_schema18_html_one_snapshot_no_reads_or_writes(workspace,available
     for module, name in [(library,'retained'),(evidence_reader,'read_text')]:
         monkeypatch.setattr(module,name,lambda *a,**k:pytest.fail('Export read a current original'))
     text=exported(w,a)
-    assert calls==[a['answer_id']] and db.get_schema_version(w.conn)==19
+    assert calls==[a['answer_id']] and db.get_schema_version(w.conn)==20
     assert sql_snapshot(w.conn)==before and files_snapshot(w)==files
     # Retain the complete synthetic comparison, not just a passing boolean.
     for label,rows,inventory in [('before',before,files),('after',sql_snapshot(w.conn),files_snapshot(w))]:

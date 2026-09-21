@@ -52,7 +52,11 @@ coverage.xml
 # -----------------------------------------------------------------------------
 # Node / Electron artifacts
 # -----------------------------------------------------------------------------
+# Both spellings: the trailing slash matches a directory only, and a
+# `node_modules` **symlink** into a shared install -- which is how one got
+# committed to a branch -- is a file as far as git is concerned.
 node_modules/
+node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

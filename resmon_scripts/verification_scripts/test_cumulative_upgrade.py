@@ -1,10 +1,10 @@
-"""The whole walk at once: a v2.1.0 database (schema 13) upgraded to schema 18.
+"""The whole walk at once: a v2.1.0 database (schema 13) upgraded to schema 20.
 
 Every schema step since 13 has its own upgrade test, and each one starts from a
 fixture of the step immediately before it -- 13 -> 14, 14 -> 15, 15 -> 16,
-16 -> 17, 17 -> 18, 18 -> 19. Six green tests, and none of them is the journey a
+16 -> 17, 17 -> 18, 18 -> 19, 19 -> 20. Seven green tests, and none of them is the journey a
 user takes. A user who has been on v2.1.0 since it shipped launches the next
-release once and their database crosses **all six** steps in one `init_db`
+release once and their database crosses **all seven** steps in one `init_db`
 call, with the rows v2.1.0 wrote still in it.
 
 That is what this file tests, and the fixture it starts from is not hand-written:
@@ -32,7 +32,7 @@ What each test establishes is written on it. The short version:
     produces, regenerated out of process against a worktree of its tag (P1)
   * and the newest released fixture is walked too. While the schema it was
     written at is still the one this code ships, that walk must change nothing
-    at all; once a step has been added past it -- as schema 19 is now -- the
+    at all; once a step has been added past it -- as schema 20 is now -- the
     walk is the single step a user of the newest release will take, and every
     row of it has to come out the other side (P9).
 
@@ -102,7 +102,7 @@ GENERATOR = Path(__file__).parent / "fixtures/v2.1.0/generate_corpus.py"
 
 # The version the fixture was written at, and the version it must reach.
 FIXTURE_SCHEMA_VERSION = 13
-TARGET_SCHEMA_VERSION = 19
+TARGET_SCHEMA_VERSION = 20
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +239,7 @@ def _objects(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def test_one_init_db_takes_a_v210_database_from_13_to_19(walked):
+def test_one_init_db_takes_a_v210_database_from_13_to_20(walked):
     """The upgrade a user's first v2.2.0 launch performs, in one call, on a file."""
     conn = walked["conn"]
     assert database.get_schema_version(conn) == TARGET_SCHEMA_VERSION
@@ -532,7 +532,7 @@ def test_the_search_index_answers_the_same_query_with_the_same_papers(walked):
 # are tested with cannot be. A table's other columns have their own constraints,
 # so a row that isolates the column under test has to be written by hand.
 # Every table carrying an enumerated CHECK must appear here -- the test fails
-# rather than skips when one does not, so a schema 19 that adds a table with a
+# rather than skips when one does not, so a schema 20 that adds a table with a
 # new value set cannot slip past by being unrepresented.
 _SHA = "a" * 64
 
@@ -548,6 +548,15 @@ def _template(table: str, column: str, value) -> dict:
             "route_digest": "digest", "binding_basis": "new",
             "created_at_utc": "2026-03-01T00:00:00Z"},
         "cloud_sync": {"provider": "google_drive", "sync_status": "idle"},
+        # Schema 20. ``routine_id`` references a routines row, and the walked
+        # fixture has none, so the FK is satisfied by the CHECK test's own
+        # insert order rather than by a routine existing -- see the note on
+        # ``_template``: the row is valid except for the column under test, and
+        # foreign keys are off for these probes.
+        "routine_missed_fires": {
+            "routine_id": 1, "due_at_utc": "2026-01-01T00:00:00+00:00",
+            "observed_at_utc": "2026-01-02T00:00:00+00:00",
+            "disposition": "recorded"},
         "document_lifecycle": {
             "document_id": 1, "kind": "retraction", "severity": "critical",
             "notice_key": "probe", "notice_url": "https://example.org/n",

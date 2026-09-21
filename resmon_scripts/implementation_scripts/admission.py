@@ -208,6 +208,104 @@ class ExecutionAdmissionController:
             ).start()
 
 
+class RoutineAlreadyRunning(Exception):
+    """One routine, one run. Carries the execution id that holds the claim.
+
+    Raised by the dispatcher only where a caller asked to be told -- the
+    scheduler's own callback treats a held claim as a fire to log and skip,
+    because a scheduled fire arriving while the previous one is still going is
+    an ordinary Tuesday, not an error anyone needs to see as a traceback.
+    """
+
+    def __init__(self, routine_id: int, execution_id: Optional[int]) -> None:
+        self.routine_id = int(routine_id)
+        self.execution_id = execution_id
+        super().__init__(
+            f"Routine {routine_id} is already running"
+            + (f" as execution {execution_id}." if execution_id is not None
+               else ".")
+        )
+
+
+class RoutineClaimRegistry:
+    """One claim per routine id, taken before the worker thread starts.
+
+    **Why a claim and not a query.** The obvious guard is
+    ``SELECT 1 FROM executions WHERE routine_id = ? AND status = 'running'``,
+    and it is wrong twice over. It is wrong late: the row does not exist until
+    ``prepare_execution`` writes it, so two fires a millisecond apart both see
+    nothing and both start. And it is wrong long after: a backend that was
+    SIGKILLed leaves ``running`` rows behind that no process owns, and until the
+    next start reconciles them (schema 19) that query would refuse every fire of
+    the routine forever -- a crash on Monday silencing a routine until somebody
+    noticed. ``SessionBus.try_open`` in ``assistant_runtime`` learned the same
+    lesson about assistant turns; this is that shape.
+
+    **What the claim is, exactly.** An entry in this process's memory, held from
+    before the execution thread starts until that thread's ``finally``. It is
+    therefore a statement about *this* backend and no other, and it does not
+    survive the process -- which is the honest answer to the crash case rather
+    than a defect: a claim held by a process that no longer exists is not
+    evidence that anything is running, and resmon is a desktop app where one
+    backend owns the scheduler (``RESMON_DISABLE_SCHEDULER`` keeps the
+    renderer-spawned fallback out of it). The durable half of the question --
+    what happened to the *rows* a dead backend left behind -- is schema 19's
+    startup reconciliation, and it is not duplicated here.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        # routine_id -> execution id, or None between the claim and the moment
+        # the execution row exists. "Claimed, id not known yet" is a real state
+        # and conflating it with "not claimed" is the window this class closes.
+        self._claims: dict[int, Optional[int]] = {}
+
+    def try_claim(self, routine_id: int) -> bool:
+        """Claim a routine for one run. False when it is already claimed."""
+        with self._lock:
+            rid = int(routine_id)
+            if rid in self._claims:
+                return False
+            self._claims[rid] = None
+            return True
+
+    def bind(self, routine_id: int, exec_id: int) -> None:
+        """Name the execution holding the claim, once its row exists."""
+        with self._lock:
+            rid = int(routine_id)
+            if rid in self._claims:
+                self._claims[rid] = int(exec_id)
+
+    def holder(self, routine_id: int) -> Optional[int]:
+        """The execution id holding the claim, or None.
+
+        ``None`` is ambiguous on purpose -- not claimed, or claimed a moment ago
+        by a fire whose row does not exist yet -- so callers ask
+        ``is_claimed`` when the question is whether to refuse.
+        """
+        with self._lock:
+            return self._claims.get(int(routine_id))
+
+    def is_claimed(self, routine_id: int) -> bool:
+        with self._lock:
+            return int(routine_id) in self._claims
+
+    def release(self, routine_id: int) -> None:
+        """Release the claim. Idempotent; safe from a ``finally``."""
+        with self._lock:
+            self._claims.pop(int(routine_id), None)
+
+    def claimed_routines(self) -> dict[int, Optional[int]]:
+        with self._lock:
+            return dict(self._claims)
+
+
+# Module-level singleton, beside ``admission`` because they gate the same door:
+# ``admission`` answers "has resmon room for another execution at all", and this
+# answers "is *this* routine already running".
+routine_claims = RoutineClaimRegistry()
+
+
 # Module-level singleton. resmon.py hydrates ``_max`` / ``_queue_limit`` from
 # app_settings at FastAPI startup and mutates them via PUT /api/settings/execution.
 admission = ExecutionAdmissionController()

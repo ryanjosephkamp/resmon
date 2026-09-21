@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient } from '../api/client';
+import { newRequestId } from '../api/requestId';
 import { useExecution } from '../context/ExecutionContext';
 import RepositorySelector from '../components/Forms/RepositorySelector';
 import DateRangePicker from '../components/Forms/DateRangePicker';
@@ -82,10 +83,29 @@ const DeepDivePage: React.FC = () => {
     activeExecutions[pageExecIdRef.current]?.status === 'running';
   const buildQuery = () => keywords.join(' ');
 
+  /**
+   * One request in flight at a time, and one `request_id` for it.
+   *
+   * The backend treats two requests carrying the same id as one submission, but
+   * that only turns a double click into one run if both clicks carry the *same*
+   * id -- and minting one per click does the opposite. So the control is
+   * disabled for as long as the request is in flight, and the ref below refuses
+   * a second entry in the window before React has re-rendered the disabled
+   * button (a form can also be submitted with Return). The id is minted once,
+   * here, and a retry of the same submission would reuse it.
+   */
+  const [submitting, setSubmitting] = useState(false);
+  const inFlightRequestId = useRef<string | null>(null);
+
   const handleRun = async () => {
+    if (inFlightRequestId.current !== null) return;
+
     if (!repository) { setError('Please select a repository.'); return; }
     if (keywords.length === 0) { setError('Please enter at least one keyword.'); return; }
     setError('');
+    const requestId = newRequestId();
+    inFlightRequestId.current = requestId;
+    setSubmitting(true);
     try {
       // IMPL-AI13 / Update 2 Feature 2: build optional ai_settings
       // overlay from the disclosure inputs.
@@ -98,6 +118,7 @@ const DeepDivePage: React.FC = () => {
         date_to: dateTo || null,
         max_results: maxResults,
         ai_enabled: aiEnabled,
+        request_id: requestId,
         ephemeral_credentials: Object.fromEntries(
           Object.entries(ephemeralKeys).filter(([, v]) => v.trim().length > 0),
         ),
@@ -106,11 +127,15 @@ const DeepDivePage: React.FC = () => {
       if (loadedConfigIdRef.current !== null) {
         body.saved_configuration_id = loadedConfigIdRef.current;
       }
-      const resp = await apiClient.post<{ execution_id: number }>('/api/search/dive', body);
+      const resp = await apiClient.post<{ execution_id: number; duplicate?: boolean }>(
+        '/api/search/dive', body);
       pageExecIdRef.current = resp.execution_id;
       startExecution(resp.execution_id, 'deep_dive', [repository]);
     } catch (err: any) {
       setError(err.message || 'Failed to start dive.');
+    } finally {
+      inFlightRequestId.current = null;
+      setSubmitting(false);
     }
   };
 
@@ -256,8 +281,8 @@ const DeepDivePage: React.FC = () => {
         {error && <div className="form-error">{error}</div>}
 
         <div className="form-actions">
-          <button type="submit" className="btn btn-primary">
-            {running ? 'Run Another' : 'Run Deep Dive'}
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? 'Starting\u2026' : (running ? 'Run Another' : 'Run Deep Dive')}
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => setSaveModalOpen(true)}>
             Save Configuration

@@ -40,6 +40,7 @@ from implementation_scripts import (            # noqa: E402
     sweep_engine as se,
     watch_profiles as wp,
 )
+from implementation_scripts.admission import routine_claims   # noqa: E402
 from implementation_scripts.api_base import (   # noqa: E402
     Author, BaseAPIClient, NormalizedResult,
 )
@@ -250,7 +251,8 @@ def fired(tmp_path, monkeypatch):
     monkeypatch.setattr(se, "_REQUIRED_CREDENTIALS", {})
     monkeypatch.setattr(se, "REPORTS_DIR", tmp_path / "reports")
 
-    def _sync_launch(engine, exec_id, conn, ephemeral_credentials=None):
+    def _sync_launch(engine, exec_id, conn, ephemeral_credentials=None,
+                     claimed_routine_id=None):
         try:
             engine.run_prepared(exec_id)
         except Exception:
@@ -261,6 +263,13 @@ def fired(tmp_path, monkeypatch):
             # let the exception through would make the failed-execution row look
             # unreachable.
             pass
+        finally:
+            # The real launcher releases the routine's claim in its ``finally``
+            # (see ``_launch_execution``). A double that did not would leave
+            # the routine claimed for the rest of the test session and make the
+            # next fire in the same test look like a duplicate.
+            if claimed_routine_id is not None:
+                routine_claims.release(claimed_routine_id)
 
     monkeypatch.setattr(resmon_mod, "_launch_execution", _sync_launch)
     return TestClient(resmon_mod.app)
