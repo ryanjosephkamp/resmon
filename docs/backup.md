@@ -48,7 +48,9 @@ and the restore rebuilds it from `library_vault.root_path` in the restored datab
   "fk_violations": [             // orphan rows PRAGMA foreign_key_check found, capped at 100
     { "table": "library_file_documents", "rowid": 4, "parent": "documents", "fkid": 0 }
   ],
-  "fk_violations_total": 1,      // the uncapped count
+  "fk_violations_total": 1,      // the uncapped count of unsatisfied references
+  "fk_violations_rows": 1,       // how many distinct rows those references come from;
+                                 // absent on a bundle written before this field existed
   "files": [                      // every file in the bundle except manifest.json itself
     { "path": "resmon.db", "size": 214958080, "sha256": "…" },
     { "path": "vault/vault.json", "size": 61, "sha256": "…" },
@@ -75,7 +77,23 @@ verified and could never be restored. Verify reports the rows, and the restore i
 when the request carries `accept_fk_violations: true`. The pragma answers **per constraint, not
 per row**, so one row with two unsatisfied foreign keys appears twice — `fk_violations_total`
 is therefore a count of unsatisfied *references*, not of rows, and resmon's own wording says
-"references" for that reason.
+"references" for that reason. `fk_violations_rows` is the same references de-duplicated by
+`(table, rowid)`, so a manifest can say "2 references, from 1 row" rather than leaving a
+reader to divide by an unknown.
+
+Two caveats, both load-bearing:
+
+* `fk_violations_rows` is **absent** on a bundle written before it existed. `manifest_version`
+  stays `1`, because the field is additive and everything that reads a manifest treats its
+  absence as *not measured* — never as zero. A verify report of such a bundle carries
+  `fk_violations_rows: null` and its sentence reads exactly as it did before.
+* `PRAGMA foreign_key_check` answers `rowid` **NULL** for a `WITHOUT ROWID` table, and two such
+  references cannot be told apart — they may be one row or two. They are counted in
+  `fk_violations_total` and deliberately **not** in `fk_violations_rows`, so the row count is a
+  count of the rows SQLite identified and never a guess. Where every reference is of that kind,
+  `fk_violations_rows` is `0` with a non-zero total and resmon says it cannot count the rows
+  rather than printing "from 0 rows". resmon's own schema has no `WITHOUT ROWID` table today,
+  so this is a guard rather than a case.
 
 **`excluded.credentials` holds names, never values.** No credential value is written into
 a bundle under any circumstance. The names are there so that a restore can tell the user
@@ -94,6 +112,33 @@ row, so a target that comes back under a different id has no secret bound to it.
    database and copy `vault/` there, as `resmon-library-<vault_id>`, mode `0700`. Remove
    any `.import.lock`: it has no automatic stale-lock recovery, and one left behind makes
    the vault permanently busy.
+
+   That path names the machine the backup came from, and on another machine it often does
+   not exist. Put the directory under any parent you like — the name must stay
+   `resmon-library-<vault_id>`, which `library.vault_row` checks — and then rewrite the row
+   to match: `UPDATE library_vault SET root_path='<parent>/resmon-library-<vault_id>' WHERE
+   singleton=1;`. Do it **after** step 6, so the statement runs against today's schema. In
+   the application this is the *Restore the vault somewhere else…* control on the verify
+   card; the chosen parent travels in the staged pointer as `vault_parent`, and the restore
+   rewrites the row itself, inside the same failure envelope as everything else.
+
+   If a vault directory is already there, move it aside rather than deleting it — that is
+   what the application does, into `restore-undo/<stamp>/vault-replaced/` beside the
+   database files of the same restore, so one *Delete undo copies* removes both halves and
+   a restore that fails after this point puts **both** back. Where the destination held no
+   vault at all, the application removes the tree it wrote instead, so a failed restore
+   leaves the folder you chose exactly as empty as it found it. A vault on a different
+   volume from the state directory is copied rather than renamed, which costs a second copy
+   of every retained byte; that is the right trade against deleting the only copy there is.
+
+   There is one case the undo cannot complete by itself: a move between volumes interrupted
+   while it was *removing* the original leaves the original incomplete and a whole copy in
+   `restore-undo/<stamp>/vault-replaced/`. Putting that copy back automatically would be
+   wrong — the other interruption, during the copy, leaves a *partial* copy beside an intact
+   original — so resmon keeps it instead of deleting it with the rest of the undo directory,
+   names it in `restore-last.json` as `vault_copy_kept`, and leaves it for you to put back by
+   hand. **A failed restore can therefore leave an undo copy that Settings → Storage offers
+   to delete;** check `restore-last.json` before you delete one.
 6. Start resmon once, or otherwise run the migrations, **before** the statements below. An older
    bundle does not have the tables and columns they name — a v2.2.0-era database has no
    `deliveries` table at all — and running them first is how resmon itself got this wrong.

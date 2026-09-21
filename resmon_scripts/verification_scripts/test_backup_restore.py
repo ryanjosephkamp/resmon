@@ -335,10 +335,10 @@ _INTENDED_REWRITES = {
 }
 
 
-def _comparable(snapshot: dict) -> dict:
+def _comparable(snapshot: dict, extra: dict | None = None) -> dict:
     rows = {}
     for table, entries in snapshot["rows"].items():
-        skip = _INTENDED_REWRITES.get(table, ())
+        skip = tuple(_INTENDED_REWRITES.get(table, ())) + tuple((extra or {}).get(table, ()))
         rows[table] = [{k: v for k, v in row.items() if k not in skip} for row in entries]
     return {"tables": snapshot["tables"], "rows": rows, "sequences": snapshot["sequences"]}
 
@@ -353,8 +353,17 @@ def _apply_restore_through_startup(corpus, monkeypatch, bundle: Path):
     return resmon_mod._apply_pending_restore_on_startup()
 
 
-def test_the_restore_drill_is_the_identity(corpus, monkeypatch, tmp_path):
-    """D6/P3: every table, every sequence mark, every vault byte, the FTS answer."""
+@pytest.mark.parametrize("relocate", [False, True], ids=["vault_in_place", "vault_parent"])
+def test_the_restore_drill_is_the_identity(corpus, monkeypatch, tmp_path, relocate):
+    """D6/P3: every table, every sequence mark, every vault byte, the FTS answer.
+
+    Run twice: once with the vault going back where the bundle's database says
+    it was, and once with a ``vault_parent`` chosen on the restoring machine.
+    The second arm is the whole point of the drill for someone whose old vault
+    path does not exist here -- and the only row that may differ between the
+    two is ``library_vault.root_path``, which is exactly the row the relocation
+    rewrites.
+    """
     conn = corpus["conn"]
     before = _snapshot(conn)
     before_fts = _fts_answer(conn)
@@ -376,14 +385,26 @@ def test_the_restore_drill_is_the_identity(corpus, monkeypatch, tmp_path):
     shutil.rmtree(corpus["vault_root"])
     assert not corpus["vault_root"].exists()
 
+    if relocate:
+        chosen = tmp_path / "chosen-vault-parent"
+        chosen.mkdir()
+        vault_root = chosen / backup_module.vault_dir_name(corpus["vault_id"])
+        relocated = {"library_vault": ("root_path",)}
+    else:
+        chosen = None
+        vault_root = corpus["vault_root"]
+        relocated = {}
+
     report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
     assert report["ok"], report["problems"]
-    backup_module.stage_restore(bundle, corpus["state_dir"], report)
+    backup_module.stage_restore(bundle, corpus["state_dir"], report,
+                                vault_parent=str(chosen) if chosen else None)
 
     outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
     assert outcome is not None and outcome["ok"], outcome
     assert backup_module.pending_restore(corpus["state_dir"]) is None
     assert outcome["undo_copy"] and Path(outcome["undo_copy"]).is_dir()
+    assert outcome["vault"]["root_path"] == str(vault_root)
 
     after_conn = db.get_connection(corpus["db_path"])
     try:
@@ -391,7 +412,8 @@ def test_the_restore_drill_is_the_identity(corpus, monkeypatch, tmp_path):
         assert after["tables"] == before["tables"]
         compared = 0
         for table in tables:
-            assert _comparable(after)["rows"][table] == _comparable(before)["rows"][table], table
+            assert _comparable(after, relocated)["rows"][table] == \
+                _comparable(before, relocated)["rows"][table], table
             compared += 1
         print(f"D6: {compared} of {len(tables)} app tables identical after restore "
               f"(intended rewrites excluded on {len(_INTENDED_REWRITES)} of them)")
@@ -433,10 +455,13 @@ def test_the_restore_drill_is_the_identity(corpus, monkeypatch, tmp_path):
         status = lib.status(after_conn)
         assert status["status"] == "ready", status
         assert status["vault"]["vault_id"] == corpus["vault_id"]
+        assert after_conn.execute(
+            "SELECT root_path FROM library_vault WHERE singleton=1"
+        ).fetchone()["root_path"] == str(vault_root)
         with lib.checked_vault(after_conn, corpus["vault_id"]) as (_, root):
             lib._catalog_tree(after_conn, root)
         for item in corpus["files"]:
-            restored = corpus["vault_root"] / item["relative_path"]
+            restored = vault_root / item["relative_path"]
             assert hashlib.sha256(restored.read_bytes()).hexdigest() == item["sha256"]
 
         # The lock is gone, so the vault still accepts an import afterwards.
@@ -858,5 +883,524 @@ def test_the_restore_route_refuses_an_unaccepted_orphan_over_http(tmp_path, monk
             "confirm": "CONFIRM", "path": path, "accept_fk_violations": True})
         assert accepted.status_code == 200, accepted.text
         assert accepted.json()["staged"]["accept_fk_violations"] is True
+    finally:
+        mod.close_db()
+
+
+# ---------------------------------------------------------------------------
+# F1 / P1 -- how many rows, and not only how many references
+# ---------------------------------------------------------------------------
+
+
+def test_the_manifest_verify_and_the_outcome_all_count_rows(corpus, monkeypatch, tmp_path):
+    """P1: one row, two unsatisfied foreign keys -- references 2, rows 1, everywhere.
+
+    The three surfaces are asserted together because they are three copies of
+    the same number and the interesting failure is one of them disagreeing:
+    the manifest is written at backup, verify reads it back out of the bundle,
+    and the outcome record is what Settings shows on the start after.
+    """
+    _orphan(corpus["conn"])
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    assert manifest["fk_violations_total"] == 2
+    assert manifest["fk_violations_rows"] == 1
+    assert "2 references to a parent that is not there, from 1 row" \
+        in manifest["fk_violations_message"]
+
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    assert report["fk_violations_total"] == 2
+    assert report["fk_violations_rows"] == 1
+    assert "from 1 row" in report["fk_violations_message"]
+
+    backup_module.stage_restore(bundle, corpus["state_dir"], report,
+                                accept_fk_violations=True)
+    corpus["conn"].close()
+    outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
+    assert outcome is not None and outcome["ok"], outcome
+    assert outcome["fk_violations_total"] == 2
+    assert outcome["fk_violations_rows"] == 1
+    assert "from 1 row" in outcome["fk_violations_message"]
+
+
+def test_a_without_rowid_orphan_is_counted_as_a_reference_and_not_as_a_row(corpus, tmp_path):
+    """P1's trap: ``foreign_key_check`` answers rowid NULL for a WITHOUT ROWID table.
+
+    Two such references cannot be told apart -- they may be one row or two --
+    so they are counted in the total and never in the row count. The pragma's
+    NULL is asserted here rather than assumed: if a future SQLite started
+    answering a rowid for these, this case would be measuring nothing.
+
+    resmon's own schema has no WITHOUT ROWID table, so the orphan is made in
+    one created for this case; ``PRAGMA foreign_key_check`` looks at whatever
+    the database holds.
+    """
+    conn = corpus["conn"]
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.execute("CREATE TABLE keyless_notes ("
+                 "slug TEXT PRIMARY KEY, document_id INTEGER NOT NULL "
+                 "REFERENCES documents(id)) WITHOUT ROWID")
+    conn.execute("INSERT INTO keyless_notes VALUES ('a', 999999)")
+    conn.execute("INSERT INTO keyless_notes VALUES ('b', 999998)")
+    _orphan(conn)  # one ordinary row with two unsatisfied keys
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=ON")
+
+    raw = conn.execute("PRAGMA foreign_key_check").fetchall()
+    keyless = [r for r in raw if r[0] == "keyless_notes"]
+    assert len(keyless) == 2
+    assert all(r[1] is None for r in keyless), (
+        "this case only measures anything while the pragma gives no rowid here")
+
+    manifest = _make_backup(corpus, tmp_path)
+    # Four references: two from the ordinary row, two with no rowid to count by.
+    assert manifest["fk_violations_total"] == 4
+    assert manifest["fk_violations_rows"] == 1
+    assert "4 references to a parent that is not there, from 1 row" \
+        in manifest["fk_violations_message"]
+
+
+def test_when_nothing_can_be_counted_by_rowid_the_sentence_says_so():
+    """Zero rows with a non-zero total is the only case where every reference was keyless."""
+    listed = [{"table": "keyless_notes", "rowid": None, "parent": "documents", "fkid": 0}]
+    said = backup_module.describe_fk_violations(listed, 2, 0)
+    assert "2 references" in said
+    assert "cannot count" in said
+    assert "from 0 rows" not in said
+
+
+def test_a_bundle_written_before_the_row_count_says_what_it_always_said(corpus, tmp_path):
+    """P1: the field is additive, so its absence is "not measured", never zero.
+
+    ``manifest_version`` stays 1, which means this build reads bundles that
+    predate the field and must not invent a number for them.
+    """
+    _orphan(corpus["conn"])
+    manifest = _make_backup(corpus, tmp_path)
+    path = Path(manifest["path"]) / "manifest.json"
+    raw = json.loads(path.read_text())
+    del raw["fk_violations_rows"]
+    path.write_text(json.dumps(raw, indent=2, sort_keys=True))
+
+    report = backup_module.verify_bundle(Path(manifest["path"]),
+                                         this_schema_version=db.SCHEMA_VERSION)
+    assert report["ok"], report["problems"]
+    assert report["fk_violations_rows"] is None
+    assert "2 references to a parent that is not there (" in report["fk_violations_message"]
+    assert "row" not in report["fk_violations_message"].split("(")[0]
+
+
+# ---------------------------------------------------------------------------
+# F2 / P2 -- the vault half of the undo
+# ---------------------------------------------------------------------------
+
+
+def _vault_hashes(root: Path) -> dict:
+    return {
+        str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(root.rglob("*")) if p.is_file()
+    }
+
+
+def test_a_restore_that_fails_after_the_vault_was_replaced_puts_the_vault_back(
+        corpus, monkeypatch, tmp_path):
+    """P2: both halves of the pair come back, and the undo directory goes.
+
+    The vault on disk is deliberately *newer* than the bundle's -- a fourth
+    file is imported after the backup -- so "byte for byte" is a statement
+    about the user's own vault and not about the copy the restore just laid
+    down. Before this change the restore removed that directory outright, and
+    a failure afterwards put the database back over a vault that no longer
+    existed.
+    """
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+
+    with lib.Import(corpus["conn"], corpus["vault_id"], "fourth.txt", None) as upload:
+        upload.write(b"retained after the backup was taken")
+        upload.finish()
+    corpus["conn"].commit()
+    before_vault = _vault_hashes(corpus["vault_root"])
+    assert len(before_vault) == 5, before_vault  # marker + four retained files
+
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    backup_module.stage_restore(bundle, corpus["state_dir"], report)
+    corpus["conn"].close()
+    before_db = corpus["db_path"].read_bytes()
+
+    seen = {}
+
+    def explode(conn):
+        """Fail after ``_restore_vault`` returned, and record what is on disk then."""
+        copies = backup_module.undo_copies(corpus["state_dir"])
+        seen["undo"] = copies
+        seen["kept"] = sorted(
+            str(p.relative_to(Path(copies[0]))) for p in Path(copies[0]).rglob("*")
+        ) if copies else []
+        raise sqlite3.OperationalError("no such table: deliveries")
+
+    monkeypatch.setattr(backup_module, "_strip_process_state", explode)
+    outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
+
+    assert outcome is not None and not outcome["ok"]
+    assert outcome["undone"] is True
+    # The vault really was set aside rather than deleted: it was inside the
+    # undo directory at the moment the restore failed.
+    assert any(name.startswith(backup_module.VAULT_UNDO_NAME) for name in seen["kept"]), seen
+    assert f"{backup_module.VAULT_UNDO_NAME}/vault.json" in seen["kept"]
+
+    assert _vault_hashes(corpus["vault_root"]) == before_vault
+    assert corpus["db_path"].read_bytes() == before_db
+    assert backup_module.undo_copies(corpus["state_dir"]) == []
+
+
+def test_a_vault_copy_the_undo_could_not_put_back_survives_the_clean_up(
+        corpus, monkeypatch, tmp_path):
+    """The one window where the undo cannot help: the copy must not be deleted too.
+
+    `shutil.move` between volumes copies and then removes, and a removal
+    interrupted part way leaves the original incomplete beside a *complete*
+    copy in the undo directory. The pair is deliberately not recorded then --
+    a copy that failed the other way round (copy interrupted, original intact)
+    must never be moved back over the original -- so the undo skips the vault,
+    and the clean-up used to delete the only whole copy one line later.
+
+    The move is faked rather than performed across a real volume: the fake does
+    exactly what `shutil.move`'s cross-device branch does in that window, which
+    is what the test is about. A genuine two-volume move stays unmeasured and
+    the handback says so.
+    """
+    import shutil as real_shutil
+
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    backup_module.stage_restore(bundle, corpus["state_dir"], report)
+    corpus["conn"].close()
+    before_db = corpus["db_path"].read_bytes()
+    vault_root = corpus["vault_root"]
+
+    class _HalfRemovedMove:
+        """`shutil` for this module only -- patching the module itself is global."""
+
+        def __getattr__(self, name):
+            return getattr(real_shutil, name)
+
+        def move(self, src, dst):
+            if Path(src) != vault_root:
+                return real_shutil.move(src, dst)
+            real_shutil.copytree(src, dst)                  # the copy completed
+            (Path(src) / "vault.json").unlink()             # the removal did not
+            raise OSError("interrupted while removing the original")
+
+    monkeypatch.setattr(backup_module, "shutil", _HalfRemovedMove())
+    outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
+
+    assert outcome is not None and not outcome["ok"]
+    assert corpus["db_path"].read_bytes() == before_db      # the database still came back
+    copies = backup_module.undo_copies(corpus["state_dir"])
+    assert len(copies) == 1, copies
+    kept = Path(copies[0]) / backup_module.VAULT_UNDO_NAME
+    assert kept.is_dir() and (kept / "vault.json").is_file()
+    for item in corpus["files"]:
+        assert hashlib.sha256((kept / item["relative_path"]).read_bytes()).hexdigest() \
+            == item["sha256"]
+    # And the record says where it is, rather than leaving the user to find it.
+    assert outcome["vault_copy_kept"] == str(kept)
+
+
+def test_a_failed_restore_to_an_empty_parent_leaves_that_parent_empty(
+        corpus, monkeypatch, tmp_path):
+    """P2, the `vault_parent` arm: nothing was set aside, so nothing may be left behind.
+
+    The review round found this hole. Where the chosen parent holds no vault --
+    the ordinary case on a second machine, and the case `vault_parent` exists
+    for -- `vault_moved` is empty, so the undo had nothing to put back and the
+    tree `_restore_vault` had just written stayed there: a full
+    `resmon-library-<id>` holding every retained byte the bundle carried, in a
+    folder the user chose, under a restore that reported `undone: True`.
+    """
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    chosen = tmp_path / "empty-chosen-parent"
+    chosen.mkdir()
+
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    backup_module.stage_restore(bundle, corpus["state_dir"], report,
+                                vault_parent=str(chosen))
+    corpus["conn"].close()
+    before_db = corpus["db_path"].read_bytes()
+
+    seen = {}
+
+    def explode(conn):
+        """Fail after `_restore_vault` returned, with the new tree on disk."""
+        seen["during"] = sorted(str(p.relative_to(chosen)) for p in chosen.rglob("*"))
+        raise sqlite3.OperationalError("no such table: deliveries")
+
+    monkeypatch.setattr(backup_module, "_strip_process_state", explode)
+    outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
+
+    assert outcome is not None and not outcome["ok"]
+    assert outcome["undone"] is True
+    # The vault really had been written there, so this case is measuring something.
+    assert any(name.startswith(backup_module.vault_dir_name(corpus["vault_id"]))
+               for name in seen["during"]), seen
+    assert list(chosen.iterdir()) == [], (
+        "a restore that reports it undid everything left a vault the user never had")
+    assert corpus["db_path"].read_bytes() == before_db
+    assert backup_module.undo_copies(corpus["state_dir"]) == []
+    assert outcome["vault_copy_kept"] is None
+
+
+def test_an_undo_copy_covers_both_halves_and_one_delete_removes_both(
+        corpus, monkeypatch, tmp_path):
+    """D2: ``undo_copies`` lists one directory holding both, and deleting it deletes both."""
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    backup_module.stage_restore(bundle, corpus["state_dir"], report)
+    corpus["conn"].close()
+
+    outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
+    assert outcome["ok"], outcome
+    assert outcome["undo_includes_vault"] is True
+    copies = backup_module.undo_copies(corpus["state_dir"])
+    assert copies == [outcome["undo_copy"]]
+    kept = Path(copies[0])
+    assert (kept / "resmon.db").is_file()
+    assert (kept / backup_module.VAULT_UNDO_NAME / "vault.json").is_file()
+
+    assert backup_module.delete_undo_copies(corpus["state_dir"]) == 1
+    assert not kept.exists()
+    assert backup_module.undo_copies(corpus["state_dir"]) == []
+
+
+# ---------------------------------------------------------------------------
+# F3 / P3, P4 -- a vault parent on the restoring machine
+# ---------------------------------------------------------------------------
+
+
+SCRIPTS = PROJECT_ROOT / "resmon_scripts"
+
+#: The restore step, run in a second interpreter that has never imported this
+#: test's modules, against the environment the packaged app actually passes:
+#: ``RESMON_DB_PATH`` and ``RESMON_STATE_DIR``. A restart is a new process, and
+#: this is the closest a hermetic test gets to one without binding a socket.
+#: That the lifespan calls this step is a separate case
+#: (``test_the_restore_step_is_wired_into_the_lifespan``).
+_RESTORE_IN_A_SECOND_PROCESS = (
+    "import json, sys;"
+    "import resmon;"
+    "print('OUTCOME ' + json.dumps(resmon._apply_pending_restore_on_startup()))"
+)
+
+
+def _restart_in_a_second_process(db_path: Path, state_dir: Path, reports_dir: Path) -> dict:
+    import subprocess
+
+    env = {**os.environ,
+           "RESMON_DB_PATH": str(db_path),
+           "RESMON_STATE_DIR": str(state_dir),
+           "RESMON_REPORTS_DIR": str(reports_dir),
+           "RESMON_DISABLE_SCHEDULER": "1"}
+    done = subprocess.run([sys.executable, "-c", _RESTORE_IN_A_SECOND_PROCESS],
+                          cwd=str(SCRIPTS), env=env, capture_output=True,
+                          text=True, timeout=180)
+    assert done.returncode == 0, done.stderr
+    line = [l for l in done.stdout.splitlines() if l.startswith("OUTCOME ")]
+    assert line, done.stdout + done.stderr
+    return json.loads(line[-1][len("OUTCOME "):])
+
+
+def test_verify_says_where_the_vault_would_go_and_whether_that_works_here(corpus, tmp_path):
+    """P3/D3: the destination comes out of the *bundle's* database, not this one."""
+    manifest = _make_backup(corpus, tmp_path)
+    report = backup_module.verify_bundle(Path(manifest["path"]),
+                                         this_schema_version=db.SCHEMA_VERSION)
+    destination = report["vault_destination"]
+    assert destination["root_path"] == str(corpus["vault_root"])
+    assert destination["parent"] == str(corpus["vault_root"].parent)
+    assert destination["name"] == backup_module.vault_dir_name(corpus["vault_id"])
+    assert destination["parent_exists"] is True
+    assert destination["parent_writable"] is True
+
+    # The second-machine case: that parent is not here.
+    shutil.rmtree(corpus["vault_root"].parent)
+    again = backup_module.verify_bundle(Path(manifest["path"]),
+                                        this_schema_version=db.SCHEMA_VERSION)
+    assert again["ok"], again["problems"]      # reported, never a refusal
+    assert again["vault_destination"]["parent_exists"] is False
+    assert again["vault_destination"]["parent_writable"] is False
+
+
+def test_a_bundle_with_no_vault_has_no_destination_to_show(tmp_path):
+    """The card shows none of this for a bundle that carries no vault."""
+    db_path = tmp_path / "novault" / "resmon.db"
+    db_path.parent.mkdir(parents=True)
+    conn = db.get_connection(db_path)
+    try:
+        db.init_db(conn=conn)
+        _seed_documents(conn, 1)
+        conn.commit()
+        manifest = backup_module.create_backup(
+            conn, tmp_path / "backups", app_version="2.2.0",
+            schema_version=db.SCHEMA_VERSION, include_reports=False,
+            reports_dir=None, state_dir=db_path.parent)
+    finally:
+        conn.close()
+    assert manifest["vault_id"] is None
+    report = backup_module.verify_bundle(Path(manifest["path"]),
+                                         this_schema_version=db.SCHEMA_VERSION)
+    assert report["vault_destination"] is None
+
+
+def test_a_restore_staged_with_a_vault_parent_lands_the_vault_there(corpus, tmp_path):
+    """P3: the vault goes where this machine chose, and the corpus works afterwards.
+
+    Machine A's vault parent is removed entirely before the restore, so a
+    restore -- or the backup taken after it -- that still read from the old
+    location could not succeed at all. The final backup re-hashes every
+    retained byte against the catalog, from the new root.
+    """
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    retained = len(corpus["files"])
+    corpus["conn"].close()
+
+    machine_b = tmp_path / "machine-b"
+    (machine_b / "state").mkdir(parents=True)
+    (machine_b / "vaults").mkdir()
+    fresh_db = machine_b / "state" / "resmon.db"
+    chosen = machine_b / "vaults"
+    shutil.rmtree(corpus["vault_root"].parent)          # machine A is gone
+
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    assert report["vault_destination"]["parent_exists"] is False
+    resolved = backup_module.validate_vault_parent(
+        str(chosen), bundle=bundle, vault_id=manifest["vault_id"])
+    backup_module.stage_restore(bundle, machine_b / "state", report,
+                                vault_parent=str(resolved))
+
+    outcome = _restart_in_a_second_process(
+        fresh_db, machine_b / "state", machine_b / "reports")
+    assert outcome and outcome["ok"], outcome
+    assert outcome["vault"]["restored"] is True
+    expected_root = chosen / backup_module.vault_dir_name(corpus["vault_id"])
+    assert outcome["vault"]["root_path"] == str(expected_root)
+    assert expected_root.is_dir()
+
+    conn = db.get_connection(fresh_db)
+    try:
+        assert conn.execute(
+            "SELECT root_path FROM library_vault WHERE singleton=1"
+        ).fetchone()["root_path"] == str(expected_root)
+        assert lib.status(conn)["status"] == "ready"
+        assert len(lib.list_files(conn, corpus["vault_id"])["files"]) == retained
+        for item in corpus["files"]:
+            copied = expected_root / item["relative_path"]
+            assert hashlib.sha256(copied.read_bytes()).hexdigest() == item["sha256"]
+
+        # A Library import works against the relocated vault.
+        with lib.Import(conn, corpus["vault_id"], "after-the-move.txt", None) as upload:
+            upload.write(b"an import after the vault moved house")
+            assert upload.finish()["file"]["file_id"]
+
+        # And a backup taken here re-hashes every byte from the new location:
+        # `_copy_vault` reads through `library_vault.root_path` and aborts on a
+        # missing or mismatched file, and the old parent no longer exists.
+        again = backup_module.create_backup(
+            conn, machine_b / "backups", app_version="2.2.0",
+            schema_version=db.SCHEMA_VERSION, include_reports=False,
+            reports_dir=None, state_dir=machine_b / "state")
+        vault_entries = [f for f in again["files"] if f["path"].startswith("vault/")]
+        print(f"F3: {len(vault_entries)} vault entries re-hashed from the new root "
+              f"({retained + 1} retained files plus the marker)")
+        assert len(vault_entries) == retained + 2
+    finally:
+        conn.close()
+
+
+def _bundle_for_route(client, mod, tmp_path, name):
+    conn = mod._get_db()
+    ids = _seed_documents(conn, 3)
+    parent = tmp_path / name
+    parent.mkdir()
+    _seed_vault(conn, parent, ids)
+    conn.commit()
+    response = client.post("/api/backup", json={"confirm": "CONFIRM",
+                                                "include_reports": False})
+    assert response.status_code == 200, response.text
+    return response.json()["path"]
+
+
+@pytest.mark.parametrize("reason", backup_module.VAULT_PARENT_REFUSALS)
+def test_every_vault_parent_refusal_is_made_at_the_route_and_stages_nothing(
+        reason, tmp_path, monkeypatch):
+    """P4: 6 of 6 refusals, the denominator being ``backup.VAULT_PARENT_REFUSALS``.
+
+    Each one is refused where the user is still holding the dialog, and none of
+    them leaves a pointer behind -- a refusal that staged anything would be a
+    restore nobody agreed to.
+    """
+    client, mod, db_path = _route_client(tmp_path, monkeypatch)
+    try:
+        path = _bundle_for_route(client, mod, tmp_path, f"vault-{reason}")
+        vault_id = backup_module.read_manifest(Path(path))["vault_id"]
+        home = tmp_path / "homes" / reason
+        home.mkdir(parents=True)
+
+        if reason == "vault_parent_not_absolute":
+            chosen = "somewhere/relative"
+        elif reason == "vault_parent_missing":
+            chosen = str(home / "not-here")
+        elif reason == "vault_parent_not_a_directory":
+            target = home / "a-file"
+            target.write_text("not a folder")
+            chosen = str(target)
+        elif reason == "vault_parent_not_writable":
+            target = home / "read-only"
+            target.mkdir()
+            os.chmod(target, 0o500)
+            if os.access(target, os.W_OK):
+                pytest.skip("this user can write into a 0500 directory; "
+                            "the refusal cannot be observed here")
+            chosen = str(target)
+        elif reason == "vault_parent_inside_bundle":
+            chosen = str(Path(path) / "vault")
+        else:
+            target = home / "taken"
+            (target / backup_module.vault_dir_name(vault_id)).mkdir(parents=True)
+            (target / backup_module.vault_dir_name(vault_id) / "vault.json").write_text(
+                json.dumps({"version": 1,
+                            "vault_id": "11111111-1111-1111-1111-111111111111"}))
+            chosen = str(target)
+
+        refused = client.post("/api/restore", json={
+            "confirm": "CONFIRM", "path": path, "vault_parent": chosen})
+        assert refused.status_code == 400, refused.text
+        assert refused.json()["detail"]["reason"] == reason, refused.text
+        assert client.get("/api/backup/last").json()["pending_restore"] is None
+    finally:
+        try:
+            os.chmod(tmp_path / "homes" / reason / "read-only", 0o700)
+        except OSError:
+            pass
+        mod.close_db()
+
+
+def test_an_accepted_vault_parent_reaches_the_pointer(tmp_path, monkeypatch):
+    """The other half of P4: a parent that passes every check is what gets staged."""
+    client, mod, db_path = _route_client(tmp_path, monkeypatch)
+    try:
+        path = _bundle_for_route(client, mod, tmp_path, "vault-ok")
+        chosen = tmp_path / "somewhere-else"
+        chosen.mkdir()
+        staged = client.post("/api/restore", json={
+            "confirm": "CONFIRM", "path": path, "vault_parent": str(chosen)})
+        assert staged.status_code == 200, staged.text
+        assert staged.json()["staged"]["vault_parent"] == str(chosen.resolve())
+        pending = client.get("/api/backup/last").json()["pending_restore"]
+        assert pending["vault_parent"] == str(chosen.resolve())
     finally:
         mod.close_db()
