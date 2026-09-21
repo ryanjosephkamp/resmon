@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
+import BackupRestore from './BackupRestore';
 
 const POLICIES = ['save', 'archive', 'discard'] as const;
 
@@ -57,6 +58,19 @@ const StorageSettings: React.FC = () => {
                 (Markdown, LaTeX, PDF, figures, and logs). Change it to
                 move your output off the project folder — e.g. onto a
                 larger drive or into a synced folder.
+              </p>
+            ),
+          },
+          {
+            heading: 'Backup and restore',
+            body: (
+              <p>
+                <em>Back up now</em> writes a folder holding your database as a
+                consistent snapshot, every byte in your Library vault, and a
+                manifest that hashes all of it. Credentials are never written
+                into a backup. <em>Restore from backup…</em> checks a folder and
+                then stages it: the restore itself runs the next time resmon
+                starts, and the database it replaces is kept so you can undo it.
               </p>
             ),
           },
@@ -171,6 +185,7 @@ const StorageSettings: React.FC = () => {
         </div>
         {status && <div className={status.startsWith('Error') ? 'form-error' : 'form-success'}>{status}</div>}
       </div>
+      <BackupRestore />
     </div>
   );
 };

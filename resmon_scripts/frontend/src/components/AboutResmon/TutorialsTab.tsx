@@ -709,20 +709,26 @@ export const sections: TutorialSection[] = [
   {
     anchor: 'settings-storage',
     title: 'Settings → Storage',
-    blurb: 'Export directory plus reserved PDF / TXT retention policies.',
+    blurb: 'Backup and restore, export directory, plus reserved PDF / TXT retention policies.',
     mediaCaption: 'Storage settings demo.',
     youtubeId: 'sfdtAVRp_rc',
     instructions: [
       'Set `export_directory` to pin where configuration / execution exports land; leaving it blank routes exports to a temporary file.',
       'Pick a `pdf_policy` and `txt_policy` (each constrained to `save`, `archive`, or `discard`) and an `archive_after_days` window.',
       'Click `Save` to persist via `PUT /api/settings/storage`.',
+      'Under **Backup and restore**, click `Back up now` to write a bundle into the export directory: your database as a consistent snapshot, every byte in your Library vault, optionally the reports tree, and a manifest that hashes all of it.',
+      'Click `Restore from backup…` and pick a bundle folder. resmon re-hashes every file and shows you the report before anything is committed; `Restart to restore` only schedules the work for the next start.',
     ],
     features: [
       'Retention policy prunes reports older than the archive window on daemon startup.',
+      'A backup carries the database and the Library vault together, because a database restored without its retained bytes leaves the vault refusing every import.',
+      'A restore moves your current database aside rather than deleting it, and puts it back if anything fails. The copy is kept until your next backup or until you delete it here.',
     ],
     tips: [
       'PDF and TXT policies are reserved for a future per-paper artifact download feature and have no effect on current Deep Dive / Deep Sweep output.',
       'Set the export directory to a synced folder (Drive, Dropbox, iCloud) to share exported reports across devices.',
+      'No credential value is ever written into a backup. After a restore, this tab lists by name the keyring entries this machine is missing — SMTP password, provider keys, webhook secrets, the Drive token — so you can enter them again.',
+      'A backup taken while a sweep is running is still a consistent snapshot: the database is read through the SQLite backup API, not copied.',
     ],
     destination: { path: '/settings/storage', label: 'Go to Tab' },
   },
