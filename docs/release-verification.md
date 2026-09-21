@@ -936,3 +936,97 @@ Kept outside the repository: `release-metadata.txt`, `sizes.txt`, `sha256.txt`,
 `dmg-xattr.txt`, `info-plist.txt`, `lsof-before.txt`, `arm64-stdout.log`,
 `arm64-stderr.log`, `packaged-token-check.txt`. This section is the only file this PR
 changes.
+
+## v2.3.0 run
+
+### Subject and launch conditions
+
+Observed on **2026-09-21**, macOS **26.3.1**, arm64 host, by the maintainer's lead agent.
+The subject was [the published v2.3.0 release](https://github.com/ryanjosephkamp/resmon/releases/tag/v2.3.0),
+published at `2026-09-21T22:19:55Z` from tag `v2.3.0` on `2b2b7d0` (PR #156). The release
+PR merged with every required job green on its exact head (`c9e3a10`), and the walk a
+2.2.0 corpus takes (18 → 21) is proven in the ordinary suite over the v2.2.0 fixture
+(`test_one_init_db_over_the_newest_releases_fixture_keeps_every_row[v2.2.0]`: 171 of 171
+rows, 13 of 13 sequences).
+
+All seven assets were downloaded with `gh release download v2.3.0` into a scratch directory
+outside both checkouts. The arm64 DMG was mounted read-only (`hdiutil attach -readonly
+-nobrowse`) and its app copied with `ditto` into the scratch tree, never `/Applications`.
+The DMG carried `com.apple.provenance` and no quarantine attribute; nothing was changed. The
+copied bundle's `Info.plist` reported `CFBundleShortVersionString` **2.3.0**, `CFBundleVersion`
+**2.3.0**, identifier `com.resmon.app`. LaunchServices used the isolated form of the
+procedure above (`open -n -a`, `RESMON_STATE_DIR` and `--user-data-dir` under the scratch
+tree, stdout and stderr captured). Neither `RESMON_PYTHON` nor `RESMON_E2E` was supplied;
+the published bundle used its own Python. The startup log read `[main] Starting backend on
+port 52842` then `[main] Backend is ready`. `lsof -nP -iTCP:8742 -sTCP:LISTEN` showed the
+same pre-existing listener before, during and after; port 8742 was never contacted.
+
+### Asset inventory against v2.2.0
+
+All **7/7** names matched the v2.2.0 matrix after substituting the version. Downloaded byte
+sizes matched the release metadata **7/7**. Every asset is within ±0.25% of its v2.2.0
+size: the release adds backend code and docs and removes `tailwindcss`, so the installers
+neither grew nor shrank measurably. The two updater feed files are byte-for-byte the same
+size.
+
+| Asset | v2.2.0 bytes | v2.3.0 release bytes | Downloaded bytes |
+|---|---:|---:|---:|
+| `latest-linux.yml` | 378 | 378 | 378 |
+| `latest.yml` | 349 | 349 | 349 |
+| `resmon-2.3.0-arm64.dmg` | 224,785,384 | 224,727,061 | 224,727,061 |
+| `resmon-2.3.0-setup-x64.exe` | 197,500,855 | 197,510,191 | 197,510,191 |
+| `resmon-2.3.0-setup-x64.exe.blockmap` | 206,594 | 207,054 | 207,054 |
+| `resmon-2.3.0-x64.dmg` | 226,694,739 | 226,629,279 | 226,629,279 |
+| `resmon-2.3.0-x86_64.AppImage` | 254,495,346 | 254,396,713 | 254,396,713 |
+
+The arm64 DMG SHA-256 was
+`555be6c8fe43f69db78568f37064bf0f83037918eeffcf6c27d30dc281f929b9`; the x64 DMG
+`544a1ffe03bd553c299360a0958fe9e4c4f7172b83714460b7b2be6cb51591bb`.
+
+### The published backend, its schema and its guard
+
+The isolated state directory held `api-token-52842` (mode `0600`) beside `resmon.port`
+within seconds of launch. Against the published backend on its own ephemeral port, from
+`curl` on the same host:
+
+| Request to `GET /api/health` | Answer |
+|---|---|
+| no `Authorization` header | `401` |
+| `Authorization: Bearer not-the-token` | `401` |
+| the token from `api-token-52842` | `200`; `status` was `ok`, `version` was `2.3.0`, `identity.schema_version` was `21` |
+| right token, `Origin: https://evil.example` | `403` |
+| right token, `Host: attacker.example` | `403` |
+
+Five of five answers are the ones `docs/local-api-security.md` specifies. A fresh state
+directory came up at schema 21; the 18 → 21 walk over an existing corpus is the suite's
+proof above, not this run's.
+
+### Isolation and cleanup — and a clean exit this time
+
+The five processes belonging to the copied app were sent `SIGTERM`. **All five were gone
+within one second**, and the state directory afterwards held only `resmon.db`, `-wal` and
+`-shm`: the token file had been removed, which is the documented clean-shutdown case. The
+v2.2.0 run recorded this as unverified after a five-second wait and a `SIGKILL`; this run
+waited up to thirty seconds and needed one. The packaged app's exit on `SIGTERM` is now
+**verified on arm64 macOS**, and L-105 narrows accordingly. The image was detached; the
+downloaded installers, the copied app, its Chromium profile and its state directory were
+removed; the launch logs, size and digest receipts, plist excerpt, health body and the guard
+table above were kept outside the repository.
+
+### What this run did not do
+
+No route walk was performed in the published window; the built-app end-to-end job on the
+release head covers that surface for a locally built app, not the installer. The x64 DMG was
+downloaded and hashed but not launched. Windows and Linux evidence is limited to asset names
+and byte sizes. No Gatekeeper prompt was exercised, because the command-line download carried
+no quarantine attribute. No assistant turn was attempted, no backup was taken and no restore
+was staged in the published app. The x64, Windows and Linux installers remain
+launch-unverified.
+
+### Evidence and scope
+
+Kept outside the repository: `release-metadata.json`, `assets.tsv`, `prev-assets.tsv`,
+`sizes.txt`, `downloaded-vs-metadata.txt`, `sha256.txt`, `dmg-xattr.txt`, `info-plist.txt`,
+`lsof-8742-before.txt`, `lsof-8742-during.txt`, `lsof-8742-after.txt`, `arm64-stdout.log`,
+`arm64-stderr.log`, `packaged-token-check.txt`, `health-body.txt`, `processes.txt`,
+`state-after-stop.txt`. This section is the only change in this PR.
