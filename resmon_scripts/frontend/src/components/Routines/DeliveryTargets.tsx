@@ -4,12 +4,17 @@ import { apiClient } from '../../api/client';
 /**
  * Where this routine's report is sent — the editable list.
  *
- * Two kinds of destination ship. An **email address**, which may be left blank
- * to mean the one in Settings → Email (which is where it came from before
- * there was a list at all, so every routine the upgrade seeded reads that way).
- * And a **folder**: a directory on this machine, which is how a cloud drive
- * becomes a destination — resmon writes the report bundle into it and the
- * drive's own client syncs it, with nothing of ours on the wire.
+ * Four kinds of destination ship. An **email address**, which may be left
+ * blank to mean the one in Settings → Email (which is where it came from
+ * before there was a list at all, so every routine the upgrade seeded reads
+ * that way). A **folder**: a directory on this machine, which is how a cloud
+ * drive becomes a destination — resmon writes the report bundle into it and
+ * the drive's own client syncs it, with nothing of ours on the wire. A
+ * **webhook**: an https address you own, which receives a signed JSON
+ * envelope; its shared secret is typed here and goes straight to the system
+ * keychain, and this screen only ever reports whether one is saved. And a
+ * **feed**: an Atom file written into a folder, which any feed reader or a
+ * static site can point at.
  *
  * Each destination is either **automatic** or **waits for review**. Review
  * means the delivery is recorded and held until you release it from the
@@ -28,6 +33,49 @@ interface Target {
   mode: 'automatic' | 'review';
 }
 
+/** What each channel is called, and what its target box wants. */
+const CHANNEL_LABELS: Record<string, string> = {
+  email: 'Email address',
+  folder: 'Folder',
+  webhook: 'Webhook (https)',
+  feed: 'Feed file (Atom)',
+};
+
+const CHANNEL_PLACEHOLDERS: Record<string, string> = {
+  email: 'name@example.org (blank = Settings → Email)',
+  folder: '/Users/you/Dropbox',
+  webhook: 'https://example.org/resmon-hook',
+  feed: '/Users/you/Sites',
+};
+
+/**
+ * A webhook destination is stored as a URL, or as `{"url":…,"inline":true}`
+ * when the bundle should travel inside the envelope instead of being fetched
+ * from a link. One text column carries both forms rather than a schema change
+ * for a single boolean; this is the pair of functions that reads and writes it.
+ */
+const readWebhook = (raw: string): { url: string; inline: boolean } => {
+  const text = (raw || '').trim();
+  if (text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text);
+      return { url: String(parsed?.url || ''), inline: Boolean(parsed?.inline) };
+    } catch {
+      return { url: '', inline: false };
+    }
+  }
+  return { url: text, inline: false };
+};
+
+const writeWebhook = (url: string, inline: boolean): string =>
+  (inline ? JSON.stringify({ url: url.trim(), inline: true }) : url.trim());
+
+const displayTarget = (t: Target): string => {
+  if (t.channel === 'webhook') return readWebhook(t.target).url || '(not set)';
+  if (t.channel === 'email') return t.target || 'the address in Settings → Email';
+  return t.target || '(not set)';
+};
+
 const DeliveryTargets: React.FC<{ routineId: number }> = ({ routineId }) => {
   const [targets, setTargets] = useState<Target[]>([]);
   const [channels, setChannels] = useState<string[]>([]);
@@ -35,6 +83,11 @@ const DeliveryTargets: React.FC<{ routineId: number }> = ({ routineId }) => {
   const [draftChannel, setDraftChannel] = useState('email');
   const [draftTarget, setDraftTarget] = useState('');
   const [draftMode, setDraftMode] = useState<'automatic' | 'review'>('automatic');
+  const [draftInline, setDraftInline] = useState(false);
+  // Which destinations have a signing secret in the keychain. Presence only:
+  // the value is never read back, by this screen or by anything else.
+  const [secrets, setSecrets] = useState<Record<number, boolean>>({});
+  const [secretDraft, setSecretDraft] = useState<Record<number, string>>({});
 
   const load = useCallback(async () => {
     try {
@@ -42,6 +95,20 @@ const DeliveryTargets: React.FC<{ routineId: number }> = ({ routineId }) => {
         `/api/routines/${routineId}/delivery-targets`,
       );
       setTargets(data.targets);
+      const presence: Record<number, boolean> = {};
+      await Promise.all(data.targets
+        .filter((t) => t.channel === 'webhook')
+        .map(async (t) => {
+          try {
+            const probe = await apiClient.get<{ credentials: Record<string, { present: boolean }> }>(
+              '/api/credentials',
+            );
+            presence[t.id] = Boolean(probe.credentials?.[`webhook_secret_${t.id}`]?.present);
+          } catch {
+            presence[t.id] = false;
+          }
+        }));
+      setSecrets(presence);
       // The channels the backend can actually act on, asked of the backend:
       // the schema's vocabulary is wider than what has an adapter behind it.
       setChannels(data.shipped_channels);
@@ -55,10 +122,14 @@ const DeliveryTargets: React.FC<{ routineId: number }> = ({ routineId }) => {
   const add = async () => {
     setError('');
     try {
+      const target = draftChannel === 'webhook'
+        ? writeWebhook(draftTarget, draftInline)
+        : draftTarget.trim();
       await apiClient.post(`/api/routines/${routineId}/delivery-targets`, {
-        channel: draftChannel, target: draftTarget.trim(), mode: draftMode,
+        channel: draftChannel, target, mode: draftMode,
       });
       setDraftTarget('');
+      setDraftInline(false);
       await load();
     } catch (err: any) {
       setError(err?.message || 'Could not add that destination.');
@@ -72,6 +143,26 @@ const DeliveryTargets: React.FC<{ routineId: number }> = ({ routineId }) => {
       await load();
     } catch (err: any) {
       setError(err?.message || 'Could not change that destination.');
+    }
+  };
+
+  /**
+   * Send one destination's signing secret to the keychain.
+   *
+   * Through `PUT /api/credentials/webhook_secret_<id>`, the same route the
+   * SMTP password takes: no delivery secret is ever written to a table, a
+   * setting or this component's state after it has been sent (B12).
+   */
+  const saveSecret = async (t: Target) => {
+    const value = (secretDraft[t.id] || '').trim();
+    if (!value) return;
+    setError('');
+    try {
+      await apiClient.put(`/api/credentials/webhook_secret_${t.id}`, { value });
+      setSecretDraft((d) => ({ ...d, [t.id]: '' }));
+      await load();
+    } catch (err: any) {
+      setError(err?.message || 'Could not save that secret.');
     }
   };
 
@@ -105,11 +196,26 @@ const DeliveryTargets: React.FC<{ routineId: number }> = ({ routineId }) => {
           {targets.map((t) => (
             <li key={t.id} data-testid={`delivery-target-${t.id}`}>
               <span className="delivery-channel">{t.channel}</span>
-              <span className="delivery-target-value">
-                {t.target || (t.channel === 'email'
-                  ? 'the address in Settings → Email'
-                  : '(not set)')}
-              </span>
+              <span className="delivery-target-value">{displayTarget(t)}</span>
+              {t.channel === 'webhook' && (
+                <span className="delivery-webhook-secret">
+                  <span className="text-muted" data-testid={`delivery-secret-state-${t.id}`}>
+                    {secrets[t.id] ? 'secret saved' : 'no secret yet'}
+                  </span>
+                  <input
+                    type="password"
+                    className="form-input"
+                    aria-label="Shared secret for this webhook"
+                    placeholder="set secret"
+                    value={secretDraft[t.id] || ''}
+                    onChange={(e) => setSecretDraft(
+                      (d) => ({ ...d, [t.id]: e.target.value }))}
+                  />
+                  <button type="button" className="btn btn-sm"
+                          data-testid={`delivery-secret-save-${t.id}`}
+                          onClick={() => saveSecret(t)}>Save secret</button>
+                </span>
+              )}
               <select
                 className="form-input"
                 value={t.mode}
@@ -140,7 +246,7 @@ const DeliveryTargets: React.FC<{ routineId: number }> = ({ routineId }) => {
           onChange={(e) => setDraftChannel(e.target.value)}
         >
           {channels.map((c) => (
-            <option key={c} value={c}>{c === 'email' ? 'Email address' : 'Folder'}</option>
+            <option key={c} value={c}>{CHANNEL_LABELS[c] || c}</option>
           ))}
         </select>
         <input
@@ -148,11 +254,19 @@ const DeliveryTargets: React.FC<{ routineId: number }> = ({ routineId }) => {
           className="form-input"
           value={draftTarget}
           aria-label="Address or folder"
-          placeholder={draftChannel === 'email'
-            ? 'name@example.org (blank = Settings → Email)'
-            : '/Users/you/Dropbox'}
+          placeholder={CHANNEL_PLACEHOLDERS[draftChannel] || ''}
           onChange={(e) => setDraftTarget(e.target.value)}
         />
+        {draftChannel === 'webhook' && (
+          <label className="delivery-inline-choice">
+            <input
+              type="checkbox"
+              checked={draftInline}
+              onChange={(e) => setDraftInline(e.target.checked)}
+            />
+            {' '}Send the bundle inside the envelope
+          </label>
+        )}
         <select
           className="form-input"
           value={draftMode}
@@ -165,6 +279,14 @@ const DeliveryTargets: React.FC<{ routineId: number }> = ({ routineId }) => {
         <button type="button" className="btn btn-sm" onClick={add}
                 data-testid="delivery-target-add">Add destination</button>
       </div>
+
+      {channels.includes('webhook') && (
+        <p className="text-muted">
+          A webhook needs a shared secret before resmon will send to it: add the
+          destination, then type the secret on its row. resmon signs every
+          envelope with it and will not send an unsigned one.
+        </p>
+      )}
 
       {error && <div className="form-error" role="alert">{error}</div>}
     </div>

@@ -221,11 +221,22 @@ const RoutinesPage: React.FC = () => {
               <>
                 <p>
                   A routine&rsquo;s report can be <strong>delivered</strong> to as many
-                  destinations as you like: an <strong>email address</strong>, or a{' '}
+                  destinations as you like. An <strong>email address</strong>. A{' '}
                   <strong>folder</strong> &mdash; which is how a cloud drive becomes a
-                  destination. resmon writes the report bundle into the folder and your
-                  drive&rsquo;s own client syncs it; nothing of ours goes over the wire.
-                  Add them in the routine&rsquo;s editor, under <em>Delivery</em>.
+                  destination: resmon writes the report bundle into the folder and your
+                  drive&rsquo;s own client syncs it, with nothing of ours going over the
+                  wire. A <strong>webhook</strong>, an https address you own, which
+                  receives a signed summary of the run and a link to the bundle. Or a{' '}
+                  <strong>feed</strong>, an Atom file in a folder that any feed reader
+                  &mdash; or a static site &mdash; can point at. Add them in the
+                  routine&rsquo;s editor, under <em>Delivery</em>.
+                </p>
+                <p>
+                  A webhook needs a <strong>shared secret</strong>, which you type on the
+                  destination&rsquo;s row. It goes straight into this computer&rsquo;s
+                  keychain; resmon signs every envelope with it so your receiver can be
+                  sure the message is yours, and it will not send an unsigned one. The
+                  screen only ever tells you whether a secret is saved, never what it is.
                 </p>
                 <p>
                   Each destination is either <strong>automatic</strong> or{' '}

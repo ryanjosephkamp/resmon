@@ -176,7 +176,8 @@ export const sections: TutorialSection[] = [
       '`What this routine is really looking for` is optional and is the sentence the coverage audit compares results against. Leave it blank and the audit falls back to the keywords, which is a circular reading — the panel says so when it does.',
       'Use `Edit` on any local row to reopen the editor pre-populated from the existing routine; saving issues `PUT /api/routines/{id}`.',
       'Toggle `Activate` / `Deactivate` to start or stop scheduling without deleting the row.',
-      'In the editor of a saved routine, `Delivery` lists where its report goes: an email address (blank means the one in Settings \u2192 Email) or a folder your cloud drive syncs. Each destination is either automatic or waits for your review.',
+      'In the editor of a saved routine, `Delivery` lists where its report goes, in four kinds: an email address (blank means the one in Settings \u2192 Email), a folder your cloud drive syncs, a webhook (an https address you own, which gets a signed summary and a link to the bundle), or a feed (an Atom file in a folder, which any feed reader can point at). Each destination is either automatic or waits for your review.',
+      'A webhook destination needs a shared secret: add the destination, then type the secret on its row. It goes to this computer\u2019s keychain, resmon signs every envelope with it, and an unsigned envelope is never sent. The screen tells you only whether a secret is saved.',
       'Under any routine, `Where did this go?` opens the delivery record \u2014 every attempt, its state, how many tries, and the reason if it has not arrived \u2014 with Deliver, Skip and Retry.',
     ],
     features: [
@@ -190,6 +191,7 @@ export const sections: TutorialSection[] = [
       'A routine whose fire came due while resmon was closed says so on its row: `missed N fires while resmon was closed`, with the last time it was due, and a `Run now` button that runs it once and marks those fires as answered by a late run.',
       'Delivery is recorded, not assumed: a failed send is kept with its reason and retried after 1, 5 and 25 minutes, and a delivery interrupted by a force-quit is picked up by the next start rather than lost.',
       'A destination set to `wait for my review` never sends on its own, however long it waits \u2014 releasing it is a button a person presses.',
+      'A feed file is rewritten whole on each delivery and holds the newest 50 runs, newest first. It carries no script, no tracker and no link that has a secret in it \u2014 a feed gets copied into shared folders, so the signed bundle link deliberately never appears in one.',
     ],
     tips: [
       'Write an intent for each routine — the optional box in the editor, one sentence describing what you actually want. It costs nothing and turns the coverage audit from a rough guide into a real check.',

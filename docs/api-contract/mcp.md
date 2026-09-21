@@ -222,8 +222,10 @@ Listed so the omissions are visible and arguable rather than silently missing.
 not change.** `get_routine` gains one key, `delivery`, summarising where that routine's
 report is sent and whether the last one arrived:
 
-- `targets_by_channel` — a count per channel (`email`, `folder`) of the **enabled**
-  destinations, and `enabled_target_count`, their sum;
+- `targets_by_channel` — a count per channel of the **enabled** destinations, and
+  `enabled_target_count`, their sum. Since 21 September 2026 all four channels in the
+  schema's CHECK ship, so the keys that can appear are `email`, `folder`, `webhook`
+  and `feed`;
 - `awaiting_review` — how many deliveries are waiting for the user to release them,
   because a destination set to review mode never sends on its own;
 - `last_state` (`queued` | `awaiting_review` | `delivering` | `delivered` | `failed` |
@@ -231,10 +233,16 @@ report is sent and whether the last one arrived:
   `last_delivered_at_utc` — the most recent delivery, or `null` throughout when the
   routine has never had one.
 
-**The address and the directory are deliberately not returned.** Where a person has
-their research sent is theirs; a count of destinations answers "is this routine
-delivering", which is the question an assistant has, without reciting an email address
-or a path into a transcript. A backend too old to answer the deliveries route leaves the
+**No address, directory or URL is returned, including inside `last_error`.** Where a
+person has their research sent is theirs; a count of destinations answers "is this
+routine delivering", which is the question an assistant has, without reciting an email
+address, a path or a webhook URL into a transcript. `last_error` is prose from the
+failure and is the one place a destination could leak through, so each adapter strips
+it: the folder and feed channels replace the directory with `<target>`, the email
+channel replaces every configured address with `<address>` (an `SMTPRecipientsRefused`
+carries the refused recipient *inside the exception*), and the webhook channel records
+the exception class or the HTTP status code and never the URL. Which destination a
+failure was about is `target_id`, which the app resolves locally. A backend too old to answer the deliveries route leaves the
 key off entirely rather than reporting zero destinations.
 
 No tool writes a delivery. Approving one that is waiting for review, skipping one and
