@@ -307,18 +307,20 @@ def test_populated_16_upgrade_preserves_all_old_rows_objects_and_files(
             for name in ("create_vault", "Import", "retained", "checked_vault"):
                 scoped.setattr(library, name, forbidden_io)
             db.init_db(conn=conn)
-        assert db.SCHEMA_VERSION == db.get_schema_version(conn) == 20
+        assert db.SCHEMA_VERSION == db.get_schema_version(conn) == 21
         # ``routine_missed_fires`` is schema 20's, and empty: this file's claim
         # is that schema 17 changed nothing it owned, not that no later schema
         # ever added a table.
         assert (table_names(conn)
                 == set(before_rows) | set(TABLES)
-                | {"evidence_answers", "routine_missed_fires"})
-        assert len(table_names(conn)) == 38
+                | {"evidence_answers", "routine_missed_fires"}
+                # Schema 21's two, empty here for the same reason.
+                | {"routine_delivery_targets", "deliveries"})
+        assert len(table_names(conn)) == 40
         after_rows = contents(conn, set(before_rows),
                               {t: before_rows[t]["columns"] for t in before_rows})
         assert before_rows_hash == row_digest(before_rows), "the before snapshot itself changed"
-        expected_settings = dict(before_rows["app_settings"]["rows"]) | {"schema_version": "20"}
+        expected_settings = dict(before_rows["app_settings"]["rows"]) | {"schema_version": str(db.SCHEMA_VERSION)}
         assert dict(after_rows["app_settings"]["rows"]) == expected_settings
         for table in before_rows:
             if table == "app_settings":
@@ -371,8 +373,8 @@ def test_fresh_upgraded_and_twice_reopened_schema_are_identical(legacy: Legacy, 
         assert evidence_shape(fresh) == expected_shape
         assert all(fresh.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
                    for table in (*LIBRARY_TABLES, *TABLES))
-        assert db.get_schema_version(fresh) == 20
-        assert len(table_names(fresh)) == 38
+        assert db.get_schema_version(fresh) == 21
+        assert len(table_names(fresh)) == 40
     finally:
         fresh.close()
     legacy.conn.close()
@@ -383,7 +385,7 @@ def test_fresh_upgraded_and_twice_reopened_schema_are_identical(legacy: Legacy, 
             assert contents(reopened) == expected_rows
             assert objects(reopened) == expected_objects
             assert evidence_shape(reopened) == expected_shape
-            assert db.get_schema_version(reopened) == 20
+            assert db.get_schema_version(reopened) == 21
         finally:
             reopened.close()
     assert file_census(legacy.roots) == expected_files
@@ -446,7 +448,7 @@ def test_failed_migration_preserves_marker16_and_every_preexisting_object(
         conn.execute("DROP INDEX idx_evidence_notes_order")
     conn.commit()
     db.init_db(conn=conn)
-    assert db.get_schema_version(conn) == 20
+    assert db.get_schema_version(conn) == 21
     assert_approved_shape(conn)
 
 

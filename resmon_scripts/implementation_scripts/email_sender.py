@@ -23,11 +23,14 @@ from .database import get_connection, get_setting
 logger = logging.getLogger(__name__)
 
 
-def _load_smtp_config(conn) -> Optional[dict[str, Any]]:
+def load_smtp_config(conn) -> Optional[dict[str, Any]]:
     """Return the SMTP dict expected by :func:`email_notifier.send_email`.
 
     Returns ``None`` when any required field is missing so the caller can
-    log-and-skip rather than raise.
+    log-and-skip rather than raise. The delivery queue asks for this directly
+    rather than letting the send skip silently: "SMTP is not configured" is a
+    reason a user can act on, and it belongs in ``deliveries.last_error``
+    rather than only in a log file.
     """
     host = get_setting(conn, "smtp_server")
     username = get_setting(conn, "smtp_username")
@@ -90,7 +93,7 @@ def send_routine_completion_email(
     """
     if smtp_config is None:
         conn = db_conn if db_conn is not None else get_connection()
-        smtp_config = _load_smtp_config(conn)
+        smtp_config = load_smtp_config(conn)
     if not smtp_config:
         logger.info(
             "Skipping routine completion email: SMTP not fully configured "
@@ -118,3 +121,9 @@ def send_routine_completion_email(
         attachment_path=attachment_path,
     )
     email_notifier.send_email(smtp_config, message)
+
+
+#: The name this function had before the delivery queue needed to call it from
+#: outside the module. ``resmon.py``'s Settings -> Email test route imports it
+#: under the old name.
+_load_smtp_config = load_smtp_config

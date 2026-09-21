@@ -1,4 +1,4 @@
-"""The whole walk at once: a v2.1.0 database (schema 13) upgraded to schema 20.
+"""The whole walk at once: a v2.1.0 database (schema 13) upgraded to schema 21.
 
 Every schema step since 13 has its own upgrade test, and each one starts from a
 fixture of the step immediately before it -- 13 -> 14, 14 -> 15, 15 -> 16,
@@ -102,7 +102,7 @@ GENERATOR = Path(__file__).parent / "fixtures/v2.1.0/generate_corpus.py"
 
 # The version the fixture was written at, and the version it must reach.
 FIXTURE_SCHEMA_VERSION = 13
-TARGET_SCHEMA_VERSION = 20
+TARGET_SCHEMA_VERSION = 21
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +239,7 @@ def _objects(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def test_one_init_db_takes_a_v210_database_from_13_to_20(walked):
+def test_one_init_db_takes_a_v210_database_from_13_to_21(walked):
     """The upgrade a user's first v2.2.0 launch performs, in one call, on a file."""
     conn = walked["conn"]
     assert database.get_schema_version(conn) == TARGET_SCHEMA_VERSION
@@ -553,6 +553,19 @@ def _template(table: str, column: str, value) -> dict:
         # insert order rather than by a routine existing -- see the note on
         # ``_template``: the row is valid except for the column under test, and
         # foreign keys are off for these probes.
+        # Schema 21. Both tables reference rows the walked fixture has none of
+        # -- foreign keys are off for these probes, as the note on
+        # ``_template`` says, so the row is valid except for the column under
+        # test and nothing else.
+        "routine_delivery_targets": {
+            "routine_id": 1, "channel": "email", "target": "",
+            "enabled": 1, "mode": "automatic",
+            "created_at_utc": "2026-09-01T00:00:00+00:00",
+            "updated_at_utc": "2026-09-01T00:00:00+00:00"},
+        "deliveries": {
+            "execution_id": 1, "target_id": 1, "channel": "email",
+            "target_snapshot": "", "state": "queued", "attempts": 0,
+            "queued_at_utc": "2026-09-01T00:00:00+00:00"},
         "routine_missed_fires": {
             "routine_id": 1, "due_at_utc": "2026-01-01T00:00:00+00:00",
             "observed_at_utc": "2026-01-02T00:00:00+00:00",

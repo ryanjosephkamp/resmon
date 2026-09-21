@@ -115,7 +115,7 @@ called out explicitly.
 | `find_similar` | `doc_id`, `limit=25` | the nearest papers with distances and sources; `reason` when the list is empty | `GET /api/documents/{doc_id}/similar` |
 | `list_sources` | — | slug, name, coverage, whether a key is required and whether one is present | `GET /api/repositories/catalog` + `GET /api/credentials` |
 | `list_routines` | `active_only?` | id, name, schedule, sources, keywords, last run, active, `missed_fires` (fires that came due while resmon was closed) | `GET /api/routines` |
-| `get_routine` | `routine_id` | the full routine record, including `missed_fires` (`count` + `last_due_at_utc`) and `missed_fire_details` | `GET /api/routines/{id}` |
+| `get_routine` | `routine_id` | the full routine record, including `missed_fires` (`count` + `last_due_at_utc`), `missed_fire_details`, and a `delivery` summary (counts by channel, and the last delivery's state) | `GET /api/routines/{id}` + `GET /api/routines/{id}/deliveries` |
 | `list_executions` | `routine_id?`, `status?`, `limit=25`, `offset=0` | id, type, status, started, finished, result count, `interrupted_reason`, `restarted_from` | `GET /api/executions` |
 | `get_execution` | `exec_id` | status, per-source counts, timings, AI lane used | `GET /api/executions/{id}` |
 | `get_execution_results` | `exec_id`, `limit=25`, `offset=0` | the papers that run found, with existing corpus `id` usable by `explain_match` | `GET /api/executions/{id}/references?format=json&include_ids=true` |
@@ -212,6 +212,35 @@ Listed so the omissions are visible and arguable rather than silently missing.
 ---
 
 ## Amendments
+
+### A field, not a version — 21 September 2026, schema 21
+
+**25 tools, 46 distinct method-and-path pairs.** The new one is
+`GET /api/routines/{id}/deliveries`, which `get_routine` calls for the summary below; it was 45.
+
+**No tool arrives, none is removed, no return shape moves and the contract version does
+not change.** `get_routine` gains one key, `delivery`, summarising where that routine's
+report is sent and whether the last one arrived:
+
+- `targets_by_channel` — a count per channel (`email`, `folder`) of the **enabled**
+  destinations, and `enabled_target_count`, their sum;
+- `awaiting_review` — how many deliveries are waiting for the user to release them,
+  because a destination set to review mode never sends on its own;
+- `last_state` (`queued` | `awaiting_review` | `delivering` | `delivered` | `failed` |
+  `skipped`), `last_channel`, `last_attempts`, `last_error` and
+  `last_delivered_at_utc` — the most recent delivery, or `null` throughout when the
+  routine has never had one.
+
+**The address and the directory are deliberately not returned.** Where a person has
+their research sent is theirs; a count of destinations answers "is this routine
+delivering", which is the question an assistant has, without reciting an email address
+or a path into a transcript. A backend too old to answer the deliveries route leaves the
+key off entirely rather than reporting zero destinations.
+
+No tool writes a delivery. Approving one that is waiting for review, skipping one and
+retrying a failed one are all decisions the person makes in the app; exposing them here
+is a separate decision about write tools and this amendment does not make it. **25
+tools, unchanged.**
 
 ### Fields, not a version — 20 September 2026, schema 19
 

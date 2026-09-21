@@ -632,7 +632,7 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # one membership row per saved paper, additive, with nothing backfilled --
 # resmon never observed which papers a user meant to read before the queue
 # existed, so an upgraded database starts empty and says so.
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -714,6 +714,10 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     # After it, because the schema-20 UNIQUE index is on the table that step
     # rebuilds.
     _migrate_jobs_duplicate_protection(conn)
+    # After it, because the schema-21 seed reads ``routines`` and the delivery
+    # record references ``executions`` -- both are in their final shape only
+    # once the rebuild above has run.
+    _migrate_delivery(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
     # invisible to every other -- an in-memory database shared through
@@ -1780,6 +1784,183 @@ def _migrate_jobs_duplicate_protection(conn: sqlite3.Connection) -> None:
         conn.execute("RELEASE jobs_v20")
         raise
     conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Schema 21: where a report goes, and whether it got there
+# ---------------------------------------------------------------------------
+#
+# Until now resmon sent a routine's completion email from the execution
+# worker's ``finally`` block and recorded nothing at all: not that it tried,
+# not that SMTP refused the connection, not that the user never saw the report.
+# The only evidence a delivery had happened was the message itself, in a
+# mailbox resmon cannot read. Two additive tables change that.
+#
+#   * ``routine_delivery_targets`` -- where a routine's report is meant to go.
+#     One row per destination, so a routine can have several, and the address
+#     (email) or the directory (folder) lives in ``target``. ``mode`` carries
+#     the product's "automatic or waits for review" distinction as data rather
+#     than as a second boolean somewhere else. ``channel`` enumerates four
+#     values although only two ship: ``webhook`` and ``feed`` are the PR-two
+#     destinations, and a value invented later would need a migration on a
+#     table users already have rows in.
+#   * ``deliveries`` -- one row per (execution, target), which is what makes
+#     "never delivered twice" a fact the database enforces rather than a check
+#     the drain hopes it won. ``attempts`` and ``next_attempt_at_utc`` are the
+#     backoff, ``last_error`` is why it has not arrived, and ``owner_pid`` /
+#     ``owner_runtime_id`` are the schema-19 ownership shape: a row left
+#     ``delivering`` by a backend that was SIGKILLed is re-queued on the next
+#     start **only** where that owner can be established to be gone.
+#
+# The seed is what keeps B4: every routine with ``email_enabled=1`` gets one
+# automatic email target, so a user who had completion emails before the
+# upgrade still has them after it with nothing to edit. ``email_enabled``
+# stays the routine-level switch the Routines page toggles -- an email target
+# whose routine has it off is not enqueued -- and the empty ``target`` those
+# seeded rows carry means "the recipient configured in Settings -> Email",
+# which is exactly where the address used to come from and still does.
+
+_DELIVERY_V21_DDL = {
+    "routine_delivery_targets": (
+        "CREATE TABLE routine_delivery_targets (\n"
+        "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "    routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,\n"
+        "    channel TEXT NOT NULL CHECK(channel IN ('email', 'folder', 'webhook', 'feed')),\n"
+        "    target TEXT NOT NULL,\n"
+        "    enabled INTEGER NOT NULL DEFAULT 1,\n"
+        "    mode TEXT NOT NULL DEFAULT 'automatic' CHECK(mode IN ('automatic', 'review')),\n"
+        "    created_at_utc TEXT NOT NULL,\n"
+        "    updated_at_utc TEXT NOT NULL\n"
+        ")"
+    ),
+    "idx_routine_delivery_targets_routine": (
+        "CREATE INDEX idx_routine_delivery_targets_routine "
+        "ON routine_delivery_targets(routine_id, id)"
+    ),
+    "deliveries": (
+        "CREATE TABLE deliveries (\n"
+        "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "    execution_id INTEGER NOT NULL REFERENCES executions(id) ON DELETE CASCADE,\n"
+        "    target_id INTEGER REFERENCES routine_delivery_targets(id) ON DELETE SET NULL,\n"
+        "    channel TEXT NOT NULL CHECK(channel IN ('email', 'folder', 'webhook', 'feed')),\n"
+        "    target_snapshot TEXT NOT NULL,\n"
+        "    state TEXT NOT NULL CHECK(state IN ('queued', 'awaiting_review', 'delivering', 'delivered', 'failed', 'skipped')),\n"
+        "    attempts INTEGER NOT NULL DEFAULT 0,\n"
+        "    next_attempt_at_utc TEXT,\n"
+        "    last_error TEXT,\n"
+        "    artifact_sha256 TEXT,\n"
+        "    owner_pid INTEGER,\n"
+        "    owner_runtime_id TEXT,\n"
+        "    queued_at_utc TEXT NOT NULL,\n"
+        "    delivered_at_utc TEXT,\n"
+        "    UNIQUE(execution_id, target_id)\n"
+        ")"
+    ),
+    "idx_deliveries_due": (
+        "CREATE INDEX idx_deliveries_due "
+        "ON deliveries(state, next_attempt_at_utc)"
+    ),
+    "idx_deliveries_execution": (
+        "CREATE INDEX idx_deliveries_execution ON deliveries(execution_id)"
+    ),
+}
+
+#: What ``routine_delivery_targets.channel`` and ``deliveries.channel`` may
+#: hold, as the CHECK enumerates it. Two of the four ship; see
+#: ``delivery.SHIPPED_CHANNELS`` for the ones that have an adapter behind them.
+DELIVERY_CHANNELS = ("email", "folder", "webhook", "feed")
+
+#: What ``routine_delivery_targets.mode`` may hold.
+DELIVERY_TARGET_MODES = ("automatic", "review")
+
+#: What ``deliveries.state`` may hold, as the CHECK enumerates it.
+DELIVERY_STATES = (
+    "queued", "awaiting_review", "delivering", "delivered", "failed", "skipped",
+)
+
+
+def _migrate_delivery(conn: sqlite3.Connection) -> None:
+    """Create the schema-21 objects and seed the email targets. Additive.
+
+    Runs on fresh databases and on upgrades, by the same path, so the stored
+    DDL is byte-identical either way -- ``test_cumulative_upgrade.py`` compares
+    an upgraded database against a fresh install object for object. One
+    savepoint, and the schema-20 shape check: an object that already exists
+    with different SQL is a conflict, not something to accept quietly.
+    """
+    conn.execute("SAVEPOINT delivery_v21")
+    try:
+        for name, ddl in _DELIVERY_V21_DDL.items():
+            row = conn.execute(
+                "SELECT type, sql FROM sqlite_master WHERE name = ?", (name,)
+            ).fetchone()
+            if row is None:
+                conn.execute(ddl)
+                row = conn.execute(
+                    "SELECT type, sql FROM sqlite_master WHERE name = ?", (name,)
+                ).fetchone()
+            expected_type = "table" if ddl.startswith("CREATE TABLE") else "index"
+            if (not row or row[0] != expected_type
+                    or " ".join((row[1] or "").split()) != " ".join(ddl.split())):
+                raise sqlite3.DatabaseError("Conflicting schema-21 shape: " + name)
+
+        # B4: the email that used to be sent straight from the completion hook
+        # keeps being sent, to the same address, with no edit by the user. One
+        # automatic target per routine that has the switch on, and only where
+        # that routine has no email target already -- the step must be safe to
+        # re-run, because init_db runs on every start.
+        stamp = utc_now_iso()
+        # Guarded by a SELECT rather than left to insert nothing: an
+        # ``INSERT ... SELECT`` that matches no rows still puts a
+        # ``routine_delivery_targets`` row into ``sqlite_sequence`` on an
+        # AUTOINCREMENT table, and a corpus with no email routines would then
+        # differ from a fresh install by a row nothing wrote.
+        needs_seed = conn.execute(
+            "SELECT 1 FROM routines r WHERE r.email_enabled = 1 AND NOT EXISTS ("
+            "    SELECT 1 FROM routine_delivery_targets t "
+            "    WHERE t.routine_id = r.id AND t.channel = 'email') LIMIT 1"
+        ).fetchone()
+        if needs_seed:
+            conn.execute(
+                "INSERT INTO routine_delivery_targets "
+                "(routine_id, channel, target, enabled, mode, created_at_utc, "
+                " updated_at_utc) "
+                "SELECT r.id, 'email', '', 1, 'automatic', ?, ? FROM routines r "
+                "WHERE r.email_enabled = 1 AND NOT EXISTS ("
+                "    SELECT 1 FROM routine_delivery_targets t "
+                "    WHERE t.routine_id = r.id AND t.channel = 'email')",
+                (stamp, stamp),
+            )
+
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+            "WHERE CAST(app_settings.value AS INTEGER)<21",
+            (_SCHEMA_VERSION_KEY, "21"),
+        )
+        conn.execute("RELEASE delivery_v21")
+    except BaseException:
+        conn.execute("ROLLBACK TO delivery_v21")
+        conn.execute("RELEASE delivery_v21")
+        raise
+    conn.commit()
+
+
+def mark_missed_fires_ran_late(conn: sqlite3.Connection, routine_id: int) -> int:
+    """Turn this routine's ``recorded`` missed fires into ``ran_late``.
+
+    Called when the user runs the routine by hand after resmon told them fires
+    were missed. It claims exactly one thing -- that a run was started after
+    those fires came due -- which is why only ``recorded`` rows move: a fire
+    already dispositioned stays as it was recorded. Returns the row count.
+    """
+    cursor = conn.execute(
+        "UPDATE routine_missed_fires SET disposition = 'ran_late' "
+        "WHERE routine_id = ? AND disposition = 'recorded'",
+        (int(routine_id),),
+    )
+    conn.commit()
+    return cursor.rowcount
 
 
 def record_missed_fire(

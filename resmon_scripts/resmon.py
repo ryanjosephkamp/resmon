@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from implementation_scripts import api_auth, runtime_identity, library, library_export, library_text, evidence, evidence_reader, evidence_export
 from implementation_scripts import selected_evidence, selected_evidence_runtime, selected_evidence_export
+from implementation_scripts import delivery
 from implementation_scripts.config import (
     APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
 )
@@ -47,6 +48,7 @@ from implementation_scripts.database import (
     get_execution_by_request_id,
     record_missed_fire,
     missed_fire_summary,
+    mark_missed_fires_ran_late,
     get_missed_fires,
     get_execution_sources,
     get_execution_ai,
@@ -146,11 +148,15 @@ async def _lifespan(_app: FastAPI):
     # be mistaken for a leftover of the process that died (schema 19).
     _reconcile_executions_on_startup()
     _init_scheduler_on_startup()
+    # After the scheduler, because a routine that fires the moment it starts
+    # should find a drain already running rather than wait for the idle poll.
+    _init_delivery_on_startup()
     _selected_startup()
     try:
         yield
     finally:
         _selected_shutdown()
+        _shutdown_delivery()
         _shutdown_scheduler()
 
 
@@ -337,6 +343,27 @@ class RestartRequest(BaseModel):
 
     # See DiveRequest.request_id.
     request_id: Optional[str] = None
+
+
+class DeliveryTargetCreate(BaseModel):
+    """One destination for a routine's report.
+
+    ``target`` is the address for ``email`` and the directory for ``folder``.
+    An empty email target means "the recipient configured under Settings ->
+    Email", which is where the address came from before schema 21 and still
+    does for every routine the migration seeded.
+    """
+
+    channel: str
+    target: str = ""
+    mode: str = "automatic"
+    enabled: bool = True
+
+
+class DeliveryTargetUpdate(BaseModel):
+    target: Optional[str] = None
+    mode: Optional[str] = None
+    enabled: Optional[bool] = None
 
 
 class RoutineCreate(BaseModel):
@@ -1018,9 +1045,15 @@ def _launch_execution(
             heartbeat_thread.join(timeout=5)
             pop_ephemeral(exec_id)
             progress_store.mark_complete(exec_id)
-            # Routine completion email hook (IMPL-R7). Fires only for
-            # routine-backed executions where the routine has email enabled.
-            # Any failure is logged but never fails the execution.
+            # Routine delivery hook (schema 21). Fires only for
+            # routine-backed executions, and only *enqueues*: one
+            # ``deliveries`` row per enabled target, then a wake for the drain
+            # thread that owns the sending. Nothing here talks to a mail
+            # server any more -- the pre-21 version did, on this thread, still
+            # holding the execution's admission slot, so an SMTP server that
+            # accepted the connection and then sat there held a slot for as
+            # long as it cared to. Any failure is logged and never fails the
+            # execution.
             try:
                 row = get_execution_by_id(conn, exec_id)
                 if (
@@ -1029,52 +1062,13 @@ def _launch_execution(
                     and row.get("routine_id")
                 ):
                     routine = get_routine_by_id(conn, row["routine_id"])
-                    if routine and routine.get("email_enabled"):
-                        from implementation_scripts import email_sender
-                        # "Results in Email" (previously "AI Summary in
-                        # Email") now ships the full execution results
-                        # ``.zip`` as an email attachment, reusing the
-                        # same bundle helper the Results & Logs export
-                        # button produces.
-                        attachment_path: Optional[str] = None
-                        if routine.get("email_ai_summary_enabled"):
-                            try:
-                                tmp = tempfile.NamedTemporaryFile(
-                                    suffix=".zip", delete=False,
-                                    prefix=f"resmon_routine_{exec_id}_",
-                                )
-                                tmp.close()
-                                _build_execution_zip([row], Path(tmp.name))
-                                attachment_path = tmp.name
-                            except Exception:
-                                logging.getLogger(__name__).exception(
-                                    "Failed to build results zip for "
-                                    "exec_id=%s; sending email without "
-                                    "attachment.",
-                                    exec_id,
-                                )
-                                attachment_path = None
-                        try:
-                            email_sender.send_routine_completion_email(
-                                routine=routine,
-                                execution=row,
-                                include_ai_summary=False,
-                                attachment_path=attachment_path,
-                            )
-                        except Exception:
-                            logging.getLogger(__name__).exception(
-                                "Failed to send completion email for exec_id=%s",
-                                exec_id,
-                            )
-                        finally:
-                            if attachment_path:
-                                try:
-                                    os.unlink(attachment_path)
-                                except OSError:
-                                    pass
+                    if routine:
+                        queued = delivery.enqueue_for_execution(conn, row, routine)
+                        if queued:
+                            delivery.wake()
             except Exception:
                 logging.getLogger(__name__).exception(
-                    "Routine completion email hook raised for exec_id=%s", exec_id,
+                    "Routine delivery hook raised for exec_id=%s", exec_id,
                 )
             # Bug-B (Update 2 / Batch 2): desktop notification dispatch.
             # Fires from the backend so notifications work even under the
@@ -1643,6 +1637,173 @@ def activate_routine(routine_id: int):
         _close_db(conn)
 
 
+# ---------------------------------------------------------------------------
+# Delivery (schema 21)
+# ---------------------------------------------------------------------------
+#
+# Targets belong to a routine; deliveries belong to an execution and are
+# listed either way round. The three action routes are the decisions the drain
+# is deliberately not allowed to make for the user: approve one that is
+# waiting for review, decide not to send it at all, and try a failed one again
+# after the backoff has given up.
+
+
+@app.get("/api/routines/{routine_id}/delivery-targets")
+def list_routine_delivery_targets(routine_id: int):
+    conn = _get_db()
+    try:
+        if not get_routine_by_id(conn, routine_id):
+            raise HTTPException(404, "Routine not found")
+        return {
+            "routine_id": routine_id,
+            "targets": delivery.list_targets(conn, routine_id),
+            # What resmon can act on today, so a screen can offer exactly
+            # these rather than every value the CHECK admits.
+            "shipped_channels": list(delivery.SHIPPED_CHANNELS),
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/routines/{routine_id}/delivery-targets")
+def add_routine_delivery_target(routine_id: int, body: DeliveryTargetCreate):
+    conn = _get_db()
+    try:
+        if not get_routine_by_id(conn, routine_id):
+            raise HTTPException(404, "Routine not found")
+        try:
+            target_id = delivery.add_target(
+                conn, routine_id, channel=body.channel, target=body.target,
+                mode=body.mode, enabled=body.enabled,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"id": target_id, "routine_id": routine_id}
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/routines/{routine_id}/delivery-targets/{target_id}")
+def update_routine_delivery_target(
+    routine_id: int, target_id: int, body: DeliveryTargetUpdate,
+):
+    conn = _get_db()
+    try:
+        existing = delivery.get_target(conn, target_id)
+        if not existing or int(existing["routine_id"]) != routine_id:
+            raise HTTPException(404, "Delivery target not found")
+        updates = {k: v for k, v in body.model_dump().items() if v is not None}
+        try:
+            delivery.update_target(conn, target_id, updates)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"id": target_id, "updated": sorted(updates)}
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/routines/{routine_id}/delivery-targets/{target_id}")
+def delete_routine_delivery_target(routine_id: int, target_id: int):
+    conn = _get_db()
+    try:
+        existing = delivery.get_target(conn, target_id)
+        if not existing or int(existing["routine_id"]) != routine_id:
+            raise HTTPException(404, "Delivery target not found")
+        delivery.delete_target(conn, target_id)
+        # The deliveries already recorded against it keep their
+        # ``target_snapshot``; removing a destination does not unsay where a
+        # report was sent.
+        return {"success": True, "id": target_id}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/routines/{routine_id}/deliveries")
+def list_routine_deliveries(routine_id: int, limit: int = 100):
+    conn = _get_db()
+    try:
+        if not get_routine_by_id(conn, routine_id):
+            raise HTTPException(404, "Routine not found")
+        return {
+            "routine_id": routine_id,
+            "deliveries": delivery.list_deliveries_for_routine(
+                conn, routine_id, limit=limit),
+            "summary": delivery.routine_delivery_summary(conn, routine_id),
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/executions/{exec_id}/deliveries")
+def list_execution_deliveries(exec_id: int):
+    conn = _get_db()
+    try:
+        if not get_execution_by_id(conn, exec_id):
+            raise HTTPException(404, "Execution not found")
+        return {
+            "execution_id": exec_id,
+            "deliveries": delivery.list_deliveries_for_execution(conn, exec_id),
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/deliveries/{delivery_id}/deliver")
+def approve_delivery(delivery_id: int):
+    """Release a delivery that was waiting for review. The only promotion."""
+    conn = _get_db()
+    try:
+        row = delivery.get_delivery(conn, delivery_id)
+        if not row:
+            raise HTTPException(404, "Delivery not found")
+        if not delivery.approve(conn, delivery_id):
+            raise HTTPException(
+                409,
+                f"This delivery is {row['state']}, not waiting for review.",
+            )
+        delivery.wake()
+        return {"id": delivery_id, "state": "queued"}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/deliveries/{delivery_id}/skip")
+def skip_delivery(delivery_id: int):
+    conn = _get_db()
+    try:
+        row = delivery.get_delivery(conn, delivery_id)
+        if not row:
+            raise HTTPException(404, "Delivery not found")
+        if not delivery.skip(conn, delivery_id):
+            raise HTTPException(
+                409,
+                f"This delivery is {row['state']} and cannot be skipped.",
+            )
+        return {"id": delivery_id, "state": "skipped"}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/deliveries/{delivery_id}/retry")
+def retry_delivery(delivery_id: int):
+    """Start the attempt sequence again, after the backoff has given up."""
+    conn = _get_db()
+    try:
+        row = delivery.get_delivery(conn, delivery_id)
+        if not row:
+            raise HTTPException(404, "Delivery not found")
+        if not delivery.retry(conn, delivery_id):
+            raise HTTPException(
+                409,
+                f"This delivery is {row['state']}; only a failed or skipped "
+                "delivery can be retried.",
+            )
+        delivery.wake()
+        return {"id": delivery_id, "state": "queued", "attempts": 0}
+    finally:
+        _close_db(conn)
+
+
 @app.post("/api/routines/{routine_id}/run")
 def run_routine_now(routine_id: int):
     """Run a routine immediately, outside its schedule.
@@ -1710,10 +1871,18 @@ def run_routine_now(routine_id: int):
                 "once. Wait for one to finish and try again.",
             )
 
+        # The fires resmon recorded as missed have now been answered by a run
+        # the user asked for. ``ran_late`` is the word schema 20 reserved for
+        # exactly this and nothing wrote until now -- it claims that a run was
+        # started after those fires came due, which is what happened, and not
+        # that each missed fire produced its own run.
+        ran_late = mark_missed_fires_ran_late(conn, routine_id)
+
         return {
             "execution_id": exec_id,
             "routine_id": routine_id,
             "was_inactive": was_inactive,
+            "missed_fires_marked_ran_late": ran_late,
             "detail": (
                 "This routine is not scheduled; it was run once because you "
                 "asked for it." if was_inactive else
@@ -2038,6 +2207,57 @@ def _build_execution_zip(rows: list[dict], out_path: Path, *,
                 if fpath.is_file():
                     zf.write(fpath, arcname=str(fpath.relative_to(staging)))
     return out_path
+
+
+def _delivery_bundle(conn: sqlite3.Connection, row: dict, out_dir: Path) -> Path:
+    """Build one execution's export bundle for the delivery queue.
+
+    The same builder ``POST /api/executions/export`` uses, with the search
+    record companions it has always included. The pre-21 email hook built the
+    bundle *without* them, so the .zip a routine mailed out was quietly poorer
+    than the one the same user got from the Results screen; one builder with
+    one set of arguments is what stops that drifting apart again.
+    """
+    eid = int(row["id"])
+    out_path = out_dir / f"resmon_execution_{eid}.zip"
+    companions = {eid: search_record.build(conn, eid)}
+    return _build_execution_zip([row], out_path, companions=companions)
+
+
+delivery.set_bundle_builder(_delivery_bundle)
+
+
+def _init_delivery_on_startup() -> None:
+    """Re-queue what the last process was mid-way through, then start the drain.
+
+    The re-queue runs first and on this thread: a row left ``delivering`` by a
+    backend that died has to be adopted before the drain starts looking, or the
+    drain would walk past it for ever -- ``delivering`` is not a state it
+    claims from.
+    """
+    conn = _get_db()
+    try:
+        adopted = delivery.requeue_orphaned(conn)
+        if adopted:
+            logging.getLogger(__name__).info(
+                "Re-queued %d delivery row(s) whose owner process is gone", adopted,
+            )
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Delivery re-queue on startup failed; the drain starts anyway",
+        )
+    finally:
+        _close_db(conn)
+    instance = delivery.DeliveryQueue(_get_db, close=_close_db)
+    delivery.set_queue(instance)
+    instance.start()
+
+
+def _shutdown_delivery() -> None:
+    instance = delivery.queue
+    if instance is not None:
+        instance.stop()
+    delivery.set_queue(None)
 
 
 # The states a run can be started again from: the three that mean it stopped

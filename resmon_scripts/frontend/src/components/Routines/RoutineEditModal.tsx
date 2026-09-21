@@ -9,6 +9,7 @@ import ConfigLoader from '../Forms/ConfigLoader';
 import RepoKeyStatus from '../Repositories/RepoKeyStatus';
 import KeywordCombinationBanner from '../Forms/KeywordCombinationBanner';
 import { useRepoCatalog } from '../../hooks/useRepoCatalog';
+import DeliveryTargets from './DeliveryTargets';
 import InfoTooltip from '../Help/InfoTooltip';
 import AIOverridePanel, {
   AIOverrideValue,
@@ -432,9 +433,17 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
         <div className="form-field toggles-row">
           <label className="checkbox-label"><input type="checkbox" checked={formAi} onChange={(e) => setFormAi(e.target.checked)} /><span>AI Summarization</span><InfoTooltip text="Attach LLM summaries to each report produced by this routine. Requires a configured provider and key in Settings → AI." /></label>
           <label className="checkbox-label"><input type="checkbox" checked={formEmail} onChange={(e) => setFormEmail(e.target.checked)} /><span>Email Notifications</span><InfoTooltip text="Send a report email via the SMTP server configured in Settings → Email whenever this routine completes a run." /></label>
-          <label className="checkbox-label"><input type="checkbox" checked={formEmailAi} onChange={(e) => setFormEmailAi(e.target.checked)} /><span>Results in Email</span><InfoTooltip text="Include the AI summary in the body of the routine email (instead of just a link / attachment). Requires both Email Notifications and AI Summarization to be on." /></label>
+          <label className="checkbox-label"><input type="checkbox" checked={formEmailAi} onChange={(e) => setFormEmailAi(e.target.checked)} /><span>Results in Email</span><InfoTooltip text="Attach the full results bundle — the report, its PDF, the log and the search record — to the routine's email. Without it the email is the completion notice alone." /></label>
           <label className="checkbox-label"><input type="checkbox" checked={formNotify} onChange={(e) => setFormNotify(e.target.checked)} /><span>Notify on Completion</span><InfoTooltip text="Send a desktop notification when this routine finishes. Only effective when Settings → Notifications → Automatic routines is set to 'selected'." /></label>
         </div>
+        {/*
+          Destinations are rows of their own and save as they are edited, so
+          they only appear once the routine exists. A routine being created has
+          no id to hang them on; the list is one Edit away.
+        */}
+        {isEdit && target && (
+          <DeliveryTargets routineId={target.id} />
+        )}
         {formAi && <AIDefaultsInfo />}
         {formAi && (
           <details className="form-field">
