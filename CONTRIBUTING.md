@@ -49,6 +49,11 @@ cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
 npm run e2e                                      # 107 cases in 32 files, 29 routes; report actual pass/skip counts; assistant-readability.spec.ts includes the local model-double journey
 ```
 
+The e2e suite starts the backend with `RESMON_PYTHON` if you set it, otherwise the
+checkout's `.venv` interpreter (`python3` on PATH only under `CI`), and stops at global
+setup — before the first spec — with one sentence if that interpreter is missing or
+cannot import the backend's dependencies.
+
 `npm run e2e:review` runs the same suite on your own display — which is the only
 place the window-manager specs actually run — and writes the screenshots and a
 Markdown summary to a folder outside the repository. Use it before asking anyone
