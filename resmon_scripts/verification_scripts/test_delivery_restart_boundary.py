@@ -170,6 +170,47 @@ def _seed(db: Path, reports: Path, outbox: Path, owner_pid: int) -> dict:
         conn.close()
 
 
+#: How long to let the second backend finish the delivery before calling it
+#: stuck. Generous on purpose: this file competes with the rest of the suite
+#: for one laptop's CPU, and the first version's 30 s wall-clock deadline was
+#: an assertion about how busy the machine was rather than about the code --
+#: it failed once under a full-suite run with the row still ``delivering``,
+#: which is the state a *working* drain passes through. The condition below is
+#: what is actually being waited for; the cap only stops a hang from becoming
+#: a two-hour CI job. pytest's own --timeout=120 per test is the other half,
+#: so this is deliberately below it.
+_DELIVERY_SETTLE_SECONDS = 90.0
+
+#: The states a delivery stops in. Taken from the CHECK's vocabulary minus the
+#: three it passes through, so a new terminal state cannot leave this polling
+#: for ever.
+_TERMINAL = ("delivered", "failed", "skipped")
+
+
+def _wait_for_terminal(db: Path, delivery_id: int, backend: "Backend") -> dict:
+    """Poll the row until it stops moving. Condition-based, not clock-based.
+
+    Fails with what it actually saw -- the row's state and the backend's log --
+    because "timed out" on its own cannot distinguish a drain that never
+    started from one that was still working when the deadline passed.
+    """
+    deadline = time.monotonic() + _DELIVERY_SETTLE_SECONDS
+    row: dict = {}
+    while time.monotonic() < deadline:
+        if backend.proc.poll() is not None:
+            pytest.fail(f"backend exited while delivering:\n{backend.log_path.read_text()}")
+        row = _delivery(db, delivery_id)
+        if row["state"] in _TERMINAL:
+            return row
+        time.sleep(0.1)
+    pytest.fail(
+        f"delivery {delivery_id} was still {row.get('state')!r} after "
+        f"{_DELIVERY_SETTLE_SECONDS:.0f}s (attempts={row.get('attempts')}, "
+        f"last_error={row.get('last_error')!r}).\n"
+        f"{backend.log_path.read_text()}"
+    )
+
+
 def _delivery(db: Path, delivery_id: int) -> dict:
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
@@ -216,12 +257,7 @@ def test_a_sigkilled_backend_leaves_a_delivering_row_the_next_start_finishes(tmp
     second = Backend(state, db, "second")
     try:
         second.wait_until_serving()
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            row = _delivery(db, seeded["delivery_id"])
-            if row["state"] in ("delivered", "failed"):
-                break
-            time.sleep(0.2)
+        row = _wait_for_terminal(db, seeded["delivery_id"], second)
         assert row["state"] == "delivered", row["last_error"]
         assert row["attempts"] == 2, (
             "the attempt the dead process made is counted, and this is the "

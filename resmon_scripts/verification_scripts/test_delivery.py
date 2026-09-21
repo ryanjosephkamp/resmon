@@ -664,6 +664,67 @@ def test_a_folder_target_that_is_not_there_says_so(corpus, tmp_path):
         "nothing was written, so nothing is claimed to have been")
 
 
+def test_a_folder_failure_never_writes_the_path_into_the_record(corpus, tmp_path):
+    """R2-3: ``last_error`` is read back by MCP ``get_routine``, which promises
+    the directory is never returned. An ``OSError`` carries the path it failed
+    on, so the message is scrubbed and the destination is identified by
+    ``target_id`` instead.
+
+    Two failures are driven, because they raise through different paths: a
+    directory that is not there (resmon's own refusal) and one that cannot be
+    written (the OS's, with the path in ``exc``).
+    """
+    conn = corpus["conn"]
+    secret = tmp_path / "Private-Research-Folder"
+    delivery.add_target(conn, corpus["routine_id"], channel="folder",
+                        target=str(secret))
+    _enqueue(corpus)
+    assert _queue().drain(conn) == 1
+    row = delivery.list_deliveries_for_execution(conn, corpus["exec_id"])[0]
+    assert row["state"] == "failed"
+    assert "Private-Research-Folder" not in row["last_error"], row["last_error"]
+    assert str(secret) not in row["last_error"]
+    # The destination is still identified, by the row rather than by prose.
+    assert row["target_id"] is not None
+    assert delivery.get_target(conn, row["target_id"])["target"] == str(secret)
+
+    # And the same for a directory that exists but refuses a write.
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o500)
+    try:
+        delivery.update_target(conn, row["target_id"], {"target": str(locked)})
+        assert delivery.retry(conn, row["id"]) is True
+        # ``target_snapshot`` was taken at enqueue, so re-enqueue to pick the
+        # new path up the way a fresh run would.
+        conn.execute("UPDATE deliveries SET target_snapshot=? WHERE id=?",
+                     (str(locked), row["id"]))
+        conn.commit()
+        assert _queue().drain(conn) == 1
+        row = delivery.get_delivery(conn, row["id"])
+        assert row["state"] == "failed"
+        assert str(locked) not in row["last_error"], row["last_error"]
+        assert "locked" not in row["last_error"], row["last_error"]
+    finally:
+        locked.chmod(0o700)
+
+
+def test_the_mcp_delivery_summary_returns_no_address_and_no_path(corpus, tmp_path):
+    """The amendment's claim, checked against the summary the tool returns."""
+    conn = corpus["conn"]
+    outbox = tmp_path / "Somewhere-Private"
+    outbox.mkdir()
+    delivery.add_target(conn, corpus["routine_id"], channel="folder",
+                        target=str(outbox))
+    delivery.add_target(conn, corpus["routine_id"], channel="email",
+                        target="private@example.org")
+    _enqueue(corpus)
+    assert _queue().drain(conn) >= 1
+    blob = json.dumps(delivery.routine_delivery_summary(conn, corpus["routine_id"]))
+    assert str(outbox) not in blob
+    assert "Somewhere-Private" not in blob
+    assert "private@example.org" not in blob
+
+
 def test_unconfigured_smtp_is_a_recorded_reason_not_a_silent_skip(corpus):
     """The pre-21 behaviour was ``logger.info`` and return. That is the bug."""
     conn = corpus["conn"]

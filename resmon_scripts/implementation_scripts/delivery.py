@@ -552,6 +552,25 @@ def _slug(value: str) -> str:
     return cleaned[:60] or "routine"
 
 
+def _without_path(text: str, root: Path) -> str:
+    """The message with the user's directory replaced by ``<target>``.
+
+    ``deliveries.last_error`` is read back by the MCP ``get_routine`` summary,
+    and that amendment says the address and the directory are never returned --
+    where a person has their research sent is theirs. An ``OSError`` carries the
+    path it failed on, so a folder failure was quietly the one way a path could
+    reach an assistant's transcript. The row still says *which* destination this
+    was: ``deliveries.target_id`` names it, and the app resolves that to the
+    path locally, where the user is already looking at their own folder.
+    """
+    out = text
+    for form in {str(root), str(root.expanduser()), str(root.resolve())
+                 if root.exists() else str(root)}:
+        if form:
+            out = out.replace(form, "<target>")
+    return out
+
+
 def _deliver_folder(
     conn: sqlite3.Connection,
     *,
@@ -579,13 +598,17 @@ def _deliver_folder(
             "routine's Delivery list."
         )
     root = Path(target).expanduser()
+    # None of these messages names the directory. See ``_without_path``: this
+    # text is read back through the MCP surface, which promises not to say
+    # where a person's research is sent.
     if not root.is_dir():
         raise DeliveryError(
-            f"{root} is not a directory resmon can see. It may be on a drive "
-            "that is not mounted, or in a synced folder that is not signed in."
+            "That folder is not a directory resmon can see. It may be on a "
+            "drive that is not mounted, or in a synced folder that is not "
+            "signed in."
         )
     if not os.access(root, os.W_OK | os.X_OK):
-        raise DeliveryError(f"{root} exists but resmon cannot write to it.")
+        raise DeliveryError("That folder exists but resmon cannot write to it.")
 
     exec_id = int(execution["id"])
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -598,7 +621,9 @@ def _deliver_folder(
             shutil.rmtree(staging, ignore_errors=True)
         staging.mkdir()
     except OSError as exc:
-        raise DeliveryError(f"Could not prepare {parent}: {exc}") from None
+        raise DeliveryError(
+            _without_path(f"Could not prepare the delivery folder: {exc}", root)
+        ) from None
 
     try:
         zip_path = bundle()
@@ -632,7 +657,8 @@ def _deliver_folder(
         raise
     except Exception as exc:
         shutil.rmtree(staging, ignore_errors=True)
-        raise DeliveryError(_scrub(f"Could not write the report to {root}: {exc}")) from None
+        raise DeliveryError(_scrub(_without_path(
+            f"Could not write the report to that folder: {exc}", root))) from None
 
 
 #: Channel name -> adapter. The keys are the denominator every "N of M
