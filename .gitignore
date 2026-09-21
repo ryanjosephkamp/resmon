@@ -20,7 +20,11 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Virtual environments
+# Both spellings, for the same reason as `node_modules` below: the trailing
+# slash matches a directory only, so a `.venv` **symlink** into a shared
+# interpreter -- which is how one reached a branch -- slips straight past it.
 .venv/
+.venv
 venv/
 env/
 ENV/

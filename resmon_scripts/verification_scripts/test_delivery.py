@@ -905,3 +905,57 @@ def test_the_address_scrub_is_not_defeated_by_the_case_the_server_answers_in(
     assert "550" in error and "Recipient address rejected" in error
     assert delivery.get_target(
         conn, row["target_id"])["target"] == "private@example.org"
+
+
+def test_a_target_address_that_is_a_substring_of_another_leaves_no_tail(
+    corpus, smtp_no_verify,
+):
+    """``a@x.org`` inside ``zza@x.org``: shortest-first would leave ``zz``.
+
+    ``_without_address`` sorts longest-first for exactly this, and the comment
+    saying so was the only thing holding the ordering up. Replacing every
+    occurrence of the short address first turns ``zza@x.org`` into
+    ``zz<address>`` -- a fragment of somebody's address, in the row the MCP
+    ``get_routine`` summary returns. Dropping ``reverse=True`` fails here.
+    """
+    conn = corpus["conn"]
+    stub = SMTPStub(refuse_recipients=True)
+    try:
+        _configure_smtp(conn, stub, recipient="a@x.org")
+        database.update_routine(conn, corpus["routine_id"], {"email_enabled": 1})
+        delivery.add_target(conn, corpus["routine_id"], channel="email",
+                            target="zza@x.org")
+        _enqueue(corpus)
+        assert _queue().drain(conn) == 1
+    finally:
+        stub.close()
+
+    error = delivery.list_deliveries_for_execution(conn, corpus["exec_id"])[0]["last_error"]
+    assert "zza@x.org" not in error and "a@x.org" not in error, error
+    # The tail a shortest-first pass leaves behind.
+    assert "zz<address>" not in error, error
+    assert "zz" not in error, error
+    assert "<address>" in error, error
+
+
+def test_the_url_scrub_matches_the_host_in_any_case_and_the_path_exactly():
+    """``_without_url`` directly: the host is case-insensitive, the path is not.
+
+    RFC 3986 §6.2.2.1 makes scheme and host case-insensitive, and an httpx or
+    DNS error may name the host in a case the user never typed. A path is
+    case-sensitive and stays so: matching it loosely would be a claim about
+    someone else's receiver that resmon cannot make.
+    """
+    url = "https://Hooks.Example.org/Inbox/abc"
+    assert delivery._without_url(
+        "connect to https://hooks.EXAMPLE.ORG/Inbox/abc failed", [url], "<webhook>",
+    ) == "connect to <webhook> failed"
+    # The path in the wrong case is a different path, and is left alone.
+    left = delivery._without_url(
+        "connect to https://hooks.example.org/inbox/abc failed", [url], "<webhook>")
+    assert left == "connect to https://hooks.example.org/inbox/abc failed"
+    # Longest first here too.
+    assert delivery._without_url(
+        "https://h.example.org/a and https://h.example.org/ab",
+        ["https://h.example.org/a", "https://h.example.org/ab"], "<webhook>",
+    ) == "<webhook> and <webhook>"
