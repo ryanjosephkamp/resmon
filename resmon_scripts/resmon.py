@@ -29,6 +29,7 @@ from starlette.responses import Response, StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field
 
+from implementation_scripts import backup as backup_module
 from implementation_scripts import api_auth, runtime_identity, library, library_export, library_text, evidence, evidence_reader, evidence_export
 from implementation_scripts import selected_evidence, selected_evidence_runtime, selected_evidence_export
 from implementation_scripts import delivery
@@ -143,6 +144,9 @@ async def _lifespan(_app: FastAPI):
     reads routines and therefore needs the database ready). The handlers stay as
     ordinary module-level functions so tests can still call them directly.
     """
+    # First, before anything opens the database: a staged restore replaces the
+    # file every later hook is about to read.
+    _apply_pending_restore_on_startup()
     _init_admission_on_startup()
     _migrate_legacy_ai_key_on_startup()
     # Before the scheduler: a routine that fires the moment it starts must not
@@ -6276,6 +6280,246 @@ def admin_factory_reset(body: AdminConfirmBody):
     }
 
 
+# ---------------------------------------------------------------------------
+# Backup and restore (Build 3, slice three)
+# ---------------------------------------------------------------------------
+#
+# Confirm-gated like the Danger Zone, and for a related reason: a backup reads
+# every retained byte the user holds and writes them somewhere they chose, and
+# a restore replaces the whole corpus. Neither is something stray client code
+# should be able to start.
+#
+# The restore is *staged*. A request thread cannot safely replace the database
+# its own process has open, so ``/api/restore`` writes a pointer and the work
+# happens on the next start, before anything opens the database. See
+# ``implementation_scripts/backup.py``.
+
+
+def _backup_state_dir() -> Path:
+    """The directory the pointer, the undo copy and the restore record live in.
+
+    ``api_auth.state_dir`` is the same resolution the token file uses, so an
+    isolated ``RESMON_STATE_DIR`` moves all of it together.
+    """
+    return api_auth.state_dir()
+
+
+def _configured_vault_id(conn) -> str | None:
+    try:
+        row = conn.execute("SELECT vault_id FROM library_vault WHERE singleton=1").fetchone()
+    except sqlite3.Error:
+        return None
+    return row["vault_id"] if row else None
+
+
+class BackupRequest(AdminConfirmBody):
+    include_reports: bool = True
+
+
+class BundleBody(BaseModel):
+    path: str = ""
+
+
+class RestoreRequest(AdminConfirmBody):
+    path: str = ""
+    # A bundle whose database carries orphan rows can still be restored, but
+    # only deliberately: the verify report names them and the user says yes.
+    accept_fk_violations: bool = False
+
+
+@app.post("/api/backup")
+def backup_now(body: BackupRequest):
+    """Write one bundle: the snapshotted database, the vault's bytes, optionally reports."""
+    _require_confirm(body)
+    conn = _get_db()
+    try:
+        export_dir = get_setting(conn, "export_directory") or ""
+        parent = Path(export_dir).expanduser() if export_dir else Path(tempfile.gettempdir())
+        try:
+            parent.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            raise HTTPException(400, f"Invalid export_directory: {exc}")
+        try:
+            manifest = backup_module.create_backup(
+                conn,
+                parent,
+                app_version=APP_VERSION,
+                schema_version=SCHEMA_VERSION,
+                include_reports=bool(body.include_reports),
+                reports_dir=REPORTS_DIR,
+                state_dir=_backup_state_dir(),
+            )
+        except backup_module.BackupError as exc:
+            # Surfaced, not logged away: CAPABILITIES.md:801 exists because the
+            # last backup path swallowed its failures.
+            logging.getLogger(__name__).error("Backup failed (%s): %s", exc.reason, exc.message)
+            raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message})
+        except OSError as exc:
+            logging.getLogger(__name__).exception("Backup failed")
+            raise HTTPException(400, detail={"reason": "io_error", "message": str(exc)})
+    finally:
+        _close_db(conn)
+    set_setting(_get_db(), "last_backup_path", manifest["path"])
+    _get_db().commit()
+    return {"success": True, "path": manifest["path"], "manifest": manifest}
+
+
+@app.post("/api/backup/verify")
+def backup_verify(body: BundleBody):
+    """Recompute every hash and report what a restore would and would not do."""
+    conn = _get_db()
+    try:
+        vault_id = _configured_vault_id(conn)
+    finally:
+        _close_db(conn)
+    try:
+        return backup_module.verify_bundle(
+            Path(body.path).expanduser(),
+            this_schema_version=SCHEMA_VERSION,
+            configured_vault_id=vault_id,
+        )
+    except backup_module.BackupError as exc:
+        raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message})
+
+
+@app.post("/api/restore")
+def restore_stage(body: RestoreRequest):
+    """Verify a bundle and stage it. The restore itself happens on the next start."""
+    _require_confirm(body)
+    bundle = Path(body.path or "").expanduser()
+    conn = _get_db()
+    try:
+        vault_id = _configured_vault_id(conn)
+    finally:
+        _close_db(conn)
+    try:
+        report = backup_module.verify_bundle(
+            bundle, this_schema_version=SCHEMA_VERSION, configured_vault_id=vault_id)
+    except backup_module.BackupError as exc:
+        raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message})
+    if not report["ok"]:
+        raise HTTPException(400, detail={"reason": "verification_failed",
+                                         "problems": report["problems"]})
+    try:
+        pointer = backup_module.stage_restore(
+            bundle, _backup_state_dir(), report,
+            accept_fk_violations=bool(body.accept_fk_violations))
+    except backup_module.BackupError as exc:
+        raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message,
+                                         "fk_violations": report["fk_violations"],
+                                         "fk_violations_total": report["fk_violations_total"]})
+    return {
+        "success": True,
+        "staged": pointer,
+        "report": report,
+        "next_step": "Restart resmon to restore. Nothing has changed yet.",
+    }
+
+
+@app.get("/api/backup/last")
+def backup_last():
+    """The last bundle, the last restore outcome, and whether an undo copy exists."""
+    conn = _get_db()
+    try:
+        last_path = get_setting(conn, "last_backup_path") or ""
+    finally:
+        _close_db(conn)
+    state = _backup_state_dir()
+    summary = None
+    if last_path and (Path(last_path) / backup_module.MANIFEST_NAME).is_file():
+        try:
+            manifest = backup_module.read_manifest(Path(last_path))
+            summary = {
+                "path": last_path,
+                "created_at_utc": manifest.get("created_at_utc"),
+                "app_version": manifest.get("app_version"),
+                "schema_version": manifest.get("schema_version"),
+                "vault_id": manifest.get("vault_id"),
+                "files": len(manifest.get("files", [])),
+                "includes_reports": manifest.get("includes_reports"),
+                "fk_violations_total": manifest.get("fk_violations_total") or 0,
+            }
+        except backup_module.BackupError:
+            summary = None
+    return {
+        "last_backup": summary,
+        "last_backup_path_recorded": last_path or None,
+        "pending_restore": backup_module.pending_restore(state),
+        "last_restore": backup_module.last_restore(state),
+        "undo_copies": backup_module.undo_copies(state),
+    }
+
+
+@app.post("/api/restore/cancel")
+def restore_cancel():
+    """Forget a staged restore. Nothing had been moved yet, so nothing is undone."""
+    backup_module.clear_pending(_backup_state_dir())
+    return {"success": True}
+
+
+@app.post("/api/restore/undo-copy/delete")
+def restore_delete_undo(body: AdminConfirmBody):
+    """Delete the database copies a restore set aside. Irreversible, so confirm-gated."""
+    _require_confirm(body)
+    return {"success": True, "deleted": backup_module.delete_undo_copies(_backup_state_dir())}
+
+
+@app.post("/api/restore/acknowledge")
+def restore_acknowledge():
+    """Dismiss the one-time "what a restore did not bring back" card."""
+    state = _backup_state_dir()
+    record = backup_module.last_restore(state)
+    if record is None:
+        return {"success": True, "acknowledged": False}
+    record["acknowledged"] = True
+    (state / backup_module.RESTORE_LOG_NAME).write_text(json.dumps(record, indent=2))
+    return {"success": True, "acknowledged": True}
+
+
+def _apply_pending_restore_on_startup() -> dict | None:
+    """The restore step. Runs first in ``_lifespan``, before anything opens the database.
+
+    ``init_db`` is reached lazily through ``_get_db``, so "before ``init_db``"
+    means before the first hook that touches the database -- which is the first
+    statement of the lifespan, here.
+    """
+    from implementation_scripts import daemon as _daemon
+
+    def another_process_holds_it() -> bool:
+        """Whether a *live* daemon other than this process holds the database.
+
+        A stale lock file left by a crash must not block a restore forever, so
+        the pid is probed rather than trusted; signal 0 asks the kernel whether
+        the process exists without touching it.
+        """
+        payload = _daemon.read_lock()
+        if not payload:
+            return False
+        pid = payload.get("pid")
+        if not isinstance(pid, int) or pid == os.getpid():
+            return False
+        try:
+            os.kill(pid, 0)
+        except (OSError, ProcessLookupError):
+            return False
+        return True
+
+    db_path = _db_path or str(DEFAULT_DB_PATH)
+    if db_path == ":memory:":
+        # An ephemeral database has nothing to restore over; tests that want the
+        # startup path drive it against a real file.
+        return None
+    try:
+        return backup_module.apply_pending_restore(
+            _backup_state_dir(),
+            Path(db_path),
+            this_schema_version=SCHEMA_VERSION,
+            init_db=lambda path: init_db(path),
+            daemon_lock_held=another_process_holds_it,
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("The staged restore could not be applied")
+        return None
 
 
 def close_db() -> None:

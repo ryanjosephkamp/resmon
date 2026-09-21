@@ -1464,9 +1464,34 @@ When SMTP is configured, a routine emits notifications only when its **Email** t
 
 The execution bundle produced by the shared export pipeline (`/api/executions/export`) is attached to the email when the total size is within the configured limit.
 
+## Backup and Restore
+
+**Settings → Storage → Backup and restore.** A backup is one folder holding everything resmon keeps for you locally, and a restore puts it back — on this machine or another one.
+
+A bundle (`resmon-backup-<UTC stamp>/`) contains:
+
+* `resmon.db` — your database, produced with the SQLite backup API from the live connection rather than copied. resmon runs SQLite in WAL mode, so a file copy would miss whatever is still in `resmon.db-wal`; the snapshot is consistent by construction and has no sidecars.
+* `vault/` — every byte in your Library vault, plus its `vault.json` marker. Each file is re-hashed on the way out and compared with the hash the catalog recorded. **A file that no longer matches stops the backup**, naming the file: the database and the vault are a pair, and a bundle that certified a corrupt vault would be worse than no bundle.
+* `reports/` — the report tree, if you leave the checkbox on.
+* `manifest.json` — the app and database-schema versions that wrote it, the vault id, a row count per table, every file with its size and SHA-256, and the list of what was deliberately left out.
+
+**What a backup does not contain:** no credential value, ever. Not your SMTP password, not a provider API key, not a webhook signing secret, not the Google Drive token. The manifest records their *names* so that after a restore resmon can tell you exactly which ones to enter again; the values stay in your OS keyring and nowhere else. The daemon lock, the port file and the API token are not in a backup either — they describe a running process, not your work.
+
+**Restoring takes a restart.** *Restore from backup…* checks a folder — every hash recomputed, the schema version compared with this app's, the vault compared with the one you have — and shows you the report. Only if you then choose *Restart to restore* is anything scheduled, and even then nothing changes until resmon next starts. On that start, before the database is opened, resmon moves your current database aside into `restore-undo/` (it is kept until you delete it yourself, from Settings → Storage — nothing removes it on its own, and taking another backup does not), puts the bundle's database in place, restores the vault bytes, resets the rows that describe a process that no longer exists, rebuilds the search index, runs any migrations the bundle needs, and checks integrity. **Any failure puts your old database back.**
+
+resmon refuses, with the reason: a bundle whose files do not match its manifest; a bundle written by a newer resmon than the one you are running (update first); and a vault directory that belongs to a *different* vault — it will not overwrite someone else's retained files.
+
+If your database contains references to rows that are not there, the backup **still runs** and records them in the manifest; the verify report lists them and asks you to tick *Restore anyway, keeping these rows as they are* before the restore can be staged. The count is of references rather than rows, because that is what SQLite's own check reports — one row with two broken links is counted twice. Refusing to back such a database up would leave you with no backup at all, which is the worse failure.
+
+A backup from an older resmon restores too: the migrations run on the restored database before anything else touches it, so a bundle written by v2.2.0 comes forward to today's schema on the way in.
+
+After a restore, Settings → Storage shows a one-time card listing the credentials the backup recorded and this machine does not have. Webhook signing secrets are bound to a delivery target's row id, so a target that came back under a different id has no secret until you set one; the card says so.
+
+The bundle format is documented in [`docs/backup.md`](docs/backup.md) for anyone restoring by hand.
+
 ## Google Drive Backup
 
-resmon has exactly one way to send data off the machine, and it is off until the user turns it on: optional Google Drive backup of the report tree, under **Settings → Cloud Storage**.
+resmon has exactly one way to send data off the machine, and it is off until the user turns it on: optional Google Drive backup of the report tree, under **Settings → Cloud Storage**. It is not the backup described above: it uploads `resmon_reports/` only, and has no restore counterpart.
 
 This surface is a thin wrapper over the Drive v3 API using the least-privilege `drive.file` OAuth 2.0 scope, meaning resmon can only see files it created itself. The OAuth client secrets are user-supplied and live in `credentials.json` at the project root (gitignored).
 

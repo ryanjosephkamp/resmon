@@ -584,6 +584,11 @@ const AdvancedSettings: React.FC = () => {
           <code> CONFIRM </code>(case-sensitive, all caps) before the
           confirm button activates so nothing is wiped by accident.
         </p>
+        <p style={{ color: '#666', fontSize: '0.9rem' }}>
+          <strong>Take a backup first.</strong> Settings → Storage → <em>Back up
+          now</em> writes your database and your Library vault to a folder you
+          choose, and can put them back. Nothing on this page can be undone.
+        </p>
 
         {dangerStatus && (
           <div
