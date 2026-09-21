@@ -6,6 +6,7 @@
  * double that always resolves cannot fail that way.
  */
 import { test, expect } from '@playwright/test';
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -61,4 +62,41 @@ test('an interpreter without the backend dependencies is refused by name', () =>
 
 test('the interpreter this run chose does import the backend dependencies', () => {
   expect(verifyInterpreter(resolveInterpreter().python)).toContain('config.py');
+});
+
+/**
+ * The guard has to reach every entry point, not just `npm run e2e`.
+ *
+ * `scripts/e2e-review.js` used to spawn Playwright with `--reporter list`,
+ * which replaces the config's reporter list wholesale and so dropped the
+ * completion guard from exactly the run CONTRIBUTING tells people to do before
+ * asking anyone to look at an interface change. This spawns the review script
+ * for real, with a deadline short enough that the collected cases cannot all
+ * report, and asserts both the non-zero exit and the guard's own sentence in
+ * the review log.
+ *
+ * `RESMON_E2E_GUARD_CHILD` keeps the child from re-entering this case, which
+ * would otherwise spawn a review run inside a review run.
+ */
+test('npm run e2e:review carries the completion guard', () => {
+  test.skip(!!process.env.RESMON_E2E_GUARD_CHILD, 'this is the child run of the guard case');
+  test.setTimeout(120_000);
+  const reviewDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-guard-case-'));
+  const run = spawnSync('node', ['scripts/e2e-review.js'], {
+    cwd: path.join(REPO_ROOT, 'resmon_scripts', 'frontend'),
+    env: {
+      ...process.env,
+      RESMON_E2E_GUARD_CHILD: '1',
+      RESMON_E2E_GLOBAL_TIMEOUT: '3000',
+      RESMON_E2E_REVIEW_DIR: reviewDir,
+      FORCE_COLOR: '0',
+    },
+    encoding: 'utf8',
+    timeout: 110_000,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const output = `${run.stdout || ''}${run.stderr || ''}`;
+  expect(output).toContain('never ran');
+  expect(run.status).not.toBe(0);
+  fs.rmSync(reviewDir, { recursive: true, force: true });
 });

@@ -40,7 +40,13 @@ console.log(`e2e review → ${outDir}`);
 
 const run = spawnSync(
   'npx',
-  ['playwright', 'test', '--config', 'e2e/playwright.config.ts', '--reporter', 'list'],
+  // No `--reporter` override: `--reporter list` would replace the config's
+  // whole reporter list, and the config already includes `list` *plus* the
+  // completion guard that turns collected-but-never-run cases into a non-zero
+  // exit. A review run is the one CONTRIBUTING sends people to before asking
+  // anyone to look at an interface change, so it is the last run that should
+  // be able to exit 0 over an absence.
+  ['playwright', 'test', '--config', 'e2e/playwright.config.ts'],
   {
     cwd: FRONTEND,
     env: {
