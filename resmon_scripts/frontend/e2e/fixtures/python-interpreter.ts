@@ -28,7 +28,7 @@
  * naming what was looked for and where, rather than starting 32 spec files that
  * cannot pass.
  */
-import { execFileSync, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -128,13 +128,4 @@ export function verifyInterpreter(python: string): string {
     );
   }
   return ((probe.stdout || '') as string).trim();
-}
-
-/**
- * The absolute path of the chosen interpreter, as several specs need: they
- * scrub PATH before launching, so a bare `python3` would not survive.
- */
-export function absoluteInterpreter(python: string): string {
-  if (path.isAbsolute(python)) return python;
-  return execFileSync(python, ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim();
 }
