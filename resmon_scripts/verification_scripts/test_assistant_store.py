@@ -36,7 +36,7 @@ def test_schema_12_creates_the_assistant_tables(conn):
     # against the constant: a schema bump should have to touch this file, so
     # that whoever bumps it re-reads what the assistant tables promise.
     assert database.SCHEMA_VERSION == 20
-    assert database.get_schema_version(conn) == 19
+    assert database.get_schema_version(conn) == 20
     tables = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"assistant_sessions", "assistant_messages"} <= tables
