@@ -35,7 +35,7 @@
  * because a `-q` pytest run does not print one.
  */
 
-export type JourneySlice = '1' | '2a' | '2b' | '3';
+export type JourneySlice = '1' | '2a' | '2b';
 export type JourneyStatus = 'carried' | 'not_carried_forward';
 
 export interface JourneyRow {
@@ -80,7 +80,7 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J11', title: 'Coverage audit', slice: '2a', status: 'carried', built: true },
   { id: 'J12', title: 'Explorer', slice: '1', status: 'carried' },
   { id: 'J13', title: 'The assistant (CLI lane)', slice: '2a', status: 'carried', built: true },
-  { id: 'J14', title: 'The assistant on a key', slice: '2a', status: 'carried' },
+  { id: 'J14', title: 'The assistant on a key', slice: '2a', status: 'carried', built: true },
   { id: 'J15', title: 'First-run card', slice: '2a', status: 'carried', built: true },
   { id: 'J16', title: 'Weekly live-network job', slice: '2a', status: 'carried', built: true },
   { id: 'J17', title: 'AI summarization lanes', slice: '2a', status: 'carried', built: true },
@@ -97,8 +97,8 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J28', title: 'Reading queue', slice: '2b', status: 'carried', built: true },
   { id: 'J29', title: 'Recorded-source coverage', slice: '1', status: 'carried' },
   { id: 'J30', title: 'Runtime identity', slice: '1', status: 'carried' },
-  { id: 'J31', title: 'Readable Ask', slice: '2b', status: 'carried' },
-  { id: 'J32', title: 'Chats and export', slice: '2b', status: 'carried' },
+  { id: 'J31', title: 'Readable Ask', slice: '2b', status: 'carried', built: true },
+  { id: 'J32', title: 'Chats and export', slice: '2b', status: 'carried', built: true },
   { id: 'J33', title: 'Composer choices', slice: '2b', status: 'carried' },
   { id: 'J34', title: 'Owned Library', slice: '2b', status: 'carried' },
   { id: 'J35', title: 'Evidence workspace', slice: '2b', status: 'carried' },

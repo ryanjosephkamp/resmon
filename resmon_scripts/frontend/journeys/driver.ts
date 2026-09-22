@@ -53,7 +53,9 @@ export type Place =
   | 'Notification settings'
   | 'Cloud Storage settings'
   | 'Advanced settings'
-  | 'Tutorials';
+  | 'Tutorials'
+  // — slice 3 -----------------------------------------------------------------
+  | 'Chats';
 
 /** One run, as the app and the API both identify it. */
 export interface RunHandle {
@@ -897,6 +899,86 @@ export interface JourneyDriver {
    * the closest thing to a fact rather than a guess.
    */
   anAddressThatRefusesConnections(): Promise<{ host: string; port: number }>;
+
+  // — saved chats (J32) ------------------------------------------------------
+  /** Every saved chat the Chats page lists, by title, in the order it lists them. */
+  readTheChatsPage(): Promise<string[]>;
+  /** Open the saved chat whose title contains this, and read its transcript. */
+  openTheSavedChat(titleFragment: string): Promise<SavedTranscript>;
+  /**
+   * Export the open chat and return what is inside the file the app wrote.
+   *
+   * A real download with only the destination picker replaced: the request, the
+   * bytes and the serializer are the app's own, the same seam
+   * `exportReferences` uses.
+   */
+  exportTheOpenChat(format: 'json' | 'markdown'): Promise<string>;
+
+  // — the Ask panel, read as a person reads it (J31) --------------------------
+  /**
+   * Open the assistant the way somebody who does not use a mouse opens it, and
+   * report whether the keyboard alone got there.
+   */
+  openTheAssistantWithTheKeyboard(): Promise<boolean>;
+  /** What the assistant panel offers a person, and whether it all fits. */
+  readTheAssistantPanel(): Promise<AssistantPanelFacts>;
+
+  // — the assistant on a key (J14) -------------------------------------------
+  /**
+   * Point the assistant at a model provider of the person's own — a key they
+   * pasted in and an endpoint they named — the way Settings → AI does.
+   *
+   * The provider is an authored one on loopback; what it replaces is the model.
+   * The key is stored through the app's own credential route into the same
+   * in-memory credential store every journey uses, and it is the app's own code
+   * that reads it back out when it builds the request.
+   */
+  useAnAuthoredProviderOnAKey(options: { answer: string; key: string; model: string }): Promise<void>;
+  /** Every request the authored provider received, headers included. */
+  readWhatTheProviderReceived(): Promise<ProviderRequest[]>;
+  /** What the app will show about the assistant's own settings. */
+  readAssistantSettings(): Promise<Record<string, any>>;
+}
+
+/** One request the app made of the authored provider. */
+export interface ProviderRequest {
+  path: string;
+  /** The `Authorization` header, verbatim, or null. */
+  authorization: string | null;
+  model: string;
+  /** The body, as the provider received it. */
+  body: Record<string, any>;
+}
+
+/** The Ask panel as somebody reading it — or hearing it read — meets it. */
+export interface AssistantPanelFacts {
+  /** The panel is on screen at all. */
+  open: boolean;
+  /** The composer carries a name assistive technology can announce. */
+  composerIsNamed: string;
+  /** The composer can be typed into. */
+  composerIsUsable: boolean;
+  /** The panel is entirely inside the window, at the size the window is now. */
+  insideTheWindow: boolean;
+  /** The panel and the window, for a failure that has to say by how much. */
+  geometry: { panel: { x: number; y: number; width: number; height: number };
+    window: { width: number; height: number } };
+  /**
+   * The roles the panel's own error region carries, if it is showing one.
+   *
+   * An error a sighted person can see and a screen reader never announces is
+   * half a feature, so the row asks for the role rather than for the text.
+   */
+  errorRoles: string[];
+}
+
+/** A saved chat as the Chats page shows it when it is open. */
+export interface SavedTranscript {
+  title: string;
+  /** Every bubble in the transcript, in order. */
+  said: string[];
+  /** The whole panel, for the sentences no structured read covers. */
+  text: string;
 }
 
 /** Settings → Email, in the words the page uses for each field. */

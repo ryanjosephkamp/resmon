@@ -47,7 +47,12 @@ import type {
   DeliveryRecord, McpAnswer, ObservedRequest, QueuedPaper, RawAnswer,
 } from '../driver';
 // Slice 3's, in its own import for the same reason.
-import type { EmailSettings, NotificationPreferences, RunNowAnswer } from '../driver';
+import type {
+  AssistantPanelFacts, EmailSettings, NotificationPreferences, ProviderRequest, RunNowAnswer,
+  SavedTranscript,
+} from '../driver';
+import { startProviderEndpoint } from '../fixtures/provider-endpoint';
+import type { ProviderEndpoint } from '../fixtures/provider-endpoint';
 import type { Session } from './session';
 
 /** The hash behind each place in the sidebar. The only route table in the suite. */
@@ -72,6 +77,8 @@ const PLACES: Record<Place, string> = {
   'Cloud Storage settings': '/settings/cloud',
   'Advanced settings': '/settings/advanced',
   Tutorials: '/about-resmon/tutorials',
+  // — slice 3 ---------------------------------------------------------------
+  Chats: '/chats',
 };
 
 /** `YYYY-MM-DD`, in the machine's own timezone, as the date inputs want it. */
@@ -82,6 +89,9 @@ function isoDate(at: Date): string {
 
 export function createClassicDriver(session: Session, testInfo: TestInfo): JourneyDriver {
   const win = () => session.win;
+
+  /** The authored model provider, once a journey has asked for one. */
+  let provider: ProviderEndpoint | null = null;
 
   const goto = async (hash: string): Promise<void> => {
     // A HashRouter change is not a document navigation, so setting the hash is
@@ -1954,6 +1964,135 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         probe.close(() => resolve({ host: '127.0.0.1', port }));
       });
     }),
+
+    readTheChatsPage: async () => {
+      await goto(PLACES.Chats);
+      const list = win().getByRole('region', { name: 'Saved chats' });
+      await expect(list).toBeVisible({ timeout: 30_000 });
+      return (await list.locator('li strong').allInnerTexts()).map((t) => t.trim());
+    },
+
+    openTheSavedChat: async (titleFragment): Promise<SavedTranscript> => {
+      await goto(PLACES.Chats);
+      const list = win().getByRole('region', { name: 'Saved chats' });
+      const row = list.locator('li button').filter({ hasText: titleFragment }).first();
+      await expect(row, `no saved chat whose title contains "${titleFragment}"`)
+        .toBeVisible({ timeout: 30_000 });
+      await row.click();
+      const transcript = win().getByRole('region', { name: 'Saved transcript' });
+      const heading = transcript.getByRole('heading').first();
+      await expect(heading).toBeVisible({ timeout: 30_000 });
+      return {
+        title: (await heading.innerText()).trim(),
+        said: (await transcript.locator('.assistant-bubble').allInnerTexts())
+          .map((t) => t.trim()),
+        text: (await transcript.innerText()).replace(/\s+/g, ' ').trim(),
+      };
+    },
+
+    exportTheOpenChat: async (format) => {
+      const destination = path.join(session.stateDir, `journey-chat.${format === 'json' ? 'json' : 'md'}`);
+      await session.app.evaluate(({ BrowserWindow }, target) => {
+        BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => {
+          item.setSavePath(target as string);
+        });
+      }, destination);
+      const label = format === 'json' ? 'Export JSON' : 'Export Markdown';
+      await win().getByRole('region', { name: 'Saved transcript' })
+        .getByRole('button', { name: label, exact: true }).click();
+      await expect.poll(() => fs.existsSync(destination), { timeout: 30_000 }).toBe(true);
+      await expect.poll(() => fs.statSync(destination).size, { timeout: 30_000 }).toBeGreaterThan(0);
+      return fs.readFileSync(destination, 'utf8');
+    },
+
+    openTheAssistantWithTheKeyboard: async () => {
+      await goto('/');
+      // The shortcut the app documents, on the modifier this platform uses.
+      await win().keyboard.press(process.platform === 'darwin' ? 'Meta+Slash' : 'Control+Slash');
+      const panel = win().getByTestId('assistant-panel');
+      try {
+        await expect(panel).toBeVisible({ timeout: 15_000 });
+        return true;
+      } catch {
+        // Reported, not thrown: whether the keyboard alone opens it is the
+        // row's question, and a driver that threw would turn a finding into a
+        // stack trace.
+        return false;
+      }
+    },
+
+    readTheAssistantPanel: async (): Promise<AssistantPanelFacts> => {
+      const panel = win().getByTestId('assistant-panel');
+      const open = (await panel.count()) > 0 && await panel.isVisible();
+      if (!open) {
+        return {
+          open: false, composerIsNamed: '', composerIsUsable: false, insideTheWindow: false,
+          geometry: { panel: { x: 0, y: 0, width: 0, height: 0 }, window: { width: 0, height: 0 } },
+          errorRoles: [],
+        };
+      }
+      const composer = win().getByLabel('Message the assistant');
+      const box = (await panel.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
+      const viewport = await win().evaluate(() => ({
+        width: window.innerWidth, height: window.innerHeight,
+      }));
+      const errorRoles = await win().locator('.assistant-error').evaluateAll(
+        (nodes) => nodes.map((node) => (node as HTMLElement).getAttribute('role') || ''),
+      );
+      return {
+        open: true,
+        composerIsNamed: String(await composer.getAttribute('aria-label') ?? ''),
+        composerIsUsable: (await composer.count()) > 0 && await composer.isEnabled(),
+        insideTheWindow: box.x >= 0 && box.y >= 0
+          && box.x + box.width <= viewport.width + 1
+          && box.y + box.height <= viewport.height + 1,
+        geometry: { panel: box, window: viewport },
+        errorRoles: errorRoles.filter((role) => role !== ''),
+      };
+    },
+
+    useAnAuthoredProviderOnAKey: async ({ answer, key, model }) => {
+      provider = await startProviderEndpoint(answer);
+      session.alsoCloseOnClose(() => provider!.close());
+      // Two settings groups, because they are two different questions: which
+      // endpoint the app talks to, and which lane the assistant runs in. Both
+      // through the routes the AI tab writes.
+      await session.api('PUT', '/api/settings/ai', {
+        settings: { ai_provider: 'custom', ai_custom_base_url: provider.url },
+      });
+      await session.api('PUT', '/api/settings/assistant', {
+        settings: {
+          assistant_runtime: 'api_key',
+          assistant_provider: 'custom',
+          assistant_model: model,
+          assistant_effort: '',
+        },
+      });
+      // The panel reads the lane when the window opens, so the window has to
+      // see it. Reopening is what a person would do, and it also proves the
+      // settings survived being written.
+      await session.relaunch();
+      // The credential goes to the credential store, not to the settings
+      // database — the same route the API Key field's Store button posts to.
+      // **After the relaunch, and that is not an ordering preference.** This
+      // suite's keyring is an in-memory backend inside the backend process, so
+      // it dies with that process; a credential stored before the relaunch
+      // would be gone by the time the lane looked for it, and the row would
+      // fail for a reason that belongs to the fixture rather than to the app.
+      await session.api('PUT', '/api/credentials/custom_llm_api_key', { value: key });
+    },
+
+    readWhatTheProviderReceived: async (): Promise<ProviderRequest[]> => {
+      expect(provider, 'this journey never started an authored provider').toBeTruthy();
+      return provider!.calls().map((call) => ({
+        path: call.path,
+        authorization: call.authorization,
+        model: call.model,
+        body: call.body,
+      }));
+    },
+
+    readAssistantSettings: async () => session.api('GET', '/api/settings/assistant'),
 
     runNowControlIsOnTheRow: async (name) => {
       await goto(PLACES.Routines);
