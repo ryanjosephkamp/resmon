@@ -23,6 +23,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { _electron as electron, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import {
@@ -45,6 +46,63 @@ const API_DEADLINE_MS = 60_000;
 
 /** How long to ask Electron to quit before insisting. See `put()`. */
 const CLOSE_DEADLINE_MS = 45_000;
+
+/**
+ * How long a close may go on running after the Electron process itself has
+ * exited before this calls it what it is.
+ *
+ * Playwright resolves `close()` on the child's `'close'` event, which Node
+ * emits only once the process has exited **and** every one of its stdio pipes
+ * has been closed. A descendant that inherited those pipes and outlived the
+ * quit therefore holds `close()` open indefinitely — with the Electron process
+ * already dead. Three seconds is far longer than the gap between `'exit'` and
+ * `'close'` on a healthy quit and far shorter than waiting out the deadline for
+ * something that is never going to arrive.
+ */
+const ORPHAN_GRACE_MS = 3_000;
+
+/** Whether this process is the leader of its own process group, per `ps`. */
+function leadsItsOwnGroup(pid: number): boolean {
+  try {
+    const pgid = execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).trim();
+    return Number(pgid) === pid;
+  } catch {
+    // No answer is not a yes: a process `ps` cannot find is one this must not
+    // guess about.
+    return false;
+  }
+}
+
+/** A timer that cannot itself be the reason this process stays alive. */
+function after(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => { setTimeout(resolve, ms).unref(); });
+}
+
+/**
+ * SIGKILL an Electron process **and everything it started**.
+ *
+ * Playwright spawns the app `detached` on every platform but Windows, which
+ * makes it the leader of its own process group — and `kill(-pid)` then reaches
+ * the whole group: the renderer, the GPU and zygote processes, the crash
+ * handler, and the backend the app spawned. That is the difference that
+ * matters. Killing the pid alone leaves those children alive holding the
+ * inherited stdout and stderr pipes, so Node never emits `'close'`, the
+ * `readline` interfaces Playwright wrapped around those pipes stay ref'd, and
+ * the worker cannot exit. Returns what it managed to do, for the log.
+ */
+function killTree(pid: number | undefined): string {
+  if (!pid) return 'no pid';
+  const attempts: string[] = [];
+  // Asked, not assumed. `kill(-pid)` means "the process group whose id is
+  // pid", and if this process were somehow *not* its own group leader that
+  // would be some other group — conceivably this worker's. The group is only
+  // killed when the operating system says the app leads it.
+  if (process.platform !== 'win32' && leadsItsOwnGroup(pid)) {
+    try { process.kill(-pid, 'SIGKILL'); attempts.push(`group -${pid}`); } catch { /* already gone */ }
+  }
+  try { process.kill(pid, 'SIGKILL'); attempts.push(`pid ${pid}`); } catch { /* already gone */ }
+  return attempts.length ? attempts.join(' and ') : `pid ${pid} was already gone`;
+}
 
 /** The build under test: `RESMON_JOURNEY_APP`, or the checkout this suite lives in. */
 export function targetAppRoot(): AppRoot {
@@ -195,12 +253,22 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
    * symptoms cost a CI round to read, because nothing in the stack named the
    * step it was stuck in.
    *
-   * So the close is raced against a deadline. Past it, this stops asking and
-   * starts killing: SIGKILL to the Electron process and to the backend child it
-   * spawned, whose pid the launch recorded from `/api/health`. `main.ts` kills
-   * the backend with SIGTERM on `before-quit`, and a backend that does not take
-   * a SIGTERM — mid-write, say — is a plausible reason for a quit that never
-   * finishes.
+   * So the close is raced against two things rather than one.
+   *
+   * The first is the deadline. The second is the failure this suite actually
+   * had, which the deadline alone could only wait out: **the Electron process
+   * exits and `close()` still does not return.** Playwright resolves `close()`
+   * on the child's `'close'` event, and Node emits that only when the process
+   * has exited *and* every stdio pipe it was given has been closed by everyone
+   * holding it. Electron's own children — renderer, GPU, zygote, crash handler
+   * — inherit those pipes, so one of them outliving the quit is enough to leave
+   * `close()` pending forever over a process that is already dead. That is what
+   * ran out this suite's per-case budget on a runner and then held the worker
+   * open for the runner's full 300 seconds, twice.
+   *
+   * Either way the answer is the same and it is `killTree`, not a bigger
+   * number: kill the app's whole process group, so nothing is left holding a
+   * pipe, `'close'` fires, and the streams Playwright wrapped around it end.
    *
    * A harness force-quitting an app it launched itself is legitimate, so this
    * does not fail the row: the row is about the journey, not about Electron's
@@ -220,29 +288,41 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     // is open, and the worker then waits 300 s for it at teardown — reported as
     // `worker-0 process did not exit within 300000ms after stop`. The close has
     // to be finished, not dropped.
-    const closing = app.close().catch(() => { /* already gone */ });
-    const closed = await Promise.race([
-      closing.then(() => true),
-      // `unref` so a deadline the close beat does not go on holding the
-      // worker's event loop open after the suite has finished.
-      new Promise<false>((resolve) => { setTimeout(() => resolve(false), CLOSE_DEADLINE_MS).unref(); }),
-    ]);
+    let settled = false;
+    const closing = app.close()
+      .catch(() => { /* already gone */ })
+      .then(() => { settled = true; });
 
-    if (!closed || !gone()) {
-      const why = closed ? 'close() resolved but the process was still there' : 'close() did not return';
-      forced.push(`${why} after ${CLOSE_DEADLINE_MS} ms; SIGKILLed electron pid ${owned?.pid} and backend pid ${child}`);
-      console.log(`[journeys] FORCED CLOSE: ${forced[forced.length - 1]}`);
-      for (const pid of [child, owned?.pid]) {
-        if (!pid) continue;
-        try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    /** Wait for whichever comes first: the close, the deadline, or an exited process. */
+    const outcome = await (async (): Promise<'closed' | 'deadline' | 'exited-but-open'> => {
+      const began = Date.now();
+      let exitedAt: number | null = null;
+      while (Date.now() - began < CLOSE_DEADLINE_MS) {
+        if (settled) return 'closed';
+        if (gone()) {
+          exitedAt ??= Date.now();
+          if (Date.now() - exitedAt >= ORPHAN_GRACE_MS) return 'exited-but-open';
+        } else {
+          exitedAt = null;
+        }
+        await after(200);
       }
-      // With the process gone the transport ends, so the close Playwright was
-      // still waiting on can now finish. Bounded, because this is a tidy-up and
-      // not a thing worth a second hang.
-      await Promise.race([
-        closing,
-        new Promise<void>((resolve) => { setTimeout(resolve, 30_000).unref(); }),
-      ]);
+      return settled ? 'closed' : 'deadline';
+    })();
+
+    if (outcome !== 'closed' || !gone()) {
+      const why = outcome === 'exited-but-open'
+        ? `the app exited but close() stayed pending for ${ORPHAN_GRACE_MS} ms, so something it started still held its pipes`
+        : outcome === 'deadline'
+          ? `close() did not return within ${CLOSE_DEADLINE_MS} ms`
+          : 'close() resolved but the process was still there';
+      const killed = killTree(owned?.pid);
+      forced.push(`${why}; killed ${killed}`);
+      console.log(`[journeys] FORCED CLOSE: ${forced[forced.length - 1]}`);
+      // With the whole group gone every inherited pipe is closed, so the
+      // `'close'` Playwright is waiting on arrives and the close it was holding
+      // finishes. Bounded anyway: a tidy-up is not worth a second hang.
+      await Promise.race([closing, after(30_000)]);
     }
 
     // The backend is a grandchild: `main.ts` sends it a SIGTERM on `before-quit`
