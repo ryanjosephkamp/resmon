@@ -1083,3 +1083,68 @@ export interface JourneyDriver {
   /** Change the app-wide assistant defaults on Settings → AI, and save them. */
   setTheAppWideAssistantDefaults(defaults: { model: string; effort?: string }): Promise<void>;
 }
+
+/** One item the Library lists, as the page and its own detail show it. */
+export interface LibraryItem {
+  /** The name the file had when it was imported. */
+  name: string;
+  /** `application/pdf`, `text/markdown` — as the row labels the retained format. */
+  mediaType: string;
+  /** The hash the detail shows for the bytes that were imported. */
+  sha256: string;
+  fileId: string;
+  versionId: string;
+  /** Every local paper the detail says is associated, in its own words. */
+  associations: string[];
+}
+
+/**
+ * The managed vault as it exists on the disk.
+ *
+ * Read off the filesystem rather than out of the API, because the row is that
+ * the person owns a directory they could open in a file manager after resmon
+ * is gone. An API that described a layout it had not written would pass a
+ * journey that only asked the API.
+ */
+export interface VaultOnDisk {
+  /** The directory the app created, by name only. */
+  directory: string;
+  /** `vault.json`'s bytes, exactly as they are on disk. */
+  marker: string;
+  /** Every path under the vault, relative to it, sorted. */
+  entries: string[];
+  /**
+   * The SHA256 of every retained file's bytes as they are on the disk now,
+   * keyed by the same relative path.
+   *
+   * Taken here rather than asserted from the screen: "the hash the detail
+   * shows is the hash of what is in the folder" is the whole of *owned*, and
+   * a page that showed a hash it had stored would satisfy a row that only
+   * compared the page with itself.
+   */
+  hashes: Record<string, string>;
+}
+
+export interface JourneyDriver {
+  // — the owned Library (J34) ------------------------------------------------
+  /**
+   * Choose a parent folder for the vault, through the app's own picker.
+   *
+   * The native chooser is scripted, exactly as `e2e/library.spec.ts` scripts
+   * it and for the same reason: nothing in an automated suite can operate a
+   * macOS file dialog. The production IPC handler is untouched — only its OS
+   * dependency answers — so the request, the validation and the creation are
+   * the app's. What no suite can see is a person's own Finder.
+   */
+  chooseAParentFolderForTheLibrary(): Promise<string>;
+  /** Press Create managed vault, and return the vault's directory on disk. */
+  createTheManagedVault(): Promise<string>;
+  /** Import these files through the page's own file control, and read its notice. */
+  importIntoTheLibrary(files: { name: string; content: string }[]): Promise<string>;
+  /** Every item the Library lists, each read from its own detail. */
+  readTheLibraryItems(): Promise<LibraryItem[]>;
+  /** Associate the item with this name with an existing paper, by its id. */
+  associateTheLibraryItemWithPaper(name: string, paperId: number): Promise<string>;
+  /** The vault as it exists on the disk, independently of what the app says. */
+  readTheVaultOnDisk(): Promise<VaultOnDisk>;
+}

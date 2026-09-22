@@ -23,10 +23,12 @@
  * concerned.
  */
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
 import * as http from 'http';
 import * as net from 'net';
+import { createHash } from 'crypto';
 import { expect } from '@playwright/test';
 import type { TestInfo } from '@playwright/test';
 import type {
@@ -52,7 +54,7 @@ import type {
   SavedTranscript,
 } from '../driver';
 // Slice 4's, in its own import for the same reason.
-import type { ComposerChoice, TurnChoiceFacts } from '../driver';
+import type { ComposerChoice, LibraryItem, TurnChoiceFacts, VaultOnDisk } from '../driver';
 import { startProviderEndpoint } from '../fixtures/provider-endpoint';
 import type { ProviderEndpoint } from '../fixtures/provider-endpoint';
 import type { Session } from './session';
@@ -458,6 +460,67 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     // setting. Reopening is what a person would do, and it also proves the
     // setting survived being written.
     await session.relaunch();
+  };
+
+  /**
+   * The parent folder this journey chose for its vault.
+   *
+   * Kept here rather than asked of the app, because the app does not publish
+   * it: the status carries the child's label and not the root it sits under.
+   * The driver knows it because the driver is what answered the picker.
+   */
+  let libraryParent: string | null = null;
+
+  /**
+   * Where the vault this app made actually is.
+   *
+   * The parent a person chose plus the label the app gave the child it
+   * created — so nothing here guesses a directory name, and a name the app
+   * changed would show up as a missing directory rather than as a quietly
+   * different assertion.
+   */
+  const vaultDirectory = (): string => {
+    expect(libraryParent, 'this journey never chose a parent folder for a Library').toBeTruthy();
+    // Off the filesystem rather than out of the API, for two reasons. The
+    // Library routes are guarded by a header this app sends for itself and
+    // `session.api` does not, so asking them would mean widening the seam for
+    // one row; and the row's whole claim is that the person owns a directory,
+    // which is a question the directory answers. The contract says an existing
+    // folder is never adopted, so exactly one child is the expected answer and
+    // a second one is a finding rather than a tie to break.
+    const children = fs.readdirSync(libraryParent!)
+      .filter((entry) => entry.startsWith('resmon-library-'));
+    expect(children, `the chosen parent ${libraryParent} holds no single managed vault`)
+      .toHaveLength(1);
+    return path.join(libraryParent!, children[0]);
+  };
+
+  /** Click the Library row with this name, and wait for its detail to be the one open. */
+  const selectTheLibraryItem = async (name: string): Promise<void> => {
+    await goto('/library');
+    const row = win().getByRole('region', { name: 'Library files' })
+      .locator('.library-item').filter({ hasText: name }).first();
+    await expect(row, `the Library lists nothing called ${name}`).toBeVisible({ timeout: 60_000 });
+    await row.click();
+    await expect(win().getByRole('heading', { name, exact: true })).toBeVisible({ timeout: 30_000 });
+  };
+
+  /** The open item's own detail, as a person reads it. */
+  const readLibraryDetail = async (): Promise<LibraryItem> => {
+    const detail = win().getByRole('region', { name: 'Selected Library item' });
+    await expect(detail).toBeVisible({ timeout: 30_000 });
+    /** One `<dd>` by the `<dt>` beside it, which is how the detail is labelled. */
+    const value = async (term: string): Promise<string> => (
+      await detail.locator(`dt:text-is("${term}") + dd`).innerText()).trim();
+    const associations = detail.locator('h3:text-is("Local paper associations") ~ ul li');
+    return {
+      name: (await detail.locator('h2').innerText()).trim(),
+      mediaType: (await value('Retained format')).split('·')[0].trim(),
+      sha256: await value('SHA256 of imported bytes'),
+      fileId: await value('File'),
+      versionId: await value('Immutable version'),
+      associations: (await associations.allInnerTexts()).map((t) => t.trim()),
+    };
   };
 
   /** The assistant panel, opened if a journey has not opened it already. */
@@ -2354,6 +2417,104 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         });
       }
       return out;
+    },
+
+    chooseAParentFolderForTheLibrary: async (): Promise<string> => {
+      // Somewhere of this session's own, outside the state directory, because
+      // that is where a person puts a vault: a folder they keep. It is removed
+      // with the session, so a run leaves no library behind on the machine.
+      const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-library-')));
+      session.alsoRemoveOnClose(parent);
+      // The production IPC handler is untouched; only the OS dependency
+      // answers, exactly as `e2e/library.spec.ts` does it. Nothing automated
+      // can operate a native file dialog, and the spec's ledger says so.
+      await session.app.evaluate(({ dialog }, chosen) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
+      }, parent);
+      await goto('/library');
+      await win().getByRole('button', { name: 'Choose parent folder', exact: true }).click();
+      await expect(win().getByText(parent, { exact: true })).toBeVisible({ timeout: 30_000 });
+      libraryParent = parent;
+      return parent;
+    },
+
+    createTheManagedVault: async (): Promise<string> => {
+      await goto('/library');
+      await win().getByRole('button', { name: 'Create managed vault', exact: true }).click();
+      // The control that only exists once there is somewhere to import into.
+      await expect(win().getByLabel('Import PDF, TXT or MD')).toBeEnabled({ timeout: 60_000 });
+      return vaultDirectory();
+    },
+
+    importIntoTheLibrary: async (files): Promise<string> => {
+      await goto('/library');
+      const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-import-'));
+      session.alsoRemoveOnClose(staging);
+      const paths = files.map((file) => {
+        const target = path.join(staging, file.name);
+        fs.writeFileSync(target, file.content);
+        return target;
+      });
+      const control = win().getByLabel('Import PDF, TXT or MD');
+      await expect(control).toBeEnabled({ timeout: 60_000 });
+      await control.setInputFiles(paths);
+      // The page's own account of what it did. Waiting for the sentence rather
+      // than for a count is what stops a read landing between the upload
+      // finishing and the list being refetched — and the page has a second
+      // `role="status"` for "Loading Library…", so this waits for the one that
+      // answers the question that was asked.
+      const notice = win().getByText(/\d+ retained, \d+ exact duplicates reused/);
+      await expect(notice).toBeVisible({ timeout: 120_000 });
+      return (await notice.innerText()).trim();
+    },
+
+    readTheLibraryItems: async (): Promise<LibraryItem[]> => {
+      await goto('/library');
+      const rows = win().getByRole('region', { name: 'Library files' }).locator('.library-item');
+      await expect(rows.first()).toBeVisible({ timeout: 60_000 });
+      const out: LibraryItem[] = [];
+      for (let i = 0; i < await rows.count(); i += 1) {
+        await rows.nth(i).click();
+        out.push(await readLibraryDetail());
+      }
+      return out;
+    },
+
+    associateTheLibraryItemWithPaper: async (name, paperId): Promise<string> => {
+      await selectTheLibraryItem(name);
+      const detail = win().getByRole('region', { name: 'Selected Library item' });
+      await detail.getByLabel('Existing paper ID').fill(String(paperId));
+      await detail.getByRole('button', { name: 'Associate paper', exact: true }).click();
+      const notice = detail.locator('[role="status"]').first();
+      await expect(notice).toContainText(`Linked local paper ${paperId}`, { timeout: 60_000 });
+      return (await notice.innerText()).trim();
+    },
+
+    readTheVaultOnDisk: async (): Promise<VaultOnDisk> => {
+      const directory = vaultDirectory();
+      const entries: string[] = [];
+      const walk = (at: string): void => {
+        for (const entry of fs.readdirSync(at, { withFileTypes: true })) {
+          const full = path.join(at, entry.name);
+          entries.push(path.relative(directory, full));
+          if (entry.isDirectory()) walk(full);
+        }
+      };
+      walk(directory);
+      const marker = path.join(directory, 'vault.json');
+      const hashes: Record<string, string> = {};
+      for (const entry of entries) {
+        const full = path.join(directory, entry);
+        if (!fs.statSync(full).isDirectory() && entry !== 'vault.json') {
+          hashes[entry] = createHash('sha256').update(fs.readFileSync(full)).digest('hex');
+        }
+      }
+      return {
+        directory: path.basename(directory),
+        marker: fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : '',
+        entries: entries.sort(),
+        hashes,
+      };
     },
 
     setTheAppWideAssistantDefaults: async (defaults) => {
