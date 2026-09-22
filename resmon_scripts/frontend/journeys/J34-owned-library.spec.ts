@@ -13,8 +13,10 @@
  * the server creates `resmon-library-<vault UUID>`, a `vault.json` marker
  * containing exactly `{"version":1,"vault_id":"<UUID>"}`, and `files/`, and
  * that a retained file lives at `files/<file UUID>/<version UUID>.<pdf|txt|md>`.
- * Those four sentences are the four assertions below, and the contract file in
- * the build under test is their denominator.
+ * Those four sentences are the four assertions below. **They are copied here,
+ * not read from there**: the spec never opens the contract, so a contract this
+ * layout stopped matching would not be caught by this row — only a *layout*
+ * that stopped matching the contract as it stood when this was written.
  *
  * **The hashes are read where a person reads them** — the item's own detail —
  * and checked against the bytes on the disk, which is the only way "these are
