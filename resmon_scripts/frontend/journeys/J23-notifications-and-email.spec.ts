@@ -20,12 +20,15 @@
  *
  * **Two things this row does not establish, both printed below.**
  *
- * *A successful send.* `email_notifier` calls `starttls()` with no context, so
- * the certificate is verified against the machine's own trust store. A loopback
- * SMTP stub would need a certificate this suite generated to be trusted by the
- * launched backend, which means changing what that process trusts — further
- * than a journey should reach into a machine. The success path's evidence stays
- * with the backend suite, which patches `smtplib`.
+ * *A successful send — unbuilt, not unbuildable.* An earlier reading of this
+ * said a loopback stub could not work because `starttls()` is called with no
+ * SSL context. That was wrong: `smtplib.SMTP.starttls(context=None)` builds
+ * `ssl._create_stdlib_context()`, which has `check_hostname=False` and
+ * `verify_mode=CERT_NONE`, so a self-signed certificate on loopback would be
+ * accepted. The work is generating a certificate and answering `AUTH` — real
+ * work, and not done here. The success path's evidence is for now the backend
+ * suite, which patches `smtplib`; this row owes the arm rather than being
+ * unable to hold it.
  *
  * *The notification itself.* A desktop notification for a manual run is raised
  * by the renderer, through the browser `Notification` API, with no IPC and no
@@ -92,10 +95,11 @@ journey.describe('J23 Notifications and email', () => {
     console.log(`[J23] notification preferences after a relaunch: ${JSON.stringify(preferences)}`);
     expect(preferences).toEqual({ whenIRunSomethingMyself: false, forAutomaticRoutines: 'all' });
 
-    console.log('[J23] NOT VERIFIED: a successful test send. The app calls `starttls()` with no '
-      + 'context, so a loopback SMTP stub would have to present a certificate the launched '
-      + 'backend already trusts, and making it trust one is further into the machine than a '
-      + 'journey goes. The success path stays with the backend suite.');
+    console.log('[J23] NOT VERIFIED: a successful test send. This arm is UNBUILT, not unbuildable '
+      + '— `starttls(context=None)` uses a stdlib context with CERT_NONE and no hostname check, so '
+      + 'a loopback STARTTLS stub with a self-signed certificate would be accepted. What it needs '
+      + 'is a certificate and an AUTH responder, and this slice did not write them. For now the '
+      + 'success path is the backend suite, which patches `smtplib`.');
     console.log('[J23] NOT VERIFIED: the desktop notification itself. It is raised in the '
       + 'renderer through the browser Notification API, with no IPC and no artefact, so nothing '
       + 'outside the window can observe one. The preference is asserted above; the dispatch '

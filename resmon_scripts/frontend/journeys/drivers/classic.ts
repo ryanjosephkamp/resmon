@@ -193,6 +193,13 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
    * open, and a turn that is holding an approval card is *deliberately* still
    * running — so the card short-circuits, because that is a terminal state too:
    * the app is waiting for the person, not for itself.
+   *
+   * **This is only a wait for a turn that has already begun.** A second ask
+   * finds the session idle from the first, so "nothing is running" is true
+   * before the backend has claimed the new turn — the same shape, one level
+   * down. The callers therefore wait for the message request to be answered
+   * before they call this at all, and that ordering is the reason this function
+   * can be about *finishing* rather than about starting.
    */
   const theTurnHasStoppedMoving = async (): Promise<void> => {
     await expect.poll(async () => {
@@ -1421,7 +1428,19 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const composer = win().getByLabel('Message the assistant');
       await expect(composer, 'the assistant is not available in this app').toBeEnabled({ timeout: 30_000 });
       await composer.fill(text);
+      // Armed before the click, and awaited after it. Without this the
+      // authoritative wait below can be satisfied by the *previous* turn: on a
+      // second ask the session already exists and is idle, so "no conversation
+      // is running" is true until the backend has claimed the new turn. That is
+      // the bug one level down from the one this whole helper was written for.
+      const claimed = win().waitForResponse(
+        (r) => /\/api\/assistant\/sessions\/\d+\/messages$/.test(r.url())
+          && r.request().method() === 'POST',
+        { timeout: 120_000 },
+      );
       await win().getByRole('button', { name: 'Send', exact: true }).click();
+      const response = await claimed;
+      expect(response.ok(), `the assistant refused the message: HTTP ${response.status()}`).toBe(true);
       await theTurnHasStoppedMoving();
       return readAssistantPanel();
     },

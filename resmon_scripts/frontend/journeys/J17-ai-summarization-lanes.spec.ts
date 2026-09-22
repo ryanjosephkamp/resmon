@@ -19,6 +19,18 @@
  * own behaviour — a version change, a flag that stopped being accepted — and
  * the ledger says so.
  *
+ * **A second finding, and the guard is what found it.** `summarizer.py` calls
+ * `nltk.data.find("tokenizers/punkt_tab")` at *import* time and, on a miss,
+ * `nltk.download(...)` — a fetch from `raw.githubusercontent.com` performed
+ * inside the backend during a user's run. This row is the only one that imports
+ * that module, so on a CI runner, where nothing is cached, the launch guard
+ * refused the connection and this row went red on the one assertion it was
+ * always going to be right about. The suite now hands the app the tokenizer in
+ * its own state directory, so nothing is downloaded anywhere; the app's
+ * behaviour is unchanged and is printed below every run. **A local-first
+ * desktop app must not need the internet to summarize on a first run**, and
+ * that is 3.0's, not this suite's.
+ *
  * **A disagreement this row reports rather than decides.** The run's log is
  * careful: it names the lane, its outcome, the reason and `0 / 2 documents`.
  * The report's own header is not: it prints `AI Summarizer: <provider>/<model>`
@@ -92,6 +104,11 @@ journey.describe('J17 AI summarization lanes', () => {
         + 'in which that lane produced 0 of 2 summaries. The run log is exact about this and the '
         + 'report header is not. Reported, not asserted either way: a journey observes.');
     }
+    console.log('[J17] REGISTER FACT: this app downloads at import when the sentence-tokenizer data '
+      + 'is absent — `summarizer.py` calls nltk.download("punkt_tab") from module scope, against '
+      + 'raw.githubusercontent.com, inside the backend during a run. The suite supplies the data in '
+      + 'the session\'s own state directory so nothing is fetched, which means this run does NOT '
+      + 'observe the cold-cache path. On a machine without that data the app reaches the internet.');
     console.log('[J17] NOT VERIFIED: a real agent CLI\'s own behaviour. What this row replaces '
       + 'is the sign-in, by way of the envelope a lapsed CLI sends; a version change or a flag '
       + 'the real command stopped accepting is invisible here. That stays with the live suite.');
