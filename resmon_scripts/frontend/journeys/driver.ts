@@ -178,6 +178,200 @@ export interface BackendFacts {
    * `null` where the machine cannot be asked (no `ps`).
    */
   ownedByThisApp(): Promise<boolean | null>;
+
+  // — slice 2a ---------------------------------------------------------------
+
+  /**
+   * Every route the backend under test actually serves, from its own OpenAPI
+   * document.
+   *
+   * The denominator for "the app does not offer X at all". A grep of the
+   * repository would answer a question about a checkout; this answers the
+   * question about the process that is running, which is the one a person
+   * meets.
+   */
+  routeInventory(): Promise<string[]>;
+  /** What the app says about the daemon service it could install. */
+  serviceStatus(): Promise<Record<string, any>>;
+  /** Every source the catalog holds, as the Repositories page is served it. */
+  sourceCatalog(): Promise<Record<string, any>[]>;
+  /** What the backend says about the semantic index: present, and why not when absent. */
+  embeddingsStatus(): Promise<Record<string, any>>;
+  /** The watchdog's findings, as the Watchdog page is served them. */
+  watchdogFindings(): Promise<Record<string, any>>;
+  /** The saved watch profiles. */
+  profiles(): Promise<Record<string, any>[]>;
+  /** Every stored credential, as the Repositories page is told about them. */
+  credentials(): Promise<Record<string, any>>;
+  /** The onboarding card's state: whether it is still owed, and what retired it. */
+  onboarding(): Promise<Record<string, any>>;
+  /** The saved AI settings — which lane is on, and which model. */
+  aiSettings(): Promise<Record<string, any>>;
+  /** The near-duplicate link scan's state and what it has found. */
+  linkStatus(): Promise<Record<string, any>>;
+  /**
+   * Ask the backend to erase the corpus with this word.
+   *
+   * The Danger Zone's refusal has to be the backend's rather than the screen's:
+   * a disabled button is a courtesy, and an endpoint that erased a corpus for
+   * anybody who asked would pass a journey that only watched the button.
+   */
+  eraseCorpus(word: string): Promise<Record<string, any>>;
+}
+
+// — slice 2a ---------------------------------------------------------------
+//
+// Kept in one block, with slice 2b building its own alongside, so the two
+// deliveries merge as a union. Every name below is what the *person* does or
+// reads; where the app has no user path for a step, the method says so in its
+// comment and the spec's ledger row records it.
+
+/** What the Advanced tab says about the background service. */
+export interface DaemonPanel {
+  /** The status sentence, as the panel writes it. */
+  status: string;
+  /** Whether the control that installs and removes the service is on screen at all. */
+  controlPresent: boolean;
+  /** Whether that control is currently set to "installed". */
+  controlOn: boolean;
+  /** The whole panel, for an assertion no structured read covers. */
+  text: string;
+}
+
+/** One labelled figure on a screen — a tile, a bar, a row. */
+export interface Figure {
+  label: string;
+  value: string;
+}
+
+/** What the Analytics page draws. */
+export interface AnalyticsView {
+  /** Every card's heading, in the order the page stacks them. */
+  headings: string[];
+  /** The corpus tiles: `Papers`, `Authors`, `Sources used`, `DOI coverage`. */
+  tiles: Figure[];
+  /** Per-source contribution, as the bars label it. */
+  sources: Figure[];
+  /** Every card that says it has not enough data to draw yet. */
+  notEnoughYet: string[];
+}
+
+/** One thing the Watchdog says. */
+export interface WatchdogFinding {
+  /** The severity chip: `Broken`, `Looks unusual` or `Advice`. */
+  severity: string;
+  /** `Source · arxiv`, as the card writes it. */
+  scope: string;
+  title: string;
+  muted: boolean;
+}
+
+export interface WatchdogView {
+  /** The single verdict card's heading. */
+  verdict: string;
+  findings: WatchdogFinding[];
+  /** Every scope the page says it cannot judge yet, with its reason. */
+  notEnoughHistory: string[];
+  /** The Muted section's own heading, or '' when there is none. */
+  mutedHeading: string;
+}
+
+/** A watch profile as the editor previews it and the list shows it. */
+export interface ProfileCreation {
+  id: number;
+  /** The sentence the editor showed about what its matches will mean. */
+  warningAtCreation: string;
+  /** The chip the saved profile carries in the list, or '' when it carries none. */
+  chipInList: string;
+}
+
+/** What a profile's own page says about the papers it matched. */
+export interface ProfileMatches {
+  /** `3 paper(s): 1 ORCID match, 2 name only`, as the page writes it. */
+  counts: string;
+  /** Per paper: the basis chip and the author string the match recorded. */
+  items: { basis: string; author: string; title: string }[];
+}
+
+/** The Explorer's own account of a page of papers. */
+export interface ExplorerList {
+  /** The sentence above the list: `2 papers in your corpus`. */
+  countSentence: string;
+  /** One entry per row on screen. */
+  rows: {
+    title: string;
+    /** Every "also appears in …" label the row carries. */
+    alsoAppearsAs: string[];
+    /** The distance the row shows when the list is ranked, or ''. */
+    distance: string;
+  }[];
+  /** The note the page prints when rows have been folded together, or ''. */
+  collapseNote: string;
+}
+
+/** What the Explorer says about a ranked list. */
+export interface RankedList {
+  /** `Closest to: … — using … · N ranked, M not embedded yet and listed last`. */
+  note: string;
+  /** Whether the semantic controls are on screen at all. */
+  controlsPresent: boolean;
+  list: ExplorerList;
+}
+
+/** The coverage audit panel, read as a person reads it. */
+export interface CoverageAudit {
+  /** `Comparing against …` plus what the panel says about that choice. */
+  intent: string;
+  /** The reason the panel gives for having nothing to show, or ''. */
+  reason: string;
+  /** The `Showing 25 of N.` line under each list, or '' where the list is short enough. */
+  offTargetShowing: string;
+  missedShowing: string;
+  /** What the panel says it cannot see. */
+  cannotSee: string;
+  /** The whole panel. */
+  text: string;
+}
+
+/** What a stored credential looks like when it is read back. */
+export interface KeyField {
+  /** The catalog name of the source the field belongs to. */
+  source: string;
+  /** What the field shows when it is not being edited — the mask, where one is shown. */
+  shown: string;
+  /** What the field's value actually is. A stored key must never be here. */
+  value: string;
+}
+
+/** The card a fresh install shows about what it has not been given yet. */
+export interface FirstRunCard {
+  present: boolean;
+  /** One entry per step, with the mark the card draws beside it. */
+  steps: { id: string; mark: string; text: string }[];
+  /** The whole card. */
+  text: string;
+}
+
+/** One turn with the assistant, as the panel shows it. */
+export interface AssistantTurn {
+  /** Everything the assistant said, bubble by bubble. */
+  said: string[];
+  /** The tool rows the panel drew, by the short name it printed. */
+  toolCalls: string[];
+  /** The approval card's exact call line, or '' when no card is being held. */
+  approvalCall: string;
+  /** What the approval card says the call would do, in a sentence. */
+  approvalTitle: string;
+  /** The error banner, or ''. */
+  error: string;
+}
+
+/** The result of running an existing gate as a subprocess. */
+export interface GateRun {
+  /** The command, as it was run. */
+  command: string;
+  exitCode: number | null;
+  output: string;
 }
 
 /**
@@ -275,6 +469,113 @@ export interface JourneyDriver {
 
   // — facts ------------------------------------------------------------------
   readonly backend: BackendFacts;
+
+  // — slice 2a ---------------------------------------------------------------
+  //
+  // One block, so slice 2b's verbs merge beside these rather than through them.
+
+  /** Everything the place a person is looking at actually says. */
+  readWhatThisPlaceSays(): Promise<string>;
+  /** Every place the sidebar offers, in the order it offers them. */
+  readSidebarPlaces(): Promise<string[]>;
+  /** The tabs the place a person is on offers, in order. */
+  readTabsHere(): Promise<string[]>;
+  /** Open this page's own help block and read it. */
+  readTheHelpOnThisPage(): Promise<string>;
+
+  /** What Settings → Advanced says about the background service. Installs nothing. */
+  readDaemonPanel(): Promise<DaemonPanel>;
+
+  /** What the Analytics page draws for the corpus it has. */
+  readAnalytics(): Promise<AnalyticsView>;
+  /** Press the button that measures keyword yield, and read what it draws. */
+  measureKeywordYield(): Promise<Figure[]>;
+  /**
+   * Follow the link a chart offers into the Explorer, and report where it
+   * landed and what it filtered to.
+   */
+  followTheChartIntoTheExplorer(): Promise<{ hash: string; list: ExplorerList }>;
+
+  /** What the Watchdog says right now. */
+  readWatchdog(): Promise<WatchdogView>;
+  /** Press Mute on the finding whose title contains this. */
+  muteTheFinding(titleFragment: string): Promise<void>;
+  /** Make the authored source fail every request from now on, as an outage does. */
+  theSourceGoesDown(): void;
+  /** Make the authored source answer again. */
+  theSourceComesBack(): void;
+
+  /** Fill in the new-profile editor and save it, reading its live warning first. */
+  createWatchProfile(profile: { name: string; orcid?: string }): Promise<ProfileCreation>;
+  /** Open a profile and read what it says about the papers it matched. */
+  readProfileMatches(name: string): Promise<ProfileMatches>;
+  /** The basis chips the Explorer draws beside its papers. */
+  readBasisBadgesInTheExplorer(): Promise<string[]>;
+
+  /** The Explorer's list, as it stands. */
+  readExplorerList(): Promise<ExplorerList>;
+  /** Turn ranking by meaning on, against a deterministic model on loopback. */
+  enableRankingByMeaning(): Promise<string>;
+  /** Sort the Explorer by how close each paper is to this phrase, using the control. */
+  rankTheExplorerBy(phrase: string): Promise<RankedList>;
+  /** Scan the corpus for papers that look like the same work, and wait for it. */
+  scanForNearDuplicates(): Promise<{ links: number; byMethod: Record<string, number> }>;
+  /** Tick or untick "Collapse duplicates". */
+  collapseDuplicates(on: boolean): Promise<void>;
+
+  /** Write the sentence saying what a routine is really for. */
+  writeRoutineIntent(name: string, intent: string): Promise<void>;
+  /** Open "Is this finding what I meant?" on a routine and read it. */
+  readCoverageAudit(name: string): Promise<CoverageAudit>;
+
+  /** Save a key for a source, through the field a person types into. */
+  saveKeyFor(source: string, value: string): Promise<void>;
+  /** Read back every key field on the Repositories page. */
+  readKeyFields(): Promise<KeyField[]>;
+  /** One source's details, as the Repositories page opens them. */
+  readSourceDetails(source: string): Promise<Record<string, string>>;
+  /** The credits the page shows unconditionally, because their sources require them. */
+  readRequiredAttributions(): Promise<string[]>;
+
+  /**
+   * Point the assistant at an authored agent command, the way Settings → AI
+   * points it at a real one, and reopen the window so the panel re-reads it.
+   *
+   * The command is the repository's own `fake_claude.py`, which speaks the
+   * agent-CLI protocol and makes real tool calls into this app's own backend
+   * over real HTTP. What it replaces is the model; the permission round trip,
+   * the MCP call, the SQLite write and everything the panel draws are the app's.
+   */
+  useAnAuthoredAgentCommand(): Promise<void>;
+  /** Open the assistant, send this, and read what the panel shows. */
+  askTheAssistant(text: string): Promise<AssistantTurn>;
+  /** Answer the approval card the assistant is holding, and read the panel again. */
+  answerTheApprovalCard(allow: boolean): Promise<AssistantTurn>;
+  /** Every saved conversation the assistant's own drawer lists. */
+  readSavedConversations(): Promise<string[]>;
+
+  /** The card a fresh install shows on the Dashboard, or its absence. */
+  readTheFirstRunCard(): Promise<FirstRunCard>;
+  /** Press Skip on it, and wait for the app to have saved that. */
+  skipTheFirstRunCard(): Promise<void>;
+
+  /** Type the Danger Zone's word into this action and confirm it. */
+  eraseWith(action: string, word: string): Promise<{ status: number; body: string }>;
+
+  /** Every frame this place embeds. The expected answer is none. */
+  framesHere(): Promise<number>;
+  /** Every external link this place offers, with where it points. */
+  readExternalLinks(): Promise<{ text: string; href: string }[]>;
+
+  /**
+   * Run one of the repository's own gates as a subprocess, under the
+   * interpreter the build under test runs its backend with.
+   *
+   * The row's evidence stays the real gate. Re-implementing it here would be a
+   * second thing to keep in step, and the one that drifted would be this one.
+   */
+  runTheGate(args: string[]): Promise<GateRun>;
+
   /** Every connection the run's guard refused. The expected answer is none. */
   refusedConnections(): { host: string; port: number }[];
 }

@@ -165,6 +165,15 @@ export interface Session {
    * cleanup. Each J41 run was leaving a corpus snapshot on the machine.
    */
   alsoRemoveOnClose(target: string): void;
+  /**
+   * Close this when the session ends.
+   *
+   * Slice 2a. Three rows start a second loopback server of their own — a
+   * deterministic embedding model — and a server nobody closed keeps the
+   * worker's event loop alive after the last case, which this suite has already
+   * paid for once.
+   */
+  alsoCloseOnClose(close: () => Promise<void>): void;
   /** Close the app, stop the authored source, and remove everything this session made. */
   close(): Promise<void>;
 }
@@ -209,6 +218,8 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
   const forced: string[] = [];
   /** Paths outside the state directory that this session created and must remove. */
   const alsoRemove: string[] = [];
+  /** Servers a journey started of its own, which must not outlive the session. */
+  const alsoClose: (() => Promise<void>)[] = [];
 
   const bring = async (): Promise<void> => {
     app = await electron.launch({
@@ -462,6 +473,8 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
 
     alsoRemoveOnClose: (target: string) => { alsoRemove.push(target); },
 
+    alsoCloseOnClose: (close: () => Promise<void>) => { alsoClose.push(close); },
+
     close: async () => {
       // Printed either side of every step. The suite has twice now had a hang
       // whose only evidence was a 300-second wall; a teardown that stops
@@ -470,6 +483,10 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
       await put().catch(() => { /* already gone */ });
       console.log('[journeys] teardown: stopping the authored source');
       await source.close().catch(() => { /* already closed */ });
+      if (alsoClose.length) {
+        console.log(`[journeys] teardown: stopping ${alsoClose.length} server(s) this journey started`);
+        for (const close of alsoClose) await close().catch(() => { /* already closed */ });
+      }
       console.log('[journeys] teardown: removing what this session made');
       for (const dir of stateDirs) fs.rmSync(dir, { recursive: true, force: true });
       for (const target of alsoRemove) fs.rmSync(target, { recursive: true, force: true });

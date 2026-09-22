@@ -78,16 +78,16 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J11', title: 'Coverage audit', slice: '2a', status: 'carried', built: true },
   { id: 'J12', title: 'Explorer', slice: '1', status: 'carried', built: true },
   { id: 'J13', title: 'The assistant (CLI lane)', slice: '2a', status: 'carried', built: true },
-  { id: 'J14', title: 'The assistant on a key', slice: '2a', status: 'carried', built: true },
+  { id: 'J14', title: 'The assistant on a key', slice: '2a', status: 'carried' },
   { id: 'J15', title: 'First-run card', slice: '2a', status: 'carried', built: true },
   { id: 'J16', title: 'Weekly live-network job', slice: '2a', status: 'carried', built: true },
-  { id: 'J17', title: 'AI summarization lanes', slice: '2a', status: 'carried', built: true },
+  { id: 'J17', title: 'AI summarization lanes', slice: '2a', status: 'carried' },
   { id: 'J18', title: 'Reports and exports', slice: '1', status: 'carried', built: true },
   { id: 'J19', title: 'Live monitoring', slice: '1', status: 'carried', built: true },
   { id: 'J20', title: 'Calendar', slice: '1', status: 'carried', built: true },
   { id: 'J21', title: 'Saved configurations', slice: '1', status: 'carried', built: true },
   { id: 'J22', title: 'Repositories and keys', slice: '2a', status: 'carried', built: true },
-  { id: 'J23', title: 'Notifications and email', slice: '2a', status: 'carried', built: true },
+  { id: 'J23', title: 'Notifications and email', slice: '2a', status: 'carried' },
   { id: 'J24', title: 'Google Drive backup', slice: '2a', status: 'carried', built: true },
   { id: 'J25', title: 'In-app documentation', slice: '2a', status: 'carried', built: true },
   { id: 'J26', title: 'Danger Zone', slice: '2a', status: 'carried', built: true },
@@ -145,9 +145,10 @@ export function specStem(row: JourneyRow): string {
  * excluding the guard from its own scan — leaves one spec file in the directory
  * that is allowed to reach the renderer. Keeping the literals in this module,
  * which is not a spec file, lets the guard cover every spec file in the
- * directory — 13 of them today, one per built row plus the guard — with no
- * exemption at all. (44 is the register's rows; 22 is the suite's test cases;
- * neither is what this counts.)
+ * directory — one per built row plus the guard — with no exemption at all. The
+ * number is deliberately not written down here: it moves every time a slice
+ * lands, and a comment carrying a count is a comment that will be wrong. (44 is
+ * the register's rows; the suite's test cases are a third number again.)
  *
  * `page.` is matched with no space after the dot on purpose: prose ending a
  * sentence with "…on the page. The next…" is not a renderer call, and a guard
