@@ -134,8 +134,10 @@ export function specStem(row: JourneyRow): string {
  * out in its own source it would match itself and fail, and the tempting fix —
  * excluding the guard from its own scan — leaves one spec file in the directory
  * that is allowed to reach the renderer. Keeping the literals in this module,
- * which is not a spec file, lets the guard cover 44 of 44 spec files with no
- * exemption at all.
+ * which is not a spec file, lets the guard cover every spec file in the
+ * directory — 13 of them today, one per built row plus the guard — with no
+ * exemption at all. (44 is the register's rows; 22 is the suite's test cases;
+ * neither is what this counts.)
  *
  * `page.` is matched with no space after the dot on purpose: prose ending a
  * sentence with "…on the page. The next…" is not a renderer call, and a guard

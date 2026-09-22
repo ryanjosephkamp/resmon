@@ -34,6 +34,18 @@ import {
 } from '../fixtures/source-endpoint';
 import type { SourceEndpoint, SourceReply } from '../fixtures/source-endpoint';
 
+/**
+ * How long one backend request may take before the suite says so.
+ *
+ * Generous — a runner is slower than a laptop and a restore is real work — but
+ * finite, and short enough that the failure arrives inside the per-case budget
+ * with the method and route in the message rather than after it with nothing.
+ */
+const API_DEADLINE_MS = 60_000;
+
+/** How long to ask Electron to quit before insisting. See `put()`. */
+const CLOSE_DEADLINE_MS = 45_000;
+
 /** The build under test: `RESMON_JOURNEY_APP`, or the checkout this suite lives in. */
 export function targetAppRoot(): AppRoot {
   const configured = (process.env.RESMON_JOURNEY_APP || '').trim();
@@ -75,6 +87,18 @@ export interface Session {
   relaunchOverFreshState(): Promise<void>;
   /** Everything this run's guard refused. */
   refused(): { host: string; port: number }[];
+  /** Every close this session had to force. Empty is the expected answer. */
+  forcedCloses(): string[];
+  /**
+   * Remove this path when the session ends.
+   *
+   * `/api/backup` and the configuration export write where the app's own
+   * `export_directory` setting points, which in a fresh state is the system
+   * temp directory — outside the state directory and outside this session's
+   * cleanup. Each J41 run was leaving a corpus snapshot on the machine.
+   */
+  alsoRemoveOnClose(target: string): void;
+  /** Close the app, stop the authored source, and remove everything this session made. */
   close(): Promise<void>;
 }
 
@@ -110,6 +134,12 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
   let app!: ElectronApplication;
   let win!: Page;
   let port = '';
+  /** The backend child of the app currently running, so a forced close can reach it. */
+  let backendPid: number | null = null;
+  /** Every close that had to be forced. Empty is the expected answer. */
+  const forced: string[] = [];
+  /** Paths outside the state directory that this session created and must remove. */
+  const alsoRemove: string[] = [];
 
   const bring = async (): Promise<void> => {
     app = await electron.launch({
@@ -144,24 +174,65 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
         return false;
       }
     }), { timeout: 120_000 }).toBe(true);
+    // Recorded here because a forced close needs it and a dead backend cannot
+    // be asked for it.
+    backendPid = await win.evaluate(async () => {
+      const backend = (window as unknown as { resmonAPI: { getBackendPort(): string } })
+        .resmonAPI.getBackendPort();
+      const health = await (await e2eFetch(`http://127.0.0.1:${backend}/api/health`)).json();
+      return Number(health.pid) || null;
+    });
   };
 
   /**
-   * Close the window and wait for the process to be gone.
+   * Close the app, and be certain it is gone.
    *
-   * `close()` resolves when Electron has been *asked* to quit. A run that
-   * launches again immediately can otherwise have two apps alive at once, and
-   * the runner reported exactly that as "worker-0 process did not exit within
-   * 300000ms after stop".
+   * **`ElectronApplication.close()` has no deadline of its own.** It resolves
+   * when Electron has quit, and if Electron does not quit it never resolves at
+   * all — which is a test that hits its wall-clock budget with no assertion
+   * error and no Playwright call log, followed by
+   * `worker-0 process did not exit within 300000ms after stop`. That pair of
+   * symptoms cost a CI round to read, because nothing in the stack named the
+   * step it was stuck in.
+   *
+   * So the close is raced against a deadline. Past it, this stops asking and
+   * starts killing: SIGKILL to the Electron process and to the backend child it
+   * spawned, whose pid the launch recorded from `/api/health`. `main.ts` kills
+   * the backend with SIGTERM on `before-quit`, and a backend that does not take
+   * a SIGTERM — mid-write, say — is a plausible reason for a quit that never
+   * finishes.
+   *
+   * A harness force-quitting an app it launched itself is legitimate, so this
+   * does not fail the row: the row is about the journey, not about Electron's
+   * shutdown. It is *recorded* instead. `forcedCloses()` reports it, the line
+   * below prints it, and the handback carries the count. Silence would be the
+   * only wrong answer.
    */
   const put = async (): Promise<void> => {
     const owned = app?.process();
-    await app.close().catch(() => { /* already gone */ });
+    const child = backendPid;
+    const gone = (): boolean => !owned || owned.exitCode !== null || owned.signalCode !== null;
+
+    const closed = await Promise.race([
+      app.close().then(() => true).catch(() => true),
+      new Promise<false>((resolve) => { setTimeout(() => resolve(false), CLOSE_DEADLINE_MS); }),
+    ]);
+
+    if (!closed || !gone()) {
+      const why = closed ? 'close() resolved but the process was still there' : 'close() did not return';
+      forced.push(`${why} after ${CLOSE_DEADLINE_MS} ms; SIGKILLed electron pid ${owned?.pid} and backend pid ${child}`);
+      console.log(`[journeys] FORCED CLOSE: ${forced[forced.length - 1]}`);
+      for (const pid of [child, owned?.pid]) {
+        if (!pid) continue;
+        try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+      }
+    }
+
     if (!owned) return;
-    await expect.poll(
-      () => owned.exitCode !== null || owned.signalCode !== null,
-      { timeout: 60_000 },
-    ).toBe(true);
+    await expect
+      .poll(gone, { timeout: 60_000, message: 'the app did not exit even after being SIGKILLed' })
+      .toBe(true);
+    backendPid = null;
   };
 
   await bring();
@@ -176,13 +247,24 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     get python() { return env.RESMON_PYTHON; },
 
     api: async <T,>(method: string, route: string, body?: unknown): Promise<T> => win.evaluate(
-      async ([m, r, b]) => {
+      async ([m, r, b, ms]) => {
         const backend = (window as unknown as { resmonAPI: { getBackendPort(): string } })
           .resmonAPI.getBackendPort();
+        // A deadline of its own. Without one, a backend that never answers —
+        // holding a write lock, say — is waited on for as long as the caller
+        // will wait, which inside `evaluate` is the whole test. That produces a
+        // bare "test timeout exceeded" naming no step, which is the shape this
+        // suite spent a CI round failing to read.
         const response = await e2eFetch(`http://127.0.0.1:${backend}${r as string}`, {
           method: m as string,
           headers: { 'Content-Type': 'application/json' },
           body: b === undefined ? undefined : JSON.stringify(b),
+          signal: AbortSignal.timeout(ms as number),
+        }).catch((error) => {
+          throw new Error(
+            `${m} ${r} did not answer within ${ms} ms (${(error as Error).name}). `
+            + 'The backend was reachable enough to be asked and did not reply.',
+          );
         });
         const text = await response.text();
         let parsed: unknown = null;
@@ -192,7 +274,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
         }
         return parsed;
       },
-      [method, route, body] as const,
+      [method, route, body, API_DEADLINE_MS] as const,
     ) as Promise<T>,
 
     killBackend: async () => {
@@ -224,10 +306,15 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     // a run that reached the internet from the first of them still counts.
     refused: () => stateDirs.flatMap((dir) => blockedConnections(dir)),
 
+    forcedCloses: () => [...forced],
+
+    alsoRemoveOnClose: (target: string) => { alsoRemove.push(target); },
+
     close: async () => {
       await put().catch(() => { /* already gone */ });
       await source.close().catch(() => { /* already closed */ });
       for (const dir of stateDirs) fs.rmSync(dir, { recursive: true, force: true });
+      for (const target of alsoRemove) fs.rmSync(target, { recursive: true, force: true });
     },
   };
 

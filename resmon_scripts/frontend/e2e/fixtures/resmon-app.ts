@@ -282,35 +282,12 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
   return env;
 }
 
-/**
- * Anything a caller needs to vary about a launch beyond `RESMON_E2E`.
- *
- * All three default to what every `e2e/` spec already gets, so
- * `launchResmon(true)` and `launchResmon(false)` mean exactly what they meant
- * before this type existed. `journeys/` passes `root` to launch another
- * build, `env` to add the offline guard its runs are held to, and `stateDir`
- * for the two rows that launch twice over the same state — a relaunch after a
- * kill, and a restore.
- */
-export interface LaunchOptions {
-  /** The build to start. Defaults to the checkout these specs live in. */
-  root?: AppRoot;
-  /** Merged over `launchEnv`'s result, so a caller can add to it but the pins stay. */
-  env?: Record<string, string>;
-  /** Launch over this state directory instead of a fresh temp one. */
-  stateDir?: string;
-}
-
-export async function launchResmon(
-  e2e = true,
-  options: LaunchOptions = {},
-): Promise<{ app: ElectronApplication; stateDir: string }> {
-  const root = options.root ?? THIS_CHECKOUT;
-  const stateDir = options.stateDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-'));
+export async function launchResmon(e2e = true): Promise<{ app: ElectronApplication; stateDir: string }> {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-'));
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
-    cwd: root.frontend,
-    env: { ...launchEnv(stateDir, e2e), ...options.env },
+    cwd: FRONTEND_ROOT,
+    env: launchEnv(stateDir, e2e),
     timeout: 180_000,
   });
   return { app, stateDir };

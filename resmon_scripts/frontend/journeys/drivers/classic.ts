@@ -537,6 +537,7 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       const written = (await message.innerText())
         .split('\n')[0].replace('Export saved to:', '').trim();
       expect(fs.existsSync(written), `the export names ${written}, which is not there`).toBe(true);
+      session.alsoRemoveOnClose(written);
       // The export is a zip of one JSON member per configuration, so the bytes
       // on disk are compressed and searching them for a secret would be a
       // check that passes for the wrong reason. The members are read out with
@@ -579,6 +580,10 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const response = await answered;
       expect(response.ok(), 'Back up now was refused').toBe(true);
       const body = await response.json();
+      // The bundle is written where `export_directory` points, which in a fresh
+      // state is the system temp directory — outside everything this session
+      // otherwise cleans up.
+      session.alsoRemoveOnClose(String(body.path));
       return { directory: String(body.path), manifest: body.manifest as Record<string, unknown> };
     },
 

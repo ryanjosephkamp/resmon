@@ -16,10 +16,15 @@ export default defineConfig({
   testDir: __dirname,
   // A journey is a whole user path — launch, run, wait for a sweep to settle,
   // read a report — so the per-case budget is larger than the smoke suite's.
-  // Ten minutes rather than five because the backup row launches the app three
-  // times and restores a corpus between two of them, and five minutes was the
-  // budget it exceeded on a CI runner while passing in seconds on a laptop.
-  timeout: 600_000,
+  //
+  // **Five minutes, which is where it started.** It was briefly ten, because
+  // the backup row exceeded five on a runner while taking ten seconds on a
+  // laptop; the row then ate the ten as well. Raising a budget to cover a hang
+  // buys a slower red run and nothing else. The calls that had no deadline of
+  // their own now have one — see `CLOSE_DEADLINE_MS` and `API_DEADLINE_MS` in
+  // `drivers/session.ts` — so the worst case is a handful of named failures
+  // well inside this, rather than a wall with nothing written on it.
+  timeout: 300_000,
   expect: { timeout: 20_000 },
   fullyParallel: false,
   workers: 1,
