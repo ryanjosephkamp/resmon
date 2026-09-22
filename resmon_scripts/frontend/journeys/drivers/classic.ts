@@ -23,10 +23,12 @@
  * concerned.
  */
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
 import * as http from 'http';
 import * as net from 'net';
+import { createHash } from 'crypto';
 import { expect } from '@playwright/test';
 import type { TestInfo } from '@playwright/test';
 import type {
@@ -51,6 +53,8 @@ import type {
   AssistantPanelFacts, EmailSettings, NotificationPreferences, ProviderRequest, RunNowAnswer,
   SavedTranscript,
 } from '../driver';
+// Slice 4's, in its own import for the same reason.
+import type { ComposerChoice, LibraryItem, TurnChoiceFacts, VaultOnDisk } from '../driver';
 import { startProviderEndpoint } from '../fixtures/provider-endpoint';
 import type { ProviderEndpoint } from '../fixtures/provider-endpoint';
 import type { Session } from './session';
@@ -93,15 +97,57 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
   /** The authored model provider, once a journey has asked for one. */
   let provider: ProviderEndpoint | null = null;
 
+  /**
+   * The landmark a place publishes once React Router — not the address bar —
+   * has actually arrived there.
+   *
+   * Both halves are `NavLink`s, and a `NavLink` takes its class from the
+   * router's own `useLocation`. So this is not "something that page happens to
+   * draw": it is the router saying which route is mounted, in the markup. The
+   * sidebar's entry carries `active` for the place, and a Settings or About tab
+   * carries `tab-active` for the tab within it — which is the difference
+   * between `/settings/email` and `/settings/advanced`, both of which are the
+   * same sidebar entry and the same `<h1>`.
+   *
+   * A query string is not part of the route (`/explorer?q=…` is the Explorer),
+   * so it is dropped before the lookup.
+   */
+  const landmarksFor = (hash: string): string[] => {
+    const route = hash.split('?')[0];
+    const section = route.startsWith('/settings/') ? '/settings'
+      : route.startsWith('/about-resmon/') ? '/about-resmon'
+        : route;
+    const landmarks = [`.sidebar-nav a.sidebar-link.active[href="#${section}"]`];
+    if (section !== route) landmarks.push(`.settings-nav a.tab-active[href="#${route}"]`);
+    return landmarks;
+  };
+
   const goto = async (hash: string): Promise<void> => {
     // A HashRouter change is not a document navigation, so setting the hash is
     // what a sidebar click does; `goto` against the same document would not
     // drive React Router at all.
     await win().evaluate((h) => { window.location.hash = `#${h}`; }, hash);
-    await win().waitForFunction((h) => window.location.hash.startsWith(`#${h}`), hash, { timeout: 15_000 });
     await win().locator('.app-main').waitFor({ state: 'visible', timeout: 30_000 });
+    // **Reading the hash back is not arriving.** It proves the write landed in
+    // the document — including a document that is about to be replaced, which
+    // is what the slice-3 reviewer watched happen: J23 set `#/settings/email`
+    // just after `reopenTheApp()`, the read-back passed, the relaunched window
+    // came up on the Dashboard, and the row then spent thirty seconds waiting
+    // for a field on a page it was not on. The trailing 400 ms sleep that used
+    // to end this function covered that on a quiet laptop and did not under a
+    // full-suite load: the last duration-based wait in the driver, and the same
+    // shape as every flake this suite has already paid for.
+    //
+    // So the wait is for the destination's own landmark instead. If the hash
+    // was lost the class never appears and the failure names the route rather
+    // than a control on it.
+    for (const landmark of landmarksFor(hash)) {
+      await expect(
+        win().locator(landmark),
+        `the app never arrived at ${hash}: nothing matched ${landmark}`,
+      ).toHaveCount(1, { timeout: 30_000 });
+    }
     await win().waitForLoadState('networkidle').catch(() => { /* the long-poll pages never idle */ });
-    await win().waitForTimeout(400);
   };
 
   /** Open Results and click the row for this run, which mounts the report viewer. */
@@ -153,6 +199,15 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
   const readExplorer = async (): Promise<ExplorerList> => {
     await expect(win().locator('.explorer-results-head')).toBeVisible({ timeout: 60_000 });
     const head = win().locator('.explorer-results-head p').first();
+    // **The head is on screen before the results are.** While the page is
+    // fetching, that first paragraph says `Searching…`; the block itself is
+    // there either way, so waiting for it to be visible is not waiting for the
+    // list. Until slice 4 the gap was covered by `goto`'s trailing 400 ms, and
+    // removing that left this read — a sixth of the kind the review found five
+    // of — measuring an unfinished page. The page publishes its own loaded
+    // state in that sentence, so this waits for it.
+    await expect(head, 'the Explorer never finished searching')
+      .not.toHaveText('Searching…', { timeout: 60_000 });
     const items = win().locator('li.explorer-item');
     const rows: ExplorerList['rows'] = [];
     for (let i = 0; i < await items.count(); i += 1) {
@@ -364,6 +419,175 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     ).toBe(1);
     if (!await win().getByTestId('delivery-body').count()) await toggles.first().click();
     await expect(win().getByTestId('delivery-body')).toBeVisible({ timeout: 30_000 });
+  };
+
+  /* ---------------------------------------------------------------------- *
+   *  Slice 4's helpers.
+   * ---------------------------------------------------------------------- */
+
+  /** Where the recording shim writes what it was handed, once one is in place. */
+  const agentArgumentLog = path.join(session.stateDir, 'authored-agent-arguments');
+
+  /** The record separator the shim writes after each invocation's arguments. */
+  const END_OF_INVOCATION = '--journey-end-of-invocation--';
+
+  /**
+   * Point Settings → AI at the repository's own agent-CLI double.
+   *
+   * A one-line shim around it, run under the same interpreter the backend uses,
+   * written into this session's own state directory so it is removed with
+   * everything else this run made.
+   *
+   * With `recordArguments`, the shim first appends every argument it was given
+   * to a log and then execs the double unchanged. **NUL-separated**, because
+   * the last argument is the person's own prompt and a prompt with a newline in
+   * it would otherwise be read back as several arguments — which is precisely
+   * the kind of silent corruption this row is about.
+   */
+  const pointTheAssistantAtTheDouble = async (
+    options: { recordArguments: boolean },
+  ): Promise<void> => {
+    const command = path.join(session.stateDir, 'authored-agent-command');
+    const double = path.join(
+      session.root.repo, 'resmon_scripts', 'verification_scripts', 'fixtures', 'fake_claude.py',
+    );
+    expect(
+      fs.existsSync(double),
+      'the build under test carries no agent-CLI double to drive the assistant with',
+    ).toBe(true);
+    // The interpreter has to be absolute: a bare name in a shebang is not
+    // looked up on PATH the way a command is.
+    const python = execFileSync(session.python, ['-c', 'import sys; print(sys.executable)'],
+      { encoding: 'utf8' }).trim();
+    const record = options.recordArguments
+      ? `{ for argument in "$@"; do printf '%s\\0' "$argument"; done; `
+        + `printf '%s\\0' '${END_OF_INVOCATION}'; } >> "${agentArgumentLog}"\n`
+      : '';
+    fs.writeFileSync(command, `#!/bin/sh\n${record}exec "${python}" "${double}" "$@"\n`, { mode: 0o755 });
+    await session.api('PUT', '/api/settings/ai', { settings: { ai_cli_path: command } });
+    // The panel reads the lane when it opens, so the window has to see the
+    // setting. Reopening is what a person would do, and it also proves the
+    // setting survived being written.
+    await session.relaunch();
+  };
+
+  /**
+   * The parent folder this journey chose for its vault.
+   *
+   * Kept here rather than asked of the app, because the app does not publish
+   * it: the status carries the child's label and not the root it sits under.
+   * The driver knows it because the driver is what answered the picker.
+   */
+  let libraryParent: string | null = null;
+
+  /**
+   * Where the vault this app made actually is.
+   *
+   * The parent a person chose plus the label the app gave the child it
+   * created — so nothing here guesses a directory name, and a name the app
+   * changed would show up as a missing directory rather than as a quietly
+   * different assertion.
+   */
+  const vaultDirectory = (): string => {
+    expect(libraryParent, 'this journey never chose a parent folder for a Library').toBeTruthy();
+    // Off the filesystem rather than out of the API, for two reasons. The
+    // Library routes are guarded by a header this app sends for itself and
+    // `session.api` does not, so asking them would mean widening the seam for
+    // one row; and the row's whole claim is that the person owns a directory,
+    // which is a question the directory answers. The contract says an existing
+    // folder is never adopted, so exactly one child is the expected answer and
+    // a second one is a finding rather than a tie to break.
+    const children = fs.readdirSync(libraryParent!)
+      .filter((entry) => entry.startsWith('resmon-library-'));
+    expect(children, `the chosen parent ${libraryParent} holds no single managed vault`)
+      .toHaveLength(1);
+    return path.join(libraryParent!, children[0]);
+  };
+
+  /** Click the Library row with this name, and wait for its detail to be the one open. */
+  const selectTheLibraryItem = async (name: string): Promise<void> => {
+    await goto('/library');
+    const row = win().getByRole('region', { name: 'Library files' })
+      .locator('.library-item').filter({ hasText: name }).first();
+    await expect(row, `the Library lists nothing called ${name}`).toBeVisible({ timeout: 60_000 });
+    await row.click();
+    await expect(win().getByRole('heading', { name, exact: true })).toBeVisible({ timeout: 30_000 });
+  };
+
+  /** The open item's own detail, as a person reads it. */
+  const readLibraryDetail = async (): Promise<LibraryItem> => {
+    const detail = win().getByRole('region', { name: 'Selected Library item' });
+    await expect(detail).toBeVisible({ timeout: 30_000 });
+    /** One `<dd>` by the `<dt>` beside it, which is how the detail is labelled. */
+    const value = async (term: string): Promise<string> => (
+      await detail.locator(`dt:text-is("${term}") + dd`).innerText()).trim();
+    const associations = detail.locator('h3:text-is("Local paper associations") ~ ul li');
+    return {
+      name: (await detail.locator('h2').innerText()).trim(),
+      mediaType: (await value('Retained format')).split('·')[0].trim(),
+      sha256: await value('SHA256 of imported bytes'),
+      fileId: await value('File'),
+      versionId: await value('Immutable version'),
+      associations: (await associations.allInnerTexts()).map((t) => t.trim()),
+    };
+  };
+
+  /** The assistant panel, opened if a journey has not opened it already. */
+  const assistantPanel = async () => {
+    if (!await win().getByTestId('assistant-panel').count()) {
+      await win().getByTestId('assistant-trigger').click();
+    }
+    const panel = win().getByTestId('assistant-panel');
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    return panel;
+  };
+
+  /**
+   * What the composer's own three controls hold.
+   *
+   * Scoped to the panel rather than asked of the window: Settings → AI has a
+   * field labelled `Model` too, and this row deliberately puts a different
+   * value in each of them.
+   */
+  const readComposer = async (): Promise<ComposerChoice> => {
+    const panel = await assistantPanel();
+    const controls = panel.locator('fieldset.assistant-choices');
+    // A direct child of the body: the same summary component is also drawn
+    // inside every turn's own disclosure down in the transcript, and those are
+    // a different claim about a different moment.
+    const fixed = panel.locator('.assistant-body > .assistant-choice-summary');
+    // One or the other, never neither — waiting for that is what stops a read
+    // landing between the descriptor arriving and the panel drawing either.
+    await expect
+      .poll(async () => (await controls.count()) + (await fixed.count()), { timeout: 30_000 })
+      .toBeGreaterThan(0);
+    if (!await controls.count()) {
+      return {
+        stillChangeable: false,
+        connection: '',
+        model: '',
+        effort: '',
+        fixedAs: (await fixed.first().innerText()).trim(),
+      };
+    }
+    const connection = panel.getByLabel('Connection', { exact: true });
+    await expect(connection).toBeVisible({ timeout: 30_000 });
+    const model = panel.getByLabel('Model', { exact: true });
+    const effort = panel.getByLabel('Effort', { exact: true });
+    // The API adapters have no effort at all, and the composer says so in a
+    // sentence where the control would be. Reading the sentence keeps this
+    // honest for both connections instead of reporting an empty string.
+    const effortValue = (await effort.count())
+      ? await effort.inputValue()
+      : (await panel.getByText('Effort: Not supported by this adapter', { exact: true })
+        .innerText()).trim();
+    return {
+      stillChangeable: true,
+      connection: (await connection.locator('option:checked').innerText()).trim(),
+      model: (await model.count()) ? await model.inputValue() : '',
+      effort: effortValue,
+      fixedAs: (await fixed.count()) ? (await fixed.first().innerText()).trim() : '',
+    };
   };
 
   const backend: BackendFacts = {
@@ -759,14 +983,49 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
 
     listRoutineNames: async () => {
       await goto(PLACES.Routines);
+      // **The page draws its empty row before its own fetch has resolved.**
+      // `RoutinesPage` renders a single `No routines configured.` row on mount,
+      // which this method filters out — so a read taken on arrival reports an
+      // empty list for an app that has routines, and reports it as a fact
+      // rather than as a failure. Until slice 4 that gap was covered by a
+      // 400 ms sleep at the end of `goto`, which is exactly the kind of
+      // load-bearing duration this suite is supposed not to have: it held up
+      // five reads that never waited for anything of their own.
+      //
+      // So this waits for its own content instead — the table showing what the
+      // app itself says it has. The denominator is the backend's own list, not
+      // a number written here.
+      //
+      // Not a row count: a routine occupies more than one `tr` — its delivery
+      // panel lives in a row of its own underneath it — so counting rows would
+      // be waiting for a number that is never the number of routines. What
+      // this waits for is the names it is about to read.
       const rows = win().locator('.simple-table tbody tr');
-      const count = await rows.count();
-      const names: string[] = [];
-      for (let i = 0; i < count; i += 1) {
-        const cell = rows.nth(i).locator('td').first();
-        if (await cell.count()) names.push((await cell.innerText()).trim());
+      const drawnNames = async (): Promise<string[]> => {
+        const names: string[] = [];
+        for (let i = 0; i < await rows.count(); i += 1) {
+          const cell = rows.nth(i).locator('td').first();
+          if (await cell.count()) names.push((await cell.innerText()).trim());
+        }
+        return names.filter((n) => n && n !== 'No routines configured.');
+      };
+      // Nothing configured is the one case this cannot tell from "not fetched
+      // yet": the empty row is both states. It is also the only case where the
+      // answer is the same either way, so the wait is skipped rather than
+      // faked.
+      const expected = (await backend.routines()).map((routine) => String(routine.name));
+      if (expected.length) {
+        await expect
+          .poll(async () => {
+            const drawn = await drawnNames();
+            return expected.every((name) => drawn.includes(name));
+          }, {
+            timeout: 30_000,
+            message: `the Routines page never drew all ${expected.length} routine(s) the app reports`,
+          })
+          .toBe(true);
       }
-      return names.filter((n) => n && n !== 'No routines configured.');
+      return drawnNames();
     },
 
     // — the corpus ------------------------------------------------------------
@@ -1101,6 +1360,17 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       // other when this corpus drew no chart, and let the spec say which.
       const legend = win().locator('a.analytics-legend-link').first();
       const bar = win().locator('a.analytics-bar-link').first();
+      // Which of the two exists depends on what this corpus drew, and neither
+      // exists until Analytics has its data. Asking `count()` on arrival
+      // answered "neither" and then quietly took the second one — a choice
+      // made from an unfinished page rather than from the page. So wait for
+      // one of them to be there before choosing between them.
+      await expect
+        .poll(async () => (await legend.count()) + (await bar.count()), {
+          timeout: 60_000,
+          message: 'nothing on Analytics offered a way into the Explorer',
+        })
+        .toBeGreaterThan(0);
       const link = (await legend.count()) ? legend : bar;
       await expect(link, 'nothing on Analytics offered a way into the Explorer').toBeVisible({ timeout: 60_000 });
       await link.click();
@@ -1216,6 +1486,28 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
 
     readExplorerList: async () => {
       await goto(PLACES.Explorer);
+      // The "also appears in …" labels arrive on a **second** fetch that the
+      // page does not wait for — `load()` calls `loadLinks(results)` without
+      // awaiting it and clears `loading` regardless — so a list read the
+      // moment the results land carries no labels, and reports that as a fact.
+      // That is how J10 went red on a CI leg of this branch: `no paper says it
+      // also appears somewhere else`, over a corpus whose scan had already
+      // reported links.
+      //
+      // So where the app says it has links, wait for the page to be showing
+      // one. Where it says it has none there is nothing to wait for, and
+      // waiting would be inventing a state.
+      const status = await backend.linkStatus();
+      if (Number(status.links ?? 0) > 0) {
+        await expect
+          .poll(async () => win()
+            .locator('li.explorer-item [data-testid="duplicate-links"]').count(), {
+            timeout: 30_000,
+            message: `the Explorer drew no "also appears in" label over a corpus the app reports `
+              + `${status.links} near-duplicate link(s) in`,
+          })
+          .toBeGreaterThan(0);
+      }
       return readExplorer();
     },
 
@@ -1241,6 +1533,27 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     rankTheExplorerBy: async (phrase): Promise<RankedList> => {
       await goto(`${PLACES.Explorer}?q=${encodeURIComponent(phrase)}`);
       const sort = win().getByTestId('explorer-sort');
+      // `explorer-sort` is drawn only once the Explorer's *capability* answer
+      // is in — a second fetch, separate from the results — and it is absent
+      // both before that answer arrives and when the answer is "no ranking
+      // here". Reading `count()` on arrival cannot tell those two apart, and
+      // it reported the first as the second: `controlsPresent: false` over a
+      // build that could rank perfectly well.
+      //
+      // The app publishes the answer, so this waits for the screen to agree
+      // with it rather than for a duration.
+      const capability = await session.api<{ capability?: { available?: boolean } }>(
+        'GET', '/api/embeddings/status',
+      );
+      const canRank = capability.capability?.available === true;
+      await expect
+        .poll(async () => (await sort.count()) > 0, {
+          timeout: 30_000,
+          message: canRank
+            ? 'the Explorer never drew its sort control over a build that reports it can rank'
+            : 'the Explorer drew a sort control over a build that reports it cannot rank',
+        })
+        .toBe(canRank);
       const controlsPresent = (await sort.count()) > 0;
       if (!controlsPresent) {
         return { note: '', controlsPresent, list: await readExplorer() };
@@ -1389,33 +1702,33 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     readRequiredAttributions: async () => {
       await goto(PLACES.Repositories);
       const block = win().getByTestId('required-attributions');
+      // The block renders nothing at all when no source in the catalog makes
+      // attribution a condition — and it also renders nothing while the
+      // catalog is still being fetched. `count()` on arrival read the second
+      // and returned the first: an empty list where the honest answer is "not
+      // yet". That is worse than a failure, because a spec asserting the
+      // credits are present would have gone red for the wrong reason and one
+      // asserting they are *absent* would have gone green for the wrong one.
+      //
+      // The catalog the page is served is the denominator, so wait for the
+      // screen to agree with it.
+      const catalog = await backend.sourceCatalog();
+      const owed = catalog.filter(
+        (entry) => entry.attribution_requirement === 'required' && entry.attribution,
+      ).length;
+      await expect
+        .poll(async () => (await block.count()) > 0, {
+          timeout: 30_000,
+          message: owed
+            ? `the Repositories page never drew the credits for the ${owed} source(s) that require them`
+            : 'the Repositories page drew required credits for a catalog that requires none',
+        })
+        .toBe(owed > 0);
       if (!await block.count()) return [];
       return (await block.locator('li').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
     },
 
-    useAnAuthoredAgentCommand: async () => {
-      // A one-line shim around the repository's own agent-CLI double, run under
-      // the same interpreter the backend uses. Written into this session's own
-      // state directory, so it is removed with everything else this run made.
-      const command = path.join(session.stateDir, 'authored-agent-command');
-      const double = path.join(
-        session.root.repo, 'resmon_scripts', 'verification_scripts', 'fixtures', 'fake_claude.py',
-      );
-      expect(
-        fs.existsSync(double),
-        'the build under test carries no agent-CLI double to drive the assistant with',
-      ).toBe(true);
-      // The interpreter has to be absolute: a bare name in a shebang is not
-      // looked up on PATH the way a command is.
-      const python = execFileSync(session.python, ['-c', 'import sys; print(sys.executable)'],
-        { encoding: 'utf8' }).trim();
-      fs.writeFileSync(command, `#!/bin/sh\nexec "${python}" "${double}" "$@"\n`, { mode: 0o755 });
-      await session.api('PUT', '/api/settings/ai', { settings: { ai_cli_path: command } });
-      // The panel reads the lane when it opens, so the window has to see the
-      // setting. Reopening is what a person would do, and it also proves the
-      // setting survived being written.
-      await session.relaunch();
-    },
+    useAnAuthoredAgentCommand: () => pointTheAssistantAtTheDouble({ recordArguments: false }),
 
     askTheAssistant: async (text): Promise<AssistantTurn> => {
       // Only if it is shut. The trigger is replaced by the panel while the
@@ -1903,6 +2216,26 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     readAiLaneStatus: async () => {
       await goto(PLACES['AI settings']);
       const status = win().locator('[data-testid^="primary-cli-status-"]');
+      // The line exists only where the page has a status for the provider the
+      // settings name, and that is a second fetch after the settings
+      // themselves. Read on arrival, its absence meant "the page has not asked
+      // yet" and was returned as "this lane has nothing to say" — the same
+      // silent-empty-answer shape as the two above, and on a row whose whole
+      // subject is what the lane says about itself.
+      const [settings, cli] = await Promise.all([
+        session.api<{ ai_provider?: string }>('GET', '/api/settings/ai'),
+        session.api<{ providers?: { provider: string }[] }>('GET', '/api/settings/ai/cli-status'),
+      ]);
+      const expected = (cli.providers ?? [])
+        .some((entry) => entry.provider === settings.ai_provider);
+      await expect
+        .poll(async () => (await status.count()) > 0, {
+          timeout: 30_000,
+          message: expected
+            ? `Settings → AI never drew a status for the ${settings.ai_provider} lane the app reports one for`
+            : 'Settings → AI drew a CLI status for a provider the app reports none for',
+        })
+        .toBe(expected);
       if (!await status.count()) return '';
       return (await status.first().innerText()).replace(/\s+/g, ' ').trim();
     },
@@ -2169,6 +2502,173 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const row = win().locator('.simple-table tbody tr').filter({ hasText: name }).first();
       await expect(row).toBeVisible({ timeout: 30_000 });
       return (await win().getByTestId(`run-now-${routine!.id}`).count()) > 0;
+    },
+
+    /* ---------------------------------------------------------------------- *
+     *  Slice 4.
+     * ---------------------------------------------------------------------- */
+
+    useAnAuthoredAgentCommandThatRecordsItsArguments: () =>
+      pointTheAssistantAtTheDouble({ recordArguments: true }),
+
+    readWhatTheAgentCommandReceived: async (): Promise<string[][]> => {
+      if (!fs.existsSync(agentArgumentLog)) return [];
+      const invocations: string[][] = [];
+      let current: string[] = [];
+      // The trailing separator leaves one empty field, which is not an argument.
+      const fields = fs.readFileSync(agentArgumentLog, 'utf8').split('\0');
+      if (fields[fields.length - 1] === '') fields.pop();
+      for (const field of fields) {
+        if (field === END_OF_INVOCATION) { invocations.push(current); current = []; } else current.push(field);
+      }
+      expect(current, 'the agent command was recorded mid-invocation').toEqual([]);
+      return invocations;
+    },
+
+    fixTheChoicesForThisConversation: async (choice): Promise<ComposerChoice> => {
+      const panel = await assistantPanel();
+      const model = panel.getByLabel('Model', { exact: true });
+      await expect(model, 'the composer offers no model to choose').toBeEnabled({ timeout: 30_000 });
+      await model.fill(choice.model);
+      if (choice.effort !== undefined) {
+        await panel.getByLabel('Effort', { exact: true }).selectOption(choice.effort);
+      }
+      return readComposer();
+    },
+
+    readTheComposerChoices: () => readComposer(),
+
+    readTheTurnsChoices: async (): Promise<TurnChoiceFacts[]> => {
+      const blocks = win().locator('details.assistant-turn-choices');
+      const out: TurnChoiceFacts[] = [];
+      for (let i = 0; i < await blocks.count(); i += 1) {
+        const block = blocks.nth(i);
+        // A `<details>` holds its body out of the layout until it is opened, so
+        // a read of a closed one would report the summary and call it the
+        // disclosure. A person opens it; so does this.
+        if (!await block.evaluate((element) => (element as HTMLDetailsElement).open)) {
+          await block.locator('summary').click();
+        }
+        const reported = block.locator('ol li');
+        out.push({
+          requested: (await block.locator('.assistant-choice-summary').innerText()).trim(),
+          reported: (await reported.allInnerTexts()).map((t) => t.trim()),
+          text: (await block.innerText()).trim(),
+        });
+      }
+      return out;
+    },
+
+    chooseAParentFolderForTheLibrary: async (): Promise<string> => {
+      // Somewhere of this session's own, outside the state directory, because
+      // that is where a person puts a vault: a folder they keep. It is removed
+      // with the session, so a run leaves no library behind on the machine.
+      const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-library-')));
+      session.alsoRemoveOnClose(parent);
+      // The production IPC handler is untouched; only the OS dependency
+      // answers, exactly as `e2e/library.spec.ts` does it. Nothing automated
+      // can operate a native file dialog, and the spec's ledger says so.
+      await session.app.evaluate(({ dialog }, chosen) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
+      }, parent);
+      await goto('/library');
+      await win().getByRole('button', { name: 'Choose parent folder', exact: true }).click();
+      await expect(win().getByText(parent, { exact: true })).toBeVisible({ timeout: 30_000 });
+      libraryParent = parent;
+      return parent;
+    },
+
+    createTheManagedVault: async (): Promise<string> => {
+      await goto('/library');
+      await win().getByRole('button', { name: 'Create managed vault', exact: true }).click();
+      // The control that only exists once there is somewhere to import into.
+      await expect(win().getByLabel('Import PDF, TXT or MD')).toBeEnabled({ timeout: 60_000 });
+      return vaultDirectory();
+    },
+
+    importIntoTheLibrary: async (files): Promise<string> => {
+      await goto('/library');
+      const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-import-'));
+      session.alsoRemoveOnClose(staging);
+      const paths = files.map((file) => {
+        const target = path.join(staging, file.name);
+        fs.writeFileSync(target, file.content);
+        return target;
+      });
+      const control = win().getByLabel('Import PDF, TXT or MD');
+      await expect(control).toBeEnabled({ timeout: 60_000 });
+      await control.setInputFiles(paths);
+      // The page's own account of what it did. Waiting for the sentence rather
+      // than for a count is what stops a read landing between the upload
+      // finishing and the list being refetched — and the page has a second
+      // `role="status"` for "Loading Library…", so this waits for the one that
+      // answers the question that was asked.
+      const notice = win().getByText(/\d+ retained, \d+ exact duplicates reused/);
+      await expect(notice).toBeVisible({ timeout: 120_000 });
+      return (await notice.innerText()).trim();
+    },
+
+    readTheLibraryItems: async (): Promise<LibraryItem[]> => {
+      await goto('/library');
+      const rows = win().getByRole('region', { name: 'Library files' }).locator('.library-item');
+      await expect(rows.first()).toBeVisible({ timeout: 60_000 });
+      const out: LibraryItem[] = [];
+      for (let i = 0; i < await rows.count(); i += 1) {
+        await rows.nth(i).click();
+        out.push(await readLibraryDetail());
+      }
+      return out;
+    },
+
+    associateTheLibraryItemWithPaper: async (name, paperId): Promise<string> => {
+      await selectTheLibraryItem(name);
+      const detail = win().getByRole('region', { name: 'Selected Library item' });
+      await detail.getByLabel('Existing paper ID').fill(String(paperId));
+      await detail.getByRole('button', { name: 'Associate paper', exact: true }).click();
+      const notice = detail.locator('[role="status"]').first();
+      await expect(notice).toContainText(`Linked local paper ${paperId}`, { timeout: 60_000 });
+      return (await notice.innerText()).trim();
+    },
+
+    readTheVaultOnDisk: async (): Promise<VaultOnDisk> => {
+      const directory = vaultDirectory();
+      const entries: string[] = [];
+      const walk = (at: string): void => {
+        for (const entry of fs.readdirSync(at, { withFileTypes: true })) {
+          const full = path.join(at, entry.name);
+          entries.push(path.relative(directory, full));
+          if (entry.isDirectory()) walk(full);
+        }
+      };
+      walk(directory);
+      const marker = path.join(directory, 'vault.json');
+      const hashes: Record<string, string> = {};
+      for (const entry of entries) {
+        const full = path.join(directory, entry);
+        if (!fs.statSync(full).isDirectory() && entry !== 'vault.json') {
+          hashes[entry] = createHash('sha256').update(fs.readFileSync(full)).digest('hex');
+        }
+      }
+      return {
+        directory: path.basename(directory),
+        marker: fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : '',
+        entries: entries.sort(),
+        hashes,
+      };
+    },
+
+    setTheAppWideAssistantDefaults: async (defaults) => {
+      await goto(PLACES['AI settings']);
+      // By id: this page carries a `Model` label of its own and so does the
+      // assistant panel, which a journey may have left open over it.
+      const model = win().locator('#assistant-model');
+      await expect(model, 'Settings → AI offers no assistant model').toBeVisible({ timeout: 30_000 });
+      await model.selectOption(defaults.model);
+      if (defaults.effort !== undefined) {
+        await win().locator('#assistant-effort').selectOption(defaults.effort);
+      }
+      await win().getByRole('button', { name: 'Save assistant settings', exact: true }).click();
+      await expect(win().locator('.settings-saved')).toBeVisible({ timeout: 30_000 });
     },
   };
 }
