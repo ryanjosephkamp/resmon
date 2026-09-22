@@ -365,6 +365,34 @@ export interface McpAnswer {
   health: Record<string, any>;
 }
 
+/** One destination a routine's report goes to. */
+export interface DeliveryDestination {
+  id: number;
+  channel: 'folder' | 'feed' | 'webhook';
+  /** The folder or address the target was given. */
+  destination: string;
+}
+
+/** One delivery, as the routine's own "Where did this go?" record shows it. */
+export interface DeliveryRecord {
+  id: number;
+  channel: string;
+  /** What the screen calls the state, in the words a person reads. */
+  state: string;
+  /**
+   * The state the backend recorded, in its own vocabulary — `delivered`,
+   * `awaiting_review`, `skipped`, `failed`.
+   *
+   * Both, because the row is "whether it got there" and the two halves are
+   * different claims: a screen label a spec asserted on would be a renderer
+   * coupling, and a stored token alone would not establish that anybody can
+   * see it.
+   */
+  recorded: string;
+  /** What the row says in its detail column — a timestamp, or an error. */
+  detail: string;
+}
+
 export interface JourneyDriver {
   // — the reading queue (J28) ------------------------------------------------
   /** Save every paper this run found, from the run's own Papers tab. */
@@ -393,6 +421,32 @@ export interface JourneyDriver {
   }): Promise<RawAnswer>;
   /** Go to this place and report every backend request the app made getting there. */
   observeOwnRequests(place: Place): Promise<ObservedRequest[]>;
+
+  // — delivery (J40) ---------------------------------------------------------
+  /**
+   * Give this routine somewhere to send its report.
+   *
+   * A `folder` or `feed` destination with no `destination` gets a fresh
+   * directory of this session's own, because those two channels refuse a
+   * directory that does not already exist — resmon does not create folders
+   * inside somebody's Dropbox — and the answer says which directory it used.
+   */
+  addDeliveryTarget(routine: string, target: {
+    channel: 'folder' | 'feed' | 'webhook';
+    destination?: string;
+    mode?: 'automatic' | 'review';
+  }): Promise<DeliveryDestination>;
+  /**
+   * The routine's own delivery record, from its "Where did this go?" panel,
+   * once every delivery has stopped moving.
+   */
+  readDeliveryRecord(routine: string): Promise<DeliveryRecord[]>;
+  /** Press Skip on this delivery's row. */
+  skipDelivery(routine: string, delivery: DeliveryRecord): Promise<void>;
+  /** Every file under a folder destination, by path relative to it. */
+  readDeliveredFiles(destination: string): Promise<string[]>;
+  /** The Atom file a feed destination holds, as bytes on disk. */
+  readFeedFile(destination: string): Promise<{ path: string; text: string }>;
 
   // — an external harness (J44) ----------------------------------------------
   /**

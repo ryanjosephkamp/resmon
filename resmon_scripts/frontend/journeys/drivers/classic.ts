@@ -35,7 +35,9 @@ import type {
 } from '../driver';
 // Slice 2b's additions, in their own import for the same reason its verbs are
 // in their own block: two branches appending beats two branches interleaving.
-import type { McpAnswer, ObservedRequest, QueuedPaper, RawAnswer } from '../driver';
+import type {
+  DeliveryRecord, McpAnswer, ObservedRequest, QueuedPaper, RawAnswer,
+} from '../driver';
 import type { Session } from './session';
 
 /** The hash behind each place in the sidebar. The only route table in the suite. */
@@ -139,6 +141,35 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     const file = path.join(session.stateDir, `api-token-${session.port}`);
     expect(fs.existsSync(file), `this instance published no token file at ${file}`).toBe(true);
     return fs.readFileSync(file, 'ascii').trim();
+  };
+
+  /** The id of the routine with this name, from the routine list itself. */
+  const routineIdNamed = async (name: string): Promise<number> => {
+    const routines = await session.api<Record<string, any>[]>('GET', '/api/routines');
+    const found = routines.find((r) => r.name === name);
+    expect(found, `no routine named ${name}`).toBeTruthy();
+    return Number(found!.id);
+  };
+
+  /**
+   * Open the delivery record on the Routines page.
+   *
+   * The panel lives in a row of its own under each routine and every one of
+   * them carries the same `delivery-toggle`, so this refuses to guess when
+   * there is more than one. A journey that needed two routines would need a
+   * per-routine handle first, and picking the first of several silently is how
+   * a row ends up asserting about the wrong one.
+   */
+  const openDeliveryPanel = async (): Promise<void> => {
+    await goto(PLACES.Routines);
+    const toggles = win().locator('[data-testid="delivery-toggle"]');
+    await expect(toggles.first()).toBeVisible({ timeout: 30_000 });
+    expect(
+      await toggles.count(),
+      'more than one routine is on this page, and the delivery panels cannot be told apart',
+    ).toBe(1);
+    if (!await win().getByTestId('delivery-body').count()) await toggles.first().click();
+    await expect(win().getByTestId('delivery-body')).toBeVisible({ timeout: 30_000 });
   };
 
   const backend: BackendFacts = {
@@ -820,6 +851,98 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         win().off('request', watch);
       }
       return seen;
+    },
+
+    // — delivery (J40) ------------------------------------------------------
+
+    addDeliveryTarget: async (routine, target) => {
+      const id = await routineIdNamed(routine);
+      // A folder and a feed destination are both refused unless the directory
+      // already exists — `_deliver_folder` will not create one, deliberately,
+      // because a mistyped path that silently succeeds is worse than one that
+      // reports itself. So the journey makes the folder a person would have
+      // chosen, inside this session's own state directory.
+      let destination = target.destination ?? '';
+      if (!destination && target.channel !== 'webhook') {
+        destination = path.join(session.stateDir, `delivery-${target.channel}`);
+        fs.mkdirSync(destination, { recursive: true });
+      }
+      const created = await session.api<{ id: number }>(
+        'POST', `/api/routines/${id}/delivery-targets`,
+        { channel: target.channel, target: destination, mode: target.mode ?? 'automatic', enabled: true },
+      );
+      return { id: created.id, channel: target.channel, destination };
+    },
+
+    readDeliveryRecord: async (routine): Promise<DeliveryRecord[]> => {
+      const id = await routineIdNamed(routine);
+      // Wait on the record, not on a screen: the drain is a worker thread and
+      // a panel read while a row is still `queued` would be a snapshot of a
+      // delivery in flight rather than of where the report went.
+      let recorded: Record<number, string> = {};
+      await expect.poll(async () => {
+        const record = await session.api<{ deliveries: Record<string, any>[] }>(
+          'GET', `/api/routines/${id}/deliveries`,
+        );
+        recorded = Object.fromEntries(record.deliveries.map((row) => [Number(row.id), String(row.state)]));
+        return record.deliveries.length > 0
+          && record.deliveries.every((row) => !['queued', 'delivering'].includes(String(row.state)));
+      }, { timeout: 120_000 }).toBe(true);
+
+      await openDeliveryPanel();
+      const rows = win().locator('[data-testid^="delivery-row-"]');
+      await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+      const out: DeliveryRecord[] = [];
+      for (let i = 0; i < await rows.count(); i += 1) {
+        const cells = rows.nth(i).locator('td');
+        const rowId = Number(String(await rows.nth(i).getAttribute('data-testid')).replace('delivery-row-', ''));
+        out.push({
+          id: rowId,
+          channel: (await cells.nth(1).locator('.delivery-channel').innerText()).trim(),
+          state: (await cells.nth(2).innerText()).trim(),
+          recorded: recorded[rowId] ?? '',
+          detail: (await cells.nth(4).innerText()).trim(),
+        });
+      }
+      return out;
+    },
+
+    skipDelivery: async (routine, delivery) => {
+      await openDeliveryPanel();
+      const row = win().getByTestId(`delivery-row-${delivery.id}`);
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      await row.getByRole('button', { name: 'Skip', exact: true }).click();
+      await expect(row.locator('.badge')).not.toHaveText(delivery.state, { timeout: 30_000 });
+    },
+
+    readDeliveredFiles: async (destination) => {
+      const found: string[] = [];
+      const walk = (dir: string, prefix: string): void => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const here = prefix ? `${prefix}/${entry.name}` : entry.name;
+          if (entry.isDirectory()) walk(path.join(dir, entry.name), here);
+          else found.push(here);
+        }
+      };
+      if (fs.existsSync(destination)) walk(destination, '');
+      return found.sort();
+    },
+
+    readFeedFile: async (destination) => {
+      // `<target>/resmon/<routine slug>/feed.xml`, found rather than composed:
+      // the slug is the delivery module's own and a spec that spelled it out
+      // would be asserting this suite's idea of it.
+      const found: string[] = [];
+      const walk = (dir: string): void => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const here = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(here);
+          else if (entry.name === 'feed.xml') found.push(here);
+        }
+      };
+      if (fs.existsSync(destination)) walk(destination);
+      expect(found, `no feed.xml was written under ${destination}`).toHaveLength(1);
+      return { path: found[0], text: fs.readFileSync(found[0], 'utf8') };
     },
 
     // — an external harness (J44) -------------------------------------------
