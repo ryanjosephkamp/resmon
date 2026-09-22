@@ -15,21 +15,22 @@
  * initials of whoever decided it — B4 in prose, enforced by the guard. There
  * are no such rows yet.
  *
- * **`slice`.** Which delivery builds the row's test. Slice `1` rows are built
- * and must have a spec; `2a` and `2b` rows are *pending* and the guard accepts
- * their absence only because the slice is named here. When slice 2a lands, its
- * rows change to `1`-style built rows by getting a spec — the guard notices, and
- * the printed count moves without anyone editing a number.
+ * **`slice` and `built`.** `slice` is which delivery owes the row's test; every
+ * slice-1 row is built by definition, and a later slice's row is built once it
+ * carries `built: true`. A row that is neither is *pending*, and the guard
+ * accepts its missing spec only because the slice is named here. The printed
+ * count moves when a spec and its flag arrive together, without anyone editing
+ * a number.
  *
  * **Two rows whose journey is a gate, not a screen.** J16 (the weekly
  * live-network job) and J43 (upgrade in place) are user journeys whose evidence
- * is a CI job and a migration, not a route. When slice 2a/2b builds them, the
- * pattern to use is a journey test that runs the *existing* gate as a
- * subprocess and asserts its exit status and the denominators it prints —
- * `.venv/bin/python -m pytest -q verification_scripts/test_cumulative_upgrade.py`
- * for J43, `live_suite.py`'s own selection for J16. The row's evidence stays the
- * real gate; re-implementing it here would be a second thing to keep in step.
- * Nothing about those two is decided yet beyond this note.
+ * is a CI job and a migration, not a route. The pattern, settled by J43 in
+ * slice 2b, is a journey test that runs the *existing* gate as a subprocess and
+ * asserts its exit status and the denominators it prints — `runGate` in
+ * `fixtures/gates.ts`, re-exported from `driver.ts` so a spec can reach it
+ * without importing `child_process`. The row's evidence stays the real gate;
+ * re-implementing it here would be a second thing to keep in step. J16 is
+ * slice 2a's and takes the same shape.
  */
 
 export type JourneySlice = '1' | '2a' | '2b';
@@ -43,6 +44,18 @@ export interface JourneyRow {
   /** Which slice of the journey suite builds this row's test. */
   slice: JourneySlice;
   status: JourneyStatus;
+  /**
+   * This row's spec exists in this checkout.
+   *
+   * Slice 1's rows do not carry it — `BUILT_SLICE` already says they are built,
+   * and that is the shape `register.spec.ts` was written against. A later slice
+   * marks its own rows one at a time as it lands them, which is deliberate:
+   * slices 2a and 2b are two workers on two branches, and a flag on each row is
+   * a diff in disjoint lines rather than a shared list both of them rewrite.
+   * A row of a later slice with no flag is *pending*, which is the honest
+   * reading — the slice was dispatched, this row was not reached.
+   */
+  built?: true;
   /**
    * Only for `not_carried_forward`: the N-row of the workspace register that
    * decided it and the initials of whoever initialled it, e.g.
@@ -79,7 +92,7 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J25', title: 'In-app documentation', slice: '2a', status: 'carried' },
   { id: 'J26', title: 'Danger Zone', slice: '2a', status: 'carried' },
   { id: 'J27', title: 'Citation graph', slice: '2a', status: 'carried' },
-  { id: 'J28', title: 'Reading queue', slice: '2b', status: 'carried' },
+  { id: 'J28', title: 'Reading queue', slice: '2b', status: 'carried', built: true },
   { id: 'J29', title: 'Recorded-source coverage', slice: '1', status: 'carried' },
   { id: 'J30', title: 'Runtime identity', slice: '1', status: 'carried' },
   { id: 'J31', title: 'Readable Ask', slice: '2b', status: 'carried' },
@@ -93,22 +106,26 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J39', title: 'One run per routine, one per submission, missed fires', slice: '2b', status: 'carried' },
   { id: 'J40', title: 'Delivery: where a report goes, and whether it got there', slice: '2b', status: 'carried' },
   { id: 'J41', title: 'Backup and restore', slice: '1', status: 'carried' },
-  { id: 'J42', title: 'Local API locked to this app', slice: '2b', status: 'carried' },
-  { id: 'J43', title: 'Upgrade in place', slice: '2b', status: 'carried' },
-  { id: 'J44', title: 'Driving resmon from an external harness (MCP)', slice: '2b', status: 'carried' },
+  { id: 'J42', title: 'Local API locked to this app', slice: '2b', status: 'carried', built: true },
+  { id: 'J43', title: 'Upgrade in place', slice: '2b', status: 'carried', built: true },
+  { id: 'J44', title: 'Driving resmon from an external harness (MCP)', slice: '2b', status: 'carried', built: true },
 ];
 
-/** The slice whose rows must have a spec in this delivery. */
+/** The slice whose rows were built when this directory was born. */
 export const BUILT_SLICE: JourneySlice = '1';
 
-/** Rows the guard requires a spec for. */
+/** Rows the guard requires a spec for: slice 1, plus every later row marked built. */
 export function builtRows(): JourneyRow[] {
-  return JOURNEY_REGISTER.filter((row) => row.status === 'carried' && row.slice === BUILT_SLICE);
+  return JOURNEY_REGISTER.filter(
+    (row) => row.status === 'carried' && (row.slice === BUILT_SLICE || row.built === true),
+  );
 }
 
-/** Carried rows whose test a later slice owes. */
+/** Carried rows whose test a later slice still owes. */
 export function pendingRows(): JourneyRow[] {
-  return JOURNEY_REGISTER.filter((row) => row.status === 'carried' && row.slice !== BUILT_SLICE);
+  return JOURNEY_REGISTER.filter(
+    (row) => row.status === 'carried' && row.slice !== BUILT_SLICE && row.built !== true,
+  );
 }
 
 /** `J01-deep-dive` from `J01` + `Deep Dive`: the spec file's stem. */
@@ -135,9 +152,11 @@ export function specStem(row: JourneyRow): string {
  * excluding the guard from its own scan — leaves one spec file in the directory
  * that is allowed to reach the renderer. Keeping the literals in this module,
  * which is not a spec file, lets the guard cover every spec file in the
- * directory — 13 of them today, one per built row plus the guard — with no
- * exemption at all. (44 is the register's rows; 22 is the suite's test cases;
- * neither is what this counts.)
+ * directory — one per built row plus the guard — with no exemption at all.
+ * (44 is the register's rows and the suite's case count is a third number;
+ * neither is what this counts. The guard takes its denominator from a
+ * directory read rather than from a figure written here, which is why no
+ * number appears in this sentence.)
  *
  * `page.` is matched with no space after the dot on purpose: prose ending a
  * sentence with "…on the page. The next…" is not a renderer call, and a guard
