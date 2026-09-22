@@ -223,7 +223,9 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     const closing = app.close().catch(() => { /* already gone */ });
     const closed = await Promise.race([
       closing.then(() => true),
-      new Promise<false>((resolve) => { setTimeout(() => resolve(false), CLOSE_DEADLINE_MS); }),
+      // `unref` so a deadline the close beat does not go on holding the
+      // worker's event loop open after the suite has finished.
+      new Promise<false>((resolve) => { setTimeout(() => resolve(false), CLOSE_DEADLINE_MS).unref(); }),
     ]);
 
     if (!closed || !gone()) {
@@ -239,7 +241,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
       // not a thing worth a second hang.
       await Promise.race([
         closing,
-        new Promise<void>((resolve) => { setTimeout(resolve, 30_000); }),
+        new Promise<void>((resolve) => { setTimeout(resolve, 30_000).unref(); }),
       ]);
     }
 
@@ -334,10 +336,17 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     alsoRemoveOnClose: (target: string) => { alsoRemove.push(target); },
 
     close: async () => {
+      // Printed either side of every step. The suite has twice now had a hang
+      // whose only evidence was a 300-second wall; a teardown that stops
+      // halfway should say which half.
+      console.log('[journeys] teardown: closing the app');
       await put().catch(() => { /* already gone */ });
+      console.log('[journeys] teardown: stopping the authored source');
       await source.close().catch(() => { /* already closed */ });
+      console.log('[journeys] teardown: removing what this session made');
       for (const dir of stateDirs) fs.rmSync(dir, { recursive: true, force: true });
       for (const target of alsoRemove) fs.rmSync(target, { recursive: true, force: true });
+      console.log(`[journeys] teardown: done${forced.length ? `; ${forced.length} forced close(s)` : ''}`);
     },
   };
 
