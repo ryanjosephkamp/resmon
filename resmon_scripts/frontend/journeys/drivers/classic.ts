@@ -45,6 +45,8 @@ import { JOURNEY_EMBEDDING_MODEL, startEmbeddingEndpoint } from '../fixtures/emb
 import type {
   DeliveryRecord, McpAnswer, ObservedRequest, QueuedPaper, RawAnswer,
 } from '../driver';
+// Slice 3's, in its own import for the same reason.
+import type { RunNowAnswer } from '../driver';
 import type { Session } from './session';
 
 /** The hash behind each place in the sidebar. The only route table in the suite. */
@@ -1748,6 +1750,54 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         declaredToolCount: declared,
         health,
       };
+    },
+
+    // — slice 3 ---------------------------------------------------------------
+
+    askForThisRoutineToRunNow: async (name): Promise<RunNowAnswer> => {
+      const routines = await backend.routines();
+      const routine = routines.find((r) => r.name === name);
+      expect(routine, `no routine named ${name}`).toBeTruthy();
+      // `session.api` throws on anything but 2xx, and a refusal is the answer
+      // this row is about — so the whole answer is taken here, status, headers
+      // and body, through the app's own transport and the app's own token. The
+      // header is read rather than the prose because the app publishes the kind
+      // of refusal separately from the sentence, and there are two different
+      // 409s on this route: the routine is already running, and resmon is
+      // already running as many executions as it allows.
+      return win().evaluate(async (routineId) => {
+        const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
+          .resmonAPI.getBackendPort();
+        const response = await e2eFetch(`http://127.0.0.1:${port}/api/routines/${routineId}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        const text = await response.text();
+        let parsed: any = null;
+        try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
+        if (response.ok) {
+          return { run: { id: Number(parsed?.execution_id) }, refusal: '', refusalKind: '' };
+        }
+        return {
+          run: null,
+          refusal: String(parsed?.detail ?? text),
+          // Usually '': see `RunNowAnswer.refusalKind`. Read rather than
+          // assumed, so the day the backend starts exposing it this stops
+          // being a limit without anybody editing a comment.
+          refusalKind: response.headers.get('X-Resmon-Conflict') || '',
+        };
+      }, routine!.id);
+    },
+
+    runNowControlIsOnTheRow: async (name) => {
+      await goto(PLACES.Routines);
+      const routines = await backend.routines();
+      const routine = routines.find((r) => r.name === name);
+      expect(routine, `no routine named ${name}`).toBeTruthy();
+      const row = win().locator('.simple-table tbody tr').filter({ hasText: name }).first();
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      return (await win().getByTestId(`run-now-${routine!.id}`).count()) > 0;
     },
   };
 }

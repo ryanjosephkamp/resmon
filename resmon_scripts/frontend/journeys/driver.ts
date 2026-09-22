@@ -796,3 +796,57 @@ export interface JourneyDriver {
  */
 export { runGate } from './fixtures/gates';
 export type { GateOutcome } from './fixtures/gates';
+
+/* ========================================================================== *
+ *  Slice 3 — the rows slices 2a and 2b left pending, and the launch-time
+ *  levers two of them needed.
+ *
+ *  Appended in one block for the same reason the two blocks above are: a slice
+ *  that adds its verbs at the end merges, and one that threads them through the
+ *  interface does not. Nothing above this line changed meaning.
+ * ========================================================================== */
+
+/**
+ * What the app answered when it was asked to run a routine now.
+ *
+ * Both halves, because the row is "one run per routine" and the two halves are
+ * different claims. A refusal a person can read is not the same fact as a
+ * backend that started only one run, and a journey that watched only the first
+ * would pass over an app that refused on screen and ran twice underneath.
+ */
+export interface RunNowAnswer {
+  /** The run it started, or null when it refused. */
+  run: RunHandle | null;
+  /** The refusal in the words the app would show a person, or ''. */
+  refusal: string;
+  /**
+   * What the app called the refusal, in its own vocabulary, or ''.
+   *
+   * The backend publishes this as a response header, and a renderer reading its
+   * own backend cross-origin is given only the safelisted headers unless the
+   * server exposes more — which this one does not. So this is '' from inside
+   * the app, and the row asserts the sentence a person actually reads. The
+   * header's own evidence stays `test_duplicate_protection.py`, which asks over
+   * a transport that can see it.
+   */
+  refusalKind: string;
+}
+
+export interface JourneyDriver {
+  // — one run per routine (J39) ----------------------------------------------
+  /**
+   * Ask for this routine to run now, without waiting for any run already in
+   * flight — the second half of "press Run now twice".
+   */
+  askForThisRoutineToRunNow(name: string): Promise<RunNowAnswer>;
+  /**
+   * Whether the `Run now` control is on this routine's row at all.
+   *
+   * The register row's journey is a person pressing a button, and in this suite
+   * that button is not reachable: it appears only on a routine that has missed
+   * a fire, and the app spawns its backend with the scheduler disabled, so
+   * nothing here can miss one. The spec asks, reports the answer, and says what
+   * it therefore did not establish rather than implying it clicked.
+   */
+  runNowControlIsOnTheRow(name: string): Promise<boolean>;
+}

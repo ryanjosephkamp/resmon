@@ -35,7 +35,7 @@
  * because a `-q` pytest run does not print one.
  */
 
-export type JourneySlice = '1' | '2a' | '2b';
+export type JourneySlice = '1' | '2a' | '2b' | '3';
 export type JourneyStatus = 'carried' | 'not_carried_forward';
 
 export interface JourneyRow {
@@ -105,7 +105,7 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J36', title: 'Selected-evidence answers', slice: '2b', status: 'carried' },
   { id: 'J37', title: 'Portable saved-answer HTML', slice: '2b', status: 'carried' },
   { id: 'J38', title: 'Interrupted runs and Restart', slice: '1', status: 'carried' },
-  { id: 'J39', title: 'One run per routine, one per submission, missed fires', slice: '2b', status: 'carried' },
+  { id: 'J39', title: 'One run per routine, one per submission, missed fires', slice: '2b', status: 'carried', built: true },
   { id: 'J40', title: 'Delivery: where a report goes, and whether it got there', slice: '2b', status: 'carried', built: true },
   { id: 'J41', title: 'Backup and restore', slice: '1', status: 'carried' },
   { id: 'J42', title: 'Local API locked to this app', slice: '2b', status: 'carried', built: true },
