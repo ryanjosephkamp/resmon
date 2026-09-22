@@ -9,16 +9,14 @@
  * the service record agree, and the screen and the daemon probe agree — rather
  * than a fixed sentence.
  *
- * **The installed/not-installed answer is not isolated, and that is a finding
- * rather than a flaw in this test.** `RESMON_STATE_DIR` isolates the database,
- * the reports and the daemon lock; it does not isolate the launch agent, which
- * lives in the *machine's* own directory. On a developer's Mac with resmon's
- * service installed, a journey in a brand-new state directory therefore reads
- * `Status: Installed`, and on a runner it reads `Not installed`. Both are true
- * statements about the machine. What matters either way — and what this spec
- * asserts unconditionally — is the second half of the line: no daemon is
- * claimed to be running, because none is, and nothing here goes near the one
- * that might be.
+ * **The launch agent is isolated, and that took finding.** `RESMON_STATE_DIR`
+ * covers the database, the reports and the daemon lock; it does not cover the
+ * unit file, which `service_manager.unit_path()` puts in the machine's own
+ * LaunchAgents or systemd directory. A journey in a brand-new state directory
+ * on a developer's Mac therefore read `Status: Installed` — true about the
+ * machine, useless about the app. `unit_path()` already honours
+ * `RESMON_SERVICE_UNIT_DIR`, and the session now points it inside its own temp
+ * state, so the register's sentence holds on every machine with no branch.
  *
  * **Nothing is installed or removed by this test.** Installing a launch agent
  * would write outside the state directory, would survive the run, and would put
@@ -34,27 +32,14 @@ journey.describe('J04 Background daemon', () => {
     console.log(`[J04] status line: ${JSON.stringify(panel.status)}`);
     console.log(`[J04] service record: ${JSON.stringify(service)}`);
 
-    // The screen says what the record says. This is the assertion that would
-    // catch a panel drawing a default while its request was still in flight,
-    // which is the shape of every wrong answer this screen could give.
-    expect(panel.status).toMatch(/^Status:/);
-    expect(
-      panel.status.includes('Not installed'),
-      `the panel says ${JSON.stringify(panel.status)} and the record says installed=${service.installed}`,
-    ).toBe(!service.installed);
+    // The screen says what the record says, and what it says is "not
+    // installed" — because the unit directory this app was launched with is
+    // this session's own and has nothing in it.
+    expect(panel.status).toContain('Not installed');
+    expect(service.installed, 'a fresh unit directory already holds a service').toBe(false);
     expect(String(service.unit_path ?? '').length, 'the record names no unit path').toBeGreaterThan(0);
     expect(panel.text, 'the panel does not show the unit path it was given')
       .toContain(String(service.unit_path));
-
-    if (service.installed) {
-      console.log(
-        '[J04] NOT VERIFIED on this machine: the "no service installed" reading. '
-        + 'A launch agent is installed for this user, and RESMON_STATE_DIR does not '
-        + 'isolate that — it isolates the database, the reports and the daemon lock. '
-        + 'The reading asserted here is the one this machine can give truthfully; a '
-        + 'runner with no agent exercises the other branch of the same assertion.',
-      );
-    }
 
     // The half that is isolated, and the half B3 cares about. This state
     // directory has no daemon lock, so nothing is running for this app to
@@ -77,7 +62,7 @@ journey.describe('J04 Background daemon', () => {
     // reflects the record. There is one control rather than two buttons: the
     // checkbox does both, behind a confirmation. This journey never ticks it.
     expect(panel.controlPresent, 'Advanced offers no way to install or remove the service').toBe(true);
-    expect(panel.controlOn, 'the control disagrees with the service record').toBe(Boolean(service.installed));
+    expect(panel.controlOn, 'the control claims a service that is not installed').toBe(false);
 
     await resmon.takePicture('J04-background-daemon');
     expect(resmon.refusedConnections()).toEqual([]);

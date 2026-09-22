@@ -190,6 +190,18 @@ function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<stri
   // key reads back as a mask" unjourneyable, because no key is ever saved.
   env.PYTHON_KEYRING_BACKEND = 'journey_keyring.Keyring';
   env.RESMON_KEYRING_TIMEOUT = '2.0';
+  // The launch agent, isolated too.
+  //
+  // `RESMON_STATE_DIR` covers the database, the reports and the daemon lock; it
+  // does not cover the unit file, which `service_manager.unit_path()` puts in
+  // the *machine's* own LaunchAgents or systemd directory. Without this, a
+  // journey in a brand-new state directory on a developer's Mac reads
+  // `Status: Installed` — a true statement about the machine and a useless one
+  // about the app under test. It is also a B3 hardening: with the override in
+  // place the install control no journey is allowed to use could not, even by
+  // accident, write beside the live daemon's own unit.
+  env.RESMON_SERVICE_UNIT_DIR = path.join(stateDir, 'service-units');
+  fs.mkdirSync(env.RESMON_SERVICE_UNIT_DIR, { recursive: true });
   // A proxy would make the guard's "loopback only" untrue by routing loopback
   // requests off the machine.
   env.NO_PROXY = '127.0.0.1,localhost';

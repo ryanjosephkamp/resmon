@@ -25,6 +25,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
+import * as http from 'http';
 import { expect } from '@playwright/test';
 import type { TestInfo } from '@playwright/test';
 import type {
@@ -39,6 +40,11 @@ import type {
   WatchdogFinding, WatchdogView,
 } from '../driver';
 import { JOURNEY_EMBEDDING_MODEL, startEmbeddingEndpoint } from '../fixtures/embedding-endpoint';
+// Slice 2b's additions, in their own import for the same reason its verbs are
+// in their own block: two branches appending beats two branches interleaving.
+import type {
+  DeliveryRecord, McpAnswer, ObservedRequest, QueuedPaper, RawAnswer,
+} from '../driver';
 import type { Session } from './session';
 
 /** The hash behind each place in the sidebar. The only route table in the suite. */
@@ -162,6 +168,96 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     // Its own close button, which is what a person would reach for.
     await widget.locator('.fw-close-btn').first().click().catch(() => { /* already gone */ });
     await expect(widget).toHaveCount(0, { timeout: 15_000 });
+  };
+
+  /* ---------------------------------------------------------------------- *
+   *  Slice 2b's helpers. The reading queue's route is not in `PLACES` because
+   *  nothing above it takes a `Place` for it, and widening that union is an
+   *  edit to a line slice 2a is also standing on.
+   * ---------------------------------------------------------------------- */
+
+  /** Open a run's Papers tab — a deep link, which is how the run viewer opens one. */
+  const openPapersTab = async (run: RunHandle): Promise<void> => {
+    await win().evaluate((h) => { window.location.hash = h; }, `#/results?exec=${run.id}&tab=papers`);
+    // A reload rather than a hash change: the run viewer reads `exec` and `tab`
+    // when it mounts, and it is already mounted on whatever the last row was.
+    await win().reload();
+    await win().locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
+    await expect(win().getByTestId('execution-papers')).toBeVisible({ timeout: 60_000 });
+  };
+
+  /** The reading queue under one of the page's own three filters. */
+  const readQueueUnder = async (
+    filter: 'to read' | 'read' | 'all',
+  ): Promise<QueuedPaper[]> => {
+    await goto('/reading-queue');
+    const key = { 'to read': 'to_read', read: 'read', all: 'all' }[filter];
+    const control = win().getByTestId(`filter-${key}`);
+    await expect(control).toBeVisible({ timeout: 30_000 });
+    await control.click();
+    await expect(control).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 });
+    // Either a list or the page's own "nothing here" card — never neither, and
+    // waiting for one of the two is what stops a read landing mid-fetch and
+    // reporting an empty queue that is really an unfinished one.
+    await expect
+      .poll(async () => (await win().locator('.reading-item').count())
+        + (await win().getByTestId('queue-empty').count()), { timeout: 30_000 })
+      .toBeGreaterThan(0);
+    const rows = win().locator('.reading-item');
+    const out: QueuedPaper[] = [];
+    for (let i = 0; i < await rows.count(); i += 1) {
+      const row = rows.nth(i);
+      const id = Number(String(await row.getAttribute('data-testid')).replace('paper-', ''));
+      out.push({
+        id,
+        title: (await row.locator('.reading-item-title').innerText()).trim(),
+        state: (await row.getByTestId(`state-${id}`).innerText()).trim(),
+      });
+    }
+    return out;
+  };
+
+  /**
+   * The token this instance published for other clients on this machine.
+   *
+   * Read off disk, from `<state dir>/api-token-<port>`, because that is where a
+   * client that is not this renderer finds it — the MCP server's own discovery
+   * path. Asking the renderer for it would be asking the app to hand out its
+   * credential, which is not a thing any other caller can do.
+   */
+  const publishedToken = (): string => {
+    const file = path.join(session.stateDir, `api-token-${session.port}`);
+    expect(fs.existsSync(file), `this instance published no token file at ${file}`).toBe(true);
+    return fs.readFileSync(file, 'ascii').trim();
+  };
+
+  /** The id of the routine with this name, from the routine list itself. */
+  const routineIdNamed = async (name: string): Promise<number> => {
+    const routines = await session.api<Record<string, any>[]>('GET', '/api/routines');
+    const found = routines.find((r) => r.name === name);
+    expect(found, `no routine named ${name}`).toBeTruthy();
+    return Number(found!.id);
+  };
+
+  /**
+   * Open the delivery record on the Routines page.
+   *
+   * The panel lives in a row of its own under each routine and every one of
+   * them carries the same `delivery-toggle`, so this refuses to guess when
+   * there is more than one. A journey that needed two routines would need a
+   * per-routine handle first, and picking the first of several silently is how
+   * a row ends up asserting about the wrong one.
+   */
+  const openDeliveryPanel = async (): Promise<void> => {
+    await goto(PLACES.Routines);
+    const toggles = win().locator('[data-testid="delivery-toggle"]');
+    await expect(toggles.first()).toBeVisible({ timeout: 30_000 });
+    expect(
+      await toggles.count(),
+      'more than one routine is on this page, and the delivery panels cannot be told apart',
+    ).toBe(1);
+    if (!await win().getByTestId('delivery-body').count()) await toggles.first().click();
+    await expect(win().getByTestId('delivery-body')).toBeVisible({ timeout: 30_000 });
   };
 
   const backend: BackendFacts = {
@@ -1346,5 +1442,284 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     refusedConnections: () => session.refused(),
+
+    /* ====================================================================== *
+     *  Slice 2b. Appended rather than interleaved: slice 2a is adding its own
+     *  verbs to this same file on its own branch, and nothing above this line
+     *  changed meaning.
+     * ====================================================================== */
+
+    // — the reading queue (J28) ---------------------------------------------
+
+    savePapersFromRun: async (run): Promise<QueuedPaper[]> => {
+      await openPapersTab(run);
+      const cards = win().locator('.reading-papers .reading-item');
+      await expect(cards.first()).toBeVisible({ timeout: 30_000 });
+      const saved: QueuedPaper[] = [];
+      for (let i = 0; i < await cards.count(); i += 1) {
+        const card = cards.nth(i);
+        const id = Number(String(await card.getAttribute('data-testid')).replace('paper-', ''));
+        const title = (await card.locator('.reading-item-title').innerText()).trim();
+        // The badge, not the click, is the receipt: `ExecutionPapers` renders
+        // `queue_status` as the server returned it, so waiting for the badge is
+        // waiting for the backend rather than for a piece of optimistic state.
+        await card.getByTestId(`save-${id}`).click();
+        await expect(card.getByTestId(`saved-${id}`)).toBeVisible({ timeout: 30_000 });
+        saved.push({ id, title, state: 'To read' });
+      }
+      return saved;
+    },
+
+    readReadingQueue: (filter) => readQueueUnder(filter),
+
+    markPaperRead: async (paper) => {
+      await readQueueUnder('all');
+      await win().getByTestId(`toggle-${paper.id}`).click();
+      await expect(win().getByTestId(`state-${paper.id}`)).toHaveText('Read', { timeout: 30_000 });
+    },
+
+    removeFromReadingQueue: async (paper) => {
+      await readQueueUnder('all');
+      await win().getByTestId(`remove-${paper.id}`).click();
+      await expect(win().getByTestId(`paper-${paper.id}`)).toHaveCount(0, { timeout: 30_000 });
+    },
+
+    exportReadingQueue: async (papers, format) => {
+      await readQueueUnder('all');
+      for (const paper of papers) await win().getByTestId(`select-${paper.id}`).check();
+      const label = { bibtex: 'BibTeX', ris: 'RIS', csv: 'CSV' }[format];
+      const extension = { bibtex: 'bib', ris: 'ris', csv: 'csv' }[format];
+      const destination = path.join(session.stateDir, `journey-queue.${extension}`);
+      // The real Electron download with only the destination picker replaced,
+      // exactly as `exportReferences` does it above.
+      await session.app.evaluate(({ BrowserWindow }, target) => {
+        BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => {
+          item.setSavePath(target as string);
+        });
+      }, destination);
+      await win().getByRole('button', { name: label, exact: true }).click();
+      await expect.poll(() => fs.existsSync(destination), { timeout: 30_000 }).toBe(true);
+      await expect.poll(() => fs.statSync(destination).size, { timeout: 30_000 }).toBeGreaterThan(0);
+      return fs.readFileSync(destination, 'utf8');
+    },
+
+    readExplorerTitles: async () => {
+      await goto(PLACES.Explorer);
+      const items = win().locator('li.explorer-item');
+      await expect(items.first()).toBeVisible({ timeout: 30_000 });
+      return (await items.locator('h3').allInnerTexts()).map((t) => t.trim());
+    },
+
+    // — the local API's own boundary (J42) ----------------------------------
+
+    askOverTheRawSocket: async (request): Promise<RawAnswer> => {
+      // `http.request` rather than `fetch`: `Host` is a forbidden header for
+      // `fetch`, and a wrong `Host` is half of what this row is about. This is
+      // also the only call in the suite that does not go through the app — the
+      // journey is that somebody who is not this renderer gets refused, and a
+      // request made with the app's own helper would carry the app's own
+      // credentials and prove the opposite.
+      const headers: Record<string, string> = {};
+      if (request.token === 'this app') headers.Authorization = `Bearer ${publishedToken()}`;
+      if (request.host) headers.Host = request.host;
+      return new Promise<RawAnswer>((resolve, reject) => {
+        const call = http.request({
+          host: '127.0.0.1', port: Number(session.port), path: request.route, method: 'GET', headers,
+          timeout: 30_000,
+        }, (response) => {
+          let body = '';
+          response.setEncoding('utf8');
+          response.on('data', (chunk) => { body += chunk; });
+          response.on('end', () => {
+            let reason: string | null = null;
+            try { reason = JSON.parse(body)?.detail?.reason ?? null; } catch { reason = null; }
+            resolve({ status: response.statusCode ?? 0, reason, body });
+          });
+        });
+        call.on('timeout', () => { call.destroy(new Error(`GET ${request.route} did not answer`)); });
+        call.on('error', reject);
+        call.end();
+      });
+    },
+
+    observeOwnRequests: async (place): Promise<ObservedRequest[]> => {
+      const seen: ObservedRequest[] = [];
+      const watch = (request: { url(): string; headers(): Record<string, string> }): void => {
+        if (/^http:\/\/127\.0\.0\.1:\d+\/api\//.test(request.url())) {
+          seen.push({ url: request.url(), authorization: request.headers().authorization ?? null });
+        }
+      };
+      win().on('request', watch);
+      try {
+        await goto(PLACES[place]);
+        await expect.poll(() => seen.length, { timeout: 30_000 }).toBeGreaterThan(0);
+        // The page goes on asking after the first answer; a moment here means
+        // the list is what the page really sent rather than its first request.
+        await win().waitForTimeout(1_000);
+      } finally {
+        win().off('request', watch);
+      }
+      return seen;
+    },
+
+    // — delivery (J40) ------------------------------------------------------
+
+    addDeliveryTarget: async (routine, target) => {
+      const id = await routineIdNamed(routine);
+      // A folder and a feed destination are both refused unless the directory
+      // already exists — `_deliver_folder` will not create one, deliberately,
+      // because a mistyped path that silently succeeds is worse than one that
+      // reports itself. So the journey makes the folder a person would have
+      // chosen, inside this session's own state directory.
+      let destination = target.destination ?? '';
+      if (!destination && target.channel !== 'webhook') {
+        destination = path.join(session.stateDir, `delivery-${target.channel}`);
+        fs.mkdirSync(destination, { recursive: true });
+      }
+      const created = await session.api<{ id: number }>(
+        'POST', `/api/routines/${id}/delivery-targets`,
+        { channel: target.channel, target: destination, mode: target.mode ?? 'automatic', enabled: true },
+      );
+      return { id: created.id, channel: target.channel, destination };
+    },
+
+    readDeliveryRecord: async (routine): Promise<DeliveryRecord[]> => {
+      const id = await routineIdNamed(routine);
+      // Wait on the record, not on a screen: the drain is a worker thread and
+      // a panel read while a row is still `queued` would be a snapshot of a
+      // delivery in flight rather than of where the report went.
+      let recorded: Record<number, string> = {};
+      await expect.poll(async () => {
+        const record = await session.api<{ deliveries: Record<string, any>[] }>(
+          'GET', `/api/routines/${id}/deliveries`,
+        );
+        recorded = Object.fromEntries(record.deliveries.map((row) => [Number(row.id), String(row.state)]));
+        return record.deliveries.length > 0
+          && record.deliveries.every((row) => !['queued', 'delivering'].includes(String(row.state)));
+      }, { timeout: 120_000 }).toBe(true);
+
+      await openDeliveryPanel();
+      const rows = win().locator('[data-testid^="delivery-row-"]');
+      await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+      const out: DeliveryRecord[] = [];
+      for (let i = 0; i < await rows.count(); i += 1) {
+        const cells = rows.nth(i).locator('td');
+        const rowId = Number(String(await rows.nth(i).getAttribute('data-testid')).replace('delivery-row-', ''));
+        out.push({
+          id: rowId,
+          channel: (await cells.nth(1).locator('.delivery-channel').innerText()).trim(),
+          state: (await cells.nth(2).innerText()).trim(),
+          recorded: recorded[rowId] ?? '',
+          detail: (await cells.nth(4).innerText()).trim(),
+        });
+      }
+      return out;
+    },
+
+    skipDelivery: async (routine, delivery) => {
+      await openDeliveryPanel();
+      const row = win().getByTestId(`delivery-row-${delivery.id}`);
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      await row.getByRole('button', { name: 'Skip', exact: true }).click();
+      await expect(row.locator('.badge')).not.toHaveText(delivery.state, { timeout: 30_000 });
+    },
+
+    readDeliveredFiles: async (destination) => {
+      const found: string[] = [];
+      const walk = (dir: string, prefix: string): void => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const here = prefix ? `${prefix}/${entry.name}` : entry.name;
+          if (entry.isDirectory()) walk(path.join(dir, entry.name), here);
+          else found.push(here);
+        }
+      };
+      if (fs.existsSync(destination)) walk(destination, '');
+      return found.sort();
+    },
+
+    readFeedFile: async (destination) => {
+      // `<target>/resmon/<routine slug>/feed.xml`, found rather than composed:
+      // the slug is the delivery module's own and a spec that spelled it out
+      // would be asserting this suite's idea of it.
+      const found: string[] = [];
+      const walk = (dir: string): void => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const here = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(here);
+          else if (entry.name === 'feed.xml') found.push(here);
+        }
+      };
+      if (fs.existsSync(destination)) walk(destination);
+      expect(found, `no feed.xml was written under ${destination}`).toHaveLength(1);
+      return { path: found[0], text: fs.readFileSync(found[0], 'utf8') };
+    },
+
+    // — an external harness (J44) -------------------------------------------
+
+    askTheMcpServer: async (): Promise<McpAnswer> => {
+      const scripts = path.join(session.root.repo, 'resmon_scripts');
+      // The harness's own environment: this app's state directory, and no port.
+      // That is exactly how a person configures it — the server reads the port
+      // out of the port file the running app wrote and the token out of
+      // `api-token-<port>` beside it, which is the discovery half of the row.
+      //
+      // The state directory is spelled out in all four variables the app itself
+      // was launched with rather than in `RESMON_STATE_DIR` alone, and that is
+      // not tidiness. `config.PORT_FILE` falls back to the *database's* parent,
+      // so a harness given only `RESMON_STATE_DIR` reads a port file belonging
+      // to some other resmon — which is precisely the wrong-instance failure
+      // this row exists to check, and it would be this harness causing it. B3
+      // says the live daemon is never attached to, and the surest way to keep
+      // that true is never to leave a path pointing anywhere but here.
+      const env = {
+        ...process.env,
+        RESMON_STATE_DIR: session.stateDir,
+        RESMON_DB_PATH: path.join(session.stateDir, 'resmon.db'),
+        RESMON_REPORTS_DIR: path.join(session.stateDir, 'reports'),
+        RESMON_PORT_FILE: path.join(session.stateDir, 'resmon.port'),
+        PYTHONPATH: scripts,
+        PYTHONDONTWRITEBYTECODE: '1',
+        PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring',
+      };
+      // Three JSON-RPC messages down stdin, then EOF. `serve()` reads until
+      // stdin closes, so one write is a whole conversation and there is no
+      // half-open pipe to leave behind — which is the failure mode this suite
+      // already paid for once in `session.ts`.
+      const conversation = [
+        { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+        { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+        { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'health', arguments: {} } },
+      ].map((message) => JSON.stringify(message)).join('\n') + '\n';
+      const run = spawnSync(session.python, [path.join(scripts, 'mcp_server.py')], {
+        cwd: scripts, env, input: conversation, encoding: 'utf8', timeout: 120_000,
+      });
+      expect(
+        run.status,
+        `the MCP server exited ${run.status}: ${(run.stderr || '').slice(-1_000)}`,
+      ).toBe(0);
+      const answers = new Map<number, any>();
+      for (const line of String(run.stdout || '').split('\n')) {
+        if (!line.trim()) continue;
+        const parsed = JSON.parse(line);
+        answers.set(parsed.id, parsed);
+      }
+      expect([...answers.keys()].sort(), 'the MCP server did not answer all three messages')
+        .toEqual([1, 2, 3]);
+      // The denominator comes out of the build under test, not out of this
+      // file: `mcp_server.TOOLS` is the list the contract is frozen against and
+      // a number typed here would go stale the first time a tool is added.
+      const declared = Number(execFileSync(
+        session.python,
+        ['-c', 'import mcp_server; print(len(mcp_server.TOOLS))'],
+        { cwd: scripts, env, encoding: 'utf8' },
+      ).trim());
+      const health = JSON.parse(answers.get(3).result.content[0].text);
+      return {
+        server: answers.get(1).result.serverInfo,
+        toolNames: (answers.get(2).result.tools as { name: string }[]).map((t) => t.name),
+        declaredToolCount: declared,
+        health,
+      };
+    },
   };
 }

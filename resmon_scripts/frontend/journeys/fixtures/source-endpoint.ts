@@ -329,7 +329,16 @@ class Keyring(keyring.backend.KeyringBackend):
         _VALUES[(service, username)] = password
 
     def delete_password(self, service, username):
-        _VALUES.pop((service, username), None)
+        # Raised, not swallowed. The app has a handler for exactly this --
+        # credential_manager.delete_credential catches PasswordDeleteError
+        # -- and a double that returns quietly where the real backend raises is
+        # a double that cannot fail the way the dependency fails. The backend's
+        # own conftest double raises it; this is the same three lines.
+        try:
+            del _VALUES[(service, username)]
+        except KeyError:
+            from keyring.errors import PasswordDeleteError
+            raise PasswordDeleteError(username) from None
 `);
   return hookDir;
 }

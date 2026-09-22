@@ -67,6 +67,7 @@ are not what you meant, stop there.
 | `drivers/candidate.ts` | Re-exports the classic driver until the 3.0 build replaces its body. |
 | `drivers/session.ts` | One launched resmon of whichever build is under test: launch, ask, kill, relaunch. |
 | `fixtures/source-endpoint.ts` | An authored scholarly source on loopback, and the startup hook that refuses every non-loopback connection and port 8742. |
+| `fixtures/gates.ts` | Runs one of the build's own pytest gates, for the rows whose journey has no screen. |
 | `J<nn>-<slug>.spec.ts` | One register row each. |
 
 ## Five things to know before adding a row
@@ -105,7 +106,15 @@ coverage account and no report document.
 ## Rows whose journey is a gate, not a screen
 
 J16 (the weekly live-network job) and J43 (upgrade in place) are user journeys
-whose evidence is a CI job and a migration. When slice 2a/2b builds them, the
-pattern is a journey test that runs the *existing* gate as a subprocess and
-asserts its exit status and the denominators it prints. The row's evidence stays
-the real gate; re-implementing it here would be a second thing to keep in step.
+whose evidence is a CI job and a migration. The pattern is a journey test that
+runs the *existing* gate as a subprocess and asserts its exit status and the
+denominators it prints. The row's evidence stays the real gate; re-implementing
+it here would be a second thing to keep in step with `database.py`, and the
+second one is always the one that goes stale.
+
+`fixtures/gates.ts` is that runner and `driver.ts` re-exports it, so a spec can
+use it while still importing nothing but the driver. It launches no app and
+takes no driver: there is no screen, and a candidate build runs the same gate
+out of its own checkout. `J43-upgrade-in-place.spec.ts` is the worked example —
+it asserts the exit status, the pass/skip counts and, because exit zero says the
+gate passed and not what it did, the schema range in the gate's own node id.
