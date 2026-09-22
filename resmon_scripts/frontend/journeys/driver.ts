@@ -311,3 +311,160 @@ export const journey = base.extend<JourneyOptions & JourneyFixtures, JourneyWork
 });
 
 export { driverName };
+
+/* ========================================================================== *
+ *  Slice 2b — the reading queue, the local API's own boundary, and the two
+ *  rows whose journey is a gate rather than a screen.
+ *
+ *  Kept in one block at the end of the file on purpose: slice 2a is adding its
+ *  own verbs to the same interface on its own branch, and two appended blocks
+ *  merge where two interleaved edits would not. Nothing above this line
+ *  changed meaning — a verb slice 1 wrote still does what its spec assumed.
+ * ========================================================================== */
+
+/** One paper in the reading queue, as the queue names it. */
+export interface QueuedPaper {
+  /** The document id the row carries — the same id the local API uses. */
+  id: number;
+  title: string;
+  /** What the queue says its state is: `To read` or `Read`. */
+  state: string;
+}
+
+/**
+ * An answer to a request made **from outside the app**, over a plain socket.
+ *
+ * This is the one place the suite deliberately does not go through the app's
+ * own transport. J42's journey is precisely that somebody other than this
+ * renderer cannot get an answer, and a request sent with the app's own helper
+ * would carry the app's own credentials and prove the opposite of the point.
+ */
+export interface RawAnswer {
+  status: number;
+  /** The `detail.reason` the guard names, where it names one. */
+  reason: string | null;
+  body: string;
+}
+
+/** A request the app made for itself, as a watcher outside the page sees it. */
+export interface ObservedRequest {
+  url: string;
+  /** The `Authorization` header, or null where the request carried none. */
+  authorization: string | null;
+}
+
+/** What an external MCP harness finds when it points itself at this app. */
+export interface McpAnswer {
+  /** `serverInfo` from the server's own `initialize`. */
+  server: { name: string; version: string };
+  /** The tools the server publishes over `tools/list`. */
+  toolNames: string[];
+  /** The length of `mcp_server.TOOLS` in the build under test — the denominator. */
+  declaredToolCount: number;
+  /** The `health` tool's own answer, as a harness receives it. */
+  health: Record<string, any>;
+}
+
+/** One destination a routine's report goes to. */
+export interface DeliveryDestination {
+  id: number;
+  channel: 'folder' | 'feed' | 'webhook';
+  /** The folder or address the target was given. */
+  destination: string;
+}
+
+/** One delivery, as the routine's own "Where did this go?" record shows it. */
+export interface DeliveryRecord {
+  id: number;
+  channel: string;
+  /** What the screen calls the state, in the words a person reads. */
+  state: string;
+  /**
+   * The state the backend recorded, in its own vocabulary — `delivered`,
+   * `awaiting_review`, `skipped`, `failed`.
+   *
+   * Both, because the row is "whether it got there" and the two halves are
+   * different claims: a screen label a spec asserted on would be a renderer
+   * coupling, and a stored token alone would not establish that anybody can
+   * see it.
+   */
+  recorded: string;
+  /** What the row says in its detail column — a timestamp, or an error. */
+  detail: string;
+}
+
+export interface JourneyDriver {
+  // — the reading queue (J28) ------------------------------------------------
+  /** Save every paper this run found, from the run's own Papers tab. */
+  savePapersFromRun(run: RunHandle): Promise<QueuedPaper[]>;
+  /** The queue as the page shows it under one of its own filters. */
+  readReadingQueue(filter: 'to read' | 'read' | 'all'): Promise<QueuedPaper[]>;
+  /** Mark this paper read, from its row. */
+  markPaperRead(paper: QueuedPaper): Promise<void>;
+  /** Take this paper out of the queue, from its row. */
+  removeFromReadingQueue(paper: QueuedPaper): Promise<void>;
+  /** Tick these papers in the queue and export them in this format. */
+  exportReadingQueue(papers: QueuedPaper[], format: 'bibtex' | 'ris' | 'csv'): Promise<string>;
+  /** Every paper title the Explorer lists — what the corpus still holds. */
+  readExplorerTitles(): Promise<string[]>;
+
+  // — the local API's own boundary (J42) -------------------------------------
+  /**
+   * Ask this app's backend from outside the app, over a plain socket.
+   *
+   * `token: 'none'` sends nothing; `'this app'` reads the token file this
+   * instance published. `host` overrides the `Host` header, which is how a
+   * rebound hostname is tried.
+   */
+  askOverTheRawSocket(request: {
+    route: string; token: 'none' | 'this app'; host?: string;
+  }): Promise<RawAnswer>;
+  /** Go to this place and report every backend request the app made getting there. */
+  observeOwnRequests(place: Place): Promise<ObservedRequest[]>;
+
+  // — delivery (J40) ---------------------------------------------------------
+  /**
+   * Give this routine somewhere to send its report.
+   *
+   * A `folder` or `feed` destination with no `destination` gets a fresh
+   * directory of this session's own, because those two channels refuse a
+   * directory that does not already exist — resmon does not create folders
+   * inside somebody's Dropbox — and the answer says which directory it used.
+   */
+  addDeliveryTarget(routine: string, target: {
+    channel: 'folder' | 'feed' | 'webhook';
+    destination?: string;
+    mode?: 'automatic' | 'review';
+  }): Promise<DeliveryDestination>;
+  /**
+   * The routine's own delivery record, from its "Where did this go?" panel,
+   * once every delivery has stopped moving.
+   */
+  readDeliveryRecord(routine: string): Promise<DeliveryRecord[]>;
+  /** Press Skip on this delivery's row. */
+  skipDelivery(routine: string, delivery: DeliveryRecord): Promise<void>;
+  /** Every file under a folder destination, by path relative to it. */
+  readDeliveredFiles(destination: string): Promise<string[]>;
+  /** The Atom file a feed destination holds, as bytes on disk. */
+  readFeedFile(destination: string): Promise<{ path: string; text: string }>;
+
+  // — an external harness (J44) ----------------------------------------------
+  /**
+   * Start the build's own MCP server against this app's state directory, as a
+   * harness would, and ask it who it found and what it can do.
+   */
+  askTheMcpServer(): Promise<McpAnswer>;
+}
+
+/**
+ * The two rows whose journey is a gate rather than a screen (J43, and J16 next
+ * door in slice 2a).
+ *
+ * Re-exported from the seam because a spec may import this module and nothing
+ * else — `register.spec.ts` enforces that, and it is what stops a spec reaching
+ * for `child_process` and building its own idea of what the gate is. There is
+ * no renderer in this path and therefore no driver: a candidate build runs
+ * exactly the same gate out of its own checkout.
+ */
+export { runGate } from './fixtures/gates';
+export type { GateOutcome } from './fixtures/gates';
