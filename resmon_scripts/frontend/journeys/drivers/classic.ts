@@ -45,6 +45,17 @@ const PLACES: Record<Place, string> = {
   Calendar: '/calendar',
   'Saved configurations': '/configurations',
   'Storage settings': '/settings/storage',
+  // — slice 2a ---------------------------------------------------------------
+  Analytics: '/analytics',
+  Watchdog: '/watchdog',
+  'Watch Profiles': '/profiles',
+  Repositories: '/repositories',
+  'AI settings': '/settings/ai',
+  'Email settings': '/settings/email',
+  'Notification settings': '/settings/notifications',
+  'Cloud Storage settings': '/settings/cloud',
+  'Advanced settings': '/settings/advanced',
+  Tutorials: '/about-resmon/tutorials',
 };
 
 /** `YYYY-MM-DD`, in the machine's own timezone, as the date inputs want it. */

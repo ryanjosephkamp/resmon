@@ -39,7 +39,21 @@ export type Place =
   | 'Monitor'
   | 'Calendar'
   | 'Saved configurations'
-  | 'Storage settings';
+  | 'Storage settings'
+  // — slice 2a ---------------------------------------------------------------
+  // Kept in their own block so slice 2b's additions are a union rather than a
+  // conflict. Every one of these is a row in `frontend/src/routes.ts`; a place
+  // that is not in that table cannot be reached by a person either.
+  | 'Analytics'
+  | 'Watchdog'
+  | 'Watch Profiles'
+  | 'Repositories'
+  | 'AI settings'
+  | 'Email settings'
+  | 'Notification settings'
+  | 'Cloud Storage settings'
+  | 'Advanced settings'
+  | 'Tutorials';
 
 /** One run, as the app and the API both identify it. */
 export interface RunHandle {

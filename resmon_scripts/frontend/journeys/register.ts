@@ -15,21 +15,24 @@
  * initials of whoever decided it — B4 in prose, enforced by the guard. There
  * are no such rows yet.
  *
- * **`slice`.** Which delivery builds the row's test. Slice `1` rows are built
- * and must have a spec; `2a` and `2b` rows are *pending* and the guard accepts
- * their absence only because the slice is named here. When slice 2a lands, its
- * rows change to `1`-style built rows by getting a spec — the guard notices, and
- * the printed count moves without anyone editing a number.
+ * **`slice` and `built`.** `slice` says which delivery owes the row's test;
+ * `built` says whether it has arrived. A row marked `built` must have a spec
+ * and a row without the marker must not, both ways round, so the printed count
+ * moves when a spec lands rather than when somebody edits a number. The two
+ * fields are separate because slices 2a and 2b are built in parallel: a single
+ * "the built slice is X" constant would have put every row of both slices on
+ * one line and made the merge a conflict rather than a union.
  *
  * **Two rows whose journey is a gate, not a screen.** J16 (the weekly
  * live-network job) and J43 (upgrade in place) are user journeys whose evidence
- * is a CI job and a migration, not a route. When slice 2a/2b builds them, the
- * pattern to use is a journey test that runs the *existing* gate as a
- * subprocess and asserts its exit status and the denominators it prints —
- * `.venv/bin/python -m pytest -q verification_scripts/test_cumulative_upgrade.py`
- * for J43, `live_suite.py`'s own selection for J16. The row's evidence stays the
- * real gate; re-implementing it here would be a second thing to keep in step.
- * Nothing about those two is decided yet beyond this note.
+ * is a CI job and a migration, not a route. The pattern is a journey test that
+ * runs the *existing* gate as a subprocess and asserts its exit status and the
+ * denominators it prints; re-implementing the gate here would be a second thing
+ * to keep in step. J16 does exactly that in slice 2a — `test_live_suite.py`
+ * under the build's own interpreter, plus `live_suite.py --summary` for the
+ * denominator, because a `-q` pytest run does not print one. J43
+ * (`test_cumulative_upgrade.py`) is slice 2b's and is undecided beyond this
+ * note.
  */
 
 export type JourneySlice = '1' | '2a' | '2b';
@@ -44,6 +47,16 @@ export interface JourneyRow {
   slice: JourneySlice;
   status: JourneyStatus;
   /**
+   * Whether this checkout has the row's test.
+   *
+   * Per row rather than per slice, and that is the whole reason it exists: two
+   * slices are built in parallel on disjoint rows, and a single "the built
+   * slice is 2a" constant would have made every row of the other slice a
+   * conflict in the same line. A row without this marker is a row some slice
+   * still owes, and `pendingRows()` says which.
+   */
+  built?: true;
+  /**
    * Only for `not_carried_forward`: the N-row of the workspace register that
    * decided it and the initials of whoever initialled it, e.g.
    * `'N1; dropped by RK 2026-09-22'`. The guard fails on a dropped row without one.
@@ -52,36 +65,36 @@ export interface JourneyRow {
 }
 
 export const JOURNEY_REGISTER: readonly JourneyRow[] = [
-  { id: 'J01', title: 'Deep Dive', slice: '1', status: 'carried' },
-  { id: 'J02', title: 'Deep Sweep', slice: '1', status: 'carried' },
-  { id: 'J03', title: 'Routines', slice: '1', status: 'carried' },
-  { id: 'J04', title: 'Background daemon', slice: '2a', status: 'carried' },
-  { id: 'J05', title: 'Analytics', slice: '2a', status: 'carried' },
-  { id: 'J06', title: 'Watchdog', slice: '2a', status: 'carried' },
-  { id: 'J07', title: 'Watch profiles', slice: '2a', status: 'carried' },
-  { id: 'J08', title: 'Author identity and entity search', slice: '2a', status: 'carried' },
-  { id: 'J09', title: 'Semantic search', slice: '2a', status: 'carried' },
-  { id: 'J10', title: 'Near-duplicate links', slice: '2a', status: 'carried' },
-  { id: 'J11', title: 'Coverage audit', slice: '2a', status: 'carried' },
-  { id: 'J12', title: 'Explorer', slice: '1', status: 'carried' },
-  { id: 'J13', title: 'The assistant (CLI lane)', slice: '2a', status: 'carried' },
-  { id: 'J14', title: 'The assistant on a key', slice: '2a', status: 'carried' },
-  { id: 'J15', title: 'First-run card', slice: '2a', status: 'carried' },
-  { id: 'J16', title: 'Weekly live-network job', slice: '2a', status: 'carried' },
-  { id: 'J17', title: 'AI summarization lanes', slice: '2a', status: 'carried' },
-  { id: 'J18', title: 'Reports and exports', slice: '1', status: 'carried' },
-  { id: 'J19', title: 'Live monitoring', slice: '1', status: 'carried' },
-  { id: 'J20', title: 'Calendar', slice: '1', status: 'carried' },
-  { id: 'J21', title: 'Saved configurations', slice: '1', status: 'carried' },
-  { id: 'J22', title: 'Repositories and keys', slice: '2a', status: 'carried' },
-  { id: 'J23', title: 'Notifications and email', slice: '2a', status: 'carried' },
-  { id: 'J24', title: 'Google Drive backup', slice: '2a', status: 'carried' },
-  { id: 'J25', title: 'In-app documentation', slice: '2a', status: 'carried' },
-  { id: 'J26', title: 'Danger Zone', slice: '2a', status: 'carried' },
-  { id: 'J27', title: 'Citation graph', slice: '2a', status: 'carried' },
+  { id: 'J01', title: 'Deep Dive', slice: '1', status: 'carried', built: true },
+  { id: 'J02', title: 'Deep Sweep', slice: '1', status: 'carried', built: true },
+  { id: 'J03', title: 'Routines', slice: '1', status: 'carried', built: true },
+  { id: 'J04', title: 'Background daemon', slice: '2a', status: 'carried', built: true },
+  { id: 'J05', title: 'Analytics', slice: '2a', status: 'carried', built: true },
+  { id: 'J06', title: 'Watchdog', slice: '2a', status: 'carried', built: true },
+  { id: 'J07', title: 'Watch profiles', slice: '2a', status: 'carried', built: true },
+  { id: 'J08', title: 'Author identity and entity search', slice: '2a', status: 'carried', built: true },
+  { id: 'J09', title: 'Semantic search', slice: '2a', status: 'carried', built: true },
+  { id: 'J10', title: 'Near-duplicate links', slice: '2a', status: 'carried', built: true },
+  { id: 'J11', title: 'Coverage audit', slice: '2a', status: 'carried', built: true },
+  { id: 'J12', title: 'Explorer', slice: '1', status: 'carried', built: true },
+  { id: 'J13', title: 'The assistant (CLI lane)', slice: '2a', status: 'carried', built: true },
+  { id: 'J14', title: 'The assistant on a key', slice: '2a', status: 'carried', built: true },
+  { id: 'J15', title: 'First-run card', slice: '2a', status: 'carried', built: true },
+  { id: 'J16', title: 'Weekly live-network job', slice: '2a', status: 'carried', built: true },
+  { id: 'J17', title: 'AI summarization lanes', slice: '2a', status: 'carried', built: true },
+  { id: 'J18', title: 'Reports and exports', slice: '1', status: 'carried', built: true },
+  { id: 'J19', title: 'Live monitoring', slice: '1', status: 'carried', built: true },
+  { id: 'J20', title: 'Calendar', slice: '1', status: 'carried', built: true },
+  { id: 'J21', title: 'Saved configurations', slice: '1', status: 'carried', built: true },
+  { id: 'J22', title: 'Repositories and keys', slice: '2a', status: 'carried', built: true },
+  { id: 'J23', title: 'Notifications and email', slice: '2a', status: 'carried', built: true },
+  { id: 'J24', title: 'Google Drive backup', slice: '2a', status: 'carried', built: true },
+  { id: 'J25', title: 'In-app documentation', slice: '2a', status: 'carried', built: true },
+  { id: 'J26', title: 'Danger Zone', slice: '2a', status: 'carried', built: true },
+  { id: 'J27', title: 'Citation graph', slice: '2a', status: 'carried', built: true },
   { id: 'J28', title: 'Reading queue', slice: '2b', status: 'carried' },
-  { id: 'J29', title: 'Recorded-source coverage', slice: '1', status: 'carried' },
-  { id: 'J30', title: 'Runtime identity', slice: '1', status: 'carried' },
+  { id: 'J29', title: 'Recorded-source coverage', slice: '1', status: 'carried', built: true },
+  { id: 'J30', title: 'Runtime identity', slice: '1', status: 'carried', built: true },
   { id: 'J31', title: 'Readable Ask', slice: '2b', status: 'carried' },
   { id: 'J32', title: 'Chats and export', slice: '2b', status: 'carried' },
   { id: 'J33', title: 'Composer choices', slice: '2b', status: 'carried' },
@@ -89,26 +102,23 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J35', title: 'Evidence workspace', slice: '2b', status: 'carried' },
   { id: 'J36', title: 'Selected-evidence answers', slice: '2b', status: 'carried' },
   { id: 'J37', title: 'Portable saved-answer HTML', slice: '2b', status: 'carried' },
-  { id: 'J38', title: 'Interrupted runs and Restart', slice: '1', status: 'carried' },
+  { id: 'J38', title: 'Interrupted runs and Restart', slice: '1', status: 'carried', built: true },
   { id: 'J39', title: 'One run per routine, one per submission, missed fires', slice: '2b', status: 'carried' },
   { id: 'J40', title: 'Delivery: where a report goes, and whether it got there', slice: '2b', status: 'carried' },
-  { id: 'J41', title: 'Backup and restore', slice: '1', status: 'carried' },
+  { id: 'J41', title: 'Backup and restore', slice: '1', status: 'carried', built: true },
   { id: 'J42', title: 'Local API locked to this app', slice: '2b', status: 'carried' },
   { id: 'J43', title: 'Upgrade in place', slice: '2b', status: 'carried' },
   { id: 'J44', title: 'Driving resmon from an external harness (MCP)', slice: '2b', status: 'carried' },
 ];
 
-/** The slice whose rows must have a spec in this delivery. */
-export const BUILT_SLICE: JourneySlice = '1';
-
-/** Rows the guard requires a spec for. */
+/** Rows the guard requires a spec for: the ones a slice has actually delivered. */
 export function builtRows(): JourneyRow[] {
-  return JOURNEY_REGISTER.filter((row) => row.status === 'carried' && row.slice === BUILT_SLICE);
+  return JOURNEY_REGISTER.filter((row) => row.status === 'carried' && row.built === true);
 }
 
-/** Carried rows whose test a later slice owes. */
+/** Carried rows whose test a later slice still owes. */
 export function pendingRows(): JourneyRow[] {
-  return JOURNEY_REGISTER.filter((row) => row.status === 'carried' && row.slice !== BUILT_SLICE);
+  return JOURNEY_REGISTER.filter((row) => row.status === 'carried' && row.built !== true);
 }
 
 /** `J01-deep-dive` from `J01` + `Deep Dive`: the spec file's stem. */
