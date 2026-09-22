@@ -974,14 +974,49 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
 
     listRoutineNames: async () => {
       await goto(PLACES.Routines);
+      // **The page draws its empty row before its own fetch has resolved.**
+      // `RoutinesPage` renders a single `No routines configured.` row on mount,
+      // which this method filters out — so a read taken on arrival reports an
+      // empty list for an app that has routines, and reports it as a fact
+      // rather than as a failure. Until slice 4 that gap was covered by a
+      // 400 ms sleep at the end of `goto`, which is exactly the kind of
+      // load-bearing duration this suite is supposed not to have: it held up
+      // five reads that never waited for anything of their own.
+      //
+      // So this waits for its own content instead — the table showing what the
+      // app itself says it has. The denominator is the backend's own list, not
+      // a number written here.
+      //
+      // Not a row count: a routine occupies more than one `tr` — its delivery
+      // panel lives in a row of its own underneath it — so counting rows would
+      // be waiting for a number that is never the number of routines. What
+      // this waits for is the names it is about to read.
       const rows = win().locator('.simple-table tbody tr');
-      const count = await rows.count();
-      const names: string[] = [];
-      for (let i = 0; i < count; i += 1) {
-        const cell = rows.nth(i).locator('td').first();
-        if (await cell.count()) names.push((await cell.innerText()).trim());
+      const drawnNames = async (): Promise<string[]> => {
+        const names: string[] = [];
+        for (let i = 0; i < await rows.count(); i += 1) {
+          const cell = rows.nth(i).locator('td').first();
+          if (await cell.count()) names.push((await cell.innerText()).trim());
+        }
+        return names.filter((n) => n && n !== 'No routines configured.');
+      };
+      // Nothing configured is the one case this cannot tell from "not fetched
+      // yet": the empty row is both states. It is also the only case where the
+      // answer is the same either way, so the wait is skipped rather than
+      // faked.
+      const expected = (await backend.routines()).map((routine) => String(routine.name));
+      if (expected.length) {
+        await expect
+          .poll(async () => {
+            const drawn = await drawnNames();
+            return expected.every((name) => drawn.includes(name));
+          }, {
+            timeout: 30_000,
+            message: `the Routines page never drew all ${expected.length} routine(s) the app reports`,
+          })
+          .toBe(true);
       }
-      return names.filter((n) => n && n !== 'No routines configured.');
+      return drawnNames();
     },
 
     // — the corpus ------------------------------------------------------------
@@ -1316,6 +1351,17 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       // other when this corpus drew no chart, and let the spec say which.
       const legend = win().locator('a.analytics-legend-link').first();
       const bar = win().locator('a.analytics-bar-link').first();
+      // Which of the two exists depends on what this corpus drew, and neither
+      // exists until Analytics has its data. Asking `count()` on arrival
+      // answered "neither" and then quietly took the second one — a choice
+      // made from an unfinished page rather than from the page. So wait for
+      // one of them to be there before choosing between them.
+      await expect
+        .poll(async () => (await legend.count()) + (await bar.count()), {
+          timeout: 60_000,
+          message: 'nothing on Analytics offered a way into the Explorer',
+        })
+        .toBeGreaterThan(0);
       const link = (await legend.count()) ? legend : bar;
       await expect(link, 'nothing on Analytics offered a way into the Explorer').toBeVisible({ timeout: 60_000 });
       await link.click();
@@ -1456,6 +1502,27 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     rankTheExplorerBy: async (phrase): Promise<RankedList> => {
       await goto(`${PLACES.Explorer}?q=${encodeURIComponent(phrase)}`);
       const sort = win().getByTestId('explorer-sort');
+      // `explorer-sort` is drawn only once the Explorer's *capability* answer
+      // is in — a second fetch, separate from the results — and it is absent
+      // both before that answer arrives and when the answer is "no ranking
+      // here". Reading `count()` on arrival cannot tell those two apart, and
+      // it reported the first as the second: `controlsPresent: false` over a
+      // build that could rank perfectly well.
+      //
+      // The app publishes the answer, so this waits for the screen to agree
+      // with it rather than for a duration.
+      const capability = await session.api<{ capability?: { available?: boolean } }>(
+        'GET', '/api/embeddings/status',
+      );
+      const canRank = capability.capability?.available === true;
+      await expect
+        .poll(async () => (await sort.count()) > 0, {
+          timeout: 30_000,
+          message: canRank
+            ? 'the Explorer never drew its sort control over a build that reports it can rank'
+            : 'the Explorer drew a sort control over a build that reports it cannot rank',
+        })
+        .toBe(canRank);
       const controlsPresent = (await sort.count()) > 0;
       if (!controlsPresent) {
         return { note: '', controlsPresent, list: await readExplorer() };
@@ -1604,6 +1671,28 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     readRequiredAttributions: async () => {
       await goto(PLACES.Repositories);
       const block = win().getByTestId('required-attributions');
+      // The block renders nothing at all when no source in the catalog makes
+      // attribution a condition — and it also renders nothing while the
+      // catalog is still being fetched. `count()` on arrival read the second
+      // and returned the first: an empty list where the honest answer is "not
+      // yet". That is worse than a failure, because a spec asserting the
+      // credits are present would have gone red for the wrong reason and one
+      // asserting they are *absent* would have gone green for the wrong one.
+      //
+      // The catalog the page is served is the denominator, so wait for the
+      // screen to agree with it.
+      const catalog = await backend.sourceCatalog();
+      const owed = catalog.filter(
+        (entry) => entry.attribution_requirement === 'required' && entry.attribution,
+      ).length;
+      await expect
+        .poll(async () => (await block.count()) > 0, {
+          timeout: 30_000,
+          message: owed
+            ? `the Repositories page never drew the credits for the ${owed} source(s) that require them`
+            : 'the Repositories page drew required credits for a catalog that requires none',
+        })
+        .toBe(owed > 0);
       if (!await block.count()) return [];
       return (await block.locator('li').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
     },
@@ -2096,6 +2185,26 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     readAiLaneStatus: async () => {
       await goto(PLACES['AI settings']);
       const status = win().locator('[data-testid^="primary-cli-status-"]');
+      // The line exists only where the page has a status for the provider the
+      // settings name, and that is a second fetch after the settings
+      // themselves. Read on arrival, its absence meant "the page has not asked
+      // yet" and was returned as "this lane has nothing to say" — the same
+      // silent-empty-answer shape as the two above, and on a row whose whole
+      // subject is what the lane says about itself.
+      const [settings, cli] = await Promise.all([
+        session.api<{ ai_provider?: string }>('GET', '/api/settings/ai'),
+        session.api<{ providers?: { provider: string }[] }>('GET', '/api/settings/ai/cli-status'),
+      ]);
+      const expected = (cli.providers ?? [])
+        .some((entry) => entry.provider === settings.ai_provider);
+      await expect
+        .poll(async () => (await status.count()) > 0, {
+          timeout: 30_000,
+          message: expected
+            ? `Settings → AI never drew a status for the ${settings.ai_provider} lane the app reports one for`
+            : 'Settings → AI drew a CLI status for a provider the app reports none for',
+        })
+        .toBe(expected);
       if (!await status.count()) return '';
       return (await status.first().innerText()).replace(/\s+/g, ' ').trim();
     },
