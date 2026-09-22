@@ -997,3 +997,89 @@ export interface NotificationPreferences {
   /** Which automatic routines may notify. */
   forAutomaticRoutines: 'all' | 'selected' | 'none';
 }
+
+/* ========================================================================== *
+ *  Slice 4 — the five rows slices 2b and 3 left pending.
+ *
+ *  Appended in a block of its own for the reason the three blocks above are:
+ *  a slice that adds its verbs at the end merges, and one that threads them
+ *  through the interface does not. Nothing above this line changed meaning.
+ * ========================================================================== */
+
+/**
+ * What the composer is set to, read back from the panel a person is looking at.
+ *
+ * The panel has two states and the row is about the difference between them.
+ * Before a conversation starts, the controls are there and `stillChangeable` is
+ * true. Once it has started they are gone — not disabled, gone — and the panel
+ * shows a sentence in their place instead. Reporting only the controls would
+ * make the second state unreadable, and reporting only the sentence would make
+ * the first one.
+ */
+export interface ComposerChoice {
+  /** Whether the controls are on screen and taking input. */
+  stillChangeable: boolean;
+  /** The connection, as the control labels the option it is on, or '' once fixed. */
+  connection: string;
+  /** The model the composer holds, exactly as it was typed, or '' once fixed. */
+  model: string;
+  /**
+   * The effort the composer holds — or, where the chosen adapter has no such
+   * thing, the sentence the composer prints instead. Both are answers to "what
+   * effort will this turn use"; only one of them is a value. '' once fixed.
+   */
+  effort: string;
+  /**
+   * What the panel says in place of the controls once the conversation has
+   * fixed its choices, and '' while they are still changeable.
+   */
+  fixedAs: string;
+}
+
+/**
+ * One turn's account of what was asked for and what answered.
+ *
+ * Two fields rather than one, because they are two different claims and the
+ * app keeps them apart on purpose: `requested` is what the person chose, and
+ * `reported` is what the runtime said about itself. A row that read only one of
+ * them could not tell a pinned choice from a substitution.
+ */
+export interface TurnChoiceFacts {
+  /** The `Requested: …` line, as the transcript writes it. */
+  requested: string;
+  /** Every runtime-reported model this turn lists, in the order it lists them. */
+  reported: string[];
+  /** The whole disclosure, for the sentences no structured read covers. */
+  text: string;
+}
+
+export interface JourneyDriver {
+  // — the composer's own choices (J33) ---------------------------------------
+  /**
+   * Point the assistant at the authored agent command, as
+   * `useAnAuthoredAgentCommand` does, and keep every argument list the command
+   * is handed.
+   *
+   * The recording is a shim in front of the same double, not a different
+   * double: what the app spawns, what it passes and what comes back are
+   * unchanged. It exists because "the model a person chose is the model that
+   * was asked for" is a claim about the command line, and a transcript can only
+   * report what the app believes it sent.
+   */
+  useAnAuthoredAgentCommandThatRecordsItsArguments(): Promise<void>;
+  /** Every invocation of that command so far, in order, argument by argument. */
+  readWhatTheAgentCommandReceived(): Promise<string[][]>;
+  /** Fix this conversation's model and effort in the composer, before it starts. */
+  fixTheChoicesForThisConversation(choice: { model: string; effort?: string }): Promise<ComposerChoice>;
+  /** What the composer shows now — the same read, without changing anything. */
+  readTheComposerChoices(): Promise<ComposerChoice>;
+  /**
+   * What the transcript currently on screen says each of its turns asked for
+   * and what answered — the live Ask panel or an opened saved chat, whichever
+   * is in front. One verb for both, because it is the same disclosure and a
+   * person reads it the same way in either place.
+   */
+  readTheTurnsChoices(): Promise<TurnChoiceFacts[]>;
+  /** Change the app-wide assistant defaults on Settings → AI, and save them. */
+  setTheAppWideAssistantDefaults(defaults: { model: string; effort?: string }): Promise<void>;
+}

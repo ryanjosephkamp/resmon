@@ -99,7 +99,7 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J30', title: 'Runtime identity', slice: '1', status: 'carried' },
   { id: 'J31', title: 'Readable Ask', slice: '2b', status: 'carried', built: true },
   { id: 'J32', title: 'Chats and export', slice: '2b', status: 'carried', built: true },
-  { id: 'J33', title: 'Composer choices', slice: '2b', status: 'carried' },
+  { id: 'J33', title: 'Composer choices', slice: '2b', status: 'carried', built: true },
   { id: 'J34', title: 'Owned Library', slice: '2b', status: 'carried' },
   { id: 'J35', title: 'Evidence workspace', slice: '2b', status: 'carried' },
   { id: 'J36', title: 'Selected-evidence answers', slice: '2b', status: 'carried' },

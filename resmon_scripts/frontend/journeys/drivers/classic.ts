@@ -51,6 +51,8 @@ import type {
   AssistantPanelFacts, EmailSettings, NotificationPreferences, ProviderRequest, RunNowAnswer,
   SavedTranscript,
 } from '../driver';
+// Slice 4's, in its own import for the same reason.
+import type { ComposerChoice, TurnChoiceFacts } from '../driver';
 import { startProviderEndpoint } from '../fixtures/provider-endpoint';
 import type { ProviderEndpoint } from '../fixtures/provider-endpoint';
 import type { Session } from './session';
@@ -93,15 +95,57 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
   /** The authored model provider, once a journey has asked for one. */
   let provider: ProviderEndpoint | null = null;
 
+  /**
+   * The landmark a place publishes once React Router — not the address bar —
+   * has actually arrived there.
+   *
+   * Both halves are `NavLink`s, and a `NavLink` takes its class from the
+   * router's own `useLocation`. So this is not "something that page happens to
+   * draw": it is the router saying which route is mounted, in the markup. The
+   * sidebar's entry carries `active` for the place, and a Settings or About tab
+   * carries `tab-active` for the tab within it — which is the difference
+   * between `/settings/email` and `/settings/advanced`, both of which are the
+   * same sidebar entry and the same `<h1>`.
+   *
+   * A query string is not part of the route (`/explorer?q=…` is the Explorer),
+   * so it is dropped before the lookup.
+   */
+  const landmarksFor = (hash: string): string[] => {
+    const route = hash.split('?')[0];
+    const section = route.startsWith('/settings/') ? '/settings'
+      : route.startsWith('/about-resmon/') ? '/about-resmon'
+        : route;
+    const landmarks = [`.sidebar-nav a.sidebar-link.active[href="#${section}"]`];
+    if (section !== route) landmarks.push(`.settings-nav a.tab-active[href="#${route}"]`);
+    return landmarks;
+  };
+
   const goto = async (hash: string): Promise<void> => {
     // A HashRouter change is not a document navigation, so setting the hash is
     // what a sidebar click does; `goto` against the same document would not
     // drive React Router at all.
     await win().evaluate((h) => { window.location.hash = `#${h}`; }, hash);
-    await win().waitForFunction((h) => window.location.hash.startsWith(`#${h}`), hash, { timeout: 15_000 });
     await win().locator('.app-main').waitFor({ state: 'visible', timeout: 30_000 });
+    // **Reading the hash back is not arriving.** It proves the write landed in
+    // the document — including a document that is about to be replaced, which
+    // is what the slice-3 reviewer watched happen: J23 set `#/settings/email`
+    // just after `reopenTheApp()`, the read-back passed, the relaunched window
+    // came up on the Dashboard, and the row then spent thirty seconds waiting
+    // for a field on a page it was not on. The trailing 400 ms sleep that used
+    // to end this function covered that on a quiet laptop and did not under a
+    // full-suite load: the last duration-based wait in the driver, and the same
+    // shape as every flake this suite has already paid for.
+    //
+    // So the wait is for the destination's own landmark instead. If the hash
+    // was lost the class never appears and the failure names the route rather
+    // than a control on it.
+    for (const landmark of landmarksFor(hash)) {
+      await expect(
+        win().locator(landmark),
+        `the app never arrived at ${hash}: nothing matched ${landmark}`,
+      ).toHaveCount(1, { timeout: 30_000 });
+    }
     await win().waitForLoadState('networkidle').catch(() => { /* the long-poll pages never idle */ });
-    await win().waitForTimeout(400);
   };
 
   /** Open Results and click the row for this run, which mounts the report viewer. */
@@ -364,6 +408,114 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     ).toBe(1);
     if (!await win().getByTestId('delivery-body').count()) await toggles.first().click();
     await expect(win().getByTestId('delivery-body')).toBeVisible({ timeout: 30_000 });
+  };
+
+  /* ---------------------------------------------------------------------- *
+   *  Slice 4's helpers.
+   * ---------------------------------------------------------------------- */
+
+  /** Where the recording shim writes what it was handed, once one is in place. */
+  const agentArgumentLog = path.join(session.stateDir, 'authored-agent-arguments');
+
+  /** The record separator the shim writes after each invocation's arguments. */
+  const END_OF_INVOCATION = '--journey-end-of-invocation--';
+
+  /**
+   * Point Settings → AI at the repository's own agent-CLI double.
+   *
+   * A one-line shim around it, run under the same interpreter the backend uses,
+   * written into this session's own state directory so it is removed with
+   * everything else this run made.
+   *
+   * With `recordArguments`, the shim first appends every argument it was given
+   * to a log and then execs the double unchanged. **NUL-separated**, because
+   * the last argument is the person's own prompt and a prompt with a newline in
+   * it would otherwise be read back as several arguments — which is precisely
+   * the kind of silent corruption this row is about.
+   */
+  const pointTheAssistantAtTheDouble = async (
+    options: { recordArguments: boolean },
+  ): Promise<void> => {
+    const command = path.join(session.stateDir, 'authored-agent-command');
+    const double = path.join(
+      session.root.repo, 'resmon_scripts', 'verification_scripts', 'fixtures', 'fake_claude.py',
+    );
+    expect(
+      fs.existsSync(double),
+      'the build under test carries no agent-CLI double to drive the assistant with',
+    ).toBe(true);
+    // The interpreter has to be absolute: a bare name in a shebang is not
+    // looked up on PATH the way a command is.
+    const python = execFileSync(session.python, ['-c', 'import sys; print(sys.executable)'],
+      { encoding: 'utf8' }).trim();
+    const record = options.recordArguments
+      ? `{ for argument in "$@"; do printf '%s\\0' "$argument"; done; `
+        + `printf '%s\\0' '${END_OF_INVOCATION}'; } >> "${agentArgumentLog}"\n`
+      : '';
+    fs.writeFileSync(command, `#!/bin/sh\n${record}exec "${python}" "${double}" "$@"\n`, { mode: 0o755 });
+    await session.api('PUT', '/api/settings/ai', { settings: { ai_cli_path: command } });
+    // The panel reads the lane when it opens, so the window has to see the
+    // setting. Reopening is what a person would do, and it also proves the
+    // setting survived being written.
+    await session.relaunch();
+  };
+
+  /** The assistant panel, opened if a journey has not opened it already. */
+  const assistantPanel = async () => {
+    if (!await win().getByTestId('assistant-panel').count()) {
+      await win().getByTestId('assistant-trigger').click();
+    }
+    const panel = win().getByTestId('assistant-panel');
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    return panel;
+  };
+
+  /**
+   * What the composer's own three controls hold.
+   *
+   * Scoped to the panel rather than asked of the window: Settings → AI has a
+   * field labelled `Model` too, and this row deliberately puts a different
+   * value in each of them.
+   */
+  const readComposer = async (): Promise<ComposerChoice> => {
+    const panel = await assistantPanel();
+    const controls = panel.locator('fieldset.assistant-choices');
+    // A direct child of the body: the same summary component is also drawn
+    // inside every turn's own disclosure down in the transcript, and those are
+    // a different claim about a different moment.
+    const fixed = panel.locator('.assistant-body > .assistant-choice-summary');
+    // One or the other, never neither — waiting for that is what stops a read
+    // landing between the descriptor arriving and the panel drawing either.
+    await expect
+      .poll(async () => (await controls.count()) + (await fixed.count()), { timeout: 30_000 })
+      .toBeGreaterThan(0);
+    if (!await controls.count()) {
+      return {
+        stillChangeable: false,
+        connection: '',
+        model: '',
+        effort: '',
+        fixedAs: (await fixed.first().innerText()).trim(),
+      };
+    }
+    const connection = panel.getByLabel('Connection', { exact: true });
+    await expect(connection).toBeVisible({ timeout: 30_000 });
+    const model = panel.getByLabel('Model', { exact: true });
+    const effort = panel.getByLabel('Effort', { exact: true });
+    // The API adapters have no effort at all, and the composer says so in a
+    // sentence where the control would be. Reading the sentence keeps this
+    // honest for both connections instead of reporting an empty string.
+    const effortValue = (await effort.count())
+      ? await effort.inputValue()
+      : (await panel.getByText('Effort: Not supported by this adapter', { exact: true })
+        .innerText()).trim();
+    return {
+      stillChangeable: true,
+      connection: (await connection.locator('option:checked').innerText()).trim(),
+      model: (await model.count()) ? await model.inputValue() : '',
+      effort: effortValue,
+      fixedAs: (await fixed.count()) ? (await fixed.first().innerText()).trim() : '',
+    };
   };
 
   const backend: BackendFacts = {
@@ -1393,29 +1545,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       return (await block.locator('li').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
     },
 
-    useAnAuthoredAgentCommand: async () => {
-      // A one-line shim around the repository's own agent-CLI double, run under
-      // the same interpreter the backend uses. Written into this session's own
-      // state directory, so it is removed with everything else this run made.
-      const command = path.join(session.stateDir, 'authored-agent-command');
-      const double = path.join(
-        session.root.repo, 'resmon_scripts', 'verification_scripts', 'fixtures', 'fake_claude.py',
-      );
-      expect(
-        fs.existsSync(double),
-        'the build under test carries no agent-CLI double to drive the assistant with',
-      ).toBe(true);
-      // The interpreter has to be absolute: a bare name in a shebang is not
-      // looked up on PATH the way a command is.
-      const python = execFileSync(session.python, ['-c', 'import sys; print(sys.executable)'],
-        { encoding: 'utf8' }).trim();
-      fs.writeFileSync(command, `#!/bin/sh\nexec "${python}" "${double}" "$@"\n`, { mode: 0o755 });
-      await session.api('PUT', '/api/settings/ai', { settings: { ai_cli_path: command } });
-      // The panel reads the lane when it opens, so the window has to see the
-      // setting. Reopening is what a person would do, and it also proves the
-      // setting survived being written.
-      await session.relaunch();
-    },
+    useAnAuthoredAgentCommand: () => pointTheAssistantAtTheDouble({ recordArguments: false }),
 
     askTheAssistant: async (text): Promise<AssistantTurn> => {
       // Only if it is shut. The trigger is replaced by the panel while the
@@ -2169,6 +2299,75 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const row = win().locator('.simple-table tbody tr').filter({ hasText: name }).first();
       await expect(row).toBeVisible({ timeout: 30_000 });
       return (await win().getByTestId(`run-now-${routine!.id}`).count()) > 0;
+    },
+
+    /* ---------------------------------------------------------------------- *
+     *  Slice 4.
+     * ---------------------------------------------------------------------- */
+
+    useAnAuthoredAgentCommandThatRecordsItsArguments: () =>
+      pointTheAssistantAtTheDouble({ recordArguments: true }),
+
+    readWhatTheAgentCommandReceived: async (): Promise<string[][]> => {
+      if (!fs.existsSync(agentArgumentLog)) return [];
+      const invocations: string[][] = [];
+      let current: string[] = [];
+      // The trailing separator leaves one empty field, which is not an argument.
+      const fields = fs.readFileSync(agentArgumentLog, 'utf8').split('\0');
+      if (fields[fields.length - 1] === '') fields.pop();
+      for (const field of fields) {
+        if (field === END_OF_INVOCATION) { invocations.push(current); current = []; } else current.push(field);
+      }
+      expect(current, 'the agent command was recorded mid-invocation').toEqual([]);
+      return invocations;
+    },
+
+    fixTheChoicesForThisConversation: async (choice): Promise<ComposerChoice> => {
+      const panel = await assistantPanel();
+      const model = panel.getByLabel('Model', { exact: true });
+      await expect(model, 'the composer offers no model to choose').toBeEnabled({ timeout: 30_000 });
+      await model.fill(choice.model);
+      if (choice.effort !== undefined) {
+        await panel.getByLabel('Effort', { exact: true }).selectOption(choice.effort);
+      }
+      return readComposer();
+    },
+
+    readTheComposerChoices: () => readComposer(),
+
+    readTheTurnsChoices: async (): Promise<TurnChoiceFacts[]> => {
+      const blocks = win().locator('details.assistant-turn-choices');
+      const out: TurnChoiceFacts[] = [];
+      for (let i = 0; i < await blocks.count(); i += 1) {
+        const block = blocks.nth(i);
+        // A `<details>` holds its body out of the layout until it is opened, so
+        // a read of a closed one would report the summary and call it the
+        // disclosure. A person opens it; so does this.
+        if (!await block.evaluate((element) => (element as HTMLDetailsElement).open)) {
+          await block.locator('summary').click();
+        }
+        const reported = block.locator('ol li');
+        out.push({
+          requested: (await block.locator('.assistant-choice-summary').innerText()).trim(),
+          reported: (await reported.allInnerTexts()).map((t) => t.trim()),
+          text: (await block.innerText()).trim(),
+        });
+      }
+      return out;
+    },
+
+    setTheAppWideAssistantDefaults: async (defaults) => {
+      await goto(PLACES['AI settings']);
+      // By id: this page carries a `Model` label of its own and so does the
+      // assistant panel, which a journey may have left open over it.
+      const model = win().locator('#assistant-model');
+      await expect(model, 'Settings → AI offers no assistant model').toBeVisible({ timeout: 30_000 });
+      await model.selectOption(defaults.model);
+      if (defaults.effort !== undefined) {
+        await win().locator('#assistant-effort').selectOption(defaults.effort);
+      }
+      await win().getByRole('button', { name: 'Save assistant settings', exact: true }).click();
+      await expect(win().locator('.settings-saved')).toBeVisible({ timeout: 30_000 });
     },
   };
 }
