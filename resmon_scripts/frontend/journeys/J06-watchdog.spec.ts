@@ -22,15 +22,20 @@ journey.describe('J06 Watchdog', () => {
   journey('an empty install says what it cannot judge, three failures make a source Broken, and the mute clears with its reason', async ({ resmon }) => {
     const empty = await resmon.readWatchdog();
     console.log(`[J06] empty install verdict: ${JSON.stringify(empty.verdict)}`);
-    expect(empty.verdict, 'an install with no history claimed a clean bill').not.toContain('Nothing looks wrong');
-    expect(empty.verdict).toContain('Nothing to check yet');
+    // Compared without case throughout: the stylesheet upper-cases these
+    // headings, so pinning the capitalisation would be pinning a stylesheet.
+    expect(empty.verdict.toLowerCase(), 'an install with no history claimed a clean bill')
+      .not.toContain('nothing looks wrong');
+    expect(empty.verdict.toLowerCase()).toContain('nothing to check yet');
     expect(empty.findings, 'an install with no history found something').toEqual([]);
 
     // Three runs against a source that stops answering. Real requests, real
     // transport failures, recorded by the shipped client.
     resmon.theSourceGoesDown();
     for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const failed = await resmon.runDive({ source: 'arxiv', keywords: ['perovskite'], cap: 5 });
+      // The form's own default cap: the run has to reach the source and fail,
+      // and how many results it would have asked for is not part of the rule.
+      const failed = await resmon.runDive({ source: 'arxiv', keywords: ['perovskite'] });
       await resmon.waitForRunToSettle(failed);
     }
     const record = await resmon.backend.watchdogFindings();
@@ -44,9 +49,10 @@ journey.describe('J06 Watchdog', () => {
     console.log(`[J06] findings: ${JSON.stringify(broken.findings)}`);
     const failure = broken.findings.find((finding) => finding.scope.includes('arxiv'));
     expect(failure, 'three failures in a row produced no finding about the source').toBeTruthy();
-    expect(failure!.severity, 'a source that failed three times is not reported as broken').toBe('Broken');
+    expect(failure!.severity.toLowerCase(), 'a source that failed three times is not reported as broken')
+      .toBe('broken');
     expect(failure!.title).toContain('arxiv');
-    expect(broken.verdict, 'the verdict did not change when something broke').toContain('broken');
+    expect(broken.verdict.toLowerCase(), 'the verdict did not change when something broke').toContain('broken');
 
     // Mute it. It stays on screen — muting is not hiding — in its own section.
     await resmon.muteTheFinding(failure!.title);
@@ -55,13 +61,13 @@ journey.describe('J06 Watchdog', () => {
     const stillThere = muted.findings.find((finding) => finding.title === failure!.title);
     expect(stillThere, 'muting a finding removed it from the page').toBeTruthy();
     expect(stillThere!.muted, 'the muted finding is not marked as muted').toBe(true);
-    expect(muted.mutedHeading).toMatch(/^Muted/);
-    expect(muted.verdict, 'a muted finding still counts as an alarm').not.toContain('broken');
+    expect(muted.mutedHeading).toMatch(/^Muted/i);
+    expect(muted.verdict.toLowerCase(), 'a muted finding still counts as an alarm').not.toContain('broken');
 
     // The source recovers. The finding has no grounds any more, so it goes —
     // and the mute goes with it, which is what makes a recurrence audible.
     resmon.theSourceComesBack();
-    const recovered = await resmon.runDive({ source: 'arxiv', keywords: ['perovskite'], cap: 5 });
+    const recovered = await resmon.runDive({ source: 'arxiv', keywords: ['perovskite'] });
     expect((await resmon.waitForRunToSettle(recovered)).status).toBe('completed');
     const after = await resmon.readWatchdog();
     console.log(`[J06] after recovery: ${JSON.stringify(after.findings)}`);

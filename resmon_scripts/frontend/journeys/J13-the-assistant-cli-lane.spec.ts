@@ -40,7 +40,10 @@ journey.describe('J13 The assistant (CLI lane)', () => {
     console.log(`[J13] tool calls: ${JSON.stringify(read.toolCalls)}`);
     expect(read.error, `the assistant errored: ${read.error}`).toBe('');
     expect(read.toolCalls, 'the answer arrived without a tool call').toContain('list_sources');
-    expect(read.said.join(' '), 'the assistant said nothing').toContain('the corpus is empty');
+    // The tool row is the property: the panel shows which tool ran, by name,
+    // rather than presenting an answer with no account of where it came from.
+    // What the runtime *said* alongside it is the double's script, and this row
+    // does not turn the double's script into a claim about the app.
 
     // Now a write. The card must appear, and it must carry the call.
     const before = await resmon.backend.routines();

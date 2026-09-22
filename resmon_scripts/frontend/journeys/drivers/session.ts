@@ -183,9 +183,12 @@ function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<stri
   const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl });
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
   env.PYTHONDONTWRITEBYTECODE = '1';
-  // No OS keyring: a journey must never read or write the person's real
-  // credentials, and on a runner every keyring call is a timeout anyway.
-  env.PYTHON_KEYRING_BACKEND = 'keyring.backends.null.Keyring';
+  // Never the OS keyring: a journey must never read or write the person's real
+  // credentials, and on a runner every keyring call is a timeout anyway. An
+  // in-memory backend rather than the null one, written beside the startup hook
+  // — the null backend accepts a write and stores nothing, which makes "a saved
+  // key reads back as a mask" unjourneyable, because no key is ever saved.
+  env.PYTHON_KEYRING_BACKEND = 'journey_keyring.Keyring';
   env.RESMON_KEYRING_TIMEOUT = '2.0';
   // A proxy would make the guard's "loopback only" untrue by routing loopback
   // requests off the machine.

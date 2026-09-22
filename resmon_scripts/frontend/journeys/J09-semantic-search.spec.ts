@@ -75,22 +75,33 @@ journey.describe('J09 Semantic search', () => {
     expect(distances.length, 'a ranked list showed no distances').toBeGreaterThan(0);
     expect(distances.some((distance) => /^\d+\.\d{3}$/.test(distance))).toBe(true);
 
-    // And the tail. The note carries both counts from the backend's own
-    // reckoning, which is what makes "listed last" checkable rather than
-    // implied: the unranked are counted, not dropped.
+    // And the tail. Where the corpus has papers the model could not reach, the
+    // note carries both counts from the backend's own reckoning — which is what
+    // makes "listed last" checkable rather than implied: the unranked are
+    // counted, not dropped.
     const counts = /(\d+) ranked, (\d+) not embedded yet and listed last/.exec(ranked.note);
-    expect(counts, `the note does not account for the unranked: ${ranked.note}`).toBeTruthy();
-    const [, rankedCount, unranked] = counts!;
-    console.log(`[J09] ${rankedCount} ranked, ${unranked} not embedded and listed last.`);
-    expect(Number(rankedCount), 'nothing was ranked').toBeGreaterThan(0);
-    if (Number(unranked) > 0) {
-      // Where there is a tail, it is at the end: every row with no distance
-      // comes after every row that has one.
-      const firstUnranked = ranked.list.rows.findIndex((row) => !/^\d/.test(row.distance));
-      const lastRanked = ranked.list.rows.map((row) => /^\d/.test(row.distance)).lastIndexOf(true);
-      expect(firstUnranked, 'an unranked paper was listed before a ranked one').toBeGreaterThan(lastRanked);
+    if (counts) {
+      const [, rankedCount, unranked] = counts;
+      console.log(`[J09] ${rankedCount} ranked, ${unranked} not embedded and listed last.`);
+      expect(Number(rankedCount), 'nothing was ranked').toBeGreaterThan(0);
+      if (Number(unranked) > 0) {
+        // Where there is a tail, it is at the end: every row with no distance
+        // comes after every row that has one.
+        const firstUnranked = ranked.list.rows.findIndex((row) => !/^\d/.test(row.distance));
+        const lastRanked = ranked.list.rows.map((row) => /^\d/.test(row.distance)).lastIndexOf(true);
+        expect(firstUnranked, 'an unranked paper was listed before a ranked one').toBeGreaterThan(lastRanked);
+      }
     } else {
-      console.log('[J09] NOT VERIFIED: the unranked tail. Every paper in this corpus was embedded, so there was none.');
+      // Every paper in this corpus was embedded as it was stored, so there is
+      // no tail to count and the note does not invent one.
+      const unrankedRows = ranked.list.rows.filter((row) => !/^\d/.test(row.distance));
+      expect(unrankedRows, 'the note accounts for no unranked papers but the list shows some')
+        .toEqual([]);
+      console.log(
+        '[J09] NOT VERIFIED: the unranked tail, listed last and counted. Every paper in '
+        + 'this corpus was embedded as it was stored, so there was none — and the note '
+        + 'carried no count rather than printing a zero.',
+      );
     }
 
     console.log(

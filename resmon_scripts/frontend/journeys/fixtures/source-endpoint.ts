@@ -302,6 +302,35 @@ ${redirect}
     'source_url': ${JSON.stringify(options.sourceUrl ?? null)},
 }))
 `);
+  // An in-memory keyring, so a journey can save a credential and read back what
+  // the app shows for one.
+  //
+  // The alternative was the null backend, which accepts a write and stores
+  // nothing — so "a stored key reads back as a mask" could not be journeyed at
+  // all, because no key was ever stored. This is the answer the backend's own
+  // `conftest.py` reached too: never the person's real keychain, but a real
+  // store for the length of the process. It is a dict inside the backend
+  // process, so it dies with the process and never touches the machine.
+  fs.writeFileSync(path.join(hookDir, 'journey_keyring.py'), `
+import keyring.backend
+
+_VALUES = {}
+
+
+class Keyring(keyring.backend.KeyringBackend):
+    """One journey's credentials, in memory. Nothing here reaches the OS."""
+
+    priority = 1
+
+    def get_password(self, service, username):
+        return _VALUES.get((service, username))
+
+    def set_password(self, service, username, password):
+        _VALUES[(service, username)] = password
+
+    def delete_password(self, service, username):
+        _VALUES.pop((service, username), None)
+`);
   return hookDir;
 }
 

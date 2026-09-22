@@ -146,6 +146,24 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     };
   };
 
+
+  /**
+   * Fold away the floating panel that the last finished run leaves expanded.
+   *
+   * A person would too, or would wait for it. It sits over the top-left of the
+   * form, and the second run of a journey that runs twice cannot reach the
+   * keyword row underneath it — Playwright's own words for it were "intercepts
+   * pointer events", 60 retries deep, which is a half-minute of nothing before
+   * a timeout that names a button rather than the thing covering it.
+   */
+  const standDownTheCompletionWidget = async (): Promise<void> => {
+    const widget = win().locator('.floating-widget--expanded');
+    if (!await widget.count()) return;
+    // Its own close button, which is what a person would reach for.
+    await widget.locator('.fw-close-btn').first().click().catch(() => { /* already gone */ });
+    await expect(widget).toHaveCount(0, { timeout: 15_000 });
+  };
+
   const backend: BackendFacts = {
     port: async () => session.port,
     health: () => session.api('GET', '/api/health'),
@@ -268,6 +286,7 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
 
     runDive: async (request: DiveRequest): Promise<RunHandle> => {
       await goto(PLACES['Deep Dive']);
+      await standDownTheCompletionWidget();
       await win().locator('select.form-select')
         .filter({ has: win().locator(`option[value="${request.source}"]`) })
         .selectOption(request.source);
@@ -297,6 +316,7 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
 
     runSweep: async (request: SweepRequest): Promise<RunHandle> => {
       await goto(PLACES['Deep Sweep']);
+      await standDownTheCompletionWidget();
       for (const source of request.sources) {
         await win().locator('.repo-checkbox-grid label.checkbox-label')
           .filter({ hasText: new RegExp(`^${source}$`) })
@@ -1052,19 +1072,20 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     writeRoutineIntent: async (name, intent) => {
+      // Through the API, and the reason is worth writing down. The user path is
+      // the routine editor's own "What this routine is really looking for"
+      // field, and `e2e/routine-intent.spec.ts` drives exactly that. What this
+      // row is about is the *audit's* response to an intent existing, so the
+      // shortest honest way to put one there is the same request the editor
+      // makes. The spec's ledger records that the editor was not exercised here.
+      const routines = await backend.routines();
+      const routine = routines.find((r) => r.name === name);
+      expect(routine, `no routine named ${name}`).toBeTruthy();
+      await session.api('PUT', `/api/routines/${routine!.id}`, { intent });
+      // The panel caches per routine and is invalidated by a save made through
+      // the editor; a save made behind it is not seen until the page remounts.
+      await goto(PLACES.Explorer);
       await goto(PLACES.Routines);
-      const row = win().locator('.simple-table tbody tr').filter({ hasText: name }).first();
-      await expect(row).toBeVisible({ timeout: 30_000 });
-      await row.getByRole('button', { name: 'Edit', exact: true }).click();
-      const field = win().locator('#routine-intent');
-      await expect(field).toBeVisible({ timeout: 30_000 });
-      await field.fill(intent);
-      const saved = win().waitForResponse(
-        (r) => /\/api\/routines\/\d+$/.test(r.url()) && r.request().method() === 'PUT',
-      );
-      await win().getByRole('button', { name: /^Save/ }).first().click();
-      expect((await saved).ok(), 'the routine the editor submitted was refused').toBe(true);
-      await win().waitForTimeout(800);
     },
 
     readCoverageAudit: async (name): Promise<CoverageAudit> => {
@@ -1110,6 +1131,11 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     readKeyFields: async (): Promise<KeyField[]> => {
+      // Away and back, not straight there. The page reads the credential state
+      // once when it mounts, and a hash change to the route it is already on
+      // does not remount it — so a field read immediately after a key was saved
+      // would show the state the page was given before the save.
+      await goto(PLACES.Explorer);
       await goto(PLACES.Repositories);
       const fields = win().locator('div.api-key-field input[aria-label^="API key for "]');
       await expect(fields.first()).toBeVisible({ timeout: 30_000 });
@@ -1174,7 +1200,11 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     askTheAssistant: async (text): Promise<AssistantTurn> => {
-      await win().getByTestId('assistant-trigger').click();
+      // Only if it is shut. The trigger is replaced by the panel while the
+      // panel is open, so a second turn in one journey has nothing to click.
+      if (!await win().getByTestId('assistant-panel').count()) {
+        await win().getByTestId('assistant-trigger').click();
+      }
       const panel = win().getByTestId('assistant-panel');
       await expect(panel).toBeVisible({ timeout: 30_000 });
       const composer = win().getByLabel('Message the assistant');
