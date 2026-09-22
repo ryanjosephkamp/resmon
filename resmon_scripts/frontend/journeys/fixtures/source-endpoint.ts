@@ -37,7 +37,16 @@ export type SourceReply =
   /** The connection ends without an HTTP response — `upstream_failure`. */
   | 'dead'
   /** Accepted and held open until the journey releases it; then one record. */
-  | 'held';
+  | 'held'
+  /**
+   * Three records over a real HTTP 200, two of which are the same work.
+   *
+   * Slice 2a. The near-duplicate scan requires two signals to agree — close
+   * vectors *and* a near-identical title, with an abstract behind both — so a
+   * pair that differs only in the fields dedup keys on is the smallest honest
+   * way to produce one. `AUTHORED_TWICE` is that pair.
+   */
+  | 'duplicates';
 
 export interface AuthoredRecord {
   id: string;
@@ -81,6 +90,45 @@ export const AUTHORED_RECORDS: AuthoredRecord[] = [
 /** The term that matches record one in its title and record two in its abstract. */
 export const AUTHORED_KEYWORD = 'perovskite';
 
+/**
+ * The same authored work, arriving twice.
+ *
+ * Insert-time dedup hashes `title|authors|date`, so these two differ in the
+ * author and the date and are stored as two papers — which is the state the
+ * near-duplicate scan exists to describe. The title and abstract are
+ * byte-identical because the embedding is taken from those two fields: a
+ * deterministic model gives identical text an identical vector, and the pair is
+ * then at distance 0 with a title similarity of 1, which is what the scan's two
+ * signals both need. A third, unrelated record is included so that "one pair
+ * was linked" is a statement about the pair rather than about the corpus.
+ */
+export const AUTHORED_TWICE: AuthoredRecord[] = [
+  {
+    id: '2609.42001v1',
+    title: 'Authored duplicate: one invented work reaching resmon twice',
+    abstract: 'An invented local record written for this suite so that two stored copies of one work exist to be linked. Never fetched.',
+    author: 'Cy Fixture',
+    published: '2026-09-03T00:00:00Z',
+    category: 'cond-mat.mtrl-sci',
+  },
+  {
+    id: '2609.42002v1',
+    title: 'Authored duplicate: one invented work reaching resmon twice',
+    abstract: 'An invented local record written for this suite so that two stored copies of one work exist to be linked. Never fetched.',
+    author: 'Di Fixture',
+    published: '2026-09-04T00:00:00Z',
+    category: 'cond-mat.mtrl-sci',
+  },
+  {
+    id: '2609.42003v1',
+    title: 'Authored single: an unrelated invented record for the same fixture',
+    abstract: 'An invented local record about something else entirely, so that the linked pair is a pair rather than the whole corpus.',
+    author: 'El Fixture',
+    published: '2026-09-05T00:00:00Z',
+    category: 'cond-mat.mtrl-sci',
+  },
+];
+
 function atomFeed(records: AuthoredRecord[]): string {
   const entries = records.map((r) => `<entry>
   <id>https://arxiv.org/abs/${r.id}</id>
@@ -101,6 +149,14 @@ export interface SourceEndpoint {
   requestCount(): number;
   /** Let a held reply through. A no-op for the other modes. */
   release(): void;
+  /**
+   * Answer differently from now on.
+   *
+   * Slice 2a: the Watchdog row needs a source that fails three times and then
+   * recovers, which is a sequence rather than a state. Nothing else about the
+   * endpoint changes — the socket, the client and the parser stay the app's own.
+   */
+  answerWith(reply: SourceReply): void;
   close(): Promise<void>;
 }
 
@@ -112,9 +168,11 @@ export async function startSourceEndpoint(reply: SourceReply): Promise<SourceEnd
   const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
   if (reply !== 'held') releaseGate();
 
+  let current = reply;
   const server = http.createServer((req, res) => {
     requests.push(req.url ?? '');
     void gate.then(() => {
+      const reply = current;
       if (reply === 'dead') {
         // The connection really ends without an HTTP response, so the shipped
         // HTTP stack records a transport failure rather than an empty answer.
@@ -123,7 +181,7 @@ export async function startSourceEndpoint(reply: SourceReply): Promise<SourceEnd
       }
       const body = reply === 'empty'
         ? '<feed xmlns="http://www.w3.org/2005/Atom"></feed>'
-        : atomFeed(AUTHORED_RECORDS);
+        : atomFeed(reply === 'duplicates' ? AUTHORED_TWICE : AUTHORED_RECORDS);
       res.writeHead(200, { 'Content-Type': 'application/atom+xml' });
       res.end(body);
     });
@@ -143,6 +201,13 @@ export async function startSourceEndpoint(reply: SourceReply): Promise<SourceEnd
     url: `http://127.0.0.1:${port}/api/query`,
     requestCount: () => requests.length,
     release: () => releaseGate(),
+    answerWith: (next: SourceReply) => {
+      current = next;
+      // A journey that switches away from `held` has stopped waiting for a
+      // release, so the gate is opened rather than left shut over a mode that
+      // will never ask for it.
+      if (next !== 'held') releaseGate();
+    },
     close: async () => {
       releaseGate();
       for (const socket of sockets) socket.destroy();
@@ -236,6 +301,44 @@ ${redirect}
     'pid': os.getpid(), 'parent_pid': os.getppid(),
     'source_url': ${JSON.stringify(options.sourceUrl ?? null)},
 }))
+`);
+  // An in-memory keyring, so a journey can save a credential and read back what
+  // the app shows for one.
+  //
+  // The alternative was the null backend, which accepts a write and stores
+  // nothing — so "a stored key reads back as a mask" could not be journeyed at
+  // all, because no key was ever stored. This is the answer the backend's own
+  // `conftest.py` reached too: never the person's real keychain, but a real
+  // store for the length of the process. It is a dict inside the backend
+  // process, so it dies with the process and never touches the machine.
+  fs.writeFileSync(path.join(hookDir, 'journey_keyring.py'), `
+import keyring.backend
+
+_VALUES = {}
+
+
+class Keyring(keyring.backend.KeyringBackend):
+    """One journey's credentials, in memory. Nothing here reaches the OS."""
+
+    priority = 1
+
+    def get_password(self, service, username):
+        return _VALUES.get((service, username))
+
+    def set_password(self, service, username, password):
+        _VALUES[(service, username)] = password
+
+    def delete_password(self, service, username):
+        # Raised, not swallowed. The app has a handler for exactly this --
+        # credential_manager.delete_credential catches PasswordDeleteError
+        # -- and a double that returns quietly where the real backend raises is
+        # a double that cannot fail the way the dependency fails. The backend's
+        # own conftest double raises it; this is the same three lines.
+        try:
+            del _VALUES[(service, username)]
+        except KeyError:
+            from keyring.errors import PasswordDeleteError
+            raise PasswordDeleteError(username) from None
 `);
   return hookDir;
 }

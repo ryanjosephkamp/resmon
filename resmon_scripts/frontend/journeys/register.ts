@@ -29,8 +29,10 @@
  * asserts its exit status and the denominators it prints — `runGate` in
  * `fixtures/gates.ts`, re-exported from `driver.ts` so a spec can reach it
  * without importing `child_process`. The row's evidence stays the real gate;
- * re-implementing it here would be a second thing to keep in step. J16 is
- * slice 2a's and takes the same shape.
+ * re-implementing it here would be a second thing to keep in step. J16 is slice 2a's
+ * and takes the same shape: `test_live_suite.py` under the build's own
+ * interpreter for the gate, plus `live_suite.py --summary` for the denominator,
+ * because a `-q` pytest run does not print one.
  */
 
 export type JourneySlice = '1' | '2a' | '2b';
@@ -68,30 +70,30 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J01', title: 'Deep Dive', slice: '1', status: 'carried' },
   { id: 'J02', title: 'Deep Sweep', slice: '1', status: 'carried' },
   { id: 'J03', title: 'Routines', slice: '1', status: 'carried' },
-  { id: 'J04', title: 'Background daemon', slice: '2a', status: 'carried' },
-  { id: 'J05', title: 'Analytics', slice: '2a', status: 'carried' },
-  { id: 'J06', title: 'Watchdog', slice: '2a', status: 'carried' },
-  { id: 'J07', title: 'Watch profiles', slice: '2a', status: 'carried' },
-  { id: 'J08', title: 'Author identity and entity search', slice: '2a', status: 'carried' },
-  { id: 'J09', title: 'Semantic search', slice: '2a', status: 'carried' },
-  { id: 'J10', title: 'Near-duplicate links', slice: '2a', status: 'carried' },
-  { id: 'J11', title: 'Coverage audit', slice: '2a', status: 'carried' },
+  { id: 'J04', title: 'Background daemon', slice: '2a', status: 'carried', built: true },
+  { id: 'J05', title: 'Analytics', slice: '2a', status: 'carried', built: true },
+  { id: 'J06', title: 'Watchdog', slice: '2a', status: 'carried', built: true },
+  { id: 'J07', title: 'Watch profiles', slice: '2a', status: 'carried', built: true },
+  { id: 'J08', title: 'Author identity and entity search', slice: '2a', status: 'carried', built: true },
+  { id: 'J09', title: 'Semantic search', slice: '2a', status: 'carried', built: true },
+  { id: 'J10', title: 'Near-duplicate links', slice: '2a', status: 'carried', built: true },
+  { id: 'J11', title: 'Coverage audit', slice: '2a', status: 'carried', built: true },
   { id: 'J12', title: 'Explorer', slice: '1', status: 'carried' },
-  { id: 'J13', title: 'The assistant (CLI lane)', slice: '2a', status: 'carried' },
+  { id: 'J13', title: 'The assistant (CLI lane)', slice: '2a', status: 'carried', built: true },
   { id: 'J14', title: 'The assistant on a key', slice: '2a', status: 'carried' },
-  { id: 'J15', title: 'First-run card', slice: '2a', status: 'carried' },
-  { id: 'J16', title: 'Weekly live-network job', slice: '2a', status: 'carried' },
+  { id: 'J15', title: 'First-run card', slice: '2a', status: 'carried', built: true },
+  { id: 'J16', title: 'Weekly live-network job', slice: '2a', status: 'carried', built: true },
   { id: 'J17', title: 'AI summarization lanes', slice: '2a', status: 'carried' },
   { id: 'J18', title: 'Reports and exports', slice: '1', status: 'carried' },
   { id: 'J19', title: 'Live monitoring', slice: '1', status: 'carried' },
   { id: 'J20', title: 'Calendar', slice: '1', status: 'carried' },
   { id: 'J21', title: 'Saved configurations', slice: '1', status: 'carried' },
-  { id: 'J22', title: 'Repositories and keys', slice: '2a', status: 'carried' },
+  { id: 'J22', title: 'Repositories and keys', slice: '2a', status: 'carried', built: true },
   { id: 'J23', title: 'Notifications and email', slice: '2a', status: 'carried' },
-  { id: 'J24', title: 'Google Drive backup', slice: '2a', status: 'carried' },
-  { id: 'J25', title: 'In-app documentation', slice: '2a', status: 'carried' },
-  { id: 'J26', title: 'Danger Zone', slice: '2a', status: 'carried' },
-  { id: 'J27', title: 'Citation graph', slice: '2a', status: 'carried' },
+  { id: 'J24', title: 'Google Drive backup', slice: '2a', status: 'carried', built: true },
+  { id: 'J25', title: 'In-app documentation', slice: '2a', status: 'carried', built: true },
+  { id: 'J26', title: 'Danger Zone', slice: '2a', status: 'carried', built: true },
+  { id: 'J27', title: 'Citation graph', slice: '2a', status: 'carried', built: true },
   { id: 'J28', title: 'Reading queue', slice: '2b', status: 'carried', built: true },
   { id: 'J29', title: 'Recorded-source coverage', slice: '1', status: 'carried' },
   { id: 'J30', title: 'Runtime identity', slice: '1', status: 'carried' },
