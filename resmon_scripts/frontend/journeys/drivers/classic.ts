@@ -174,6 +174,51 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
   };
 
   /** What the assistant panel is showing right now. */
+  /**
+   * Wait until the assistant's turn has actually stopped, not until the panel
+   * looks idle.
+   *
+   * **The `.assistant-thinking` poll this replaces was satisfied before the
+   * turn began.** Its condition was "nothing is thinking, or a card is up", and
+   * at the moment Send is clicked nothing is thinking yet — so the poll
+   * returned immediately, a fixed 600 ms went by, and the panel was read
+   * whenever that landed. On a fast laptop the double had usually finished; in
+   * a full-suite run on a loaded machine it had not, and J13 read an empty tool
+   * list off a turn that was still arriving. That is the same shape as the
+   * coverage table: a read racing a write, waiting on a duration rather than on
+   * a state.
+   *
+   * The app publishes the state. Every conversation's own record says whether
+   * its runtime is still running and whether its turn's event bus is still
+   * open, and a turn that is holding an approval card is *deliberately* still
+   * running — so the card short-circuits, because that is a terminal state too:
+   * the app is waiting for the person, not for itself.
+   */
+  const theTurnHasStoppedMoving = async (): Promise<void> => {
+    await expect.poll(async () => {
+      if (await win().getByTestId('permission-card').count() > 0) return true;
+      const { sessions } = await session.api<{ sessions: { id: number }[] }>(
+        'GET', '/api/assistant/sessions',
+      );
+      if (!sessions.length) return false;
+      for (const saved of sessions) {
+        const one = await session.api<{ running?: boolean;
+          activity_observation?: { turn_claimed?: boolean } }>(
+          'GET', `/api/assistant/sessions/${saved.id}`,
+        );
+        if (one.running || one.activity_observation?.turn_claimed) return false;
+      }
+      return true;
+    }, { timeout: 120_000, message: 'the assistant never finished its turn' }).toBe(true);
+    // The turn is over on the backend; the last event still has to reach the
+    // panel. This is the one place a short settle is right — it is bounded by a
+    // fact rather than standing in for one.
+    await expect.poll(
+      async () => win().locator('.assistant-thinking').count(),
+      { timeout: 30_000 },
+    ).toBe(0);
+  };
+
   const readAssistantPanel = async (): Promise<AssistantTurn> => {
     const said = (await win().locator('.assistant-message--assistant .assistant-bubble')
       .allInnerTexts()).map((t) => t.trim());
@@ -1364,13 +1409,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       await expect(composer, 'the assistant is not available in this app').toBeEnabled({ timeout: 30_000 });
       await composer.fill(text);
       await win().getByRole('button', { name: 'Send', exact: true }).click();
-      // Settled means: it is no longer working, and it is either holding a card,
-      // showing an error, or has said something.
-      await expect.poll(async () => (
-        await win().locator('.assistant-thinking').count() === 0
-        || await win().getByTestId('permission-card').count() > 0
-      ), { timeout: 120_000 }).toBe(true);
-      await win().waitForTimeout(600);
+      await theTurnHasStoppedMoving();
       return readAssistantPanel();
     },
 
@@ -1380,11 +1419,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const answered = win().waitForResponse((r) => r.url().includes('/api/assistant/permissions/'));
       await card.getByRole('button', { name: allow ? 'Allow' : 'Deny', exact: true }).click();
       expect((await answered).ok(), 'the answer to the approval card was refused').toBe(true);
-      await expect.poll(
-        async () => win().locator('.assistant-thinking').count(),
-        { timeout: 120_000 },
-      ).toBe(0);
-      await win().waitForTimeout(600);
+      await theTurnHasStoppedMoving();
       return readAssistantPanel();
     },
 
