@@ -213,8 +213,16 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     const child = backendPid;
     const gone = (): boolean => !owned || owned.exitCode !== null || owned.signalCode !== null;
 
+    // Start the close and **keep the promise**. Racing it and walking away was
+    // the first attempt, and it moved the symptom rather than removing it: the
+    // row passed in 57 s and the run still failed, because an abandoned
+    // `close()` leaves Playwright holding an Electron application it believes
+    // is open, and the worker then waits 300 s for it at teardown — reported as
+    // `worker-0 process did not exit within 300000ms after stop`. The close has
+    // to be finished, not dropped.
+    const closing = app.close().catch(() => { /* already gone */ });
     const closed = await Promise.race([
-      app.close().then(() => true).catch(() => true),
+      closing.then(() => true),
       new Promise<false>((resolve) => { setTimeout(() => resolve(false), CLOSE_DEADLINE_MS); }),
     ]);
 
@@ -226,6 +234,21 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
         if (!pid) continue;
         try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
       }
+      // With the process gone the transport ends, so the close Playwright was
+      // still waiting on can now finish. Bounded, because this is a tidy-up and
+      // not a thing worth a second hang.
+      await Promise.race([
+        closing,
+        new Promise<void>((resolve) => { setTimeout(resolve, 30_000); }),
+      ]);
+    }
+
+    // The backend is a grandchild: `main.ts` sends it a SIGTERM on `before-quit`
+    // and does not wait, so a backend that will not take a SIGTERM outlives the
+    // app that spawned it and goes on holding the state directory this session
+    // is about to reuse or delete. Cheap to make certain of, every time.
+    if (child) {
+      try { process.kill(child, 'SIGKILL'); } catch { /* already gone, which is the usual case */ }
     }
 
     if (!owned) return;
