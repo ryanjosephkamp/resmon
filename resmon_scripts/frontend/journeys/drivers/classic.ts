@@ -26,6 +26,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
 import * as http from 'http';
+import * as net from 'net';
 import { expect } from '@playwright/test';
 import type { TestInfo } from '@playwright/test';
 import type {
@@ -45,6 +46,13 @@ import { JOURNEY_EMBEDDING_MODEL, startEmbeddingEndpoint } from '../fixtures/emb
 import type {
   DeliveryRecord, McpAnswer, ObservedRequest, QueuedPaper, RawAnswer,
 } from '../driver';
+// Slice 3's, in its own import for the same reason.
+import type {
+  AssistantPanelFacts, EmailSettings, NotificationPreferences, ProviderRequest, RunNowAnswer,
+  SavedTranscript,
+} from '../driver';
+import { startProviderEndpoint } from '../fixtures/provider-endpoint';
+import type { ProviderEndpoint } from '../fixtures/provider-endpoint';
 import type { Session } from './session';
 
 /** The hash behind each place in the sidebar. The only route table in the suite. */
@@ -69,6 +77,8 @@ const PLACES: Record<Place, string> = {
   'Cloud Storage settings': '/settings/cloud',
   'Advanced settings': '/settings/advanced',
   Tutorials: '/about-resmon/tutorials',
+  // — slice 3 ---------------------------------------------------------------
+  Chats: '/chats',
 };
 
 /** `YYYY-MM-DD`, in the machine's own timezone, as the date inputs want it. */
@@ -79,6 +89,9 @@ function isoDate(at: Date): string {
 
 export function createClassicDriver(session: Session, testInfo: TestInfo): JourneyDriver {
   const win = () => session.win;
+
+  /** The authored model provider, once a journey has asked for one. */
+  let provider: ProviderEndpoint | null = null;
 
   const goto = async (hash: string): Promise<void> => {
     // A HashRouter change is not a document navigation, so setting the hash is
@@ -98,7 +111,35 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     await expect(row).toBeVisible({ timeout: 30_000 });
     await row.click();
     await expect(win().locator('.report-viewer')).toBeVisible({ timeout: 30_000 });
+    await reportViewerHasStoppedReloading();
   };
+
+  /**
+   * Wait until the report viewer has stopped calling this run live.
+   *
+   * **This is the fix for J19's coverage table, and the thing it was waiting
+   * for was never a cell.** `ReportViewer` passes its own `isLive` to
+   * `useSearchRecord` as the hook's `revision`, and that hook *blanks* its
+   * state — `setState({ data: null })` — at the top of every effect run. So the
+   * moment the window stops believing the run is still going, the whole
+   * coverage block, tables and all, is removed from the DOM and fetched again.
+   *
+   * A cancelled run is exactly where that transition is late: the backend has
+   * already written `cancelled`, so `waitForRunToSettle` has returned, while
+   * the window's own execution context has not caught up. Open the report in
+   * that window and the table renders, the read starts, the context catches up,
+   * and the row the read is holding is detached mid-read. That is both shapes
+   * this suite has seen — `.first().locator('td').first()` on a runner, and
+   * `.nth(1)` on a laptop — and neither is a slow machine.
+   *
+   * So this waits for a terminal state the app puts on screen rather than for a
+   * duration: the pulse the Progress tab draws while a run is live is gone. No
+   * budget was raised to do it.
+   */
+  async function reportViewerHasStoppedReloading(): Promise<void> {
+    await expect(win().locator('.report-viewer .tab-bar .sidebar-pulse'))
+      .toHaveCount(0, { timeout: 60_000 });
+  }
 
 
   /**
@@ -133,6 +174,71 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
   };
 
   /** What the assistant panel is showing right now. */
+  /**
+   * Wait until the assistant's turn has actually stopped, not until the panel
+   * looks idle.
+   *
+   * **The `.assistant-thinking` poll this replaces was satisfied before the
+   * turn began.** Its condition was "nothing is thinking, or a card is up", and
+   * at the moment Send is clicked nothing is thinking yet — so the poll
+   * returned immediately, a fixed 600 ms went by, and the panel was read
+   * whenever that landed. On a fast laptop the double had usually finished; in
+   * a full-suite run on a loaded machine it had not, and J13 read an empty tool
+   * list off a turn that was still arriving. That is the same shape as the
+   * coverage table: a read racing a write, waiting on a duration rather than on
+   * a state.
+   *
+   * The app publishes the state. Every conversation's own record says whether
+   * its runtime is still running and whether its turn's event bus is still
+   * open, and a turn that is holding an approval card is *deliberately* still
+   * running — so the card short-circuits, because that is a terminal state too:
+   * the app is waiting for the person, not for itself.
+   *
+   * **This is only a wait for a turn that has already begun.** A second ask
+   * finds the session idle from the first, so "nothing is running" is true
+   * before the backend has claimed the new turn — the same shape, one level
+   * down. The callers therefore wait for the message request to be answered
+   * before they call this at all, and that ordering is the reason this function
+   * can be about *finishing* rather than about starting.
+   */
+  const theTurnHasStoppedMoving = async (): Promise<void> => {
+    await expect.poll(async () => {
+      if (await win().getByTestId('permission-card').count() > 0) return true;
+      const { sessions } = await session.api<{ sessions: { id: number }[] }>(
+        'GET', '/api/assistant/sessions',
+      );
+      if (!sessions.length) return false;
+      for (const saved of sessions) {
+        const one = await session.api<{ running?: boolean;
+          activity_observation?: { turn_claimed?: boolean } }>(
+          'GET', `/api/assistant/sessions/${saved.id}`,
+        );
+        if (one.running || one.activity_observation?.turn_claimed) return false;
+      }
+      return true;
+    }, { timeout: 120_000, message: 'the assistant never finished its turn' }).toBe(true);
+    // The turn is over on the backend. The panel's own indicator is then given
+    // a bounded chance to catch up — and its failure to is **reported, not
+    // thrown**, because it turns out not to be a wait at all.
+    //
+    // After a denied write, `.assistant-thinking` stays up for as long as this
+    // is willing to watch it, over a session the backend reports as finished.
+    // That is a finding about the panel rather than a reason to fail a row, and
+    // a driver that threw here would fail J13 for a thing J13 is not about. The
+    // authoritative terminal state is the one above, which the app publishes;
+    // this line exists so that the disagreement is on the record every time it
+    // happens rather than being smoothed over by a longer sleep.
+    const caughtUp = await expect.poll(
+      async () => win().locator('.assistant-thinking').count(),
+      { timeout: 10_000 },
+    ).toBe(0).then(() => true).catch(() => false);
+    if (!caughtUp) {
+      console.log('[journeys] NOT VERIFIED: the assistant panel was still showing its thinking '
+        + 'indicator after the app itself reported the turn finished. The turn is settled — that '
+        + 'is read from the conversation\'s own record — and the panel had not caught up.');
+    }
+  };
+
   const readAssistantPanel = async (): Promise<AssistantTurn> => {
     const said = (await win().locator('.assistant-message--assistant .assistant-bubble')
       .allInnerTexts()).map((t) => t.trim());
@@ -399,6 +505,12 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       if (request.cap !== undefined) {
         await win().locator('.range-row input[type="range"]').fill(String(request.cap));
       }
+      if (request.summarize) {
+        await win().locator('label.checkbox-label')
+          .filter({ hasText: 'Enable AI Summarization' })
+          .locator('input[type="checkbox"]')
+          .check();
+      }
       const started = win().waitForResponse(
         (r) => r.url().endsWith('/api/search/dive') && r.request().method() === 'POST',
       );
@@ -520,17 +632,17 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       await details.first().click();
       const rows = win().locator('.coverage-table tbody tr');
       await expect(rows.first()).toBeVisible({ timeout: 30_000 });
-      const count = await rows.count();
-      const out: SourceOutcome[] = [];
-      for (let i = 0; i < count; i += 1) {
-        const cells = rows.nth(i).locator('td');
-        out.push({
-          source: (await cells.nth(0).innerText()).trim(),
-          label: (await cells.nth(1).innerText()).trim(),
-          note: (await cells.nth(4).innerText()).trim(),
-        });
-      }
-      return out;
+      // Every row in one pass, rather than `count()` and then `nth(i)` a cell
+      // at a time. The wait above is what stops the table being replaced under
+      // this read; taking the whole table in a single turn of the renderer's
+      // event loop is what makes that no longer something to get right twice.
+      return win().evaluate(() => Array.from(
+        document.querySelectorAll('.coverage-table tbody tr'),
+        (row) => {
+          const cells = Array.from(row.querySelectorAll('td'), (c) => (c.textContent ?? '').trim());
+          return { source: cells[0] ?? '', label: cells[1] ?? '', note: cells[4] ?? '' };
+        },
+      ));
     },
 
     readReportTabs: async () => {
@@ -1316,14 +1428,20 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const composer = win().getByLabel('Message the assistant');
       await expect(composer, 'the assistant is not available in this app').toBeEnabled({ timeout: 30_000 });
       await composer.fill(text);
+      // Armed before the click, and awaited after it. Without this the
+      // authoritative wait below can be satisfied by the *previous* turn: on a
+      // second ask the session already exists and is idle, so "no conversation
+      // is running" is true until the backend has claimed the new turn. That is
+      // the bug one level down from the one this whole helper was written for.
+      const claimed = win().waitForResponse(
+        (r) => /\/api\/assistant\/sessions\/\d+\/messages$/.test(r.url())
+          && r.request().method() === 'POST',
+        { timeout: 120_000 },
+      );
       await win().getByRole('button', { name: 'Send', exact: true }).click();
-      // Settled means: it is no longer working, and it is either holding a card,
-      // showing an error, or has said something.
-      await expect.poll(async () => (
-        await win().locator('.assistant-thinking').count() === 0
-        || await win().getByTestId('permission-card').count() > 0
-      ), { timeout: 120_000 }).toBe(true);
-      await win().waitForTimeout(600);
+      const response = await claimed;
+      expect(response.ok(), `the assistant refused the message: HTTP ${response.status()}`).toBe(true);
+      await theTurnHasStoppedMoving();
       return readAssistantPanel();
     },
 
@@ -1333,11 +1451,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const answered = win().waitForResponse((r) => r.url().includes('/api/assistant/permissions/'));
       await card.getByRole('button', { name: allow ? 'Allow' : 'Deny', exact: true }).click();
       expect((await answered).ok(), 'the answer to the approval card was refused').toBe(true);
-      await expect.poll(
-        async () => win().locator('.assistant-thinking').count(),
-        { timeout: 120_000 },
-      ).toBe(0);
-      await win().waitForTimeout(600);
+      await theTurnHasStoppedMoving();
       return readAssistantPanel();
     },
 
@@ -1720,6 +1834,341 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         declaredToolCount: declared,
         health,
       };
+    },
+
+    // — slice 3 ---------------------------------------------------------------
+
+    askForThisRoutineToRunNow: async (name): Promise<RunNowAnswer> => {
+      const routines = await backend.routines();
+      const routine = routines.find((r) => r.name === name);
+      expect(routine, `no routine named ${name}`).toBeTruthy();
+      // `session.api` throws on anything but 2xx, and a refusal is the answer
+      // this row is about — so the whole answer is taken here, status, headers
+      // and body, through the app's own transport and the app's own token. The
+      // header is read rather than the prose because the app publishes the kind
+      // of refusal separately from the sentence, and there are two different
+      // 409s on this route: the routine is already running, and resmon is
+      // already running as many executions as it allows.
+      return win().evaluate(async (routineId) => {
+        const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
+          .resmonAPI.getBackendPort();
+        const response = await e2eFetch(`http://127.0.0.1:${port}/api/routines/${routineId}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        const text = await response.text();
+        let parsed: any = null;
+        try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
+        if (response.ok) {
+          return { run: { id: Number(parsed?.execution_id) }, refusal: '', refusalKind: '' };
+        }
+        return {
+          run: null,
+          refusal: String(parsed?.detail ?? text),
+          // Usually '': see `RunNowAnswer.refusalKind`. Read rather than
+          // assumed, so the day the backend starts exposing it this stops
+          // being a limit without anybody editing a comment.
+          refusalKind: response.headers.get('X-Resmon-Conflict') || '',
+        };
+      }, routine!.id);
+    },
+
+    useAnAuthoredSummarizerThatIsNotSignedIn: async () => {
+      // The summarization lane runs `claude -p --output-format json …` and
+      // reads one JSON envelope off stdout. A CLI whose OAuth session has
+      // lapsed answers with `is_error` set and says so in `result`, and exits
+      // zero doing it — which is why the lane keys on the field rather than on
+      // the status. This is that envelope, byte for byte as
+      // `test_llm_subscription.py` recorded it from the real CLI.
+      const command = path.join(session.stateDir, 'authored-summarizer');
+      fs.writeFileSync(command, '#!/bin/sh\ncat <<\'JSON\'\n'
+        + JSON.stringify({
+          is_error: true,
+          subtype: 'success',
+          terminal_reason: 'api_error',
+          result: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+          type: 'result',
+        })
+        + '\nJSON\n', { mode: 0o755 });
+      // Through the settings the page writes, not around them: `ai_cli_path` is
+      // only consulted for the provider `ai_provider` names, so both have to be
+      // set or the lane looks for the binary in the usual places instead — and
+      // on a developer's Mac it might find a real one.
+      await session.api('PUT', '/api/settings/ai', {
+        settings: { ai_provider: 'claude_code', ai_cli_path: command, ai_model: 'sonnet' },
+      });
+    },
+
+    readAiLaneStatus: async () => {
+      await goto(PLACES['AI settings']);
+      const status = win().locator('[data-testid^="primary-cli-status-"]');
+      if (!await status.count()) return '';
+      return (await status.first().innerText()).replace(/\s+/g, ' ').trim();
+    },
+
+    readRunLog: async (run) => {
+      await openResultsRow(run);
+      await win().locator('.report-viewer .tab-bar .tab-btn', { hasText: 'Log' }).first().click();
+      const text = win().locator('.report-viewer-body');
+      await expect(text).toBeVisible({ timeout: 30_000 });
+      return (await text.innerText()).trim();
+    },
+
+    readTheReport: async (run) => {
+      await openResultsRow(run);
+      await win().locator('.report-viewer .tab-bar .tab-btn', { hasText: 'Report' }).first().click();
+      const text = win().locator('.report-viewer-body');
+      await expect(text).toBeVisible({ timeout: 30_000 });
+      return (await text.innerText()).trim();
+    },
+
+    configureEmail: async (settings, password) => {
+      await goto(PLACES['Email settings']);
+      const field = (label: string) => win().locator('.settings-form .form-field')
+        .filter({ has: win().locator('.form-label', { hasText: label }) })
+        .locator('input').first();
+      await field('SMTP Server').fill(settings.server);
+      await field('SMTP Port').fill(settings.port);
+      await field('Username').fill(settings.username);
+      await field('Sender Email').fill(settings.sender);
+      await field('Recipient Email(s)').fill(settings.recipients);
+      // The password is not a setting: it goes to the machine's own credential
+      // store, by its own button, and only the fact of it comes back.
+      await field('SMTP Password').fill(password);
+      const stored = win().waitForResponse(
+        (r) => r.url().includes('/api/credentials/smtp_password'),
+      );
+      await win().locator('.key-input-row button', { hasText: /^(Store|Replace)$/ }).click();
+      expect((await stored).ok(), 'the SMTP password was refused by the credential store').toBe(true);
+      const saved = win().waitForResponse(
+        (r) => r.url().endsWith('/api/settings/email') && r.request().method() === 'PUT',
+      );
+      await win().locator('.form-actions button', { hasText: 'Save' }).first().click();
+      expect((await saved).ok(), 'Settings → Email refused the save').toBe(true);
+    },
+
+    readEmailSettings: async (): Promise<EmailSettings> => {
+      await goto(PLACES['Email settings']);
+      const field = (label: string) => win().locator('.settings-form .form-field')
+        .filter({ has: win().locator('.form-label', { hasText: label }) })
+        .locator('input').first();
+      await expect(field('SMTP Server')).toBeVisible({ timeout: 30_000 });
+      return {
+        server: await field('SMTP Server').inputValue(),
+        port: await field('SMTP Port').inputValue(),
+        username: await field('Username').inputValue(),
+        sender: await field('Sender Email').inputValue(),
+        recipients: await field('Recipient Email(s)').inputValue(),
+      };
+    },
+
+    sendATestEmail: async () => {
+      await goto(PLACES['Email settings']);
+      const answered = win().waitForResponse((r) => r.url().endsWith('/api/settings/email/test'));
+      await win().locator('.form-actions button', { hasText: 'Send Test Email' }).click();
+      await answered;
+      // The page clears this line after a few seconds, so it is read as soon as
+      // it appears rather than after the next navigation.
+      const line = win().locator('.settings-form .form-error, .settings-form .form-success');
+      await expect(line.first()).toBeVisible({ timeout: 60_000 });
+      return (await line.first().innerText()).replace(/\s+/g, ' ').trim();
+    },
+
+    setNotificationPreferences: async (preferences) => {
+      await goto(PLACES['Notification settings']);
+      const manual = win().locator('label.form-check')
+        .filter({ hasText: 'Notify me when a manual execution completes' })
+        .locator('input[type="checkbox"]');
+      await expect(manual).toBeVisible({ timeout: 30_000 });
+      await manual.setChecked(preferences.whenIRunSomethingMyself);
+      const choice = {
+        all: 'All automatic routines',
+        selected: 'Only selected routines',
+        none: 'None',
+      }[preferences.forAutomaticRoutines];
+      await win().locator('label.form-check').filter({ hasText: choice })
+        .locator('input[type="radio"]').check();
+      const saved = win().waitForResponse(
+        (r) => r.url().endsWith('/api/settings/notifications') && r.request().method() === 'PUT',
+      );
+      await win().locator('button', { hasText: /^Save/ }).first().click();
+      expect((await saved).ok(), 'Settings → Notifications refused the save').toBe(true);
+    },
+
+    readNotificationPreferences: async (): Promise<NotificationPreferences> => {
+      await goto(PLACES['Notification settings']);
+      const manual = win().locator('label.form-check')
+        .filter({ hasText: 'Notify me when a manual execution completes' })
+        .locator('input[type="checkbox"]');
+      await expect(manual).toBeVisible({ timeout: 30_000 });
+      const modes = [
+        ['all', 'All automatic routines'],
+        ['selected', 'Only selected routines'],
+        ['none', 'None'],
+      ] as const;
+      let chosen: NotificationPreferences['forAutomaticRoutines'] = 'none';
+      for (const [value, label] of modes) {
+        const radio = win().locator('label.form-check').filter({ hasText: label })
+          .locator('input[type="radio"]');
+        if (await radio.isChecked()) chosen = value;
+      }
+      return {
+        whenIRunSomethingMyself: await manual.isChecked(),
+        forAutomaticRoutines: chosen,
+      };
+    },
+
+    anAddressThatRefusesConnections: async () => new Promise((resolve, reject) => {
+      // Bound and then closed: the operating system has just told us this port
+      // was free, and nothing of this suite's is now on it. Loopback, so the
+      // launch guard permits the attempt and the failure is a refusal rather
+      // than a timeout.
+      const probe = net.createServer();
+      probe.once('error', reject);
+      probe.listen(0, '127.0.0.1', () => {
+        const { port } = probe.address() as net.AddressInfo;
+        probe.close(() => resolve({ host: '127.0.0.1', port }));
+      });
+    }),
+
+    readTheChatsPage: async () => {
+      await goto(PLACES.Chats);
+      const list = win().getByRole('region', { name: 'Saved chats' });
+      await expect(list).toBeVisible({ timeout: 30_000 });
+      return (await list.locator('li strong').allInnerTexts()).map((t) => t.trim());
+    },
+
+    openTheSavedChat: async (titleFragment): Promise<SavedTranscript> => {
+      await goto(PLACES.Chats);
+      const list = win().getByRole('region', { name: 'Saved chats' });
+      const row = list.locator('li button').filter({ hasText: titleFragment }).first();
+      await expect(row, `no saved chat whose title contains "${titleFragment}"`)
+        .toBeVisible({ timeout: 30_000 });
+      await row.click();
+      const transcript = win().getByRole('region', { name: 'Saved transcript' });
+      const heading = transcript.getByRole('heading').first();
+      await expect(heading).toBeVisible({ timeout: 30_000 });
+      return {
+        title: (await heading.innerText()).trim(),
+        said: (await transcript.locator('.assistant-bubble').allInnerTexts())
+          .map((t) => t.trim()),
+        text: (await transcript.innerText()).replace(/\s+/g, ' ').trim(),
+      };
+    },
+
+    exportTheOpenChat: async (format) => {
+      const destination = path.join(session.stateDir, `journey-chat.${format === 'json' ? 'json' : 'md'}`);
+      await session.app.evaluate(({ BrowserWindow }, target) => {
+        BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => {
+          item.setSavePath(target as string);
+        });
+      }, destination);
+      const label = format === 'json' ? 'Export JSON' : 'Export Markdown';
+      await win().getByRole('region', { name: 'Saved transcript' })
+        .getByRole('button', { name: label, exact: true }).click();
+      await expect.poll(() => fs.existsSync(destination), { timeout: 30_000 }).toBe(true);
+      await expect.poll(() => fs.statSync(destination).size, { timeout: 30_000 }).toBeGreaterThan(0);
+      return fs.readFileSync(destination, 'utf8');
+    },
+
+    openTheAssistantWithTheKeyboard: async () => {
+      await goto('/');
+      // The shortcut the app documents, on the modifier this platform uses.
+      await win().keyboard.press(process.platform === 'darwin' ? 'Meta+Slash' : 'Control+Slash');
+      const panel = win().getByTestId('assistant-panel');
+      try {
+        await expect(panel).toBeVisible({ timeout: 15_000 });
+        return true;
+      } catch {
+        // Reported, not thrown: whether the keyboard alone opens it is the
+        // row's question, and a driver that threw would turn a finding into a
+        // stack trace.
+        return false;
+      }
+    },
+
+    readTheAssistantPanel: async (): Promise<AssistantPanelFacts> => {
+      const panel = win().getByTestId('assistant-panel');
+      const open = (await panel.count()) > 0 && await panel.isVisible();
+      if (!open) {
+        return {
+          open: false, composerIsNamed: '', composerIsUsable: false, insideTheWindow: false,
+          geometry: { panel: { x: 0, y: 0, width: 0, height: 0 }, window: { width: 0, height: 0 } },
+          errorRoles: [],
+        };
+      }
+      const composer = win().getByLabel('Message the assistant');
+      const box = (await panel.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
+      const viewport = await win().evaluate(() => ({
+        width: window.innerWidth, height: window.innerHeight,
+      }));
+      const errorRoles = await win().locator('.assistant-error').evaluateAll(
+        (nodes) => nodes.map((node) => (node as HTMLElement).getAttribute('role') || ''),
+      );
+      return {
+        open: true,
+        composerIsNamed: String(await composer.getAttribute('aria-label') ?? ''),
+        composerIsUsable: (await composer.count()) > 0 && await composer.isEnabled(),
+        insideTheWindow: box.x >= 0 && box.y >= 0
+          && box.x + box.width <= viewport.width + 1
+          && box.y + box.height <= viewport.height + 1,
+        geometry: { panel: box, window: viewport },
+        errorRoles: errorRoles.filter((role) => role !== ''),
+      };
+    },
+
+    useAnAuthoredProviderOnAKey: async ({ answer, key, model }) => {
+      provider = await startProviderEndpoint(answer);
+      session.alsoCloseOnClose(() => provider!.close());
+      // Two settings groups, because they are two different questions: which
+      // endpoint the app talks to, and which lane the assistant runs in. Both
+      // through the routes the AI tab writes.
+      await session.api('PUT', '/api/settings/ai', {
+        settings: { ai_provider: 'custom', ai_custom_base_url: provider.url },
+      });
+      await session.api('PUT', '/api/settings/assistant', {
+        settings: {
+          assistant_runtime: 'api_key',
+          assistant_provider: 'custom',
+          assistant_model: model,
+          assistant_effort: '',
+        },
+      });
+      // The panel reads the lane when the window opens, so the window has to
+      // see it. Reopening is what a person would do, and it also proves the
+      // settings survived being written.
+      await session.relaunch();
+      // The credential goes to the credential store, not to the settings
+      // database — the same route the API Key field's Store button posts to.
+      // **After the relaunch, and that is not an ordering preference.** This
+      // suite's keyring is an in-memory backend inside the backend process, so
+      // it dies with that process; a credential stored before the relaunch
+      // would be gone by the time the lane looked for it, and the row would
+      // fail for a reason that belongs to the fixture rather than to the app.
+      await session.api('PUT', '/api/credentials/custom_llm_api_key', { value: key });
+    },
+
+    readWhatTheProviderReceived: async (): Promise<ProviderRequest[]> => {
+      expect(provider, 'this journey never started an authored provider').toBeTruthy();
+      return provider!.calls().map((call) => ({
+        path: call.path,
+        authorization: call.authorization,
+        model: call.model,
+        body: call.body,
+      }));
+    },
+
+    readAssistantSettings: async () => session.api('GET', '/api/settings/assistant'),
+
+    runNowControlIsOnTheRow: async (name) => {
+      await goto(PLACES.Routines);
+      const routines = await backend.routines();
+      const routine = routines.find((r) => r.name === name);
+      expect(routine, `no routine named ${name}`).toBeTruthy();
+      const row = win().locator('.simple-table tbody tr').filter({ hasText: name }).first();
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      return (await win().getByTestId(`run-now-${routine!.id}`).count()) > 0;
     },
   };
 }

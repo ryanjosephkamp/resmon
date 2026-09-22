@@ -30,6 +30,35 @@ async function json(win: Page, port: string, url: string, body?: object) {
     return response.json();
   }, { port, url, body });
 }
+/**
+ * Wait until no conversation still has a turn in flight.
+ *
+ * The history-preservation case below snapshots `/api/assistant/sessions`,
+ * changes a setting, reloads, and expects the snapshot back. It went red once
+ * on a commit that touched none of this, with `message_count` 1 against 2 and
+ * `updated_at` a second apart: the *previous* case's last turn was still being
+ * written when the snapshot was taken, so the "before" was a half-written
+ * conversation and the "after" was the finished one. The assertion was right
+ * and the baseline was not.
+ *
+ * The app exposes exactly the fact that was missing. A conversation's own
+ * endpoint reports `running` — whether its runtime process is still going — and
+ * `activity_observation.turn_claimed`, whether the turn's event bus is still
+ * open. Waiting for both to be false on every session is waiting for a terminal
+ * state the app publishes, rather than for a number of milliseconds that would
+ * be wrong on a slower machine. No budget was raised and no retry was added.
+ */
+async function noTurnStillRunning(win: Page, port: string) {
+  await expect.poll(async () => {
+    const { sessions } = await json(win, port, '/api/assistant/sessions');
+    for (const session of sessions as { id: number }[]) {
+      const one = await json(win, port, `/api/assistant/sessions/${session.id}`);
+      if (one.running || one.activity_observation?.turn_claimed) return false;
+    }
+    return true;
+  }, { timeout: 60000, message: 'a conversation still had a turn in flight' }).toBe(true);
+}
+
 async function colors(win: Page, tag: string) {
   const rows = await win.evaluate(() => {
     const rgba = (s: string) => (s.match(/[\d.]+/g) || []).map(Number);
@@ -239,6 +268,8 @@ print(json.dumps([dict(r) for r in c.execute('SELECT * FROM saved_configurations
 
   test('existing assistant settings save the same fields and preserve history', async ({ win, goto, backendPort }) => {
     const port = await backendPort(); await win.keyboard.press('Escape');
+    // The baseline has to be a finished conversation, not one mid-write.
+    await noTurnStillRunning(win, port);
     const history = await json(win, port, '/api/assistant/sessions');
     await goto('/settings/ai'); const section = win.getByTestId('assistant-settings');
     await section.scrollIntoViewIfNeeded();

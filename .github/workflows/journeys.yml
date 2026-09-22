@@ -43,8 +43,17 @@ on:
         required: false
         default: ''
 
+# A manual run is not a newer answer to the same question.
+#
+# With one group per ref, dispatching `break_row` on a branch cancelled that
+# branch's own push run — so the evidence that the job *can* go red arrived by
+# destroying the evidence that it was green, and the PR was left with a
+# cancelled check nobody had asked to cancel. A dispatch therefore gets a group
+# of its own. Push and pull_request keep sharing theirs, which is the case
+# `cancel-in-progress` was put here for: a second push to a branch really does
+# supersede the first.
 concurrency:
-  group: journeys-${{ github.ref }}
+  group: journeys-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && '-dispatch' || '' }}
   cancel-in-progress: true
 
 env:

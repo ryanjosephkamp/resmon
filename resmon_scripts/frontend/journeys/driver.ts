@@ -53,7 +53,9 @@ export type Place =
   | 'Notification settings'
   | 'Cloud Storage settings'
   | 'Advanced settings'
-  | 'Tutorials';
+  | 'Tutorials'
+  // — slice 3 -----------------------------------------------------------------
+  | 'Chats';
 
 /** One run, as the app and the API both identify it. */
 export interface RunHandle {
@@ -68,6 +70,13 @@ export interface DiveRequest {
   days?: number;
   /** The result cap. Omitted means the form's own default. */
   cap?: number;
+  /**
+   * Tick "Enable AI Summarization" on the form before running.
+   *
+   * Slice 3, for J17. Optional and defaulting to off, so every spec written
+   * before it means exactly what it meant.
+   */
+  summarize?: boolean;
 }
 
 export interface SweepRequest {
@@ -796,3 +805,195 @@ export interface JourneyDriver {
  */
 export { runGate } from './fixtures/gates';
 export type { GateOutcome } from './fixtures/gates';
+
+/* ========================================================================== *
+ *  Slice 3 — the rows slices 2a and 2b left pending, and the launch-time
+ *  levers two of them needed.
+ *
+ *  Appended in one block for the same reason the two blocks above are: a slice
+ *  that adds its verbs at the end merges, and one that threads them through the
+ *  interface does not. Nothing above this line changed meaning.
+ * ========================================================================== */
+
+/**
+ * What the app answered when it was asked to run a routine now.
+ *
+ * Both halves, because the row is "one run per routine" and the two halves are
+ * different claims. A refusal a person can read is not the same fact as a
+ * backend that started only one run, and a journey that watched only the first
+ * would pass over an app that refused on screen and ran twice underneath.
+ */
+export interface RunNowAnswer {
+  /** The run it started, or null when it refused. */
+  run: RunHandle | null;
+  /** The refusal in the words the app would show a person, or ''. */
+  refusal: string;
+  /**
+   * What the app called the refusal, in its own vocabulary, or ''.
+   *
+   * The backend publishes this as a response header, and a renderer reading its
+   * own backend cross-origin is given only the safelisted headers unless the
+   * server exposes more — which this one does not. So this is '' from inside
+   * the app, and the row asserts the sentence a person actually reads. The
+   * header's own evidence stays `test_duplicate_protection.py`, which asks over
+   * a transport that can see it.
+   */
+  refusalKind: string;
+}
+
+export interface JourneyDriver {
+  // — one run per routine (J39) ----------------------------------------------
+  /**
+   * Ask for this routine to run now, without waiting for any run already in
+   * flight — the second half of "press Run now twice".
+   */
+  askForThisRoutineToRunNow(name: string): Promise<RunNowAnswer>;
+  /**
+   * Whether the `Run now` control is on this routine's row at all.
+   *
+   * The register row's journey is a person pressing a button, and in this suite
+   * that button is not reachable: it appears only on a routine that has missed
+   * a fire, and the app spawns its backend with the scheduler disabled, so
+   * nothing here can miss one. The spec asks, reports the answer, and says what
+   * it therefore did not establish rather than implying it clicked.
+   */
+  runNowControlIsOnTheRow(name: string): Promise<boolean>;
+
+  // — the summarization lanes (J17) ------------------------------------------
+  /**
+   * Point Settings → AI at an authored `claude` that reports it is not signed
+   * in, the way a person points it at a real one.
+   *
+   * This is the summarization lane's CLI, not the assistant's: a different
+   * protocol, a different double. What it replaces is the sign-in — the
+   * discovery, the argv, the exit handling, the classification of the failure
+   * and everything the lane then does about it are the app's own. What no
+   * double can see is a real CLI's own behaviour, and the ledger says so.
+   */
+  useAnAuthoredSummarizerThatIsNotSignedIn(): Promise<void>;
+  /** What Settings → AI says about the lane it would use. */
+  readAiLaneStatus(): Promise<string>;
+  /** The run's own log, as the report viewer's Log tab shows it. */
+  readRunLog(run: RunHandle): Promise<string>;
+  /** The report itself, as the report viewer's Report tab shows it. */
+  readTheReport(run: RunHandle): Promise<string>;
+
+  // — notifications and email (J23) ------------------------------------------
+  /** Fill in Settings → Email and save it, storing the password separately. */
+  configureEmail(settings: EmailSettings, password: string): Promise<void>;
+  /** Read Settings → Email back, field by field, as the page shows it. */
+  readEmailSettings(): Promise<EmailSettings>;
+  /** Press Send Test Email and return the sentence the page then shows. */
+  sendATestEmail(): Promise<string>;
+  /** Set the notification preferences and save them. */
+  setNotificationPreferences(preferences: NotificationPreferences): Promise<void>;
+  /** Read them back, as the tab shows them. */
+  readNotificationPreferences(): Promise<NotificationPreferences>;
+  /**
+   * A loopback address with nothing listening on it.
+   *
+   * Not a thing a person does — but a journey that wants "the server is not
+   * answering" needs somewhere that genuinely refuses a connection, and a port
+   * number written into a spec would be somebody's real service one day. The
+   * driver takes a port from the operating system and gives it back, which is
+   * the closest thing to a fact rather than a guess.
+   */
+  anAddressThatRefusesConnections(): Promise<{ host: string; port: number }>;
+
+  // — saved chats (J32) ------------------------------------------------------
+  /** Every saved chat the Chats page lists, by title, in the order it lists them. */
+  readTheChatsPage(): Promise<string[]>;
+  /** Open the saved chat whose title contains this, and read its transcript. */
+  openTheSavedChat(titleFragment: string): Promise<SavedTranscript>;
+  /**
+   * Export the open chat and return what is inside the file the app wrote.
+   *
+   * A real download with only the destination picker replaced: the request, the
+   * bytes and the serializer are the app's own, the same seam
+   * `exportReferences` uses.
+   */
+  exportTheOpenChat(format: 'json' | 'markdown'): Promise<string>;
+
+  // — the Ask panel, read as a person reads it (J31) --------------------------
+  /**
+   * Open the assistant the way somebody who does not use a mouse opens it, and
+   * report whether the keyboard alone got there.
+   */
+  openTheAssistantWithTheKeyboard(): Promise<boolean>;
+  /** What the assistant panel offers a person, and whether it all fits. */
+  readTheAssistantPanel(): Promise<AssistantPanelFacts>;
+
+  // — the assistant on a key (J14) -------------------------------------------
+  /**
+   * Point the assistant at a model provider of the person's own — a key they
+   * pasted in and an endpoint they named — the way Settings → AI does.
+   *
+   * The provider is an authored one on loopback; what it replaces is the model.
+   * The key is stored through the app's own credential route into the same
+   * in-memory credential store every journey uses, and it is the app's own code
+   * that reads it back out when it builds the request.
+   */
+  useAnAuthoredProviderOnAKey(options: { answer: string; key: string; model: string }): Promise<void>;
+  /** Every request the authored provider received, headers included. */
+  readWhatTheProviderReceived(): Promise<ProviderRequest[]>;
+  /** What the app will show about the assistant's own settings. */
+  readAssistantSettings(): Promise<Record<string, any>>;
+}
+
+/** One request the app made of the authored provider. */
+export interface ProviderRequest {
+  path: string;
+  /** The `Authorization` header, verbatim, or null. */
+  authorization: string | null;
+  model: string;
+  /** The body, as the provider received it. */
+  body: Record<string, any>;
+}
+
+/** The Ask panel as somebody reading it — or hearing it read — meets it. */
+export interface AssistantPanelFacts {
+  /** The panel is on screen at all. */
+  open: boolean;
+  /** The composer carries a name assistive technology can announce. */
+  composerIsNamed: string;
+  /** The composer can be typed into. */
+  composerIsUsable: boolean;
+  /** The panel is entirely inside the window, at the size the window is now. */
+  insideTheWindow: boolean;
+  /** The panel and the window, for a failure that has to say by how much. */
+  geometry: { panel: { x: number; y: number; width: number; height: number };
+    window: { width: number; height: number } };
+  /**
+   * The roles the panel's own error region carries, if it is showing one.
+   *
+   * An error a sighted person can see and a screen reader never announces is
+   * half a feature, so the row asks for the role rather than for the text.
+   */
+  errorRoles: string[];
+}
+
+/** A saved chat as the Chats page shows it when it is open. */
+export interface SavedTranscript {
+  title: string;
+  /** Every bubble in the transcript, in order. */
+  said: string[];
+  /** The whole panel, for the sentences no structured read covers. */
+  text: string;
+}
+
+/** Settings → Email, in the words the page uses for each field. */
+export interface EmailSettings {
+  server: string;
+  port: string;
+  username: string;
+  sender: string;
+  recipients: string;
+}
+
+/** Settings → Notifications, as a person sets it. */
+export interface NotificationPreferences {
+  /** "Notify me when a manual execution completes". */
+  whenIRunSomethingMyself: boolean;
+  /** Which automatic routines may notify. */
+  forAutomaticRoutines: 'all' | 'selected' | 'none';
+}
