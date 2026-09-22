@@ -61,15 +61,24 @@ const CLOSE_DEADLINE_MS = 45_000;
  */
 const ORPHAN_GRACE_MS = 3_000;
 
-/** Whether this process is the leader of its own process group, per `ps`. */
-function leadsItsOwnGroup(pid: number): boolean {
+/**
+ * The process group this pid leads, or null if it does not lead one.
+ *
+ * **Asked while the process is alive.** Asking afterwards is what made the
+ * first version of the group kill a no-op on the runner: by the time the close
+ * had gone wrong the Electron process had already exited and been reaped, so
+ * `ps -p <pid>` found nothing, the guard said "not a leader", and the log read
+ * `killed pid 4933 was already gone` — neither the group nor the pid. The
+ * answer has to be taken at launch and kept.
+ */
+function groupLedBy(pid: number | undefined): number | null {
+  if (!pid) return null;
   try {
-    const pgid = execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).trim();
-    return Number(pgid) === pid;
+    const pgid = Number(execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).trim());
+    return pgid === pid ? pgid : null;
   } catch {
-    // No answer is not a yes: a process `ps` cannot find is one this must not
-    // guess about.
-    return false;
+    // No answer is not a yes.
+    return null;
   }
 }
 
@@ -90,18 +99,18 @@ function after(ms: number): Promise<void> {
  * `readline` interfaces Playwright wrapped around those pipes stay ref'd, and
  * the worker cannot exit. Returns what it managed to do, for the log.
  */
-function killTree(pid: number | undefined): string {
-  if (!pid) return 'no pid';
+function killTree(pid: number | undefined, group: number | null): string {
   const attempts: string[] = [];
-  // Asked, not assumed. `kill(-pid)` means "the process group whose id is
-  // pid", and if this process were somehow *not* its own group leader that
-  // would be some other group — conceivably this worker's. The group is only
-  // killed when the operating system says the app leads it.
-  if (process.platform !== 'win32' && leadsItsOwnGroup(pid)) {
-    try { process.kill(-pid, 'SIGKILL'); attempts.push(`group -${pid}`); } catch { /* already gone */ }
+  // `kill(-g)` means "the process group whose id is g", so this only ever uses
+  // a group the operating system confirmed at launch. Guessing one would be
+  // aiming a SIGKILL at a group that might be this worker's.
+  if (process.platform !== 'win32' && group) {
+    try { process.kill(-group, 'SIGKILL'); attempts.push(`group -${group}`); } catch { /* nothing left in it */ }
   }
-  try { process.kill(pid, 'SIGKILL'); attempts.push(`pid ${pid}`); } catch { /* already gone */ }
-  return attempts.length ? attempts.join(' and ') : `pid ${pid} was already gone`;
+  if (pid) {
+    try { process.kill(pid, 'SIGKILL'); attempts.push(`pid ${pid}`); } catch { /* already reaped */ }
+  }
+  return attempts.length ? attempts.join(' and ') : 'nothing: the group and the pid were both already gone';
 }
 
 /** The build under test: `RESMON_JOURNEY_APP`, or the checkout this suite lives in. */
@@ -194,6 +203,8 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
   let port = '';
   /** The backend child of the app currently running, so a forced close can reach it. */
   let backendPid: number | null = null;
+  /** The process group the running app leads, recorded while it is alive to lead one. */
+  let appGroup: number | null = null;
   /** Every close that had to be forced. Empty is the expected answer. */
   const forced: string[] = [];
   /** Paths outside the state directory that this session created and must remove. */
@@ -206,6 +217,9 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
       env,
       timeout: 180_000,
     });
+    // While it is alive: a dead process leads no group, and this is the only
+    // moment the question has an answer.
+    appGroup = groupLedBy(app.process()?.pid);
     win = await app.firstWindow({ timeout: 180_000 });
     await win.waitForLoadState('domcontentloaded');
     await win.locator('.app-main').waitFor({ state: 'visible', timeout: 90_000 });
@@ -279,7 +293,33 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
   const put = async (): Promise<void> => {
     const owned = app?.process();
     const child = backendPid;
+    const group = appGroup;
     const gone = (): boolean => !owned || owned.exitCode !== null || owned.signalCode !== null;
+
+    /**
+     * Close **our** end of the app's stdout and stderr.
+     *
+     * This is the line that actually frees the worker, and it took two rounds
+     * to see why. Everything else here tries to make the *other* end let go:
+     * kill the app, kill its group, kill the backend. On an Ubuntu runner under
+     * `xvfb-run` that is not enough — some Chromium helper keeps the write end
+     * whatever this does, and the probe went on listing `Socket fd=23` and
+     * `Socket fd=25`, ref'd and undestroyed, thirty seconds after the last
+     * case. Those two sockets are this process's read ends of the app's stdout
+     * and stderr, and this process can simply destroy them. A destroyed socket
+     * leaves the active-handle set no matter who else holds the pipe, so the
+     * worker's exit stops depending on the good behaviour of processes it did
+     * not start.
+     *
+     * Only ever after the exit has been observed: these are the streams
+     * Playwright reads the app's output from, and closing them early would
+     * discard output a live app was still producing.
+     */
+    const dropOurEndOfItsStdio = (): void => {
+      for (const stream of [owned?.stdout, owned?.stderr, owned?.stdin]) {
+        try { stream?.destroy(); } catch { /* already destroyed, which is the usual case */ }
+      }
+    };
 
     // Start the close and **keep the promise**. Racing it and walking away was
     // the first attempt, and it moved the symptom rather than removing it: the
@@ -316,12 +356,14 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
         : outcome === 'deadline'
           ? `close() did not return within ${CLOSE_DEADLINE_MS} ms`
           : 'close() resolved but the process was still there';
-      const killed = killTree(owned?.pid);
+      const killed = killTree(owned?.pid, group);
       forced.push(`${why}; killed ${killed}`);
       console.log(`[journeys] FORCED CLOSE: ${forced[forced.length - 1]}`);
-      // With the whole group gone every inherited pipe is closed, so the
-      // `'close'` Playwright is waiting on arrives and the close it was holding
-      // finishes. Bounded anyway: a tidy-up is not worth a second hang.
+      // Then stop depending on anyone else. Whatever the group kill did or did
+      // not reach, the read ends are ours to close, and closing them is also
+      // what lets Node emit the `'close'` Playwright has been waiting on.
+      // Still bounded: a tidy-up is not worth a second hang.
+      dropOurEndOfItsStdio();
       await Promise.race([closing, after(30_000)]);
     }
 
@@ -337,7 +379,12 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     await expect
       .poll(gone, { timeout: 60_000, message: 'the app did not exit even after being SIGKILLed' })
       .toBe(true);
+    // Every path, forced or not, and only now that the exit is a fact. A clean
+    // quit leaves these ended already and this is a no-op; the point is that
+    // there is no path off this function that leaves them open.
+    dropOurEndOfItsStdio();
     backendPid = null;
+    appGroup = null;
   };
 
   await bring();

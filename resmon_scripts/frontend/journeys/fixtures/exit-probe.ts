@@ -96,6 +96,11 @@ function snapshot(label: string): string {
  * outlives the process.
  */
 export function armExitProbe(): void {
+  // `RESMON_JOURNEY_EXIT_PROBE=off` turns it off. It is on by default because a
+  // healthy worker never reaches the first fire — the timer is unref'd, so the
+  // process exits first and the log gains nothing — and the one run where it
+  // does fire is the run somebody needs it in.
+  if ((process.env.RESMON_JOURNEY_EXIT_PROBE || '').trim().toLowerCase() === 'off') return;
   const began = Date.now();
   let fires = 0;
   const report = path.join(evidenceDir(), 'exit-probe.txt');
