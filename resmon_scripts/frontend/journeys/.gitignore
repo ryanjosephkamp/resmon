@@ -1,0 +1,9 @@
+# Regenerated on every run and specific to the machine that produced it.
+# Screenshots are NOT committed here for the same reason they are not committed
+# next door: two branches that both run the suite both rewrite every file, and a
+# committed screenshot is a merge conflict rather than evidence. CI uploads them
+# as a workflow artifact; RESMON_JOURNEY_SCREENSHOT_DIR points a local run
+# somewhere outside the repository.
+screenshots/
+test-results/
+report/

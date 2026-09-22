@@ -17,6 +17,9 @@
     "e2e:smoke": "playwright test --config e2e/playwright.config.ts e2e/smoke.spec.ts",
     "e2e:window": "playwright test --config e2e/playwright.config.ts e2e/window-manager.spec.ts",
     "e2e:review": "node scripts/e2e-review.js",
+    "journeys": "playwright test --config journeys/playwright.config.ts",
+    "journeys:classic": "RESMON_JOURNEY_DRIVER=classic playwright test --config journeys/playwright.config.ts",
+    "typecheck:journeys": "tsc --noEmit --project journeys/tsconfig.json",
     "prepare:backend": "node scripts/prepare-backend.js",
     "dist": "npm run build && electron-builder --publish never",
     "dist:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist"

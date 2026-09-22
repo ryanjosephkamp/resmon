@@ -134,6 +134,39 @@ electron.launch = (async (options?: Parameters<typeof electron.launch>[0]) => {
 
 export const FRONTEND_ROOT = path.resolve(__dirname, '..', '..');
 export const REPO_ROOT = path.resolve(FRONTEND_ROOT, '..', '..');
+
+/**
+ * Which build a launch starts.
+ *
+ * Every spec in `e2e/` launches the app out of the checkout the spec itself
+ * lives in, and that is still the default. `journeys/` needs one more thing:
+ * the same suite, from one commit, launched against *another* build — the
+ * `classic` branch's, so a journey test can be run against the app as it was
+ * and against the app as it is and the two compared. The only difference
+ * between those two runs is which directory the Electron process is started
+ * from, so that is all this type carries.
+ *
+ * `frontend` is the directory holding `package.json` and `dist/`; `repo` is two
+ * levels above it, which is where `resmon_scripts/resmon.py` lives and where a
+ * seeding helper puts `implementation_scripts` on the path. Both are derived
+ * together so a caller cannot pass a frontend from one checkout and a backend
+ * from another.
+ */
+export interface AppRoot {
+  /** The `frontend/` directory of the build under test; the Electron `cwd`. */
+  frontend: string;
+  /** Its repository root — the parent of `resmon_scripts/`. */
+  repo: string;
+}
+
+/** The checkout these specs live in. */
+export const THIS_CHECKOUT: AppRoot = { frontend: FRONTEND_ROOT, repo: REPO_ROOT };
+
+/** The build rooted at some other `frontend/` directory. */
+export function appRootAt(frontend: string): AppRoot {
+  const resolved = path.resolve(frontend);
+  return { frontend: resolved, repo: path.resolve(resolved, '..', '..') };
+}
 /**
  * Where a run's screenshots land.
  *
@@ -249,12 +282,35 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
   return env;
 }
 
-export async function launchResmon(e2e = true): Promise<{ app: ElectronApplication; stateDir: string }> {
-  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-'));
+/**
+ * Anything a caller needs to vary about a launch beyond `RESMON_E2E`.
+ *
+ * All three default to what every `e2e/` spec already gets, so
+ * `launchResmon(true)` and `launchResmon(false)` mean exactly what they meant
+ * before this type existed. `journeys/` passes `root` to launch another
+ * build, `env` to add the offline guard its runs are held to, and `stateDir`
+ * for the two rows that launch twice over the same state — a relaunch after a
+ * kill, and a restore.
+ */
+export interface LaunchOptions {
+  /** The build to start. Defaults to the checkout these specs live in. */
+  root?: AppRoot;
+  /** Merged over `launchEnv`'s result, so a caller can add to it but the pins stay. */
+  env?: Record<string, string>;
+  /** Launch over this state directory instead of a fresh temp one. */
+  stateDir?: string;
+}
+
+export async function launchResmon(
+  e2e = true,
+  options: LaunchOptions = {},
+): Promise<{ app: ElectronApplication; stateDir: string }> {
+  const root = options.root ?? THIS_CHECKOUT;
+  const stateDir = options.stateDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-'));
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
-    cwd: FRONTEND_ROOT,
-    env: launchEnv(stateDir, e2e),
+    cwd: root.frontend,
+    env: { ...launchEnv(stateDir, e2e), ...options.env },
     timeout: 180_000,
   });
   return { app, stateDir };

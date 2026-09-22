@@ -1,0 +1,18 @@
+{
+  "//": "The repository tsconfig covers src/** only and Playwright's runner transpiles TypeScript with esbuild without typechecking it, so without this file nothing would look at this directory. `npm run typecheck:journeys` runs it and journeys.yml runs that before the suite. It includes e2e/ because the launch fixture lives there and this directory imports it.",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node10",
+    "types": ["node"],
+    "noEmit": true,
+    "ignoreDeprecations": "6.0"
+  },
+  "include": ["**/*.ts", "../e2e/fixtures/**/*.ts"]
+}
