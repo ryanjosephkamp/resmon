@@ -15,6 +15,7 @@
  * the result.
  */
 import { expect, journey } from './driver';
+import type { Figure } from './driver';
 
 journey.describe('J05 Analytics', () => {
   journey('the views draw the seeded corpus, the keyword view waits to be asked, and the chart leads into the Explorer', async ({ resmon }) => {
@@ -31,6 +32,11 @@ journey.describe('J05 Analytics', () => {
     // The five views the page stacks. The denominator is the page's own list of
     // cards, and this asserts the register's five are among them rather than
     // pinning a total that a sixth card would break for no reason.
+    //
+    // Compared without case: the stylesheet upper-cases these headings, so what
+    // a person reads — and what `innerText` returns — is "YOUR CORPUS". Pinning
+    // the capitalisation would be pinning a stylesheet rule.
+    const drawn = view.headings.map((heading) => heading.toLowerCase());
     for (const card of [
       'Your corpus',
       'Which sources earn their place',
@@ -38,27 +44,48 @@ journey.describe('J05 Analytics', () => {
       'How quickly each source surfaces a paper',
       'Routine health',
     ]) {
-      expect(view.headings, `the Analytics page no longer draws "${card}"`).toContain(card);
+      expect(drawn, `the Analytics page no longer draws "${card}"`).toContain(card.toLowerCase());
     }
 
     // The counts the seeded corpus implies. The Papers tile is the Explorer's
     // own total, read from the backend, not a number chosen here.
-    const papers = view.tiles.find((tile) => tile.label === 'Papers');
+    const tile = (label: string): Figure | undefined => view.tiles
+      .find((candidate) => candidate.label.toLowerCase() === label.toLowerCase());
+    const papers = tile('Papers');
     expect(papers, 'the corpus card draws no paper count').toBeTruthy();
     expect(Number(papers!.value.replace(/[^0-9]/g, '')), 'the paper tile disagrees with the corpus')
       .toBe(corpus.documents);
-    const sources = view.tiles.find((tile) => tile.label === 'Sources used');
+    const sources = tile('Sources used');
     expect(Number(sources!.value.replace(/[^0-9]/g, '')), 'one source answered, and the tile says otherwise').toBe(1);
     // One source cannot be compared with another, and the page says so rather
     // than drawing a bar chart of one.
     console.log(`[J05] not enough yet: ${JSON.stringify(view.notEnoughYet)}`);
 
-    // The expensive view waits to be asked.
+    // The expensive view waits to be asked, and says so where a person can read
+    // it. This is the property: reading every paper in the corpus is not
+    // something a page does on arrival.
+    const page = await resmon.readWhatThisPlaceSays();
+    expect(page, 'the keyword view no longer says why it does not run on its own')
+      .toMatch(/not run automatically/i);
+
     const keywords = await resmon.measureKeywordYield();
     console.log(`[J05] keyword yield: ${JSON.stringify(keywords)}`);
-    expect(keywords.length, 'the keyword view drew nothing when asked').toBeGreaterThan(0);
-    expect(keywords.map((row) => row.label), 'the keyword the run used is not in its own yield')
-      .toContain('perovskite');
+    expect(
+      keywords.bars.length > 0 || keywords.notEnoughYet.length > 0,
+      'the keyword view drew neither a yield nor a reason for not drawing one',
+    ).toBe(true);
+    if (keywords.bars.length) {
+      expect(keywords.bars.map((row) => row.label), 'the keyword the run used is not in its own yield')
+        .toContain('perovskite');
+    } else {
+      // Two authored papers is below the sample the share needs, and the card
+      // says so rather than drawing a percentage of two.
+      console.log(
+        '[J05] NOT VERIFIED: a per-keyword yield. The authored corpus is smaller than '
+        + `the sample a share needs, and the card said so instead: ${JSON.stringify(keywords.notEnoughYet)}`,
+      );
+      expect(keywords.notEnoughYet).toMatch(/not enough|needs at least|so far/i);
+    }
 
     // And the handoff. Wherever the chart offers it, following it must land in
     // the Explorer already filtered, not on the unfiltered list.

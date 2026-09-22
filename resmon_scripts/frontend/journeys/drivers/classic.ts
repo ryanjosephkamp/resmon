@@ -207,6 +207,7 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       return Object.keys(document.paths ?? {}).sort();
     },
     serviceStatus: () => session.api('GET', '/api/service/status'),
+    daemonStatus: () => session.api('GET', '/api/service/daemon-status'),
     sourceCatalog: async () => {
       const catalog = await session.api<any>('GET', '/api/repositories/catalog');
       // The endpoint has been a bare list and a wrapped one; take whichever
@@ -828,7 +829,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       return { headings, tiles, sources, notEnoughYet };
     },
 
-    measureKeywordYield: async (): Promise<Figure[]> => {
+    measureKeywordYield: async (): Promise<{ bars: Figure[]; notEnoughYet: string }> => {
       await goto(PLACES.Analytics);
       const button = win().getByRole('button', { name: 'Measure keyword contribution', exact: true });
       await expect(
@@ -841,19 +842,27 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       await button.click();
       await answered;
       await win().waitForTimeout(500);
-      // The keyword card is the second bar block on the page; before the click
-      // there is only one.
-      const blocks = win().locator('.analytics-bars');
-      const out: Figure[] = [];
-      if (await blocks.count() < 2) return out;
-      const rows = blocks.nth(1).locator('.analytics-bar-row');
+      // The keyword card is the one whose heading names keywords, found by that
+      // heading rather than by its position on the page: the cards above it are
+      // conditional and counting from the top would break when one is absent.
+      const card = win().locator('section.card')
+        .filter({ has: win().locator('h2:text-matches("keywords", "i")') }).first();
+      await expect(card, 'the page draws no keyword card').toBeVisible({ timeout: 30_000 });
+      const bars: Figure[] = [];
+      const rows = card.locator('.analytics-bar-row');
       for (let i = 0; i < await rows.count(); i += 1) {
-        out.push({
+        bars.push({
           label: (await rows.nth(i).locator('.analytics-bar-label').innerText()).trim(),
           value: (await rows.nth(i).locator('.analytics-bar-num').innerText()).trim(),
         });
       }
-      return out;
+      // A corpus too small for a share to mean anything gets a sentence instead
+      // of bars, which is an answer rather than an empty card.
+      const thin = card.locator('p.analytics-thin');
+      return {
+        bars,
+        notEnoughYet: (await thin.count()) ? (await thin.first().innerText()).trim() : '',
+      };
     },
 
     followTheChartIntoTheExplorer: async () => {

@@ -67,12 +67,13 @@ journey.describe('J08 Author identity and entity search', () => {
       );
     }
     await resmon.open('Watch Profiles');
-    const profiles = await resmon.readWhatThisPlaceSays();
+    const profiles = await resmon.readTheHelpOnThisPage();
+    console.log(`[J08] Watch Profiles help: ${JSON.stringify(profiles.slice(0, 200))}`);
     expect(
       profiles,
       'nothing on Watch Profiles tells a person what happens on a source that cannot be asked',
     ).toMatch(/cannot be asked about a person/i);
-    expect(profiles).toMatch(/source['’]s own (source )?row|run's own source row/i);
+    expect(profiles).toMatch(/own source row|source['’]s own row|run['’]s own source row/i);
 
     await resmon.takePicture('J08-author-identity-and-entity-search');
     expect(resmon.refusedConnections()).toEqual([]);

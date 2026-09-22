@@ -193,6 +193,15 @@ export interface BackendFacts {
   routeInventory(): Promise<string[]>;
   /** What the app says about the daemon service it could install. */
   serviceStatus(): Promise<Record<string, any>>;
+  /**
+   * What the app finds when it actually looks for a running daemon.
+   *
+   * Independent of `serviceStatus()` on purpose: that one answers "is a unit
+   * installed for this user", which is a fact about the machine, and this one
+   * answers "is one listening for this state directory", which is the fact B3
+   * cares about.
+   */
+  daemonStatus(): Promise<Record<string, any>>;
   /** Every source the catalog holds, as the Repositories page is served it. */
   sourceCatalog(): Promise<Record<string, any>[]>;
   /** What the backend says about the semantic index: present, and why not when absent. */
@@ -488,8 +497,12 @@ export interface JourneyDriver {
 
   /** What the Analytics page draws for the corpus it has. */
   readAnalytics(): Promise<AnalyticsView>;
-  /** Press the button that measures keyword yield, and read what it draws. */
-  measureKeywordYield(): Promise<Figure[]>;
+  /**
+   * Press the button that measures keyword yield, and read what the card then
+   * draws — either the per-keyword bars, or the sentence it prints when the
+   * corpus is too small for a share to mean anything.
+   */
+  measureKeywordYield(): Promise<{ bars: Figure[]; notEnoughYet: string }>;
   /**
    * Follow the link a chart offers into the Explorer, and report where it
    * landed and what it filtered to.
