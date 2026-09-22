@@ -312,6 +312,22 @@ maintainer. Expect the review to check contract conformance, whether the tests g
 exercise the behavior they name, and whether anything in the diff claims more than it
 proves.
 
+**The journey suite.** `resmon_scripts/frontend/journeys/` holds one automated
+test per row of the 3.0 parity register, and the same suite runs against more
+than one build: `RESMON_JOURNEY_APP` names the `frontend/` directory of the app
+under test and `RESMON_JOURNEY_DRIVER` chooses `classic` or `candidate`, so the
+app as it is and the app as it was can be measured from one commit. Nothing in a
+spec touches the renderer — every spec goes through `driver.ts`, written in the
+words of the journeys, and `register.spec.ts` greps for a renderer call or a
+stray import and fails on a hit, which is what will make these specs survive the
+renderer rebuild. **A register row and its spec exist together**: the same guard
+fails when a built row has no spec and when a spec claims no row, so a journey
+cannot quietly stop being covered. Rows not yet built name the slice that owes
+them. Run it with `npm run journeys`, `npm run journeys:classic` and
+`npm run typecheck:journeys`; the directory's own `README.md` carries the
+copy-pasteable pair of commands for an arbitrary build. CI is `journeys.yml`,
+two legs, both with a `break_row` input.
+
 Saved conversation read/export contract: `docs/api-contract/assistant-conversations.md`;
 Chats journey: `resmon_scripts/frontend/e2e/chats-export.spec.ts`.
 

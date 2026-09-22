@@ -150,10 +150,20 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       });
     },
 
-    readConnectedIdentity: async () => ({
-      status: (await win().locator('.connection-identity [role="status"]').innerText()).trim(),
-      details: (await win().locator('.connection-details').innerText()).trim(),
-    }),
+    readConnectedIdentity: async () => {
+      const status = win().locator('.connection-identity [role="status"]');
+      await expect(status).not.toBeEmpty({ timeout: 30_000 });
+      // The details are a closed `<details>`: the summary is the badge, and the
+      // identifiers only exist in the layout once a person has opened it.
+      const summary = win().locator('.connection-identity > summary');
+      if (!await win().locator('.connection-identity[open]').count()) await summary.click();
+      const details = win().locator('.connection-details');
+      await expect(details).toBeVisible({ timeout: 15_000 });
+      return {
+        status: (await status.innerText()).trim(),
+        details: (await details.innerText()).trim(),
+      };
+    },
 
     // — running ---------------------------------------------------------------
 
@@ -224,13 +234,28 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       };
     },
 
-    readRunPanelOutcomes: async (run): Promise<SourceOutcome[]> => {
+    readRunPanelOutcomes: async (run, options): Promise<SourceOutcome[]> => {
       await goto(PLACES.Monitor);
       const tab = win().getByTestId(`mon-tab-${run.id}`);
       await expect(tab).toBeVisible({ timeout: 60_000 });
       await tab.click();
       const rows = win().locator('.mon-repo-row');
       await expect(rows.first()).toBeVisible({ timeout: 60_000 });
+      if (options?.settled) {
+        // The per-source statuses arrive over the progress stream. A run that
+        // had already finished before the Monitor was opened is adopted with
+        // nothing filled in, so a spec comparing the panel with the report has
+        // to have been watching — which is the honest shape of the comparison
+        // anyway, because that is what the user was doing.
+        // Lower-cased before the comparison: the stylesheet upper-cases these,
+        // so `innerText` reads "Pending", and a poll that compared against
+        // "pending" was satisfied immediately by every state including the one
+        // it was waiting to leave. It passed, and measured nothing.
+        await expect.poll(async () => (await rows.locator('.mon-repo-status-text').allInnerTexts())
+          .map((t) => t.trim().toLowerCase())
+          .every((label) => !['pending', 'querying'].includes(label)),
+        { timeout: 90_000 }).toBe(true);
+      }
       const count = await rows.count();
       const out: SourceOutcome[] = [];
       for (let i = 0; i < count; i += 1) {
@@ -269,9 +294,15 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     readReportOutcomes: async (run): Promise<SourceOutcome[]> => {
       await openResultsRow(run);
       // The per-source table is behind "View source details"; the summary
-      // sentence is what the page shows first.
+      // sentence is what the report shows first. Waiting for the summary
+      // before looking for the button matters: the coverage block arrives on
+      // its own request, and a `count()` taken before it lands reads zero and
+      // skips the click, leaving a table that never appears.
+      await expect(win().locator('.report-viewer > .coverage-summary'))
+        .toBeVisible({ timeout: 30_000 });
       const details = win().locator('.coverage-summary button', { hasText: 'View source details' });
-      if (await details.count()) await details.first().click();
+      await expect(details.first()).toBeVisible({ timeout: 30_000 });
+      await details.first().click();
       const rows = win().locator('.coverage-table tbody tr');
       await expect(rows.first()).toBeVisible({ timeout: 30_000 });
       const count = await rows.count();
@@ -294,12 +325,11 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     },
 
     reportExists: async (run) => {
-      const row = await backend.execution(run);
-      const report = String(row.report_path ?? row.report ?? '');
-      if (!report) return false;
-      const markdown = await session.api<string>('GET', `/api/executions/${run.id}/report`)
-        .catch(() => '');
-      return typeof markdown === 'string' ? markdown.trim().length > 0 : !!markdown;
+      // The same request the report viewer makes, and the same field it reads.
+      const report = await session.api<{ report_text?: string }>(
+        'GET', `/api/executions/${run.id}/report`,
+      ).catch(() => ({} as { report_text?: string }));
+      return String(report.report_text ?? '').trim().length > 0;
     },
 
     exportReferences: async (runs, format) => {
@@ -485,16 +515,27 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
 
     exportConfigurations: async () => {
       await goto(PLACES['Saved configurations']);
-      const rows = win().locator('.simple-table tbody tr');
-      await expect(rows.first()).toBeVisible({ timeout: 30_000 });
-      for (let i = 0; i < await rows.count(); i += 1) {
-        const box = rows.nth(i).getByRole('checkbox');
-        if (await box.count()) await box.check();
+      // The table is split across two tabs and the selection is one set across
+      // both, so "export every saved configuration" means visiting both. The
+      // page opens on Routine Configs and a saved sweep is on the other one.
+      for (const tab of ['Routine Configs', 'Manual Configs']) {
+        await win().locator('.tab-bar .tab-btn', { hasText: tab }).click();
+        await win().waitForTimeout(300);
+        const rows = win().locator('.simple-table tbody tr');
+        for (let i = 0; i < await rows.count(); i += 1) {
+          const box = rows.nth(i).getByRole('checkbox');
+          if (await box.count()) await box.check();
+        }
       }
-      await win().locator('button', { hasText: /^Export Selected/ }).click();
+      const exportButton = win().locator('button', { hasText: /^Export Selected/ });
+      await expect(exportButton, 'nothing was selectable to export').toBeEnabled({ timeout: 15_000 });
+      await exportButton.click();
       const message = win().locator('.form-success');
       await expect(message).toContainText('Export saved to:', { timeout: 30_000 });
-      const written = (await message.innerText()).replace('Export saved to:', '').trim();
+      // The banner carries a "Reveal in Finder" button beside the sentence, so
+      // its innerText is two lines and only the first is a path.
+      const written = (await message.innerText())
+        .split('\n')[0].replace('Export saved to:', '').trim();
       expect(fs.existsSync(written), `the export names ${written}, which is not there`).toBe(true);
       // The export is a zip of one JSON member per configuration, so the bytes
       // on disk are compressed and searching them for a secret would be a
@@ -526,9 +567,10 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     backUpNow: async (options): Promise<BackupResult> => {
       await goto(PLACES['Storage settings']);
       await expect(win().getByTestId('backup-restore')).toBeVisible({ timeout: 30_000 });
-      const box = win().locator('label.checkbox-label')
+      const box = win().locator('label')
         .filter({ hasText: 'Include the reports folder' })
-        .locator('input[type="checkbox"]');
+        .locator('input[type="checkbox"]')
+        .first();
       if (options.reports) await box.check(); else await box.uncheck();
       const answered = win().waitForResponse(
         (r) => r.url().endsWith('/api/backup') && r.request().method() === 'POST',

@@ -190,8 +190,12 @@ export interface JourneyDriver {
   runDive(request: DiveRequest): Promise<RunHandle>;
   runSweep(request: SweepRequest): Promise<RunHandle>;
   waitForRunToSettle(run: RunHandle): Promise<RunFacts>;
-  /** Per-source outcomes as the live run panel shows them. */
-  readRunPanelOutcomes(run: RunHandle): Promise<SourceOutcome[]>;
+  /**
+   * Per-source outcomes as the live run panel shows them. With
+   * `{ settled: true }`, wait until no source is still pending or being
+   * queried — the panel a person is left looking at when the run is over.
+   */
+  readRunPanelOutcomes(run: RunHandle, options?: { settled?: boolean }): Promise<SourceOutcome[]>;
   /** Stop a running sweep from the Monitor, as the row's button does. */
   cancelRunFromMonitor(run: RunHandle): Promise<void>;
   /** Let a held authored source answer. */

@@ -45,11 +45,14 @@ journey.describe('J21 Saved configurations', () => {
       name: 'journey imported routine J21',
       schedule_cron: '*/5 * * * *',
       is_active: true,
-      email_enabled: 1,
+      email_enabled: true,
       execution_location: 'cloud',
       parameters: { repositories: ['arxiv'], keywords: ['perovskite'], query: 'perovskite', max_results: 10 },
     }, null, 2));
-    expect(arrived, 'the import created no configuration').toBeGreaterThan(0);
+    expect(
+      arrived,
+      'the import created no configuration — the file was read and refused',
+    ).toBeGreaterThan(0);
 
     const after = await resmon.backend.routines();
     const created = after.filter((r) => !before.some((b) => b.id === r.id));

@@ -40,7 +40,9 @@ journey.describe('J12 Explorer', () => {
     // And the limit is stated, in the panel, not in documentation somewhere.
     expect(why.cannotSee.length, 'the panel claimed a match with no stated limit').toBeGreaterThan(0);
     expect(why.cannotSee.join(' ')).toContain('not its full text');
-    expect(why.text).toContain('What resmon cannot see');
+    // Case-insensitively: the heading is upper-cased by the stylesheet, and
+    // what is under test is that the limits block is on screen, not its casing.
+    expect(why.text.toLowerCase()).toContain('what resmon cannot see');
 
     await resmon.takePicture('J12-explorer-why-panel');
     expect(resmon.refusedConnections()).toEqual([]);

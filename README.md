@@ -1549,6 +1549,7 @@ The **Settings → Advanced → Danger Zone** section centralizes every destruct
    - Backend: `pytest resmon_scripts/verification_scripts/`
    - Frontend type check: `cd resmon_scripts/frontend && npm run typecheck`
    - Frontend renderer tests: `cd resmon_scripts/frontend && npm test`
+   - Journey suite (the real app, one test per user journey): `cd resmon_scripts/frontend && npm run build && npm run journeys`. It can also be pointed at another build; see `resmon_scripts/frontend/journeys/README.md`.
 5. If the change touches a repository client, add or update the corresponding test under `resmon_scripts/verification_scripts/` and the matching fixture. New repositories additionally require a row in `repo_catalog.py` and a registration in `api_registry.py`.
 6. If the change alters user-visible behavior, update the affected page info document under `resmon_reports/info_docs/` and, where relevant, this README.
 7. Open the pull request against `main`. The description must explain **what** changed, **why** it changed, and how the change was verified. Link the originating issue.
