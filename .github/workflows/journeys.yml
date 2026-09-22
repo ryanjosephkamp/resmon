@@ -1,0 +1,346 @@
+name: Journeys
+
+# One automated test per row of the parity register, run against two builds
+# from one commit.
+#
+# `ui-smoke.yml` asks whether *this* checkout's app works. This asks something
+# else: whether the journeys a user has today are still there. That question
+# only means anything if the same suite can be pointed at a different build, so
+# there are two jobs and the only difference between them is two environment
+# variables.
+#
+#   candidate  Build this checkout and run the suite against it. Every push and
+#              every pull request, under xvfb-run, the same recipe as
+#              ui-smoke.yml's `smoke` job.
+#
+#   classic    Check out the `classic` branch into a sibling directory, build
+#              it there, and run *this checkout's* suite against that build with
+#              the classic driver. On pull requests that touch the suite or the
+#              launch fixture, weekly, and on demand — building a second app is
+#              minutes, and the answer only changes when the suite or the
+#              renderer does.
+#
+# Both take a `break_row` input that fails one named register row on purpose.
+# B2 says a new CI job is trusted once it has been made to go red, and a job
+# that cannot be made to go red on demand has to be trusted on somebody's word.
+#
+# Screenshots are uploaded, never committed: two branches that both run the
+# suite both rewrite every file.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  schedule:
+    # Monday morning, after the weekly live-network job has had the night.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+    inputs:
+      break_row:
+        description: >-
+          Fail one register row on purpose, to show this job can go red.
+          Try "J20".
+        required: false
+        default: ''
+
+concurrency:
+  group: journeys-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # No OS keyring on a runner; every credential read would otherwise pay a
+  # timeout against a backend that cannot work.
+  PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  RESMON_KEYRING_TIMEOUT: '2.0'
+  # The app spawns `python resmon.py <port>`; without this it would find the
+  # runner's interpreter only if one happened to be on PATH under that name.
+  RESMON_PYTHON: python3
+
+jobs:
+  candidate:
+    name: Journeys against this build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    env:
+      RESMON_JOURNEY_DRIVER: candidate
+      RESMON_JOURNEY_BREAK_ROW: ${{ github.event.inputs.break_row }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install the backend's dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: resmon_scripts/frontend/package-lock.json
+
+      - name: Install the renderer's dependencies
+        working-directory: resmon_scripts/frontend
+        run: npm install --no-audit --no-fund
+
+      - name: Install Electron's system libraries and a virtual display
+        working-directory: resmon_scripts/frontend
+        run: |
+          sudo npx playwright install-deps chromium
+          sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Typecheck the journey sources
+        working-directory: resmon_scripts/frontend
+        run: npm run typecheck:journeys
+
+      - name: Build the renderer and the Electron main process
+        working-directory: resmon_scripts/frontend
+        run: npm run build
+
+      - name: Walk every built journey
+        working-directory: resmon_scripts/frontend
+        # `set -o pipefail` is not decoration: without it this job's exit code
+        # is tee's, and a job that cannot go red is not a gate.
+        run: |
+          set -o pipefail
+          xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24' \
+            npm run journeys 2>&1 | tee "$RUNNER_TEMP/journeys-candidate.log"
+
+      - name: Say how much of the register this covered
+        if: always()
+        run: |
+          {
+            echo "### Journeys — this build"
+            echo
+            echo '```'
+            grep -h '^\[journeys\]' "$RUNNER_TEMP/journeys-candidate.log" | sort -u || echo "(nothing reported)"
+            echo '```'
+            echo
+            echo "Anything the suite could not verify:"
+            echo
+            echo '```'
+            grep -h 'NOT VERIFIED' "$RUNNER_TEMP/journeys-candidate.log" || echo "(none reported)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: What was still holding the worker open
+        # Empty on a healthy run: the probe is an unref'd timer that only fires
+        # when the worker has failed to exit. When it has fired, this is the
+        # list of handles that kept it alive, and it belongs in the log next to
+        # the failure rather than inside an artifact somebody has to download.
+        if: always()
+        run: |
+          probe=resmon_scripts/frontend/journeys/screenshots/exit-probe.txt
+          if [ -s "$probe" ]; then
+            {
+              echo "### The worker did not exit. What it was holding:"
+              echo
+              echo '```'
+              cat "$probe"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            cat "$probe"
+          else
+            echo "The worker exited on its own; the exit probe never fired."
+          fi
+
+      - name: Upload the pictures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journeys-candidate-screenshots
+          path: resmon_scripts/frontend/journeys/screenshots/
+          if-no-files-found: warn
+
+      - name: Upload the failure context
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journeys-candidate-failures
+          path: resmon_scripts/frontend/journeys/test-results/
+          if-no-files-found: ignore
+
+  classic:
+    name: Journeys against the classic build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # The expensive leg. It runs when the suite or the launch fixture changes,
+    # on a schedule, and on demand — not on every push to every branch.
+    if: >-
+      github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
+      || github.event_name == 'pull_request'
+
+    env:
+      RESMON_JOURNEY_DRIVER: classic
+      RESMON_JOURNEY_BREAK_ROW: ${{ github.event.inputs.break_row }}
+
+    steps:
+      - name: Check out the suite
+        uses: actions/checkout@v4
+        with:
+          path: suite
+
+      - name: Does this change touch the suite?
+        # A pull request that changes neither the journeys nor the launch
+        # fixture cannot change this job's answer, so it says so and stops
+        # rather than building a second app to prove it.
+        #
+        # **This fails closed.** The first version of this step asked
+        # `git diff origin/<base>...HEAD` inside a depth-1 checkout, where
+        # there is no merge base: the diff was empty, the filter concluded
+        # "nothing to do" and the job went green in eight seconds without
+        # building anything, on a pull request that was nothing *but* this
+        # suite. A filter that cannot tell what changed must run the job, not
+        # skip it — a leg that passes without running is worse than a red one.
+        # The file list now comes from the pull request itself, and any failure
+        # to obtain it means `run=true`.
+        id: scope
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if ! changed=$(gh pr view "${{ github.event.pull_request.number }}" \
+                --repo "${{ github.repository }}" --json files \
+                --jq '.files[].path'); then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Could not read this pull request's file list, so the classic leg ran anyway." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ -z "$changed" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "The pull request reported no changed files, so the classic leg ran anyway." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Files in this pull request:"
+          echo "$changed"
+          if echo "$changed" | grep -qE '^resmon_scripts/frontend/(journeys/|e2e/fixtures/)|^\.github/workflows/journeys\.yml'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Journeys — the classic build: NOT RUN"
+              echo
+              echo "This pull request changes neither the journey suite nor the launch"
+              echo "fixture, so this leg's answer cannot have changed. **Nothing was"
+              echo "built and no journey was walked.** This green tick is not a"
+              echo "statement about the classic build."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Check out the classic build
+        if: steps.scope.outputs.run == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: classic
+          path: classic
+
+      - uses: actions/setup-python@v5
+        if: steps.scope.outputs.run == 'true'
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: suite/requirements.txt
+
+      - name: Install the backend's dependencies
+        if: steps.scope.outputs.run == 'true'
+        # The suite's own requirements, not the classic checkout's: the
+        # interpreter is not part of the build under test, it only has to be
+        # able to import the backend the build under test ships.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r classic/requirements.txt
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          node-version: '22'
+
+      - name: Install both renderers' dependencies
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          (cd suite/resmon_scripts/frontend && npm install --no-audit --no-fund)
+          (cd classic/resmon_scripts/frontend && npm install --no-audit --no-fund)
+
+      - name: Install Electron's system libraries and a virtual display
+        if: steps.scope.outputs.run == 'true'
+        working-directory: suite/resmon_scripts/frontend
+        run: |
+          sudo npx playwright install-deps chromium
+          sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Build the classic app
+        if: steps.scope.outputs.run == 'true'
+        # This suite launches a build; it never makes one. The build under test
+        # is produced here, by the classic checkout's own build script.
+        working-directory: classic/resmon_scripts/frontend
+        run: npm run build
+
+      - name: Walk every built journey against the classic build
+        if: steps.scope.outputs.run == 'true'
+        working-directory: suite/resmon_scripts/frontend
+        env:
+          RESMON_JOURNEY_APP: ${{ github.workspace }}/classic/resmon_scripts/frontend
+        run: |
+          set -o pipefail
+          xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24' \
+            npm run journeys 2>&1 | tee "$RUNNER_TEMP/journeys-classic.log"
+
+      - name: Say which build this was, and how much of the register it covered
+        if: always() && steps.scope.outputs.run == 'true'
+        run: |
+          {
+            echo "### Journeys — the classic build"
+            echo
+            echo '```'
+            grep -h '^\[journeys\]' "$RUNNER_TEMP/journeys-classic.log" | sort -u || echo "(nothing reported)"
+            echo '```'
+            echo
+            echo "Anything the suite could not verify:"
+            echo
+            echo '```'
+            grep -h 'NOT VERIFIED' "$RUNNER_TEMP/journeys-classic.log" || echo "(none reported)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: What was still holding the worker open
+        if: always() && steps.scope.outputs.run == 'true'
+        run: |
+          probe=suite/resmon_scripts/frontend/journeys/screenshots/exit-probe.txt
+          if [ -s "$probe" ]; then
+            {
+              echo "### The worker did not exit. What it was holding:"
+              echo
+              echo '```'
+              cat "$probe"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            cat "$probe"
+          else
+            echo "The worker exited on its own; the exit probe never fired."
+          fi
+
+      - name: Upload the pictures
+        if: always() && steps.scope.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: journeys-classic-screenshots
+          path: suite/resmon_scripts/frontend/journeys/screenshots/
+          if-no-files-found: warn
+
+      - name: Upload the failure context
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journeys-classic-failures
+          path: suite/resmon_scripts/frontend/journeys/test-results/
+          if-no-files-found: ignore

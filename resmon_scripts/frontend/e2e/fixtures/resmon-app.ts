@@ -134,6 +134,39 @@ electron.launch = (async (options?: Parameters<typeof electron.launch>[0]) => {
 
 export const FRONTEND_ROOT = path.resolve(__dirname, '..', '..');
 export const REPO_ROOT = path.resolve(FRONTEND_ROOT, '..', '..');
+
+/**
+ * Which build a launch starts.
+ *
+ * Every spec in `e2e/` launches the app out of the checkout the spec itself
+ * lives in, and that is still the default. `journeys/` needs one more thing:
+ * the same suite, from one commit, launched against *another* build — the
+ * `classic` branch's, so a journey test can be run against the app as it was
+ * and against the app as it is and the two compared. The only difference
+ * between those two runs is which directory the Electron process is started
+ * from, so that is all this type carries.
+ *
+ * `frontend` is the directory holding `package.json` and `dist/`; `repo` is two
+ * levels above it, which is where `resmon_scripts/resmon.py` lives and where a
+ * seeding helper puts `implementation_scripts` on the path. Both are derived
+ * together so a caller cannot pass a frontend from one checkout and a backend
+ * from another.
+ */
+export interface AppRoot {
+  /** The `frontend/` directory of the build under test; the Electron `cwd`. */
+  frontend: string;
+  /** Its repository root — the parent of `resmon_scripts/`. */
+  repo: string;
+}
+
+/** The checkout these specs live in. */
+export const THIS_CHECKOUT: AppRoot = { frontend: FRONTEND_ROOT, repo: REPO_ROOT };
+
+/** The build rooted at some other `frontend/` directory. */
+export function appRootAt(frontend: string): AppRoot {
+  const resolved = path.resolve(frontend);
+  return { frontend: resolved, repo: path.resolve(resolved, '..', '..') };
+}
 /**
  * Where a run's screenshots land.
  *
