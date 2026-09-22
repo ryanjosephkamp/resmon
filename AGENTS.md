@@ -31,6 +31,7 @@ implies more certainty than it earns is rejected even when the code is correct.
 ```
 resmon_scripts/
 ├── resmon.py                       FastAPI app — 184 routes, the API seam
+│                                   described in docs/api-contract/ (generated, guarded)
 ├── implementation_scripts/         backend modules
 │   ├── api_base.py                 BaseAPIClient, NormalizedResult, RateLimiter, safe_request
 │   ├── api_<slug>.py               one source client each; self-registering
@@ -297,6 +298,20 @@ brief names them**. Otherwise a change there is a collision.
 Where a single deliverable needs both harnesses at once, the endpoint shapes are written
 into `docs/api-contract/<slice>.md` and merged before either side starts. That file is
 frozen for the duration: changing it takes its own PR.
+
+**`docs/api-contract/openapi.json` and `docs/api-contract/http.md` are generated, and
+guarded.** They describe the whole HTTP surface — every route's method, path, parameters
+and request body, and which of the 44 parity-register rows each route serves — and they
+are written by `implementation_scripts/api_contract.py` from the real FastAPI app, never
+by hand. `verification_scripts/test_api_contract.py` regenerates both in-process and fails
+on any difference, naming the routes that were added, removed or reshaped. So a change to
+the surface takes its own PR: change the route, run
+`python -m implementation_scripts.api_contract --write` from `resmon_scripts/`, commit the
+regenerated files in that PR, and say in the body what changed and why. A **new route also
+needs a line in `api_contract.ROUTE_JOURNEYS`** naming the register row it serves; without
+one the guard stays red. Editing either file to make a red test green, rather than to
+record a change you meant, is the one thing this mechanism exists to stop.
+`docs/api-contract/README.md` is the half-page version of all of this.
 
 ---
 

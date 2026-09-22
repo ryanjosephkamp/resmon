@@ -906,6 +906,8 @@ Imports are always additive: a new row is inserted with a fresh integer id. Noth
 
 ## API Reference
 
+**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 184 routes — method, path, parameters, request body — and `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, and a one-line purpose. Both are generated from the running app and a test fails when they drift, so they cannot describe a version of resmon that no longer exists. The prose below is the guided tour of the same surface; where the two differ, the contract is the one that was checked. No route declares a response model, so the contract describes what each route *accepts* and this section is where you find what it *answers with*.
+
 All REST endpoints are served by the local FastAPI daemon (`resmon_scripts/resmon.py`) bound to `127.0.0.1:8742` by default. Every request needs the backend's local API token in `Authorization: Bearer <token>` and a loopback `Host`; refusals are `401 token_missing` / `401 token_invalid` / `403 host_refused` / `403 origin_refused` ([security model](docs/local-api-security.md)). Requests and responses are JSON unless noted; error responses use FastAPI's standard `{"detail": "..."}` envelope and the shared frontend API client (`api/client.ts`) unwraps it into a single readable message. The groups below are summarized from the Backend sections of the corresponding info docs under `resmon_reports/info_docs/`.
 
 ### `/api/health`
