@@ -199,6 +199,15 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
   const readExplorer = async (): Promise<ExplorerList> => {
     await expect(win().locator('.explorer-results-head')).toBeVisible({ timeout: 60_000 });
     const head = win().locator('.explorer-results-head p').first();
+    // **The head is on screen before the results are.** While the page is
+    // fetching, that first paragraph says `Searching…`; the block itself is
+    // there either way, so waiting for it to be visible is not waiting for the
+    // list. Until slice 4 the gap was covered by `goto`'s trailing 400 ms, and
+    // removing that left this read — a sixth of the kind the review found five
+    // of — measuring an unfinished page. The page publishes its own loaded
+    // state in that sentence, so this waits for it.
+    await expect(head, 'the Explorer never finished searching')
+      .not.toHaveText('Searching…', { timeout: 60_000 });
     const items = win().locator('li.explorer-item');
     const rows: ExplorerList['rows'] = [];
     for (let i = 0; i < await items.count(); i += 1) {
@@ -1477,6 +1486,28 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
 
     readExplorerList: async () => {
       await goto(PLACES.Explorer);
+      // The "also appears in …" labels arrive on a **second** fetch that the
+      // page does not wait for — `load()` calls `loadLinks(results)` without
+      // awaiting it and clears `loading` regardless — so a list read the
+      // moment the results land carries no labels, and reports that as a fact.
+      // That is how J10 went red on a CI leg of this branch: `no paper says it
+      // also appears somewhere else`, over a corpus whose scan had already
+      // reported links.
+      //
+      // So where the app says it has links, wait for the page to be showing
+      // one. Where it says it has none there is nothing to wait for, and
+      // waiting would be inventing a state.
+      const status = await backend.linkStatus();
+      if (Number(status.links ?? 0) > 0) {
+        await expect
+          .poll(async () => win()
+            .locator('li.explorer-item [data-testid="duplicate-links"]').count(), {
+            timeout: 30_000,
+            message: `the Explorer drew no "also appears in" label over a corpus the app reports `
+              + `${status.links} near-duplicate link(s) in`,
+          })
+          .toBeGreaterThan(0);
+      }
       return readExplorer();
     },
 
