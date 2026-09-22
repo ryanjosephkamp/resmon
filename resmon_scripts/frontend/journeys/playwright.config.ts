@@ -16,7 +16,10 @@ export default defineConfig({
   testDir: __dirname,
   // A journey is a whole user path — launch, run, wait for a sweep to settle,
   // read a report — so the per-case budget is larger than the smoke suite's.
-  timeout: 300_000,
+  // Ten minutes rather than five because the backup row launches the app three
+  // times and restores a corpus between two of them, and five minutes was the
+  // budget it exceeded on a CI runner while passing in seconds on a laptop.
+  timeout: 600_000,
   expect: { timeout: 20_000 },
   fullyParallel: false,
   workers: 1,

@@ -129,6 +129,39 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     // a suite that will one day write to it.
     expect(port, 'a journey must never attach to the live daemon').not.toBe('8742');
     expect(port).toMatch(/^\d+$/);
+    // The window being up is not the backend being ready. `init_db` runs at
+    // startup and takes a write lock, and a request sent into that window can
+    // wait on it for as long as the caller is willing to wait — which for a
+    // `fetch` inside `evaluate` is the whole test. Waiting for one successful
+    // health call here is what turns that into a bounded, legible failure.
+    await expect.poll(async () => win.evaluate(async () => {
+      try {
+        const backend = (window as unknown as { resmonAPI: { getBackendPort(): string } })
+          .resmonAPI.getBackendPort();
+        const response = await e2eFetch(`http://127.0.0.1:${backend}/api/health`);
+        return response.ok;
+      } catch {
+        return false;
+      }
+    }), { timeout: 120_000 }).toBe(true);
+  };
+
+  /**
+   * Close the window and wait for the process to be gone.
+   *
+   * `close()` resolves when Electron has been *asked* to quit. A run that
+   * launches again immediately can otherwise have two apps alive at once, and
+   * the runner reported exactly that as "worker-0 process did not exit within
+   * 300000ms after stop".
+   */
+  const put = async (): Promise<void> => {
+    const owned = app?.process();
+    await app.close().catch(() => { /* already gone */ });
+    if (!owned) return;
+    await expect.poll(
+      () => owned.exitCode !== null || owned.signalCode !== null,
+      { timeout: 60_000 },
+    ).toBe(true);
   };
 
   await bring();
@@ -174,12 +207,12 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     },
 
     relaunch: async () => {
-      await app.close().catch(() => { /* already gone */ });
+      await put();
       await bring();
     },
 
     relaunchOverFreshState: async () => {
-      await app.close().catch(() => { /* already gone */ });
+      await put();
       stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-restored-'));
       stateDirs.push(stateDir);
       env = envFor(stateDir, root, source.url);
@@ -192,7 +225,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     refused: () => stateDirs.flatMap((dir) => blockedConnections(dir)),
 
     close: async () => {
-      await app.close().catch(() => { /* already gone */ });
+      await put().catch(() => { /* already gone */ });
       await source.close().catch(() => { /* already closed */ });
       for (const dir of stateDirs) fs.rmSync(dir, { recursive: true, force: true });
     },

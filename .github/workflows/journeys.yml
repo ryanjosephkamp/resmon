@@ -171,19 +171,49 @@ jobs:
         # A pull request that changes neither the journeys nor the launch
         # fixture cannot change this job's answer, so it says so and stops
         # rather than building a second app to prove it.
+        #
+        # **This fails closed.** The first version of this step asked
+        # `git diff origin/<base>...HEAD` inside a depth-1 checkout, where
+        # there is no merge base: the diff was empty, the filter concluded
+        # "nothing to do" and the job went green in eight seconds without
+        # building anything, on a pull request that was nothing *but* this
+        # suite. A filter that cannot tell what changed must run the job, not
+        # skip it — a leg that passes without running is worse than a red one.
+        # The file list now comes from the pull request itself, and any failure
+        # to obtain it means `run=true`.
         id: scope
-        working-directory: suite
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-          changed=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD || echo '')
+          if ! changed=$(gh pr view "${{ github.event.pull_request.number }}" \
+                --repo "${{ github.repository }}" --json files \
+                --jq '.files[].path'); then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Could not read this pull request's file list, so the classic leg ran anyway." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ -z "$changed" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "The pull request reported no changed files, so the classic leg ran anyway." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Files in this pull request:"
+          echo "$changed"
           if echo "$changed" | grep -qE '^resmon_scripts/frontend/(journeys/|e2e/fixtures/)|^\.github/workflows/journeys\.yml'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "This pull request changes neither the journey suite nor the launch fixture." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "### Journeys — the classic build: NOT RUN"
+              echo
+              echo "This pull request changes neither the journey suite nor the launch"
+              echo "fixture, so this leg's answer cannot have changed. **Nothing was"
+              echo "built and no journey was walked.** This green tick is not a"
+              echo "statement about the classic build."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Check out the classic build
