@@ -98,7 +98,35 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     await expect(row).toBeVisible({ timeout: 30_000 });
     await row.click();
     await expect(win().locator('.report-viewer')).toBeVisible({ timeout: 30_000 });
+    await reportViewerHasStoppedReloading();
   };
+
+  /**
+   * Wait until the report viewer has stopped calling this run live.
+   *
+   * **This is the fix for J19's coverage table, and the thing it was waiting
+   * for was never a cell.** `ReportViewer` passes its own `isLive` to
+   * `useSearchRecord` as the hook's `revision`, and that hook *blanks* its
+   * state — `setState({ data: null })` — at the top of every effect run. So the
+   * moment the window stops believing the run is still going, the whole
+   * coverage block, tables and all, is removed from the DOM and fetched again.
+   *
+   * A cancelled run is exactly where that transition is late: the backend has
+   * already written `cancelled`, so `waitForRunToSettle` has returned, while
+   * the window's own execution context has not caught up. Open the report in
+   * that window and the table renders, the read starts, the context catches up,
+   * and the row the read is holding is detached mid-read. That is both shapes
+   * this suite has seen — `.first().locator('td').first()` on a runner, and
+   * `.nth(1)` on a laptop — and neither is a slow machine.
+   *
+   * So this waits for a terminal state the app puts on screen rather than for a
+   * duration: the pulse the Progress tab draws while a run is live is gone. No
+   * budget was raised to do it.
+   */
+  async function reportViewerHasStoppedReloading(): Promise<void> {
+    await expect(win().locator('.report-viewer .tab-bar .sidebar-pulse'))
+      .toHaveCount(0, { timeout: 60_000 });
+  }
 
 
   /**
@@ -520,17 +548,17 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       await details.first().click();
       const rows = win().locator('.coverage-table tbody tr');
       await expect(rows.first()).toBeVisible({ timeout: 30_000 });
-      const count = await rows.count();
-      const out: SourceOutcome[] = [];
-      for (let i = 0; i < count; i += 1) {
-        const cells = rows.nth(i).locator('td');
-        out.push({
-          source: (await cells.nth(0).innerText()).trim(),
-          label: (await cells.nth(1).innerText()).trim(),
-          note: (await cells.nth(4).innerText()).trim(),
-        });
-      }
-      return out;
+      // Every row in one pass, rather than `count()` and then `nth(i)` a cell
+      // at a time. The wait above is what stops the table being replaced under
+      // this read; taking the whole table in a single turn of the renderer's
+      // event loop is what makes that no longer something to get right twice.
+      return win().evaluate(() => Array.from(
+        document.querySelectorAll('.coverage-table tbody tr'),
+        (row) => {
+          const cells = Array.from(row.querySelectorAll('td'), (c) => (c.textContent ?? '').trim());
+          return { source: cells[0] ?? '', label: cells[1] ?? '', note: cells[4] ?? '' };
+        },
+      ));
     },
 
     readReportTabs: async () => {
