@@ -1098,6 +1098,16 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const body = win().getByTestId('coverage-body').first();
       await expect(body).toBeVisible({ timeout: 30_000 });
       await expect(body).not.toContainText('Checking…', { timeout: 60_000 });
+      // "Not checking any more" is not "has an answer". The panel caches per
+      // routine and refetches on a remount, and between the two the body is a
+      // rendered-but-empty box — which read as an intent of '' and failed a
+      // comparison with a message naming the intent rather than the wait.
+      await expect
+        .poll(async () => (
+          await win().getByTestId('coverage-intent').count()
+          + await win().getByTestId('coverage-reason').count()
+        ), { timeout: 60_000, message: 'the coverage panel settled with neither an intent nor a reason' })
+        .toBeGreaterThan(0);
       const read = async (id: string): Promise<string> => {
         const node = win().getByTestId(id).first();
         return (await node.count()) ? (await node.innerText()).trim() : '';
