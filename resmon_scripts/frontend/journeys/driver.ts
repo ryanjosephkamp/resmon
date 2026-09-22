@@ -24,6 +24,7 @@
  */
 import { test as base, expect } from '@playwright/test';
 import { createDriver, driverName } from './drivers';
+import { armExitProbe } from './fixtures/exit-probe';
 import type { SourceReply } from './fixtures/source-endpoint';
 
 export { expect };
@@ -273,6 +274,15 @@ export interface JourneyFixtures {
   resmon: JourneyDriver;
 }
 
+interface JourneyWorkerFixtures {
+  /**
+   * Nothing during the run; after the worker's last case, a probe that says
+   * what is still holding the worker open if it fails to exit. Auto, because a
+   * worker that hangs is a property of the suite rather than of one spec.
+   */
+  exitProbe: void;
+}
+
 /**
  * The test object every journey spec uses.
  *
@@ -282,8 +292,13 @@ export interface JourneyFixtures {
  * A launch costs seconds; a suite whose failures depend on ordering costs an
  * afternoon each time.
  */
-export const journey = base.extend<JourneyOptions & JourneyFixtures>({
+export const journey = base.extend<JourneyOptions & JourneyFixtures, JourneyWorkerFixtures>({
   sourceReply: ['paper', { option: true }],
+
+  exitProbe: [async ({}, use) => {
+    await use();
+    armExitProbe();
+  }, { scope: 'worker', auto: true }],
 
   resmon: async ({ sourceReply }, use, testInfo) => {
     const driver = await createDriver({ sourceReply, testInfo });

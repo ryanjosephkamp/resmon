@@ -130,6 +130,27 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: What was still holding the worker open
+        # Empty on a healthy run: the probe is an unref'd timer that only fires
+        # when the worker has failed to exit. When it has fired, this is the
+        # list of handles that kept it alive, and it belongs in the log next to
+        # the failure rather than inside an artifact somebody has to download.
+        if: always()
+        run: |
+          probe=resmon_scripts/frontend/journeys/screenshots/exit-probe.txt
+          if [ -s "$probe" ]; then
+            {
+              echo "### The worker did not exit. What it was holding:"
+              echo
+              echo '```'
+              cat "$probe"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            cat "$probe"
+          else
+            echo "The worker exited on its own; the exit probe never fired."
+          fi
+
       - name: Upload the pictures
         if: always()
         uses: actions/upload-artifact@v4
@@ -290,6 +311,23 @@ jobs:
             grep -h 'NOT VERIFIED' "$RUNNER_TEMP/journeys-classic.log" || echo "(none reported)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: What was still holding the worker open
+        if: always() && steps.scope.outputs.run == 'true'
+        run: |
+          probe=suite/resmon_scripts/frontend/journeys/screenshots/exit-probe.txt
+          if [ -s "$probe" ]; then
+            {
+              echo "### The worker did not exit. What it was holding:"
+              echo
+              echo '```'
+              cat "$probe"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            cat "$probe"
+          else
+            echo "The worker exited on its own; the exit probe never fired."
+          fi
 
       - name: Upload the pictures
         if: always() && steps.scope.outputs.run == 'true'
