@@ -68,6 +68,13 @@ export interface DiveRequest {
   days?: number;
   /** The result cap. Omitted means the form's own default. */
   cap?: number;
+  /**
+   * Tick "Enable AI Summarization" on the form before running.
+   *
+   * Slice 3, for J17. Optional and defaulting to off, so every spec written
+   * before it means exactly what it meant.
+   */
+  summarize?: boolean;
 }
 
 export interface SweepRequest {
@@ -849,4 +856,62 @@ export interface JourneyDriver {
    * it therefore did not establish rather than implying it clicked.
    */
   runNowControlIsOnTheRow(name: string): Promise<boolean>;
+
+  // — the summarization lanes (J17) ------------------------------------------
+  /**
+   * Point Settings → AI at an authored `claude` that reports it is not signed
+   * in, the way a person points it at a real one.
+   *
+   * This is the summarization lane's CLI, not the assistant's: a different
+   * protocol, a different double. What it replaces is the sign-in — the
+   * discovery, the argv, the exit handling, the classification of the failure
+   * and everything the lane then does about it are the app's own. What no
+   * double can see is a real CLI's own behaviour, and the ledger says so.
+   */
+  useAnAuthoredSummarizerThatIsNotSignedIn(): Promise<void>;
+  /** What Settings → AI says about the lane it would use. */
+  readAiLaneStatus(): Promise<string>;
+  /** The run's own log, as the report viewer's Log tab shows it. */
+  readRunLog(run: RunHandle): Promise<string>;
+  /** The report itself, as the report viewer's Report tab shows it. */
+  readTheReport(run: RunHandle): Promise<string>;
+
+  // — notifications and email (J23) ------------------------------------------
+  /** Fill in Settings → Email and save it, storing the password separately. */
+  configureEmail(settings: EmailSettings, password: string): Promise<void>;
+  /** Read Settings → Email back, field by field, as the page shows it. */
+  readEmailSettings(): Promise<EmailSettings>;
+  /** Press Send Test Email and return the sentence the page then shows. */
+  sendATestEmail(): Promise<string>;
+  /** Set the notification preferences and save them. */
+  setNotificationPreferences(preferences: NotificationPreferences): Promise<void>;
+  /** Read them back, as the tab shows them. */
+  readNotificationPreferences(): Promise<NotificationPreferences>;
+  /**
+   * A loopback address with nothing listening on it.
+   *
+   * Not a thing a person does — but a journey that wants "the server is not
+   * answering" needs somewhere that genuinely refuses a connection, and a port
+   * number written into a spec would be somebody's real service one day. The
+   * driver takes a port from the operating system and gives it back, which is
+   * the closest thing to a fact rather than a guess.
+   */
+  anAddressThatRefusesConnections(): Promise<{ host: string; port: number }>;
+}
+
+/** Settings → Email, in the words the page uses for each field. */
+export interface EmailSettings {
+  server: string;
+  port: string;
+  username: string;
+  sender: string;
+  recipients: string;
+}
+
+/** Settings → Notifications, as a person sets it. */
+export interface NotificationPreferences {
+  /** "Notify me when a manual execution completes". */
+  whenIRunSomethingMyself: boolean;
+  /** Which automatic routines may notify. */
+  forAutomaticRoutines: 'all' | 'selected' | 'none';
 }

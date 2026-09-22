@@ -26,6 +26,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
 import * as http from 'http';
+import * as net from 'net';
 import { expect } from '@playwright/test';
 import type { TestInfo } from '@playwright/test';
 import type {
@@ -46,7 +47,7 @@ import type {
   DeliveryRecord, McpAnswer, ObservedRequest, QueuedPaper, RawAnswer,
 } from '../driver';
 // Slice 3's, in its own import for the same reason.
-import type { RunNowAnswer } from '../driver';
+import type { EmailSettings, NotificationPreferences, RunNowAnswer } from '../driver';
 import type { Session } from './session';
 
 /** The hash behind each place in the sidebar. The only route table in the suite. */
@@ -428,6 +429,12 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       }
       if (request.cap !== undefined) {
         await win().locator('.range-row input[type="range"]').fill(String(request.cap));
+      }
+      if (request.summarize) {
+        await win().locator('label.checkbox-label')
+          .filter({ hasText: 'Enable AI Summarization' })
+          .locator('input[type="checkbox"]')
+          .check();
       }
       const started = win().waitForResponse(
         (r) => r.url().endsWith('/api/search/dive') && r.request().method() === 'POST',
@@ -1789,6 +1796,164 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         };
       }, routine!.id);
     },
+
+    useAnAuthoredSummarizerThatIsNotSignedIn: async () => {
+      // The summarization lane runs `claude -p --output-format json …` and
+      // reads one JSON envelope off stdout. A CLI whose OAuth session has
+      // lapsed answers with `is_error` set and says so in `result`, and exits
+      // zero doing it — which is why the lane keys on the field rather than on
+      // the status. This is that envelope, byte for byte as
+      // `test_llm_subscription.py` recorded it from the real CLI.
+      const command = path.join(session.stateDir, 'authored-summarizer');
+      fs.writeFileSync(command, '#!/bin/sh\ncat <<\'JSON\'\n'
+        + JSON.stringify({
+          is_error: true,
+          subtype: 'success',
+          terminal_reason: 'api_error',
+          result: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+          type: 'result',
+        })
+        + '\nJSON\n', { mode: 0o755 });
+      // Through the settings the page writes, not around them: `ai_cli_path` is
+      // only consulted for the provider `ai_provider` names, so both have to be
+      // set or the lane looks for the binary in the usual places instead — and
+      // on a developer's Mac it might find a real one.
+      await session.api('PUT', '/api/settings/ai', {
+        settings: { ai_provider: 'claude_code', ai_cli_path: command, ai_model: 'sonnet' },
+      });
+    },
+
+    readAiLaneStatus: async () => {
+      await goto(PLACES['AI settings']);
+      const status = win().locator('[data-testid^="primary-cli-status-"]');
+      if (!await status.count()) return '';
+      return (await status.first().innerText()).replace(/\s+/g, ' ').trim();
+    },
+
+    readRunLog: async (run) => {
+      await openResultsRow(run);
+      await win().locator('.report-viewer .tab-bar .tab-btn', { hasText: 'Log' }).first().click();
+      const text = win().locator('.report-viewer-body');
+      await expect(text).toBeVisible({ timeout: 30_000 });
+      return (await text.innerText()).trim();
+    },
+
+    readTheReport: async (run) => {
+      await openResultsRow(run);
+      await win().locator('.report-viewer .tab-bar .tab-btn', { hasText: 'Report' }).first().click();
+      const text = win().locator('.report-viewer-body');
+      await expect(text).toBeVisible({ timeout: 30_000 });
+      return (await text.innerText()).trim();
+    },
+
+    configureEmail: async (settings, password) => {
+      await goto(PLACES['Email settings']);
+      const field = (label: string) => win().locator('.settings-form .form-field')
+        .filter({ has: win().locator('.form-label', { hasText: label }) })
+        .locator('input').first();
+      await field('SMTP Server').fill(settings.server);
+      await field('SMTP Port').fill(settings.port);
+      await field('Username').fill(settings.username);
+      await field('Sender Email').fill(settings.sender);
+      await field('Recipient Email(s)').fill(settings.recipients);
+      // The password is not a setting: it goes to the machine's own credential
+      // store, by its own button, and only the fact of it comes back.
+      await field('SMTP Password').fill(password);
+      const stored = win().waitForResponse(
+        (r) => r.url().includes('/api/credentials/smtp_password'),
+      );
+      await win().locator('.key-input-row button', { hasText: /^(Store|Replace)$/ }).click();
+      expect((await stored).ok(), 'the SMTP password was refused by the credential store').toBe(true);
+      const saved = win().waitForResponse(
+        (r) => r.url().endsWith('/api/settings/email') && r.request().method() === 'PUT',
+      );
+      await win().locator('.form-actions button', { hasText: 'Save' }).first().click();
+      expect((await saved).ok(), 'Settings → Email refused the save').toBe(true);
+    },
+
+    readEmailSettings: async (): Promise<EmailSettings> => {
+      await goto(PLACES['Email settings']);
+      const field = (label: string) => win().locator('.settings-form .form-field')
+        .filter({ has: win().locator('.form-label', { hasText: label }) })
+        .locator('input').first();
+      await expect(field('SMTP Server')).toBeVisible({ timeout: 30_000 });
+      return {
+        server: await field('SMTP Server').inputValue(),
+        port: await field('SMTP Port').inputValue(),
+        username: await field('Username').inputValue(),
+        sender: await field('Sender Email').inputValue(),
+        recipients: await field('Recipient Email(s)').inputValue(),
+      };
+    },
+
+    sendATestEmail: async () => {
+      await goto(PLACES['Email settings']);
+      const answered = win().waitForResponse((r) => r.url().endsWith('/api/settings/email/test'));
+      await win().locator('.form-actions button', { hasText: 'Send Test Email' }).click();
+      await answered;
+      // The page clears this line after a few seconds, so it is read as soon as
+      // it appears rather than after the next navigation.
+      const line = win().locator('.settings-form .form-error, .settings-form .form-success');
+      await expect(line.first()).toBeVisible({ timeout: 60_000 });
+      return (await line.first().innerText()).replace(/\s+/g, ' ').trim();
+    },
+
+    setNotificationPreferences: async (preferences) => {
+      await goto(PLACES['Notification settings']);
+      const manual = win().locator('label.form-check')
+        .filter({ hasText: 'Notify me when a manual execution completes' })
+        .locator('input[type="checkbox"]');
+      await expect(manual).toBeVisible({ timeout: 30_000 });
+      await manual.setChecked(preferences.whenIRunSomethingMyself);
+      const choice = {
+        all: 'All automatic routines',
+        selected: 'Only selected routines',
+        none: 'None',
+      }[preferences.forAutomaticRoutines];
+      await win().locator('label.form-check').filter({ hasText: choice })
+        .locator('input[type="radio"]').check();
+      const saved = win().waitForResponse(
+        (r) => r.url().endsWith('/api/settings/notifications') && r.request().method() === 'PUT',
+      );
+      await win().locator('button', { hasText: /^Save/ }).first().click();
+      expect((await saved).ok(), 'Settings → Notifications refused the save').toBe(true);
+    },
+
+    readNotificationPreferences: async (): Promise<NotificationPreferences> => {
+      await goto(PLACES['Notification settings']);
+      const manual = win().locator('label.form-check')
+        .filter({ hasText: 'Notify me when a manual execution completes' })
+        .locator('input[type="checkbox"]');
+      await expect(manual).toBeVisible({ timeout: 30_000 });
+      const modes = [
+        ['all', 'All automatic routines'],
+        ['selected', 'Only selected routines'],
+        ['none', 'None'],
+      ] as const;
+      let chosen: NotificationPreferences['forAutomaticRoutines'] = 'none';
+      for (const [value, label] of modes) {
+        const radio = win().locator('label.form-check').filter({ hasText: label })
+          .locator('input[type="radio"]');
+        if (await radio.isChecked()) chosen = value;
+      }
+      return {
+        whenIRunSomethingMyself: await manual.isChecked(),
+        forAutomaticRoutines: chosen,
+      };
+    },
+
+    anAddressThatRefusesConnections: async () => new Promise((resolve, reject) => {
+      // Bound and then closed: the operating system has just told us this port
+      // was free, and nothing of this suite's is now on it. Loopback, so the
+      // launch guard permits the attempt and the failure is a refusal rather
+      // than a timeout.
+      const probe = net.createServer();
+      probe.once('error', reject);
+      probe.listen(0, '127.0.0.1', () => {
+        const { port } = probe.address() as net.AddressInfo;
+        probe.close(() => resolve({ host: '127.0.0.1', port }));
+      });
+    }),
 
     runNowControlIsOnTheRow: async (name) => {
       await goto(PLACES.Routines);
