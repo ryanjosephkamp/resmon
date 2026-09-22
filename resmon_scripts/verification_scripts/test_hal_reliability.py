@@ -28,6 +28,43 @@ def document(number: int = 1) -> dict:
             "doiId_s": f"10.0000/synthetic-{number}"}
 
 
+class RecordingClock:
+    """``time`` for ``api_base`` with the sleeping taken out.
+
+    ``safe_request`` is the only sleeper on the retry path, so recording its
+    delays instead of spending them turns "how long did the run take" — which
+    depends on the runner — into "which delays did the retry ceiling choose",
+    which is the thing the configuration actually decides. Everything other
+    than ``sleep`` is delegated to the real module, because the cooperative
+    deadline still has to be measured against a real clock.
+    """
+
+    def __init__(self) -> None:
+        self.waits: list[float] = []
+
+    def sleep(self, seconds: float) -> None:
+        self.waits.append(seconds)
+
+    def __getattr__(self, name: str):
+        return getattr(time, name)
+
+
+def settles(predicate, seconds: float = 5.0) -> bool:
+    """Wait, within a bound, for a fixture thread to catch up with the client.
+
+    A loopback fixture records a request from its own handler thread, which the
+    OS need not have scheduled by the time the synchronous client returns. That
+    is a wait, not an assertion: reading the counter the instant the client
+    returns is what made the retry-timing case flaky (2026-09-22).
+    """
+    until = time.monotonic() + seconds
+    while time.monotonic() < until:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return bool(predicate())
+
+
 @pytest.fixture(autouse=True)
 def isolated_outcome(monkeypatch):
     api_base.reset_search_outcome()
@@ -265,16 +302,99 @@ def test_real_httpx_operation_deadline_closes_transport(server, monkeypatch, mod
         assert server.chunks >= 3, "fixture did not challenge a progressing response"
 
 
-def test_real_httpx_read_timeout_exhausts_retry_before_watchdog(server, monkeypatch):
+def test_real_httpx_read_timeout_exhausts_retry_before_watchdog(server, monkeypatch, request):
+    """Real sockets, a real HTTPX read timeout, asserted as a bound.
+
+    Until 2026-09-22 this case asserted ``len(server.hits) == attempts == 2``
+    at the instant the synchronous search returned, and went red on a loaded
+    runner with one request observed — three times in one day, on heads that
+    changed no Python. Both counters were true. They are written by different
+    threads: ``attempts`` by the client, ``server.hits`` by the fixture's own
+    handler thread. The client's last attempt gives up 80 ms after sending and
+    tears the transport down, and nothing waits after it, so that handler need
+    not yet have been scheduled to parse the request line and append its hit.
+    Measured by delaying the fixture's ``process_request`` by 150 ms:
+    ``attempts == 2`` with one hit at the assertion and two 600 ms later. The
+    exact count raced the *fixture's* clock, not the client's.
+
+    What a real-socket case is worth is the bound: over real sockets,
+    exhaustion stops at the configured ceiling and finishes well inside the
+    per-test watchdog. The exact attempt and delay accounting is asserted
+    against a controlled clock in
+    ``test_controlled_read_timeout_spends_exactly_the_configured_attempts``,
+    and the configured schedule against the real watchdog in
+    ``test_hal_retry_schedule_fits_inside_the_pytest_watchdog``.
+
+    The phase timeout is an ``httpx.Timeout`` rather than a single number so
+    that only the read phase is short. One 0.08 s covering connect as well lets
+    a loaded runner turn this into a connect-timeout case under a read-timeout
+    name; the float shape stays exercised by
+    ``test_real_httpx_operation_deadline_closes_transport``.
+    """
+    watchdog = request.config.getoption("timeout", None)
+    if not watchdog:
+        pytest.skip("this run has no pytest-timeout watchdog to finish inside of")
     server.mode = "stall"
-    monkeypatch.setattr(api_hal, "_REQUEST_TIMEOUT_SECONDS", 0.08)
+    monkeypatch.setattr(api_hal, "_REQUEST_TIMEOUT_SECONDS", httpx.Timeout(5.0, read=0.08))
     began = time.monotonic()
     assert api_hal.HalClient().search("synthetic", max_results=3) == []
     elapsed = time.monotonic() - began
     snapshot = api_base.search_outcome().snapshot()
-    assert len(server.hits) == snapshot["attempts"] == 2
+    assert 1 <= snapshot["attempts"] <= api_hal._MAX_RETRIES + 1
     assert snapshot["last_detail"] == "timeout" and snapshot["failures"] == 1
-    assert server.closed.is_set() and elapsed < 4
+    assert zero_reason.derive(snapshot)[0] == "upstream_failure"
+    assert elapsed < float(watchdog)
+    assert server.closed.wait(5), "remote end did not observe the cancelled transport closing"
+    # The fixture can only ever see requests the client really sent, and may
+    # still be behind it. Wait for the first, then assert both directions.
+    assert settles(lambda: len(server.hits) >= 1), "no real request reached the loopback fixture"
+    assert 1 <= len(server.hits) <= snapshot["attempts"]
+
+
+def test_controlled_read_timeout_spends_exactly_the_configured_attempts(wire, monkeypatch):
+    """The exact accounting the real-socket case above deliberately stops short of.
+
+    No wall clock: the transport is the controlled ``wire`` and the retry delay
+    is recorded rather than slept, so the assertion is on the schedule the
+    retry ceiling chose — two entries into HTTPX with exactly one delay between
+    them — and not on how fast the runner got through it.
+    """
+    clock = RecordingClock()
+    monkeypatch.setattr(api_base, "time", clock)
+    wire[1][:] = [httpx.ReadTimeout("synthetic controlled read timeout")]
+    assert api_hal.HalClient().search("synthetic", max_results=3) == []
+    snapshot = api_base.search_outcome().snapshot()
+    assert len(wire[0]) == snapshot["attempts"] == 2
+    assert clock.waits == [1.0]
+    assert snapshot["last_detail"] == "timeout" and snapshot["failures"] == 1
+    assert snapshot["last_call_failed"] is True
+    assert zero_reason.derive(snapshot)[0] == "upstream_failure"
+
+
+def test_hal_retry_schedule_fits_inside_the_pytest_watchdog(request):
+    """HAL's configured schedule against the watchdog that found the defect.
+
+    This asserts on configuration, not on a run. The weekly live HAL case died
+    at the 120-second per-test pytest watchdog while the shared defaults — 30 s
+    phases, 3 retries, 1/2/4 s backoff — gave an exhausted schedule of 127 s.
+    Nothing here opens a socket, and it is not a wall-clock guarantee: blocking
+    CPU work and DNS executor shutdown sit outside a cooperative deadline, as
+    ``docs/hal-reliability.md`` says. What it catches is the configuration
+    drifting back past the watchdog.
+    """
+    watchdog = request.config.getoption("timeout", None)
+    if not watchdog:
+        pytest.skip("this run has no pytest-timeout watchdog to measure against")
+    attempts = api_hal._MAX_RETRIES + 1
+    backoff = sum(api_base.config.DEFAULT_BACKOFF_BASE ** n for n in range(api_hal._MAX_RETRIES))
+    exhausted = attempts * api_hal._REQUEST_TIMEOUT_SECONDS + backoff
+    assert exhausted < float(watchdog), (
+        f"exhausted retry schedule is {exhausted}s against a {watchdog}s watchdog"
+    )
+    assert api_hal._SEARCH_BUDGET_SECONDS < float(watchdog), (
+        f"the cooperative budget is {api_hal._SEARCH_BUDGET_SECONDS}s "
+        f"against a {watchdog}s watchdog"
+    )
 
 
 def test_real_owned_connect_failure_is_bounded_and_truthful(monkeypatch):
