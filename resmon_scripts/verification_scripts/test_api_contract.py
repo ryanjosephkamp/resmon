@@ -68,6 +68,45 @@ def _shape(operation: dict) -> dict:
     return {k: v for k, v in operation.items() if k not in _PROSE_KEYS}
 
 
+def _refs(node) -> set[str]:
+    """Every ``#/components/schemas/X`` named anywhere inside ``node``."""
+    found: set[str] = set()
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
+            found.add(ref.rsplit("/", 1)[1])
+        for value in node.values():
+            found |= _refs(value)
+    elif isinstance(node, list):
+        for value in node:
+            found |= _refs(value)
+    return found
+
+
+def _routes_using(document: dict, model: str) -> list[str]:
+    """The routes whose request or response reaches ``model``, transitively.
+
+    A model is named in an operation through a ``$ref``, and a model can refer
+    to another, so "DiveRequest changed" on its own leaves the reader to work
+    out which routes accept a DiveRequest. Resolving the chain here is what
+    makes the schema failure name routes, like the other three do.
+    """
+    schemas = (document.get("components") or {}).get("schemas") or {}
+    routes: list[str] = []
+    for (method, path), operation in _operations(document).items():
+        reachable = _refs(operation)
+        frontier = set(reachable)
+        while frontier:
+            name = frontier.pop()
+            for nested in _refs(schemas.get(name, {})):
+                if nested not in reachable:
+                    reachable.add(nested)
+                    frontier.add(nested)
+        if model in reachable:
+            routes.append(f"{method} {path}")
+    return sorted(routes)
+
+
 def _committed(path: Path) -> str:
     if not path.exists():  # pragma: no cover — only on a broken checkout
         pytest.fail(
@@ -136,7 +175,14 @@ def test_every_route_keeps_the_shape_the_contract_gives_it(
 
 
 def test_the_shared_schemas_match(fresh_openapi, committed_openapi):
-    """``components.schemas`` — the request models — one model at a time."""
+    """``components.schemas`` — the request models — one model at a time.
+
+    A field removed from a request model does not change the operation that
+    accepts it: the operation holds a ``$ref`` and the ``$ref`` is unchanged.
+    So this is the check that catches it, and it names the routes that reach
+    the model as well as the model, because "DiveRequest changed" without
+    "POST /api/search/dive" is half a failure.
+    """
     fresh = (fresh_openapi.get("components") or {}).get("schemas") or {}
     committed = (committed_openapi.get("components") or {}).get("schemas") or {}
     added = sorted(set(fresh) - set(committed))
@@ -144,11 +190,18 @@ def test_the_shared_schemas_match(fresh_openapi, committed_openapi):
     changed = sorted(
         name for name in set(fresh) & set(committed) if fresh[name] != committed[name]
     )
+
+    def where(model: str, document: dict) -> str:
+        routes = _routes_using(document, model)
+        return ("; ".join(routes)) if routes else "no route refers to it"
+
     assert not (added or removed or changed), (
         "docs/api-contract/openapi.json disagrees with the app's models.\n"
-        + "".join(f"  new model: {n}\n" for n in added)
-        + "".join(f"  model gone: {n}\n" for n in removed)
-        + "".join(f"  model changed: {n}\n" for n in changed)
+        + "".join(f"  new model: {n} — {where(n, fresh_openapi)}\n" for n in added)
+        + "".join(f"  model gone: {n} — {where(n, committed_openapi)}\n" for n in removed)
+        + "".join(
+            f"  model changed: {n} — {where(n, fresh_openapi)}\n" for n in changed
+        )
         + f"Regenerate with `{api_contract.REGENERATE_COMMAND}`."
     )
 
@@ -321,18 +374,22 @@ def test_each_vocabulary_in_the_index_equals_its_constant():
     typed into the document by hand fails here, and so does a value added to
     the constant and not regenerated.
     """
-    index = _committed(api_contract.HTTP_INDEX_PATH)
+    lines = _committed(api_contract.HTTP_INDEX_PATH).splitlines()
     for heading, origin, values in api_contract.vocabularies():
         line = f"**{heading}** — from {origin}. {len(values)} values:"
-        assert line in index, (
+        assert line in lines, (
             f"docs/api-contract/http.md does not carry {heading!r} as "
             f"{len(values)} values from {origin}."
         )
+        # The values are on their own line, one blank line under the heading.
+        # Compared whole rather than searched for: a value appended by hand
+        # leaves every real value still present, so "the list contains what the
+        # constant contains" is satisfied by a list that has grown a word.
         rendered = "".join(f"`{value}` · " for value in values).rstrip(" ·")
-        start = index.index(line)
-        assert rendered in index[start:start + len(line) + len(rendered) + 8], (
-            f"The {heading!r} values in docs/api-contract/http.md are not "
-            f"{list(values)}."
+        printed = lines[lines.index(line) + 2]
+        assert printed == rendered, (
+            f"The {heading!r} values in docs/api-contract/http.md are not the ones in "
+            f"{origin}.\n  in the document: {printed}\n  in the code:     {rendered}"
         )
 
 
