@@ -1306,6 +1306,43 @@
         "title": "RoutineUpdate",
         "type": "object"
       },
+      "RoutineWatchingProfile": {
+        "additionalProperties": true,
+        "description": "A routine whose ``parameters.entity`` points at the profile being deleted.\n\n``mode`` comes out of the routine's JSON blob and is whatever is in there,\nso it is optional: a blob with an ``entity`` and no ``mode`` is a real\nshape, not a broken one.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_active",
+          "mode"
+        ],
+        "title": "RoutineWatchingProfile",
+        "type": "object"
+      },
       "ServiceInstallBody": {
         "properties": {
           "port": {
@@ -1340,6 +1377,105 @@
           "settings"
         ],
         "title": "SettingsBody",
+        "type": "object"
+      },
+      "StarterWatchProfile": {
+        "additionalProperties": true,
+        "description": "One of the curated profiles that ship with the app.\n\nNot a ``WatchProfile``: a starter is a file on disk, not a row, so it has\nno ``id``, no timestamps, and a ``source_file`` instead. Modelling it as a\nprofile with optional ids would have told a client the two are the same\nthing, which is the drift this contract exists to stop.",
+        "properties": {
+          "affiliations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Affiliations",
+            "type": "array"
+          },
+          "basis_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis Warning"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "field_hints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Field Hints",
+            "type": "array"
+          },
+          "identifiers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/WatchProfileIdentifier"
+            },
+            "title": "Identifiers",
+            "type": "object"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/WatchProfileName"
+            },
+            "title": "Names",
+            "type": "array"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "source_file": {
+            "title": "Source File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "display_name",
+          "names",
+          "identifiers",
+          "affiliations",
+          "field_hints",
+          "notes",
+          "source_file",
+          "basis_warning"
+        ],
+        "title": "StarterWatchProfile",
+        "type": "object"
+      },
+      "StarterWatchProfileList": {
+        "additionalProperties": true,
+        "description": "``GET /api/profiles/starter``.",
+        "properties": {
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/StarterWatchProfile"
+            },
+            "title": "Profiles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "profiles"
+        ],
+        "title": "StarterWatchProfileList",
         "type": "object"
       },
       "SweepRequest": {
@@ -1497,6 +1633,97 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WatchProfile": {
+        "additionalProperties": true,
+        "description": "A stored watch profile, as every read of one returns it.\n\n``identifiers`` is keyed by scheme — ``watch_profiles.IDENTIFIER_SCHEMES``\nis the closed list of four, and a key outside it never reaches storage.\nThe map is declared open here because the schema cannot say \"one of these\nfour keys, each optional\" without also saying the keys are required, and\nthe runtime constraint lives in ``_clean_identifiers`` where it belongs.\n\n``basis_warning`` is the field this journey exists to carry: a sentence\nwhen every match for this profile will be name-only, ``None`` when the\nprofile can do better. It is computed on every read, never stored, and it\nis the field a careless model would have dropped.",
+        "properties": {
+          "affiliations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Affiliations",
+            "type": "array"
+          },
+          "basis_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis Warning"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "field_hints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Field Hints",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "identifiers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/WatchProfileIdentifier"
+            },
+            "title": "Identifiers",
+            "type": "object"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/WatchProfileName"
+            },
+            "title": "Names",
+            "type": "array"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "display_name",
+          "names",
+          "identifiers",
+          "affiliations",
+          "field_hints",
+          "notes",
+          "created_at",
+          "updated_at",
+          "basis_warning"
+        ],
+        "title": "WatchProfile",
+        "type": "object"
+      },
       "WatchProfileBody": {
         "properties": {
           "affiliations": {
@@ -1550,6 +1777,548 @@
           }
         },
         "title": "WatchProfileBody",
+        "type": "object"
+      },
+      "WatchProfileDeleted": {
+        "additionalProperties": true,
+        "description": "``DELETE /api/profiles/{profile_id}``.\n\n**The conditionally assembled one.** ``detail`` is added by the handler\nonly when something was watching the profile, and the route therefore sets\n``response_model_exclude_unset=True`` — as every modelled route does —\nso an absent ``detail`` stays absent instead of being serialised as\n``null``. A client distinguishing \"no routines were affected\" from \"one was\nand here is the sentence\" by key presence keeps working.",
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "routines_watching": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineWatchingProfile"
+            },
+            "title": "Routines Watching",
+            "type": "array"
+          }
+        },
+        "required": [
+          "deleted",
+          "routines_watching"
+        ],
+        "title": "WatchProfileDeleted",
+        "type": "object"
+      },
+      "WatchProfileExport": {
+        "additionalProperties": true,
+        "description": "``GET /api/profiles/{profile_id}/export`` — the interchange format.\n\nIds and timestamps are deliberately absent, because a profile exported from\none resmon and imported into another is the same *person* and not the same\nrow. ``schema`` is ``watch_profiles.JSON_SCHEMA_VERSION`` and is what the\nimporter refuses on.",
+        "properties": {
+          "affiliations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Affiliations",
+            "type": "array"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "field_hints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Field Hints",
+            "type": "array"
+          },
+          "identifiers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/WatchProfileIdentifier"
+            },
+            "title": "Identifiers",
+            "type": "object"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/WatchProfileName"
+            },
+            "title": "Names",
+            "type": "array"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "schema": {
+            "title": "Schema",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema",
+          "kind",
+          "display_name",
+          "names",
+          "identifiers",
+          "affiliations",
+          "field_hints",
+          "notes"
+        ],
+        "title": "WatchProfileExport",
+        "type": "object"
+      },
+      "WatchProfileIdentifier": {
+        "additionalProperties": true,
+        "description": "An identifier and the place the user says they got it from.",
+        "properties": {
+          "cited": {
+            "title": "Cited",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "cited"
+        ],
+        "title": "WatchProfileIdentifier",
+        "type": "object"
+      },
+      "WatchProfileImportFailure": {
+        "additionalProperties": true,
+        "description": "One entry of an import file that could not be read, and why.\n\n``index`` is its position in the submitted list, because the point of\nreporting per profile rather than failing the batch is telling the user\nwhich line to look at.",
+        "properties": {
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "reason"
+        ],
+        "title": "WatchProfileImportFailure",
+        "type": "object"
+      },
+      "WatchProfileImportResult": {
+        "additionalProperties": true,
+        "description": "``POST /api/profiles/import``.",
+        "properties": {
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/WatchProfileImportFailure"
+            },
+            "title": "Failed",
+            "type": "array"
+          },
+          "imported": {
+            "items": {
+              "$ref": "#/components/schemas/WatchProfile"
+            },
+            "title": "Imported",
+            "type": "array"
+          }
+        },
+        "required": [
+          "imported",
+          "failed"
+        ],
+        "title": "WatchProfileImportResult",
+        "type": "object"
+      },
+      "WatchProfileLifecycle": {
+        "additionalProperties": true,
+        "description": "``GET /api/profiles/{profile_id}/lifecycle``.\n\n``checked_documents`` beside ``matched_documents`` is the coverage half:\na profile whose papers have never been through a lifecycle check has no\nfindings *because nothing looked*, which is a different fact from having\nnone. ``coverage_note`` says that in a sentence rather than leaving it to\nbe inferred from two numbers, and a model that dropped it would have turned\nthe one into the other.",
+        "properties": {
+          "checked_documents": {
+            "title": "Checked Documents",
+            "type": "integer"
+          },
+          "coverage_note": {
+            "title": "Coverage Note",
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/WatchProfileLifecycleFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "matched_documents": {
+            "title": "Matched Documents",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "findings",
+          "matched_documents",
+          "checked_documents",
+          "coverage_note"
+        ],
+        "title": "WatchProfileLifecycle",
+        "type": "object"
+      },
+      "WatchProfileLifecycleFinding": {
+        "additionalProperties": true,
+        "description": "A retraction or other lifecycle notice on a paper this profile matched.\n\nA join over findings resmon already holds, never a new claim. Every field\nthat carries the notice is here — ``notice_url`` is ``NOT NULL`` in\n``document_lifecycle`` and the DOI and date are not — because a finding\nrendered without its notice link is resmon asserting a retraction on its\nown authority, which it does not do.\n\n``basis`` and ``matched_author`` come from the match, not the finding, so a\nfinding on a ``name_only`` match is visibly a finding on a paper that\nmerely has this name on it.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "first_seen_at": {
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "matched_author": {
+            "title": "Matched Author",
+            "type": "string"
+          },
+          "notice_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Date"
+          },
+          "notice_doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Doi"
+          },
+          "notice_url": {
+            "title": "Notice Url",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Source"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "source_repository": {
+            "title": "Source Repository",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "kind",
+          "severity",
+          "label",
+          "notice_doi",
+          "notice_url",
+          "notice_date",
+          "provider",
+          "provider_source",
+          "first_seen_at",
+          "title",
+          "doi",
+          "source_repository",
+          "basis",
+          "matched_author"
+        ],
+        "title": "WatchProfileLifecycleFinding",
+        "type": "object"
+      },
+      "WatchProfileList": {
+        "additionalProperties": true,
+        "description": "``GET /api/profiles``.",
+        "properties": {
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/WatchProfile"
+            },
+            "title": "Profiles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "profiles"
+        ],
+        "title": "WatchProfileList",
+        "type": "object"
+      },
+      "WatchProfileMatchPage": {
+        "additionalProperties": true,
+        "description": "``GET /api/profiles/{profile_id}/matches``.\n\n``by_basis`` is a count per basis over the whole profile, not over this\npage, which is why it sits beside ``total`` rather than being derived from\n``matches``.",
+        "properties": {
+          "by_basis": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Basis",
+            "type": "object"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/WatchProfileMatchRow"
+            },
+            "title": "Matches",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "matches",
+          "total",
+          "by_basis"
+        ],
+        "title": "WatchProfileMatchPage",
+        "type": "object"
+      },
+      "WatchProfileMatchRef": {
+        "additionalProperties": true,
+        "description": "A profile that matched one paper, and the basis it matched on.\n\nThe basis rides on every match everywhere it is returned. A match with no\nbasis is the claim resmon refuses to make: that a paper is by this person,\nrather than that a paper has this name on it.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
+          },
+          "matched_author": {
+            "title": "Matched Author",
+            "type": "string"
+          },
+          "profile_id": {
+            "title": "Profile Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "profile_id",
+          "display_name",
+          "basis",
+          "matched_author",
+          "evidence"
+        ],
+        "title": "WatchProfileMatchRef",
+        "type": "object"
+      },
+      "WatchProfileMatchRow": {
+        "additionalProperties": true,
+        "description": "One paper matched to a profile, as the matches page lists it.\n\nEvery nullable column of ``documents`` is optional here because it is\nnullable there: ``title`` and ``source_repository`` are ``NOT NULL`` in the\nschema and the rest are not.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
+          },
+          "first_seen_at": {
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "matched_author": {
+            "title": "Matched Author",
+            "type": "string"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "source_repository": {
+            "title": "Source Repository",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "document_id",
+          "basis",
+          "matched_author",
+          "evidence",
+          "first_seen_at",
+          "title",
+          "source_repository",
+          "doi",
+          "url",
+          "publication_date"
+        ],
+        "title": "WatchProfileMatchRow",
+        "type": "object"
+      },
+      "WatchProfileMatchesByDocument": {
+        "additionalProperties": true,
+        "description": "``POST /api/profiles/matches/for-documents``.\n\n**The map with caller-supplied keys.** ``matches`` is keyed by document id\nas a string — the handler builds it with ``str(row[\"document_id\"])`` —\nand holds only the documents that matched something, so a key's absence\nmeans \"nothing matched\", not \"not asked about\".",
+        "properties": {
+          "matches": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/WatchProfileMatchRef"
+              },
+              "type": "array"
+            },
+            "title": "Matches",
+            "type": "object"
+          }
+        },
+        "required": [
+          "matches"
+        ],
+        "title": "WatchProfileMatchesByDocument",
+        "type": "object"
+      },
+      "WatchProfileName": {
+        "additionalProperties": true,
+        "description": "One spelling of the watched name.\n\n``script`` is empty rather than guessed when the value is not ASCII — see\n``watch_profiles._clean_names`` — so it is a string that may be empty, not\nan optional one.",
+        "properties": {
+          "script": {
+            "title": "Script",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "script"
+        ],
+        "title": "WatchProfileName",
         "type": "object"
       },
       "WatchdogMuteRequest": {
@@ -5994,7 +6763,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchProfileList"
+                }
               }
             },
             "description": "Successful Response"
@@ -6028,7 +6799,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchProfile"
+                }
               }
             },
             "description": "Successful Response"
@@ -6065,7 +6838,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchProfileImportResult"
+                }
               }
             },
             "description": "Successful Response"
@@ -6102,7 +6877,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchProfileMatchesByDocument"
+                }
               }
             },
             "description": "Successful Response"
@@ -6129,7 +6906,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StarterWatchProfileList"
+                }
               }
             },
             "description": "Successful Response"
@@ -6157,7 +6936,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchProfileDeleted"
+                }
               }
             },
             "description": "Successful Response"
@@ -6192,7 +6973,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchProfile"
+                }
               }
             },
             "description": "Successful Response"
@@ -6237,7 +7020,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchProfile"
+                }
               }
             },
             "description": "Successful Response"
@@ -6274,7 +7059,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchProfileExport"
+                }
               }
             },
             "description": "Successful Response"
@@ -6322,7 +7109,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchProfileLifecycle"
+                }
               }
             },
             "description": "Successful Response"
@@ -6380,7 +7169,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchProfileMatchPage"
+                }
               }
             },
             "description": "Successful Response"

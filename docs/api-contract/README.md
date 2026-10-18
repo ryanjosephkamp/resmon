@@ -39,6 +39,10 @@ A new route also needs a line in `api_contract.ROUTE_JOURNEYS` saying which regi
 Until it has one the guard stays red: a route nobody can name a journey for is a route the renderer
 has no reason to call.
 
+A route that declares a `response_model` needs one more thing: a case in
+`verification_scripts/test_response_models.py`. That file fails when a modelled route is not driven
+and compared against its own handler's output, so a model cannot be added on trust.
+
 Running the generator to make a red test go green, without looking at what changed, defeats the
 point of having it. The failure message is the review.
 
@@ -52,9 +56,18 @@ a backend change, which is a pull request of its own and arrives before the scre
 
 Three things the index is careful about, because a contract that overclaims is worse than none:
 
-- **No response schemas.** Not one route declares a `response_model`, so `openapi.json` says every
-  200 body is the empty schema `{}`. Requests are fully described; responses are described in prose
-  in the root [`README.md`](../../README.md) and in the five feature contracts. Nothing here guesses.
+- **Response schemas, where there are any.** A route that declares a `response_model` has its
+  success body described in `openapi.json` and the model named in `http.md`'s **Response** column;
+  a route that does not shows `—` and the empty schema `{}`. The split is counted in `http.md`
+  from the application, not written down, and the undescribed half is described in prose in the
+  root [`README.md`](../../README.md) and in the five feature contracts. Nothing here guesses.
+  A declared model is a **lower bound**: every one is `additionalProperties: true`, because
+  FastAPI *filters* a reply against its model and a field nobody declared would otherwise vanish
+  from the body with a 200. [`implementation_scripts/response_models.py`](../../resmon_scripts/implementation_scripts/response_models.py)
+  explains the hazard and
+  [`verification_scripts/test_response_models.py`](../../resmon_scripts/verification_scripts/test_response_models.py)
+  is what holds the models to it, by comparing each route's body against what its handler returned
+  on the same request. Rely on a declared field being there; do not rely on there being no others.
 - **Purposes are quoted, not written.** A route's one-line purpose is the first line of its
   docstring. The routes that have no docstring show FastAPI's generated summary *in italics* — the
   function name with the underscores taken out — rather than a sentence somebody invented for them.
