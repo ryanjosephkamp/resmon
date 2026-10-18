@@ -9,7 +9,7 @@
  * Keeping the list on the home page keeps that first view useful.
  */
 import type { CollectionEntry } from 'astro:content';
-import { postPath, displayDate } from '../lib/posts';
+import { postPath, displayDate, xmlSchemaUtc } from '../lib/posts';
 import { url } from '../lib/urls';
 
 interface Props {
@@ -32,7 +32,13 @@ function headline(body: string | undefined): string {
     posts.map((post) => (
       <li>
         <a href={url(postPath(post.id, post.data.date))}>
-          <time datetime={post.data.date.toString()}>{displayDate(post.data.date)}</time>
+          {/*
+            `datetime` must be a valid HTML date string, and the front matter is not one:
+            `2026-04-24 12:00:00 -0400` has a space for the separator and an offset with no
+            colon, which no parser is obliged to read. The displayed text is the UTC day, so
+            the machine-readable value is the same instant in ISO form.
+          */}
+          <time datetime={xmlSchemaUtc(post.data.date)}>{displayDate(post.data.date)}</time>
           <span class="post-title">{post.data.title}</span>
           {withSummary && headline(post.body) && (
             <span class="post-summary">{headline(post.body)}</span>
