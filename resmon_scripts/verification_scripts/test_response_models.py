@@ -193,6 +193,8 @@ class Drive:
         self.captured = captured
         #: ``(method, path)`` -> list of ``(raw return, response body)``.
         self.calls: dict[tuple[str, str], list[tuple[Any, Any]]] = {}
+        #: ``(method, path)`` -> list of the exact bytes that went over the wire.
+        self.wire: dict[tuple[str, str], list[str]] = {}
 
     def __call__(self, method: str, url: str, expect: int = 200, **kwargs) -> Any:
         before = len(self.captured)
@@ -205,6 +207,7 @@ class Drive:
         route, raw = new[0]
         body = response.json()
         self.calls.setdefault((method, route.path), []).append((raw, body))
+        self.wire.setdefault((method, route.path), []).append(response.text)
         return body
 
 
@@ -339,6 +342,36 @@ def test_every_modelled_route_answers_exactly_what_its_handler_returned(driven):
     assert not problems, (
         f"{len(problems)} field(s) changed between the handler and the wire:\n"
         + "\n".join(problems))
+
+
+def test_the_bytes_are_identical_too_and_not_only_the_fields(driven):
+    """The stronger claim: the same keys, in the same order, as the same text.
+
+    The sweep above compares parsed JSON, which is the property that matters —
+    object key order carries no meaning and no sane client depends on it. But
+    the models were written in each handler's own field order, and while that
+    holds the reply is the same *bytes* it was before, so a client diffing two
+    recorded responses sees nothing at all. This pins it.
+
+    ``separators`` and ``ensure_ascii`` are Starlette's own, from
+    ``JSONResponse.render``; the right-hand side is therefore exactly the text
+    a route with no ``response_model`` would have produced. If reordering a
+    model's fields turns this red and the order was deliberate, this is a test
+    to relax rather than a change to revert — it is the weaker property that is
+    load-bearing.
+    """
+    problems: list[str] = []
+    for (method, path), texts in sorted(driven.wire.items()):
+        for index, text in enumerate(texts):
+            raw, _body = driven.calls[(method, path)][index]
+            expected = json.dumps(
+                jsonable_encoder(raw), separators=(",", ":"), ensure_ascii=False)
+            if text != expected:
+                problems.append(
+                    f"{method} {path} (call {index + 1}): wire keys "
+                    f"{list(json.loads(text))} vs handler keys "
+                    f"{list(json.loads(expected))}")
+    assert not problems, "\n".join(problems)
 
 
 def test_the_delete_route_carries_its_detail_only_when_there_is_one(driven):
