@@ -228,23 +228,57 @@ def test_the_contract_carries_no_app_version(committed_openapi):
     )
 
 
-def test_no_route_declares_a_response_model():
-    """0 of 184 — and the index says so rather than inventing schemas.
+def test_the_index_counts_the_routes_that_describe_their_response():
+    """The index says how many routes declare a model, and it says it right.
 
-    This is not a rule about how routes should be written; it is the fact the
-    index is honest about. If a route ever does declare one, this test is the
-    prompt to say so in ``http.md`` instead of leaving the reader with a claim
-    that has quietly stopped being true.
+    This test used to assert that *none* did, because none did and the index
+    said so in prose. The prose has become a count — "the 11 of 184 routes that
+    declare one" — generated from ``app.routes`` rather than typed, and what is
+    worth guarding is now that the sentence and the application agree. A route
+    modeled without regenerating the index fails
+    ``test_the_http_index_is_what_the_app_generates`` above; this one fails if
+    the sentence itself stops being computed.
     """
-    routes = api_contract.api_routes()
-    declared = sorted(
-        f"{sorted(r.methods)[0]} {r.path}" for r in routes if r.response_model is not None
+    count = api_contract.modeled_route_count()
+    index = api_contract.HTTP_INDEX_PATH.read_text(encoding="utf-8")
+    sentence = f"the {count} of {len(api_contract.route_keys())} routes that declare one"
+    assert sentence in index, (
+        f"docs/api-contract/http.md does not say '{sentence}'. "
+        f"Regenerate with `{api_contract.REGENERATE_COMMAND}`."
     )
-    assert not declared, (
-        "These routes now declare a response_model, so docs/api-contract/http.md's "
-        "'not one of the routes declares a response_model' is no longer true:\n  "
-        + "\n  ".join(declared)
-    )
+
+
+def test_a_modeled_route_carries_a_real_schema_and_an_unmodeled_one_does_not():
+    """The two halves of the surface, each described as it actually is.
+
+    A route with a ``response_model`` must have a ``$ref`` under its success
+    status in the committed document, and a route without one must still show
+    the empty schema. The second half is the one worth holding: a generator
+    that started inventing shapes for the 173 undescribed routes would be
+    guessing, and the whole point of this folder is that it does not.
+    """
+    document = json.loads(_committed(api_contract.OPENAPI_PATH))
+    modeled = set(api_contract.modeled_routes())
+    guessed: list[str] = []
+    undescribed: list[str] = []
+    for method, path in api_contract.route_keys():
+        operation = (document["paths"].get(path) or {}).get(method.lower()) or {}
+        schemas = [
+            ((response.get("content") or {}).get("application/json") or {}).get("schema")
+            for status, response in (operation.get("responses") or {}).items()
+            if status.startswith("2")
+        ]
+        described = any(schema for schema in schemas)
+        if (method, path) in modeled and not described:
+            undescribed.append(f"{method} {path}")
+        if (method, path) not in modeled and described:
+            guessed.append(f"{method} {path}")
+    assert not undescribed, (
+        "these routes declare a response_model but the committed contract has no "
+        "schema for their success body: " + ", ".join(undescribed))
+    assert not guessed, (
+        "these routes declare no response_model and the committed contract "
+        "describes their body anyway, which is a guess: " + ", ".join(guessed))
 
 
 # ---------------------------------------------------------------------------

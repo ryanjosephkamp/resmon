@@ -25,12 +25,19 @@ fails when they differ from what is committed, naming the routes rather than
 printing one enormous assertion. A contract change therefore takes its own pull
 request, which is the whole point: the seam moves visibly or not at all.
 
-**What this module does not do.** It invents nothing. Not one of the 184 routes
-declares a ``response_model``, so ``app.openapi()`` describes a 200 body as the
-empty schema ``{}`` and this file leaves it that way. A route here is described
-by its method, path, parameters and request body; what it *answers* with is
-documented in prose in ``README.md`` and in the five feature contracts, and a
-schema written here would be a guess dressed as a contract.
+**What this module does not do.** It invents nothing. A route that declares no
+``response_model`` has its 200 body described by ``app.openapi()`` as the empty
+schema ``{}``, and this file leaves it that way: it is described by its method,
+path, parameters and request body, and what it *answers* with is documented in
+prose in ``README.md`` and in the five feature contracts. A schema written here
+would be a guess dressed as a contract.
+
+The response half of the surface is being filled in a route at a time, starting
+with J07. ``modeled_route_count()`` below counts the routes that declare a
+model by asking the application, and ``http.md`` prints that count rather than
+the sentence it used to carry — "not one of the 184 routes declares a
+``response_model``" was true when it was written and is exactly the kind of
+sentence that outlives its truth.
 """
 
 from __future__ import annotations
@@ -416,6 +423,30 @@ def route_keys() -> list[tuple[str, str]]:
                 continue
             keys.append((method, route.path))
     return sorted(set(keys), key=lambda k: (k[1], k[0]))
+
+
+def modeled_routes() -> list[tuple[str, str]]:
+    """``(method, path)`` for every route that declares a ``response_model``.
+
+    Read off the application. A route with a model has a real schema under its
+    200 in ``openapi.json``; a route without one has ``{}`` there, and the
+    index says how many of each there are rather than asserting a figure that
+    was true on the day somebody typed it.
+    """
+    keys: list[tuple[str, str]] = []
+    for route in api_routes():
+        if route.response_model is None:
+            continue
+        for method in sorted(route.methods or ()):
+            if method in ("HEAD", "OPTIONS"):
+                continue
+            keys.append((method, route.path))
+    return sorted(set(keys), key=lambda k: (k[1], k[0]))
+
+
+def modeled_route_count() -> int:
+    """How many of the routes answer with a described shape."""
+    return len(modeled_routes())
 
 
 def normalised_openapi() -> dict:
@@ -846,11 +877,13 @@ def route_rows() -> list[dict]:
         journeys = list(ROUTE_JOURNEYS.get((method, path), ()))
         if (method, path) in mcp_keys and "J44" not in journeys:
             journeys.append("J44")
+        model = getattr(route.response_model, "__name__", None)
         rows.append({
             "method": method,
             "path": path,
             "auth": auth_class(path),
             "sse": streams_sse(route),
+            "response_model": model,
             "purpose": text,
             "from_docstring": from_docstring,
             "journeys": tuple(journeys),
@@ -860,19 +893,20 @@ def route_rows() -> list[dict]:
 
 def _table(rows: Iterable[dict]) -> list[str]:
     lines = [
-        "| Method | Path | Auth | SSE | Purpose |",
-        "| --- | --- | --- | --- | --- |",
+        "| Method | Path | Auth | SSE | Response | Purpose |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
         text = _escape(row["purpose"])
         if not row["from_docstring"]:
             text = f"*{text}*"
         lines.append(
-            "| `{method}` | `{path}` | {auth} | {sse} | {purpose} |".format(
+            "| `{method}` | `{path}` | {auth} | {sse} | {response} | {purpose} |".format(
                 method=row["method"],
                 path=row["path"],
                 auth=row["auth"],
                 sse="yes" if row["sse"] else "—",
+                response=f"`{row['response_model']}`" if row["response_model"] else "—",
                 purpose=text,
             )
         )
@@ -884,6 +918,7 @@ def render_http_md() -> str:
     rows = route_rows()
     total = len(rows)
     documented = sum(1 for row in rows if row["from_docstring"])
+    modeled = sum(1 for row in rows if row["response_model"])
     mcp_keys, uncertain = mcp_driven_routes()
     by_journey: dict[str, list[dict]] = {}
     for row in rows:
@@ -937,12 +972,37 @@ def render_http_md() -> str:
     )
     out.append("")
     out.append(
-        "**No response schemas.** Not one of the "
-        f"{total} routes declares a `response_model`, so `openapi.json` describes every "
-        "200 body as the empty schema `{}`. What a route accepts — its path and query "
-        "parameters and its request body — is fully described there; what it answers "
-        "with is described in prose in [README.md](../../README.md) and in the five "
-        "feature contracts beside this file. Nothing here guesses at a response shape."
+        f"**Response.** The `response_model` the route declares, for the {modeled} of "
+        f"{total} routes that declare one — `openapi.json` carries its schema under "
+        "that name, and a typed client can be generated from it. The remaining "
+        f"{total - modeled} show `—`: they declare no model, so `openapi.json` "
+        "describes their 200 body as the empty schema `{}` and what they answer with "
+        "is described in prose in [README.md](../../README.md) and in the five feature "
+        "contracts beside this file. Nothing here guesses at a response shape."
+    )
+    out.append("")
+    out.append(
+        "A declared model is a **lower bound** on the body, not an exact description. "
+        "Every one of them is an `additionalProperties: true` schema, because FastAPI "
+        "filters a response against its model and a key nobody declared would "
+        "otherwise be dropped from the reply silently; `implementation_scripts/"
+        "response_models.py` sets that out in full and "
+        "`verification_scripts/test_response_models.py` holds every model to it by "
+        "comparing each route's body with what its handler returned on the same "
+        "request. So a client may rely on a declared field being there, and may not "
+        "rely on there being nothing else."
+    )
+    out.append("")
+    out.append(
+        "What survives is the **key**. An undeclared value is re-serialized by "
+        "pydantic rather than by FastAPI's `jsonable_encoder`, and the two disagree "
+        "for three types: a `Decimal` becomes a string rather than a float, a "
+        "`PurePath` raises instead of serializing (the concrete `Path` beside it is "
+        "fine, which is the trap), and `inf`/`nan` become a quiet `null` where an "
+        "unmodeled route answered 500. None is reachable in the routes modeled "
+        "today; the table and the test that keeps it true are in "
+        "`response_models.py`, and anyone modeling a further route should read it "
+        "first."
     )
     out.append("")
 

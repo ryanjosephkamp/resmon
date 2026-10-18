@@ -113,7 +113,8 @@ from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
     analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store, coverage_audit, embedding_job,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
-    reading_queue, reference_export, search_record, source_coverage, vector_index, watch_profiles,
+    reading_queue, reference_export, response_models, search_record, source_coverage,
+    vector_index, watch_profiles,
     watchdog,
 )
 from implementation_scripts.assistant_permissions import broker as permission_broker
@@ -7076,6 +7077,23 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
 # rather than a widening of `saved_configurations`: a configuration is a search
 # and a profile is an identity, and `config_type`'s CHECK constraint stays as it
 # is (decision 10).
+#
+# **These eleven routes are the first on the surface to declare a
+# `response_model`**, so `openapi.json` describes what they answer with instead
+# of giving every 200 body the empty schema `{}`. The models are in
+# `implementation_scripts/response_models.py`, which explains the hazard at
+# length: FastAPI's `response_model` *filters* the body, and a field the handler
+# returns that the model does not declare is dropped silently with a 200.
+#
+# Two things stop that here, and both are tested rather than remembered. Every
+# model inherits `LosslessModel`, whose `extra="allow"` keeps a key nobody
+# modeled; and every one of these routes sets `response_model_exclude_unset`,
+# so a declared field the handler did not return is not invented at its default
+# — which is what would otherwise put `"detail": null` into every delete. The
+# body is therefore the handler's own key set, and
+# `verification_scripts/test_response_models.py` proves it by driving each route
+# and comparing the wire body with what the handler returned on that same call.
+# Add a route or a model here and that file goes red until it has a case.
 
 
 class WatchProfileBody(BaseModel):
@@ -7094,7 +7112,8 @@ class ProfileImportBody(BaseModel):
     profiles: list[dict] = []
 
 
-@app.get("/api/profiles")
+@app.get("/api/profiles", response_model=response_models.WatchProfileList,
+         response_model_exclude_unset=True)
 def list_watch_profiles(kind: Optional[str] = None):
     conn = _get_db()
     try:
@@ -7103,7 +7122,8 @@ def list_watch_profiles(kind: Optional[str] = None):
         _close_db(conn)
 
 
-@app.get("/api/profiles/starter")
+@app.get("/api/profiles/starter", response_model=response_models.StarterWatchProfileList,
+         response_model_exclude_unset=True)
 def list_starter_profiles():
     """The curated set that ships with the app, not yet anybody's profile.
 
@@ -7114,7 +7134,8 @@ def list_starter_profiles():
     return {"profiles": watch_profiles.load_starter_profiles()}
 
 
-@app.post("/api/profiles", status_code=201)
+@app.post("/api/profiles", status_code=201, response_model=response_models.WatchProfile,
+          response_model_exclude_unset=True)
 def create_watch_profile(body: WatchProfileBody):
     conn = _get_db()
     try:
@@ -7129,7 +7150,9 @@ class ProfileMatchesForDocumentsBody(BaseModel):
     document_ids: list[int] = []
 
 
-@app.post("/api/profiles/matches/for-documents")
+@app.post("/api/profiles/matches/for-documents",
+          response_model=response_models.WatchProfileMatchesByDocument,
+          response_model_exclude_unset=True)
 def profile_matches_for_documents(body: ProfileMatchesForDocumentsBody):
     """Which watch profiles matched a page of papers, and on what basis.
 
@@ -7170,7 +7193,8 @@ def profile_matches_for_documents(body: ProfileMatchesForDocumentsBody):
         _close_db(conn)
 
 
-@app.get("/api/profiles/{profile_id}")
+@app.get("/api/profiles/{profile_id}", response_model=response_models.WatchProfile,
+         response_model_exclude_unset=True)
 def get_watch_profile(profile_id: int):
     conn = _get_db()
     try:
@@ -7182,7 +7206,8 @@ def get_watch_profile(profile_id: int):
         _close_db(conn)
 
 
-@app.put("/api/profiles/{profile_id}")
+@app.put("/api/profiles/{profile_id}", response_model=response_models.WatchProfile,
+         response_model_exclude_unset=True)
 def update_watch_profile(profile_id: int, body: WatchProfileBody):
     conn = _get_db()
     try:
@@ -7196,7 +7221,8 @@ def update_watch_profile(profile_id: int, body: WatchProfileBody):
         _close_db(conn)
 
 
-@app.delete("/api/profiles/{profile_id}")
+@app.delete("/api/profiles/{profile_id}", response_model=response_models.WatchProfileDeleted,
+            response_model_exclude_unset=True)
 def delete_watch_profile(profile_id: int):
     """Remove a profile and its matches. **The corpus is untouched.**
 
@@ -7224,7 +7250,9 @@ def delete_watch_profile(profile_id: int):
         _close_db(conn)
 
 
-@app.get("/api/profiles/{profile_id}/export")
+@app.get("/api/profiles/{profile_id}/export",
+         response_model=response_models.WatchProfileExport,
+         response_model_exclude_unset=True)
 def export_watch_profile(profile_id: int):
     conn = _get_db()
     try:
@@ -7236,7 +7264,8 @@ def export_watch_profile(profile_id: int):
         _close_db(conn)
 
 
-@app.post("/api/profiles/import")
+@app.post("/api/profiles/import", response_model=response_models.WatchProfileImportResult,
+          response_model_exclude_unset=True)
 def import_watch_profiles(body: ProfileImportBody):
     """Import one or more exported profiles.
 
@@ -7259,7 +7288,9 @@ def import_watch_profiles(body: ProfileImportBody):
         _close_db(conn)
 
 
-@app.get("/api/profiles/{profile_id}/lifecycle")
+@app.get("/api/profiles/{profile_id}/lifecycle",
+         response_model=response_models.WatchProfileLifecycle,
+         response_model_exclude_unset=True)
 def get_watch_profile_lifecycle(profile_id: int, limit: int = 100):
     """Retractions and other lifecycle findings on this profile's papers.
 
@@ -7279,7 +7310,9 @@ def get_watch_profile_lifecycle(profile_id: int, limit: int = 100):
         _close_db(conn)
 
 
-@app.get("/api/profiles/{profile_id}/matches")
+@app.get("/api/profiles/{profile_id}/matches",
+         response_model=response_models.WatchProfileMatchPage,
+         response_model_exclude_unset=True)
 def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0):
     """Papers matched to this profile, **each with the basis it was matched on**.
 
