@@ -29,23 +29,38 @@ consequences:
   be changed from inside a fork, which is the whole point.
 - A new job that is also a required check must have its guard true here before it is made required.
 
+**On a fork, this looks like nothing happening.** A fork runs no jobs on push and its Actions tab stays
+empty with no explanation, which is the intended outcome and an unhelpful first impression. A pull request
+*from* a fork does run these checks, because `pull_request` is evaluated in the base repository's context —
+that is GitHub's documented behavior and has not been exercised here, since there is no fork to try it on.
+
 ## Every job carries a timeout
 
 GitHub's default is 360 minutes per job. Nothing here needs anything like that, and an unbounded job is how
 a hung runner turns into a long, quiet bill. The values below are set from measured history, not estimated:
 
-| Job | Limit | Longest observed | Source |
+| Job | Limit | Longest successful run | Sample |
 |---|---|---|---|
-| `ci.yml` backend | 40 | 22.5 min (Python 3.10) | 29 successful runs to 2026-10-18 |
-| `ci.yml` frontend | 10 | 1.5 min | same |
-| `ui-smoke.yml` smoke | 25 | — | set when written |
-| `ui-smoke.yml` window | 30 | — | set when written |
-| `journeys.yml` candidate | 40 | — | set when written |
-| `journeys.yml` classic | 45 | — | set when written |
-| `live-network.yml` live | 45 | — | set when written |
+| `ci.yml` backend | 40 | 22.5 min (Python 3.10) | 20 successful 3.10 legs of the 30 most recent CI runs |
+| `ci.yml` frontend | 10 | 1.5 min (spread 0.9–1.5) | 29 successful legs of the same 30 runs |
+| `ui-smoke.yml` smoke | 25 | 9.8 min | 11 |
+| `ui-smoke.yml` window | 30 | 12.7 min | 13 |
+| `journeys.yml` candidate | 40 | 8.6 min | 8 |
+| `journeys.yml` classic | 45 | 8.3 min | 7, but see below |
+| `live-network.yml` live | 45 | 3.2 min | 7, and the limit is deliberately far above it |
 | `release.yml` build | 60 | 7m09s, worst single leg | v2.2.0 and v2.3.0 |
-| `sqlite-vec-probe.yml` | 35 | — | set when written |
-| `voice-probe.yml` | 50 | — | set when written |
+| `sqlite-vec-probe.yml` | 35 | 9.7 min (macos-x64) | 23 |
+| `voice-probe.yml` | 50 | 14.8 min (macos-x64) | 5 |
+
+Measured 2026-10-18 from the 25 most recent runs of each workflow, successful legs only. Headroom runs from
+2.4x to 14x; the gaps were not hiding a problem, and recording that is worth more than leaving a blank row
+that invites the assumption they might have been.
+
+Two rows need their caveat read with them. The `classic` sample has a median of 0.1 minutes, because most
+of those runs short-circuited on the path filter rather than building a second application — only the 8.3
+is a real build, so treat the sample as one observation and not seven. And `live-network`'s limit is far
+above its observed time on purpose: its slow case is a provider being slow, which is the thing it exists to
+observe, not a runner being stuck.
 
 `release.yml`'s limit is per matrix leg, and the matrix is four legs — `macos-14`, `macos-15-intel`,
 `windows-latest`, `ubuntu-latest` — across three platforms.
