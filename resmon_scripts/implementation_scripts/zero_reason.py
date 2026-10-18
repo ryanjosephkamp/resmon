@@ -241,8 +241,8 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
 
     This deliberately excludes empty-answer and filtering reasons. A positive
     result is partial only when the client observed a terminal parse failure,
-    **any** request invocation in this search failed, or a retained server
-    cooldown stopped it before another transport.
+    a retained server cooldown stopped it before another transport, or **any**
+    request invocation in this search failed.
 
     *Any* invocation, not the last one. This read ``last_call_failed`` alone
     until 2026-10-18, and ``note_attempt()`` clears that flag, so a search
@@ -263,15 +263,10 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
             "attempts": snapshot.get("attempts") or 0,
         }
 
-    if snapshot.get("failures"):
-        if snapshot.get("last_call_failed"):
-            detail = snapshot.get("last_detail") or "request_error"
-            status = snapshot.get("last_status")
-        else:
-            detail, status = _recorded_failure(snapshot)
+    if snapshot.get("failures") and snapshot.get("last_call_failed"):
         return "upstream_failure", {
-            "detail": detail,
-            "status": status,
+            "detail": snapshot.get("last_detail") or "request_error",
+            "status": snapshot.get("last_status"),
             "attempts": snapshot.get("attempts") or 0,
         }
 
@@ -279,6 +274,19 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
         return "upstream_failure", {
             "detail": "server_cooldown",
             "status": snapshot.get("retained_cooldown_status"),
+            "attempts": snapshot.get("attempts") or 0,
+        }
+
+    # An invocation in this search failed terminally and a later one
+    # succeeded. This branch is last on purpose: it is strictly additive, and
+    # it only answers the case that used to fall through to ``None``. The two
+    # above still take precedence, so what the newest facts say about the
+    # search is unchanged wherever they said anything at all.
+    if snapshot.get("failures"):
+        detail, status = _recorded_failure(snapshot)
+        return "upstream_failure", {
+            "detail": detail,
+            "status": status,
             "attempts": snapshot.get("attempts") or 0,
         }
 
