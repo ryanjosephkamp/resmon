@@ -268,3 +268,42 @@ def test_every_group_on_the_allowlist_still_has_a_key_a_tool_can_change():
         writable = [k for k in APP_GROUPS[group]
                     if k in mcp.SETTINGS_KEYS_WRITABLE]
         assert writable, f"'{group}' is offered but nothing in it is writable"
+
+
+# ---------------------------------------------------------------------------
+# The published contract
+# ---------------------------------------------------------------------------
+
+CONTRACT = (PROJECT_ROOT / "docs" / "api-contract" / "mcp.md").read_text(encoding="utf-8")
+
+
+def test_the_contracts_safety_section_states_the_counts_the_code_has():
+    """Counts in prose drift; these cannot.
+
+    The Safety section is written as *"guarantees, not defaults, and the
+    implementation is reviewed against them"*, and it said **"writes are
+    limited to three tools"** for three contract versions after the seventh
+    write tool arrived — stale in the permissive direction, in the one section
+    a reviewer reads first. Nothing in the suite read it. This does.
+    """
+    safety = CONTRACT.split("## Safety", 1)[1].split("## Error model", 1)[0]
+
+    assert f"{len(mcp.WRITE_TOOLS)} tools of the {len(mcp.TOOLS)}" in safety, safety
+    assert "limited to three tools" not in safety
+    assert "Nothing destructive in v1" not in safety
+
+    writable, withheld = len(mcp.SETTINGS_KEYS_WRITABLE), len(mcp.SETTINGS_KEYS_WITHHELD)
+    total = writable + withheld
+    assert f"{writable} keys of the {total}" in safety, safety
+    assert f"the other **{withheld}**" in safety, safety
+
+
+def test_the_contract_names_every_withheld_key():
+    """An exclusion that is only in the code is an exclusion nobody can argue with.
+
+    The document is the surface a harness author reads; a key refused there
+    without being listed reads as a bug in the server.
+    """
+    amendment = CONTRACT.split("## v2.3 amendment: `update_settings` admits a key", 1)[1]
+    missing = [key for key in mcp.SETTINGS_KEYS_WITHHELD if f"`{key}`" not in amendment]
+    assert missing == [], missing

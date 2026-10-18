@@ -72,12 +72,35 @@ These are guarantees, not defaults, and the implementation is reviewed against t
   credential is relevant, the tool names its **alias** (`anthropic_api_key`) and its
   presence (`present` / `absent` / `unreadable`) — the same three-state honesty the
   Repositories page already ships.
-- **Nothing destructive in v1.** No delete, no erase, no factory reset, no credential
-  writes. Those wait for a confirmation model worth trusting; a tool call is too cheap an
-  action to hang data loss on. The excluded endpoints are listed at the end so the
-  omission is visible rather than accidental.
-- **Writes are limited to three tools**, each of which a user could trigger by hand in one
-  click, and each of which is recorded in the execution history like any other run.
+- **Nothing deletes.** No delete, no erase, no factory reset, no credential writes. Those
+  wait for a confirmation model worth trusting; a tool call is too cheap an action to hang
+  data loss on. The excluded endpoints are listed at the end so the omission is visible
+  rather than accidental.
+- **Writes are limited to 7 tools of the 25**, listed in the Write table, and each
+  declares `requires_confirmation: true`. Four of them — `run_sweep`, `run_routine`,
+  `create_routine`, `create_watch_profile` — a user could trigger by hand in one click,
+  and the three that start a run are recorded in the execution history like any other
+  run. **Three are not.** `activate_routine` and `deactivate_routine` put a job on the
+  user's machine's schedule or take it off, which is not an execution-history event;
+  `update_settings` changes the app's configuration, which is not one either. This bullet
+  said "three tools … each recorded in the execution history" for three contract versions
+  after the seventh arrived, which is the permissive direction for a document whose
+  implementation is reviewed against it.
+- **`update_settings` admits a key by name.** Since v2.3 the settings a tool may change
+  are an allowlist of **25 keys of the 41** the app has across the seven reachable
+  groups; the other **16** are refused on the name before any request is built, each with
+  the reason it is withheld. The line is that a tool may change what resmon *says* —
+  model, tone, length, retention, notifications — and may not change where resmon sends
+  things, what resmon runs, or where resmon writes. `ai_cli_path` is the clearest case:
+  it is the binary resmon spawns, and it matched none of the credential-shaped words that
+  were this tool's only content guard until v2.3.
+- **`requires_confirmation` is advertised, not enforced here.** The flag is emitted on
+  every tool in `tools/list`, and the embedded assistant turns it into a card the user
+  answers. This server applies no gate of its own: for the embedded assistant the
+  enforcement is structural and lives in the runtime, and for any other harness it is a
+  statement this document makes about the caller rather than a property of the server.
+  That is why the paragraphs above are about what the write tools can reach, and not only
+  about who is asked first.
 - **Token efficiency is a contract term, not an aspiration.** Every list tool paginates and
   defaults to a small page. No tool returns full report HTML or a whole corpus. A harness
   asking "what did my arXiv routine find this week" must not cost a five-hour usage
@@ -151,7 +174,7 @@ would make an honest product dishonest through an integration.
 | `run_routine` | `routine_id` | `exec_id`, immediately; or a `conflict` error carrying `{"conflict": "routine_already_running", "execution_id": N}` when that routine is already running | **needs a new endpoint — see below** |
 | `activate_routine` | `routine_id` | `id`, `is_active: true` | `POST /api/routines/{id}/activate` |
 | `deactivate_routine` | `routine_id` | `id`, `is_active: false` | `POST /api/routines/{id}/deactivate` |
-| `update_settings` | `group`, `settings` | `group`, `changed` (a per-key `{from, to}` diff), `requested`, `unchanged_key_count` | `GET` + `PUT /api/settings/{group}` |
+| `update_settings` | `group`, `settings` — the group on `SETTINGS_GROUPS`, every key on `SETTINGS_KEYS_WRITABLE` (25 of the app's 41; see the v2.3 narrowing amendment) | `group`, `changed` (a per-key `{from, to}` diff), `requested`, `unchanged_key_count` | `GET` + `PUT /api/settings/{group}` |
 
 **Every write tool carries `requires_confirmation: true` in `tools/list`, and every
 read tool carries it as `false`.** The field is resmon's own, not part of MCP. It is
@@ -201,7 +224,7 @@ Listed so the omissions are visible and arguable rather than silently missing.
 |---|---|
 | `/api/admin/*` — erase corpus, erase app data, factory reset, erase keys | Destructive and irreversible. No confirmation model a tool call can satisfy. |
 | `PUT` / `DELETE /api/credentials/{name}` | Writing credentials through a tool surface means a credential passing through a harness. Never. |
-| ~~`PUT /api/settings/*`~~ | **Lifted in v2.0** as `update_settings`, on the condition this row named: a person in the conversation confirms it. Settings outside the group allowlist are still out of reach — see the v2.0 and v2.1 amendments. |
+| ~~`PUT /api/settings/*`~~ | **Lifted in v2.0** as `update_settings`, on the condition this row named: a person in the conversation confirms it. Settings outside the group allowlist are still out of reach — see the v2.0 and v2.1 amendments — and since v2.3 so are the 16 keys inside it that choose where resmon sends things, what resmon runs or where resmon writes. |
 | `PUT /api/settings/execution` | Deliberately *not* in `update_settings`'s allowlist. Admission control — how many executions run at once, how deep the routine fire queue goes — is a decision about the machine rather than about the research, and the endpoint does not take `SettingsBody`. |
 | `DELETE /api/routines/{id}`, `DELETE /api/executions/{id}` | Destructive. Same reasoning. |
 | `/api/service/install`, `/api/service/uninstall` | Touches launchd / systemd on the user's machine. |
@@ -572,3 +595,71 @@ it sends no `Authorization` header and no route is exempt. Symmetrically, a 2.2 
 not attach to a backend that published no token file. So a separate MCP checkout is updated
 in the same sitting as the app; running one of each is not a degraded mode, it is no
 service at all.
+
+---
+
+## v2.3 amendment: `update_settings` admits a key by name
+
+**Narrowing, not additive.** No tool arrives or leaves and no return shape moves, but a
+call that this server accepted before is now refused: the settings keys `update_settings`
+may change became an allowlist.
+
+Until this amendment the only content guard on the tool was a substring denylist over
+seven words — `key`, `token`, `secret`, `password`, `passphrase`, `credential`, `auth` —
+applied to the key's *name*. `ai_cli_path` matches none of them. It is the path
+`ai_cli.discover_cli` honors ahead of discovery and `ClaudeCliRuntime._stream` hands to
+`subprocess.Popen` with the user's own environment, and `ai_lanes` reads the same setting
+for the subscription summary lane, so the binary also runs on routine summarization with
+nobody in a conversation. `ai_custom_base_url` and `ai_local_endpoint` decide where the
+key, the prompt and the corpus text are POSTed; `smtp_server` and `smtp_to` decide where
+the routine reports go; `export_directory` decides where resmon writes files.
+
+The embedded assistant confirm-gates every write and its card renders the arguments, so a
+careful person would see such a call. **An external harness has no gate**, because
+`requires_confirmation` is advertised by this server and enforced by its callers. So the
+decision moved into the server.
+
+| | Count |
+|---|---|
+| Settings keys the app has, across the seven reachable groups | **41** |
+| Writable through `update_settings` | **25** |
+| Withheld, refused on the name before any request is built | **16** |
+
+The line: **a tool may change what resmon says — model, tone, length, retention,
+notifications — and may not change where resmon sends things, what resmon runs, or where
+resmon writes.**
+
+Withheld, with the reason each is withheld:
+
+| Key | Why |
+|---|---|
+| `ai_cli_path` | the executable resmon spawns |
+| `assistant_runtime` | decides whether resmon spawns a process at all |
+| `ai_provider`, `assistant_provider` | select which provider's host the key and prompt go to |
+| `ai_custom_base_url`, `ai_local_endpoint` | the endpoint those requests are sent to |
+| `ai_custom_header_prefix` | names the headers a custom endpoint's requests carry, which is where the key rides |
+| `ai_chain` | a JSON list of fallback lanes, each naming its own provider |
+| `embedding_provider`, `embedding_endpoint`, `embedding_base_url` | where corpus text is sent to be embedded |
+| `cloud_provider` | which service a corpus backup is uploaded to |
+| `smtp_server`, `smtp_port`, `smtp_to` | where routine reports are delivered |
+| `export_directory` | where resmon writes exported files |
+
+Everything else in those groups stays writable, including the reason the `ai` and
+`assistant` groups are reachable at all: `ai_model`, `ai_effort`, `assistant_model` and
+`assistant_effort`. Every group on the group allowlist still holds at least one writable
+key, and a test asserts it rather than a reader checking.
+
+The allowlist and the withheld list **partition the app's own key list exactly**.
+`test_every_settings_key_the_app_has_is_either_writable_or_withheld` reads
+`resmon._SETTINGS_GROUPS` and fails when they stop doing so, so a key the app grows later
+arrives withheld and needs a decision rather than arriving writable by default — the
+other direction of the v2.1 finding, one level down from the group.
+`test_every_key_the_route_digest_reads_is_withheld` drives
+`assistant_choices.route_digest` — the function `get_bound_runtime` already uses to
+refuse a conversation whose route moved — over the whole key list, and requires every key
+it reads to be withheld. That is what keeps this list and the codebase's existing notion
+of a route from drifting apart, since neither file imports the other.
+
+The credential denylist is unchanged and is still checked first, because it answers a
+credential-shaped name with a better sentence than the allowlist would: resmon's keys are
+not settings, they live in the system keychain, and they are changed in the app.
