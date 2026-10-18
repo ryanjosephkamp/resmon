@@ -45,6 +45,14 @@ from implementation_scripts import database as db  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures/v2.1.0/corpus_schema_13.sql"
 
+#: The one-shot marker the facet backfill writes, named here rather than
+#: imported: the key is the user-visible half of the contract -- it is what the
+#: Danger Zone's settings reset clears, and clearing it is the only thing that
+#: makes a launch walk the facet gaps again. A rename breaks
+#: ``test_the_backfill_fills_a_gap_once_and_records_that_it_did`` below, which
+#: is the point.
+FACETS_MARKER = "document_facets_backfilled"
+
 
 # ---------------------------------------------------------------------------
 # Two databases: one fresh, one a released corpus walked up to today
@@ -147,15 +155,17 @@ def test_the_backfill_fills_a_gap_once_and_records_that_it_did(corpus_path, monk
     which is what every pre-schema-10 corpus looks like on the launch that
     upgrades it. The second launch must then do nothing at all.
     """
+    mine = []
     conn = db.get_connection(corpus_path)
     try:
-        conn.execute("DELETE FROM app_settings WHERE key = ?", (db._FACETS_BACKFILL_KEY,))
+        conn.execute("DELETE FROM app_settings WHERE key = ?", (FACETS_MARKER,))
         for index in range(3):
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT INTO documents (source_repository, external_id, title, "
                 "authors, categories, metadata_hash) VALUES ('arxiv', ?, ?, ?, ?, ?)",
-                (f"gap-{index}", f"Paper {index}", "G. Ap; H. Elper",
+                (f"gap-{index}", f"Paper {index}", "G. Ap, H. Elper",
                  "cond-mat.supr-con", f"gap-hash-{index}"))
+            mine.append(int(cursor.lastrowid))
         conn.execute("DELETE FROM document_authors")
         conn.execute("DELETE FROM document_categories")
         conn.commit()
@@ -164,21 +174,24 @@ def test_the_backfill_fills_a_gap_once_and_records_that_it_did(corpus_path, monk
             "(SELECT 1 FROM document_authors a WHERE a.document_id = d.id)")]
     finally:
         conn.close()
-    assert gaps, "nothing to backfill; the test would prove nothing"
+    assert set(mine) <= set(gaps), "nothing to backfill; the test would prove nothing"
 
     first = _count_facet_indexing(monkeypatch)
     db.init_db(str(corpus_path))
     print(f"backfilled {len(first)} of {len(gaps)} documents with no facet rows")
-    assert set(first) >= {g for g in gaps}
+    assert set(first) >= set(gaps)
 
     conn = db.get_connection(corpus_path)
     try:
         authors = conn.execute(
             "SELECT COUNT(*) FROM document_authors WHERE document_id = ?",
-            (gaps[0],)).fetchone()[0]
+            (mine[0],)).fetchone()[0]
+        categories = conn.execute(
+            "SELECT COUNT(*) FROM document_categories WHERE document_id = ?",
+            (mine[0],)).fetchone()[0]
     finally:
         conn.close()
-    assert authors == 2, "the gap was walked but nothing was written"
+    assert (authors, categories) == (2, 1), "the gap was walked but nothing was written"
 
     second = _count_facet_indexing(monkeypatch)
     db.init_db(str(corpus_path))
@@ -196,7 +209,7 @@ def test_the_backfill_is_bounded_in_memory_rather_than_materialized(corpus_path)
     """
     conn = db.get_connection(corpus_path)
     try:
-        conn.execute("DELETE FROM app_settings WHERE key = ?", (db._FACETS_BACKFILL_KEY,))
+        conn.execute("DELETE FROM app_settings WHERE key = ?", (FACETS_MARKER,))
         conn.commit()
     finally:
         conn.close()
@@ -235,6 +248,20 @@ def _routine_with_email(path: Path) -> int:
         conn.close()
 
 
+def _rewind_to_schema_20(path: Path) -> None:
+    """What the launch performing the 20 -> 21 upgrade sees.
+
+    The seed belongs to that upgrade, so it is the only launch that may run
+    it, and a test that wants a seeded target has to ask for that launch.
+    """
+    conn = db.get_connection(path)
+    try:
+        conn.execute("UPDATE app_settings SET value = '20' WHERE key = 'schema_version'")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _email_targets(path: Path, routine_id: int) -> list:
     conn = db.get_connection(path)
     try:
@@ -256,7 +283,8 @@ def test_a_deleted_email_target_stays_deleted_across_a_launch(corpus_path):
     from implementation_scripts import delivery
 
     routine_id = _routine_with_email(corpus_path)
-    db.init_db(str(corpus_path))          # the launch that seeds the target
+    _rewind_to_schema_20(corpus_path)
+    db.init_db(str(corpus_path))          # the upgrade that seeds the target
 
     seeded = _email_targets(corpus_path, routine_id)
     assert len(seeded) == 1, seeded
@@ -283,9 +311,9 @@ def test_the_upgrade_that_introduced_the_seed_still_seeds(corpus_path):
     performing the 20 -> 21 upgrade sees -- and asserts the target appears.
     """
     routine_id = _routine_with_email(corpus_path)
+    _rewind_to_schema_20(corpus_path)
     conn = db.get_connection(corpus_path)
     try:
-        conn.execute("UPDATE app_settings SET value = '20' WHERE key = 'schema_version'")
         conn.execute("DELETE FROM routine_delivery_targets WHERE routine_id = ?",
                      (routine_id,))
         conn.commit()

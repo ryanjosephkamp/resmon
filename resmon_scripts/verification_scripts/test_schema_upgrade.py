@@ -163,6 +163,23 @@ def choices_rows(c, widths=None):
     return result
 
 
+# A marker here records a one-shot backfill that really ran and really
+# committed, in a step before the schema-15 step these cases block, so it is
+# not part of what a rolled-back step must put back.
+# The one-shot backfill markers a launch may add to ``app_settings``. Defined
+# once, in the file whose whole subject is what a walk may change; named
+# rather than tolerated, and compared for equality at every use below.
+from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
+    _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+)
+
+
+def minus_markers(rows):
+    """*rows* with the one-shot backfill markers dropped from ``app_settings``."""
+    return {**rows, 'app_settings': [(k, v) for k, v in rows['app_settings']
+                                     if k not in BACKFILL_MARKERS]}
+
+
 def choices_widths(c):
     """Each table's column names, so a later step's new column is not a rewrite."""
     return {r[0]: [x[1] for x in c.execute('PRAGMA table_info("' + r[0] + '")')]
@@ -185,8 +202,13 @@ def test_choices_upgrade_preserves_every_baseline_row_and_fts(tmp_path):
     database.init_db(conn=c)
     assert database.get_schema_version(c) == database.SCHEMA_VERSION
     after = choices_rows(c, widths)
+    # The upgrade records what it did and nothing else: the schema marker moves
+    # and the one-shot backfill markers appear. Both are named, and the markers
+    # are asserted to have arrived rather than merely tolerated.
+    assert ({k for k, _ in after['app_settings']}
+            - {k for k, _ in before['app_settings']}) == BACKFILL_MARKERS
     after['app_settings'] = [(k, '14' if k == 'schema_version' else v) for k, v in after['app_settings']]
-    assert after == before
+    assert minus_markers(after) == before
     assert [tuple(r) for r in c.execute("SELECT rowid FROM documents_fts WHERE documents_fts MATCH 'diffusion'")] == fts
     assert set(choices_objects(c)) - set(old_objects) == set(database._ASSISTANT_CHOICES_DDL) | set(database._LIBRARY_DDL) | set(database._EVIDENCE_DDL) | {"evidence_answers", "idx_evidence_answers_project_order"} | set(database._JOBS_V20_DDL) | set(database._DELIVERY_V21_DDL)
     for name, ddl in old_objects.items():
@@ -231,7 +253,10 @@ def test_choices_blocking_objects_roll_back_partial_upgrade(tmp_path, blocker):
         database.init_db(conn=c)
     assert database.get_schema_version(c) == 14
     assert choices_objects(c) == before
-    assert choices_rows(c) == rows
+    # The markers are excluded, not forgiven: they were written and committed
+    # by an earlier step that succeeded, so putting them back is not what the
+    # blocked step's rollback is for.
+    assert minus_markers(choices_rows(c)) == minus_markers(rows)
     c.close()
 
 
@@ -257,7 +282,7 @@ def test_choices_actual_sql_authorizer_failure_rolls_back(tmp_path, stage):
     assert denied, 'The intended DDL/marker operation must actually be denied'
     assert database.get_schema_version(c) == 14
     assert choices_objects(c) == before
-    assert choices_rows(c) == rows
+    assert minus_markers(choices_rows(c)) == minus_markers(rows)
     database.init_db(conn=c)
     assert database.get_schema_version(c) == database.SCHEMA_VERSION
     c.close()

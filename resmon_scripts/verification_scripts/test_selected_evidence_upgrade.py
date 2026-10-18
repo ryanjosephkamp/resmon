@@ -42,10 +42,28 @@ def widths(before):
     return {t:before[t]['columns'] for t in before}
 
 
+# A launch also records the one-shot backfills it has finished. Those rows are
+# this build's bookkeeping rather than the user's data, so ``kept`` drops
+# them and the case asserts by name that they arrived.
+from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
+    _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+)
+
+
+def minus_markers(snapshot):
+    """*snapshot* with the one-shot backfill markers dropped from ``app_settings``."""
+    if 'app_settings' not in snapshot:
+        return snapshot
+    return {**snapshot,'app_settings':{**snapshot['app_settings'],
+            'rows':[r for r in snapshot['app_settings']['rows']
+                    if r[0] not in BACKFILL_MARKERS]}}
+
+
 def kept(snapshot):
-    """A snapshot with the rebuilt tables' column *positions* dropped."""
-    return {t:({'columns':[c[1] for c in v['columns']],'rows':v['rows']} if t in REBUILT else v)
-            for t,v in snapshot.items()}
+    """A snapshot with the rebuilt tables' column *positions* and our markers dropped."""
+    return minus_markers(
+        {t:({'columns':[c[1] for c in v['columns']],'rows':v['rows']} if t in REBUILT else v)
+         for t,v in snapshot.items()})
 
 
 def test_populated_17_upgrades_all_old_objects_rows_originals_and_notes(legacy17):
@@ -53,6 +71,8 @@ def test_populated_17_upgrades_all_old_objects_rows_originals_and_notes(legacy17
     db.init_db(conn=w.conn)
     after=contents(w.conn,set(before),widths(before))
     expected={**before,'app_settings':{**before['app_settings'],'rows':sorted([('schema_version',str(db.SCHEMA_VERSION)) if r[0]=='schema_version' else r for r in before['app_settings']['rows']],key=repr)}}
+    assert ({r[0] for r in after['app_settings']['rows']}
+            - {r[0] for r in before['app_settings']['rows']})==BACKFILL_MARKERS
     assert kept(after)==kept(expected) and files_snapshot(w)==files
     assert ({k:objects(w.conn)[k] for k in old_objects if k not in REBUILT}
             =={k:v for k,v in old_objects.items() if k not in REBUILT})
@@ -95,7 +115,12 @@ def test_migration_fault_rolls_back_new_objects_and_keeps17(legacy17,fault):
         with pytest.raises(sqlite3.DatabaseError):db.init_db(conn=conn)
     # Match the existing historical migration fixtures on every supported Python.
     finally:conn.set_authorizer(lambda *_: sqlite3.SQLITE_OK)
-    assert db.get_schema_version(conn)==17 and contents(conn)==before and objects(conn)==old_objects
+    # Only the one-shot backfill markers are excluded, and only because an
+    # earlier step wrote and committed them: putting those back is not what
+    # this rollback is for. Column positions stay in the comparison.
+    assert db.get_schema_version(conn)==17 \
+        and minus_markers(contents(conn))==minus_markers(before) \
+        and objects(conn)==old_objects
 
 
 @pytest.mark.parametrize('fault',['missing_index','extra_trigger','extra_index','changed_table'])
