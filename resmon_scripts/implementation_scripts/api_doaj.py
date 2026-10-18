@@ -40,9 +40,15 @@ class DoajClient(BaseAPIClient):
 
         while len(results) < max_results:
             url = f"{_DOAJ_API_URL}/{search_query}"
+            # A page number is an offset *over the page size*, so the size is
+            # held for the whole search. Shrinking it on the last request
+            # moves the window back over records already held and never asks
+            # for the tail — the same hazard ``api_zenodo.py`` documents and
+            # pins its size for. The overshoot is trimmed by the
+            # ``results[:max_results]`` this loop already ends with.
             params = {
                 "page": page,
-                "pageSize": min(page_size, max_results - len(results)),
+                "pageSize": page_size,
             }
 
             try:

@@ -212,13 +212,47 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
     raise ValueError(f"no sentence for zero reason {reason!r}")
 
 
+def _recorded_failure(snapshot: dict) -> tuple[str, int | None]:
+    """The newest failed attempt in this search, as a category and a status.
+
+    ``failure_history`` holds resmon's own one-word categories, written by
+    ``api_base._failure_detail`` and never copied from a reply. Reading the
+    status back out of ``http_503`` or out of ``rate_limited`` is therefore a
+    decode of something resmon wrote, not an inference about the provider:
+    the two are the only forms that carry a status, and they carry exactly
+    the one the source sent.
+
+    The ``last_*`` fields hold the same facts while they last, but the next
+    attempt clears them. This is the floor underneath them, and when the
+    history is empty too the honest answer is that a call failed and resmon
+    did not keep its category.
+    """
+    history = snapshot.get("failure_history") or []
+    newest = str(history[-1]) if history else ""
+    if newest == "rate_limited":
+        return "rate_limited", 429
+    if newest.startswith("http_") and newest[5:].isdigit():
+        return newest, int(newest[5:])
+    return newest or "request_error", None
+
+
 def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
     """Return an observed terminal issue that can make retained results partial.
 
     This deliberately excludes empty-answer and filtering reasons. A positive
     result is partial only when the client observed a terminal parse failure,
-    its last request invocation failed, or a retained server cooldown stopped
-    it before another transport.
+    **any** request invocation in this search failed, or a retained server
+    cooldown stopped it before another transport.
+
+    *Any* invocation, not the last one. This read ``last_call_failed`` alone
+    until 2026-10-18, and ``note_attempt()`` clears that flag, so a search
+    that made several invocations could lose a whole failed one to a later
+    success: PubMed's ``_efetch`` skipped a 503 batch, finished the rest, and
+    the sweep recorded ``ok`` over 300 of the 500 records the source held. A
+    failed invocation is what ``failures`` counts, and it stays counted; the
+    distinction the contract does keep is that an internal retry which later
+    succeeded is *not* a failed invocation, so a recovered 500 still makes no
+    issue here and is still a fact in the history.
     """
     if not snapshot:
         return None
@@ -229,10 +263,15 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
             "attempts": snapshot.get("attempts") or 0,
         }
 
-    if snapshot.get("failures") and snapshot.get("last_call_failed"):
+    if snapshot.get("failures"):
+        if snapshot.get("last_call_failed"):
+            detail = snapshot.get("last_detail") or "request_error"
+            status = snapshot.get("last_status")
+        else:
+            detail, status = _recorded_failure(snapshot)
         return "upstream_failure", {
-            "detail": snapshot.get("last_detail") or "request_error",
-            "status": snapshot.get("last_status"),
+            "detail": detail,
+            "status": status,
             "attempts": snapshot.get("attempts") or 0,
         }
 

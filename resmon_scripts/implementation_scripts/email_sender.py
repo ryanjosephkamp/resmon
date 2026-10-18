@@ -104,13 +104,28 @@ def send_routine_completion_email(
         return
 
     ai_summary = execution.get("ai_summary") if include_ai_summary else None
+
+    # ``execution`` is a row from the ``executions`` table and the column
+    # there is ``new_result_count``; ``new_count`` is only what
+    # ``sweep_engine._run``'s return dict calls the same number. Reading the
+    # second name alone meant the key was never present on the row the
+    # delivery queue loads, and ``.get(..., 0)`` turned that absence into a
+    # confident zero — so every routine completion email resmon has sent said
+    # "New results: 0" however many papers the run found. The webhook envelope
+    # and the Atom feed both read the column and were always right. The column
+    # is ``INTEGER DEFAULT 0``, so a row always carries a number; the fallback
+    # is for a caller that hands over the engine's dict instead of the row.
+    new_count = execution.get("new_result_count")
+    if new_count is None:
+        new_count = execution.get("new_count", 0)
+
     payload = {
         "routine_name": routine.get("name", "Unknown Routine"),
         "start_time": execution.get("start_time", "—"),
         "end_time": execution.get("end_time", "—"),
         "status": execution.get("status", "unknown"),
         "result_count": execution.get("result_count", 0),
-        "new_count": execution.get("new_count", 0),
+        "new_count": new_count,
     }
 
     message = email_notifier.compose_notification(
