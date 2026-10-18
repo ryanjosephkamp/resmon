@@ -69,12 +69,21 @@ const TS_BACKLOG = {
 /**
  * The core ESLint half, which applies to every file this config walks.
  *
- *    7  no-control-regex  (4 files)
- *    6  no-empty-pattern  (3 files)
- *    4  no-redeclare      (1 file)
- *    1  no-regex-spaces   (1 file)
+ *    8  no-useless-assignment  (7 files)
+ *    7  no-control-regex       (4 files)
+ *    6  no-empty-pattern       (3 files)
+ *    4  no-redeclare           (1 file)
+ *    1  no-regex-spaces        (1 file)
+ *
+ * `no-useless-assignment` is ESLint 10's; it does not exist in 9. All eight
+ * are dead stores in `e2e/` and `journeys/`, none in `src/`, and deleting
+ * them would be no risk at all -- which is exactly why they are here. This
+ * change fixes nothing and lands every pre-existing violation as a warning
+ * with a number beside it; making an exception for the easy eight would
+ * leave the next reader unable to trust the count.
  */
 const CORE_BACKLOG = {
+  'no-useless-assignment': 'warn',
   'no-control-regex': 'warn',
   'no-empty-pattern': 'warn',
   'no-redeclare': 'warn',
@@ -143,13 +152,29 @@ export default tseslint.config(
   {
     files: TYPESCRIPT,
     rules: {
-      // 331 reports across 60 files, every one of them wrong: `no-undef`
-      // reads an ambient type as an undefined identifier (`RequestInit`,
-      // `NodeJS`, `Electron`) and cannot see a global a `.d.ts` declares
-      // (`e2eFetch`, injected into the page by the Playwright fixture).
+      // 105 reports across 47 files with the rest of this config in place,
+      // and all 105 are identifiers `no-undef` is structurally unable to
+      // see. 55 are ambient TypeScript types -- `RequestInit` (20),
+      // `RequestInfo` (14), `NodeJS` (9), `Electron` (6),
+      // `EventListener`/`EventListenerOptions` (4), `BodyInit` (1),
+      // `NotificationPermission` (1) -- which exist only in the type space
+      // this rule does not read. The other 50 are `e2eFetch`, declared in a
+      // `declare global` block at `e2e/fixtures/resmon-app.ts:94`.
+      //
+      // An earlier draft of this comment said 331 across 60. That figure was
+      // measured before the jest-globals block for `src/**/__tests__` and
+      // the browser globals on the electron block existed, so roughly 226 of
+      // it was ordinary missing-globals (`expect`, `jest`, `window`,
+      // `process`) that configuration fixed rather than false positives. The
+      // judgment is the same either way; the number was not.
+      //
       // typescript-eslint's own guidance is to switch it off on TypeScript
-      // and let the compiler answer the question, which `npm run typecheck`
-      // does in this same job. It stays on for the `.js` build scripts.
+      // and let the compiler answer the question. That is a real
+      // compensating control here, not a hand-wave: `tsconfig.json`,
+      // `e2e/tsconfig.json`, `journeys/tsconfig.json` and
+      // `tsconfig.electron.json` are each clean, and the first of them runs
+      // as `npm run typecheck` in this same job. It stays on for the `.js`
+      // build scripts, which no tsconfig covers.
       'no-undef': 'off',
     },
   },

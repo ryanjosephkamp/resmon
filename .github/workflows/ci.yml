@@ -146,7 +146,7 @@ jobs:
         # Warnings do not fail this job, and that is the point of it. The
         # renderer had never been linted, so every rule it does not satisfy
         # yet is a `warn` listed by name and count in eslint.config.mjs —
-        # 408 of them across 115 files when the job was added. The rules it
+        # 416 of them across 116 files when the job was added. The rules it
         # does satisfy are errors and this step is what holds them, along
         # with any `eslint-disable` left behind for a rule that reports
         # nothing.
