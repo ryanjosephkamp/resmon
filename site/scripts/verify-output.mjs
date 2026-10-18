@@ -469,22 +469,27 @@ function renderableSource(source) {
 }
 
 /**
- * Lines whose rendering is their own text: no link or image syntax, no inline
- * code, no raw HTML, no table pipes, no emphasis markers, no entity. Those are
- * the lines a fragment can be taken from without having to model what the
- * renderer does to them.
+ * Lines whose rendering is their own text.
+ *
+ * The filter is narrower than it first looks, because the comparison normalizes
+ * to letters and digits. Emphasis markers, inline-code backticks, table pipes
+ * and list bullets all vanish from both sides, so a line carrying them is still
+ * safe to sample. What is not safe is a link or image, whose target is source
+ * text that never renders; raw HTML, whose tags and attributes are not text;
+ * and an entity, which survives tag-stripping as its name. Those three are the
+ * exclusions.
+ *
+ * The first attempt excluded emphasis, code and pipes too, and left 5 of the 67
+ * documents with nothing to sample — four early posts and one guide page, all
+ * heavily formatted. Widening the filter to what normalization actually makes
+ * safe covers them, and the remaining count is reported either way rather than
+ * being allowed to read as full coverage.
  */
 function proseFragments(body, wanted) {
   const candidates = body
     .split('\n')
-    .map((line) => line.trim())
-    .filter(
-      (line) =>
-        line.length >= 60 &&
-        !/^[#>\-*+|]/.test(line) &&
-        !/^\d+[.)]/.test(line) &&
-        !/[[\]()`<>|*_~&]/.test(line),
-    );
+    .map((line) => line.trim().replace(/^(?:[#>\-*+]+|\d+[.)])\s*/, ''))
+    .filter((line) => line.length >= 40 && !/[[\]()<>&]/.test(line));
   if (candidates.length === 0) return [];
   const take = Math.min(wanted, candidates.length);
   const step = candidates.length / take;
@@ -492,7 +497,7 @@ function proseFragments(body, wanted) {
   for (let index = 0; index < take; index += 1) {
     const line = candidates[Math.floor(index * step)];
     const fragment = normalize(line).slice(0, 50);
-    if (fragment.length >= 30) out.push({ line, fragment });
+    if (fragment.length >= 25) out.push({ line, fragment });
   }
   return out;
 }
@@ -562,6 +567,7 @@ const pairs = documentPairs();
 const emptyPages = [];
 const thinPages = [];
 const missingFragments = [];
+const unsampled = [];
 let fragmentsChecked = 0;
 let worstRatio = Infinity;
 let worstPage = '';
@@ -572,10 +578,22 @@ for (const pair of pairs) {
     emptyPages.push({ ...pair, why: 'the page does not exist' });
     continue;
   }
-  const text = pageText(readFileSync(file, 'utf8'));
-  const body = renderableSource(readFileSync(pair.source, 'utf8'));
-  const pageNormal = normalize(text);
-  const sourceNormal = normalize(body);
+  const source = readFileSync(pair.source, 'utf8');
+  const pageNormal = normalize(pageText(readFileSync(file, 'utf8')));
+
+  /*
+   * Two different readings of the same file, deliberately.
+   *
+   * The ratio measures how much of what *should* render did, so it reads the
+   * source with link targets and raw HTML taken out. Fragments are sampled
+   * from the raw body instead, because `proseFragments` rejects a line that
+   * contains angle brackets and it can only do that if the brackets are still
+   * there. Sampling from the stripped text produced five false failures:
+   * `` `api-token-<port>` `` had its placeholder removed from the source while
+   * the page rendered it as escaped text, so the fragment could never match.
+   */
+  const sourceNormal = normalize(renderableSource(source));
+  const rawBody = markdownBody(source);
 
   const ratio = sourceNormal.length === 0 ? 1 : pageNormal.length / sourceNormal.length;
   if (ratio < worstRatio) {
@@ -586,8 +604,14 @@ for (const pair of pairs) {
     thinPages.push({ ...pair, ratio, pageChars: pageNormal.length, sourceChars: sourceNormal.length });
   }
 
-  const fragments = proseFragments(body, 10);
-  if (fragments.length === 0) continue; // a document with no plain prose line
+  const fragments = proseFragments(rawBody, 10);
+  if (fragments.length === 0) {
+    // A document that is all tables, code or headings offers no line whose
+    // rendering is its own text. Those rest on the coverage ratio alone, and
+    // are named rather than quietly counted as checked.
+    unsampled.push(pair.label);
+    continue;
+  }
   for (const { line, fragment } of fragments) {
     fragmentsChecked += 1;
     if (!pageNormal.includes(fragment)) {
@@ -629,7 +653,16 @@ if (missingFragments.length) {
     process.stdout.write(`        ${row.page} is missing: "${row.line}…"\n`);
   }
 } else {
-  pass(`all ${fragmentsChecked} sampled source fragments appear on their page`);
+  pass(
+    `all ${fragmentsChecked} sampled source fragments appear on their page, across ` +
+      `${pairs.length - unsampled.length} of ${pairs.length} documents`,
+  );
+}
+if (unsampled.length) {
+  process.stdout.write(
+    `  note  ${unsampled.length} document(s) offer no plain prose line to sample and rest on ` +
+      `the coverage ratio alone: ${unsampled.join(', ')}\n`,
+  );
 }
 
 // ---------------------------------------------------------------------------
