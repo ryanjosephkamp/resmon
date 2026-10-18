@@ -321,6 +321,33 @@ if (broken.size) {
   pass(`all ${linkCount} internal links across ${pages.length} pages resolve to a file`);
 }
 
+/*
+ * `<time datetime="...">` must be a valid HTML date string. The posts' front
+ * matter is not one — `2026-04-24 12:00:00 -0400` uses a space for the
+ * separator and an offset with no colon — and an attribute filled with it
+ * looks machine-readable without being so, which is the kind of thing nothing
+ * complains about until something tries to read it. Accepts the forms HTML
+ * allows here: a date, or a date and time with `Z` or a `±HH:MM` offset.
+ */
+const DATETIME_OK = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
+const badDatetimes = [];
+let datetimeCount = 0;
+for (const page of pages) {
+  const html = readFileSync(join(OUT, page), 'utf8');
+  for (const match of html.matchAll(/<time[^>]*\sdatetime="([^"]*)"/g)) {
+    datetimeCount += 1;
+    if (!DATETIME_OK.test(match[1])) badDatetimes.push({ page, value: match[1] });
+  }
+}
+if (badDatetimes.length) {
+  fail(`${badDatetimes.length} of ${datetimeCount} <time datetime> values are not valid HTML date strings:`);
+  for (const bad of badDatetimes.slice(0, 5)) {
+    process.stdout.write(`        ${bad.page}: ${JSON.stringify(bad.value)}\n`);
+  }
+} else {
+  pass(`all ${datetimeCount} <time datetime> values are valid HTML date strings`);
+}
+
 process.stdout.write(
   failures === 0 ? '\nverify-output: PASS\n' : `\nverify-output: FAIL (${failures})\n`,
 );
