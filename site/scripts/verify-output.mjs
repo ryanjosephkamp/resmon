@@ -29,6 +29,7 @@
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { DOMParser } from '@xmldom/xmldom';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -122,6 +123,75 @@ const EXPECTED_FEED_DIFFERENCES = [
   ],
   ['feed element whitespace', 'jekyll-feed emitted a stray space in the opening <feed ...> tag.'],
 ];
+
+// ---------------------------------------------------------------------------
+// 0. Is the copy above still the component's parser?
+//
+// Everything the feed comparison claims rests on `parseAtomFeed` being the
+// app's function and not a paraphrase of it. That is true on the day it is
+// copied and silently stops being true afterwards, so it is pinned.
+//
+// The copy is NOT byte-identical to the component and cannot be: the component
+// is TypeScript, the copy is JavaScript with the annotations removed, and the
+// browser's `<parsererror>` check is replaced by `@xmldom/xmldom`'s error
+// callback because the browser mechanism does not exist in Node. What is
+// pinned instead is the component's own function, comments and whitespace
+// removed, so a comment or a reformat does not trip it and a change to what it
+// reads from an entry does. When it trips, re-read the component, bring the
+// copy into line, and update the hash in the same change.
+// ---------------------------------------------------------------------------
+
+const COMPONENT_PATH = join(
+  SITE, '..', 'resmon_scripts', 'frontend', 'src', 'components', 'AboutResmon', 'BlogTab.tsx',
+);
+
+/** sha256 of the component's `parseAtomFeed`, comments and whitespace stripped. */
+const PINNED_PARSER = 'd8b289296668585bc553c989b0c7174357af1cb252241d1d526ce893cdaf7915';
+
+function extractFunction(source, signature) {
+  const start = source.indexOf(signature);
+  if (start === -1) return null;
+  let index = source.indexOf('{', start);
+  let depth = 0;
+  for (; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    else if (source[index] === '}') {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  return null;
+}
+
+const stripNoise = (code) =>
+  code
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^[ \t]*\/\/.*$/gm, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+process.stdout.write('\nParser — is the copy in this file still the component\'s?\n');
+
+if (!existsSync(COMPONENT_PATH)) {
+  process.stdout.write('  note  BlogTab.tsx not found; the pin could not be checked\n');
+} else {
+  const fn = extractFunction(readFileSync(COMPONENT_PATH, 'utf8'), 'function parseAtomFeed(');
+  if (!fn) {
+    fail('parseAtomFeed is no longer a top-level function in BlogTab.tsx — re-read it');
+  } else {
+    const digest = createHash('sha256').update(stripNoise(fn)).digest('hex');
+    if (digest === PINNED_PARSER) {
+      pass(`BlogTab.tsx's parseAtomFeed is unchanged (sha256 ${digest.slice(0, 12)}…)`);
+    } else {
+      fail(
+        `BlogTab.tsx's parseAtomFeed has changed. The copy in this file may no longer be the ` +
+          `app's parser, which is what the feed comparison below depends on.\n` +
+          `        pinned  ${PINNED_PARSER}\n        now     ${digest}\n` +
+          `        Re-read the component, update the copy, then update PINNED_PARSER.`,
+      );
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 1. The feed
@@ -256,10 +326,6 @@ if (unexpected.length) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// 3. Sanity on the output as a whole
-// ---------------------------------------------------------------------------
-
 process.stdout.write('\nOutput\n');
 
 if (existsSync(join(OUT, '.nojekyll'))) pass('.nojekyll present — GitHub Pages serves the files as they are');
@@ -320,6 +386,255 @@ if (broken.size) {
 } else {
   pass(`all ${linkCount} internal links across ${pages.length} pages resolve to a file`);
 }
+
+// ---------------------------------------------------------------------------
+// 4. Every rendered page actually carries its document
+//
+// The URL check above asserts that a file exists at each published path. That
+// is not the same as the page having anything on it, and the difference is not
+// hypothetical: setting `html = ''` in `[...permalink].astro` left all 27 post
+// pages in place, took the built output from 459,594 bytes to 196,108 — 57% of
+// what the app's `<webview>` displays, gone — and every check in this script
+// still reported PASS. A reviewer found that, not this file.
+//
+// `capture/` holds the old feed and the old URL list, not the old page HTML, so
+// there is nothing to diff the rendering against. The source Markdown is the
+// thing that is available, and it is the right thing anyway: it asks whether
+// the page says what its source says, which is the property, rather than
+// whether two renderers agree.
+//
+// Two assertions per page, because either alone is weak. A length floor catches
+// a page that lost most of itself but not a page that lost one section; a set
+// of fragments spread through the document catches a missing section but could
+// be satisfied by a page that kept the sampled lines and dropped the rest.
+// ---------------------------------------------------------------------------
+
+process.stdout.write('\nContent — every rendered page against its source Markdown\n');
+
+/** Entities survive tag-stripping as text and would corrupt a comparison. */
+const ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  hellip: '…', mdash: '—', ndash: '–', lsquo: '‘', rsquo: '’',
+  ldquo: '“', rdquo: '”', '#39': "'", '#x27': "'",
+};
+
+function pageText(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&([a-zA-Z#0-9x]+);/g, (whole, name) => ENTITIES[name] ?? whole);
+}
+
+/**
+ * Compare on letters and digits only. SmartyPants turns `'` into `’`, `--` into
+ * an en dash and `...` into an ellipsis, Markdown link syntax drops its target,
+ * and the HTML adds whitespace wherever a tag was. None of that is a difference
+ * in what the page says, and all of it would break a literal comparison.
+ */
+const normalize = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+/** Strip YAML front matter, which is never rendered. */
+function markdownBody(source) {
+  if (!source.startsWith('---')) return source;
+  const end = source.indexOf('\n---', 3);
+  return end === -1 ? source : source.slice(end + 4);
+}
+
+/**
+ * The part of a Markdown source that becomes visible text, so that the
+ * coverage ratio below measures what reached the page rather than how many
+ * URLs the document happens to contain.
+ *
+ * This was calibrated the wrong way round first. A floor picked from six
+ * sampled documents put `docs/source-landscape.md` at 80% and failed it — not
+ * because the page had lost anything, but because that document is 42 KB of
+ * provider survey carrying a link on nearly every line, and a link's target is
+ * source text that is never rendered. Removing the parts that are not supposed
+ * to appear is the fix; moving the floor down until the failure stopped would
+ * have been the bug.
+ */
+function renderableSource(source) {
+  return markdownBody(source)
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    // An autolink renders its URL as the link text, so keep it.
+    .replace(/<((?:https?|mailto):[^>]+)>/g, '$1')
+    // A link or image renders its label or alt text, never its target.
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    // Reference-style definitions render as nothing at all.
+    .replace(/^[ \t]*\[[^\]]+\]:[^\n]*$/gm, ' ')
+    // Raw HTML in Markdown: the tags and their attributes are not text.
+    .replace(/<\/?[a-zA-Z][^>]*>/g, ' ');
+}
+
+/**
+ * Lines whose rendering is their own text: no link or image syntax, no inline
+ * code, no raw HTML, no table pipes, no emphasis markers, no entity. Those are
+ * the lines a fragment can be taken from without having to model what the
+ * renderer does to them.
+ */
+function proseFragments(body, wanted) {
+  const candidates = body
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.length >= 60 &&
+        !/^[#>\-*+|]/.test(line) &&
+        !/^\d+[.)]/.test(line) &&
+        !/[[\]()`<>|*_~&]/.test(line),
+    );
+  if (candidates.length === 0) return [];
+  const take = Math.min(wanted, candidates.length);
+  const step = candidates.length / take;
+  const out = [];
+  for (let index = 0; index < take; index += 1) {
+    const line = candidates[Math.floor(index * step)];
+    const fragment = normalize(line).slice(0, 50);
+    if (fragment.length >= 30) out.push({ line, fragment });
+  }
+  return out;
+}
+
+/** page path under OUT -> source Markdown path, for every rendered document. */
+function documentPairs() {
+  const repo = join(SITE, '..');
+  const pairs = [];
+
+  // Posts. The published directory is found by slug rather than by re-deriving
+  // the date, so this does not quietly repeat whatever `postPath` decided.
+  const postDir = join(repo, 'docs', '_posts');
+  const postPages = pages.filter((page) => /^\d{4}\/\d{2}\/\d{2}\//.test(page));
+  for (const file of readdirSync(postDir).filter((name) => name.endsWith('.md'))) {
+    const slug = file.replace(/\.md$/, '').replace(/^\d{4}-\d{2}-\d{2}-/, '');
+    const page = postPages.find((candidate) => candidate.split('/')[3] === slug);
+    if (!page) {
+      fail(`no published page found for docs/_posts/${file}`);
+      continue;
+    }
+    pairs.push({ page, source: join(postDir, file), label: `docs/_posts/${file}` });
+  }
+
+  // Reference documents.
+  const docsDir = join(repo, 'docs');
+  for (const file of readdirSync(docsDir)) {
+    if (!file.endsWith('.md') || file === 'README.md' || file === 'index.md') continue;
+    const name = file.replace(/\.md$/, '');
+    pairs.push({ page: `${name}/index.html`, source: join(docsDir, file), label: `docs/${file}` });
+  }
+
+  // The API contract.
+  const contractDir = join(docsDir, 'api-contract');
+  for (const file of readdirSync(contractDir).filter((name) => name.endsWith('.md'))) {
+    const name = file.replace(/\.md$/, '');
+    pairs.push({
+      page: name === 'README' ? 'api-contract/index.html' : `api-contract/${name}/index.html`,
+      source: join(contractDir, file),
+      label: `docs/api-contract/${file}`,
+    });
+  }
+
+  // The guide, split out of the README.
+  const guideDir = join(SITE, 'src', 'content', 'guide');
+  for (const file of readdirSync(guideDir).filter((name) => name.endsWith('.md'))) {
+    const name = file.replace(/\.md$/, '');
+    pairs.push({
+      page: `guide/${name}/index.html`,
+      source: join(guideDir, file),
+      label: `site/src/content/guide/${file}`,
+    });
+  }
+
+  return pairs;
+}
+
+/**
+ * The floor for how much of the source's text must reach the page. Measured
+ * ratios across all 67 documents run from 1.00 to 1.61 — above 1 because the
+ * page adds its own chrome, and never below because Markdown syntax is the only
+ * thing normalization removes from the source. 0.90 therefore sits clear of the
+ * real minimum, while an emptied body scores about 0.03.
+ */
+const COVERAGE_FLOOR = 0.9;
+
+const pairs = documentPairs();
+const emptyPages = [];
+const thinPages = [];
+const missingFragments = [];
+let fragmentsChecked = 0;
+let worstRatio = Infinity;
+let worstPage = '';
+
+for (const pair of pairs) {
+  const file = join(OUT, pair.page);
+  if (!existsSync(file)) {
+    emptyPages.push({ ...pair, why: 'the page does not exist' });
+    continue;
+  }
+  const text = pageText(readFileSync(file, 'utf8'));
+  const body = renderableSource(readFileSync(pair.source, 'utf8'));
+  const pageNormal = normalize(text);
+  const sourceNormal = normalize(body);
+
+  const ratio = sourceNormal.length === 0 ? 1 : pageNormal.length / sourceNormal.length;
+  if (ratio < worstRatio) {
+    worstRatio = ratio;
+    worstPage = pair.page;
+  }
+  if (ratio < COVERAGE_FLOOR) {
+    thinPages.push({ ...pair, ratio, pageChars: pageNormal.length, sourceChars: sourceNormal.length });
+  }
+
+  const fragments = proseFragments(body, 10);
+  if (fragments.length === 0) continue; // a document with no plain prose line
+  for (const { line, fragment } of fragments) {
+    fragmentsChecked += 1;
+    if (!pageNormal.includes(fragment)) {
+      missingFragments.push({ page: pair.page, label: pair.label, line: line.slice(0, 70) });
+    }
+  }
+}
+
+process.stdout.write(`  ${pairs.length} rendered documents, ${fragmentsChecked} prose fragments sampled\n`);
+
+if (emptyPages.length) {
+  fail(`${emptyPages.length} source document(s) have no published page:`);
+  for (const row of emptyPages.slice(0, 5)) process.stdout.write(`        ${row.label}: ${row.why}\n`);
+} else {
+  pass(`every one of the ${pairs.length} source documents has a published page`);
+}
+
+if (thinPages.length) {
+  fail(
+    `${thinPages.length} of ${pairs.length} pages carry less than ${COVERAGE_FLOOR * 100}% of ` +
+      'their source text:',
+  );
+  for (const row of thinPages.slice(0, 6)) {
+    process.stdout.write(
+      `        ${row.page}: ${row.pageChars} chars from a source of ${row.sourceChars} ` +
+        `(${(row.ratio * 100).toFixed(1)}%)  <- ${row.label}\n`,
+    );
+  }
+} else {
+  pass(
+    `every page carries at least ${COVERAGE_FLOOR * 100}% of its source's text ` +
+      `(lowest ${(worstRatio * 100).toFixed(1)}%, ${worstPage})`,
+  );
+}
+
+if (missingFragments.length) {
+  fail(`${missingFragments.length} of ${fragmentsChecked} sampled source fragments are absent from their page:`);
+  for (const row of missingFragments.slice(0, 6)) {
+    process.stdout.write(`        ${row.page} is missing: "${row.line}…"\n`);
+  }
+} else {
+  pass(`all ${fragmentsChecked} sampled source fragments appear on their page`);
+}
+
+// ---------------------------------------------------------------------------
+// 5. Sanity on the output as a whole
+// ---------------------------------------------------------------------------
 
 /*
  * Exactly one `<h1>` per page. The guide pages are cut from the README with

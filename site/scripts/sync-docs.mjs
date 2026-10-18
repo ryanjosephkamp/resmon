@@ -68,9 +68,17 @@ function toPattern(pattern) {
   return new RegExp(`^${expanded}$`);
 }
 
-const PROTECTED_PATTERNS = PROTECTED.map(toPattern);
+const PROTECTED_PATTERNS = PROTECTED.map((pattern) => toPattern(pattern.toLowerCase()));
+
+/*
+ * Matched case-insensitively, because the filesystem this runs on is. A build
+ * file at `_POSTS/…` matched no pattern while resolving to the same inode as a
+ * protected post, so the copy overwrote the post and the script exited 0 — the
+ * collision guard below never saw it. A reviewer found that. Lowercasing both
+ * sides costs nothing and removes the whole class.
+ */
 const isProtected = (relativePath) =>
-  PROTECTED_PATTERNS.some((pattern) => pattern.test(relativePath));
+  PROTECTED_PATTERNS.some((pattern) => pattern.test(relativePath.toLowerCase()));
 
 function walk(root, prefix = '') {
   const out = [];
@@ -102,21 +110,50 @@ mkdirSync(DOCS, { recursive: true });
 // ---- 1. Clear the previous output, keeping the protected sources -----------
 
 const existing = walk(DOCS);
+const built = walk(DIST);
+const builtPaths = new Set(built);
+
+const keptPaths = existing.filter((relativePath) => isProtected(relativePath));
+const doomed = existing.filter((relativePath) => !isProtected(relativePath));
+
+/*
+ * Say what is being deleted before deleting it.
+ *
+ * `PROTECTED` is a list, and the failure this script is designed against is a
+ * file somebody adds to `docs/` later and forgets to add to the list. Deleting
+ * quietly is exactly what hides that: a reviewer planted
+ * `docs/api-contract/openapi.yaml` and `docs/api-contract/schemas/paper.json`,
+ * both were removed, the preserved count did not move, and the run exited 0.
+ *
+ * A file the build is about to replace is ordinary and not worth a line. A file
+ * that is being removed and *not* replaced is the interesting case, and every
+ * one of those is named here. The script still proceeds — refusing would make
+ * deleting a page impossible — but the deletion is now in the run's output
+ * where a person or a diff can see it. Anything named here that should have
+ * survived belongs in `PROTECTED`.
+ */
+const orphans = doomed.filter((relativePath) => !builtPaths.has(relativePath));
+if (orphans.length) {
+  process.stdout.write(
+    `sync-docs: removing ${orphans.length} file(s) in docs/ that this build does not replace ` +
+      'and PROTECTED does not cover:\n',
+  );
+  for (const relativePath of orphans) process.stdout.write(`  - ${relativePath}\n`);
+  process.stdout.write(
+    '  If any of those should have survived, add it to PROTECTED in this script.\n',
+  );
+}
+
 let removed = 0;
-let kept = 0;
-for (const relativePath of existing) {
-  if (isProtected(relativePath)) {
-    kept += 1;
-    continue;
-  }
+for (const relativePath of doomed) {
   rmSync(join(DOCS, relativePath));
   removed += 1;
 }
+const kept = keptPaths.length;
 removeEmptyDirectories(DOCS);
 
 // ---- 2. Copy the build output ---------------------------------------------
 
-const built = walk(DIST);
 const collisions = [];
 for (const relativePath of built) {
   if (isProtected(relativePath)) {
