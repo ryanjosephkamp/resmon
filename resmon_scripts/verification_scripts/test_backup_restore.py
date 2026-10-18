@@ -213,6 +213,119 @@ def test_the_bundles_database_is_a_consistent_snapshot(corpus, tmp_path):
         copy.close()
 
 
+def _import_during(corpus, monkeypatch, name, payload):
+    """Commit a Library import from *inside* the backup window, and name what landed.
+
+    The window is the gap between the database snapshot and the vault read.
+    ``POST /api/backup`` serves ``create_backup`` on the running backend and
+    holds no import lock for the duration, so a user importing a paper while a
+    backup runs lands exactly here. Patching ``snapshot_database`` is the only
+    way to be *inside* it: a write issued before ``create_backup`` is in the
+    snapshot and a write issued after it returns is in neither half, which is
+    what ``test_the_bundles_database_is_a_consistent_snapshot`` above does and
+    why 35 tests never saw this.
+    """
+    real_snapshot = backup_module.snapshot_database
+    landed = {}
+
+    def snapshot_then_import(conn, destination):
+        real_snapshot(conn, destination)
+        with lib.Import(conn, corpus["vault_id"], name,
+                        corpus["document_ids"][0]) as upload:
+            upload.write(payload)
+            landed["file"] = upload.finish()["file"]
+
+    monkeypatch.setattr(backup_module, "snapshot_database", snapshot_then_import)
+    return landed
+
+
+def test_a_library_import_inside_the_backup_window_cannot_split_the_pair(
+        corpus, tmp_path, monkeypatch):
+    """P1b: the bundle's database and the bundle's vault bytes are one instant.
+
+    ``create_backup`` snapshots the database and then copied the vault from the
+    *live* connection, so an import committing in between put a file into
+    ``bundle/vault/`` that the bundle's own database had no row for.
+    ``library._catalog_tree`` compares the retained directories against the
+    catalog exactly and has no automatic recovery, so the restored Library then
+    refused every import with ``needs_attention`` -- the failure the module
+    docstring says this module exists to prevent. ``verify_bundle`` cannot see
+    it either: it re-hashes the file list the same post-snapshot read wrote.
+
+    What this asserts is the invariant rather than the implementation: whatever
+    rows the bundle's database holds, the bundle's vault holds those bytes and
+    no others, and the manifest counts the bundle rather than the live corpus.
+    """
+    landed = _import_during(corpus, monkeypatch, "intruder.txt",
+                            b"imported while the backup was running")
+    manifest = _make_backup(corpus, tmp_path)
+    assert landed["file"], "the import did not run inside the window"
+
+    bundle = Path(manifest["path"])
+    snapshot = sqlite3.connect(str(bundle / "resmon.db"))
+    try:
+        catalog = {r[0] for r in snapshot.execute("SELECT file_id FROM library_files")}
+        rows = len(catalog)
+    finally:
+        snapshot.close()
+    retained = set(os.listdir(bundle / "vault" / "files"))
+    print(f"P1b: {len(retained)} retained directories in the bundle, "
+          f"{rows} rows in the bundle's catalog")
+    assert retained == catalog, (
+        "the bundle's vault and the bundle's catalog describe different files")
+
+    # table_counts is read at the same instant for the same reason: a manifest
+    # that reports a count the bundle's own database does not have is a
+    # manifest nobody can check the bundle against.
+    assert manifest["table_counts"]["library_files"] == rows
+
+    # And the manifest's file list is the bundle's, so verify agrees.
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    assert report["ok"], report["problems"]
+
+
+def test_a_bundle_written_during_an_import_restores_into_a_working_library(
+        corpus, monkeypatch, tmp_path):
+    """P1b, end to end: the restored vault accepts an import rather than refusing.
+
+    The split pair is only visible to the user on the far side of a restore, so
+    this runs the same drill ``test_the_restore_drill_is_the_identity`` runs --
+    erase, verify, stage, startup -- over a bundle written while an import was
+    committing, and then does the one thing the broken bundle made impossible.
+    """
+    _import_during(corpus, monkeypatch, "intruder.txt",
+                   b"imported while the backup was running")
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+
+    conn = corpus["conn"]
+    conn.execute("DELETE FROM library_file_documents")
+    conn.execute("DELETE FROM library_files")
+    conn.execute("DELETE FROM library_vault")
+    conn.execute("DELETE FROM documents")
+    conn.execute("DELETE FROM executions")
+    conn.execute("DELETE FROM sqlite_sequence")
+    conn.commit()
+    conn.close()
+    shutil.rmtree(corpus["vault_root"])
+
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    assert report["ok"], report["problems"]
+    backup_module.stage_restore(bundle, corpus["state_dir"], report)
+    outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
+    assert outcome is not None and outcome["ok"], outcome
+
+    after = db.get_connection(corpus["db_path"])
+    try:
+        with lib.checked_vault(after, corpus["vault_id"]) as (_, root):
+            lib._catalog_tree(after, root)
+        with lib.Import(after, corpus["vault_id"], "after.txt", None) as upload:
+            upload.write(b"an import after the restore")
+            assert upload.finish()["file"]["file_id"]
+    finally:
+        after.close()
+
+
 def test_a_vault_whose_bytes_no_longer_match_aborts_the_backup(corpus, tmp_path):
     """P7: a corrupt vault is not something to back up quietly."""
     victim = corpus["vault_root"] / corpus["files"][0]["relative_path"]

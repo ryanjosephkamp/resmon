@@ -46,13 +46,30 @@ def objects(c):
         "SELECT name,type,sql FROM sqlite_master WHERE name LIKE 'library_%' OR name='idx_library_file_documents_document'")}
 
 
+# A launch records the one-shot backfills it has finished. Those rows are this
+# build's bookkeeping rather than the user's data, so they are separated out
+# by name wherever a snapshot is compared across an init_db.
+from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
+    _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+)
+
+
+def minus_markers(rows):
+    """*rows* with the one-shot backfill markers dropped from ``app_settings``."""
+    return {**rows, 'app_settings': [(k, v) for k, v in rows['app_settings']
+                                     if k not in BACKFILL_MARKERS]}
+
+
 def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tmp_path):
     path = tmp_path / 'old.db'; c = old_database(path); before = contents(c)
     widths = column_names(c)
     db.init_db(conn=c)
     assert db.get_schema_version(c) == 21
     after = contents(c, widths)
-    after['app_settings'] = [(k, '15' if k == 'schema_version' else v) for k, v in after['app_settings']]
+    assert ({k for k, _ in after['app_settings']}
+            - {k for k, _ in before['app_settings']}) == BACKFILL_MARKERS
+    after['app_settings'] = [(k, '15' if k == 'schema_version' else v)
+                             for k, v in after['app_settings'] if k not in BACKFILL_MARKERS]
     assert after == before
     ddl = objects(c)
     assert len(ddl) == 4
@@ -87,5 +104,7 @@ def test_real_blockers_leave_15_and_roll_back_new_objects(tmp_path, blocker):
     c.set_authorizer(lambda *_: sqlite3.SQLITE_OK)
     assert db.get_schema_version(c) == 15
     assert objects(c) == initial
-    assert contents(c) == before
+    # The markers are excluded, not forgiven: an earlier step wrote and
+    # committed them, so putting them back is not what this rollback is for.
+    assert minus_markers(contents(c)) == minus_markers(before)
     c.close()

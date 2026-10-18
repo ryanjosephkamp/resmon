@@ -300,16 +300,27 @@ def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
     assert "reading_queue" in tables
 
     after = contents(legacy)
-    # app_settings is the one table the upgrade is allowed to touch, and only
-    # in the schema_version row.
+    # app_settings is the one table the upgrade is allowed to touch: the
+    # schema_version row, and the one-shot backfill markers this build writes.
     assert after["app_settings"]["rows"] != before["app_settings"]["rows"]
+    assert ({k for k, _ in after["app_settings"]["rows"]}
+            - {k for k, _ in before["app_settings"]["rows"]}) == BACKFILL_MARKERS
     assert (dict(before["app_settings"]["rows"]) | {"schema_version": str(database.SCHEMA_VERSION)}
-            == dict(after["app_settings"]["rows"]))
+            == {k: v for k, v in after["app_settings"]["rows"]
+                if k not in BACKFILL_MARKERS})
     for table in POPULATED_TABLES:
         if table == "app_settings":
             continue
         assert as_before(legacy, table, before[table]) == before[table], (
             f"{table} was modified by the upgrade")
+
+
+# A launch also records the one-shot backfills it has finished. Those rows are
+# this build's bookkeeping rather than the user's settings, so they are named
+# wherever app_settings is compared across an init_db.
+from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
+    _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+)
 
 
 def test_the_upgraded_queue_starts_empty_and_infers_no_history(legacy):
@@ -525,10 +536,13 @@ def test_the_search_index_survives_the_upgrade_and_stays_live(legacy):
 
 
 def test_the_settings_a_user_had_survive_the_upgrade(legacy):
-    """Everything in app_settings except the marker is the user's, not ours."""
+    """Everything in app_settings except our own markers is the user's, not ours."""
     before = dict(legacy.execute("SELECT key, value FROM app_settings"))
     database.init_db(conn=legacy)
     after = dict(legacy.execute("SELECT key, value FROM app_settings"))
     assert after.pop("schema_version") == str(database.SCHEMA_VERSION)
     assert before.pop("schema_version") == "13"
+    assert {k: after.pop(k) for k in sorted(BACKFILL_MARKERS)} == {
+        k: "1" for k in BACKFILL_MARKERS}, (
+        "the one-shot backfill markers this build writes did not arrive")
     assert after == before

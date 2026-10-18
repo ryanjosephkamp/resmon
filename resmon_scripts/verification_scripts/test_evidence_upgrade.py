@@ -285,6 +285,25 @@ def test_historical_fixture_bytes_remain_exact() -> None:
         assert digest((FIXTURES / relative).read_bytes()) == expected
 
 
+# A launch records the one-shot backfills it has finished. Those rows are this
+# build's bookkeeping, not the user's data and not part of what a rolled-back
+# step must put back, so they are separated out by name wherever a snapshot is
+# compared across an init_db.
+from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
+    _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+)
+
+
+def minus_markers(snapshot: dict) -> dict:
+    """*snapshot* with the backfill markers dropped from ``app_settings``."""
+    settings = snapshot.get("app_settings")
+    if settings is None:
+        return snapshot
+    return {**snapshot, "app_settings": {
+        **settings,
+        "rows": [r for r in settings["rows"] if r[0] not in BACKFILL_MARKERS]}}
+
+
 def test_populated_16_upgrade_preserves_all_old_rows_objects_and_files(
     legacy: Legacy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -321,7 +340,9 @@ def test_populated_16_upgrade_preserves_all_old_rows_objects_and_files(
                               {t: before_rows[t]["columns"] for t in before_rows})
         assert before_rows_hash == row_digest(before_rows), "the before snapshot itself changed"
         expected_settings = dict(before_rows["app_settings"]["rows"]) | {"schema_version": str(db.SCHEMA_VERSION)}
-        assert dict(after_rows["app_settings"]["rows"]) == expected_settings
+        assert ({k for k, _ in after_rows["app_settings"]["rows"]}
+                - {k for k, _ in before_rows["app_settings"]["rows"]}) == BACKFILL_MARKERS
+        assert dict(minus_markers(after_rows)["app_settings"]["rows"]) == expected_settings
         for table in before_rows:
             if table == "app_settings":
                 continue
@@ -406,7 +427,7 @@ def test_failed_migration_preserves_marker16_and_every_preexisting_object(
         # Even an exact isolated table under marker16 must not be adopted.
         conn.execute(APPROVED_DDL["evidence_projects"])
     conn.commit()
-    before = (contents(conn), objects(conn), file_census(legacy.roots))
+    before = (minus_markers(contents(conn)), objects(conn), file_census(legacy.roots))
     ddl_seen: list[tuple[int, str | None]] = []
 
     def authorizer(code: int, name: str | None, arg: str | None,
@@ -426,7 +447,7 @@ def test_failed_migration_preserves_marker16_and_every_preexisting_object(
         # access after the injected DDL failure so preservation reads can run.
         conn.set_authorizer(lambda *_: sqlite3.SQLITE_OK)
     assert db.get_schema_version(conn) == 16
-    assert (contents(conn), objects(conn), file_census(legacy.roots)) == before
+    assert (minus_markers(contents(conn)), objects(conn), file_census(legacy.roots)) == before
     if blocker in ("late_index", "late_authorizer"):
         assert {name for code, name in ddl_seen if code == sqlite3.SQLITE_CREATE_TABLE} >= set(TABLES)
         assert (sqlite3.SQLITE_CREATE_INDEX, INDEXES[0]) in ddl_seen
@@ -434,7 +455,8 @@ def test_failed_migration_preserves_marker16_and_every_preexisting_object(
     reopened = db.get_connection(legacy.path)
     try:
         assert db.get_schema_version(reopened) == 16
-        assert (contents(reopened), objects(reopened), file_census(legacy.roots)) == before
+        assert (minus_markers(contents(reopened)), objects(reopened),
+                file_census(legacy.roots)) == before
     finally:
         reopened.close()
     print("E02_ROLLBACK", {"blocker": blocker, "ddl_attempted": ddl_seen,
