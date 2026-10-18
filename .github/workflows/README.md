@@ -52,13 +52,18 @@ a hung runner turns into a long, quiet bill. The values below are set from measu
 | `sqlite-vec-probe.yml` | 35 | 9.7 min (macos-x64) | 23 |
 | `voice-probe.yml` | 50 | 14.8 min (macos-x64) | 5 |
 
-Measured 2026-10-18 from the 25 most recent runs of each workflow, successful legs only. Headroom runs from
-2.4x to 14x; the gaps were not hiding a problem, and recording that is worth more than leaving a blank row
-that invites the assumption they might have been.
+Measured 2026-10-18 from the 25 most recent runs of each workflow (30 for `ci.yml`), successful legs only.
+Headroom runs from **1.78x to 14x**, and the tightest is the one worth watching: `ci.yml` backend, at
+40 against a measured 22.5. That leg is a required check and its duration grows with the suite, so it is
+the row that will need raising first.
+
+The gaps this table once left blank were not hiding a problem, and recording that is worth more than a
+blank row that invites the opposite assumption.
 
 Two rows need their caveat read with them. The `classic` sample has a median of 0.1 minutes, because most
-of those runs short-circuited on the path filter rather than building a second application — only the 8.3
-is a real build, so treat the sample as one observation and not seven. And `live-network`'s limit is far
+of those runs stopped at the job's own changed-files step rather than building a second application — look
+in the `scope` step, not the `on:` block, which has no path filter — so only the 8.3 is a real build, and
+the sample is one observation and not seven. And `live-network`'s limit is far
 above its observed time on purpose: its slow case is a provider being slow, which is the thing it exists to
 observe, not a runner being stuck.
 
