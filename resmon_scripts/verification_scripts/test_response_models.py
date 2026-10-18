@@ -547,12 +547,13 @@ def test_every_modeled_route_resolves_to_the_lossless_base():
     ``_reachable_models`` walks ``BaseModel`` subclasses, and returns nothing
     at all for a response type that is not one — a pydantic *dataclass*, a
     ``TypedDict``, a bare ``dict[str, int]``. Both guards then pass over an
-    empty set and report green while the route quietly filters its body: a
-    review of this file planted ``response_model=list[<pydantic dataclass>]``
-    on a real route, watched both of them stay green, and watched the route
-    answer 200 with 2 of its 9 keys. The coverage guard caught it, which is the
-    argument for having four of these and not one — and not an argument for
-    leaving three of them asleep.
+    empty set and report green while the route quietly filters its body. A
+    review of this file found that, and planting a pydantic dataclass on
+    ``GET /api/profiles/{profile_id}`` reproduces it: both guards stay green
+    and the route answers 200 carrying 2 of a watch profile's 11 keys, having
+    dropped ``basis_warning`` among the nine. The equality sweep above did
+    catch it, which is the argument for having four of these rather than one —
+    and not an argument for leaving three of them asleep.
 
     So: a modeled route's response type must resolve to at least one model,
     and every model it resolves to must be a ``LosslessModel``. A response type
