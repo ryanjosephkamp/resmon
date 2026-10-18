@@ -661,7 +661,11 @@ export const ExecutionProvider: React.FC<{ children: React.ReactNode }> = ({
   // run exactly once per `startExecution` identity, with the interval
   // owning its own lifecycle. Including `activeExecutions` would
   // reinitialize the poller on every state change.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  //
+  // This carried an `eslint-disable-next-line react-hooks/exhaustive-deps`
+  // for a linter that was never installed. Now that one is, the rule reports
+  // nothing here: both dependencies are stable `useCallback`s and the list is
+  // already exhaustive. The suppression is gone; the reason above stays.
   }, [startExecution, broadcastCompletion]);
 
   /* Cancel a specific execution. */

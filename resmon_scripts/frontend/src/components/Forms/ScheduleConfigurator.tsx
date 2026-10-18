@@ -116,6 +116,10 @@ const ScheduleConfigurator: React.FC<Props> = ({ cron, onChange, schedule, onSch
       return { n: schedule.every, unit: schedule.unit as CustomUnit };
     }
     return parseCustomCron(cron);
+    // Empty on purpose: this is the *initial* value of an editable control.
+    // Recomputing it when `schedule` or `cron` changes would overwrite what
+    // the user is typing with what is still saved. Checked against the real
+    // rule now that there is one, and kept.
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [showCustom, setShowCustom] = useState<boolean>(

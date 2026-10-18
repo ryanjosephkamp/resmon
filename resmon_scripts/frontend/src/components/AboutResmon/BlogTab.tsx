@@ -61,6 +61,9 @@ type FeedState =
 // it as a custom HTML element, so React needs an explicit intrinsic-element
 // declaration to type-check ``src`` / ``partition`` / event handlers.
 declare global {
+  // A namespace is the only way to augment `JSX.IntrinsicElements`; the rule
+  // has no alternative to offer here. Checked against the real rule now that
+  // there is one, and kept.
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace JSX {
     interface IntrinsicElements {
