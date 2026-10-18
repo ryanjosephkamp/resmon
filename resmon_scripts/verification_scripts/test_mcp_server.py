@@ -141,7 +141,11 @@ def test_tools_list_matches_the_contract():
     # first. v2.1 adds none. v2.2 (phase 2.1a′) adds the four watch-profile
     # tools, additively.
     assert len(names) == 25
-    assert mcp.CONTRACT_VERSION == "2.3"
+    # 2.4 adds none and removes none. It is a narrowing of what
+    # ``update_settings`` will accept, and the string moves because a released
+    # v2.3.0 advertises "2.3" without that guard: a harness has to be able to
+    # tell an accepting server from a refusing one.
+    assert mcp.CONTRACT_VERSION == "2.4"
 
 
 def test_every_tool_declares_whether_it_needs_confirmation():
@@ -399,16 +403,32 @@ def test_update_settings_refuses_an_unknown_key_rather_than_dropping_it():
     Right for a form, wrong for a tool: a caller told "success" for a key that
     was silently discarded has been lied to, and the assistant would report the
     change to the user as done.
+
+    ``SETTINGS_KEYS_WRITABLE`` is one flat list rather than a group-to-keys
+    map, on purpose — a map here would be the copy of the app's key list that
+    this guard exists to avoid — so a writable key aimed at the wrong group is
+    exactly the case that reaches it. A key on no list at all is refused one
+    guard earlier, which is still "refused rather than dropped"; both are
+    checked, because only the second says the group's real key list back.
     """
+    stub = _stub({("GET", "/api/settings/notifications"): {
+        "notify_manual": "true", "notify_automatic_mode": "all"}})
+    with stub:
+        result = mcp.call_tool(
+            "update_settings", {"group": "notifications", "settings": {"ai_model": "z"}})
+    body = _payload(result)
+    assert result["isError"]
+    assert body["detail"]["unknown_keys"] == ["ai_model"]
+    assert "notify_manual" in body["detail"]["group_keys"]
+    assert not [c for c in stub.seen if c["method"] == "PUT"]
+
     stub = _stub({("GET", "/api/settings/ai"): {"ai_provider": "x", "ai_model": "y"}})
     with stub:
         result = mcp.call_tool(
             "update_settings", {"group": "ai", "settings": {"ai_provder": "z"}})
-    body = _payload(result)
     assert result["isError"]
-    assert body["detail"]["unknown_keys"] == ["ai_provder"]
-    assert "ai_provider" in body["detail"]["group_keys"]
-    assert not [c for c in stub.seen if c["method"] == "PUT"]
+    assert _payload(result)["detail"]["refused_keys"] == ["ai_provder"]
+    assert stub.seen == []
 
 
 def test_update_settings_says_so_when_nothing_moved():

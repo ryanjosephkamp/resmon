@@ -85,6 +85,10 @@ class ProviderServer:
                     # that it rode on the right one and on no other.
                     "authorization": self.headers.get("Authorization"),
                     "x_api_key": self.headers.get("x-api-key"),
+                    # Google's slot. Added when the key moved out of the query
+                    # string; a capture that did not record it could not tell
+                    # "the key is gone from the URL" from "the key is gone".
+                    "x_goog_api_key": self.headers.get("x-goog-api-key"),
                     "raw": raw,
                 })
 
