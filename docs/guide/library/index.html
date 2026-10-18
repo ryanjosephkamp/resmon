@@ -1,0 +1,45 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Your local library · resmon</title><meta name="description" content="Managed vaults, importing PDF, TXT and MD files, and the rules for what counts as the same document."><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/guide/library/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Your local library · resmon"><meta property="og:description" content="Managed vaults, importing PDF, TXT and MD files, and the rules for what counts as the same document."><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/guide/library/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" aria-current="page" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Guide</p> <h1 data-astro-cid-c2uqhu5p>Your local library</h1> <p class="meta" data-astro-cid-c2uqhu5p>Managed vaults, importing PDF, TXT and MD files, and the rules for what counts as the same document.</p> </header>  <div class="prose" data-astro-cid-c2uqhu5p><h3 id="your-local-library">Your local Library</h3>
+<p>Open <strong>Library</strong>, choose an existing parent folder, then select <strong>Create managed
+vault</strong>. resmon creates one new child folder and pairs its marker with this app’s
+database. Import selected PDF, TXT or MD files to retain immutable copies. Originals
+stay where they were; repeating the exact bytes reuses the first file and version
+only when the format agrees. Changed bytes become another item, even under the same
+filename. Library never infers a publication identity from a filename or hash.</p>
+<p>Search filenames and page beyond the first 50 items. Paging keeps its initial
+catalog ceiling; <strong>Refresh Library</strong> includes later imports. Select an item to inspect
+its metadata and optionally associate an existing corpus-local paper ID. An
+association means you selected that record, not that resmon verified the publication.</p>
+<p><strong>Read text</strong> shows exact retained TXT/MD as literal UTF-8 with line numbers, local
+find and previous/next matches. CRLF and CR display as LF without changing retained
+bytes. Reading is limited to 256 KiB, 5,000 logical lines and a 2 MiB serialized
+response. Markdown, HTML, links and embedded images are never executed. For PDFs, <strong>Read PDF in Evidence</strong> carries the selected file/version to Evidence;
+choose a project and explicitly add it to open the reader (an existing membership
+is reused). Larger text remains retained. <strong>Open externally</strong> verifies the selected stored version
+and requests the existing OS opener. An accepted Open request does not establish
+that another application rendered the document. The Library reader adds no PDF extraction, OCR or AI analysis; the separate
+Evidence workspace provides bounded PDF pages and saved passages.</p>
+<p>Imports are limited to 64 MiB per file, 20 files processed sequentially per selection,
+1 GiB of retained bytes and 10,000 items per vault. Missing or mismatched storage,
+unexpected files and stale import locks produce a refusal; there is no automatic
+adoption, repair, relocation, removal or replacement. Filesystem operations require
+no-follow, descriptor-relative primitives and fail visibly where unavailable.</p>
+<p><strong>Export complete JSON inventory</strong> downloads recorded metadata for every catalog
+item, including items beyond the visible page. Its 8 MiB limit refuses oversized
+inventories without truncation. Review original filenames before sharing. The
+inventory contains no retained file bytes and is not a backup or fresh integrity
+scan. A database backup alone does not preserve the vault’s files, and no automatic
+Library cloud backup is added.</p>
+<p>Existing settings resets and corpus erasure retain Library catalog entries and files.
+Deleting a paper removes only its Library associations, so a reused local ID cannot
+inherit them. See the <a href="/resmon/api-contract/library/">Library storage and API contract</a>
+for identity, migration and verification details.</p>
+<p>Completed exports appear in <strong>Downloads</strong> at the bottom of the app, with filename,
+actual saved path and <strong>Show in folder</strong>. Saving, cancelled and interrupted items
+remain distinct from completed files. This is the last 20 downloads in the current
+app session; the save dialog and existing export formats are unchanged.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

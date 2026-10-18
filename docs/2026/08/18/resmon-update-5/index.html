@@ -1,0 +1,264 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Update 5 — Hardening: A Clean Install That Actually Starts, a Suite That Actually Finishes, and CI to Keep It That Way · resmon</title><meta name="description" content="Twenty-five defects were found by installing resmon exactly the way the README tells a new user to, running everything the project ships, and then reading the parts that had never…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/2026/08/18/resmon-update-5/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Update 5 — Hardening: A Clean Install That Actually Starts, a Suite That Actually Finishes, and CI to Keep It That Way · resmon"><meta property="og:description" content="Twenty-five defects were found by installing resmon exactly the way the README tells a new user to, running everything the project ships, and then reading the parts that had never…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/2026/08/18/resmon-update-5/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+.pager[data-astro-cid-g6jwv4qx]{display:grid;gap:var(--space-4);margin-top:var(--space-7);font-size:var(--text-sm)}.pager[data-astro-cid-g6jwv4qx] a[data-astro-cid-g6jwv4qx]{display:block;padding:var(--space-3) var(--space-4);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md);text-decoration:none;color:var(--color-text);background:var(--color-surface)}.pager[data-astro-cid-g6jwv4qx] a[data-astro-cid-g6jwv4qx]:hover{border-color:var(--color-border-strong)}.pager-label[data-astro-cid-g6jwv4qx]{display:block;font-size:var(--text-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}@media(min-width:40rem){.pager[data-astro-cid-g6jwv4qx]{grid-template-columns:1fr 1fr}.pager-next[data-astro-cid-g6jwv4qx]{text-align:end}}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Update</p> <h1 data-astro-cid-c2uqhu5p>Update 5 — Hardening: A Clean Install That Actually Starts, a Suite That Actually Finishes, and CI to Keep It That Way</h1> <p class="meta" data-astro-cid-c2uqhu5p>August 18, 2026</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#metadata" data-astro-cid-c2uqhu5p>Metadata</a> </li><li data-astro-cid-c2uqhu5p> <a href="#summary" data-astro-cid-c2uqhu5p>Summary</a> </li><li data-astro-cid-c2uqhu5p> <a href="#motivation" data-astro-cid-c2uqhu5p>Motivation</a> </li><li data-astro-cid-c2uqhu5p> <a href="#changes" data-astro-cid-c2uqhu5p>Changes</a> </li><li data-astro-cid-c2uqhu5p> <a href="#verification" data-astro-cid-c2uqhu5p>Verification</a> </li><li data-astro-cid-c2uqhu5p> <a href="#follow-ups" data-astro-cid-c2uqhu5p>Follow-ups</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 5</li>
+<li><strong>Update type:</strong> bugfix / infrastructure</li>
+<li><strong>Date:</strong> 2026-08-18</li>
+<li><strong>Version:</strong> 1.2.1 → 1.3.0</li>
+<li><strong>Scope:</strong> packaging, concurrency, test infrastructure, continuous integration, documentation</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<p>Twenty-five defects were found by installing resmon exactly the way the README tells
+a new user to, running everything the project ships, and then reading the parts that
+had never been exercised. Twenty-four are fixed. The one that remains is documented
+here rather than quietly left in place.</p>
+<p>Five of them were found by CI itself, after the first eighteen were already fixed —
+including the one that mattered most to users.</p>
+<p>The headline is unglamorous: <strong>a fresh clone could not start</strong>, and <strong>the test
+suite could not finish</strong>. Both are fixed, and there is now CI so neither can come
+back unnoticed.</p>
+<h2 id="motivation">Motivation</h2>
+<p>resmon’s features were in good shape — the frontend type-checked cleanly, the
+production build succeeded, and 290 backend tests passed. The problems were all
+<em>around</em> that working core, in the places nobody re-checks once they work on the
+machine they were written on.</p>
+<p>Three of them could only be found by starting from nothing:</p>
+<ul>
+<li><code>requirements.txt</code> never listed <code>python-dateutil</code>, which the scheduler imports.
+It had simply always been present in the author’s environment.</li>
+<li>The cloud service’s dependencies were pinned nowhere, so nine test files could
+not even be collected — and behind that, <code>cloud/metrics.py</code> turned out to have
+a syntax error and to have never been importable at all.</li>
+<li>Reading the OS keychain had no time limit, and on macOS that call waits on a GUI
+prompt. It hung the whole test suite indefinitely.</li>
+</ul>
+<h2 id="changes">Changes</h2>
+<h3 id="a-clean-install-works">A clean install works</h3>
+<ul>
+<li><strong>Added <code>python-dateutil</code> to <code>requirements.txt</code>.</strong> Without it, a virtualenv built
+from the README could not <code>import resmon</code>, and all 53 backend test files failed
+at collection.</li>
+<li><strong>Pinned the cloud service’s own dependencies</strong> — PyJWT, PyNaCl, boto3, alembic,
+prometheus-client, python-json-logger, redis — and <code>moto</code> for the test that
+stands up a local S3. The Dockerfile no longer re-specifies them.</li>
+<li><strong>Fixed a syntax error in <code>cloud/metrics.py</code></strong>: a missing comma after the
+<code>executions_total</code> help string. The cloud microservice had never parsed. The
+missing dependencies had been hiding it, because the import failed earlier.</li>
+</ul>
+<h3 id="every-thread-now-has-its-own-database-connection">Every thread now has its own database connection</h3>
+<p>The deepest fix in this release, and the one that took the longest to characterise
+honestly.</p>
+<p>resmon kept a <strong>single</strong> process-wide <code>sqlite3.Connection</code> and used it from every
+FastAPI request thread <em>and</em> every execution worker thread, with nothing serialising
+them. sqlite3 connections are not safe for concurrent use. Python 3.10 and 3.11
+largely got away with it because their <code>sqlite3</code> module holds the GIL across most
+operations; 3.12 releases it far more aggressively, so the race was lost reliably
+there and intermittently everywhere else. It surfaced as, variously:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>sqlite3.InterfaceError:   bad parameter or other API misuse</span></span>
+<span class="line"><span>sqlite3.ProgrammingError: Cannot operate on a closed database</span></span>
+<span class="line"><span>sqlite3.OperationalError: cannot start a transaction within a transaction</span></span></code></pre>
+<p>Each thread now opens its own connection. <code>_get_db()</code> is the single point every call
+site already went through, so the change lands everywhere at once rather than only on
+the path that happened to expose it; the execution worker additionally rebinds the
+engine, which had captured the request thread’s connection at construction.</p>
+<p>Two supporting changes were needed. <code>init_db</code> now commits — schema left inside an open
+transaction on one connection is invisible to every other. And the <code>":memory:"</code> test
+hook is now backed by a temp file rather than a real in-memory database: an in-memory
+database is private to its own connection, and the obvious workaround, SQLite’s
+shared-cache mode, takes coarser table-level locks that <code>busy_timeout</code> does not retry.
+Tests now run against exactly the file-plus-WAL configuration resmon actually ships.</p>
+<p><strong>Python 3.12 is supported, and is in CI</strong>, alongside 3.10 and 3.11.</p>
+<p>There are six new tests aimed squarely at the concurrency rather than waiting for it to
+surface by luck — including one that hammers the database from twelve threads at once,
+and one that asserts the worker thread does not reuse the request thread’s connection.
+All six were checked against the pre-fix code first: three of them fail there, which is
+the only evidence that a regression test is worth having.</p>
+<h3 id="concurrency-and-lifecycle">Concurrency and lifecycle</h3>
+<ul>
+<li><strong>Keychain reads are now bounded.</strong> Every keyring call runs on a daemon thread
+joined with a timeout. Reads degrade to “credential not present”; writes and
+deletes raise rather than falsely reporting success. Previously
+<code>GET /api/cloud/status</code> could hang forever and hold an ASGI worker with it.</li>
+<li><strong>An execution can no longer strand its concurrency slot.</strong> <code>admission.note_finished</code>
+was the last unguarded statement in a <code>finally</code> block, after the progress-persist
+step. Any database error there leaked the slot permanently — and after three
+(the default cap) resmon rejected every Deep Dive and Deep Sweep with HTTP 429
+while nothing was actually running. Slot release now has its own <code>finally</code>.</li>
+<li><strong>Rate limiting works under load.</strong> <code>RateLimiter.acquire()</code> had no lock, so
+concurrent sweeps sharing a source’s limiter all woke together. Measured against
+arXiv’s 0.33 req/s ceiling, four concurrent sweeps issued every request within
+0.00 s of each other — 1.32 req/s, four times the advertised limit, the kind of
+thing that earns a temporary IP block. Now correctly serialized.</li>
+<li><strong>A new execution no longer inherits an old one’s progress log.</strong>
+<code>ProgressStore.register()</code> only touched its dictionary entry instead of clearing
+it. Reachable in practice: cleanup is skipped whenever the persist step raises,
+and “Erase executions” resets <code>sqlite_sequence</code>, so ids restart at 1.</li>
+<li><strong><code>get_connection()</code> rejects a wrong-typed argument.</strong> It used to apply <code>str()</code>
+to whatever it was given, so passing a connection created a database file
+literally named <code>&#x3C;sqlite3.Connection object at 0x...></code> rather than raising. One
+caller did exactly that, and its schema setup had been silently doing nothing.</li>
+<li><strong>Service install/uninstall cannot hang.</strong> The <code>launchctl</code> / <code>systemctl</code> /
+<code>schtasks</code> calls behind <code>POST /api/service/install</code> had no timeout.</li>
+</ul>
+<h3 id="ai-summarization-was-unusable-on-a-fresh-offline-install">AI summarization was unusable on a fresh offline install</h3>
+<p>The most user-facing defect of the set, and it was CI that exposed it.</p>
+<p><code>summarizer.py</code> bootstraps NLTK’s sentence tokenizer at import, downloading the
+<code>punkt_tab</code> data if it is missing. pip does not ship NLTK’s corpora, so on a fresh
+install that download is the only thing standing between a user and a working
+summarizer — and <code>nltk.download(quiet=True)</code> returns <code>False</code> on failure rather than
+raising. On a machine that is offline, behind a firewall, or simply cannot reach
+NLTK’s servers, the bootstrap failed <strong>silently</strong>, and every later call raised
+<code>LookupError: Resource 'punkt_tab' not found</code>, failing the whole execution.</p>
+<p>So: enable AI summarization, run a sweep without a network path to NLTK, and the
+headline feature died with an error naming a Python library the user never asked
+about. The README never mentioned the data either.</p>
+<p>Sentence splitting now degrades to a regex splitter with one clear warning naming the
+exact command to install the data properly, and the README documents it as an optional
+step with an honest description of what skipping it costs.</p>
+<p>A related fix in the same file: the tiktoken encoder was wrapped in <code>except KeyError</code>,
+but tiktoken <em>downloads</em> its vocabulary, so for a known model it fails with a network
+error instead — which escaped the constructor entirely. The character-count fallback
+the class documents was unreachable in exactly the case that needed it.</p>
+<h3 id="the-renderer">The renderer</h3>
+<ul>
+<li><strong>The Monitor page’s tab focus works.</strong> Closing the focused execution tab left
+focus pointing at the execution that had just been removed.
+<code>clearExecution()</code> computed the next focus inside one React state updater nested
+in another and read it from the outer one — which React runs first, so the value
+was never observed.</li>
+</ul>
+<h3 id="test-infrastructure">Test infrastructure</h3>
+<ul>
+<li>
+<p><strong>Jest now runs the renderer specs.</strong> Three well-written
+<code>@testing-library/react</code> specs had been in the repository with no runner and no
+<code>test</code> script, so they had never executed once. They run unchanged, and found
+the focus bug above within minutes.</p>
+</li>
+<li>
+<p><strong>Live-network tests are separated from unit tests.</strong> Nine tests hit real
+scholarly APIs; they are marked <code>live_network</code> and deselected by default, so the
+suite runs offline and in CI. The three affected files are each <em>mixed</em>, so they
+are marked test-by-test — marking whole files would have dropped eight hermetic
+tests from the default run.</p>
+</li>
+<li>
+<p><strong>Added a <code>conftest.py</code>.</strong> The suite raced its own background worker threads and
+reached for the developer’s real keychain. It now waits for worker threads before
+any fixture teardown, and installs an in-memory keyring.</p>
+</li>
+<li>
+<p><strong>Hermeticity is now enforced, not assumed.</strong> Marking the live tests by hand was not
+enough: two stragglers were missed and only surfaced when arXiv rate-limited a CI
+runner. Both swallowed their own network errors, so locally they simply passed.
+<code>conftest.py</code> now blocks any non-loopback socket from a test that is not marked
+<code>live_network</code>, and the failure message names the host and says what to do.</p>
+</li>
+</ul>
+<h3 id="continuous-integration">Continuous integration</h3>
+<ul>
+<li>
+<p><strong>Added <code>.github/workflows/ci.yml</code>.</strong> On every push and pull request: <code>compileall</code>
+over the whole tree, an explicit import of both the desktop backend and the cloud
+service from a clean install, the hermetic pytest suite on Python 3.10 and 3.11,
+and then typecheck, renderer tests, and build for the frontend.</p>
+<p>It earned its place immediately, catching two things a local run could not: the
+suite only worked under <code>python -m pytest</code> because that adds the working
+directory to <code>sys.path</code>, and <code>npm ci</code> rejected a lockfile that npm itself cannot
+make portable across platforms.</p>
+</li>
+</ul>
+<h3 id="documentation">Documentation</h3>
+<ul>
+<li><strong>The repository count is now correct.</strong> The README claimed 16 sources, the tests
+claimed 17, and the catalog that actually feeds the Repositories page exposes 15.
+medRxiv was the phantom: it is served by the bioRxiv client but has no catalog
+entry, so it cannot be selected separately. The README says so now instead of
+advertising a source the UI does not offer.</li>
+<li><strong>Removed five directories from the project structure</strong> that are not in the
+repository: <code>given_scripts/</code>, <code>notebooks/</code>, <code>resmon_experiments/</code>,
+<code>resmon_printouts/</code>, <code>resmon.app/</code>.</li>
+<li>Migrated four deprecated FastAPI <code>on_event</code> hooks to a <code>lifespan</code> handler, and
+renamed a Pydantic field that shadowed a base-class attribute. resmon’s own code
+now emits no warnings.</li>
+</ul>
+<h3 id="four-flaky-tests-one-root-cause">Four flaky tests, one root cause</h3>
+<p>CI failed repeatedly on the same commit while every local run passed. Each failure
+turned out to be the same pattern: <strong>a test’s scope ends at the HTTP response while
+the work continues on a daemon thread.</strong></p>
+<ul>
+<li>A calendar-color test’s arXiv mock was restored before the background execution
+used it, so the execution quietly queried the real API.</li>
+<li>A cancel test slept a fixed second and hoped the execution had finished.</li>
+<li>Fixtures closed the shared database while a worker was still writing to it.</li>
+<li>Two “returns immediately” tests let their worker escape the patch scope entirely.
+With the network blocked it then retried with backoff for longer than the
+thread-join timeout, survived into the next test, and re-registered its execution
+id in the process-wide progress store. Because every test gets a fresh in-memory
+database, ids restart at 1 — so the next test’s SSE read saw that id as live and
+streamed heartbeats until the run was killed.</li>
+</ul>
+<p>All four are fixed, and the suite now runs green across repeated CI runs.</p>
+<h2 id="verification">Verification</h2>
+<p>Measured on a fresh <code>git clone</code> into a new virtualenv, not on a working tree:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th>Before</th><th>After</th></tr></thead><tbody><tr><td>Clean install from <code>requirements.txt</code></td><td>backend will not import</td><td>imports; cloud service too</td></tr><tr><td>Backend suite</td><td>hangs indefinitely</td><td>404 passed, 4 skipped, ~40 s</td></tr><tr><td>Test files that can be collected</td><td>44 of 53</td><td>53 of 53</td></tr><tr><td>Renderer tests</td><td>3 specs, never run</td><td>13 passing</td></tr><tr><td>Warnings from resmon’s own code</td><td>3</td><td>0</td></tr><tr><td>CI</td><td>none</td><td>green on 3.10, 3.11, 3.12 and the frontend</td></tr></tbody></table>
+<h2 id="follow-ups">Follow-ups</h2>
+<p>One finding is <strong>not</strong> fixed, and is worth stating plainly.</p>
+<ul>
+<li><strong>BUG-016 — <code>webSecurity: false</code>.</strong> The Electron main window disables the
+same-origin policy. It may well be unnecessary now that the renderer is served
+over <code>http://127.0.0.1</code> rather than <code>file://</code>. Verifying that requires exercising
+every page against a live backend, so the flag was left alone rather than flipped
+blind.</li>
+</ul>
+<p>Also outstanding: the cloud service’s privacy notice is not tracked in the
+repository, so the test that checks its contents now skips with an explanatory
+message instead of failing.</p></div> </article>  <nav class="pager" aria-label="Other updates" data-astro-cid-g6jwv4qx> <div data-astro-cid-g6jwv4qx> <a href="/resmon/2026/05/05/resmon-update-4/" data-astro-cid-g6jwv4qx> <span class="pager-label" data-astro-cid-g6jwv4qx>Previous</span> <span data-astro-cid-g6jwv4qx>resmon Update 4 — May 5, 2026</span> </a> </div> <div class="pager-next" data-astro-cid-g6jwv4qx> <a href="/resmon/2026/08/19/resmon-update-6/" data-astro-cid-g6jwv4qx> <span class="pager-label" data-astro-cid-g6jwv4qx>Next</span> <span data-astro-cid-g6jwv4qx>resmon Update 6 — August 19, 2026</span> </a> </div> </nav>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html>  

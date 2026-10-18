@@ -1,0 +1,358 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Adding a source to resmon · resmon</title><meta name="description" content="resmon queries scholarly sources and keeps what it finds. Adding another one is the most common contribution, and the most templated: AGENTS.md lists the files, and a suite of tes…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/adding-a-source/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Adding a source to resmon · resmon"><meta property="og:description" content="resmon queries scholarly sources and keeps what it finds. Adding another one is the most common contribution, and the most templated: AGENTS.md lists the files, and a suite of tes…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/adding-a-source/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Reference</p> <h1 data-astro-cid-c2uqhu5p>Adding a source to resmon</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/adding-a-source.md</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#before-you-write-any-code-does-its-license-let-us" data-astro-cid-c2uqhu5p>Before you write any code: does its license let us?</a> </li><li data-astro-cid-c2uqhu5p> <a href="#store-only-the-fields-the-terms-permit" data-astro-cid-c2uqhu5p>Store only the fields the terms permit</a> </li><li data-astro-cid-c2uqhu5p> <a href="#recording-an-attribution-obligation" data-astro-cid-c2uqhu5p>Recording an attribution obligation</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-client-contract" data-astro-cid-c2uqhu5p>The client contract</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-files-a-new-source-touches" data-astro-cid-c2uqhu5p>The files a new source touches</a> </li><li data-astro-cid-c2uqhu5p> <a href="#retiring-a-source" data-astro-cid-c2uqhu5p>Retiring a source</a> </li><li data-astro-cid-c2uqhu5p> <a href="#verifying" data-astro-cid-c2uqhu5p>Verifying</a> </li><li data-astro-cid-c2uqhu5p> <a href="#opening-the-pull-request" data-astro-cid-c2uqhu5p>Opening the pull request</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><p>resmon queries scholarly sources and keeps what it finds. Adding another one is the most
+common contribution, and the most templated: <code>AGENTS.md</code> lists the files, and a suite of
+tests pins every part of the contract. This document is the long form — what the template
+does not say on its own, and what four delegated source batches taught by getting it wrong.</p>
+<p>It is written to be usable by a person <strong>or by an agent</strong>. If you point your own harness at
+this repository and ask it to add a source, this is the document it should read.</p>
+<hr>
+<h2 id="before-you-write-any-code-does-its-license-let-us">Before you write any code: does its license let us?</h2>
+<p><strong>This is the first question, not the last one.</strong> It was the last one twice, and both times
+that cost real work.</p>
+<p>resmon is not a search box that forgets. It <strong>stores</strong> what it retrieves, indefinitely, in a
+local database the user can back up to their own cloud storage. That is a materially
+different act from displaying a result, and a source’s terms may permit one and not the
+other. Four questions decide it:</p>
+<ol>
+<li>May the record be kept <strong>indefinitely</strong> in a local database?</li>
+<li>May that database be copied to <strong>user-controlled cloud storage</strong>?</li>
+<li>May a <strong>freely installable MIT-licensed</strong> application do this, redistributing nothing?</li>
+<li>May the first-retrieved record be <strong>kept without re-fetching</strong> it?</li>
+</ol>
+<p>Answer all four against the provider’s own words, and cite the clause. <code>docs/source-landscape.md</code>
+has 22 shipped sources and 27 candidates already assessed this way; check there first.</p>
+<p>Three outcomes matter:</p>
+<ul>
+<li><strong>Compatible.</strong> Proceed.</li>
+<li><strong>Compatible with an obligation</strong> — attribution, a notice, a contact. Proceed <em>and record
+the obligation</em> (see below).</li>
+<li><strong>Incompatible.</strong> Stop and say so. This is a real answer and a valuable one.</li>
+</ul>
+<blockquote>
+<p><strong>Silence is not prohibition.</strong> A source whose terms simply do not address durable local
+storage has not forbidden it. Grading every silence as a refusal eventually rejects
+everything, including public-domain government data. Say what the terms do and do not
+establish, and let a maintainer decide.</p>
+</blockquote>
+<h3 id="what-has-actually-happened-here">What has actually happened here</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Source</th><th>What happened</th></tr></thead><tbody><tr><td><strong>J-STAGE</strong></td><td>Refused during implementation. Its terms forbid machine-readable retention beyond 24 hours on a server or cloud — irreconcilable with an app that persists a corpus.</td></tr><tr><td><strong>IEEE Xplore</strong></td><td>Shipped, then <strong>withdrawn</strong> in v1.8.1. §4(c) forbids using a retrieval application against the content at all, so no gate fixes it. Because each user brings their own key, the integration put <em>the account holder</em> in breach.</td></tr><tr><td><strong>INSPIRE-HEP</strong></td><td>Fixed rather than withdrawn — see the next section.</td></tr></tbody></table>
+<p>The IEEE case is the one to internalise: the client worked perfectly. Nothing was broken.
+It still had to go.</p>
+<hr>
+<h2 id="store-only-the-fields-the-terms-permit">Store only the fields the terms permit</h2>
+<p>The rule that came out of INSPIRE-HEP, and it now applies to every client:</p>
+<blockquote>
+<p><strong>Where a source’s terms condition a field on provenance, license, or an access flag, the
+client reads that field and honours it.</strong></p>
+</blockquote>
+<p>INSPIRE’s Terms §5(ii) permit reuse of an abstract only where that abstract’s own <code>source</code>
+is <code>arXiv</code> or <code>CERN</code>. The client took <code>abstracts[0]</code> and stored whichever came first. The
+reference implementation is <code>_licensed_abstract</code> in <code>implementation_scripts/api_inspire_hep.py</code>;
+read it before writing a client for any source whose terms distinguish fields.</p>
+<p>Two consequences worth stating plainly:</p>
+<ul>
+<li><strong>A record with no storable abstract is still indexed, without one.</strong> An absent abstract
+says resmon has nothing it may keep. That is different from the paper not existing, and
+dropping the record instead would hide it from the user entirely.</li>
+<li><strong>Measure the cost, do not estimate it.</strong> The INSPIRE gate drops about a fifth of
+abstracts — established by sampling 100 live records, not guessed — and that figure is in
+the catalog note because the user is entitled to it.</li>
+</ul>
+<hr>
+<h2 id="recording-an-attribution-obligation">Recording an attribution obligation</h2>
+<p>Some sources make a credit a <strong>condition of reuse</strong>; others merely ask. The catalog holds
+all three states, and the difference is not cosmetic:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="python"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">attribution</span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Data Provided by PLOS"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">attribution_requirement</span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"required"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,   </span><span style="color:#6A737D;--shiki-dark:#6A737D"># none | requested | required</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">attribution_source</span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"https://api.plos.org/api-display-policy/"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span></code></pre>
+<ul>
+<li><code>required</code> — a license condition. OpenAIRE’s metadata is CC BY; using it without the
+credit is using it without a license. Required credits render on the Repositories page
+<strong>unconditionally</strong>, because a credit the user must go looking for is not displayed.</li>
+<li><code>requested</code> — a courtesy the upstream would like. arXiv publishes an acknowledgement
+sentence. Rendering it as required would overstate arXiv’s terms.</li>
+<li><code>none</code> — the default. <strong>Do not invent a credit.</strong> Silence is the correct value.</li>
+</ul>
+<p>Record the wording <strong>verbatim</strong> where the upstream specifies exact wording — PLOS’s display
+policy names a phrase, and paraphrasing it misses the obligation — and always record the URL
+of the clause, so the grading can be re-checked rather than trusted.</p>
+<hr>
+<h2 id="the-client-contract">The client contract</h2>
+<p>Every part of this is pinned by an existing test. Break one and the suite tells you.</p>
+<ul>
+<li><code>search()</code> returns <code>list[NormalizedResult]</code>, honours <code>date_from</code> / <code>date_to</code> /
+<code>max_results</code>, and returns <strong><code>[]</code> on upstream failure</strong> — logged, never raised. A source
+being down degrades a sweep; it does not fail it.</li>
+<li>Every HTTP call goes through <code>safe_request()</code> with a <strong>module-level</strong> <code>RateLimiter</code>, shared
+by every instance of that client, so concurrent sweeps contend on one object. The same
+limiter carries a valid upstream <code>Retry-After</code> cooldown across retries and client
+instances. Do not add a client-local <code>sleep</code>: a cooldown that cannot fit the operation
+deadline fails without sending an early request, and an unbounded caller will not accept
+an arbitrary header-length delay beyond its ordinary limiter wait.</li>
+<li>The rate limit is whatever the upstream publishes, <strong>or slower</strong>. Where none is published,
+pick a conservative number and record the reasoning in a comment. Cite the published
+figure; do not carry over a number from another source.</li>
+<li><code>source_repository</code> is the slug, lowercase, matching the catalog entry.</li>
+<li><code>external_id</code> is <strong>stable across runs</strong>. Deduplication and the lifecycle checks key on it.</li>
+<li>A malformed record is skipped and logged, never allowed to abort the batch.</li>
+</ul>
+<h3 id="fields-the-user-reads-as-claims">Fields the user reads as claims</h3>
+<p><code>rate_limit</code>, <code>upstream_policy</code> and <code>keyword_combination</code> are rendered on the Repositories
+page and are read as statements of fact about someone else’s service.</p>
+<p><code>keyword_combination</code> in particular describes how the <strong>upstream</strong> combines space-separated
+terms — implicit AND, explicit OR, relevance-ranked. Getting it wrong makes resmon lie about
+another organization’s search engine.</p>
+<blockquote>
+<p>Where the upstream does not document it, the value is <strong>“Undocumented”</strong>. That is a
+correct answer, not a gap. A previous brief instructed a contributor to label OpenAIRE’s
+semantics anyway; refusing that instruction was the right call.</p>
+</blockquote>
+<p>Where a live observation and the documentation differ, say which is which. INSPIRE’s entry
+records <code>Implicit AND</code> <em>and</em> notes that this rests on a live comparison because the help page
+does not document the default.</p>
+<h3 id="date-granularity-has-a-consequence--say-it">Date granularity has a consequence — say it</h3>
+<p>Several sources filter only by publication <strong>year</strong>. Preserving that precision is correct,
+and it is not the whole story: a date window narrower than one year cannot be satisfied, so
+the source returns nothing. Say so in the catalog note. ERIC’s entry is the model:</p>
+<blockquote>
+<p>A date window narrower than one whole year therefore returns nothing from ERIC — there is
+no field to filter on, so resmon reports zero results rather than widening the window you
+asked for.</p>
+</blockquote>
+<p>Where the upstream can only filter one end of a range — NIST’s API takes a lower bound and no
+upper — the client applies the other end <strong>locally</strong>, and the catalog entry says so rather
+than implying the upstream filtered something it did not.</p>
+<p><code>date_granularity</code> on the catalog entry carries the same fact in a form the app can read:
+<code>"day"</code> (the default), <code>"month"</code>, or <code>"year"</code>. It says the finest precision <strong>resmon’s own
+query to this source can express</strong>, read from your client’s date-filter code — not a claim
+about the upstream’s index. It is rendered on the Repositories page, and the
+<code>window_unanswerable</code> sentence is derived from it rather than from the free-text note.</p>
+<p>The field deliberately does not say what your client <em>does</em> about a window it cannot express,
+because those are two different facts. ERIC and Open Library <strong>refuse</strong>; DataCite, DBLP, NASA
+ADS and Semantic Scholar answer the coarser window. Both are honest. Only the first calls
+<code>note_unanswerable</code>.</p>
+<h3 id="saying-why-a-search-came-back-empty">Saying why a search came back empty</h3>
+<p>A client returning <code>[]</code> is the normal way a source fails, and by the time the engine sees it a
+503 and a genuinely empty result field are identical. <code>safe_request</code> records the HTTP side for
+you — <strong>you do not need to write anything for an outage to be captured</strong> — but three things
+only your client can know. All three live in <code>api_base</code> and all three are one line at the site
+that already returns <code>[]</code>:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Call</th><th>When</th></tr></thead><tbody><tr><td><code>note_unanswerable(why)</code></td><td>The source cannot answer this window at all and you are <strong>not</strong> sending a request. ERIC and Open Library, at their <code>return []</code>. Without this the zero reads <em>not recorded</em>, because nothing observed it.</td></tr><tr><td><code>note_parse_failure()</code></td><td>You got a 200 and could not read the body. arXiv’s <code>ET.ParseError</code>, PubMed’s, NDL’s malformed SRU.</td></tr><tr><td><code>note_filtered(matched, kept, why)</code></td><td>The source answered with records you are not allowed to keep. NDL’s rights gate. Count the drop reasons <strong>separately</strong> — attributing an incomplete record to a rights statement is a false claim about somebody else’s licensing.</td></tr></tbody></table>
+<p>If your request and your <code>response.json()</code> share one <code>try</code>, use
+<code>note_parse_failure_unless_transport(exc)</code> rather than <code>note_parse_failure()</code>: the same
+<code>except</code> catches “the source never answered”, and calling that an unreadable reply tells the
+user the source answered when it did not.</p>
+<p><strong>Never invent a reason.</strong> A zero is a recorded fact with a named source of truth, or it is
+<code>not_recorded</code>. There is no third state, and there is no backfill.</p>
+<h3 id="local-filtering-and-what-it-licenses-you-to-claim">Local filtering, and what it licenses you to claim</h3>
+<p><code>match_explain._LOCALLY_FILTERED_SOURCES</code> lists the sources whose keyword matching <strong>resmon
+performs itself</strong>, and can therefore speak about with certainty. A source belongs there only
+if resmon does the filtering. For a relevance-ranked upstream it does not, and adding it
+would be an overclaim.</p>
+<hr>
+<h2 id="the-files-a-new-source-touches">The files a new source touches</h2>
+<p>A new source <code>&#x3C;slug></code> touches these and no others.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>File</th><th>Change</th></tr></thead><tbody><tr><td><code>implementation_scripts/api_&#x3C;slug>.py</code></td><td><strong>new</strong> — subclass <code>BaseAPIClient</code>, implement <code>search()</code> and <code>get_name()</code>, call <code>register_client()</code> at module scope</td></tr><tr><td><code>implementation_scripts/api_registry.py</code></td><td>add <code>"api_&#x3C;slug>"</code> to <code>_CLIENT_MODULES</code>, alphabetically</td></tr><tr><td><code>implementation_scripts/repo_catalog.py</code></td><td>add an <code>_entry(...)</code>, alphabetically by slug, including <code>date_granularity</code> when it is not <code>"day"</code></td></tr><tr><td><code>implementation_scripts/match_explain.py</code></td><td><code>_LOCALLY_FILTERED_SOURCES</code> — only if resmon does the filtering</td></tr><tr><td><code>verification_scripts/test_repo_catalog.py</code></td><td>the slug set and the two length assertions</td></tr><tr><td><code>verification_scripts/test_api_repositories_catalog.py</code></td><td>the catalog-length assertion</td></tr><tr><td><code>verification_scripts/test_api_tier*.py</code></td><td>registration, instantiation, and a <code>live_network</code> search test</td></tr><tr><td><code>verification_scripts/test_source_outcomes.py</code></td><td>nothing to add — <code>test_every_client_records_an_attempt</code> parametrises over the registry, so a new source is covered the moment it registers, and fails if its <code>search()</code> makes no recorded HTTP attempt</td></tr><tr><td><code>frontend/src/components/Forms/RepositorySelector.tsx</code></td><td>the offline fallback slug list</td></tr><tr><td><code>README.md</code> → <em>Supported Repositories</em></td><td>one row, and the count in the intro line</td></tr></tbody></table>
+<p>Do <strong>not</strong> touch <code>resmon.py</code>, <code>implementation_scripts/database.py</code>,
+<code>implementation_scripts/api_base.py</code>, <code>.github/workflows/*</code>, or <code>docs/_posts/*</code>.</p>
+<hr>
+<h3 id="entity_search--what-the-source-can-be-asked-about-a-person"><code>entity_search</code> — what the source can be asked about a person</h3>
+<p><strong>Required since 2.1, and a source without one fails the suite.</strong> The field says whether
+this source can answer a query about an <em>author</em>, how, and what the record gives back:
+an ORCID, an affiliation, neither.</p>
+<p>Establish it; do not read it off the documentation. Add a probe for your source to
+<code>verification_scripts/probe_entity_search.py</code> and put what came back in <code>established=</code>,
+dated. The probe runs four queries because the first two are not enough:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><strong>A</strong></td><td>the documented author syntax, with a real author</td></tr><tr><td><strong>B</strong></td><td>the same syntax with an author who does not exist</td></tr><tr><td><strong>C</strong></td><td>the bare name as a plain keyword query, no syntax</td></tr><tr><td><strong>D</strong></td><td>the same word under a <em>different</em> field of the same source</td></tr></tbody></table>
+<p>Most of these endpoints tolerate an unknown field prefix and keyword-search the whole
+string, so A looks identical for a source with an author field and a source without one
+— and B is empty either way, because a keyword search for an invented name also finds
+nothing. <strong>D is the control that decides it</strong>, and it caught OAPEN, whose author prefix
+looked ignored under A-versus-C and is plainly parsed under D.</p>
+<p><strong><code>returns_orcid</code> and <code>returns_affiliation</code> are about what the record carried, not which
+keys it has.</strong> Count them. Crossref puts an <code>affiliation</code> key on every author object and
+leaves it empty on most; DataCite and Zenodo carry an <code>orcid</code> key populated on <strong>none</strong>
+of the 54 and 16 creators measured. A capability read off key names would have claimed
+all three, and <code>test_returning_a_field_is_never_claimed_without_a_count</code> refuses a <code>True</code>
+whose citation has no <code>N of M</code> in it. HAL is the subtler case: it returns a lab name, but
+per <em>document</em> — one record listed two authors against one lab — so resmon claims no
+affiliation from it.</p>
+<p><strong><code>unknown</code> is a real answer.</strong> A source whose key this machine does not hold, or whose
+endpoint is down, gets <code>unknown</code> and a sentence saying which. Five entries are <code>unknown</code>
+today for exactly those two reasons.</p>
+<h2 id="retiring-a-source">Retiring a source</h2>
+<p>Removing a module from <code>_CLIENT_MODULES</code> does <strong>not</strong> retire a source, and discovering that
+is why this section exists.</p>
+<p>Every <code>api_*.py</code> calls <code>register_client()</code> at import scope, so anything that imports the
+module — a test, a debug session — puts the source straight back into the process-wide
+registry. That is exactly what happened to IEEE Xplore: the tier-2/3 tests imported it
+directly and <strong>kept passing when they should have failed</strong>.</p>
+<p>Retirement therefore has two halves, and both are required:</p>
+<ol>
+<li>Add the slug to <code>api_registry.RETIRED_REPOSITORIES</code> with the reason a user should see.
+<code>register_client()</code> refuses a retired slug, and <code>get_client()</code> raises with that reason —
+so a routine saved before the retirement reports the actual cause instead of
+<code>Unknown repository: &#x3C;slug></code>.</li>
+<li>Remove the module’s <code>_register()</code> call, leaving it commented with the steps to revive it.</li>
+</ol>
+<p>Keep the client on disk. Retirement on <em>terms</em> is reversible in a way retirement on
+<em>behavior</em> is not: a written license would restore IEEE Xplore unchanged.</p>
+<hr>
+<h2 id="verifying">Verifying</h2>
+<p>All four, before opening a pull request:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">.venv/bin/python</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pytest</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span><span style="color:#6A737D;--shiki-dark:#6A737D">                    # hermetic suite</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">.venv/bin/python</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pytest</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> live_network</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span><span style="color:#6A737D;--shiki-dark:#6A737D">    # real APIs; a weekly CI job runs these</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/frontend</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> typecheck</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> test</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> build</span></span></code></pre>
+<p>The hermeticity guard blocks any non-loopback socket from a test that is not marked
+<code>live_network</code>. A new test that needs the network carries the marker — and a source’s
+live search test is then run every Monday by <code>.github/workflows/live-network.yml</code>,
+so a source that stops answering is heard about within a week rather than at the
+next time somebody happens to type the command. The workflow writes a flushed
+JSONL record of collection, test starts, phase reports, and completion to a
+dedicated artifact directory. Per-case fields are bounded and sanitized; the raw
+<code>pytest.log</code> is retained and is not subject to an application byte cap. The
+always-run validator rejects stale identities, missing starts or phases, mixed
+selections, and unfinished selected tests; the pytest exit status remains
+authoritative.</p>
+<p><strong>Run the live tests yourself before review.</strong> Weekly CI is a continuing signal,
+not a substitute for candidate-specific evidence and the provider-safe pacing
+review required before a new client is accepted.</p>
+<h3 id="tests-that-bite">Tests that bite</h3>
+<p>A test that passes is not evidence. Break the behavior on purpose and confirm the test
+fails: comment out the date filter, return the wrong field, collapse a list to its first
+element. If nothing goes red, the test asserts shape rather than behavior.</p>
+<p>One caution learned here: a mutation can survive because a <strong>second</strong> layer catches it. When
+ERIC’s year rounding was mutated, all twelve tests still passed — not a coverage gap, but a
+re-filter downstream doing its job. Check the behavior, not only the test result.</p>
+<hr>
+<h2 id="opening-the-pull-request">Opening the pull request</h2>
+<p>Say what changed and why, <strong>how it was verified</strong> with the exact commands and their output
+counts, what the change deliberately does not do, and any file touched outside the list above
+with the reason.</p>
+<p>For a source, lead with the terms: which clause permits durable local storage, and any
+obligation the catalog entry now records.</p>
+<p>If your research <strong>contradicts</strong> the brief or the survey you were working from, say so
+prominently. That has happened on every delegated batch so far and has been right every time.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

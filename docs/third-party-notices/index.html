@@ -1,0 +1,314 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Third-party notices · resmon</title><meta name="description" content="resmon itself is MIT-licensed (see LICENSE). This file carries the notices for third-party components that resmon redistributes inside its installers — where a copy of the licence…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/third-party-notices/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Third-party notices · resmon"><meta property="og:description" content="resmon itself is MIT-licensed (see LICENSE). This file carries the notices for third-party components that resmon redistributes inside its installers — where a copy of the licence…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/third-party-notices/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Reference</p> <h1 data-astro-cid-c2uqhu5p>Third-party notices</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/third-party-notices.md</p> </header>  <div class="prose" data-astro-cid-c2uqhu5p><p>resmon itself is MIT-licensed (see <a href="../LICENSE"><code>LICENSE</code></a>). This file carries the
+notices for third-party components that resmon <strong>redistributes inside its
+installers</strong> — where a copy of the licence has to travel with the binary, and the
+upstream package does not put one there itself.</p>
+<p>It is not an inventory of everything resmon depends on. <code>requirements.txt</code> and
+<code>package.json</code> are that, and the great majority of those packages ship their own
+licence file inside their own distribution, which the installer copies along with
+the package. This file exists for the ones that do not.</p>
+<hr>
+<h2 id="sqlite-vec-019">sqlite-vec 0.1.9</h2>
+<p><strong>What it is.</strong> A loadable SQLite extension providing vector storage and
+nearest-neighbour search. resmon ships the native binary inside the bundled
+Python runtime and loads it through
+<code>resmon_scripts/implementation_scripts/vector_index.py</code>. It backs the Explorer’s
+similarity sort, the similar-papers panel, and the near-duplicate links.</p>
+<p><strong>Upstream.</strong> <a href="https://github.com/asg017/sqlite-vec">https://github.com/asg017/sqlite-vec</a> · Copyright (c) 2024 Alex Garcia.</p>
+<p><strong>Licence.</strong> Dual-licensed: <strong>MIT</strong> <em>or</em> <strong>Apache License 2.0</strong>, at the
+recipient’s option. Both texts are reproduced below.</p>
+<p><strong>Why they are reproduced here rather than linked.</strong> The published wheel
+(<code>sqlite_vec-0.1.9-py3-none-*.whl</code>) contains the native library, an <code>__init__.py</code>
+and a <code>dist-info</code> directory whose <code>METADATA</code> names the two licences — and <strong>no
+licence file of either kind</strong>. Checked against the installed wheel on
+2026-09-05: <code>sqlite_vec-0.1.9.dist-info/</code> holds <code>INSTALLER</code>, <code>METADATA</code>,
+<code>RECORD</code>, <code>REQUESTED</code>, <code>WHEEL</code> and <code>top_level.txt</code>, and nothing else. So an
+installer that copied the wheel and stopped there would distribute the binary
+without the notice both licences require. These texts are taken verbatim from
+the upstream repository at tag <code>v0.1.9</code>.</p>
+<hr>
+<h3 id="sqlite-vec--mit-license">sqlite-vec — MIT License</h3>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>MIT License</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Copyright (c) 2024 Alex Garcia</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Permission is hereby granted, free of charge, to any person obtaining a copy</span></span>
+<span class="line"><span>of this software and associated documentation files (the "Software"), to deal</span></span>
+<span class="line"><span>in the Software without restriction, including without limitation the rights</span></span>
+<span class="line"><span>to use, copy, modify, merge, publish, distribute, sublicense, and/or sell</span></span>
+<span class="line"><span>copies of the Software, and to permit persons to whom the Software is</span></span>
+<span class="line"><span>furnished to do so, subject to the following conditions:</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>The above copyright notice and this permission notice shall be included in all</span></span>
+<span class="line"><span>copies or substantial portions of the Software.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR</span></span>
+<span class="line"><span>IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,</span></span>
+<span class="line"><span>FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE</span></span>
+<span class="line"><span>AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER</span></span>
+<span class="line"><span>LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,</span></span>
+<span class="line"><span>OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE</span></span>
+<span class="line"><span>SOFTWARE.</span></span></code></pre>
+<hr>
+<h3 id="sqlite-vec--apache-license-version-20">sqlite-vec — Apache License, Version 2.0</h3>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>                                 Apache License</span></span>
+<span class="line"><span>                           Version 2.0, January 2004</span></span>
+<span class="line"><span>                        http://www.apache.org/licenses/</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>1.  Definitions.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "License" shall mean the terms and conditions for use, reproduction,</span></span>
+<span class="line"><span>    and distribution as defined by Sections 1 through 9 of this document.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Licensor" shall mean the copyright owner or entity authorized by</span></span>
+<span class="line"><span>    the copyright owner that is granting the License.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Legal Entity" shall mean the union of the acting entity and all</span></span>
+<span class="line"><span>    other entities that control, are controlled by, or are under common</span></span>
+<span class="line"><span>    control with that entity. For the purposes of this definition,</span></span>
+<span class="line"><span>    "control" means (i) the power, direct or indirect, to cause the</span></span>
+<span class="line"><span>    direction or management of such entity, whether by contract or</span></span>
+<span class="line"><span>    otherwise, or (ii) ownership of fifty percent (50%) or more of the</span></span>
+<span class="line"><span>    outstanding shares, or (iii) beneficial ownership of such entity.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "You" (or "Your") shall mean an individual or Legal Entity</span></span>
+<span class="line"><span>    exercising permissions granted by this License.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Source" form shall mean the preferred form for making modifications,</span></span>
+<span class="line"><span>    including but not limited to software source code, documentation</span></span>
+<span class="line"><span>    source, and configuration files.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Object" form shall mean any form resulting from mechanical</span></span>
+<span class="line"><span>    transformation or translation of a Source form, including but</span></span>
+<span class="line"><span>    not limited to compiled object code, generated documentation,</span></span>
+<span class="line"><span>    and conversions to other media types.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Work" shall mean the work of authorship, whether in Source or</span></span>
+<span class="line"><span>    Object form, made available under the License, as indicated by a</span></span>
+<span class="line"><span>    copyright notice that is included in or attached to the work</span></span>
+<span class="line"><span>    (an example is provided in the Appendix below).</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Derivative Works" shall mean any work, whether in Source or Object</span></span>
+<span class="line"><span>    form, that is based on (or derived from) the Work and for which the</span></span>
+<span class="line"><span>    editorial revisions, annotations, elaborations, or other modifications</span></span>
+<span class="line"><span>    represent, as a whole, an original work of authorship. For the purposes</span></span>
+<span class="line"><span>    of this License, Derivative Works shall not include works that remain</span></span>
+<span class="line"><span>    separable from, or merely link (or bind by name) to the interfaces of,</span></span>
+<span class="line"><span>    the Work and Derivative Works thereof.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Contribution" shall mean any work of authorship, including</span></span>
+<span class="line"><span>    the original version of the Work and any modifications or additions</span></span>
+<span class="line"><span>    to that Work or Derivative Works thereof, that is intentionally</span></span>
+<span class="line"><span>    submitted to Licensor for inclusion in the Work by the copyright owner</span></span>
+<span class="line"><span>    or by an individual or Legal Entity authorized to submit on behalf of</span></span>
+<span class="line"><span>    the copyright owner. For the purposes of this definition, "submitted"</span></span>
+<span class="line"><span>    means any form of electronic, verbal, or written communication sent</span></span>
+<span class="line"><span>    to the Licensor or its representatives, including but not limited to</span></span>
+<span class="line"><span>    communication on electronic mailing lists, source code control systems,</span></span>
+<span class="line"><span>    and issue tracking systems that are managed by, or on behalf of, the</span></span>
+<span class="line"><span>    Licensor for the purpose of discussing and improving the Work, but</span></span>
+<span class="line"><span>    excluding communication that is conspicuously marked or otherwise</span></span>
+<span class="line"><span>    designated in writing by the copyright owner as "Not a Contribution."</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    "Contributor" shall mean Licensor and any individual or Legal Entity</span></span>
+<span class="line"><span>    on behalf of whom a Contribution has been received by Licensor and</span></span>
+<span class="line"><span>    subsequently incorporated within the Work.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>2.  Grant of Copyright License. Subject to the terms and conditions of</span></span>
+<span class="line"><span>    this License, each Contributor hereby grants to You a perpetual,</span></span>
+<span class="line"><span>    worldwide, non-exclusive, no-charge, royalty-free, irrevocable</span></span>
+<span class="line"><span>    copyright license to reproduce, prepare Derivative Works of,</span></span>
+<span class="line"><span>    publicly display, publicly perform, sublicense, and distribute the</span></span>
+<span class="line"><span>    Work and such Derivative Works in Source or Object form.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>3.  Grant of Patent License. Subject to the terms and conditions of</span></span>
+<span class="line"><span>    this License, each Contributor hereby grants to You a perpetual,</span></span>
+<span class="line"><span>    worldwide, non-exclusive, no-charge, royalty-free, irrevocable</span></span>
+<span class="line"><span>    (except as stated in this section) patent license to make, have made,</span></span>
+<span class="line"><span>    use, offer to sell, sell, import, and otherwise transfer the Work,</span></span>
+<span class="line"><span>    where such license applies only to those patent claims licensable</span></span>
+<span class="line"><span>    by such Contributor that are necessarily infringed by their</span></span>
+<span class="line"><span>    Contribution(s) alone or by combination of their Contribution(s)</span></span>
+<span class="line"><span>    with the Work to which such Contribution(s) was submitted. If You</span></span>
+<span class="line"><span>    institute patent litigation against any entity (including a</span></span>
+<span class="line"><span>    cross-claim or counterclaim in a lawsuit) alleging that the Work</span></span>
+<span class="line"><span>    or a Contribution incorporated within the Work constitutes direct</span></span>
+<span class="line"><span>    or contributory patent infringement, then any patent licenses</span></span>
+<span class="line"><span>    granted to You under this License for that Work shall terminate</span></span>
+<span class="line"><span>    as of the date such litigation is filed.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>4.  Redistribution. You may reproduce and distribute copies of the</span></span>
+<span class="line"><span>    Work or Derivative Works thereof in any medium, with or without</span></span>
+<span class="line"><span>    modifications, and in Source or Object form, provided that You</span></span>
+<span class="line"><span>    meet the following conditions:</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    (a) You must give any other recipients of the Work or</span></span>
+<span class="line"><span>    Derivative Works a copy of this License; and</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    (b) You must cause any modified files to carry prominent notices</span></span>
+<span class="line"><span>    stating that You changed the files; and</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    (c) You must retain, in the Source form of any Derivative Works</span></span>
+<span class="line"><span>    that You distribute, all copyright, patent, trademark, and</span></span>
+<span class="line"><span>    attribution notices from the Source form of the Work,</span></span>
+<span class="line"><span>    excluding those notices that do not pertain to any part of</span></span>
+<span class="line"><span>    the Derivative Works; and</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    (d) If the Work includes a "NOTICE" text file as part of its</span></span>
+<span class="line"><span>    distribution, then any Derivative Works that You distribute must</span></span>
+<span class="line"><span>    include a readable copy of the attribution notices contained</span></span>
+<span class="line"><span>    within such NOTICE file, excluding those notices that do not</span></span>
+<span class="line"><span>    pertain to any part of the Derivative Works, in at least one</span></span>
+<span class="line"><span>    of the following places: within a NOTICE text file distributed</span></span>
+<span class="line"><span>    as part of the Derivative Works; within the Source form or</span></span>
+<span class="line"><span>    documentation, if provided along with the Derivative Works; or,</span></span>
+<span class="line"><span>    within a display generated by the Derivative Works, if and</span></span>
+<span class="line"><span>    wherever such third-party notices normally appear. The contents</span></span>
+<span class="line"><span>    of the NOTICE file are for informational purposes only and</span></span>
+<span class="line"><span>    do not modify the License. You may add Your own attribution</span></span>
+<span class="line"><span>    notices within Derivative Works that You distribute, alongside</span></span>
+<span class="line"><span>    or as an addendum to the NOTICE text from the Work, provided</span></span>
+<span class="line"><span>    that such additional attribution notices cannot be construed</span></span>
+<span class="line"><span>    as modifying the License.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>    You may add Your own copyright statement to Your modifications and</span></span>
+<span class="line"><span>    may provide additional or different license terms and conditions</span></span>
+<span class="line"><span>    for use, reproduction, or distribution of Your modifications, or</span></span>
+<span class="line"><span>    for any such Derivative Works as a whole, provided Your use,</span></span>
+<span class="line"><span>    reproduction, and distribution of the Work otherwise complies with</span></span>
+<span class="line"><span>    the conditions stated in this License.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>5.  Submission of Contributions. Unless You explicitly state otherwise,</span></span>
+<span class="line"><span>    any Contribution intentionally submitted for inclusion in the Work</span></span>
+<span class="line"><span>    by You to the Licensor shall be under the terms and conditions of</span></span>
+<span class="line"><span>    this License, without any additional terms or conditions.</span></span>
+<span class="line"><span>    Notwithstanding the above, nothing herein shall supersede or modify</span></span>
+<span class="line"><span>    the terms of any separate license agreement you may have executed</span></span>
+<span class="line"><span>    with Licensor regarding such Contributions.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>6.  Trademarks. This License does not grant permission to use the trade</span></span>
+<span class="line"><span>    names, trademarks, service marks, or product names of the Licensor,</span></span>
+<span class="line"><span>    except as required for reasonable and customary use in describing the</span></span>
+<span class="line"><span>    origin of the Work and reproducing the content of the NOTICE file.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>7.  Disclaimer of Warranty. Unless required by applicable law or</span></span>
+<span class="line"><span>    agreed to in writing, Licensor provides the Work (and each</span></span>
+<span class="line"><span>    Contributor provides its Contributions) on an "AS IS" BASIS,</span></span>
+<span class="line"><span>    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or</span></span>
+<span class="line"><span>    implied, including, without limitation, any warranties or conditions</span></span>
+<span class="line"><span>    of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A</span></span>
+<span class="line"><span>    PARTICULAR PURPOSE. You are solely responsible for determining the</span></span>
+<span class="line"><span>    appropriateness of using or redistributing the Work and assume any</span></span>
+<span class="line"><span>    risks associated with Your exercise of permissions under this License.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>8.  Limitation of Liability. In no event and under no legal theory,</span></span>
+<span class="line"><span>    whether in tort (including negligence), contract, or otherwise,</span></span>
+<span class="line"><span>    unless required by applicable law (such as deliberate and grossly</span></span>
+<span class="line"><span>    negligent acts) or agreed to in writing, shall any Contributor be</span></span>
+<span class="line"><span>    liable to You for damages, including any direct, indirect, special,</span></span>
+<span class="line"><span>    incidental, or consequential damages of any character arising as a</span></span>
+<span class="line"><span>    result of this License or out of the use or inability to use the</span></span>
+<span class="line"><span>    Work (including but not limited to damages for loss of goodwill,</span></span>
+<span class="line"><span>    work stoppage, computer failure or malfunction, or any and all</span></span>
+<span class="line"><span>    other commercial damages or losses), even if such Contributor</span></span>
+<span class="line"><span>    has been advised of the possibility of such damages.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>9.  Accepting Warranty or Additional Liability. While redistributing</span></span>
+<span class="line"><span>    the Work or Derivative Works thereof, You may choose to offer,</span></span>
+<span class="line"><span>    and charge a fee for, acceptance of support, warranty, indemnity,</span></span>
+<span class="line"><span>    or other liability obligations and/or rights consistent with this</span></span>
+<span class="line"><span>    License. However, in accepting such obligations, You may act only</span></span>
+<span class="line"><span>    on Your own behalf and on Your sole responsibility, not on behalf</span></span>
+<span class="line"><span>    of any other Contributor, and only if You agree to indemnify,</span></span>
+<span class="line"><span>    defend, and hold each Contributor harmless for any liability</span></span>
+<span class="line"><span>    incurred by, or claims asserted against, such Contributor by reason</span></span>
+<span class="line"><span>    of your accepting any such warranty or additional liability.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>END OF TERMS AND CONDITIONS</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>APPENDIX: How to apply the Apache License to your work.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>      To apply the Apache License to your work, attach the following</span></span>
+<span class="line"><span>      boilerplate notice, with the fields enclosed by brackets "[]"</span></span>
+<span class="line"><span>      replaced with your own identifying information. (Don't include</span></span>
+<span class="line"><span>      the brackets!)  The text should be enclosed in the appropriate</span></span>
+<span class="line"><span>      comment syntax for the file format. We also recommend that a</span></span>
+<span class="line"><span>      file or class name and description of purpose be included on the</span></span>
+<span class="line"><span>      same "printed page" as the copyright notice for easier</span></span>
+<span class="line"><span>      identification within third-party archives.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Copyright 2024 Alex Garcia</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Licensed under the Apache License, Version 2.0 (the "License");</span></span>
+<span class="line"><span>you may not use this file except in compliance with the License.</span></span>
+<span class="line"><span>You may obtain a copy of the License at</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>       http://www.apache.org/licenses/LICENSE-2.0</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Unless required by applicable law or agreed to in writing, software</span></span>
+<span class="line"><span>distributed under the License is distributed on an "AS IS" BASIS,</span></span>
+<span class="line"><span>WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.</span></span>
+<span class="line"><span>See the License for the specific language governing permissions and</span></span>
+<span class="line"><span>limitations under the License.</span></span></code></pre>
+<hr>
+<h2 id="pdfjs-63289-browser-distribution">PDF.js 6.3.289 browser distribution</h2>
+<p>Source: Mozilla PDF.js tag <a href="https://github.com/mozilla/pdf.js/releases/tag/v6.3.289">v6.3.289</a>,
+published <code>pdfjs-dist</code> archive SHA256
+<code>06f25e887adc6489f04c9fcb14198c77e4e5623a59a0bba5c4cea5838a4f1241</code>.
+resmon redistributes exactly 188 unchanged browser module, CMap, standard-font
+and notice files (3,700,085 bytes), without installing the npm runtime package
+or running its package scripts. The display and worker source modules retain
+publisher bytes; the build aliases their <code>.mjs</code> names to <code>.js</code> for the existing
+local HTTP server’s JavaScript MIME handling.</p>
+<p>The exact upstream notices travel with the selected assets under
+<code>resmon_scripts/frontend/vendor/pdfjs/6.3.289/</code> and with the desktop renderer at
+<code>dist/renderer/pdfjs/6.3.289/</code>:</p>
+<ul>
+<li><a href="../resmon_scripts/frontend/vendor/pdfjs/6.3.289/LICENSE">PDF.js Apache License 2.0</a></li>
+<li><a href="../resmon_scripts/frontend/vendor/pdfjs/6.3.289/cmaps/LICENSE">Adobe CMap notice</a></li>
+<li><a href="../resmon_scripts/frontend/vendor/pdfjs/6.3.289/standard_fonts/LICENSE_FOXIT">Foxit standard-font notice</a></li>
+<li><a href="../resmon_scripts/frontend/vendor/pdfjs/6.3.289/standard_fonts/LICENSE_LIBERATION">Liberation font notice</a></li>
+</ul>
+<h2 id="pypdf-6181">pypdf 6.18.1</h2>
+<p>Source: <a href="https://pypi.org/project/pypdf/6.18.1/">pypdf 6.18.1 on PyPI</a>.
+The pure-Python wheel <code>pypdf-6.18.1-py3-none-any.whl</code> is 394,327 bytes, SHA256
+<code>ee93a2665670ecf57ee81d197a4ca548f3dc15f9cefc56e59b8140866aaa3de5</code>.
+resmon uses this pinned dependency without optional extras. Its BSD-3-Clause
+notice is also included in the upstream wheel; the following bytes reproduce
+that wheel’s <code>pypdf-6.18.1.dist-info/licenses/LICENSE</code> verbatim.</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>Copyright (c) 2006-2008, Mathieu Fenniak</span></span>
+<span class="line"><span>Some contributions copyright (c) 2007, Ashish Kulkarni &#x3C;kulkarni.ashish@gmail.com></span></span>
+<span class="line"><span>Some contributions copyright (c) 2014, Steve Witham &#x3C;switham_github@mac-guyver.com></span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>All rights reserved.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Redistribution and use in source and binary forms, with or without</span></span>
+<span class="line"><span>modification, are permitted provided that the following conditions are</span></span>
+<span class="line"><span>met:</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>* Redistributions of source code must retain the above copyright notice,</span></span>
+<span class="line"><span>this list of conditions and the following disclaimer.</span></span>
+<span class="line"><span>* Redistributions in binary form must reproduce the above copyright notice,</span></span>
+<span class="line"><span>this list of conditions and the following disclaimer in the documentation</span></span>
+<span class="line"><span>and/or other materials provided with the distribution.</span></span>
+<span class="line"><span>* The name of the author may not be used to endorse or promote products</span></span>
+<span class="line"><span>derived from this software without specific prior written permission.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"</span></span>
+<span class="line"><span>AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE</span></span>
+<span class="line"><span>IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE</span></span>
+<span class="line"><span>ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE</span></span>
+<span class="line"><span>LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR</span></span>
+<span class="line"><span>CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF</span></span>
+<span class="line"><span>SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS</span></span>
+<span class="line"><span>INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN</span></span>
+<span class="line"><span>CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)</span></span>
+<span class="line"><span>ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE</span></span>
+<span class="line"><span>POSSIBILITY OF SUCH DAMAGE.</span></span></code></pre></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

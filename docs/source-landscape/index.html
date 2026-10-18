@@ -1,0 +1,395 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Scholarly source landscape · resmon</title><meta name="description" content="Survey date: 2026-08-30. This is a product-compatibility review of published provider terms, not legal advice. Terms and API behavior can change; re-check the cited first-party pa…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/source-landscape/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Scholarly source landscape · resmon"><meta property="og:description" content="Survey date: 2026-08-30. This is a product-compatibility review of published provider terms, not legal advice. Terms and API behavior can change; re-check the cited first-party pa…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/source-landscape/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Reference</p> <h1 data-astro-cid-c2uqhu5p>Scholarly source landscape</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/source-landscape.md</p> </header>  <div class="prose" data-astro-cid-c2uqhu5p><p><em>Survey date: 2026-08-30. This is a product-compatibility review of published
+provider terms, not legal advice. Terms and API behavior can change; re-check
+the cited first-party pages when cutting an implementation brief.</em></p>
+<h2 id="summary">Summary</h2>
+<p><strong>Three of the 22 shipped integrations are incompatible as currently
+implemented:</strong> IEEE Xplore, INSPIRE-HEP, and Springer Nature. Part A also finds
+4 compatible sources, 4 compatible sources with an apparently unmet
+obligation, and 11 unresolved sources whose published terms do not establish
+permission for at least one required act. <strong>Unresolved does not mean
+compatible.</strong></p>
+<p>Part B surveys <strong>27 candidates</strong>: <strong>6 ADOPT</strong>, <strong>4 ADOPT-WITH-KEY</strong>, and
+<strong>17 REJECT</strong>. The survey is deliberately metadata-first. A license for
+metadata never silently extends to
+linked articles, files, images, or other content.</p>
+<h3 id="decision-rule">Decision rule</h3>
+<p>The terms verdict asks whether resmon may (1) keep the retrieved record
+indefinitely in its local SQLite database, (2) copy that private database to
+user-controlled cloud storage, (3) do so in a freely installable MIT-licensed
+application that redistributes no records, and (4) retain the first-retrieved
+record without a provider-mandated refresh. “Compatible with an obligation”
+means the four acts are permitted only if the named attribution, notice,
+contact, or license condition is met. “Unresolved” means the published terms
+do not answer the question; public access alone is not treated as permission.</p>
+<p>Part A compares the terms with the clients at
+<a href="https://github.com/ryanjosephkamp/resmon/tree/46f939443ff7a6097adfe33577d952e6d6d9705d"><code>upstream/main</code> commit <code>46f9394</code></a>.
+Part B uses <strong>ADOPT</strong> only when no key is needed, <strong>ADOPT-WITH-KEY</strong> for a free
+key or equivalent free registration, and <strong>REJECT</strong> for paid/institutional
+access, an incompatible or missing reuse grant, or an API that cannot perform
+the monitoring job.</p>
+<h2 id="part-a--shipped-source-terms-re-check">Part A — shipped-source terms re-check</h2>
+<p>The four numbered results in each row correspond to the four questions above.
+Where a result is field-scoped, the field boundary is part of the verdict.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Shipped source</th><th>Verdict</th><th>Four-question result, governing clause, and current obligation</th></tr></thead><tbody><tr><td>arXiv</td><td><strong>COMPATIBLE WITH AN APPARENTLY UNMET ACKNOWLEDGMENT</strong></td><td><strong>1 yes; 2 yes; 3 yes; 4 yes, for descriptive metadata only.</strong> The <a href="https://info.arxiv.org/help/api/tou.html">API terms</a> define titles, abstracts, authors, identifiers, and classifications as CC0 metadata and expressly permit retrieving, storing, transforming, and sharing it; e-prints remain separately licensed. The <a href="https://info.arxiv.org/help/api/index.html">API access page</a> requests the sentence “Thank you to arXiv for use of its open access interoperability” and bars names/branding that imply endorsement. The requested sentence was not found in the reviewed tree; ordinary source identification does not itself imply endorsement.</td></tr><tr><td>bioRxiv</td><td><strong>UNRESOLVED</strong></td><td><strong>1 unknown; 2 unknown; 3 record-dependent; 4 no refresh duty found.</strong> bioRxiv provides free machine access and API metadata under its <a href="https://www.biorxiv.org/tdm">TDM guidance</a>, but that page does not grant blanket indefinite or cloud-copy rights. The <a href="https://api.biorxiv.org/">API</a> returns abstracts and item-level licenses, while <a href="https://www.biorxiv.org/about-biorxiv">bioRxiv’s author guidance</a> permits choices ranging from CC0/CC licenses to “no reuse.” The current client retains abstracts without enforcing the returned license, so API availability does not resolve durable copying.</td></tr><tr><td>CORE</td><td><strong>UNRESOLVED; MANDATORY CONTACT/LICENSE AND ATTRIBUTION APPARENTLY UNMET</strong></td><td><strong>1–4 unresolved until the required license is obtained and reviewed.</strong> CORE’s <a href="https://core.ac.uk/terms">terms</a> reserve database rights and require a license for API/non-ODC dataset use; its <a href="https://core.ac.uk/faq">FAQ</a> requires developers of public search/discovery products to contact CORE, send a use summary, and show its “powered by CORE” snippet. The <a href="https://core.ac.uk/services/api">API page</a> makes access subject to those terms. No contact/license or required snippet was found in the reviewed tree, the published pages do not establish that the future license permits all four acts, and a CORE license would not automatically convey rights in third-party abstracts.</td></tr><tr><td>Crossref</td><td><strong>UNRESOLVED FOR THE CURRENT NORMALIZED RECORD</strong></td><td><strong>1 yes; 2 yes; 3 yes; 4 yes for factual metadata and Crossref-created data, but 1–3 unknown for abstracts.</strong> Crossref says almost all bibliographic metadata is reusable and its own data is CC0, but expressly leaves abstract copyright with publishers/authors in <a href="https://www.crossref.org/documentation/retrieve-metadata/">Metadata Retrieval</a>. No provider-mandated refresh was found for otherwise reusable fields, and Crossref recommends caching in its <a href="https://www.crossref.org/documentation/retrieve-metadata/rest-api/access-and-authentication/">REST access guidance</a>. The current client stores abstracts without an item-level rights gate.</td></tr><tr><td>DataCite</td><td><strong>COMPATIBLE</strong></td><td><strong>1 yes; 2 yes; 3 yes; 4 yes.</strong> The <a href="https://support.datacite.org/docs/datacite-data-file-use-policy">Data File Use Policy</a> applies CC0 to DataCite DOIs and deposited metadata with no use conditions. Linked resources and third-party privacy/publicity rights remain outside that grant; attribution and non-misleading modification are requested norms rather than license conditions.</td></tr><tr><td>DBLP</td><td><strong>COMPATIBLE</strong></td><td><strong>1 yes; 2 yes; 3 yes; 4 yes.</strong> DBLP’s <a href="https://dblp.org/faq/1474677.html">license FAQ</a> releases all DBLP metadata under CC0 for copying, transformation, building upon, and commercial or noncommercial use without permission; linking back is appreciated, not required. Its <a href="https://dblp.org/faq/13501473.html">search API documentation</a> repeats the CC0 metadata boundary. Linked publications are not DBLP metadata.</td></tr><tr><td>DOAJ</td><td><strong>COMPATIBLE WITH AN APPARENTLY UNMET NAME-USE OBLIGATION</strong></td><td><strong>1 yes; 2 yes; 3 yes; 4 yes for API metadata.</strong> DOAJ’s <a href="https://doaj.org/terms/">terms, version 1.6</a> place journal/article API metadata under CC0, but also say the “Directory of Open Access Journals” name and “DOAJ” acronym may not be reproduced without prior written permission. The <a href="https://doaj.org/docs/faq/">FAQ</a> confirms that anyone may ingest the metadata without attribution and that article rights remain separate. Resmon displays “DOAJ”; no written permission was found in the reviewed tree or repository records.</td></tr><tr><td>ERIC</td><td><strong>UNRESOLVED</strong></td><td><strong>1 unknown; 2 unknown; 3 encouraged but not licensed for every stored field; 4 no refresh duty found.</strong> The <a href="https://eric.ed.gov/api/eric-api.yaml">ERIC OpenAPI specification</a> and <a href="https://eric.ed.gov/?api">API page</a> encourage external applications and identify <code>description</code> as an abstract that may come from ERIC, a publisher, or an author. IES describes citation metadata as free and open to use in its <a href="https://ies.ed.gov/ies/2025/01/public-access-research-policy">public-access policy</a>, but publishes no blanket durable-copy grant for publisher/author abstracts. The current client stores those descriptions.</td></tr><tr><td>Europe PMC</td><td><strong>UNRESOLVED FOR THE CURRENT NORMALIZED RECORD</strong></td><td><strong>1–3 have no blanket permission across the abstract corpus; 4 no refresh duty found.</strong> EMBL-EBI’s <a href="https://www.ebi.ac.uk/about/terms-of-use/">terms</a> expect attribution but leave original-owner restrictions in force. Europe PMC’s <a href="https://europepmc.org/Copyright">copyright page</a> says API/OAI/bulk material remains subject to each article’s license, while its <a href="https://europepmc.org/developers">developer page</a> encourages applications built from open content and metadata. An item-level open license can clear an individual abstract, but the current client stores <code>abstractText</code> across records without enforcing one.</td></tr><tr><td>HAL</td><td><strong>UNRESOLVED BECAUSE FIRST-PARTY TERMS CONFLICT</strong></td><td>HAL’s <a href="https://about.hal.science/en/principles/">Principles</a> and <a href="https://about.hal.science/en/publishing-workflow/">publishing workflow</a> apply CC0 to metadata, which would make <strong>1–4 yes</strong>. HAL’s current <a href="https://doc.hal.science/en/legal-aspects/">legal guidance</a> and <a href="https://api.archives-ouvertes.fr/docs/oai">OAI documentation</a> instead require source citation and say extracted data may not be used commercially. Because both statements remain published, <strong>1–4 are not terms-cleared for the unrestricted product model</strong> until HAL resolves which governs the Solr research API. Deposited files remain separate under either reading.</td></tr><tr><td>IEEE Xplore</td><td><strong>INCOMPATIBLE AS SHIPPED</strong></td><td><strong>1 no; 2 no; 3 no outside a narrow institution-bound license; 4 no because termination requires deletion.</strong> The <a href="https://developer.ieee.org/API_Terms_of_Use2">IEEE Xplore API Terms</a> limit the grant to noncommercial educational/research/scientific activity within the licensee institution (§ Grant), prohibit a retrieval/indexing application (§4(c)) and bulk retention (§4(f)), and require removal of Content on termination (§12). Resmon’s persistent searchable database, Drive backup, public installer, and no-delete model conflict; IEEE’s <a href="https://developer.ieee.org/Allowed_API_Uses">supported use cases</a> do not override those clauses.</td></tr><tr><td>INSPIRE-HEP</td><td><strong>INCOMPATIBLE AS SHIPPED</strong></td><td><strong>1–4 yes for CC0 fields and only qualifying abstracts; no for the record currently stored without provenance enforcement.</strong> INSPIRE’s <a href="https://help.inspirehep.net/knowledge-base/terms-of-use/">Terms §5</a> allow abstract reuse only when <code>abstracts.source</code> is <code>arXiv</code> or <code>CERN</code>, restrict keyword-field sources, and forbid email download. The <a href="https://github.com/ryanjosephkamp/resmon/blob/46f939443ff7a6097adfe33577d952e6d6d9705d/resmon_scripts/implementation_scripts/api_inspire_hep.py">current client</a> requests abstracts and stores the first one without checking <code>abstracts.source</code>; that field-level license violation makes the normalized record incompatible.</td></tr><tr><td>medRxiv</td><td><strong>UNRESOLVED</strong></td><td><strong>1 unknown; 2 unknown; 3 record-dependent; 4 no refresh duty found.</strong> medRxiv’s <a href="https://www.medrxiv.org/tdm">TDM page</a> makes metadata available through APIs but does not grant blanket indefinite retention or cloud backup; the <a href="https://www.medrxiv.org/about/FAQ">FAQ</a> describes article licenses ranging from CC0/CC BY to no reuse, and the <a href="https://api.medrxiv.org/">API</a> returns the item license alongside the abstract. The shared current client stores abstracts without enforcing that license.</td></tr><tr><td>NASA ADS</td><td><strong>UNRESOLVED; CONTACT REQUEST APPARENTLY UNMET</strong></td><td><strong>1 only for personal use and subject to contact for regular storage; 2 unknown; 3 uncertain; 4 no refresh duty found.</strong> ADS <a href="https://ui.adsabs.harvard.edu/help/terms/">Terms §§2–3</a> forbid API-data redistribution, ask users who regularly download/store ADS data to contact ADS first, and prohibit systematic partial/full corpus copies; abstracts and full text remain publisher property. No prior contact was found, and the terms do not say whether a private Google Drive service-provider copy is prohibited third-party redistribution.</td></tr><tr><td>OpenAIRE</td><td><strong>COMPATIBLE WITH APPARENTLY UNMET CC BY OBLIGATIONS</strong></td><td><strong>1 yes; 2 yes; 3 yes; 4 yes for Graph metadata.</strong> OpenAIRE’s <a href="https://graph.openaire.eu/docs/apis/terms/">API terms</a> and <a href="https://graph.openaire.eu/docs/license/">Graph license</a> allow commercial and noncommercial reuse under CC BY with OpenAIRE acknowledgment. <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a> requires attribution, a license link, and an indication when changes were made. Those elements were not found together in the reviewed record-display/docs surfaces; linked full text remains separate.</td></tr><tr><td>OpenAlex</td><td><strong>COMPATIBLE</strong></td><td><strong>1 yes; 2 yes; 3 yes; 4 yes for OpenAlex data.</strong> OpenAlex says all of its data, however accessed, is CC0 in <a href="https://help.openalex.org/data/how-its-built/">How it’s built</a> and its <a href="https://help.openalex.org/access/overview/">access overview</a>. The broad unauthorized-copy language in the 2026 <a href="https://openalex.org/OpenAlex_termsofservice.pdf">Terms of Service</a> is read together with that explicit CC0 authorization; linked works remain outside the grant.</td></tr><tr><td>OSTI.GOV</td><td><strong>UNRESOLVED FOR THE CURRENT NORMALIZED RECORD</strong></td><td><strong>1 yes for saving bibliographic metadata; 2 unresolved for potentially copyrighted descriptions; 3 field-dependent; 4 no refresh duty found.</strong> OSTI’s <a href="https://www.osti.gov/faqs">FAQ</a> permits saving bibliographic metadata and identifies the API description field as metadata. Its <a href="https://www.osti.gov/disclaim">site policies</a> clearly permit reuse of public-domain government material, ask for OSTI credit, and identify an OpenAIRE-derived CC BY subset, but do not grant blanket private-cloud copying rights across every description. The <a href="https://www.osti.gov/api/v1/docs">API docs</a> define the delivered fields. Narrow to public-domain/licensed records or obtain clarification before treating the current record as cleared.</td></tr><tr><td>PLOS</td><td><strong>COMPATIBLE WITH AN APPARENTLY UNMET DISPLAY OBLIGATION</strong></td><td><strong>1 yes; 2 yes; 3 yes; 4 yes for PLOS API material under its applicable open license.</strong> PLOS’s <a href="https://plos.org/terms-of-use/">Terms of Use</a> make articles and accompanying material generally CC BY or comparably permissive, subject to source citation. Its <a href="https://api.plos.org/api-display-policy/">API Display Policy</a> requires the exact nearby phrase “Data Provided by PLOS,” and its <a href="https://api.plos.org/text-and-data-mining.html">TDM guidance</a> welcomes desktop/mobile/web applications. The required phrase was not found in the reviewed tree.</td></tr><tr><td>PubMed / NCBI E-utilities</td><td><strong>UNRESOLVED; E-UTILITIES IDENTITY/NOTICE OBLIGATIONS APPARENTLY UNMET</strong></td><td><strong>1–2 unknown for records containing abstracts; 3 not established for all abstracts; 4 no applicable provider-mandated refresh found.</strong> NCBI’s <a href="https://www.ncbi.nlm.nih.gov/home/about/policies/">policies</a> warn that database material can retain third-party copyright, require its disclaimer/copyright notice to be evident, and require distributed software to send <code>tool</code> and <code>email</code>. NLM’s separate <a href="https://www.nlm.nih.gov/databases/download/terms_and_conditions.html">FTP download terms</a> also warn that PubMed abstracts may be publisher/author copyrighted, but their courtesy/currentness clauses are not treated here as E-utilities obligations without a first-party bridge. The <a href="https://github.com/ryanjosephkamp/resmon/blob/46f939443ff7a6097adfe33577d952e6d6d9705d/resmon_scripts/implementation_scripts/api_pubmed.py">current client</a> stores abstracts and does not send the E-utilities identity parameters; the applicable policy notices were not found.</td></tr><tr><td>Semantic Scholar</td><td><strong>UNRESOLVED; ATTRIBUTION OBLIGATION</strong></td><td><strong>1–2 contemplated but not granted across the corpus; 3 only under accompanying licenses; 4 no refresh duty found.</strong> The <a href="https://www.semanticscholar.org/product/api/license">Semantic Scholar API License §§2 and 4</a> recognizes that data may be accessed, stored, or transmitted, but makes S2 data subject to accompanying licenses such as CC BY-NC or ODC-BY and preserves third-party content terms; it also requires “Semantic Scholar” attribution. The <a href="https://www.semanticscholar.org/product/api">API overview</a> provides no blanket title/abstract grant, and the Graph response does not supply a general per-record license gate. The current client stores abstracts without capturing or surfacing an applicable license.</td></tr><tr><td>Springer Nature Meta API</td><td><strong>INCOMPATIBLE AS SHIPPED</strong></td><td><strong>1 no; 2 no; 3 no for non-OA abstracts beyond personal use; 4 not curative.</strong> Springer Nature’s <a href="https://dev.springernature.com/terms-conditions/">Additional API Terms, “Use of abstracts”</a> call abstracts copyrighted material, grant only a limited personal-use license, and require express consent for other reuse; institutional TDM storage is generally project-duration-only and confined to an internal server. The <a href="https://dev.springernature.com/docs/api-endpoints/meta-api/">Meta v2 documentation</a> confirms that the API returns abstracts. The <a href="https://github.com/ryanjosephkamp/resmon/blob/46f939443ff7a6097adfe33577d952e6d6d9705d/resmon_scripts/implementation_scripts/api_springer.py">current client</a> stores every returned abstract without an OA-status/license gate.</td></tr><tr><td>Zenodo</td><td><strong>COMPATIBLE</strong></td><td><strong>1 yes; 2 yes; 3 yes; 4 yes for metadata other than email addresses after permitted access.</strong> Zenodo <a href="https://about.zenodo.org/terms/">Terms §7</a>, <a href="https://about.zenodo.org/policies/">policies</a>, and <a href="https://developers.zenodo.org/">developer documentation</a> apply CC0 to titles, authors, descriptions, and other metadata, allow harvesting, and exclude bulk email-address download. The Terms separately restrict service access to non-military purposes; the CC0 waiver permits unrestricted reuse of metadata lawfully obtained. Deposited files and full text follow their own licenses.</td></tr></tbody></table>
+<h3 id="part-a-disposition">Part A disposition</h3>
+<p>The three incompatible integrations are live product issues, not documentation
+niceties:</p>
+<ol>
+<li><strong>IEEE Xplore</strong> needs a separate written license or removal/disablement of
+the source; its published terms conflict with the product model.</li>
+<li><strong>INSPIRE-HEP</strong> needs field-level provenance enforcement before an abstract
+is retained.</li>
+<li><strong>Springer Nature</strong> needs an OA/license gate that excludes non-permitted
+abstracts, express permission, or removal/disablement of the source.</li>
+</ol>
+<p>The 11 unresolved integrations—bioRxiv, CORE, Crossref, ERIC, Europe PMC, HAL,
+medRxiv, NASA ADS, OSTI, PubMed, and Semantic Scholar—should not be represented
+as terms-cleared until the stored field set is narrowed, first-party conflicts
+are resolved, or the provider/item-level license establishes all four uses.</p>
+<h2 id="part-b--candidate-survey">Part B — candidate survey</h2>
+<p><em>Rows are intentionally brief-shaped: each contains the proposed slug and gap,
+endpoint/auth, rate, keyword semantics, date behavior, pagination, the
+four-question terms result, and a decision/priority. “Undocumented” means the
+cited first-party material was checked and did not answer the point.</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Candidate / proposed slug / coverage</th><th>Endpoint, authentication, and rate</th><th>Keyword, date, and pagination contract</th><th>Four-question terms result</th><th>Decision</th></tr></thead><tbody><tr><td><strong>ClinicalTrials.gov API v2</strong> / <code>clinicaltrials</code> — worldwide interventional and observational trial registrations/results; the strongest clinical-trials gap fill (<a href="https://clinicaltrials.gov/data-api/how-download-study-records">official data/API overview</a>).</td><td><a href="https://clinicaltrials.gov/data-api/about-api/api-migration"><code>GET https://clinicaltrials.gov/api/v2/studies</code></a>; <strong>auth: none</strong>, and access is free under the <a href="https://clinicaltrials.gov/about-site/terms-conditions">site terms</a>. <strong>Rate: none published</strong> in those cited pages.</td><td>Bare words undergo documented relaxation; emit explicit Boolean <code>AND</code> (also <code>OR</code>/<code>NOT</code>) under the <a href="https://clinicaltrials.gov/find-studies/constructing-complex-search-queries">query guide</a>. Date: inclusive <code>AREA[...]RANGE[YYYY-MM-DD,YYYY-MM-DD]</code>, day granularity. Pagination: <code>pageSize</code> default 10/max 1,000 plus <code>pageToken</code>/<code>nextPageToken</code>; no total ceiling is documented in the <a href="https://clinicaltrials.gov/data-api/about-api/api-migration">migration guide</a>.</td><td><strong>Q1 yes; Q2 undocumented; Q3 yes; Q4 yes under the no-redistribution design.</strong> The <a href="https://clinicaltrials.gov/about-site/terms-conditions">terms</a> address retention and impose attribution, currentness, processing-date, modification, and no-proprietary-rights duties when data are published or distributed, but do not say whether a private service-provider cloud copy is permitted. Public availability is not treated as an answer to Q2.</td><td><strong>REJECT FOR NOW.</strong> Google Drive backup is part of the product, so adopt only after provider clarification or an enforceable source-specific backup exclusion.</td></tr><tr><td><strong>GovInfo Search Service</strong> / <code>govinfo</code> — official U.S. legislative, judicial, regulatory, standards-adjacent, hearing, and technical-report material from all three federal branches (<a href="https://github.com/usgpo/api#about-the-data">API data scope</a>).</td><td><a href="https://github.com/usgpo/api#search-service"><code>POST https://api.govinfo.gov/search</code></a>; <strong>auth: free API.data.gov key</strong>. Published defaults are 36,000/hour, 1,200/minute, and 40/second in the <a href="https://github.com/usgpo/api#keys">official API README</a>.</td><td>Spaces imply <code>AND</code>, with explicit Boolean and field operators in <a href="https://www.govinfo.gov/help/search-operators">Search Operators</a>. Date: <code>publishdate:range(YYYY-MM-DD,YYYY-MM-DD)</code>, day granularity, under the <a href="https://www.govinfo.gov/help/searching">search help</a>. Pagination: <code>pageSize</code>/opaque <code>offsetMark</code>; published and collection endpoints document max 1,000/page and cursor traversal beyond 10,000, with no total ceiling stated in the <a href="https://github.com/usgpo/api#discovery-endpoints">API README</a>.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes for GPO-created metadata and U.S.-government works, not embedded third-party material.</strong> GovInfo’s <a href="https://www.govinfo.gov/about/policies">policies</a> expressly support downloading metadata/content packages into local digital collections and explain that 17 U.S.C. §105 places U.S.-government works in the public domain, allowing copying to private storage without a refresh duty. The same clause warns that government publications can embed copyrighted material, so retain only official metadata/teasers and links.</td><td><strong>IMPLEMENTED (Delegation 08, 2026-09-06).</strong> Official bibliographic fields only; no teasers or document text. <a href="https://www.govinfo.gov/features/search-service-overview">Search-specific pagination</a>, including the response cursor, verified live with DEMO_KEY.</td></tr><tr><td><strong>Dryad</strong> / <code>dryad</code> — curated research datasets across disciplines (<a href="https://datadryad.org/help/guides/reuse">reuse guide</a>).</td><td><a href="https://datadryad.org/help/guides/search"><code>GET https://datadryad.org/api/v2/search</code></a>; <strong>auth: none</strong> for public search. <strong>Rate: none published numerically</strong> in the <a href="https://datadryad.org/help/guides/search">API/search guidance</a>.</td><td>Search covers most metadata; quotes, suffix wildcard, and <code>NOT</code>/<code>-</code> are documented, but <strong>bare multi-term combination is undocumented</strong> in the <a href="https://datadryad.org/help/guides/search">search guide</a>. Date: <code>publishedSince</code>/<code>publishedBefore</code> in the <a href="https://datadryad.org/api/v2/docs/">API reference</a>, ISO date/time; finest documented input is a timestamp. Pagination: <code>page</code>/<code>per_page</code>, max 100/page; no total ceiling published in that reference.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes.</strong> Dryad’s <a href="https://datadryad.org/terms">Terms §§1 and 4</a> publish datasets under CC0 and encourage reuse; its <a href="https://datadryad.org/help/guides/reuse">reuse guide</a> says reuse, modification, sharing, redistribution, and commercial use need no permission. Citation is strongly recommended, not legally required.</td><td><strong>ADOPT — priority 1.</strong> Best direct dataset gap fill; store metadata only and preserve DOI/version context.</td></tr><tr><td><strong>NDL Search</strong> / <code>ndl_search</code> — Japanese national bibliography, periodical index, books, articles, and other Asian-language collections (<a href="https://ndlsearch.ndl.go.jp/en/help/api/">API scope</a>).</td><td><a href="https://ndlsearch.ndl.go.jp/help/api/specifications"><code>GET https://ndlsearch.ndl.go.jp/api/sru</code></a>; <strong>auth: none for the <code>dpid=open</code> PDM/CC0 slice</strong>, including for-profit use, under the <a href="https://ndlsearch.ndl.go.jp/en/help/api/provider">provider table</a>. Numeric rate <strong>not published</strong>; continuous users are asked to identify themselves and excessive/concurrent traffic may be blocked under the <a href="https://ndlsearch.ndl.go.jp/en/help/api/">usage terms</a>.</td><td>CQL with explicit <code>AND</code>/<code>OR</code>; do not invent a bare-space rule. Date: <code>from</code>/<code>until</code> publication-year fields, year granularity, with an official example in the <a href="https://ndlsearch.ndl.go.jp/help/api/specifications">specification overview</a>. Pagination: <code>startRecord</code>/<code>maximumRecords</code>, default 200/max 500, but only the first 500 hits are retrievable under the <a href="https://ndlsearch.ndl.go.jp/file/help/api/specifications/ndlsearch_api_20260331.pdf">current v1.4 specification</a>.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes only for the <code>dpid=open</code> PDM/CC0 provider slice.</strong> The <a href="https://ndlsearch.ndl.go.jp/en/help/api/provider">provider table</a> says that slice requires no application and distinguishes all other provider-specific conditions. The <a href="https://ndlsearch.ndl.go.jp/en/help/api/">API terms</a> require “NDL Search API” credit and any provider/CC BY credit; preserve provider/license fields and exclude non-open records.</td><td><strong>ADOPT — priority 1.</strong> Strong geography/language/books gap; the brief must enforce <code>dpid=open</code> and partition queries to stay below the 500-hit ceiling.</td></tr><tr><td><strong>Open Library Search API</strong> / <code>openlibrary</code> — global work/edition bibliographic metadata for books and humanities (<a href="https://openlibrary.org/dev/docs/api/search">Search API</a>).</td><td><a href="https://openlibrary.org/dev/docs/api/search"><code>GET https://openlibrary.org/search.json</code></a>; <strong>auth: none</strong>. Rate: 1 request/second unidentified or 3/second with an app/contact <code>User-Agent</code>; regular clients should identify and cache under the <a href="https://openlibrary.org/developers/api">API guidelines</a>.</td><td><code>q</code> is a Solr query, but <strong>plain-space semantics are undocumented</strong> in the <a href="https://openlibrary.org/dev/docs/api/search">Search API</a>; use explicit syntax. Date: exact/range <code>publish_year</code> and <code>first_publish_year</code>, year granularity, in the <a href="https://openlibrary.org/search/howto/more">search guide</a>. Pagination: <code>offset</code>/<code>limit</code> or 1-based <code>page</code>/<code>limit</code>; no total ceiling published.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes, with provenance retained.</strong> <a href="https://openlibrary.org/help/faq/using">Using Open Library Data</a> says catalog source data were donated to the public domain and new contributions use CC0; <a href="https://openlibrary.org/developers/licensing">developer licensing</a> cautions that pre-existing rights can survive in some sources/jurisdictions. Low-volume identification is an operational obligation.</td><td><strong>ADOPT — priority 2.</strong> Low-friction books/humanities source with caching aligned to resmon’s no-refresh design.</td></tr><tr><td><strong>NIST Resource Metadata Management API</strong> / <code>nist_rmm</code> — NIST papers, patents, software, APIs, and data-resource metadata; useful for engineering/technical-report coverage (<a href="https://data.nist.gov/rmm/">RMM API</a>).</td><td><a href="https://data.nist.gov/rmm/"><code>GET https://data.nist.gov/rmm/papers</code></a>; <strong>auth: none documented</strong> by the OpenAPI schema. <strong>Rate: none published</strong>.</td><td><code>searchphrase</code> exists but <strong>multi-term combination is undocumented</strong>. Date: lower-bound <code>from_date=YYYY-MM-DD</code> only, day granularity; no upper bound. Pagination: offset <code>skip</code> plus <code>limit</code>; defaults 0/10 and no maxima or total ceiling are published in the <a href="https://data.nist.gov/rmm/openapi.json">OpenAPI schema</a>.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes for NIST-created metadata/works, with attribution.</strong> NIST’s <a href="https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications">copyright/licensing statement</a> says ordinary NIST employee works are generally not U.S.-copyrighted, grants worldwide reuse where NIST may hold foreign rights, and conditions use on appropriate NIST acknowledgment; third-party and Standard Reference Data exceptions remain.</td><td><strong>ADOPT — priority 2.</strong> Valuable engineering/government research slice; require NIST credit and a metadata-only/exception-aware field policy.</td></tr><tr><td><strong>OAPEN Library</strong> / <code>oapen</code> — multilingual peer-reviewed open-access books and chapters across humanities/social sciences (<a href="https://www.oapen.org/article/metadata">metadata page</a>).</td><td><a href="https://www.oapen.org/article/8185269-search-using-a-rest-api"><code>GET https://library.oapen.org/rest/search?query=...</code></a>; <strong>auth: none</strong>. <strong>Rate: none published</strong> in the cited REST/metadata pages.</td><td>Official examples use explicit <code>AND</code> and fielded/quoted queries; <strong>bare-space semantics are undocumented</strong> in the <a href="https://www.oapen.org/article/8185269-search-using-a-rest-api">REST guide</a>. Date: Solr ranges on <code>dc.date.issued_dt</code> or accession dates, timestamp granularity. <strong>Pagination model and result ceiling are undocumented</strong> in that guide; the alternative <a href="https://www.oapen.org/article/metadata">OAI-PMH feed</a> is resumable but has no keyword query.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes for metadata.</strong> OAPEN states that all feeds are CC0 and are intended for library/aggregator integration on its <a href="https://www.oapen.org/article/metadata">metadata page</a>; book files follow item licenses.</td><td><strong>IMPLEMENTED (Delegation 08, 2026-09-06).</strong> CC0 metadata only; whole publication years. Pagination resolved in the <a href="https://oapen.o172i.upcloudobjects.com/151b0a45669f429381cb46fe441f23b6.pdf">provider REST PDF</a>: <code>expand</code>, <code>limit</code>, <code>offset</code>; distinct live pages verified.</td></tr><tr><td><strong>DPLA</strong> / <code>dpla</code> — U.S. library, archive, and museum metadata for humanities and cultural-history discovery (<a href="https://pro.dp.la/developers">developer overview</a>).</td><td><a href="https://pro.dp.la/developers/requests"><code>GET https://api.dp.la/v2/items</code></a>; <strong>auth: free API key</strong> obtained through DPLA’s <a href="https://pro.dp.la/developers/policies">key policy</a>. DPLA publishes no routine numeric rate; it reserves intervention for abusive/degrading use in that policy.</td><td><code>q</code> searches all text fields; multiple terms default to <code>AND</code> and explicit Boolean is supported in the <a href="https://pro.dp.la/developers/requests">request docs</a>. Date: <code>sourceResource.date.after</code>/<code>before</code>, accepting year or ISO-style values according to record precision. Pagination: 1-based <code>page</code>, <code>page_size</code> max 500, <code>page</code> max 100: a 50,000-result ceiling.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes for metadata only.</strong> DPLA <a href="https://dp.la/about/terms-conditions">Terms §5.2</a> dedicate Metadata to CC0; content objects and visual assets retain separate rights.</td><td><strong>ADOPT-WITH-KEY — priority 3.</strong> Useful humanities breadth, but less scholarly-specific and ceiling-aware partitioning is required.</td></tr><tr><td><strong>Europeana Search API</strong> / <code>europeana</code> — multilingual European cultural-heritage metadata, especially manuscripts, newspapers, books, and non-Anglophone humanities (<a href="https://europeana.atlassian.net/wiki/spaces/EF/pages/2385739812/Search+API+Documentation">Search API</a>).</td><td><a href="https://europeana.atlassian.net/wiki/spaces/EF/pages/2385739812/Search+API+Documentation"><code>GET https://api.europeana.eu/record/v2/search.json</code></a>; <strong>auth: free key</strong> under <a href="https://europeana.atlassian.net/wiki/spaces/EF/pages/2360508417/Europeana+API+FAQ">Accessing APIs</a>. Europeana says read APIs are free and unthrottled but asks clients to leave a few milliseconds between calls in that FAQ.</td><td>Lucene/Solr syntax; consecutive unquoted terms default to <code>AND</code> under the <a href="https://europeana.atlassian.net/wiki/spaces/EF/pages/2385739812/Search+API+Documentation">query syntax</a>. Date: ISO 8601 ranges exist for Europeana <code>timestamp_created</code>/<code>timestamp_update</code> (ingestion/update, not original publication), but the finest accepted query precision is <strong>undocumented</strong>; provider publication fields are heterogeneous strings. Pagination: <code>rows</code> max 100, basic offset first 1,000, or opaque cursor/<code>nextCursor</code> through the complete set.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes for Europeana metadata.</strong> The <a href="https://europeana.atlassian.net/wiki/spaces/EF/pages/2360508417/Europeana+API+FAQ">API FAQ</a> and <a href="https://pro.europeana.eu/page/europeana-licensing-framework">licensing framework</a> apply CC0 to metadata; linked digital objects follow <code>edm:rights</code>.</td><td><strong>ADOPT-WITH-KEY — priority 3.</strong> Strong multilingual humanities coverage, but date semantics must be labelled as record ingestion/update.</td></tr><tr><td><strong>OpenReview API v2</strong> / <code>openreview</code> — conference submissions and public decision/review metadata, especially computer-science proceedings (<a href="https://docs.openreview.net/getting-started/using-the-api/objects-in-openreview/introduction-to-notes">Notes model</a>).</td><td><a href="https://docs.openreview.net/reference/api-v2/openapi-definition"><code>GET https://api2.openreview.net/notes/search</code></a>; <strong>auth: free profile/credentials</strong> under the <a href="https://docs.openreview.net/getting-started/using-the-api/installing-and-instantiating-the-python-client">client setup</a>. <strong>Rate: none published numerically</strong>; <a href="https://openreview.net/legal/terms">terms</a> reserve discretionary upper limits.</td><td><code>query</code>/<code>term</code>/<code>terms</code> and <code>prefix</code>/<code>terms</code>/<code>exact</code> exist, but <strong>space combination is undocumented</strong> in the <a href="https://docs.openreview.net/reference/api-v2/openapi-definition">OpenAPI definition</a>. Search has no upstream date parameter; notes separately expose millisecond <code>cdate</code>/<code>mdate</code> for local filtering in <a href="https://docs.openreview.net/reference/api-v2/entities/note/fields">Note fields</a>. Pagination: <code>limit</code>/<code>offset</code>; ceilings undocumented.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes for metadata only.</strong> <a href="https://openreview.net/legal/terms">Terms, Metadata Dedication</a> apply CC0 to metadata; public comments/configuration are CC BY, and submissions/review text can have separate restrictions.</td><td><strong>DECLINED for Delegation 08 (2026-09-06).</strong> Anonymous public search works, contrary to the keyed verdict. Live <code>/notes/search</code> rejects offset 10000 + limit 1 (10,000-result window), and rejects <code>sort=pdate:desc</code>. The <a href="https://docs.openreview.net/reference/api-v2/openapi-definition">search contract</a> has no date-range filter; <a href="https://docs.openreview.net/getting-started/frequently-asked-questions/how-do-i-locate-the-date-a-submission-is-made-public">pdate is acceptance, not cdate</a>. Local filtering cannot establish an exhaustive narrow window beyond the ceiling; the frozen outcome channel has no incomplete-window state. Metadata CC0 remains compatible; no terms prohibition is claimed.</td></tr><tr><td><strong>Gallica SRU</strong> / <code>gallica</code> — BnF/partner books, periodicals, manuscripts, maps, and humanities sources, with strong French-language depth (<a href="https://api.bnf.fr/fr/api-gallica-de-recherche">API overview</a>).</td><td><a href="https://api.bnf.fr/fr/api-gallica-de-recherche"><code>GET https://gallica.bnf.fr/SRU</code></a>; <strong>auth: none</strong>. <strong>Rate: none published numerically</strong> in the API page.</td><td>CQL explicitly distinguishes <code>all</code> (all words), <code>any</code>, <code>adj</code>, and Boolean <code>and/or/not</code>; emit <code>gallica all "..."</code> under the <a href="https://api.bnf.fr/fr/api-gallica-de-recherche">API docs</a>. Date: <code>dc.date</code> comparisons on variable source precision or day-granular <code>indexationdate=YYYYMMDD</code>. Pagination: <code>startRecord</code> plus <code>maximumRecords</code> default 15/max 50; no total ceiling published.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes for BnF-produced descriptive metadata only.</strong> The BnF <a href="https://www.bnf.fr/fr/portail-bnf-api-et-jeux-de-donnees">data portal</a> places metadata under the French Open License for all reuse, including commercial reuse, with source attribution; digitized documents follow stricter Gallica terms. Filter <code>provenance adj "bnf.fr"</code>, retain metadata only, record the retrieval/update date, and cite Bibliothèque nationale de France. Partner metadata, images, OCR, and document content stay outside the brief.</td><td><strong>DECLINED for Delegation 08 (2026-09-06).</strong> BnF-only SRU search returned HTTP 403. <a href="https://www.bnf.fr/sites/default/files/2018-11/metadonnees_bnf_cond_utilisation.pdf">BnF metadata conditions</a> also require source and retrieval date to be retained. The frozen normalized-result schema carries no retrieval timestamp. The source-specific corpus <code>first_seen_at</code> records insertion, potentially after other searches, and the report projection omits it. Static catalog credit alone cannot discharge the retrieval-date obligation.</td></tr><tr><td><strong>OSF API v2 registrations</strong> / <code>osf</code> — preregistrations/registered reports and connected research objects (<a href="https://github.com/CenterForOpenScience/developer.osf.io/blob/master/swagger-spec/swagger.yaml">official API spec</a>).</td><td><a href="https://github.com/CenterForOpenScience/developer.osf.io/blob/master/swagger-spec/swagger.yaml"><code>GET https://api.osf.io/v2/registrations/</code></a>; <strong>auth: none</strong> for public resources or optional free token. Rate: 100/hour unauthenticated, 10,000/day authenticated in the spec. One survey probe of <a href="https://api.osf.io/v2/"><code>https://api.osf.io/v2/</code></a> returned 403; it was not retried.</td><td>Resource filters use substring matching; the documented cross-object web <a href="https://help.osf.io/article/588-getting-started-with-osf-search">Search syntax</a> is not a published API contract. Registrations support modified-date comparisons, UTC precision <strong>undocumented</strong>. JSON:API page links, max 10 entities/response, no total ceiling in the <a href="https://github.com/CenterForOpenScience/developer.osf.io/blob/master/swagger-spec/swagger.yaml">API spec</a>.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes for public, appropriately licensed objects.</strong> <a href="https://osf.io/terms-of-use/">COS Terms §§5–6</a> define permitted use to include reproduce/store/transmit and grant a perpetual worldwide license subject to item/privacy restrictions.</td><td><strong>REJECT.</strong> Compatible terms, but no stable documented cross-object keyword-search API and the single root probe returned 403.</td></tr><tr><td><strong>Figshare API v2</strong> / <code>figshare</code> — datasets, theses, posters, presentations, code, and other research objects (<a href="https://docs.figshare.com/old_docs/api/articles/">article types</a>).</td><td><a href="https://docs.figshare.com/v2/"><code>POST https://api.figshare.com/v2/articles/search</code></a>; <strong>auth: none</strong> for public data. No automatic numeric limit, but Figshare recommends ≤1 request/second and may block abuse under <a href="https://docs.figshare.com/v2/">Rate limiting</a>.</td><td>Bare spaces are <code>OR</code> with relevance ranking; explicit Boolean/quotes/grouping are supported in the <a href="https://docs.figshare.com/v2/">search docs</a>. Date: lower-bound-only <code>published_since</code>/<code>modified_since</code>, ISO date/time. Pagination: page/size or offset/limit, search window capped at offset 1,000 in the <a href="https://docs.figshare.com/old_docs/api/">legacy feature reference</a>.</td><td>Although <a href="https://info.figshare.com/user-guide/figshare-policies/">metadata policy</a> applies CC0, the controlling <a href="https://figshare.com/terms">Service Terms</a> include APIs, limit use to personal noncommercial research, and prohibit using the service to power third-party search/products without authorization. <strong>Q1–3 no absent written permission; Q4 has no refresh duty but cannot cure that.</strong></td><td><strong>REJECT.</strong> Provider policy and service terms conflict; the product/search prohibition controls absent written authorization.</td></tr><tr><td><strong>CourtListener REST API v4.7</strong> / <code>courtlistener</code> — U.S. case law, dockets, filings, and oral arguments (<a href="https://wiki.free.law/c/courtlistener/help/api/rest/v4/rest-api-v47">API overview</a>).</td><td><a href="https://wiki.free.law/c/courtlistener/help/api/rest/v4/search"><code>GET https://www.courtlistener.com/api/rest/v4/search/</code></a>; <strong>auth: paid/contractual for product use</strong> because the current <a href="https://wiki.free.law/c/terms/courtlistener/courtlistenercom-terms-of-service-and-policies">terms</a> require product/team users to discuss a commercial agreement. Default authenticated rates: 5/minute, 50/hour, 125/day.</td><td>Default connector <code>AND</code>; advanced Boolean/phrases/ranges in the <a href="https://wiki.free.law/c/courtlistener/help/search/advanced-search-and-query-techniques">query guide</a>. Date: <code>dateFiled:[YYYY-MM-DD TO YYYY-MM-DD]</code>, day. Pagination: opaque cursor; v4 removed the prior 100-page limit, but page size/total ceiling are undocumented in the <a href="https://wiki.free.law/c/courtlistener/help/api/rest/v4/migration-guide">migration guide</a>.</td><td><strong>Q1 yes in principle; Q2 undocumented; Q3 no without commercial agreement; Q4 no refresh duty found.</strong> Credentials cannot be pooled/transferred and derived displays must not imply FLP endorsement under the <a href="https://wiki.free.law/c/terms/courtlistener/courtlistenercom-terms-of-service-and-policies">terms</a>.</td><td><strong>REJECT.</strong> Paid/contractual product access is outside this survey’s adoption boundary.</td></tr><tr><td><strong>FAO AGRIS Open Data Set</strong> / <code>agris</code> — multilingual agriculture records spanning articles, datasets, reports, theses, books, and conference material, including underserved regions (<a href="https://www.fao.org/agris/agris-ods">ODS</a>).</td><td>Bulk archive at <a href="https://www.fao.org/agris/download"><code>https://agris.fao.org/agris_ods/</code></a>; <strong>auth: none</strong>. <strong>Rate: none published</strong>. No public keyword-search API is documented.</td><td><strong>Keyword combination, server-side date filtering/granularity, pagination, and query ceiling: undocumented/not applicable</strong> because the official <a href="https://www.fao.org/agris/download">download page</a> exposes bulk ZIP/XML/RDF rather than a search endpoint.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes with attribution/provenance.</strong> FAO pages conflict between CC BY 4.0 on the current <a href="https://www.fao.org/agris/agris-ods">ODS page</a> and CC BY 3.0 IGO on <a href="https://www.fao.org/agris/download">Download</a>; both permit reuse with attribution, but the version mismatch must remain visible.</td><td><strong>REJECT.</strong> Friendly terms, but no documented bounded keyword/date/pagination API suitable for resmon.</td></tr><tr><td><strong>PatentsView PatentSearch</strong> / <code>patentsview</code> — disambiguated U.S. granted-patent metadata/entities (<a href="https://search.patentsview.org/docs/docs/Search%20API/SearchAPIReference/">reference</a>).</td><td>Legacy <a href="https://search.patentsview.org/docs/docs/Search%20API/EndpointDictionary/"><code>https://search.patentsview.org/api/v1/patent/</code></a> required a free <code>X-Api-Key</code> and allowed 45/minute, but new keys are suspended. USPTO <a href="https://www.uspto.gov/subscription-center/2026/patentsview-migrating-uspto-open-data-portal-march-20">paused PatentsView during ODP migration</a>; successor auth requires a free USPTO.gov account, with rate unpublished.</td><td>Explicit <code>_text_all</code>/<code>_text_any</code>/<code>_text_phrase</code> and <code>_and</code>/<code>_or</code>; date comparisons on <code>patent_date=YYYY-MM-DD</code>; cursor <code>o.after</code> plus <code>o.size</code> default 100/max 1,000, no total ceiling in the <a href="https://search.patentsview.org/docs/docs/Search%20API/SearchAPIReference/">legacy reference</a>.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes with CC BY attribution</strong> under the <a href="https://search.patentsview.org/docs/2025/04/22/2.3.2-release/">PatentSearch 2.3.2 release</a>.</td><td><strong>REJECT FOR NOW.</strong> The official API is paused and cannot onboard users; reassess only after ODP publishes its replacement contract.</td></tr><tr><td><strong>EPO Open Patent Services</strong> / <code>epo_ops</code> — worldwide patent bibliographic, legal-status, and text/image data (<a href="https://www.epo.org/en/searching-for-patents/data/web-services/ops">OPS overview</a>).</td><td><a href="https://link.epo.org/web/searching-for-patents/data/en-ops-v3.2-documentation-version-1.3.20.pdf"><code>GET https://ops.epo.org/3.2/rest-services/published-data/search</code></a>; <strong>auth: free registration/OAuth</strong> up to 4 GB/week, then paid. Fair-use limits are about 1 Mbit/s and 4 GB/week, not a fixed call count, under the <a href="https://www.epo.org/en/service-support/ordering/fair-use">Fair Use Charter</a>.</td><td>CQL requires explicit Boolean; bare spaces are <strong>undocumented</strong>, per the <a href="https://www.epo.org/en/service-support/faq/searching-patents/open-patent-services/search-formats/what-are-differences">search-format FAQ</a>. Publication dates support year/month/day and comparisons. Pagination: <code>Range</code> default 1–25/max 100; only 2,000 hits retrievable per query in the <a href="https://link.epo.org/web/searching-for-patents/data/en-ops-v3.2-documentation-version-1.3.20.pdf">reference guide</a>.</td><td><a href="https://www.epo.org/en/service-support/ordering/terms-and-conditions/ops-terms-and-conditions">OPS Terms §§3 and 7.1</a> permit own databases/products but require notified corrections to be incorporated without undue delay. <strong>Q1 yes; Q2 undocumented; Q3 conditional; Q4 no.</strong></td><td><strong>REJECT.</strong> Mandatory correction ingestion directly conflicts with no refresh after first retrieval.</td></tr><tr><td><strong>CiNii Research OpenSearch v2</strong> / <code>cinii</code> — Japanese articles, books, dissertations, datasets, projects, and researchers (<a href="https://support.nii.ac.jp/en/cir/r_opensearch">specification</a>).</td><td><a href="https://support.nii.ac.jp/en/cir/r_opensearch"><code>GET https://cir.nii.ac.jp/opensearch/v2/all</code></a>; <strong>auth: free application ID</strong>, with prior contact for commercial/other purposes under <a href="https://support.nii.ac.jp/en/cinii/api/developer">registration</a>. <strong>Rate: none published</strong>; high-volume bursts may be blocked.</td><td>Free-word <code>q</code> combines terms by <code>AND</code>. Date: <code>from</code>/<code>until</code> in <code>YYYY</code> or <code>YYYYMM</code>, month granularity. Pagination: <code>count</code> default 20/max 200 and <code>start</code> max 10,000, all in the <a href="https://support.nii.ac.jp/en/cir/r_opensearch">OpenSearch spec</a>.</td><td><a href="https://support.nii.ac.jp/sites/default/files/cinii/en_content_services-term.pdf">Academic Content Regulations Arts. 4–5</a> limit use to the user’s own academic research, restrict copying, and prohibit storage on a server shareable by others; <a href="https://support.nii.ac.jp/sites/default/files/cinii/en_webapi-term.pdf">API Regulations</a> restrict key transfer/sublicensing. <strong>Q1 no safely; Q2 no; Q3 no; Q4 no refresh duty found.</strong></td><td><strong>REJECT.</strong> Cloud/storage and academic-purpose/key restrictions conflict with the product.</td></tr><tr><td><strong>Library of Congress JSON API</strong> / <code>loc</code> — U.S. books, periodicals, legislation, manuscripts, maps, and cultural-heritage collections (<a href="https://www.loc.gov/apis/json-and-yaml/requests/endpoints/">endpoint guide</a>).</td><td><a href="https://www.loc.gov/apis/json-and-yaml/requests/parameters/"><code>GET https://www.loc.gov/search/?fo=json</code></a>; <strong>auth: none</strong>. Rate: 20 requests/minute under <a href="https://www.loc.gov/apis/json-and-yaml/working-within-limits/">Working Within Limits</a>.</td><td><code>q</code> searches metadata/full text, but <strong>multi-term combination is undocumented</strong> in <a href="https://www.loc.gov/apis/json-and-yaml/requests/parameters/">parameters</a>. Date: <code>dates=start/end</code>, usually year precision. Pagination: <code>sp</code>/<code>c</code>, default 25, recommended max 1,000/page, deep-paging limit 100,000 under <a href="https://www.loc.gov/apis/json-and-yaml/working-within-limits/">limits</a>.</td><td>The Library says collection items may remain copyrighted and users must make collection/item-specific rights assessments in its <a href="https://guides.loc.gov/digital-scholarship/faq">rights FAQ</a>. No blanket API-metadata grant covering indefinite/cloud copies was found. <strong>Q1–3 unresolved; Q4 no refresh duty found.</strong></td><td><strong>REJECT.</strong> Public API access is not a reusable rights grant across heterogeneous collections.</td></tr><tr><td><strong>BASE OAI-PMH / HTTP interface</strong> / <code>base</code> — global repository/journal aggregator with books, theses, conference items, reports, patents, and datasets (<a href="https://api.base-search.net/">service page</a>).</td><td>Search interface requires a use-case application/free key under the <a href="https://api.base-search.net/">service page</a>; OAI-PMH at <a href="https://oai.base-search.net/"><code>http://oai.base-search.net/oai</code></a> is IP-restricted to approved noncommercial projects. Numeric rate <strong>not published</strong> on those accessible pages.</td><td>OAI dynamic sets use Solr <code>field:value</code>, but <strong>space combination is undocumented</strong>. Date: OAI <code>from</code>/<code>until</code> means BASE harvest time; publication date can be a dynamic <code>date</code> or normalized <code>year</code> filter, with source precision variable. Pagination: <code>resumptionToken</code> and no stated total ceiling in the <a href="https://oai.base-search.net/">OAI docs</a>.</td><td>BASE explicitly allows approved noncommercial clients to integrate subsets into local indexes, but its public pages do not grant the four uses or address private cloud backup; source abstracts retain third-party rights. <strong>Q1 conditional; Q2 unresolved; Q3 conditional; Q4 no duty published.</strong></td><td><strong>REJECT.</strong> Institutional/IP approval plus missing durable/cloud terms; seek a written license before reconsideration.</td></tr><tr><td><strong>Google Books Volumes API</strong> / <code>google_books</code> — global book metadata and previews (<a href="https://developers.google.com/books/docs/v1/using">API guide</a>).</td><td><a href="https://developers.google.com/books/docs/v1/using"><code>GET https://www.googleapis.com/books/v1/volumes</code></a>; <strong>auth: free API key</strong> for public-data applications. <strong>Rate: none published</strong> in the guide; project quotas are assigned by Google.</td><td>Multiple unquoted terms default to <code>AND</code>; phrases and exclusions supported. <strong>No publication-date filter</strong>; <code>orderBy=newest</code> only sorts. Pagination: <code>startIndex</code> and <code>maxResults</code> default 10/max 40, with no total ceiling documented in the <a href="https://developers.google.com/books/docs/v1/using">guide</a>.</td><td><a href="https://developers.google.com/terms">Google API Terms §5(e) and §8</a> prohibit building databases/permanent copies or caching beyond headers and require deletion of stored/cached content at termination absent owner permission. <strong>Q1 no; Q2 no; Q3 no for permanent records; Q4 no.</strong></td><td><strong>REJECT.</strong> Permanent local records directly violate the API terms.</td></tr><tr><td><strong>SciELO ArticleMeta</strong> / <code>scielo</code> — Latin American/Caribbean journals and multilingual regional literature (<a href="https://articlemeta.scielo.org/">official API landing</a>).</td><td>Historical endpoint <a href="https://articlemeta.scielo.org/api/v1/article/"><code>https://articlemeta.scielo.org/api/v1/article/</code></a>; <strong>auth: undocumented; rate: none published</strong>. Known dead end: earlier plain requests returned 403; the single 2026-08-30 recheck returned 404, not a usable API response.</td><td>The ArticleMeta tooling is harvesting-oriented, and the official landing publishes no supported keyword-search contract. <strong>Keyword combination, date filtering/granularity, pagination, and ceiling: undocumented for a search client.</strong></td><td>No provider-wide API/metadata terms were found on the <a href="https://articlemeta.scielo.org/">official landing</a> that establish Q1–Q4 for normalized records containing abstracts; article licenses vary.</td><td><strong>REJECT.</strong> Required known dead end: blocked/obsolete plain endpoint, no documented keyword API, and no usable blanket terms.</td></tr><tr><td><strong>ChemRxiv public API</strong> / <code>chemrxiv</code> — chemistry preprints (<a href="https://chemrxiv.org/">official service</a>).</td><td>Apparent public endpoint <a href="https://chemrxiv.org/engage/chemrxiv/public-api/v1/items"><code>https://chemrxiv.org/engage/chemrxiv/public-api/v1/items</code></a>; <strong>auth, rate: undocumented</strong>. The one plain survey request returned <strong>403</strong>.</td><td><strong>Keyword combination, date filtering/granularity, pagination, and ceiling: undocumented</strong> in first-party public API material found during this survey.</td><td>ChemRxiv items display heterogeneous item licenses, and no blanket metadata/abstract reuse grant was found on the <a href="https://chemrxiv.org/">service</a>. <strong>Q1–3 unresolved; Q4 no published refresh duty found.</strong></td><td><strong>REJECT.</strong> Required known dead end: plain programmatic access returned 403, with no public contract sufficient for a client brief.</td></tr><tr><td><strong>Directory of Open Access Books (DOAB) OAI-PMH</strong> / <code>doab</code> — global open-access book/chapter metadata (<a href="https://www.doabooks.org/en/resources/metadata-harvesting-and-content-dissemination">metadata page</a>).</td><td><a href="https://www.doabooks.org/en/resources/metadata-harvesting-and-content-dissemination"><code>https://directory.doabooks.org/oai/request</code></a>; <strong>auth: none; rate: none published</strong>. A prior probe did not respond; the one 2026-08-30 <code>Identify</code> recheck returned 200.</td><td>OAI-PMH has <strong>no keyword-search operation</strong>. Date <code>from</code>/<code>until</code> filters record datestamps and pagination uses <code>resumptionToken</code> under the <a href="https://www.openarchives.org/OAI/openarchivesprotocol.html">OAI-PMH protocol</a>; repository granularity/ceiling are not published by DOAB.</td><td><strong>Q1 yes; Q2 yes; Q3 yes; Q4 yes for metadata</strong>, which DOAB makes CC0 with no restrictions in its <a href="https://www.doabooks.org/en/doab/full-faq">FAQ</a>; book content is separate.</td><td><strong>REJECT.</strong> Required known dead end updated: endpoint now responds, but OAI harvesting cannot execute resmon keyword monitoring. OAPEN’s REST search is the actionable books candidate.</td></tr><tr><td><strong>J-STAGE WebAPI</strong> / <code>jstage</code> — Japanese journals, conference proceedings, and technical reports (<a href="https://www.jstage.jst.go.jp/static/pages/JstageServices/TAB3/-char/en">WebAPI overview</a>).</td><td><a href="https://www.jstage.jst.go.jp/static/files/ja/manual_api.pdf"><code>GET https://api.jstage.jst.go.jp/searchapi/do?service=3</code></a>; <strong>auth: none for noncommercial use; commercial use requires prior approval</strong> under the <a href="https://www.jstage.jst.go.jp/static/pages/WebAPI/-char/ja">terms</a>. Numeric rate <strong>not published</strong>.</td><td>The <a href="https://www.jstage.jst.go.jp/static/files/ja/manual_api.pdf">v2.0 manual</a> says multiple terms in one parameter are space-separated <code>AND</code>; article title, author, keyword, abstract, and full-text fields are available. Date: <code>pubyearfrom</code>/<code>pubyearto</code>, year granularity. Pagination: <code>start</code>/<code>count</code>, max 1,000 per response and traversal beyond 1,000; no total ceiling documented.</td><td>The controlling Japanese <a href="https://www.jstage.jst.go.jp/static/pages/WebAPI/-char/ja">Terms Art. 3(5)–(6)</a> prohibit machine-readable server/cloud storage or caching for 24 hours or more and require always displaying the latest J-STAGE information; Art. 9 requires “Powered by J-STAGE.” <strong>Q1 no; Q2 no; Q3 conditional; Q4 no.</strong></td><td><strong>REJECT.</strong> Required known dead end: the 24-hour storage cap and mandatory refresh are directly incompatible.</td></tr><tr><td><strong>African Journals Online (AJOL)</strong> / <code>ajol</code> — Africa-wide journal aggregator, filling the clearest geographic gap (<a href="https://www.ajol.info/index.php/ajol/search">AJOL search</a>).</td><td><strong>No documented public search API endpoint found</strong> on the first-party AJOL service; auth/rate therefore <strong>undocumented</strong>. The public HTML <a href="https://www.ajol.info/index.php/ajol/search">search</a> is not an API contract.</td><td>The web search defaults bare terms to <code>OR</code> and documents explicit <code>AND</code>/<code>NOT</code>/phrases, but API semantics do not exist. <strong>Server-side API date filtering, pagination, and ceiling: undocumented.</strong></td><td>AJOL-hosted journals publish heterogeneous copyright/license notices, and no AJOL-wide metadata license or API terms were found. <strong>Q1–4 unresolved for an aggregator client.</strong></td><td><strong>REJECT.</strong> High-value gap, but no documented API or blanket metadata-use grant; record it so future work starts with provider contact rather than scraping.</td></tr><tr><td><strong>WHO Global Index Medicus</strong> / <code>global_index_medicus</code> — regional health indexes including African and Eastern Mediterranean literature (<a href="https://www.globalindexmedicus.net/wp-content/themes/globalindexmedicus/img/guiaen.pdf">GIM portal/guide</a>).</td><td><strong>No documented public API endpoint found</strong>; auth/rate <strong>undocumented</strong>. The <a href="https://www.globalindexmedicus.net/">GIM portal</a> is a human search service.</td><td>The <a href="https://www.globalindexmedicus.net/wp-content/themes/globalindexmedicus/img/guiaen.pdf">search guide</a> documents fielded terms, phrases, Boolean, and publication <code>DA:YYYYMM</code> (month granularity), but no API pagination or result ceiling.</td><td>No GIM metadata/API reuse terms establishing indefinite local/cloud retention were found on the <a href="https://www.globalindexmedicus.net/">portal</a>. <strong>Q1–4 unresolved.</strong></td><td><strong>REJECT.</strong> Important Africa/Middle-East discovery target, but no public API contract or durable-copy grant.</td></tr></tbody></table>
+<h3 id="recommended-first-implementation-tranche">Recommended first implementation tranche</h3>
+<ol>
+<li><strong>Dryad</strong> — the cleanest dataset source: no key and CC0 throughout.</li>
+<li><strong>GovInfo</strong> — the strongest law/official-report expansion, with a generous
+free key and exact search/date contracts.</li>
+<li><strong>NDL Search</strong> — the strongest geographic/language correction; use only the
+open provider slice, show required credits, and partition around its
+500-result ceiling.</li>
+<li><strong>Open Library</strong> — a no-key books/humanities source whose CC0/public-domain
+provenance and caching guidance fit resmon’s metadata-only design.</li>
+</ol>
+<p>NIST RMM is the next no-key brief. OAPEN should follow once its REST pagination
+behavior is established in a one-request implementation spike. DPLA,
+Europeana, and OpenReview are lower-priority free-key additions.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

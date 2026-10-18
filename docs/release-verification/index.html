@@ -1,0 +1,1531 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Published release verification · resmon</title><meta name="description" content="This section is the only part of this document that runs before a tag exists. Everything below it observes a published installer; this observes what that installer will do to a da…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/release-verification/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Published release verification · resmon"><meta property="og:description" content="This section is the only part of this document that runs before a tag exists. Everything below it observes a published installer; this observes what that installer will do to a da…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/release-verification/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Reference</p> <h1 data-astro-cid-c2uqhu5p>Published release verification</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/release-verification.md</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#before-the-release-is-cut--the-cumulative-upgrade-gate" data-astro-cid-c2uqhu5p>Before the release is cut — the cumulative upgrade gate</a> </li><li data-astro-cid-c2uqhu5p> <a href="#procedure" data-astro-cid-c2uqhu5p>Procedure</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v187-run" data-astro-cid-c2uqhu5p>v1.8.7 run</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v201-run" data-astro-cid-c2uqhu5p>v2.0.1 run</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v202-run" data-astro-cid-c2uqhu5p>v2.0.2 run</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v220-run" data-astro-cid-c2uqhu5p>v2.2.0 run</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v230-run" data-astro-cid-c2uqhu5p>v2.3.0 run</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><h2 id="before-the-release-is-cut--the-cumulative-upgrade-gate">Before the release is cut — the cumulative upgrade gate</h2>
+<p>This section is the only part of this document that runs <em>before</em> a tag exists.
+Everything below it observes a published installer; this observes what that
+installer will do to a database someone already has.</p>
+<p>A release that changes <code>SCHEMA_VERSION</code> upgrades every existing user in one
+launch. v2.2.0 is the first to move a real corpus five steps at once (13 → 18),
+and each of those five steps had a green test that started from the step before
+it — none from a database a <em>released</em> resmon wrote.</p>
+<p><strong>Gate:</strong> <code>resmon_scripts/verification_scripts/test_cumulative_upgrade.py</code> is
+green. It replays <code>verification_scripts/fixtures/v2.1.0/corpus_schema_13.sql</code>,
+a corpus produced by tag v2.1.0’s own code, and calls today’s <code>init_db</code> once.
+It runs in the ordinary hermetic suite on every PR, so in practice this is a
+check that it was collected rather than a separate command:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">.venv/bin/python</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pytest</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/verification_scripts/test_cumulative_upgrade.py</span></span></code></pre>
+<p>One case per released fixture regenerates it from that release’s own tag and
+diffs it against the committed file. CI fetches those tags explicitly (the
+“Fetch the released tags” step in <code>.github/workflows/ci.yml</code>) and sets
+<code>RESMON_REQUIRE_V210_TAG=1</code>, <code>RESMON_REQUIRE_V220_TAG=1</code> and
+<code>RESMON_REQUIRE_V230_TAG=1</code>, so in
+CI a missing tag is a failure, not a skip. Elsewhere — a shallow clone, a source
+tarball — the case skips; with <code>-rs</code> a local run says which happened:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">git</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> fetch</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --tags</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> upstream</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">.venv/bin/python</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pytest</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -rs</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">  resmon_scripts/verification_scripts/test_cumulative_upgrade.py</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  -k</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> the_committed_fixture_is_what</span></span></code></pre>
+<p><strong>The rule for every release after this one.</strong> A release that ships a new
+<code>SCHEMA_VERSION</code> adds the fixture of the version <em>it</em> ships, so the next release
+walks from it. The fixture is committed <strong>in the release pull request</strong>, and it
+is finished off after the tag — because
+<code>test_the_release_that_shipped_this_schema_left_a_fixture</code> falls due on the
+commit that bumps <code>APP_VERSION</code>, which is inside that pull request, and the tag
+does not exist until it merges. v2.2.0’s fixture was generated from its tag only
+because its schema had already shipped; that is not the general case.</p>
+<p><strong>In the release PR:</strong></p>
+<ol>
+<li>Run the generator against a disposable worktree of <strong>your own release branch
+head</strong> (the version-bump commit or later) —
+<code>python resmon_scripts/verification_scripts/fixtures/&#x3C;tag>/generate_corpus.py --source-tree &#x3C;that worktree></code> — seeding every table that version has, at
+every value of every CHECK-constrained column it has. Where a value is in a
+CHECK’s vocabulary and nothing in the release writes it, leave it out and
+name it in the generator with the reason; a fixture that invents a state the
+release cannot produce is worse than one that is honestly incomplete.</li>
+<li>Commit the dump beside the generator. Its header names the <strong>branch head</strong>
+the dump was generated from, says that commit is ahead of the tag, and says
+what the follow-up replaces. The dump body depends on the shipped schema’s
+code alone, which the squash commit and the tag carry unchanged; only the
+hash differs.</li>
+<li>Add the row to <code>RELEASED</code> in <code>test_cumulative_upgrade.py</code>, with its
+<code>require_env</code> switch. Leave that switch <strong>out</strong> of
+<code>.github/workflows/ci.yml</code>’s tag-fetch step: the fetch would fail on a tag
+that does not exist yet, and the new release’s provenance case is expected to
+skip until the follow-up. Say so in the PR body — an unexplained skip and a
+hidden hole look the same.</li>
+<li>Check that the cumulative walk case is parametrised over <strong>every</strong> row of
+<code>RELEASED</code>, not only the newest. The walk that matters is <em>the last released
+version to the one about to ship</em>, and a case pinned to “the newest” drops
+exactly that walk on the commit that adds the new fixture.</li>
+</ol>
+<p><strong>In the post-tag follow-up, once the tag is published:</strong></p>
+<ol start="5">
+<li>Regenerate from a disposable worktree of the tag itself, replace the header’s
+commit hash, and confirm nothing else in the dump moved. A body that changes
+here means something other than the schema’s code fed the dump, and that is
+the finding, not a nuisance.</li>
+<li>Add the new tag to the tag-fetch step in <code>.github/workflows/ci.yml</code> and set
+its <code>require_env</code> there, which turns the case’s “tag is not here” skip into a
+failure. Without this the case skips in CI and the new fixture is unguarded —
+prove the step by altering one fixture row on that PR and watching the
+Backend jobs go red, then revert it.</li>
+</ol>
+<p>Skipping step 1 for a release costs nothing that release and leaves the next
+one with no way to walk from a real database. That is how five untested steps
+accumulated.</p>
+<p><strong>Applied for v2.2.0.</strong> <code>fixtures/v2.2.0/corpus_schema_18.sql</code> and its generator
+are committed and every step above is done for it, including the CI tag fetch
+and its required switch.</p>
+<p><strong>Applied for v2.3.0.</strong> <code>fixtures/v2.3.0/corpus_schema_21.sql</code> and its generator
+are committed in the release PR, generated from the release branch head, with
+the header saying so. Steps 5 and 6 were applied on 2026-09-21, once tag v2.3.0
+existed: the dump was regenerated from a disposable worktree of the tag, which
+replaced the header’s commit hash and moved no other line, and <code>ci.yml</code> now
+fetches v2.3.0 beside the other two and sets <code>RESMON_REQUIRE_V230_TAG</code>, so
+<code>test_the_committed_fixture_is_what_that_releases_own_code_produces[v2.3.0]</code>
+fails in CI rather than skipping. Two enumerated
+CHECK values are deliberately unseeded and named in the generator’s
+<code>UNWRITTEN_CHECK_VALUES</code>: <code>routine_missed_fires.disposition = 'skipped'</code>, which
+<code>database.py</code> says on the DDL that nothing writes yet, and
+<code>routines.execution_location = 'cloud'</code>, which <code>insert_routine</code> refuses and
+<code>init_db</code> rewrites — a row of it would make this fixture’s no-op walk false.
+Because nothing migrates past 21 yet, the walk it serves today is 21 → 21; the
+18 → 21 walk a 2.2.0 user actually takes runs over the v2.2.0 fixture, which
+this release does not touch.</p>
+<h2 id="procedure">Procedure</h2>
+<p>This procedure observes a published installer on the host that runs it. It does not
+establish that another platform’s installer launches, that every control works, or
+that a release should ship. Record failures and unverified properties without
+repairing the application as part of this check.</p>
+<ol>
+<li>
+<p>Start in the authorized checkout. Run <code>pwd</code> before each Git command, inspect
+status and remotes, fetch <code>upstream</code>, and create a <code>codex/</code> branch from
+<code>upstream/main</code>. Record the exact baseline commit and any change from the
+delegation’s baseline. Leave unrelated checkouts and existing applications alone.</p>
+</li>
+<li>
+<p>Create a uniquely named scratch directory outside the checkouts, with separate
+<code>assets</code>, <code>arm64</code>, <code>x64</code>, and <code>evidence</code> subdirectories. Use explicit repository
+arguments: <code>gh release view &#x3C;tag> --repo ryanjosephkamp/resmon --json tagName,url,publishedAt,assets</code> and <code>gh release download &#x3C;tag> --repo ryanjosephkamp/resmon --dir &#x3C;scratch>/assets</code>. Preserve the metadata; compare
+each downloaded file’s byte size (<code>stat -f '%z' &#x3C;file></code> on macOS) with its release-asset size. Record the actual
+asset inventory, not an assumed count. Do not infer launchability from sizes.</p>
+</li>
+<li>
+<p>Before launching, inspect the matching checkout’s Electron startup code.
+<code>tryAttachToDaemon()</code> reads <code>daemon.lock</code> under <code>stateDir()</code> and can contact
+that port even when the daemon’s version differs. A normal launch on a machine
+with a live daemon is therefore not isolated. Where contacting port 8742 is
+prohibited, do not perform an HTTP health check or launch with the default
+state directory. Capture <code>lsof -nP -iTCP:8742 -sTCP:LISTEN</code> before and after;
+this inspects the listener without connecting. It cannot establish unchanged
+HTTP health, database contents, or uninterrupted service.</p>
+</li>
+<li>
+<p>Inspect the downloaded DMG’s extended attributes with <code>xattr -l</code>, mount it
+read-only with <code>hdiutil attach -readonly -nobrowse</code>, and use <code>ditto</code> to copy
+its <code>.app</code> into the architecture’s scratch subdirectory, never <code>/Applications</code>.
+For example: <code>hdiutil attach -readonly -nobrowse -mountpoint &#x3C;scratch>/mount-arm64 &#x3C;scratch>/assets/resmon-&#x3C;version>-arm64.dmg</code>, then
+<code>ditto &#x3C;scratch>/mount-arm64/resmon.app &#x3C;scratch>/arm64/resmon.app</code>.
+Preserve attributes. Inspect the copied application’s attributes and
+<code>Contents/Info.plist</code>; record the download method and quarantine state. Do not
+remove quarantine, re-sign the bundle, or change system security policy.</p>
+</li>
+<li>
+<p>Launch the copied published arm64 app through LaunchServices with a fresh
+state directory and separate Electron user data. For example, after creating
+the directories, run the following with absolute paths substituted:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">open</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -n</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -a</span><span style="color:#D73A49;--shiki-dark:#F97583"> &#x3C;</span><span style="color:#032F62;--shiki-dark:#9ECBFF">scratc</span><span style="color:#24292E;--shiki-dark:#E1E4E8">h</span><span style="color:#D73A49;--shiki-dark:#F97583">></span><span style="color:#032F62;--shiki-dark:#9ECBFF">/arm64/resmon.app</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --env</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> RESMON_STATE_DIR=</span><span style="color:#D73A49;--shiki-dark:#F97583">&#x3C;</span><span style="color:#032F62;--shiki-dark:#9ECBFF">scratc</span><span style="color:#24292E;--shiki-dark:#E1E4E8">h</span><span style="color:#D73A49;--shiki-dark:#F97583">></span><span style="color:#032F62;--shiki-dark:#9ECBFF">/arm64/state</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --stdout</span><span style="color:#D73A49;--shiki-dark:#F97583"> &#x3C;</span><span style="color:#032F62;--shiki-dark:#9ECBFF">scratc</span><span style="color:#24292E;--shiki-dark:#E1E4E8">h</span><span style="color:#D73A49;--shiki-dark:#F97583">></span><span style="color:#032F62;--shiki-dark:#9ECBFF">/evidence/arm64-stdout.log</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --stderr</span><span style="color:#D73A49;--shiki-dark:#F97583"> &#x3C;</span><span style="color:#032F62;--shiki-dark:#9ECBFF">scratc</span><span style="color:#24292E;--shiki-dark:#E1E4E8">h</span><span style="color:#D73A49;--shiki-dark:#F97583">></span><span style="color:#032F62;--shiki-dark:#9ECBFF">/evidence/arm64-stderr.log</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --args</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --user-data-dir=</span><span style="color:#D73A49;--shiki-dark:#F97583">&#x3C;</span><span style="color:#005CC5;--shiki-dark:#79B8FF">scratch</span><span style="color:#D73A49;--shiki-dark:#F97583">></span><span style="color:#005CC5;--shiki-dark:#79B8FF">/arm64/electron-user-data</span></span></code></pre>
+<p>Do not set <code>RESMON_PYTHON</code> to a checkout interpreter or enable <code>RESMON_E2E</code>:
+the published bundle and its ordinary renderer behavior are the subject.
+Confirm the startup log identifies an ephemeral backend port other than 8742.
+Record this isolated-state launch as a controlled variation of the ordinary
+Finder path. This isolates the database and Chromium profile, <strong>not the OS
+keyring or system service installation</strong>. Opening Cloud Storage may probe an
+existing Drive credential; do not link, unlink, save keys, or invoke backup as
+part of a route walk. If macOS blocks launch, capture its exact message. A Finder
+right-click → Open retry must preserve isolation; do not retry in a way that
+loses the state-directory override. If that cannot be guaranteed, record the
+retry as unverified. Do not claim that an unquarantined command-line download
+exercised the browser-download Gatekeeper path.</p>
+</li>
+<li>
+<p>Derive the route list by evaluating <code>allRouteHashes()</code> from
+<code>resmon_scripts/frontend/src/routes.ts</code> in the recorded checkout. Include
+parent routes and every declared child, including redirecting parents. Walk
+each in the published application’s window, wait for its content, and save
+one numbered screenshot and one observation per route. State separately the
+number of rendered route entries, the brief’s expected count, and the count
+derived from the file. A visible page shell is not verification of every
+control, external embed, or workflow on that page.</p>
+<p>With the checkout’s frontend dependencies installed, this prints the route
+denominator without launching either app (run from <code>resmon_scripts/frontend</code>):</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">node</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> -</span><span style="color:#D73A49;--shiki-dark:#F97583"> &#x3C;&#x3C;</span><span style="color:#032F62;--shiki-dark:#9ECBFF">'JS'</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">const fs = require('fs'), ts = require('typescript');</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">const source = fs.readFileSync('src/routes.ts', 'utf8');</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">const js = ts.transpileModule(source, {</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">  compilerOptions: { module: ts.ModuleKind.CommonJS }</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">}).outputText;</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">const routeExports = {};</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">new Function('exports', js)(routeExports);</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">const routes = routeExports.allRouteHashes();</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">console.log(JSON.stringify({ count: routes.length, routes }, null, 2));</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">JS</span></span></code></pre>
+</li>
+<li>
+<p>On Repositories, record the source count actually displayed. On About resmon
+→ About App, record the displayed version. Record visible errors and any
+console observations with their collection limits. Do not expose credentials
+or existing personal data in public evidence.
+For releases with first-run onboarding, capture all step details before any
+action. Use one fresh state/profile to test Skip followed by reload, and a
+second fresh state/profile to test first-routine retirement without Skip.
+Record the actual initial route: if ordinary startup opens Dashboard, do not
+call a later visit the first opening or claim the card never appeared. Create
+the routine through the UI, record its initial status, deactivate it if needed,
+and revisit/reload Dashboard. Keep the precise requested sequence unverified
+when the launch path cannot provide it.</p>
+<p>For an assistant check, use the published panel and the installed CLI. Record
+a read-only question’s tool call, answer, cards (if any), and cost line. Ask
+for activation of an isolated inactive routine, capture any approval card,
+<strong>deny it</strong>, then reload Routines to inspect the state. Never approve an
+assistant write in this procedure. If sign-in is missing, record the exact
+panel message and stop that portion. If a turn fails or times out, retain the
+displayed message and distinguish absent evidence from a successful read or
+denied write; an absent cost line is not a zero-cost measurement.</p>
+</li>
+<li>
+<p>Quit arm64 before repeating the mount, copy, isolated launch, version check,
+and bounded observation with the x64 DMG. Record whether Rosetta is available
+and whether the x64 app launches. If unavailable, report that limit; do not
+install Rosetta or modify the machine to make this check pass. Unless a
+second full route walk was performed, do not claim one for x64.</p>
+</li>
+<li>
+<p>State which other platforms were not launched and why. On this Mac, Windows
+and Linux evidence is limited to the downloaded asset names and byte sizes.</p>
+</li>
+<li>
+<p>Quit only the applications started for this run. Check their recorded process
+IDs have exited and repeat the non-contact listener observation. Detach only
+the volumes mounted for this run. Preserve reviewed screenshots and receipts
+outside the repository, attach them to the PR, verify the attachment links,
+then remove the run’s downloaded installers, copied apps, and temporary state.
+Use <code>hdiutil detach &#x3C;scratch>/mount-arm64</code> and the corresponding x64 mountpoint;
+do not detach unrelated pre-existing volumes.</p>
+</li>
+<li>
+<p>Run the repository’s required checks and record exact commands, counts,
+failures, skips, and environmental limitations. Keep their locally built app
+evidence distinct from the published-installer walkthrough. Commit only this
+document, push the branch according to <code>AGENTS.md</code>, and open one PR against
+<code>ryanjosephkamp/resmon</code>. Its body records what changed, verification, deliberate
+limits, and any files outside the brief. Screenshots are PR attachments,
+never committed files.</p>
+</li>
+</ol>
+<h2 id="v187-run">v1.8.7 run</h2>
+<h3 id="subject-and-launch-conditions">Subject and launch conditions</h3>
+<p>Observed on <strong>2026-09-05</strong>, macOS <strong>26.3.1 (a)</strong>, build <strong>25D771280a</strong>, arm64 host.
+The subject was <a href="https://github.com/ryanjosephkamp/resmon/releases/tag/v1.8.7">the published v1.8.7 release</a>,
+published at <code>2026-09-04T21:18:46Z</code>. The checkout and fetched <code>upstream/main</code> were
+<code>30658b5</code> (<code>release: 1.8.7 — a transport failure is not an answer (#73)</code>), exactly
+the brief’s baseline. The branch is <code>codex/docs-release-launch-check</code>; the Codex
+prefix follows <code>AGENTS.md</code> rather than the brief’s example <code>docs/</code> branch.</p>
+<p>Assets were downloaded with <code>gh release download v1.8.7 --repo ryanjosephkamp/resmon --dir /private/tmp/resmon-release-check-20260905/assets</code>.
+Both DMGs were mounted read-only and their apps copied with <code>ditto</code> into that
+scratch directory. No local build was substituted for either published app.
+The arm64 bundle’s <code>app.asar</code> was also read to confirm it honors the state-directory
+override and otherwise probes the daemon lock’s port.</p>
+<p>Both LaunchServices launches used <code>open -n -a &#x3C;copied-app></code> with the procedure’s
+<code>--env RESMON_STATE_DIR</code>, <code>--stdout</code>, <code>--stderr</code>, and <code>--user-data-dir</code> arguments;
+x64 additionally used <code>--arch x86_64</code>. Neither enabled <code>RESMON_E2E</code> nor supplied
+<code>RESMON_PYTHON</code>. The apps used their bundled backend interpreters. Native UI
+automation clicked the sidebar and tab links and captured the application window.</p>
+<h3 id="asset-inventory">Asset inventory</h3>
+<p>All seven downloaded sizes equaled their GitHub release metadata sizes.
+The table reports byte counts, not estimates from the rounded release-page labels.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Asset</th><th align="right">Release bytes</th><th align="right">Downloaded bytes</th></tr></thead><tbody><tr><td><code>latest-linux.yml</code></td><td align="right">378</td><td align="right">378</td></tr><tr><td><code>latest.yml</code></td><td align="right">349</td><td align="right">349</td></tr><tr><td><code>resmon-1.8.7-arm64.dmg</code></td><td align="right">221,085,262</td><td align="right">221,085,262</td></tr><tr><td><code>resmon-1.8.7-setup-x64.exe</code></td><td align="right">194,649,899</td><td align="right">194,649,899</td></tr><tr><td><code>resmon-1.8.7-setup-x64.exe.blockmap</code></td><td align="right">203,931</td><td align="right">203,931</td></tr><tr><td><code>resmon-1.8.7-x64.dmg</code></td><td align="right">222,970,638</td><td align="right">222,970,638</td></tr><tr><td><code>resmon-1.8.7-x86_64.AppImage</code></td><td align="right">250,603,195</td><td align="right">250,603,195</td></tr></tbody></table>
+<p>The two DMG SHA-256 values also matched the release asset digests:</p>
+<ul>
+<li>arm64: <code>bc54e77dd967ccec59e23095c2fbe9f93ea97d00b37c43c0ce5b1d40b17c9c2d</code>.</li>
+<li>x64: <code>4fcc758b59a733690cbf058336d25b292f5512b02b77d585aefc0930c9adfa0c</code>.</li>
+</ul>
+<p>Windows and Linux were <strong>not launched</strong>: this run used a macOS host and no
+Windows or Linux execution environment. No claim about those installers is made
+beyond their names and sizes. Updater-feed contents and update installation were
+not verified in this run.</p>
+<h3 id="gatekeeper-observation">Gatekeeper observation</h3>
+<p>No Gatekeeper warning or confirmation dialog was observed on either controlled
+LaunchServices launch. <code>xattr -l</code> showed <code>com.apple.provenance</code> and no
+<code>com.apple.quarantine</code> attribute on each downloaded DMG and copied app root.
+No attribute was removed or added, no bundle was re-signed, and system security
+policy was not changed.</p>
+<p>Consequently the brief’s assumed first-launch block did not occur. The
+<strong>quarantined browser-download / Finder right-click → Open path remains unverified</strong>.
+A plain Finder retry would also lose the per-launch state override and could
+probe the prohibited daemon. The result is an isolated launch of the published
+bundle, not proof of the unmodified Finder/Gatekeeper path.</p>
+<h3 id="arm64-route-walk">Arm64 route walk</h3>
+<p><strong>24 of the brief’s 24 route entries rendered; 24 entries were derived from
+<code>allRouteHashes()</code> in the checkout’s <code>routes.ts</code>.</strong> The Settings and About parent
+entries were visited separately from their redirect targets. Screenshots are
+numbered <code>01</code>–<code>24</code> in the PR evidence archive; each is one window viewport, not a
+full-page capture. No searches, scheduled runs, credential changes, destructive
+actions, test emails, or backups were initiated.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th align="right">#</th><th>Requested route</th><th>Observation</th><th>Screenshot</th></tr></thead><tbody><tr><td align="right">1</td><td><code>/</code></td><td>Welcome content; no active routines or recent activity.</td><td><code>01-dashboard.png</code></td></tr><tr><td align="right">2</td><td><code>/dive</code></td><td>Repository/date/keyword form and Run Deep Dive control rendered.</td><td><code>02-deep-dive.png</code></td></tr><tr><td align="right">3</td><td><code>/sweep</code></td><td>Multi-source form rendered; selector reads “0 of 25 selected.”</td><td><code>03-deep-sweep.png</code></td></tr><tr><td align="right">4</td><td><code>/routines</code></td><td>Routine table rendered with “No routines configured.”</td><td><code>04-routines.png</code></td></tr><tr><td align="right">5</td><td><code>/calendar</code></td><td>September 2026 grid rendered; previous/next controls show square glyphs.</td><td><code>05-calendar.png</code></td></tr><tr><td align="right">6</td><td><code>/results</code></td><td>Filters and execution table rendered with “No executions found.”</td><td><code>06-results.png</code></td></tr><tr><td align="right">7</td><td><code>/analytics</code></td><td>“Nothing to analyze yet” panel rendered.</td><td><code>07-analytics.png</code></td></tr><tr><td align="right">8</td><td><code>/watchdog</code></td><td>Empty-history and unchecked-corpus notices rendered.</td><td><code>08-watchdog.png</code></td></tr><tr><td align="right">9</td><td><code>/explorer</code></td><td>Filters and “Nothing collected yet” panel rendered.</td><td><code>09-explorer.png</code></td></tr><tr><td align="right">10</td><td><code>/configurations</code></td><td>Routine Configs table rendered with “No configurations.”</td><td><code>10-configurations.png</code></td></tr><tr><td align="right">11</td><td><code>/monitor</code></td><td>“No active executions” panel rendered.</td><td><code>11-monitor.png</code></td></tr><tr><td align="right">12</td><td><code>/repositories</code></td><td>Attributions and source table rendered; 25 source rows counted from its accessibility tree.</td><td><code>12-repositories.png</code></td></tr><tr><td align="right">13</td><td><code>/settings</code></td><td>Redirected to <code>/settings/email</code>; email form rendered.</td><td><code>13-settings.png</code></td></tr><tr><td align="right">14</td><td><code>/settings/email</code></td><td>Email form rendered; no email was sent.</td><td><code>14-settings-email.png</code></td></tr><tr><td align="right">15</td><td><code>/settings/cloud</code></td><td>After loading, displayed “Linked — API unreachable (RefreshError)”; Backup Now disabled.</td><td><code>15-settings-cloud.png</code></td></tr><tr><td align="right">16</td><td><code>/settings/ai</code></td><td>Provider/key-status form rendered; detected an installed Claude Code command and selected its lane.</td><td><code>16-settings-ai.png</code></td></tr><tr><td align="right">17</td><td><code>/settings/storage</code></td><td>Retention controls, explanatory note, and export location rendered.</td><td><code>17-settings-storage.png</code></td></tr><tr><td align="right">18</td><td><code>/settings/notifications</code></td><td>Notification choices and “Current: granted” permission status rendered.</td><td><code>18-settings-notifications.png</code></td></tr><tr><td align="right">19</td><td><code>/settings/advanced</code></td><td>Service/concurrency/diagnostics/danger-zone controls rendered; “no daemon running” concerns the isolated state directory.</td><td><code>19-settings-advanced.png</code></td></tr><tr><td align="right">20</td><td><code>/about-resmon</code></td><td>Redirected to <code>/about-resmon/tutorials</code>; contents and overview rendered; the captured video area was black.</td><td><code>20-about-resmon.png</code></td></tr><tr><td align="right">21</td><td><code>/about-resmon/tutorials</code></td><td>Tutorial contents and an overview video thumbnail rendered; playback untested.</td><td><code>21-about-resmon-tutorials.png</code></td></tr><tr><td align="right">22</td><td><code>/about-resmon/issues</code></td><td>Issue form rendered; nothing submitted.</td><td><code>22-about-resmon-issues.png</code></td></tr><tr><td align="right">23</td><td><code>/about-resmon/blog</code></td><td>After loading, post list and embedded resmon Blog page rendered.</td><td><code>23-about-resmon-blog.png</code></td></tr><tr><td align="right">24</td><td><code>/about-resmon/about-app</code></td><td>Version reads <strong>1.8.7</strong>; also shows “Current release line: 1.5.x” and Update 7 prose.</td><td><code>24-about-resmon-about-app.png</code></td></tr></tbody></table>
+<p>The Repositories count is a count of the <strong>25 rendered source-row buttons</strong>, not
+a total badge displayed by that page. <code>repository-rows.txt</code> in the evidence archive
+lists them. The Deep Sweep screenshot independently displays the selector’s total.
+This does not verify that any source search succeeds.</p>
+<p>The initial database and profile were fresh, but the keyring was shared with the
+host. Cloud Storage’s automatic connection probe found an existing credential and
+reported <code>RefreshError</code>. It was not linked, unlinked, or repaired during this run.</p>
+<h3 id="console-and-visible-discrepancies">Console and visible discrepancies</h3>
+<p>After the arm64 walkthrough, the main renderer’s DevTools Console contained one
+error and one warning, captured in <code>25-arm64-console.png</code>:</p>
+<ul>
+<li>A <code>data:application/x-font-ttf</code> font was blocked by <code>default-src 'self'</code>, with
+the console explaining that <code>font-src</code> was not explicitly set.</li>
+<li><code>Unrecognized feature: 'web-share'.</code></li>
+</ul>
+<p>The Calendar screenshot shows square navigation glyphs. That observation and the
+font error are both recorded; this run did not diagnose their causal relationship.
+About App’s version is 1.8.7 while its separate release-line sentence says 1.5.x.
+Neither discrepancy was repaired or assigned release-blocking severity.</p>
+<p>The Blog webview’s separate Console displayed zero messages when inspected.
+This was a post-walk console inspection, not continuous per-route console capture;
+it does not establish that every renderer, iframe, or discarded webview was
+error-free. Startup stderr recorded <code>[DEP0180] DeprecationWarning: fs.Stats constructor is deprecated</code> on both architectures. Arm64 also recorded
+<code>Google Drive connection check failed: RefreshError</code>. One intermediate log read
+showed <code>sysmon request failed with error: sysmond service not found</code>; it was not
+present in the later complete stderr read and is retained here as an observation,
+not attributed to a diagnosed application defect.</p>
+<h3 id="x64--rosetta-result">x64 / Rosetta result</h3>
+<p><code>file</code> identified the copied x64 executable as <code>Mach-O 64-bit executable x86_64</code>.
+<code>pkgutil --pkg-info com.apple.pkg.RosettaUpdateAuto</code> found an installed Rosetta
+receipt, and <code>open --arch x86_64</code> launched the app on this arm64 host. The Dashboard
+rendered with Backend Online, and About App displayed <strong>1.8.7</strong>. Evidence:
+<code>26-x64-dashboard.png</code> and <code>27-x64-about-app.png</code>. A full x64 route walk was not
+performed. No Rosetta installation was needed. A native automation lookup initially
+timed out on the <code>/private/tmp</code> spelling; selecting the running bundle’s registered
+<code>/tmp</code> path resolved it without changing the app.</p>
+<h3 id="isolation-and-cleanup">Isolation and cleanup</h3>
+<p>Arm64 launched app PID <strong>25852</strong>, bundled backend PID <strong>25864</strong>, backend port
+<strong>56875</strong>, and renderer port <strong>56882</strong>. x64 launched app PID <strong>27087</strong>, bundled
+backend PID <strong>27137</strong>, backend port <strong>58176</strong>, and renderer port <strong>58205</strong>.
+The task’s four recorded app/backend PIDs were absent after quitting both apps.
+Both task-mounted DMGs were detached. Downloaded assets, copied apps, and temporary
+state were removed after preserving evidence outside the repository.</p>
+<p>Before and after, <code>lsof -nP -iTCP:8742 -sTCP:LISTEN</code> showed the same Python listener:
+PID <strong>1150</strong>, FD <strong>12u</strong>, socket identifier <strong>0xaa26ce450f50da0e</strong>, address
+<strong>127.0.0.1:8742</strong>. The task did not bind or connect to that port, stop that process,
+or edit its lock. The explicit user prohibition took precedence over the brief’s
+conflicting before/after <code>curl</code> instruction. <strong>P3’s requested HTTP-health proof is
+not established</strong>; these snapshots only establish unchanged listener identity at
+the two observation times. There was no packet trace or continuous health monitor.</p>
+<h3 id="repository-checks-distinct-from-the-release-walk">Repository checks, distinct from the release walk</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Observed result</th></tr></thead><tbody><tr><td><code>.venv/bin/python -m pytest -q</code></td><td>1,030 passed, 45 deselected, 59.43 s with local socket access.</td></tr><tr><td><code>npm run typecheck</code></td><td>Exit 0.</td></tr><tr><td><code>npm test -- --runInBand</code></td><td>190 passed, 26 suites passed.</td></tr><tr><td><code>npm run build</code></td><td>Exit 0; renderer and Electron builds completed.</td></tr><tr><td><code>npm run e2e</code></td><td>58 passed, 2 skipped, 2.0 min on the macOS display.</td></tr></tbody></table>
+<p>Frontend commands ran from <code>resmon_scripts/frontend</code>; pytest ran from the checkout
+root. The first sandboxed pytest attempt returned 1,012 passed, 4 failed, 14 errors,
+45 deselected because loopback socket operations were denied. The rerun above used
+local socket access and passed without source changes.</p>
+<p>The e2e run skipped the local packaged-app launch because the existing local
+bundle was <strong>1.8.4</strong>, not the checkout’s 1.8.7, and skipped the strict no-CLI
+environment case because a real Codex command was detected. It also printed
+<code>P13c MONITOR NOT VERIFIED</code>: a no-HTTP search completed before the active-execution
+poll could adopt it, leaving zero zero-reason Monitor rows. These limitations are
+not replaced by the published-app screenshots. The 45 live-network backend tests,
+video playback, actual source searches, AI calls, notifications, email, backup,
+updating, and Windows/Linux execution were not verified by this release walk.</p>
+<h3 id="evidence-and-scope">Evidence and scope</h3>
+<p>The PR evidence archive is <code>resmon-v1.8.7-launch-screenshots.zip</code>: 27 native-window
+PNGs, a 24-route screenshot/hash manifest, the rendered source-row list, the asset
+size/DMG-digest receipt, and before/after listener snapshots. Screenshots were
+reviewed as window captures; they are not a pixel-complete design or accessibility
+audit. No screenshots are committed. The sole repository change is this document;
+no application code, dependencies, workflows, or other documentation changed.</p>
+<h2 id="v201-run">v2.0.1 run</h2>
+<h3 id="subject-and-launch-conditions-1">Subject and launch conditions</h3>
+<p>Observed on <strong>2026-09-06 (America/New_York; 2026-09-07 UTC)</strong>, macOS
+<strong>26.3.1 (a)</strong>, build <strong>25D771280a</strong>, arm64 host. The subject was
+<a href="https://github.com/ryanjosephkamp/resmon/releases/tag/v2.0.1">the published v2.0.1 release</a>,
+published at <code>2026-09-06T22:05:42Z</code>. The checkout baseline was
+<code>055c4f9f9930811af871e381ff88ca986611c960</code> (current <code>upstream/main</code>, including
+PR #98); branch <code>codex/release-launch-v2</code>. This is the checkout used to derive the
+route denominator, not a claim that every change on that baseline is in the DMG.</p>
+<p>All release assets were downloaded with <code>gh release download v2.0.1 --repo ryanjosephkamp/resmon --dir /tmp/resmon-v2-launch-20260906/assets</code>. Both DMGs
+were mounted read-only and the apps copied with <code>ditto</code> outside both checkouts.
+The published arm64 <code>app.asar</code> was read to confirm <code>RESMON_STATE_DIR</code> and the
+daemon-lock lookup before launch. No checkout interpreter or local build was
+substituted for the published bundle.</p>
+<p>LaunchServices used the procedure’s <code>open -n -a</code>, <code>--env RESMON_STATE_DIR</code>,
+<code>--stdout</code>, <code>--stderr</code>, and <code>--user-data-dir</code> arguments. Every launch had new
+backend state and a new Chromium profile. Neither <code>RESMON_E2E</code> nor
+<code>RESMON_PYTHON</code> was supplied. Native accessibility actions operated the app’s
+sidebar, tabs, forms, and assistant; screenshots are individual window viewports.</p>
+<h3 id="asset-inventory-1">Asset inventory</h3>
+<p>All <strong>seven</strong> downloaded names and byte sizes matched the release metadata.
+SHA-256 was computed for all seven files and matched GitHub’s asset digests.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Asset</th><th align="right">Release bytes</th><th align="right">Downloaded bytes</th></tr></thead><tbody><tr><td><code>latest-linux.yml</code></td><td align="right">378</td><td align="right">378</td></tr><tr><td><code>latest.yml</code></td><td align="right">349</td><td align="right">349</td></tr><tr><td><code>resmon-2.0.1-arm64.dmg</code></td><td align="right">221,270,814</td><td align="right">221,270,814</td></tr><tr><td><code>resmon-2.0.1-setup-x64.exe</code></td><td align="right">194,928,665</td><td align="right">194,928,665</td></tr><tr><td><code>resmon-2.0.1-setup-x64.exe.blockmap</code></td><td align="right">204,366</td><td align="right">204,366</td></tr><tr><td><code>resmon-2.0.1-x64.dmg</code></td><td align="right">223,212,602</td><td align="right">223,212,602</td></tr><tr><td><code>resmon-2.0.1-x86_64.AppImage</code></td><td align="right">250,853,419</td><td align="right">250,853,419</td></tr></tbody></table>
+<p>DMG SHA-256:</p>
+<ul>
+<li>arm64: <code>9f893f842291d4f551275cec1d187d6b43291d079ad50d45336d6e95fe2591e9</code>.</li>
+<li>x64: <code>6fb67b0da5885f3c5ba2c25ee803b484746342dcc49cdf4a5477bde67c1c061b</code>.</li>
+</ul>
+<p>Windows and Linux were <strong>not launched</strong>: this run had a macOS host and no
+Windows/Linux execution environment. Size and digest agreement does not establish
+launchability. Updater contents and update installation were not exercised.</p>
+<h3 id="gatekeeper-observation-1">Gatekeeper observation</h3>
+<p><code>xattr -l</code> showed <code>com.apple.provenance</code>, with no <code>com.apple.quarantine</code>, on both
+DMGs and copied app roots. No Gatekeeper warning appeared on the controlled
+launches. No attributes were removed, bundles re-signed, or security settings
+changed. The <strong>quarantined browser-download / Finder right-click → Open path
+remains unverified</strong>.</p>
+<h3 id="arm64-route-walk-1">Arm64 route walk</h3>
+<p><strong>24 of 24 route entries rendered</strong>, with 24 derived by evaluating
+<code>allRouteHashes()</code> from the baseline’s <code>routes.ts</code>. The brief requires every route
+rather than stipulating a numeric count. Both redirecting parents were clicked
+separately from their child tabs. This establishes the visible content in these
+viewports, not every control or workflow on each page.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th align="right">#</th><th>Requested route</th><th>Observation</th><th>Screenshot</th></tr></thead><tbody><tr><td align="right">1</td><td><code>/</code></td><td>Welcome, three-step Getting started card, empty activity.</td><td><code>01-dashboard-first-run.png</code></td></tr><tr><td align="right">2</td><td><code>/dive</code></td><td>Repository/date/keyword form and Run control.</td><td><code>02-deep-dive.png</code></td></tr><tr><td align="right">3</td><td><code>/sweep</code></td><td>Multi-source form; “0 of 25 selected.”</td><td><code>03-deep-sweep.png</code></td></tr><tr><td align="right">4</td><td><code>/routines</code></td><td>“No routines configured” before creating the task routine.</td><td><code>04-routines.png</code></td></tr><tr><td align="right">5</td><td><code>/calendar</code></td><td>September grid; previous/next chevrons visibly render.</td><td><code>05-calendar.png</code></td></tr><tr><td align="right">6</td><td><code>/results</code></td><td>Filters and “No executions found.”</td><td><code>06-results.png</code></td></tr><tr><td align="right">7</td><td><code>/analytics</code></td><td>“Nothing to analyze yet.”</td><td><code>07-analytics.png</code></td></tr><tr><td align="right">8</td><td><code>/watchdog</code></td><td>Empty-history notice and unchecked-corpus explanation.</td><td><code>08-watchdog.png</code></td></tr><tr><td align="right">9</td><td><code>/explorer</code></td><td>Filters and “Nothing collected yet.”</td><td><code>09-explorer.png</code></td></tr><tr><td align="right">10</td><td><code>/configurations</code></td><td>Routine Configs table contains the newly created task routine.</td><td><code>10-configurations.png</code></td></tr><tr><td align="right">11</td><td><code>/monitor</code></td><td>“No active executions.”</td><td><code>11-monitor.png</code></td></tr><tr><td align="right">12</td><td><code>/repositories</code></td><td>Attributions and 25 source-row buttons in the accessibility tree.</td><td><code>12-repositories.png</code></td></tr><tr><td align="right">13</td><td><code>/settings</code></td><td>Redirected to Email; form rendered.</td><td><code>13-settings-parent.png</code></td></tr><tr><td align="right">14</td><td><code>/settings/email</code></td><td>Email form; no send or save action.</td><td><code>14-settings-email.png</code></td></tr><tr><td align="right">15</td><td><code>/settings/cloud</code></td><td>“Linked — API unreachable (RefreshError)”; Backup Now disabled.</td><td><code>15-settings-cloud.png</code></td></tr><tr><td align="right">16</td><td><code>/settings/ai</code></td><td>Key-status table and automatically selected Claude Code lane.</td><td><code>16-settings-ai.png</code></td></tr><tr><td align="right">17</td><td><code>/settings/storage</code></td><td>Retention note and export-location controls.</td><td><code>17-settings-storage.png</code></td></tr><tr><td align="right">18</td><td><code>/settings/notifications</code></td><td>Choices and “Current: granted.”</td><td><code>18-settings-notifications.png</code></td></tr><tr><td align="right">19</td><td><code>/settings/advanced</code></td><td>Installed service, isolated window PID, no active scheduler jobs.</td><td><code>19-settings-advanced.png</code></td></tr><tr><td align="right">20</td><td><code>/about-resmon</code></td><td>Redirected to Tutorials; contents and video thumbnail rendered.</td><td><code>20-about-parent.png</code></td></tr><tr><td align="right">21</td><td><code>/about-resmon/tutorials</code></td><td>Contents and video thumbnail; playback not tested here.</td><td><code>21-about-tutorials.png</code></td></tr><tr><td align="right">22</td><td><code>/about-resmon/issues</code></td><td>Issue form; nothing submitted.</td><td><code>22-about-issues.png</code></td></tr><tr><td align="right">23</td><td><code>/about-resmon/blog</code></td><td>Post list and embedded published blog loaded.</td><td><code>23-about-blog.png</code></td></tr><tr><td align="right">24</td><td><code>/about-resmon/about-app</code></td><td>Version <strong>2.0.1</strong>, release line <strong>2.0.x</strong>.</td><td><code>24-about-app.png</code></td></tr></tbody></table>
+<p>The 25-source count is from rendered row buttons, not a total badge on
+Repositories. <code>repository-rows.txt</code> records the list; Deep Sweep independently
+shows its selector total. No source searches were run in the published app.
+Cloud Storage probed an existing system-keyring credential automatically and
+reported <code>RefreshError</code>. No credential, backup, or service-installation controls
+were changed. Advanced’s “no daemon running” describes the isolated state and is
+not an observation about the existing port-8742 daemon.</p>
+<h3 id="what-only-an-install-can-show">What only an install can show</h3>
+<p><strong>First-run card.</strong> In fresh arm64 state the Dashboard displayed these exact
+step details (<code>01-dashboard-first-run.png</code>):</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Step</th><th>Detail on this machine</th></tr></thead><tbody><tr><td>Use an AI subscription you already pay for</td><td>“resmon found Claude Code and Codex on this machine.”</td></tr><tr><td>Or bring an API key</td><td>“No AI provider is configured.”</td></tr><tr><td>Add a key for a source that wants one</td><td>“5 of resmon’s sources can take a key of their own. The rest need none.”</td></tr></tbody></table>
+<p>The footer explicitly distinguishes found/configured from working. Clicking
+<strong>Skip</strong>, then reloading with Cmd-R, left the card absent
+(<code>first-run-skipped-reloaded.png</code>).</p>
+<p>A second new state/profile launch also opened Dashboard and displayed the card
+(<code>second-initial-dashboard.png</code>). The published startup opens <code>/index.html</code>
+without a route override, so <strong>the brief’s routine-before-first-Dashboard / card
+never-appears sequence was not established</strong>. No startup patch or database seed
+was substituted for that user path. Instead, without clicking Skip, the Routines
+form created <code>First routine retirement check</code>, using the First of month preset.
+The UI created it Active; it was immediately deactivated using the direct routine
+control (<code>second-first-routine.png</code>). Returning to Dashboard removed the card,
+and Cmd-R did not bring it back (<code>second-dashboard-after-routine.png</code>,
+<code>second-dashboard-reloaded.png</code>). This establishes automatic retirement after
+routine creation in that sequence; it does not prove the card never appeared.</p>
+<p><strong>Assistant.</strong> In the first isolated app the direct Routines form created
+<code>Release verification inactive routine</code> with cron <code>0 0 1 * *</code>. It initially
+appeared Active and was deactivated before asking the assistant
+(<code>assistant-routine-inactive-before.png</code>). AI, email and notification flags were
+off. No scheduled execution was observed.</p>
+<p>The read-only question “What sources do I have?” stayed at “Working…” and then
+showed <strong>“resmon could not finish that turn.”</strong> after approximately five minutes
+(<code>assistant-readonly-working.png</code>, <code>assistant-readonly-failed.png</code>). No answer,
+tool-call entry, approval card, or cost line was displayed in the observed panel.
+A process observation identified the real <code>/Users/noir/.local/bin/claude</code> child
+of the bundled backend. This was not a mocked CLI. The panel did not report a
+sign-in error, so this run does not establish that missing sign-in caused the
+failure or that authentication succeeded.</p>
+<p>The next request, “Please activate the routine named Release verification inactive
+routine,” likewise ended after approximately five minutes with <strong>“resmon could
+not finish that turn.”</strong> (<code>assistant-activation-failed.png</code>). No approval card
+appeared in the observed panel, so there was <strong>nothing to deny</strong>. No assistant
+card was approved. Reloading Routines showed the routine still <strong>Inactive</strong>
+(<code>assistant-routine-inactive-after.png</code>). <strong>P3’s successful read/tool-call and
+write-card/denial behavior remain unverified.</strong> The panel displayed no cost line
+for either failed turn; cost is unavailable, not measured as zero. No application
+repair or alternate runtime was introduced to obtain a different result.</p>
+<p><strong>Calendar and About App.</strong> <code>05-calendar.png</code> shows left/right month chevrons,
+not squares. <code>24-about-app.png</code> shows “resmon version 2.0.1” and “Current release
+line: 2.0.x.” These are published-window observations.</p>
+<h3 id="console-and-visible-discrepancies-1">Console and visible discrepancies</h3>
+<p>After the route walk, the main renderer’s DevTools Console showed one warning:
+<code>Unrecognized feature: 'web-share'.</code> (<code>arm64-console.png</code>). No font-blocking error
+was present in that inspection. This was a post-walk snapshot, not continuous
+capture of every renderer or webview; the Blog webview’s separate console was
+not inspected. Startup stderr recorded <code>[DEP0180] DeprecationWarning: fs.Stats constructor is deprecated</code>. Cloud Storage’s <code>RefreshError</code>, both assistant
+failures, and the routine form’s initial Active status are observations, not
+release grades or diagnoses. None was repaired by this task.</p>
+<h3 id="x64--rosetta-result-1">x64 / Rosetta result</h3>
+<p><code>file</code> identified the copied executable as <code>Mach-O 64-bit executable x86_64</code>.
+An existing <code>com.apple.pkg.RosettaUpdateAuto</code> receipt was present; no Rosetta
+installation was performed. <code>open -n --arch x86_64</code> launched the copied app with
+fresh state/profile. Dashboard showed Backend Online and the first-run card
+(<code>x64-dashboard.png</code>); About App showed <strong>2.0.1</strong> and <strong>2.0.x</strong>
+(<code>x64-about-app.png</code>). The initial native automation lookup timed out while the
+app was starting; a later lookup of the same path succeeded. This was a bounded
+Dashboard/About observation, not a full x64 route walk or an assistant check.</p>
+<h3 id="isolation-and-cleanup-1">Isolation and cleanup</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Launch</th><th align="right">App PID</th><th align="right">Bundled backend PID</th><th align="right">Backend port</th><th align="right">Renderer port</th></tr></thead><tbody><tr><td>arm64 first state</td><td align="right">63636</td><td align="right">63642</td><td align="right">55442</td><td align="right">55452</td></tr><tr><td>arm64 second state</td><td align="right">64376</td><td align="right">64383</td><td align="right">57256</td><td align="right">57271</td></tr><tr><td>x64</td><td align="right">65684</td><td align="right">65840</td><td align="right">58328</td><td align="right">58369</td></tr></tbody></table>
+<p>All six recorded app/backend PIDs were absent after quitting the task apps.
+The two task-mounted DMGs were detached. Before/after <code>lsof -nP -iTCP:8742 -sTCP:LISTEN</code> snapshots were byte-for-byte identical: Python PID <strong>1150</strong>, FD
+<strong>12u</strong>, socket <strong>0xaa26ce450f50da0e</strong>, <strong>127.0.0.1:8742</strong>. No task launch bound
+or attached to that port and no HTTP probe was made to it. <strong>This establishes
+listener identity at two times, not unchanged HTTP health or continuous service.</strong></p>
+<p>Screenshots and receipts are retained outside the repository at
+<code>~/Documents/resmon-codex/release-evidence/v2.0.1-20260906/</code>. Downloaded assets,
+all three copied apps, and their temporary state/profile directories were removed
+after attachment verification. The verification download was also removed.</p>
+<h3 id="repository-checks-distinct-from-the-release-walk-1">Repository checks, distinct from the release walk</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Observed result</th></tr></thead><tbody><tr><td><code>.venv/bin/python -m pytest -q</code></td><td><strong>1,546 passed, 2 skipped, 74 deselected</strong>, 106.50 s.</td></tr><tr><td><code>npm run typecheck</code></td><td>Exit 0.</td></tr><tr><td><code>npm test</code></td><td><strong>275 passed, 32 suites passed</strong>, 7.616 s.</td></tr><tr><td><code>npm run build</code></td><td>Exit 0; renderer and Electron builds completed.</td></tr><tr><td><code>npm run e2e</code></td><td><strong>69 passed, 2 skipped</strong>, 2.9 min on the macOS display.</td></tr></tbody></table>
+<p>Backend tests ran from the checkout root; frontend commands from
+<code>resmon_scripts/frontend</code>. The E2E packaged-app case skipped because the existing
+local bundle is <strong>1.8.4</strong>, not 2.0.1. Its no-CLI case skipped because it detected
+the installed Codex command. It also printed <code>P13c MONITOR NOT VERIFIED</code>: a
+no-HTTP execution finished before the Monitor poll adopted it. Those limitations
+stay attached to the locally built E2E result; the published screenshots do not
+replace them. The <strong>74 live-network backend tests were not run</strong>.</p>
+<h3 id="evidence-and-scope-1">Evidence and scope</h3>
+<p>The <a href="https://github.com/ryanjosephkamp/resmon/pull/100#issuecomment-5563442522">PR evidence comment</a>
+attaches <a href="https://github.com/user-attachments/files/31891573/resmon-v2.0.1-launch-evidence.zip">resmon-v2.0.1-launch-evidence.zip</a>
+and four inline previews. The archive contains <strong>37 screenshots</strong>: the
+numbered route screenshots and additional onboarding, assistant, console and
+x64 captures, a screenshot SHA-256 manifest, route denominator, rendered source
+list, release metadata, asset verification, and listener/process receipts.
+Screenshots were reviewed before publication and are not committed. A signed-in
+Chrome download of the attachment matched the original archive byte-for-byte;
+all four inline previews loaded. Unauthenticated command-line requests to the
+archive returned 404, so anonymous download access was not established.</p>
+<p>The sole repository change is <code>docs/release-verification.md</code>. The procedure now
+makes the two onboarding states, actual initial route, and assistant failure/cost
+reporting explicit. No application code, dependency, workflow, or other document
+changed. No release go/no-go judgment is made. Beyond the specific observations
+above, this run did not establish quarantined Gatekeeper behavior, the exact
+routine-before-first-Dashboard sequence, successful assistant answers/tool calls,
+write approval/denial behavior, cost, video playback in the published app,
+source searches, summaries, notifications, email, backup, updating, a full x64
+walk, or Windows/Linux execution.</p>
+<h2 id="v202-run">v2.0.2 run</h2>
+<h3 id="subject-and-launch-conditions-2">Subject and launch conditions</h3>
+<p>Observed on <strong>2026-09-07</strong>, macOS <strong>26.3.1 (a)</strong>, build <strong>25D771280a</strong>, arm64
+host. This is Delegation 12’s bounded recheck of the assistant on
+<a href="https://github.com/ryanjosephkamp/resmon/releases/tag/v2.0.2">the published v2.0.2 release</a>,
+published at <code>2026-09-07T05:30:39Z</code>. Before verification, the clean Codex checkout
+was fetched from <code>upstream</code> and branch <code>codex/verify-v2.0.2</code> was created from
+<code>upstream/main</code>, commit <code>4551b52d40d4fbb0f4dadcbc228263c0808b8306</code> (PR #109).
+The checkout had been left on <code>fix/assistant-silent-in-packaged-app</code>, rather
+than the <code>main</code> named in the brief; no uncommitted changes needed preservation.</p>
+<p>All seven assets were downloaded with <code>gh release download v2.0.2 --repo ryanjosephkamp/resmon --dir /tmp/resmon-verify-v2.0.2-6qify9/assets</code>. The arm64
+DMG was mounted read-only and its app copied with <code>ditto</code> to that scratch tree,
+outside both checkouts. The published <code>app.asar</code> was inspected to confirm the
+state-directory override and daemon-lock lookup. LaunchServices used:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">open</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -n</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -a</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> /tmp/resmon-verify-v2.0.2-6qify9/arm64/resmon.app</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --env</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> RESMON_STATE_DIR=/tmp/resmon-verify-v2.0.2-6qify9/arm64/state</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --stdout</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> /tmp/resmon-verify-v2.0.2-6qify9/evidence/arm64-stdout.log</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --stderr</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> /tmp/resmon-verify-v2.0.2-6qify9/evidence/arm64-stderr.log</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --args</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --user-data-dir=/tmp/resmon-verify-v2.0.2-6qify9/arm64/electron-user-data</span></span></code></pre>
+<p>State and Chromium profile were fresh. Neither <code>RESMON_PYTHON</code> nor
+<code>RESMON_E2E</code> was supplied; the published app used its bundled Python. About App
+displayed <strong>2.0.2</strong> (<code>02-published-version.png</code>). Native accessibility actions
+operated the actual window. This was an isolated LaunchServices launch, not a
+normal launch against the existing user’s database. OS keyring and CLI login
+were not isolated or changed. The DMG and copied app root had provenance but no
+quarantine attribute; no warning appeared. Quarantined Gatekeeper launch remains
+unverified, and no attributes or security settings were changed.</p>
+<h3 id="asset-inventory-against-v201">Asset inventory against v2.0.1</h3>
+<p>All <strong>7/7</strong> names matched the v2.0.1 matrix after substituting the version.
+Downloaded byte sizes and computed SHA-256 digests matched v2.0.2 release
+metadata <strong>7/7</strong>. Sizes below are bytes; the final column is the actual download.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Asset</th><th align="right">v2.0.1 bytes</th><th align="right">v2.0.2 release bytes</th><th align="right">Downloaded bytes</th></tr></thead><tbody><tr><td><code>latest-linux.yml</code></td><td align="right">378</td><td align="right">378</td><td align="right">378</td></tr><tr><td><code>latest.yml</code></td><td align="right">349</td><td align="right">349</td><td align="right">349</td></tr><tr><td><code>resmon-2.0.2-arm64.dmg</code></td><td align="right">221,270,814</td><td align="right">221,298,582</td><td align="right">221,298,582</td></tr><tr><td><code>resmon-2.0.2-setup-x64.exe</code></td><td align="right">194,928,665</td><td align="right">194,935,371</td><td align="right">194,935,371</td></tr><tr><td><code>resmon-2.0.2-setup-x64.exe.blockmap</code></td><td align="right">204,366</td><td align="right">204,542</td><td align="right">204,542</td></tr><tr><td><code>resmon-2.0.2-x64.dmg</code></td><td align="right">223,212,602</td><td align="right">223,223,188</td><td align="right">223,223,188</td></tr><tr><td><code>resmon-2.0.2-x86_64.AppImage</code></td><td align="right">250,853,419</td><td align="right">250,866,052</td><td align="right">250,866,052</td></tr></tbody></table>
+<p>The arm64 DMG SHA-256 was
+<code>f22567df8531501489e233b869e0a24a61bc98990ada378456d8b86fa6d56903</code>.
+All seven digests are in the attached asset receipt. Only arm64 was launched
+for this recheck; asset agreement does not establish other platforms’ behavior.</p>
+<h3 id="assistant-outcome--p1-established-for-these-two-turns">Assistant outcome — P1 established for these two turns</h3>
+<p>The direct Routines form created <code>Release verification v2.0.2 inactive routine</code>
+(routine <strong>1</strong>), with arXiv, keyword <code>release verification</code>, and First of month
+cron <code>0 0 1 * *</code>. As in v2.0.1, the form initially created it <strong>Active</strong>. It was
+immediately deactivated through the direct routine control before either
+assistant request. AI, email and notification flags were off
+(<code>03-routine-inactive-before.png</code>). No assistant card was approved.</p>
+<p><strong>Read.</strong> The exact question was <code>what sources do I have?</code>. The panel answered
+through <strong><code>list_sources({})</code></strong>, with no approval card. It reported 27 sources,
+identified CORE, GovInfo, NASA ADS and Springer Nature as requiring missing keys,
+and distinguished PubMed and Semantic Scholar’s optional keys. The stored tool
+result independently contains 27 source records and those key-status fields.
+The question and completed-answer database timestamps were <code>07:10:22</code> and
+<code>07:10:31</code> UTC, nine seconds apart; this is second-resolution persisted timing,
+not a measurement of the first streamed token. The displayed cost was
+<strong><code>$0.1297</code></strong>, with <code>cost_usd=0.1296855</code> in the stored message.</p>
+<p><code>05-readonly-outcome.png</code>, <code>06-readonly-tool-call.png</code> and
+<code>07-readonly-answer-top.png</code> show the answer, expanded empty call arguments and
+cost. The full answer and returned data are preserved in the conversation
+receipt. The answer’s phrase “usable without a key” describes catalog/key
+information: <strong>no source search or upstream-health check was performed</strong>.
+The answer’s Markdown table and emphasis markers appeared as literal text in
+the panel; the Dashboard’s initial onboarding text still said 25 sources while
+this tool returned 27. These are recorded observations, not repaired here.</p>
+<p><strong>Write and denial.</strong> The next request in the same conversation was
+<code>Please activate the routine named Release verification v2.0.2 inactive routine.</code>
+The assistant called <code>list_routines({})</code>, then requested
+<code>activate_routine({"routine_id":1})</code>. A card appeared reading <strong>“Put routine 1
+on its schedule”</strong>, showing those exact arguments, <strong>Allow</strong>, <strong>Deny</strong>, and
+“Nothing runs until you answer. resmon is holding the assistant here.”
+<code>08-activation-card.png</code> captures the full card before the decision.</p>
+<p><strong>Deny was clicked.</strong> The activation tool then showed a failure mark, and its
+persisted result was <code>is_error=true</code>, <code>The user did not allow this.</code> The final
+answer said <strong>“Not activated — the confirmation was declined.”</strong> and named the
+routine as still inactive (<code>09-activation-denied.png</code>, <code>10-denial-answer.png</code>).
+The displayed cost was <strong><code>$0.1058</code></strong>, with a stored value approximately
+<code>0.1058115</code>. These are the application’s reported costs, not independently
+verified billing amounts.</p>
+<p>The panel was closed and Routines reloaded with Cmd-R. The row remained
+<strong>Inactive</strong>, with no last execution (<code>11-routine-inactive-after-reload.png</code>).
+A read-only connection to this run’s isolated SQLite database confirmed
+<code>is_active=0</code> and <strong>zero executions</strong>. This establishes the requested card and
+denial behavior for routine 1; it does not establish approval/execution behavior.</p>
+<p>Both turns used the real <code>/Users/noir/.local/bin/claude</code>, with child PIDs
+<strong>21105</strong> and <strong>21227</strong> under bundled backend PID <strong>20978</strong>. To avoid losing
+diagnostics to the new 30-second startup deadline, a watcher captured <code>ps eww</code>,
+<code>lsof -nP -p &#x3C;pid></code>, and a two-second <code>sample</code> about seven seconds into each
+child’s lifetime. Both turns succeeded, so those samples are <strong>not evidence
+of a blocked CLI or a diagnosis of v2.0.1</strong>. Raw diagnostics remain private;
+only process/capture receipts are included in public evidence. No runtime,
+authentication, environment or application repair was introduced to obtain
+these outcomes.</p>
+<h3 id="isolation-and-cleanup--p2">Isolation and cleanup — P2</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th align="right">App PID</th><th align="right">Bundled backend PID</th><th align="right">Backend port</th><th align="right">Renderer port</th></tr></thead><tbody><tr><td align="right">20972</td><td align="right">20978</td><td align="right">62191</td><td align="right">62196</td></tr></tbody></table>
+<p>The task app was quit, all four recorded app/backend/CLI PIDs were absent,
+and the task-mounted DMG was detached. Before/after
+<code>lsof -nP -iTCP:8742 -sTCP:LISTEN</code> snapshots were byte-for-byte identical:
+Python PID <strong>1150</strong>, FD <strong>12u</strong>, socket <strong>0xaa26ce450f50da0e</strong>,
+<strong>127.0.0.1:8742</strong>. No task launch bound or attached to 8742 and no HTTP probe
+was made to it. <strong>This establishes unchanged listener identity at two times,
+not HTTP health, database invariance or uninterrupted service.</strong></p>
+<p>The explicitly named delegation brief was read; no other file in
+<code>~/Documents/resmon-upgrade</code> was accessed, and no file there was written.
+The pre-existing installed application and daemon were left running.</p>
+<h3 id="repository-checks-distinct-from-published-app-evidence">Repository checks, distinct from published-app evidence</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Observed result</th></tr></thead><tbody><tr><td><code>.venv/bin/python -m pytest -q</code></td><td><strong>1,549 passed, 2 skipped, 74 deselected</strong>, 150.04 s.</td></tr><tr><td><code>npm run typecheck</code></td><td>Exit 0.</td></tr><tr><td><code>npm test</code></td><td><strong>275 passed, 32 suites passed</strong>, 10.561 s.</td></tr><tr><td><code>npm run build</code></td><td>Exit 0; renderer and Electron builds completed.</td></tr><tr><td><code>RESMON_E2E_SCREENSHOT_DIR=/tmp/resmon-verify-v2.0.2-6qify9/e2e-screenshots npm run e2e</code></td><td><strong>71 passed, 2 skipped</strong>, 3.7 min on the macOS display.</td></tr></tbody></table>
+<p>Backend tests ran at the checkout root and frontend commands in
+<code>resmon_scripts/frontend</code>. E2E’s packaged walk skipped because the existing
+local bundle is <strong>1.8.4</strong>, not 2.0.2; its no-CLI case skipped because Codex is
+installed. It also printed <strong><code>P13c MONITOR NOT VERIFIED</code></strong> because a no-HTTP
+execution ended before the Monitor poll adopted it. The hotfix’s fake-CLI
+first-event and silent-startup checks passed, the latter in 30.6 seconds.
+Those local tests are separate from the real CLI/published DMG observations
+above. The <strong>74 live-network backend tests were not run</strong>.</p>
+<h3 id="evidence-and-scope-2">Evidence and scope</h3>
+<p>The PR attachments contain <code>resmon-v2.0.2-assistant-evidence.zip</code> and inline
+previews. The archive contains <strong>11 native-window screenshots</strong>, their SHA-256
+manifest, both release inventories, downloaded-asset verification, the complete
+two-turn assistant record, the reloaded routine-state receipt, listener/process
+receipts and test logs. Screenshots were reviewed before publication and are
+not committed. Evidence is retained outside the repository at
+<code>~/Documents/resmon-codex/release-evidence/v2.0.2-20260907/</code>.</p>
+<p>The sole repository change is this document. Delegation 12’s explicit arm64
+assistant recheck is the scope; this run does not repeat Delegation 11’s full
+route/onboarding/x64 walk or verify Windows/Linux, updating, source health,
+searches, summaries, notifications, email, backup or quarantined Gatekeeper
+launch. No application fix, dependency change or release judgment is included.</p>
+<h2 id="v220-run">v2.2.0 run</h2>
+<h3 id="subject-and-launch-conditions-3">Subject and launch conditions</h3>
+<p>Observed on <strong>2026-09-20</strong>, macOS <strong>26.3.1</strong>, arm64 host, by the maintainer’s lead agent.
+The subject was <a href="https://github.com/ryanjosephkamp/resmon/releases/tag/v2.2.0">the published v2.2.0 release</a>,
+published at <code>2026-09-20T20:03:28Z</code> from tag <code>v2.2.0</code> on <code>8f966d7</code> (PR #133). The
+pre-tag gate (<code>test_cumulative_upgrade.py</code>, 16 cases) was green on the tag’s parent
+before the release PR was cut, and the release PR itself merged with every required job
+green on its exact head.</p>
+<p>All seven assets were downloaded with <code>gh release download v2.2.0 --repo ryanjosephkamp/resmon</code> into a scratch directory outside both checkouts. The arm64 DMG was
+mounted read-only (<code>hdiutil attach -readonly -nobrowse</code>) and its app copied with <code>ditto</code>
+into the scratch tree, never <code>/Applications</code>. The DMG carried <code>com.apple.provenance</code> and
+no quarantine attribute; nothing was changed. The copied bundle’s <code>Info.plist</code> reported
+<code>CFBundleShortVersionString</code> <strong>2.2.0</strong>, <code>CFBundleVersion</code> <strong>2.2.0</strong>, identifier
+<code>com.resmon.app</code>. LaunchServices used the procedure’s isolated form:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">open</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -n</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -a</span><span style="color:#D73A49;--shiki-dark:#F97583"> &#x3C;</span><span style="color:#032F62;--shiki-dark:#9ECBFF">scratc</span><span style="color:#24292E;--shiki-dark:#E1E4E8">h</span><span style="color:#D73A49;--shiki-dark:#F97583">></span><span style="color:#032F62;--shiki-dark:#9ECBFF">/arm64/resmon.app</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --env</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> RESMON_STATE_DIR=</span><span style="color:#D73A49;--shiki-dark:#F97583">&#x3C;</span><span style="color:#032F62;--shiki-dark:#9ECBFF">scratc</span><span style="color:#24292E;--shiki-dark:#E1E4E8">h</span><span style="color:#D73A49;--shiki-dark:#F97583">></span><span style="color:#032F62;--shiki-dark:#9ECBFF">/arm64/state</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --stdout</span><span style="color:#D73A49;--shiki-dark:#F97583"> &#x3C;</span><span style="color:#032F62;--shiki-dark:#9ECBFF">scratc</span><span style="color:#24292E;--shiki-dark:#E1E4E8">h</span><span style="color:#D73A49;--shiki-dark:#F97583">></span><span style="color:#032F62;--shiki-dark:#9ECBFF">/evidence/arm64-stdout.log</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --stderr</span><span style="color:#D73A49;--shiki-dark:#F97583"> &#x3C;</span><span style="color:#032F62;--shiki-dark:#9ECBFF">scratc</span><span style="color:#24292E;--shiki-dark:#E1E4E8">h</span><span style="color:#D73A49;--shiki-dark:#F97583">></span><span style="color:#032F62;--shiki-dark:#9ECBFF">/evidence/arm64-stderr.log</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  --args</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --user-data-dir=</span><span style="color:#D73A49;--shiki-dark:#F97583">&#x3C;</span><span style="color:#005CC5;--shiki-dark:#79B8FF">scratch</span><span style="color:#D73A49;--shiki-dark:#F97583">></span><span style="color:#005CC5;--shiki-dark:#79B8FF">/arm64/electron-user-data</span></span></code></pre>
+<p>Neither <code>RESMON_PYTHON</code> nor <code>RESMON_E2E</code> was supplied; the published bundle used its own
+Python. The startup log read <code>[main] Starting backend on port 55952</code> then
+<code>[main] Backend is ready</code>. <code>lsof -nP -iTCP:8742 -sTCP:LISTEN</code> showed the same pre-existing
+listener before, during and after; port 8742 was never contacted.</p>
+<h3 id="asset-inventory-against-v210">Asset inventory against v2.1.0</h3>
+<p>All <strong>7/7</strong> names matched the v2.1.0 matrix after substituting the version. Downloaded
+byte sizes matched the release metadata <strong>7/7</strong>. The four large binaries grew by 1.3–1.5%
+and the blockmap by 0.97%; that is consistent with the retained-PDF reader’s pinned PDF.js
+assets and <code>pypdf</code> (PR #121), though the growth was not attributed by measurement. The two
+updater feed files are byte-for-byte the same size.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Asset</th><th align="right">v2.1.0 bytes</th><th align="right">v2.2.0 release bytes</th><th align="right">Downloaded bytes</th></tr></thead><tbody><tr><td><code>latest-linux.yml</code></td><td align="right">378</td><td align="right">378</td><td align="right">378</td></tr><tr><td><code>latest.yml</code></td><td align="right">349</td><td align="right">349</td><td align="right">349</td></tr><tr><td><code>resmon-2.2.0-arm64.dmg</code></td><td align="right">221,393,745</td><td align="right">224,785,384</td><td align="right">224,785,384</td></tr><tr><td><code>resmon-2.2.0-setup-x64.exe</code></td><td align="right">195,002,354</td><td align="right">197,500,855</td><td align="right">197,500,855</td></tr><tr><td><code>resmon-2.2.0-setup-x64.exe.blockmap</code></td><td align="right">204,618</td><td align="right">206,594</td><td align="right">206,594</td></tr><tr><td><code>resmon-2.2.0-x64.dmg</code></td><td align="right">223,260,473</td><td align="right">226,694,739</td><td align="right">226,694,739</td></tr><tr><td><code>resmon-2.2.0-x86_64.AppImage</code></td><td align="right">250,943,385</td><td align="right">254,495,346</td><td align="right">254,495,346</td></tr></tbody></table>
+<p>The arm64 DMG SHA-256 was
+<code>166c28f129e4cf6dc8e88ba9d7943abff8bd06f434a2811be3c159c6533f197f</code>.</p>
+<h3 id="the-local-api-guard-in-the-published-build">The local API guard in the published build</h3>
+<p>This is the first time the token lock-down (PR #130, <code>docs/local-api-security.md</code>) ran
+in a packaged app rather than a checkout. The isolated state directory held
+<code>api-token-55952</code> (mode <code>0600</code>) beside <code>resmon.port</code> within seconds of launch. Against
+the published backend on its own ephemeral port, from <code>curl</code> on the same host:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Request to <code>GET /api/health</code></th><th>Answer</th></tr></thead><tbody><tr><td>no <code>Authorization</code> header</td><td><code>401</code></td></tr><tr><td><code>Authorization: Bearer not-the-token</code></td><td><code>401</code></td></tr><tr><td>the token from <code>api-token-55952</code></td><td><code>200</code>; of the body’s six keys, <code>status</code> was <code>ok</code> and <code>version</code> was <code>2.2.0</code></td></tr><tr><td>right token, <code>Origin: https://evil.example</code></td><td><code>403</code></td></tr><tr><td>right token, <code>Host: attacker.example</code></td><td><code>403</code></td></tr></tbody></table>
+<p>Five of five answers are the ones the security document specifies. This establishes the
+guard on the shipped arm64 bundle at the HTTP layer only; it does not establish Windows
+token-file permissions, a browser drive-by page, or DNS rebinding (L-105 stands for those).</p>
+<h3 id="isolation-and-cleanup-2">Isolation and cleanup</h3>
+<p>The five processes belonging to the copied app were sent <code>SIGTERM</code>. Five seconds later all
+five were still present, so they were sent <code>SIGKILL</code>. The token file was therefore <strong>not</strong>
+removed — that is the documented crash case (“a file left by a crash admits nothing”),
+not the clean-shutdown case, and it was not retried with a longer wait. Whether the
+packaged app exits cleanly on <code>SIGTERM</code> within a bounded time is recorded here as
+<strong>unverified</strong>. The image was detached (<code>disk4 ejected</code>); the downloaded installers, the
+copied app, its Chromium profile and its state directory were removed; the launch logs,
+size and digest receipts, plist excerpt and the guard table above were kept outside the
+repository.</p>
+<h3 id="what-this-run-did-not-do">What this run did not do</h3>
+<p>No route walk was performed in the published window, so this run does not claim that the
+29 routes render; the built-app end-to-end job on the release head covers that surface for
+a locally built app, not the installer. The x64 DMG was not launched. Windows and Linux
+evidence is limited to asset names and byte sizes. No Gatekeeper prompt was exercised,
+because the command-line download carried no quarantine attribute. No assistant turn was
+attempted. The x64, Windows and Linux installers remain launch-unverified.</p>
+<h3 id="evidence-and-scope-3">Evidence and scope</h3>
+<p>Kept outside the repository: <code>release-metadata.txt</code>, <code>sizes.txt</code>, <code>sha256.txt</code>,
+<code>dmg-xattr.txt</code>, <code>info-plist.txt</code>, <code>lsof-before.txt</code>, <code>arm64-stdout.log</code>,
+<code>arm64-stderr.log</code>, <code>packaged-token-check.txt</code>. This section is the only file this PR
+changes.</p>
+<h2 id="v230-run">v2.3.0 run</h2>
+<h3 id="subject-and-launch-conditions-4">Subject and launch conditions</h3>
+<p>Observed on <strong>2026-09-21</strong>, macOS <strong>26.3.1</strong>, arm64 host, by the maintainer’s lead agent.
+The subject was <a href="https://github.com/ryanjosephkamp/resmon/releases/tag/v2.3.0">the published v2.3.0 release</a>,
+published at <code>2026-09-21T22:19:55Z</code> from tag <code>v2.3.0</code> on <code>2b2b7d0</code> (PR #156). The release
+PR merged with every required job green on its exact head (<code>c9e3a10</code>), and the walk a
+2.2.0 corpus takes (18 → 21) is proven in the ordinary suite over the v2.2.0 fixture
+(<code>test_one_init_db_over_the_newest_releases_fixture_keeps_every_row[v2.2.0]</code>: 171 of 171
+rows, 13 of 13 sequences).</p>
+<p>All seven assets were downloaded with <code>gh release download v2.3.0</code> into a scratch directory
+outside both checkouts. The arm64 DMG was mounted read-only (<code>hdiutil attach -readonly -nobrowse</code>) and its app copied with <code>ditto</code> into the scratch tree, never <code>/Applications</code>.
+The DMG carried <code>com.apple.provenance</code> and no quarantine attribute; nothing was changed. The
+copied bundle’s <code>Info.plist</code> reported <code>CFBundleShortVersionString</code> <strong>2.3.0</strong>, <code>CFBundleVersion</code>
+<strong>2.3.0</strong>, identifier <code>com.resmon.app</code>. LaunchServices used the isolated form of the
+procedure above (<code>open -n -a</code>, <code>RESMON_STATE_DIR</code> and <code>--user-data-dir</code> under the scratch
+tree, stdout and stderr captured). Neither <code>RESMON_PYTHON</code> nor <code>RESMON_E2E</code> was supplied;
+the published bundle used its own Python. The startup log read <code>[main] Starting backend on port 52842</code> then <code>[main] Backend is ready</code>. <code>lsof -nP -iTCP:8742 -sTCP:LISTEN</code> showed the
+same pre-existing listener before, during and after; port 8742 was never contacted.</p>
+<h3 id="asset-inventory-against-v220">Asset inventory against v2.2.0</h3>
+<p>All <strong>7/7</strong> names matched the v2.2.0 matrix after substituting the version. Downloaded byte
+sizes matched the release metadata <strong>7/7</strong>. Every asset is within ±0.25% of its v2.2.0
+size: the release adds backend code and docs and removes <code>tailwindcss</code>, so the installers
+neither grew nor shrank measurably. The two updater feed files are byte-for-byte the same
+size.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Asset</th><th align="right">v2.2.0 bytes</th><th align="right">v2.3.0 release bytes</th><th align="right">Downloaded bytes</th></tr></thead><tbody><tr><td><code>latest-linux.yml</code></td><td align="right">378</td><td align="right">378</td><td align="right">378</td></tr><tr><td><code>latest.yml</code></td><td align="right">349</td><td align="right">349</td><td align="right">349</td></tr><tr><td><code>resmon-2.3.0-arm64.dmg</code></td><td align="right">224,785,384</td><td align="right">224,727,061</td><td align="right">224,727,061</td></tr><tr><td><code>resmon-2.3.0-setup-x64.exe</code></td><td align="right">197,500,855</td><td align="right">197,510,191</td><td align="right">197,510,191</td></tr><tr><td><code>resmon-2.3.0-setup-x64.exe.blockmap</code></td><td align="right">206,594</td><td align="right">207,054</td><td align="right">207,054</td></tr><tr><td><code>resmon-2.3.0-x64.dmg</code></td><td align="right">226,694,739</td><td align="right">226,629,279</td><td align="right">226,629,279</td></tr><tr><td><code>resmon-2.3.0-x86_64.AppImage</code></td><td align="right">254,495,346</td><td align="right">254,396,713</td><td align="right">254,396,713</td></tr></tbody></table>
+<p>The arm64 DMG SHA-256 was
+<code>555be6c8fe43f69db78568f37064bf0f83037918eeffcf6c27d30dc281f929b9</code>; the x64 DMG
+<code>544a1ffe03bd553c299360a0958fe9e4c4f7172b83714460b7b2be6cb51591bb</code>.</p>
+<h3 id="the-published-backend-its-schema-and-its-guard">The published backend, its schema and its guard</h3>
+<p>The isolated state directory held <code>api-token-52842</code> (mode <code>0600</code>) beside <code>resmon.port</code>
+within seconds of launch. Against the published backend on its own ephemeral port, from
+<code>curl</code> on the same host:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Request to <code>GET /api/health</code></th><th>Answer</th></tr></thead><tbody><tr><td>no <code>Authorization</code> header</td><td><code>401</code></td></tr><tr><td><code>Authorization: Bearer not-the-token</code></td><td><code>401</code></td></tr><tr><td>the token from <code>api-token-52842</code></td><td><code>200</code>; <code>status</code> was <code>ok</code>, <code>version</code> was <code>2.3.0</code>, <code>identity.schema_version</code> was <code>21</code></td></tr><tr><td>right token, <code>Origin: https://evil.example</code></td><td><code>403</code></td></tr><tr><td>right token, <code>Host: attacker.example</code></td><td><code>403</code></td></tr></tbody></table>
+<p>Five of five answers are the ones <code>docs/local-api-security.md</code> specifies. A fresh state
+directory came up at schema 21; the 18 → 21 walk over an existing corpus is the suite’s
+proof above, not this run’s.</p>
+<h3 id="isolation-and-cleanup--and-a-clean-exit-this-time">Isolation and cleanup — and a clean exit this time</h3>
+<p>The five processes belonging to the copied app were sent <code>SIGTERM</code>. <strong>All five were gone
+within one second</strong>, and the state directory afterwards held only <code>resmon.db</code>, <code>-wal</code> and
+<code>-shm</code>: the token file had been removed, which is the documented clean-shutdown case. The
+v2.2.0 run recorded this as unverified after a five-second wait and a <code>SIGKILL</code>; this run
+waited up to thirty seconds and needed one. The packaged app’s exit on <code>SIGTERM</code> is now
+<strong>verified on arm64 macOS</strong>, which closes the line the v2.2.0 section above left
+unverified (it is not part of L-105, which is about the token not stopping the owner’s own
+processes). The image was detached; the
+downloaded installers, the copied app, its Chromium profile and its state directory were
+removed; the launch logs, size and digest receipts, plist excerpt, health body and the guard
+table above were kept outside the repository.</p>
+<h3 id="what-this-run-did-not-do-1">What this run did not do</h3>
+<p>No route walk was performed in the published window; the built-app end-to-end job on the
+release head covers that surface for a locally built app, not the installer. The x64 DMG was
+downloaded and hashed but not launched. Windows and Linux evidence is limited to asset names
+and byte sizes. No Gatekeeper prompt was exercised, because the command-line download carried
+no quarantine attribute. No assistant turn was attempted, no backup was taken and no restore
+was staged in the published app. The x64, Windows and Linux installers remain
+launch-unverified.</p>
+<h3 id="evidence-and-scope-4">Evidence and scope</h3>
+<p>Kept outside the repository: <code>release-metadata.json</code>, <code>assets.tsv</code>, <code>prev-assets.tsv</code>,
+<code>sizes.txt</code>, <code>downloaded-vs-metadata.txt</code>, <code>sha256.txt</code>, <code>dmg-xattr.txt</code>, <code>info-plist.txt</code>,
+<code>lsof-8742-before.txt</code>, <code>lsof-8742-during.txt</code>, <code>lsof-8742-after.txt</code>, <code>arm64-stdout.log</code>,
+<code>arm64-stderr.log</code>, <code>packaged-token-check.txt</code>, <code>health-body.txt</code>, <code>processes.txt</code>,
+<code>sigterm-exit.txt</code>, <code>state-after-stop.txt</code>. This section is the only change in this PR.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

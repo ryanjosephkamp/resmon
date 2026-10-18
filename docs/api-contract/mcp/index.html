@@ -1,0 +1,726 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>The resmon MCP tool surface — contract v2 · resmon</title><meta name="description" content="This exists because two things consume the same surface: external harnesses (Claude Code, Codex, anything else speaking MCP) from phase 1.8, and resmon's own embedded assistant in…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/api-contract/mcp/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="The resmon MCP tool surface — contract v2 · resmon"><meta property="og:description" content="This exists because two things consume the same surface: external harnesses (Claude Code, Codex, anything else speaking MCP) from phase 1.8, and resmon's own embedded assistant in…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/api-contract/mcp/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Contract</p> <h1 data-astro-cid-c2uqhu5p>The resmon MCP tool surface — contract v2</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/api-contract/mcp.md</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#architecture" data-astro-cid-c2uqhu5p>Architecture</a> </li><li data-astro-cid-c2uqhu5p> <a href="#safety" data-astro-cid-c2uqhu5p>Safety</a> </li><li data-astro-cid-c2uqhu5p> <a href="#error-model" data-astro-cid-c2uqhu5p>Error model</a> </li><li data-astro-cid-c2uqhu5p> <a href="#tools" data-astro-cid-c2uqhu5p>Tools</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-one-gap-this-contract-found" data-astro-cid-c2uqhu5p>The one gap this contract found</a> </li><li data-astro-cid-c2uqhu5p> <a href="#excluded-from-v1-on-purpose" data-astro-cid-c2uqhu5p>Excluded from v1, on purpose</a> </li><li data-astro-cid-c2uqhu5p> <a href="#amendments" data-astro-cid-c2uqhu5p>Amendments</a> </li><li data-astro-cid-c2uqhu5p> <a href="#versioning" data-astro-cid-c2uqhu5p>Versioning</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v23-amendment-opt-in-runtime-identity-on-two-reads" data-astro-cid-c2uqhu5p>v2.3 amendment: opt-in runtime identity on two reads</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v23--transport-every-call-carries-the-backends-local-api-token" data-astro-cid-c2uqhu5p>v2.3 — transport: every call carries the backend’s local API token</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><p><strong>Status: frozen on merge.</strong> Changing anything below takes its own pull request that says
+what changed and why. Implementation is built against this document, not the other way
+round.</p>
+<p>This exists because two things consume the same surface: external harnesses (Claude Code,
+Codex, anything else speaking MCP) from phase 1.8, and resmon’s own embedded assistant in
+phase 2.0. Built once, consumed twice — so the shape is settled before either is written.</p>
+<hr>
+<h2 id="architecture">Architecture</h2>
+<p>The server is <code>resmon_scripts/mcp_server.py</code>, speaking <strong>MCP over stdio</strong>. It is a client
+of the running resmon backend, reaching it over HTTP on <code>127.0.0.1</code>.</p>
+<p><strong>It never opens the database directly.</strong> Two reasons, both concrete:</p>
+<ol>
+<li>The backend owns its connections, the scheduler, and admission control. A second
+process writing that SQLite file is the BUG-020 failure class over again — that bug
+cost a release to find, and the fix was one connection per thread inside a single
+process.</li>
+<li>Going through the API means the tool surface cannot drift from what the app itself
+does. A behavior change in an endpoint reaches MCP for free; a behavior change that
+forgets MCP is impossible.</li>
+</ol>
+<p>The cost is honest and accepted: <strong>the backend must be running.</strong> resmon is a desktop
+application, so in practice it is — but see <em>When the backend is not running</em>.</p>
+<h3 id="port-discovery">Port discovery</h3>
+<p>The same way the renderer does it, in order:</p>
+<ol>
+<li><code>RESMON_PORT</code> in the environment.</li>
+<li>The port file the backend writes into its state directory on startup.</li>
+<li><code>8742</code>, the default — <strong>only when neither of the above named a port.</strong></li>
+</ol>
+<p>Every candidate is confirmed with <code>GET /api/health</code> before use. This matters because a
+user can run the packaged app and a dev build at once, on different ports.</p>
+<p><strong>A named port is never widened to the default.</strong> If step 1 or step 2 supplies a port and
+that port does not answer, the answer is <code>backend_unavailable</code>. Implementing this found
+why: when a named port had stopped answering, falling through to <code>8742</code> connected the
+server to the <strong>launchd daemon</strong> — a different process, a different version, a different
+database — and every tool then answered truthfully about the wrong corpus. A harness
+asking “what did my routine find this week” would have reported another installation’s
+papers as the user’s own. Failing is the correct outcome; the default exists only for a
+backend old enough not to write a port file.</p>
+<h3 id="when-the-backend-is-not-running">When the backend is not running</h3>
+<p>Every tool returns a single structured error:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"error"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"backend_unavailable"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF"> "message"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"resmon is not running. Start the resmon app and try again."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF"> "tried"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: [</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"http://127.0.0.1:8742"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]}</span></span></code></pre>
+<p>Never a stack trace, never a hang, never a silent empty result. A harness that gets an
+empty paper list because the app is closed would report “you have no papers”, which is a
+lie the surface must not make possible.</p>
+<hr>
+<h2 id="safety">Safety</h2>
+<p>These are guarantees, not defaults, and the implementation is reviewed against them.</p>
+<ul>
+<li><strong>No credential values, ever.</strong> No tool returns, accepts, or logs an API key. Where a
+credential is relevant, the tool names its <strong>alias</strong> (<code>anthropic_api_key</code>) and its
+presence (<code>present</code> / <code>absent</code> / <code>unreadable</code>) — the same three-state honesty the
+Repositories page already ships.</li>
+<li><strong>Nothing destructive in v1.</strong> No delete, no erase, no factory reset, no credential
+writes. Those wait for a confirmation model worth trusting; a tool call is too cheap an
+action to hang data loss on. The excluded endpoints are listed at the end so the
+omission is visible rather than accidental.</li>
+<li><strong>Writes are limited to three tools</strong>, each of which a user could trigger by hand in one
+click, and each of which is recorded in the execution history like any other run.</li>
+<li><strong>Token efficiency is a contract term, not an aspiration.</strong> Every list tool paginates and
+defaults to a small page. No tool returns full report HTML or a whole corpus. A harness
+asking “what did my arXiv routine find this week” must not cost a five-hour usage
+window — the Master Plan sets this requirement for 2.0 and it starts here.</li>
+</ul>
+<hr>
+<h2 id="error-model">Error model</h2>
+<p>Every tool returns either its documented success shape or:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"error"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"&#x3C;machine_code>"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"message"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"&#x3C;human sentence>"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"detail"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: {}}</span></span></code></pre>
+<p>Codes: <code>backend_unavailable</code> · <code>not_found</code> · <code>invalid_argument</code> · <code>conflict</code> ·
+<code>upstream_error</code> · <code>internal_error</code>.</p>
+<p><code>message</code> is written for a person to read. It never contains a credential value, and it
+never claims more than the backend actually reported.</p>
+<hr>
+<h2 id="tools">Tools</h2>
+<p>Every tool below is backed by an endpoint that exists today, except <code>run_routine</code>, which is
+called out explicitly.</p>
+<h3 id="read">Read</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Tool</th><th>Arguments</th><th>Returns</th><th>Backed by</th></tr></thead><tbody><tr><td><code>health</code></td><td>—</td><td>version, schema version, scheduler state, daemon state</td><td><code>GET /api/health</code></td></tr><tr><td><code>search_corpus</code></td><td><code>query</code>, <code>mode?</code> (keyword | semantic), <code>sources?</code>, <code>date_from?</code>, <code>date_to?</code>, <code>limit=25</code>, <code>cursor?</code></td><td>matching papers: id, title, authors, date, source, doi, url, plus <code>next_cursor</code>, <code>mode</code>, and in semantic mode <code>distance</code> per paper, <code>ranked_count</code>, <code>unranked_count</code>, <code>model</code></td><td><code>POST /api/explorer/search</code></td></tr><tr><td><code>find_similar</code></td><td><code>doc_id</code>, <code>limit=25</code></td><td>the nearest papers with distances and sources; <code>reason</code> when the list is empty</td><td><code>GET /api/documents/{doc_id}/similar</code></td></tr><tr><td><code>list_sources</code></td><td>—</td><td>slug, name, coverage, whether a key is required and whether one is present</td><td><code>GET /api/repositories/catalog</code> + <code>GET /api/credentials</code></td></tr><tr><td><code>list_routines</code></td><td><code>active_only?</code></td><td>id, name, schedule, sources, keywords, last run, active, <code>missed_fires</code> (fires that came due while resmon was closed)</td><td><code>GET /api/routines</code></td></tr><tr><td><code>get_routine</code></td><td><code>routine_id</code></td><td>the full routine record, including <code>missed_fires</code> (<code>count</code> + <code>last_due_at_utc</code>), <code>missed_fire_details</code>, and a <code>delivery</code> summary (counts by channel, and the last delivery’s state)</td><td><code>GET /api/routines/{id}</code> + <code>GET /api/routines/{id}/deliveries</code></td></tr><tr><td><code>list_executions</code></td><td><code>routine_id?</code>, <code>status?</code>, <code>limit=25</code>, <code>offset=0</code></td><td>id, type, status, started, finished, result count, <code>interrupted_reason</code>, <code>restarted_from</code></td><td><code>GET /api/executions</code></td></tr><tr><td><code>get_execution</code></td><td><code>exec_id</code></td><td>status, per-source counts, timings, AI lane used</td><td><code>GET /api/executions/{id}</code></td></tr><tr><td><code>get_execution_results</code></td><td><code>exec_id</code>, <code>limit=25</code>, <code>offset=0</code></td><td>the papers that run found, with existing corpus <code>id</code> usable by <code>explain_match</code></td><td><code>GET /api/executions/{id}/references?format=json&#x26;include_ids=true</code></td></tr><tr><td><code>get_search_record</code></td><td><code>exec_id</code></td><td>the PRISMA-shaped reproducible record</td><td><code>GET /api/executions/{id}/search-record</code></td></tr><tr><td><code>explain_match</code></td><td><code>doc_id</code></td><td>which keywords matched, in which field, and what resmon cannot verify</td><td><code>GET /api/documents/{doc_id}/why</code></td></tr><tr><td><code>get_paper_lifecycle</code></td><td><code>doc_id</code></td><td>retraction, preprint→published, version changes, each with its notice link</td><td><code>GET /api/documents/{doc_id}/lifecycle</code></td></tr><tr><td><code>get_analytics</code></td><td><code>view</code> (overview | volume | sources | keywords | routine-health | discovery-lag), <code>window?</code></td><td>the requested summary</td><td><code>GET /api/analytics/{overview,publication-volume,source-contribution,keyword-contribution,routine-health,discovery-lag}</code></td></tr><tr><td><code>get_watchdog_findings</code></td><td><code>include_muted?</code></td><td>findings, each labeled <code>broken</code> or <code>unusual</code>, with what-to-do and the thresholds used</td><td><code>GET /api/watchdog</code></td></tr><tr><td><code>export_references</code></td><td><code>exec_id</code> or <code>doc_ids</code>, <code>format</code> (bibtex | ris | csv | json)</td><td>the exported text</td><td><code>POST /api/export/references</code></td></tr><tr><td><code>list_watch_profiles</code></td><td><code>kind?</code></td><td>id, kind, name, aliases, identifier schemes, ORCID, affiliations, and <code>basis_warning</code> where the profile has none</td><td><code>GET /api/profiles</code></td></tr><tr><td><code>get_watch_profile</code></td><td><code>profile_id</code></td><td>the full profile, plus its match total and a per-basis count</td><td><code>GET /api/profiles/{id}</code> + <code>GET /api/profiles/{id}/matches?limit=1</code></td></tr><tr><td><code>get_profile_matches</code></td><td><code>profile_id</code>, <code>limit=25</code>, <code>offset=0</code></td><td>the matched papers, <strong>each with its <code>basis</code>, matched author and evidence</strong>, plus <code>by_basis</code> and a <code>what_a_basis_means</code> glossary</td><td><code>GET /api/profiles/{id}/matches</code></td></tr></tbody></table>
+<p><strong><code>get_profile_matches</code> has no argument that removes the basis, and there will not be one.</strong>
+A list of a person’s papers with no basis is exactly the claim resmon refuses to make, and a
+harness reading these tools is one paste away from “here are Jane Doe’s retracted papers” —
+a sentence that is false and defamatory for a <code>name_only</code> match. The glossary travels with
+every answer, empty ones included.</p>
+<p><code>explain_match</code> and <code>get_watchdog_findings</code> carry resmon’s refusals with them: the
+watchdog’s own list of what it cannot judge, and match transparency’s statement that most
+sources are relevance-ranked so a paper matching no keyword is expected rather than a
+fault. <strong>A harness must receive those caveats, not a cleaned-up answer</strong> — stripping them
+would make an honest product dishonest through an integration.</p>
+<h3 id="write">Write</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Tool</th><th>Arguments</th><th>Returns</th><th>Backed by</th></tr></thead><tbody><tr><td><code>run_sweep</code></td><td><code>query</code>, <code>sources</code>, <code>date_from?</code>, <code>date_to?</code>, <code>max_results?</code>, <code>ai_enabled?</code></td><td><code>exec_id</code>, immediately</td><td><code>POST /api/search/sweep</code></td></tr><tr><td><code>create_routine</code></td><td><code>name</code>, <code>keywords</code>, <code>sources</code>, <code>schedule</code>, optional <code>intent</code>, optional <code>entity</code> (<code>profile_id</code> + <code>mode</code>), plus optional notification and AI settings</td><td>the created routine, plus <code>entity_warning</code> where none of the named sources can be asked about an author</td><td><code>POST /api/routines</code></td></tr><tr><td><code>create_watch_profile</code></td><td><code>name</code>, optional <code>orcid</code>, <code>orcid_cited</code>, <code>aliases</code>, <code>affiliations</code>, <code>field_hints</code></td><td>the created profile, with <code>basis_warning</code> <strong>lifted to the top of the answer</strong> when it has no identifier</td><td><code>POST /api/profiles</code></td></tr><tr><td><code>run_routine</code></td><td><code>routine_id</code></td><td><code>exec_id</code>, immediately; or a <code>conflict</code> error carrying <code>{"conflict": "routine_already_running", "execution_id": N}</code> when that routine is already running</td><td><strong>needs a new endpoint — see below</strong></td></tr><tr><td><code>activate_routine</code></td><td><code>routine_id</code></td><td><code>id</code>, <code>is_active: true</code></td><td><code>POST /api/routines/{id}/activate</code></td></tr><tr><td><code>deactivate_routine</code></td><td><code>routine_id</code></td><td><code>id</code>, <code>is_active: false</code></td><td><code>POST /api/routines/{id}/deactivate</code></td></tr><tr><td><code>update_settings</code></td><td><code>group</code>, <code>settings</code></td><td><code>group</code>, <code>changed</code> (a per-key <code>{from, to}</code> diff), <code>requested</code>, <code>unchanged_key_count</code></td><td><code>GET</code> + <code>PUT /api/settings/{group}</code></td></tr></tbody></table>
+<p><strong>Every write tool carries <code>requires_confirmation: true</code> in <code>tools/list</code>, and every
+read tool carries it as <code>false</code>.</strong> The field is resmon’s own, not part of MCP. It is
+emitted for both, because a harness that has to infer “no flag means safe” is one
+release away from inferring it about a tool that grew teeth. <code>mcp_server.WRITE_TOOLS</code>
+and <code>READ_TOOLS</code> are derived from the same table, and the embedded assistant builds
+its pre-approved <code>--allowedTools</code> list from <code>READ_TOOLS</code> — one source, so the set the
+model may call without asking cannot drift from the set this document calls safe.</p>
+<p>The three sweep-and-run tools return as soon as the execution is admitted. Progress is polled with
+<code>get_execution</code>; there is deliberately no streaming tool in v1, because a harness holding
+an SSE stream open is a poor fit for a request/response tool surface and polling is honest
+about what it costs.</p>
+<p><code>create_routine</code> creates the routine <strong>inactive</strong>. Scheduling something on a user’s
+machine is not a side effect a tool call should have; the user activates it in the app, or
+a later contract version adds an explicit <code>activate_routine</code>.</p>
+<hr>
+<h2 id="the-one-gap-this-contract-found">The one gap this contract found</h2>
+<p><strong>There is no way to run a routine on demand.</strong> Routines are activated (scheduled) or
+deactivated; running one now means rebuilding its configuration by hand as a sweep. The
+scheduler fires them through <code>_dispatch_routine_fire(routine_id, parameters)</code>, which
+prepares, admits, launches and stamps the execution — but nothing HTTP reaches it.</p>
+<p>That is a gap in the application, not only in this surface: “run my arXiv routine now” is
+something a person should be able to do from the interface too.</p>
+<p><code>run_routine</code> therefore requires <strong><code>POST /api/routines/{routine_id}/run</code></strong>, landing with
+the MCP implementation. It is a thin wrapper over the same dispatcher the scheduler uses,
+so a manual run and a scheduled fire take one code path and cannot diverge.</p>
+<p>One deliberate behavioral difference: <code>_dispatch_routine_fire</code> returns early for an
+inactive routine, because an inactive routine should not fire <em>on a schedule</em>. A manual
+run is an explicit instruction, so <strong>the endpoint runs an inactive routine</strong> and says so in
+its response. <code>is_active</code> governs scheduling, not permission.</p>
+<hr>
+<h2 id="excluded-from-v1-on-purpose">Excluded from v1, on purpose</h2>
+<p>Listed so the omissions are visible and arguable rather than silently missing.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Excluded</th><th>Why</th></tr></thead><tbody><tr><td><code>/api/admin/*</code> — erase corpus, erase app data, factory reset, erase keys</td><td>Destructive and irreversible. No confirmation model a tool call can satisfy.</td></tr><tr><td><code>PUT</code> / <code>DELETE /api/credentials/{name}</code></td><td>Writing credentials through a tool surface means a credential passing through a harness. Never.</td></tr><tr><td><del><code>PUT /api/settings/*</code></del></td><td><strong>Lifted in v2.0</strong> as <code>update_settings</code>, on the condition this row named: a person in the conversation confirms it. Settings outside the group allowlist are still out of reach — see the v2.0 and v2.1 amendments.</td></tr><tr><td><code>PUT /api/settings/execution</code></td><td>Deliberately <em>not</em> in <code>update_settings</code>’s allowlist. Admission control — how many executions run at once, how deep the routine fire queue goes — is a decision about the machine rather than about the research, and the endpoint does not take <code>SettingsBody</code>.</td></tr><tr><td><code>DELETE /api/routines/{id}</code>, <code>DELETE /api/executions/{id}</code></td><td>Destructive. Same reasoning.</td></tr><tr><td><code>/api/service/install</code>, <code>/api/service/uninstall</code></td><td>Touches launchd / systemd on the user’s machine.</td></tr><tr><td><code>/api/cloud/*</code></td><td>Google Drive linking is an OAuth flow that needs a browser and a person.</td></tr><tr><td><code>/api/executions/{id}/progress/stream</code></td><td>SSE does not fit a request/response tool surface. Poll <code>get_execution</code>.</td></tr><tr><td><code>/api/lifecycle/check</code></td><td>Long-running corpus-wide job. A tool call that runs for an hour is a trap; revisit with a job-handle model.</td></tr></tbody></table>
+<hr>
+<h2 id="amendments">Amendments</h2>
+<h3 id="a-field-not-a-version--21-september-2026-schema-21">A field, not a version — 21 September 2026, schema 21</h3>
+<p><strong>25 tools, 46 distinct method-and-path pairs.</strong> The new one is
+<code>GET /api/routines/{id}/deliveries</code>, which <code>get_routine</code> calls for the summary below; it was 45.</p>
+<p><strong>No tool arrives, none is removed, no return shape moves and the contract version does
+not change.</strong> <code>get_routine</code> gains one key, <code>delivery</code>, summarising where that routine’s
+report is sent and whether the last one arrived:</p>
+<ul>
+<li><code>targets_by_channel</code> — a count per channel of the <strong>enabled</strong> destinations, and
+<code>enabled_target_count</code>, their sum. Since 21 September 2026 all four channels in the
+schema’s CHECK ship, so the keys that can appear are <code>email</code>, <code>folder</code>, <code>webhook</code>
+and <code>feed</code>;</li>
+<li><code>awaiting_review</code> — how many deliveries are waiting for the user to release them,
+because a destination set to review mode never sends on its own;</li>
+<li><code>last_state</code> (<code>queued</code> | <code>awaiting_review</code> | <code>delivering</code> | <code>delivered</code> | <code>failed</code> |
+<code>skipped</code>), <code>last_channel</code>, <code>last_attempts</code>, <code>last_error</code> and
+<code>last_delivered_at_utc</code> — the most recent delivery, or <code>null</code> throughout when the
+routine has never had one.</li>
+</ul>
+<p><strong>No address, directory or URL is returned, including inside <code>last_error</code>.</strong> Where a
+person has their research sent is theirs; a count of destinations answers “is this
+routine delivering”, which is the question an assistant has, without reciting an email
+address, a path or a webhook URL into a transcript. <code>last_error</code> is prose from the
+failure and is the one place a destination could leak through, so each adapter strips
+it: the folder and feed channels replace the directory with <code>&#x3C;target></code>, the email
+channel replaces every configured address with <code>&#x3C;address></code> (an <code>SMTPRecipientsRefused</code>
+carries the refused recipient <em>inside the exception</em>), and the webhook channel records
+the exception class or the HTTP status code and never the URL. Which destination a
+failure was about is <code>target_id</code>, which the app resolves locally. A backend too old to answer the deliveries route leaves the
+key off entirely rather than reporting zero destinations.</p>
+<p>No tool writes a delivery. Approving one that is waiting for review, skipping one and
+retrying a failed one are all decisions the person makes in the app; exposing them here
+is a separate decision about write tools and this amendment does not make it. <strong>25
+tools, unchanged.</strong></p>
+<h3 id="fields-not-a-version--20-september-2026-schema-19">Fields, not a version — 20 September 2026, schema 19</h3>
+<p><strong>No tool arrives, none is removed, no return shape moves and the contract version does
+not change.</strong> <code>executions.status</code> gains a fifth value, <code>interrupted</code>, and three fields
+ride along on the two tools that read executions.</p>
+<p><code>status</code> is now one of <code>running</code>, <code>completed</code>, <code>failed</code>, <code>cancelled</code>, <strong><code>interrupted</code></strong>.
+The fifth one means the backend running that execution went away before it finished — a
+force-quit, a power cut, the app being closed mid-sweep. <strong>It is not <code>failed</code></strong>, and the
+distinction is the whole reason it exists: nothing went wrong with the search, so a
+caller must not report it as a search that failed. A harness that branches on <code>failed</code>
+will now see <code>interrupted</code> fall through to its default arm, which is the correct place
+for it: the run did not produce results, and resmon is not claiming to know why beyond
+the process ending.</p>
+<ul>
+<li><code>get_execution</code> returns the row whole, so it gains <code>interrupted_reason</code>
+(<code>owner_dead</code> | <code>daemon_restart</code> | <code>unknown</code>, or <code>null</code> — <code>null</code> means the run was
+never interrupted, or that the reason was never recorded, and never a guess),
+<code>owner_pid</code>, <code>owner_runtime_id</code>, <code>last_seen_at_utc</code>, <code>restarted_from</code>, and a computed
+<code>restarted_into</code> list.</li>
+<li><code>list_executions</code> projects a fixed key set, so <code>interrupted_reason</code> and
+<code>restarted_from</code> were added to it explicitly. A field absent from this projection is
+invisible to a caller reading a list of runs, which is the usual way a status becomes
+unreadable in practice.</li>
+<li><code>run_sweep</code>’s description now says the run may end <code>interrupted</code>, so a caller polling
+<code>get_execution</code> after it is not surprised by a sixth word it has no branch for.</li>
+</ul>
+<p><strong>There is still no tool that cancels or restarts an execution.</strong> <code>POST /api/executions/{id}/restart</code> exists in the API and is reachable from the app; exposing
+it through this surface is a separate decision about a write tool, and this amendment
+does not make it. <strong>25 tools, unchanged.</strong></p>
+<h3 id="v22--7-september-2026-phase-21a">v2.2 — 7 September 2026, phase 2.1a′</h3>
+<p>Additive: four tools arrive, one optional argument arrives, nothing is removed and no
+return shape moves.</p>
+<p><strong>The four tools</strong> are <code>list_watch_profiles</code>, <code>get_watch_profile</code>, <code>get_profile_matches</code>
+(read) and <code>create_watch_profile</code> (write, confirm-gated like every other write).
+<code>create_routine</code> gains an optional <code>entity</code> object — <code>profile_id</code> and <code>mode</code>, the mode
+being <code>new_papers</code> or <code>retractions</code> — which makes a routine follow a person rather than a
+set of words.</p>
+<p><strong>The one rule this amendment exists to carry across the seam.</strong> An author match is a
+string match unless the source gave an identifier, and the product says so. Inside the app
+that is a badge; through a tool surface it has to be a field, because a harness renders its
+own interface and cannot be handed a colour. So:</p>
+<ul>
+<li>every row <code>get_profile_matches</code> returns carries <code>basis</code>, <code>matched_author</code> and <code>evidence</code>,
+and there is no argument that omits them;</li>
+<li>every answer carries <code>what_a_basis_means</code>, including an empty one, so a caller reading
+the shape before there is data still learns what the field means;</li>
+<li><code>create_watch_profile</code> lifts <code>basis_warning</code> out of the created record and into the top
+of its own answer, and repeats it inside <code>detail</code>. The API already returns it on every
+read — this is placement, and placement is the whole of whether a caller repeats it;</li>
+<li><code>list_watch_profiles</code> keeps <code>basis_warning</code> on every row rather than only on the detail
+view, because a list is what a harness summarises from.</li>
+</ul>
+<p><strong><code>entity</code> is passed to the backend unexamined.</strong> <code>POST /api/routines</code> validates the
+profile id, the mode and the profile’s kind at the seam and answers a bad one with a 400,
+which this server surfaces as <code>invalid_argument</code>. Two validators for one rule is how the
+two drift apart, and the API’s is the one that also governs the app’s own routine editor.
+<code>entity_warning</code> — “none of these sources can be asked about an author” — is passed through
+into <code>detail</code> for the same reason: a watch routine that will find nothing for ever is
+exactly the thing a caller must repeat.</p>
+<p><strong><code>institution_output</code> is deliberately not in the mode enum.</strong> It is in the plan, it needs
+affiliation matching, and it arrives in 2.1.1. A tool schema offering a mode the backend
+refuses would be a promise the app does not keep.</p>
+<p><strong>25 tools, 45 distinct method-and-path pairs</strong> — the four new ones are <code>GET /api/profiles</code>,
+<code>GET /api/profiles/{id}</code>, <code>GET /api/profiles/{id}/matches</code> and <code>POST /api/profiles</code>. All 45
+resolve; <code>test_mcp_routes_resolve.py</code> checks it on every run, and every one of the four new
+tools is called against a real backend in <code>test_mcp_live_surface.py</code>.</p>
+<h3 id="v21--6-september-2026-phase-20b">v2.1 — 6 September 2026, phase 2.0b</h3>
+<p>Additive: no tool arrives, none is removed, and no return shape moves.
+<code>update_settings</code>’s group allowlist gains <strong><code>assistant</code></strong> — the group holding
+<code>assistant_runtime</code>, <code>assistant_model</code> and <code>assistant_effort</code>.</p>
+<p><strong>It is an amendment rather than a footnote because v2.0 shipped with that group
+unreachable and undecided.</strong> The group landed in <code>resmon.py</code> during 2.0a, after this
+allowlist was frozen earlier in the same phase, so the app had a settings group that
+was neither on the list nor deliberately excluded. The test written to force exactly
+that decision — <code>test_no_settings_group_the_app_has_is_silently_reachable</code> — is
+<code>live_network</code>, and nothing ran the live suite on a schedule. It was the first finding
+of <code>.github/workflows/live-network.yml</code>, which now does, weekly.</p>
+<p>Reachable rather than excluded, deliberately: <em>“use opus for the assistant”</em> is among
+the likeliest things a person will ask the assistant itself; it is confirm-gated like
+every other write; a runtime change takes effect on the next turn, because the runtime
+is built per turn; and none of the three keys is credential-shaped, so the name guard
+still stands unchanged.</p>
+<p><strong>21 tools, 41 distinct method-and-path pairs</strong> — the two new ones are the group’s own
+<code>GET</code> and <code>PUT</code>. All 41 resolve; <code>test_mcp_routes_resolve.py</code> checks it on every run.</p>
+<h3 id="v20--6-september-2026-phase-20a">v2.0 — 6 September 2026, phase 2.0a</h3>
+<p><strong>Breaking, and the break is the confirmation model rather than a return shape.</strong> No
+tool was removed and no existing return shape moved; three tools arrive, and every
+write tool now declares <code>requires_confirmation</code>. A caller that ignores that flag is
+running writes this document says a person approves first, so callers are <em>not</em>
+unaffected — which is the test the versioning rule below applies, and it is why this
+is a major bump rather than v1.4.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Change</th><th>Detail</th></tr></thead><tbody><tr><td><code>activate_routine</code> / <code>deactivate_routine</code> are new</td><td>v1 created routines inactive and said an explicit <code>activate_routine</code> was what a later version should add. Both are confirm-gated. Deactivating keeps the routine and everything it has found; it comes off its schedule.</td></tr><tr><td><code>update_settings</code> is new</td><td>The <code>PUT /api/settings/*</code> exclusion is lifted on exactly the condition its own row stated. Four guards, all structural: the <strong>group</strong> is an allowlist (<code>ai</code>, <code>email</code>, <code>embeddings</code>, <code>cloud</code>, <code>storage</code>, <code>notifications</code>; <code>assistant</code> was added in v2.1); a <strong>credential-shaped key</strong> (<code>key</code>, <code>token</code>, <code>secret</code>, <code>password</code>, <code>passphrase</code>, <code>credential</code>, <code>auth</code>) is refused <strong>on its name, before any request is built</strong>, so the tool cannot be <em>asked</em> for a secret; the legal key list is read from <code>GET /api/settings/{group}</code> rather than copied here, and an unknown key is <strong>refused rather than dropped</strong> — the backend’s PUT ignores keys outside the group, which is right for a form and a lie for a tool; and the answer is a <strong>before/after diff</strong>, not “success”.</td></tr><tr><td>Every tool declares <code>requires_confirmation</code></td><td>See the note under the Write table.</td></tr><tr><td><code>create_routine</code> now returns the routine it created</td><td><code>POST /api/routines</code> answers with <code>{id, name}</code>; this document promised “the created routine”. The tool reads the record back over one localhost <code>GET</code>, so the claim is true and <code>is_active: 0</code> is a fact the caller can see rather than a sentence resmon asserts about itself.</td></tr></tbody></table>
+<p><strong>No credential value crosses this surface in either direction</strong>, and the guard is now
+two-sided: v1’s rule that no tool <em>returns</em> a key, and v2’s rule that no tool can
+<em>name</em> one. <code>test_the_credential_denylist_excludes_nothing_that_exists</code> asserts
+against a real backend that no legitimate settings key matches a denied word, so the
+denylist is a standing guard rather than a filter quietly doing nothing.</p>
+<p><strong>The route re-check is now a test, not a promise.</strong> v1.1, v1.2 and v1.3 each carry a
+sentence saying every route was re-checked against the running app while the amendment
+was written — and it was, each time, by a person. A check performed at freeze time has
+to be performed again at the next freeze and can be quietly skipped, which is precisely
+the failure v1.1 exists to record. <code>verification_scripts/test_mcp_routes_resolve.py</code>
+drives every tool in <code>TOOLS</code> through a recording double and resolves every address it
+sends against <code>resmon.app.routes</code>, one test case per pair, on every run.</p>
+<p><code>mcp_server.py</code>’s <strong>21 tools</strong> reach <strong>39 distinct method-and-path pairs</strong>, and all 39
+resolve. The jump from v1.3’s 25 is <code>update_settings</code>, which reads and writes each of
+six groups. Two things were found by doing this rather than by trusting the document,
+and both are recorded above: <code>POST /api/routines</code>’s thin response, and
+<code>/api/settings/execution</code> — a settings route that is not a settings <em>group</em>, which the
+allowlist test excludes by name and with a reason.</p>
+<h3 id="v13--6-september-2026-phase-19b-revision-2">v1.3 — 6 September 2026, phase 1.9b revision 2</h3>
+<p>Additive. <code>create_routine</code> gains one optional argument and no tool changed shape, so the
+minor version moves and existing callers are unaffected — the rule this document’s
+<em>Versioning</em> section already states.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Change</th><th>Detail</th></tr></thead><tbody><tr><td><code>create_routine</code> gains <code>intent</code> (optional)</td><td>The sentence the coverage audit compares a routine’s results against, stored in <code>routines.intent</code>. <strong>It is never defaulted from <code>keywords</code>.</strong> A routine whose intent is its own keywords is being measured against itself, <code>get_routine</code> reports which of the two the audit used, and filling the column in at creation would erase that distinction at the one moment it can still be made honestly. Omitted when not given, rather than sent empty.</td></tr><tr><td><code>get_routine</code>’s <code>coverage.off_target_count</code> and <code>coverage.missed_in_corpus_count</code> are <strong>totals</strong></td><td>They were the length of the returned page. Both audit lists are capped at 25, so a routine with 312 off-target results reported <code>25</code> — a number resmon never measured, arriving at a harness as a precise fact. No field was added or removed; the value is corrected.</td></tr><tr><td><code>coverage.missed_in_corpus_count_is_lower_bound</code> is new</td><td>The missed side is a bounded index query rather than a scan. When it comes back full with its furthest row still inside the reference distance, the total is a floor and this says so. “63” and “at least 63” are different facts.</td></tr></tbody></table>
+<p><strong>Every route the server calls was re-checked against the app while this amendment was
+written</strong>, the v1.1 lesson applied for the third time — not only the two rows above.
+<code>mcp_server.py</code>’s 18 tools reach <strong>25 distinct method-and-path pairs</strong>, and all 25 resolve
+against <code>resmon.app.routes</code>, including the six analytics paths behind <code>get_analytics</code>’s
+view names. No endpoint was added this release; the count stays at 106.</p>
+<h3 id="v12--5-september-2026-phase-19a">v1.2 — 5 September 2026, phase 1.9a</h3>
+<p>Additive. <code>search_corpus</code> gains <code>mode</code>, and <code>find_similar</code> is new. No tool was removed and
+no return shape moved, so the major version is unchanged and existing callers are
+unaffected.</p>
+<p><em>Amended before release, 5 September 2026: the <code>mode="semantic"</code> row below described the
+ranking as covering “the same filtered set”. The field test showed what that costs and the
+row is rewritten. v1.2 had not shipped, so this is an amendment to an unreleased contract
+rather than a version bump — but it is recorded rather than quietly edited, because a
+contract whose history can be rewritten is not one.</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Change</th><th>Detail</th></tr></thead><tbody><tr><td><code>search_corpus</code> gains <code>mode</code> (<code>keyword</code> default, <code>semantic</code>)</td><td>Semantic mode ranks the corpus by distance from the query, <strong>within the structured filters</strong>. <code>sources</code>, <code>date_from</code> and <code>date_to</code> still narrow it and are untouched by the mode; <code>query</code> is the difference — a text filter in <code>keyword</code> mode, the thing distance is measured <em>from</em> in <code>semantic</code> mode. <strong>The two modes can therefore return different sets</strong>, and a harness that needs the keyword set asks for <code>keyword</code>.</td></tr><tr><td>Why that is not “the same filtered set”</td><td>It was, in the first draft of this amendment, and a field test on a real 15,707-paper corpus retired it before the contract shipped. The text filter is an <code>AND</code> over every word in the query, so a plain-English question matches no paper and a ranking restricted to it has nothing to order: <strong>eleven of twenty natural queries returned an empty answer</strong>, while the same vectors unfiltered found a relevant paper for almost all of them. A <code>semantic</code> mode that can only re-order a keyword match is not one.</td></tr><tr><td>The answer always reports the mode it <strong>served</strong></td><td>Semantic mode can decline — no embedding model configured, the model refused, the extension will not load. When it does, the reply carries <code>mode: "keyword"</code> and a <code>mode_unavailable</code> sentence. A harness told it received a ranking it did not receive would report a relevance order that is a chronology; that is the overclaim this contract exists to prevent, arriving through an integration.</td></tr><tr><td>Semantic replies carry <code>ranked_count</code> and <code>unranked_count</code></td><td>Papers with no vector are appended rather than dropped, so part of a semantic answer may be unordered. The counts say how much.</td></tr><tr><td><code>find_similar</code> is new</td><td>One index query, no call to any embedding provider: the paper’s vector is already stored. An empty list <strong>always</strong> carries a <code>reason</code>, because “this paper is not embedded”, “nothing else is” and “this build cannot load the extension” are three different situations and a bare <code>[]</code> would let a harness report “resmon found nothing similar” for any of them.</td></tr></tbody></table>
+<p><strong>Every route in the table above was re-checked against the running app while this
+amendment was written</strong>, not only the two being changed — that is the v1.1 lesson applied
+rather than recorded. All 17 paths <code>mcp_server.py</code> calls resolve to a live route, including
+the six analytics paths behind <code>get_analytics</code>’s view names.</p>
+<h3 id="v11--31-august-2026-from-implementing-it">v1.1 — 31 August 2026, from implementing it</h3>
+<p>Three items in v1 named endpoints or arguments that do not exist as written. Found by
+building against the document and checking every route rather than trusting it, which is
+the same lesson the delegation briefs produced: pre-writing an API detail you have not
+verified produces a confident error.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Was</th><th>Now</th><th>Why</th></tr></thead><tbody><tr><td><code>get_execution_results</code> ← <code>GET /api/executions/{id}/report</code></td><td>← <code>GET /api/executions/{id}/references?format=json</code></td><td><code>/report</code> returns <code>{"report_text": ...}</code> — the entire rendered Markdown. Returning it would break this document’s own token-efficiency guarantee, stated two sections above.</td></tr><tr><td><code>search_corpus</code> takes <code>offset</code></td><td>takes <code>cursor</code>, returns <code>next_cursor</code></td><td>The corpus seeks on <code>(publication_date DESC, id DESC)</code> with an opaque cursor so the index descends rather than walks. Emulating an offset would re-walk every prior page per call. An explicit <code>offset</code> is refused rather than ignored.</td></tr><tr><td><code>get_analytics</code> ← <code>/api/analytics/*</code></td><td>← the six real paths, named</td><td>Three view names do not match their route: <code>volume</code>, <code>sources</code> and <code>keywords</code> are served by <code>publication-volume</code>, <code>source-contribution</code> and <code>keyword-contribution</code>. The view names stay as the tool’s vocabulary.</td></tr></tbody></table>
+<p>Port discovery also gained an explicit rule — a named port is never widened to the default
+— which is a clarification rather than a change of intent, and is recorded in that section
+with the reason it was needed.</p>
+<p>These are additive and clarifying rather than breaking: no tool was removed and no return
+shape a caller depended on changed, because there were no callers yet. The contract stays
+<strong>v1</strong>; this is its first amendment.</p>
+<p><em>(Superseded in numbering by v1.2 above, which formalises the minor-version scheme this
+section describes. The three corrections here still stand.)</em></p>
+<hr>
+<h2 id="versioning">Versioning</h2>
+<p>This document is contract <strong>v2.3</strong>. The server reports it in its MCP initialisation
+response (<code>mcp_server.CONTRACT_VERSION</code>). Additive changes — new tools, new optional arguments — bump the minor version and
+do not require a new contract document. Removing a tool, renaming an argument, or changing
+a return shape is a <strong>breaking</strong> change: new major version, new document, and the 2.0
+assistant is updated in the same pull request, because it is the other consumer.</p>
+<h3 id="settings-boolean-semantics-trust-corrections">Settings boolean semantics (Trust corrections)</h3>
+<p>The existing <code>update_settings</code> input shape is unchanged: setting values are
+advertised as strings. For a setting returned as a JSON boolean by its GET
+handler, send <code>"true"</code> or <code>"false"</code> (case-insensitive); the MCP function converts
+that value to a JSON boolean at the HTTP boundary. It also preserves a native
+boolean when called directly. Other values for boolean fields are refused
+before PUT. This prevents the nonempty string <code>"False"</code> from enabling a setting.
+The diff reports actual GET state before and after, rather than echoing input.
+Embeddings uses the GET response’s nested <code>settings</code> object for its writable
+key list and diff; capability metadata is not writable. Group and credential
+refusals and confirmation requirements are unchanged.</p>
+<h3 id="readingexport-continuity-amendment">Reading/export continuity amendment</h3>
+<p><code>get_execution_results</code> explicitly requests ID-bearing JSON. Each returned paper’s
+<code>id</code> is the stored document ID in this corpus, usable unchanged as <code>explain_match</code>
+<code>doc_id</code>; it is not a cross-corpus identifier. Pagination, empty results and stale
+execution errors retain their existing behavior. Default reference JSON and CSV
+still expose their previous public columns; the opt-in ID does not change them.</p>
+<p>Results &#x26; Logs submits selected execution IDs to the existing reference export
+endpoint, which unions document IDs and renders once. Repeated IDs appear once;
+distinct records remain separate without fuzzy matching or corpus changes. Order
+is publication date then document ID descending, independent of run selection
+order. BibTeX keys are unique within the resulting file; suffixes depend on file
+contents/order and are not stable paper identifiers or an importer guarantee.</p>
+<h2 id="v23-amendment-opt-in-runtime-identity-on-two-reads">v2.3 amendment: opt-in runtime identity on two reads</h2>
+<p>Only <code>health</code> and <code>get_execution</code> add optional string <code>expected_runtime_id</code>. The tool
+surface remains 25 tools: 18 reads and 7 writes requiring confirmation. No registration,
+discovery order/cache, write permission or default behavior changes.</p>
+<p>Successful <code>GET /api/health</code> and <code>GET /api/executions/{exec_id}</code> add:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"identity"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:{</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"contract_version"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span><span style="color:#005CC5;--shiki-dark:#79B8FF">1</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"runtime_id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"&#x3C;canonical lowercase UUID4>"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"schema_version"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span><span style="color:#005CC5;--shiki-dark:#79B8FF">18</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"corpus_id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span><span style="color:#005CC5;--shiki-dark:#79B8FF">null</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"build_id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span><span style="color:#005CC5;--shiki-dark:#79B8FF">null</span><span style="color:#24292E;--shiki-dark:#E1E4E8">}}</span></span></code></pre>
+<p>The runtime token is random, stable in one serving process and new after restart, including
+forked workers. Schema comes from saved metadata (null when unavailable). Corpus and build
+IDs stay null; version is a release label, not a build fingerprint. No marker is persisted.</p>
+<p>Both handlers accept <code>?expected_runtime_id=&#x3C;token></code>. Malformed/empty values return 422.
+A different valid token returns 409 with <code>detail.code=instance_mismatch</code>, plain <code>message</code>,
+<code>expected_runtime_id</code> and <code>actual_runtime_id</code>, before database/capability work or execution
+lookup. Matching identity with an absent execution still returns 404. Unbound calls retain
+their existing fields and semantics with additive identity metadata.</p>
+<p>The MCP adapter validates the optional value before discovery/network access. Expected
+<code>get_execution</code> first requests health with that expectation and requires matching identity,
+then sends the same expectation to the execution handler. It also validates each actual
+response: unsupported/missing/malformed identity becomes <code>identity_unavailable</code>, a different
+token becomes <code>instance_mismatch</code>, and execution content is discarded. The specific structured
+409 maps to <code>instance_mismatch</code>; unrelated 409 responses remain <code>conflict</code> and 422/404 remain
+<code>invalid_argument</code>/<code>not_found</code>. There is no hidden retry, discovery widening or reaccept.</p>
+<p>An ordinary legacy backend is refused by preflight before the execution request. If the
+server is replaced after preflight with an old or nonconforming one, the adapter can discard
+its reply but cannot prove it never read or transmitted content. Prevention at the answering
+handler relies on this new contract. Runtime matching is not authenticated confidentiality.
+Legacy unbound reads remain available without inventing an identity.</p>
+<p>Example: call <code>health</code>, compare <code>identity.runtime_id</code> with the intended running app, then
+call <code>get_execution</code> with <code>exec_id</code> and <code>expected_runtime_id</code> set to that observed token.
+An explicit expectation applies to this call only, not other tools or future calls.</p>
+<h2 id="v23--transport-every-call-carries-the-backends-local-api-token">v2.3 — transport: every call carries the backend’s local API token</h2>
+<p>This is a change to how the server reaches the backend, not to the tool surface. The
+inventory is unchanged at 25 tools — 18 reads and 7 writes requiring confirmation — so the
+contract number stays 2.3. Nothing in <code>tools/list</code>, in any input schema or in any return
+shape is different. What changed is that a call that used to be answered is now refused
+unless it is carried correctly.</p>
+<p>From 2.2.0 the backend refuses every request, on every route, that does not carry its
+per-instance token in <code>Authorization: Bearer &#x3C;token></code>, name a loopback <code>Host</code> on the
+backend’s own port, and — when it sends an <code>Origin</code> — send the app’s own renderer origin.
+<strong>There are no exempt routes:</strong> <code>health</code> is authenticated like everything else. The full
+model, including what it deliberately does not defend, is
+<a href="../local-api-security.md"><code>docs/local-api-security.md</code></a>.</p>
+<p>The server finds the token the same way it finds the port, and in the same order. It
+resolves the port from <code>RESMON_PORT</code>, then the port file, then the default only when
+nothing named a port; it then reads that port’s token from <code>api-token-&#x3C;port></code> in resmon’s
+state directory, beside <code>daemon.lock</code> and the port file. The file is written owner-only by
+the backend that minted the token and removed on clean shutdown. A stale file admits
+nothing: every backend start mints a fresh token and accepts only the one it holds, so a
+reader of a stale file is answered <code>401 token_invalid</code>.</p>
+<p>A harness has two things to get right:</p>
+<ul>
+<li><strong>A named port whose token cannot be found is reported as unavailable, naming that
+instance.</strong> It never falls through to another port, because attaching to a different
+installation would answer truthfully about the wrong corpus.</li>
+<li><strong>A non-default state directory must be named to the server too.</strong> Set <code>RESMON_STATE_DIR</code>
+in the MCP server’s environment when the instance it should reach does not use the
+default one. The CLI runtime’s MCP configuration names the port and the state directory
+only; the token is never written into it, and tool results and relayed errors are
+scrubbed of it.</li>
+</ul>
+<p><strong>A pre-2.2 MCP server gets <code>401 token_missing</code> from a 2.2 backend on every call</strong>, because
+it sends no <code>Authorization</code> header and no route is exempt. Symmetrically, a 2.2 server does
+not attach to a backend that published no token file. So a separate MCP checkout is updated
+in the same sitting as the app; running one of each is not a degraded mode, it is no
+service at all.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

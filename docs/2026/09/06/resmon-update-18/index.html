@@ -1,0 +1,122 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Update 18 — It Understands Papers · resmon</title><meta name="description" content="resmon can now compare papers by meaning rather than by the words you happened to type. Set up an embedding model — a local one is free and needs no key — and two things appear: t…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-18/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Update 18 — It Understands Papers · resmon"><meta property="og:description" content="resmon can now compare papers by meaning rather than by the words you happened to type. Set up an embedding model — a local one is free and needs no key — and two things appear: t…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-18/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+.pager[data-astro-cid-g6jwv4qx]{display:grid;gap:var(--space-4);margin-top:var(--space-7);font-size:var(--text-sm)}.pager[data-astro-cid-g6jwv4qx] a[data-astro-cid-g6jwv4qx]{display:block;padding:var(--space-3) var(--space-4);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md);text-decoration:none;color:var(--color-text);background:var(--color-surface)}.pager[data-astro-cid-g6jwv4qx] a[data-astro-cid-g6jwv4qx]:hover{border-color:var(--color-border-strong)}.pager-label[data-astro-cid-g6jwv4qx]{display:block;font-size:var(--text-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}@media(min-width:40rem){.pager[data-astro-cid-g6jwv4qx]{grid-template-columns:1fr 1fr}.pager-next[data-astro-cid-g6jwv4qx]{text-align:end}}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Update</p> <h1 data-astro-cid-c2uqhu5p>Update 18 — It Understands Papers</h1> <p class="meta" data-astro-cid-c2uqhu5p>September 6, 2026</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#metadata" data-astro-cid-c2uqhu5p>Metadata</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-short-version" data-astro-cid-c2uqhu5p>The short version</a> </li><li data-astro-cid-c2uqhu5p> <a href="#what-you-have-to-know-before-you-turn-it-on" data-astro-cid-c2uqhu5p>What you have to know before you turn it on</a> </li><li data-astro-cid-c2uqhu5p> <a href="#what-it-costs" data-astro-cid-c2uqhu5p>What it costs</a> </li><li data-astro-cid-c2uqhu5p> <a href="#what-it-refuses-to-do" data-astro-cid-c2uqhu5p>What it refuses to do</a> </li><li data-astro-cid-c2uqhu5p> <a href="#where-the-limits-are-stated-plainly" data-astro-cid-c2uqhu5p>Where the limits are, stated plainly</a> </li><li data-astro-cid-c2uqhu5p> <a href="#also-in-this-release" data-astro-cid-c2uqhu5p>Also in this release</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 18</li>
+<li><strong>Version:</strong> 1.8.7 → 1.9.0</li>
+<li><strong>Theme:</strong> resmon stops treating papers as strings</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p>resmon can now compare papers by <strong>meaning</strong> rather than by the words you happened to type.
+Set up an embedding model — a local one is free and needs no key — and two things appear:
+the Explorer can sort results by how close each paper is to your search, and every result
+gains <strong>Papers like this one</strong>, its nearest neighbours in your own corpus with the distance
+and the source of each.</p>
+<p>Nothing leaves your machine unless you choose a paid provider. On a real 15,707-paper
+corpus, embedding everything took <strong>six minutes and eighteen seconds</strong> and cost nothing.</p>
+<h2 id="what-you-have-to-know-before-you-turn-it-on">What you have to know before you turn it on</h2>
+<p><strong>An Anthropic key cannot do this.</strong> Anthropic does not offer an embeddings API. <strong>Neither
+can the Claude Code or Codex command</strong> — they have no embedding command, so the
+subscription that pays for your summaries does not pay for this. Both are listed in the
+provider menu, disabled, with the reason, rather than quietly left out.</p>
+<p>What <em>does</em> work: a local Ollama model (<code>ollama pull nomic-embed-text</code>, and then pick
+Ollama), or a key from OpenAI, Google, xAI, Together or Alibaba. Each of those answers was
+established by asking the provider’s own API on 5 September 2026, with a control request to
+a path that cannot exist — because an authentication check that runs before routing answers
+401 for everything, and a bare 401 would prove nothing. DeepSeek is marked <strong>unverified</strong>
+rather than guessed at: it answers 401 for paths that do not exist too, so there was nothing
+to observe from outside. Enter a key and press Probe, and you will have a definite answer.</p>
+<p><strong>A server that lists models can still refuse to embed.</strong> This is the trap the whole feature
+was built around. The machine this was developed on runs Ollama, lists two models happily,
+and answers an embedding request with <em>“This server does not support embeddings”</em> — because
+a chat model is not an embedding model. resmon reports that as “that is not an embedding
+model, pull one”, never as a corpus with nothing in it to rank.</p>
+<h2 id="what-it-costs">What it costs</h2>
+<p>Measured on a copy of a real 15,707-paper corpus:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td>Time to embed everything</td><td><strong>378 seconds</strong> (41.6 papers/second)</td></tr><tr><td>Cost, local model</td><td><strong>nothing</strong></td></tr><tr><td>Cost, OpenAI <code>text-embedding-3-small</code></td><td>about <strong>$0.09</strong> for the same corpus</td></tr><tr><td>Database growth</td><td>33 MB → 174 MB — about <strong>9 KB per paper</strong></td></tr></tbody></table>
+<p>That last row is the real price and it is worth knowing before you press the button — so
+<strong>Settings shows it before you start</strong>, beside the token cost, computed from the model’s own
+vector width. A local model is free to call and still fills the disk, and the panel says
+both. The
+vectors are stored <strong>twice</strong>: once in a plain table any SQLite can read, and once in the
+search index. That is deliberate. An index needs a loadable extension, and a database whose
+only copy of the vectors lived inside one would be unreadable by anything that could not
+load it. Dropping the index reclaims about a third of the growth and costs a rebuild; it
+never costs a vector.</p>
+<h2 id="what-it-refuses-to-do">What it refuses to do</h2>
+<p><strong>When it cannot work, it is absent — not present and broken.</strong> If your build cannot load
+the vector extension, or you have not set up a model, the sort control and the similar panel
+do not appear at all. There is no slow fallback that computes distances by hand and pretends
+to be the same feature. That happens for real: one of the machines resmon is tested on runs
+a Python built without SQLite extension support, and resmon says exactly that.</p>
+<p><strong>Papers it has not embedded are marked, not hidden.</strong> Mid-backfill, a ranked list shows
+unembedded papers last, labelled <em>not ranked</em> rather than given a large distance. They have
+not been judged distant; they have not been judged.</p>
+<p><strong>Two models’ numbers never mix.</strong> Vectors from different models live in unrelated spaces,
+so a corpus half-embedded by one and half by another would produce a confident, meaningless
+order. The model is recorded on every paper, and a ranking will not cross between them.
+There is no fallback chain for embeddings for the same reason: falling back would give a
+wrong answer rather than a degraded one.</p>
+<h2 id="where-the-limits-are-stated-plainly">Where the limits are, stated plainly</h2>
+<p><strong>Closest and Newest can return different numbers of papers, and that is the feature.</strong>
+Newest matches on the words you type. Closest instead ranks everything your <em>other</em> filters
+allow — source, category, author, date — by how near it is to your phrase, so it will show
+you a paper that contains none of your words. Ask it <em>how do cells decide to divide</em> and it
+answers with work on asymmetric division; a word-match returns nothing at all, because no
+title contains that sentence.</p>
+<p>This is the one thing in the release that was designed one way and shipped another. The
+first build ranked <em>inside</em> the word filter, which sounds safer and is: switching the sort
+could never change which papers you were looking at. Then it was measured against a real
+15,707-paper corpus with twenty ordinary questions, and <strong>eleven of them returned an empty
+page</strong> while the vectors, asked directly, found a relevant paper for nearly every one. A
+control that says “Closest to” and answers from a keyword match is not doing what it says,
+so it was changed before this shipped.</p>
+<p><strong>Distances compare titles and abstracts, not full text.</strong> resmon does not store full text
+and does not pretend to. And 19% of this corpus has no abstract at all — mostly sources
+whose terms do not permit resmon to keep one — so those papers are embedded from a title
+alone. Each row records which, because two vectors built from different amounts of text are
+not equally informative.</p>
+<h2 id="also-in-this-release">Also in this release</h2>
+<ul>
+<li>The MCP surface gains <code>find_similar</code> and a <code>semantic</code> mode on <code>search_corpus</code> — 18 tools,
+contract v1.2. The reply reports the mode it <strong>served</strong>, not the one asked for, so an
+assistant can never report a relevance ranking that is really a date order.</li>
+<li><code>/api/health</code> now says whether this backend can load the vector extension, and why not
+when it cannot.</li>
+<li>Two things the app had been saying that were not true are fixed: the tutorial claimed a
+subscription lane sends ten papers per call when it sends five, and the agent-facing
+documentation said resmon builds for seven platform targets when it builds for four and
+publishes seven files.</li>
+</ul></div> </article>  <nav class="pager" aria-label="Other updates" data-astro-cid-g6jwv4qx> <div data-astro-cid-g6jwv4qx> <a href="/resmon/2026/09/05/resmon-update-17/" data-astro-cid-g6jwv4qx> <span class="pager-label" data-astro-cid-g6jwv4qx>Previous</span> <span data-astro-cid-g6jwv4qx>resmon Update 17 — September 4, 2026</span> </a> </div> <div class="pager-next" data-astro-cid-g6jwv4qx> <a href="/resmon/2026/09/06/resmon-update-19/" data-astro-cid-g6jwv4qx> <span class="pager-label" data-astro-cid-g6jwv4qx>Next</span> <span data-astro-cid-g6jwv4qx>resmon Update 19 — September 6, 2026</span> </a> </div> </nav>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html>  

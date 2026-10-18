@@ -1,0 +1,97 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Assistant choices (v1, schema 15) · resmon</title><meta name="description" content="Choices bind a future conversation to the existing Claude CLI or API-key assistant adapter. They do not identify an account, executable build, resolved alias, price or provider-ve…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/api-contract/assistant-choices/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Assistant choices (v1, schema 15) · resmon"><meta property="og:description" content="Choices bind a future conversation to the existing Claude CLI or API-key assistant adapter. They do not identify an account, executable build, resolved alias, price or provider-ve…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/api-contract/assistant-choices/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Contract</p> <h1 data-astro-cid-c2uqhu5p>Assistant choices (v1, schema 15)</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/api-contract/assistant-choices.md</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#status-and-requests" data-astro-cid-c2uqhu5p>Status and requests</a> </li><li data-astro-cid-c2uqhu5p> <a href="#binding-and-admission" data-astro-cid-c2uqhu5p>Binding and admission</a> </li><li data-astro-cid-c2uqhu5p> <a href="#durable-request-and-report-evidence" data-astro-cid-c2uqhu5p>Durable request and report evidence</a> </li><li data-astro-cid-c2uqhu5p> <a href="#verification-pointers" data-astro-cid-c2uqhu5p>Verification pointers</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><p>Choices bind a future conversation to the existing Claude CLI or API-key assistant
+adapter. They do not identify an account, executable build, resolved alias, price or
+provider-verified effective configuration. No catalog request or live probe runs for
+this feature. Tool inventory, system instructions, permission payloads and destructive
+endpoint exclusions are unchanged.</p>
+<h2 id="status-and-requests">Status and requests</h2>
+<p><code>GET /api/assistant/status</code> retains its fields and adds <code>composer_choices</code> version 1:
+<code>default_request</code>, nullable <code>default_error</code>, <code>connections</code>, <code>claude_aliases</code>,
+<code>claude_efforts</code> and <code>limitations</code>. Each connection includes runtime/provider/label,
+implemented/available, reason and effort support; offered APIs include their existing
+request family. The descriptor derives 11 provider rows from <code>PROVIDER_TOOL_CALLING</code>:
+Claude Code, eight offered APIs and two unavailable adapters (Codex/Ollama). It derives
+four CLI aliases and five effort strings from <code>ai_models</code>; these are suggestions,
+not an account-verified compatibility matrix. Availability checks existing local
+prerequisites, not authentication. No locator or credential is added to the descriptor.</p>
+<p><code>POST /api/assistant/sessions</code> accepts an optional <code>choices</code> object. Omission captures
+current defaults with <code>settings_default</code> provenance. Explicit null is invalid. The
+complete object is:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"version"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span><span style="color:#005CC5;--shiki-dark:#79B8FF">1</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"runtime"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"claude_cli"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"provider"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"claude_code"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"model"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"opus"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"effort"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"high"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>No extra or missing fields, coercion or unknown version is accepted. Runtime is
+<code>claude_cli</code> or <code>api_key</code>; the latter requires an offered provider. Model is a literal,
+nonblank string of at most 512 characters without Unicode controls, or CLI-only null.
+CLI effort is null or an existing <code>low|medium|high|xhigh|max</code> string. API effort must
+be null: the adapter sends no effort parameter. Invalid creation returns 400; malformed
+outer models return 422. Creation records a fixed binding; send checks its readiness.
+Null CLI values omit flags, leaving native defaults unknown. The renderer seeds its
+draft once and never writes global defaults or replaces an edited draft on late status.</p>
+<h2 id="binding-and-admission">Binding and admission</h2>
+<p>A bound send accepts <code>text</code>, not a per-turn override. Changing connection/model/effort
+explicitly starts an empty conversation without copying messages or native IDs.
+Global default changes cannot retarget a bound conversation. A private SHA-256 digest
+compares only the configured CLI locator, custom API URL, or built-in provider descriptor.
+It is not a credential/corpus fingerprint and is never exported. It cannot detect
+account changes, replacement binary contents, DNS changes or alias resolution.</p>
+<p>Admission resolves the fixed runtime once, checks local availability, claims the
+per-session bus, then acquires a SQLite write lock. It rechecks binding and configured
+locator under that lock and commits the user message plus requested-choice snapshot
+atomically. A changed locator, stale adoption or existing active turn returns 409
+before admitting a user row. The captured runtime and prior API text history are
+passed directly to the worker; it does not reconstruct them from global defaults.
+A reader disconnect keeps the claim until that worker finishes and requests cancellation.
+There is no durable worker recovery or cross-process runtime coordination mechanism.</p>
+<p>Legacy sessions remain unbound/readable/exportable after upgrade. Their first send
+requires <code>legacy_adoption: {confirmed:true, choices:&#x3C;complete object>}</code>. Missing or
+unconfirmed adoption returns 409 <code>legacy_adoption_required</code>. A different runtime kind
+returns 409 <code>runtime_change_requires_new_conversation</code>. API confirmation states that
+saved same-chat user/assistant text will be sent to the selected future provider, with
+prior provider unknown. Prior tool data/system messages are not replayed. CLI
+confirmation states that earlier messages remain local and are not sent: it allocates
+a fresh native session and never resumes the historical unverified ID. Binding, new
+native coordination identity, user row and requested snapshot commit together. A later
+adoption returns 409 <code>already_bound</code>; history and legacy session.model are preserved.</p>
+<h2 id="durable-request-and-report-evidence">Durable request and report evidence</h2>
+<p>Schema 15 adds only <code>assistant_session_choices</code>, <code>assistant_turn_choices</code> and partial
+unique index <code>idx_assistant_turn_choices_assistant_message</code> on nonnull assistant message
+IDs. Session choices reference session ID with cascade deletion; turn choices reference
+the user message with cascade and optional assistant message with SET NULL. Session
+fields are version/runtime/provider, requested_model/requested_effort, model_basis,
+effort_basis, binding_basis, created_at_utc and private route_digest. Bases distinguish
+explicit, settings_default, runtime_default, not_supported effort and new versus
+legacy_confirmed binding. Turn fields are version, immutable requested_json,
+reported_json (initially []), created_at_utc and the two message IDs.</p>
+<p>The common final migration uses one savepoint for both tables, index, exact object
+shape validation and marker 14→15. Blocking views/tables/indexes or failed DDL/marker
+writes raise and roll back phase DDL; an upgraded database keeps marker 14. Fresh and
+upgraded databases receive the same DDL. Repeated/restarted initialization adds no rows.
+There is no historical backfill or inferred settings history. Earlier migrations remain
+separate; this does not promise whole-history atomicity from every old schema version.</p>
+<p>SSE adds <code>turn_choices</code> after admission and <code>turn_model_report</code> after an observation is
+persisted, each with session_id/user_message_id. Reports have sequence, literal model,
+source and observed_at_utc. Sources are <code>claude_system_init_model</code>, <code>api_response_model</code>
+and <code>google_response_modelVersion</code>; a requested model echoed at API start is not a
+report. Missing/invalid response models remain absent, ordered repeated/different valid
+reports remain distinct. Requested values are not rewritten. Report append and final
+reply linking each acquire a SQLite write lock to avoid lost updates or duplicate
+reply rows. The renderer associates metadata with its owning session and user turn.</p>
+<p>A persisted request can outlive a missing response. Assistant linkage proves only
+that an assistant row was stored. Reports are response claims, not proof of actual
+execution or billing; effective effort and historical completion remain unknown.
+Snapshot/export use explicit public allowlists and the existing one-transaction read,
+8 MiB refusal and literal-text rendering. See <a href="assistant-conversations.md">conversations</a>.</p>
+<h2 id="verification-pointers">Verification pointers</h2>
+<p><code>test_assistant_choices.py</code>, <code>test_schema_upgrade.py</code>, <code>test_assistant_store.py</code>,
+<code>test_assistant_runtime.py</code>, <code>test_assistant_api_runtime.py</code>, <code>test_assistant_api.py</code> and
+<code>test_assistant_export.py</code> cover real SQLite and authored process/HTTP boundaries.
+<code>ComposerChoices.test.tsx</code>, <code>AssistantPanel.test.tsx</code> and <code>ChatsPage.test.tsx</code> cover
+renderer state/identity. <code>e2e/composer-choices.spec.ts</code> uses actual Electron/backend/SSE,
+a captured fake CLI, loopback API recipient and scripted downloads. These establish
+local contracts, not real account/model compatibility or native chooser behavior.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

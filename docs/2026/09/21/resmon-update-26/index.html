@@ -1,0 +1,199 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Update 26 — The run that finishes, and the report that arrives · resmon</title><meta name="description" content="Three schema steps, and all three are about resmon being able to say what happened rather than what it assumes happened."><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/2026/09/21/resmon-update-26/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Update 26 — The run that finishes, and the report that arrives · resmon"><meta property="og:description" content="Three schema steps, and all three are about resmon being able to say what happened rather than what it assumes happened."><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/2026/09/21/resmon-update-26/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+.pager[data-astro-cid-g6jwv4qx]{display:grid;gap:var(--space-4);margin-top:var(--space-7);font-size:var(--text-sm)}.pager[data-astro-cid-g6jwv4qx] a[data-astro-cid-g6jwv4qx]{display:block;padding:var(--space-3) var(--space-4);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md);text-decoration:none;color:var(--color-text);background:var(--color-surface)}.pager[data-astro-cid-g6jwv4qx] a[data-astro-cid-g6jwv4qx]:hover{border-color:var(--color-border-strong)}.pager-label[data-astro-cid-g6jwv4qx]{display:block;font-size:var(--text-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}@media(min-width:40rem){.pager[data-astro-cid-g6jwv4qx]{grid-template-columns:1fr 1fr}.pager-next[data-astro-cid-g6jwv4qx]{text-align:end}}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Update</p> <h1 data-astro-cid-c2uqhu5p>Update 26 — The run that finishes, and the report that arrives</h1> <p class="meta" data-astro-cid-c2uqhu5p>September 21, 2026</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#metadata" data-astro-cid-c2uqhu5p>Metadata</a> </li><li data-astro-cid-c2uqhu5p> <a href="#this-is-the-classic-checkpoint" data-astro-cid-c2uqhu5p>This is the classic checkpoint</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-short-version" data-astro-cid-c2uqhu5p>The short version</a> </li><li data-astro-cid-c2uqhu5p> <a href="#a-run-that-was-interrupted-says-so" data-astro-cid-c2uqhu5p>A run that was interrupted says so</a> </li><li data-astro-cid-c2uqhu5p> <a href="#one-run-per-routine-and-the-fires-that-were-missed" data-astro-cid-c2uqhu5p>One run per routine, and the fires that were missed</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-report-has-somewhere-to-go" data-astro-cid-c2uqhu5p>The report has somewhere to go</a> </li><li data-astro-cid-c2uqhu5p> <a href="#backup-and-restore-as-one-pair" data-astro-cid-c2uqhu5p>Backup and restore, as one pair</a> </li><li data-astro-cid-c2uqhu5p> <a href="#three-schema-steps-in-one-launch-proven-from-a-corpus-220-wrote" data-astro-cid-c2uqhu5p>Three schema steps in one launch, proven from a corpus 2.2.0 wrote</a> </li><li data-astro-cid-c2uqhu5p> <a href="#smaller-things" data-astro-cid-c2uqhu5p>Smaller things</a> </li><li data-astro-cid-c2uqhu5p> <a href="#what-this-release-does-not-do" data-astro-cid-c2uqhu5p>What this release does not do</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 26</li>
+<li><strong>Version:</strong> 2.2.0 → 2.3.0</li>
+<li><strong>Theme:</strong> a run says what actually happened to it, and a routine’s report has somewhere
+to go and a record of whether it got there</li>
+</ul>
+<h2 id="this-is-the-classic-checkpoint">This is the classic checkpoint</h2>
+<p>2.3.0 is the last feature release of resmon’s current interface. From here, 2.x continues on
+a <code>classic</code> branch for security fixes only, and the next major version rebuilds the
+interface on the same engine — the same backend, the same database, the same corpus — and is
+measured against 2.3.0 journey by journey, page by page, rather than against an idea of what
+the app does. Nothing here is being retired and no date is being promised. This release is
+the line the rebuild gets compared to, which is why it is worth having the numbers in it be
+true.</p>
+<h2 id="the-short-version">The short version</h2>
+<p>Three schema steps, and all three are about resmon being able to say what happened rather
+than what it assumes happened.</p>
+<p>A run whose backend was force-quit used to sit at <code>running</code> for ever, or — on the graceful
+path — was written down as <code>failed</code>, which was an overclaim: resmon never observed a
+failure. There is now a fifth word for it, <strong>interrupted</strong>, with ownership columns behind it
+so the judgement is a fact and not a guess, and a <strong>Restart</strong> that links the new run back to
+the one it came from (#139).</p>
+<p>A routine could fire twice, or be started by hand while its own scheduled fire was already
+running. Now there is <strong>one run per routine and one run per submission</strong>, enforced by the
+database rather than by a check the application hoped it won because it looked first — and a
+record of <strong>missed fires</strong>, the ones whose time had already passed while resmon was not
+running (#141).</p>
+<p>And a routine’s report now has <strong>somewhere to go</strong>. Email, a folder, a webhook and a feed:
+four destinations, each with its own row, its own attempts, its own reason for not having
+arrived yet and its own time to try again (#146, #148).</p>
+<p>Plus a <strong>backup and restore</strong> that treats the database and the Library vault as one pair,
+with a drill that proves the restore (#153).</p>
+<h2 id="a-run-that-was-interrupted-says-so">A run that was interrupted says so</h2>
+<p><code>executions.status</code> had four values — <code>running</code>, <code>completed</code>, <code>failed</code>, <code>cancelled</code> — and
+none of them is true of a run whose backend was killed. The graceful shutdown path had
+written <code>failed</code> for years.</p>
+<p>Schema 19 rebuilds the table with a fifth value, <code>interrupted</code>, and four columns that make
+the reconciliation on the next start something resmon can establish rather than assume:
+<code>owner_pid</code> and <code>owner_runtime_id</code> say which process claimed the row, <code>last_seen_at_utc</code>
+says when that process was last observed working on it, and <code>interrupted_reason</code> says which
+of the two ways resmon found out — <code>daemon_restart</code> when it watched itself stop,
+<code>owner_dead</code> when a later start found the owning process gone, <code>unknown</code> when neither can be
+established. A 30-second heartbeat and a stamp at each stage boundary are what give that
+judgement something to read (#139).</p>
+<p>The rule is one-sided on purpose. A row is adopted as interrupted only where its owner can
+be <em>established</em> to be gone; a pid that has been reused, or one belonging to another user,
+reads as alive. Being wrong towards alive costs a row that waits for the next start. Being
+wrong the other way tells somebody a live run has stopped. That rule was written out in
+three places and is now one implementation, tested over its four branches (#149).</p>
+<p><code>Restart</code> re-runs an interrupted execution with the same parameters and records
+<code>restarted_from</code> on the new row. The original is never edited — the history stays exactly as
+it happened. The real Results page, the badge, the reason sentence, the last-seen time and
+the Restart click are exercised in a real Electron window rather than in jsdom (#147), and
+the renderer now derives its status vocabulary from one exported list that a test compares
+against the CHECK in <code>database.py</code>, so a status added to the schema and forgotten in the
+renderer fails instead of leaving a finished run showing as still running (#145).</p>
+<h2 id="one-run-per-routine-and-the-fires-that-were-missed">One run per routine, and the fires that were missed</h2>
+<p>Two things could produce a second simultaneous run of the same routine: the scheduler firing
+while a hand-started run was in flight, and a submission retried by a client that never saw
+the first response.</p>
+<p>The first is now a claim taken under a lock before the worker thread starts and released in
+its <code>finally</code> — not a query on <code>executions.status</code>, which is both too late (the row does not
+exist yet) and too long (a force-quit backend’s rows would refuse the routine for ever). The
+second is <code>executions.request_id</code> with a partial UNIQUE index over it: one run per
+submission, enforced by SQLite (#141).</p>
+<p>The global admission slot now follows the same discipline. A worker thread that died between
+being admitted and reaching its own <code>try</code> used to hold the slot for the life of the backend,
+and enough of those meant every Deep Dive and Deep Sweep answered 429 while nothing at all
+was running. The slot is released from the same outer <code>finally</code> as the routine claim, in the
+same order, and the release is idempotent (#143). The order matters enough to have its own
+guard (#149).</p>
+<p><code>routine_missed_fires</code> records one row per scheduled fire whose time had already passed when
+resmon next started. It claims exactly what was observed — that the persisted next fire was
+in the past when we read it — and not that the run did not happen. <strong>No catch-up run is
+started.</strong> Whether resmon should silently run a week of missed sweeps on the morning a laptop
+is opened is a decision for its owner, not a default chosen by a migration (#141).</p>
+<h2 id="the-report-has-somewhere-to-go">The report has somewhere to go</h2>
+<p>Until now a routine’s report went to email, from inside the execution worker’s own thread,
+while still holding that run’s admission slot. A mail server that accepted a connection and
+then sat there held the slot open with it.</p>
+<p>Schema 21 adds <code>routine_delivery_targets</code> — where a routine’s report is sent — and
+<code>deliveries</code>, one row per execution and destination carrying the attempts made, the reason
+it has not arrived, and when to try again. The completion hook no longer sends anything: it
+enqueues a row per enabled destination and wakes a drain thread that owns the sending
+(#146).</p>
+<p>Four channels ship, which is the whole of the schema’s vocabulary:</p>
+<ul>
+<li><strong>Email</strong> is the existing sender moved behind a channel adapter — now recorded, retried,
+and attaching the same bundle the export route builds, search-record companions included,
+which the email hook had always quietly left out.</li>
+<li><strong>Folder</strong> writes that bundle into a directory you chose, atomically. A synced folder
+becomes a delivery destination with no code of ours on the wire.</li>
+<li><strong>Webhook</strong> posts a signed JSON envelope: what ran, when, how many results and how many
+new, the read-time coverage line, the report’s sha256, a link to the search record, and
+the bundle either as a time-limited link the receiver fetches or, if you ask, inline. The
+signature is HMAC-SHA256 over the exact bytes posted, keyed with a per-target secret in
+your keyring. HTTPS only, except for a receiver on 127.0.0.1 (#148).</li>
+<li><strong>Feed</strong> writes an Atom file a reader can subscribe to.</li>
+</ul>
+<p>A target can be set to <strong>review</strong> instead of automatic, and then its delivery waits at
+<code>awaiting_review</code> until you say so. There is deliberately no automatic promotion anywhere in
+that module, however long the wait is.</p>
+<p>Failures back off one minute, five minutes, twenty-five minutes and then stop with the
+reason on the row. <code>UNIQUE(execution_id, target_id)</code> plus a compare-and-swap claim is what
+makes <em>delivered exactly once</em> something the database enforces. A row left mid-delivery by a
+backend that was force-quit is re-queued on the next start — and only where that owner can
+be established to be gone, because resmon would rather send a report twice than never (#146,
+#148, #149).</p>
+<p>The bundle link is the one route that answers without resmon’s local API token. A webhook
+receiver is not resmon and has no business holding a credential that opens every route, so
+the link carries its own proof: a signature over the delivery id and an expiry, checked by
+the route, with the Host and Origin guards still applying (#148).</p>
+<h2 id="backup-and-restore-as-one-pair">Backup and restore, as one pair</h2>
+<p>Nothing in resmon backed up the database or a single vault byte, and nothing could restore.
+<code>POST /api/cloud/backup</code> uploaded the reports tree to Drive and had no counterpart on the
+way back.</p>
+<p>There is now one bundle: the database snapshotted through SQLite’s own backup API —
+consistent under WAL, no sidecars — every retained vault byte re-hashed against the catalog
+on the way out, optionally the reports tree, and a manifest naming every file, its hash, the
+table counts, and, <strong>by name and never by value</strong>, the keyring entries a restore cannot
+bring back.</p>
+<p>The restore is staged, because a request thread cannot safely replace the database its own
+process has open. <code>/api/restore</code> verifies the bundle and writes a pointer; the next start
+acts on it before anything opens the database, moving the current database aside rather than
+deleting it. And there is a drill: the restore is exercised end to end rather than asserted
+(#153).</p>
+<h2 id="three-schema-steps-in-one-launch-proven-from-a-corpus-220-wrote">Three schema steps in one launch, proven from a corpus 2.2.0 wrote</h2>
+<p>A 2.2.0 corpus walks <strong>18 → 21</strong> on the first launch of 2.3.0: the <code>executions</code> rebuild with
+its wider CHECK and its new columns, then <code>request_id</code> and <code>routine_missed_fires</code>, then the
+two delivery tables.</p>
+<p>That walk is proven against a database <strong>v2.2.0’s own code wrote</strong> — the fixture that
+release left behind, committed beside its generator, regenerated out of process and diffed
+so that the claim “this is what v2.2.0 produced” stays falsifiable (#135). It is not a
+hand-reasoned idea of what an older database looks like, which is the class of mistake that
+shipped a broken migration once before.</p>
+<p>2.3.0 leaves the same thing for the release after it: a schema-21 corpus its own code wrote,
+seeded at every value of every enumerated CHECK the schema carries — except two that no code
+in 2.3.0 writes, which are named in the generator rather than invented. And the walk case
+now runs over <strong>every</strong> released fixture rather than only the newest, because adding this
+one would otherwise have silently dropped the 18 → 21 walk — which is exactly the walk a
+2.2.0 user takes.</p>
+<p>CI gained two guards worth naming: it refuses a committed symlink or a maintainer’s home
+directory in a tracked file before anything installs, and that guard was proven by being
+made to go red (#154); and the e2e suite now names the interpreter it starts the backend
+with, and fails loudly instead of exiting 0 on a run where most specs never ran (#150).</p>
+<h2 id="smaller-things">Smaller things</h2>
+<ul>
+<li><strong>Nine registered sources that the acknowledgments had never credited</strong> are credited, and
+the lead-in no longer carries a count that had gone stale (#140).</li>
+<li><strong>Tutorials link the YouTube walk-throughs instead of embedding them.</strong> The tab renders no
+third-party frame and sends no request to YouTube; every link opens in your own browser
+(#134). The two YouTube origins then left the renderer’s Content-Security-Policy, where
+nothing needed them and nothing would have noticed if something started using them again —
+and a test now pins the exact source set per directive, because a CSP only ever loosens
+silently (#144).</li>
+<li><strong>Two dependencies, examined.</strong> <code>tailwindcss</code> had been a runtime dependency since the
+initial commit and was never used: no import, no directive, no build step, and a
+production <code>dist</code> that is byte-for-byte identical without it. It is gone. APScheduler’s
+<code>[sqlalchemy]</code> extra, which <em>was</em> being relied on, is now declared (#138, #144).</li>
+<li><strong>A live test that finds nothing now fails by asserting</strong> rather than passing quietly
+(#137), and a HAL budget case no longer depends on how precisely <code>time.sleep</code> returns
+(#145).</li>
+</ul>
+<h2 id="what-this-release-does-not-do">What this release does not do</h2>
+<ul>
+<li><strong>It does not run your missed sweeps for you.</strong> A missed fire is recorded, not caught up
+(#141).</li>
+<li><strong><code>routine_missed_fires.disposition</code> has three values and resmon writes two.</strong> <code>skipped</code>
+is in the vocabulary so a later policy needs no migration; nothing writes it yet, and the
+fixture this release leaves behind therefore contains no row at that value (#141).</li>
+<li><strong>A delivery record is a record of what resmon did, not proof of what arrived.</strong> A folder
+delivery says the bundle was written; it cannot tell you your sync client uploaded it. A
+webhook delivery says the receiver answered; it cannot tell you a person read it.</li>
+<li><strong>A row left <code>delivering</code> may have been sent.</strong> resmon re-queues it on the next start and
+would rather you see one report twice than never see it (#146).</li>
+<li><strong><code>interrupted</code> is what resmon can establish, not everything that is true.</strong> A pid that
+has been reused, or one owned by another user, reads as alive, and its row stays
+<code>running</code> until something can say otherwise (#139, #149).</li>
+<li><strong>A restore cannot bring back your keyring.</strong> The manifest names the entries by name so
+you know what to re-enter; the values were never in the bundle (#153).</li>
+<li><strong>The upgrade proof walks 13 → 21 and 18 → 21, from corpora v2.1.0 and v2.2.0 wrote.</strong> It
+establishes nothing about a database written by any other version, about sqlite-vec, or
+about the renderer.</li>
+<li><strong>An MCP server needs no change this time.</strong> The contract is still 2.3 and the inventory
+is still twenty-five tools. A 2.3 MCP server pointed at a 2.2 backend simply gets no
+delivery summary back.</li>
+<li><strong>macOS builds are still unsigned.</strong> They cannot self-update, which is why no
+<code>latest-mac.yml</code> is published for them.</li>
+</ul></div> </article>  <nav class="pager" aria-label="Other updates" data-astro-cid-g6jwv4qx> <div data-astro-cid-g6jwv4qx> <a href="/resmon/2026/09/20/resmon-update-25/" data-astro-cid-g6jwv4qx> <span class="pager-label" data-astro-cid-g6jwv4qx>Previous</span> <span data-astro-cid-g6jwv4qx>resmon Update 25 — September 20, 2026</span> </a> </div> <div class="pager-next" data-astro-cid-g6jwv4qx>  </div> </nav>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html>  
