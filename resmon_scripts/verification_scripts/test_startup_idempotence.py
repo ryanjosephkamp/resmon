@@ -304,7 +304,8 @@ def test_a_deleted_email_target_stays_deleted_across_a_launch(corpus_path):
 
 
 def test_the_upgrade_that_introduced_the_seed_still_seeds(corpus_path):
-    """R3: the routine that had completion emails before schema 21 still has them.
+    """Functionality does not decrease: a routine that had completion emails before
+    schema 21 still has them.
 
     The seed is what kept that promise, so gating it must not switch it off.
     This rewinds the stored schema version to 20 -- which is what the launch

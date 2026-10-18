@@ -1021,11 +1021,10 @@ def _migrate_search_index(conn: sqlite3.Connection) -> None:
     # and no categories, or categories and no authors, was indexed by a source
     # that gave one and not the other, and treating it as a gap is how the old
     # count comparison got here. The marker is what a partial restore no longer
-    # repairs by itself:
-    # a database whose facet rows are lost without its ``app_settings`` going
-    # with them keeps the marker and is not re-indexed, and the user sees
-    # authors and categories missing from the Explorer's filter lists for the
-    # affected papers. Clearing ``app_settings`` -- which the Danger Zone's
+    # repairs by itself: a database whose facet rows are lost without its
+    # ``app_settings`` going with them keeps the marker and is not re-indexed,
+    # and the user sees authors and categories missing from the Explorer's
+    # filter lists for the affected papers. Clearing ``app_settings`` -- which the Danger Zone's
     # settings reset does, to this marker and to the two below alike -- makes
     # the next launch walk the gaps again.
     doc_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
@@ -1869,10 +1868,10 @@ def _migrate_jobs_duplicate_protection(conn: sqlite3.Connection) -> None:
 #     ``delivering`` by a backend that was SIGKILLed is re-queued on the next
 #     start **only** where that owner can be established to be gone.
 #
-# The seed is what keeps R3: every routine with ``email_enabled=1`` gets one
-# automatic email target **on the launch that performs the 20 -> 21 upgrade**,
-# so a user who had completion emails before the upgrade still has them after
-# it with nothing to edit. It ran on every start until the gate was added, and
+# The seed is what keeps functionality from decreasing: every routine with
+# ``email_enabled=1`` gets one automatic email target **on the launch that
+# performs the 20 -> 21 upgrade**, so a user who had completion emails before
+# the upgrade still has them after it with nothing to edit. It ran on every start until the gate was added, and
 # a target the user deleted therefore came back on the next one.
 # ``email_enabled`` stays the routine-level switch the Routines page toggles --
 # an email target whose routine has it off is not enqueued -- and the empty
@@ -1968,7 +1967,7 @@ def _migrate_delivery(conn: sqlite3.Connection) -> None:
                     or " ".join((row[1] or "").split()) != " ".join(ddl.split())):
                 raise sqlite3.DatabaseError("Conflicting schema-21 shape: " + name)
 
-        # R3: the email that used to be sent straight from the completion hook
+        # The email that used to be sent straight from the completion hook
         # keeps being sent, to the same address, with no edit by the user. One
         # automatic target per routine that has the switch on, and only where
         # that routine has no email target already.
