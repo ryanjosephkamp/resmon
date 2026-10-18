@@ -28,7 +28,7 @@ name: UI smoke
 
 on:
   push:
-    branches: ['**']
+    branches: ['no-such-branch']
   pull_request:
   workflow_dispatch:
     inputs:

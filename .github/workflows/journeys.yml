@@ -29,7 +29,7 @@ name: Journeys
 
 on:
   push:
-    branches: ['**']
+    branches: ['no-such-branch']
   pull_request:
   schedule:
     # Monday morning, after the weekly live-network job has had the night.
