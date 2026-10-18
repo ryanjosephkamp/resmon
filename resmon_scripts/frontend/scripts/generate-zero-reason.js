@@ -41,6 +41,19 @@ const GENERATED_PATH = path.join('src', 'api', 'zeroReasonVocabulary.ts');
  * is in them, and `DID_NOT_ANSWER`'s comment for `entity_unsupported` is four
  * lines long. No reason slug contains a `#`, so a line-wise strip is safe and
  * a lot more legible than a Python parser would be here.
+ *
+ * **Every entry must be understood, or this throws.** The first version of
+ * this function scanned the block with `/"([a-z_]+)"/g` and kept whatever
+ * matched, which meant a reason written with single quotes, or holding a
+ * digit, was skipped in silence. That is worse than a parse error, because
+ * the byte-compare guard regenerates through this same function: the
+ * committed module and the regeneration agreed on the same wrong answer, and
+ * a reason the renderer had never heard of would have reached the grid as a
+ * green tick — the exact defect this module exists to prevent. So the block
+ * is split into entries first and each one is required to be a quoted slug;
+ * anything else names itself in the error. A second, independent check
+ * counts the quote characters, which catches a literal holding the comma the
+ * split relies on.
  */
 function literals(source, name, open, close) {
   const uncommented = source
@@ -55,9 +68,30 @@ function literals(source, name, open, close) {
   if (!block) {
     throw new Error(`${name} was not found in ${PYTHON_SOURCE}`);
   }
-  const values = [...block[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+
+  const body = block[1];
+  const entries = body.split(',').map((entry) => entry.trim()).filter(Boolean);
+  const values = entries.map((entry) => {
+    const matched = entry.match(/^(['"])([a-z0-9_]+)\1$/);
+    if (!matched) {
+      throw new Error(
+        `${name} in ${PYTHON_SOURCE} holds an entry this parser does not `
+        + `understand: ${entry}. Teach it the new shape rather than letting `
+        + 'the value drop.',
+      );
+    }
+    return matched[2];
+  });
   if (values.length === 0) {
     throw new Error(`${name} in ${PYTHON_SOURCE} parsed as empty`);
+  }
+
+  const quotes = (body.match(/['"]/g) || []).length;
+  if (quotes !== values.length * 2) {
+    throw new Error(
+      `${name} in ${PYTHON_SOURCE} has ${quotes} quote characters for `
+      + `${values.length} values. One of them is not a plain slug.`,
+    );
   }
   return values;
 }
