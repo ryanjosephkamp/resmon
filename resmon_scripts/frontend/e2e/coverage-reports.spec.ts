@@ -137,7 +137,13 @@ for (const mode of ['503', 'malformed'] as const) {
         return (await response.json()).execution_id as number;
       });
       await source.waitForRequest(); source.release();
-      await expect.poll(async () => (await sourceApi(win, `/api/executions/${id}`)).status, { timeout: 90_000 }).toBe('completed');
+      // This poll waits for the run to reach a terminal state. It spelled that
+      // state 'completed' until the only source this dive asked could answer
+      // 503 and still leave the run looking healthy -- the defect this spec's
+      // own next assertion describes from the other side. A run whose coverage
+      // is `answered: 0, non_answer: 1, unknown: 0` is a run where everything
+      // asked failed, and the engine now records it as `failed`.
+      await expect.poll(async () => (await sourceApi(win, `/api/executions/${id}`)).status, { timeout: 90_000 }).toBe('failed');
       const effect = source.evidence(id);
       expect(effect.stored.sources[0].zero_reason).toBe(mode === '503' ? 'upstream_failure' : 'parse_failure');
       expect(effect.requests.every(r => r.status === (mode === '503' ? 503 : 200))).toBe(true);
