@@ -87,13 +87,14 @@ These are guarantees, not defaults, and the implementation is reviewed against t
   after the seventh arrived, which is the permissive direction for a document whose
   implementation is reviewed against it.
 - **`update_settings` admits a key by name.** Since v2.3 the settings a tool may change
-  are an allowlist of **25 keys of the 41** the app has across the seven reachable
-  groups; the other **16** are refused on the name before any request is built, each with
+  are an allowlist of **23 keys of the 41** the app has across the seven reachable
+  groups; the other **18** are refused on the name before any request is built, each with
   the reason it is withheld. The line is that a tool may change what resmon *says* —
   model, tone, length, retention, notifications — and may not change where resmon sends
-  things, what resmon runs, or where resmon writes. `ai_cli_path` is the clearest case:
-  it is the binary resmon spawns, and it matched none of the credential-shaped words that
-  were this tool's only content guard until v2.3.
+  things, what resmon runs, where resmon writes, what resmon is told, or whether the user
+  is told how a result was produced. `ai_cli_path` is the clearest case: it is the binary
+  resmon spawns, and it matched none of the credential-shaped words that were this tool's
+  only content guard until v2.3.
 - **`requires_confirmation` is advertised, not enforced here.** The flag is emitted on
   every tool in `tools/list`, and the embedded assistant turns it into a card the user
   answers. This server applies no gate of its own: for the embedded assistant the
@@ -174,7 +175,7 @@ would make an honest product dishonest through an integration.
 | `run_routine` | `routine_id` | `exec_id`, immediately; or a `conflict` error carrying `{"conflict": "routine_already_running", "execution_id": N}` when that routine is already running | **needs a new endpoint — see below** |
 | `activate_routine` | `routine_id` | `id`, `is_active: true` | `POST /api/routines/{id}/activate` |
 | `deactivate_routine` | `routine_id` | `id`, `is_active: false` | `POST /api/routines/{id}/deactivate` |
-| `update_settings` | `group`, `settings` — the group on `SETTINGS_GROUPS`, every key on `SETTINGS_KEYS_WRITABLE` (25 of the app's 41; see the v2.3 narrowing amendment) | `group`, `changed` (a per-key `{from, to}` diff), `requested`, `unchanged_key_count` | `GET` + `PUT /api/settings/{group}` |
+| `update_settings` | `group`, `settings` — the group on `SETTINGS_GROUPS`, every key on `SETTINGS_KEYS_WRITABLE` (23 of the app's 41; see the v2.3 narrowing amendment) | `group`, `changed` (a per-key `{from, to}` diff), `requested`, `unchanged_key_count` | `GET` + `PUT /api/settings/{group}` |
 
 **Every write tool carries `requires_confirmation: true` in `tools/list`, and every
 read tool carries it as `false`.** The field is resmon's own, not part of MCP. It is
@@ -224,7 +225,7 @@ Listed so the omissions are visible and arguable rather than silently missing.
 |---|---|
 | `/api/admin/*` — erase corpus, erase app data, factory reset, erase keys | Destructive and irreversible. No confirmation model a tool call can satisfy. |
 | `PUT` / `DELETE /api/credentials/{name}` | Writing credentials through a tool surface means a credential passing through a harness. Never. |
-| ~~`PUT /api/settings/*`~~ | **Lifted in v2.0** as `update_settings`, on the condition this row named: a person in the conversation confirms it. Settings outside the group allowlist are still out of reach — see the v2.0 and v2.1 amendments — and since v2.3 so are the 16 keys inside it that choose where resmon sends things, what resmon runs or where resmon writes. |
+| ~~`PUT /api/settings/*`~~ | **Lifted in v2.0** as `update_settings`, on the condition this row named: a person in the conversation confirms it. Settings outside the group allowlist are still out of reach — see the v2.0 and v2.1 amendments — and since v2.3 so are the 18 keys inside it that choose where resmon sends things, what resmon runs, where resmon writes, what resmon is told, or whether the user is told how a result was produced. |
 | `PUT /api/settings/execution` | Deliberately *not* in `update_settings`'s allowlist. Admission control — how many executions run at once, how deep the routine fire queue goes — is a decision about the machine rather than about the research, and the endpoint does not take `SettingsBody`. |
 | `DELETE /api/routines/{id}`, `DELETE /api/executions/{id}` | Destructive. Same reasoning. |
 | `/api/service/install`, `/api/service/uninstall` | Touches launchd / systemd on the user's machine. |
@@ -622,12 +623,14 @@ decision moved into the server.
 | | Count |
 |---|---|
 | Settings keys the app has, across the seven reachable groups | **41** |
-| Writable through `update_settings` | **25** |
-| Withheld, refused on the name before any request is built | **16** |
+| Writable through `update_settings` | **23** |
+| Withheld, refused on the name before any request is built | **18** |
 
-The line: **a tool may change what resmon says — model, tone, length, retention,
-notifications — and may not change where resmon sends things, what resmon runs, or where
-resmon writes.**
+The line, and the question the next person adding a key has to answer:
+
+> **A tool may change what resmon says. It may not change where resmon sends things, what
+> resmon runs, where resmon writes, what resmon is told, or whether the user is told how a
+> result was produced.**
 
 Withheld, with the reason each is withheld:
 
@@ -643,11 +646,22 @@ Withheld, with the reason each is withheld:
 | `cloud_provider` | which service a corpus backup is uploaded to |
 | `smtp_server`, `smtp_port`, `smtp_to` | where routine reports are delivered |
 | `export_directory` | where resmon writes exported files |
+| `ai_extraction_goals` | **what resmon is told.** Free text spliced into the summarizer's prompt and kept, so an instruction written once shapes every later summary without the user seeing it again |
+| `ai_show_audit_prefix` | **whether the user is told how a result was produced.** The line that tells a reader a summary came from a model, and which model |
+
+The last two move no request, and that is the point of listing them. A guard that asks
+only "does this change where a request goes" admits both: the first is the R6 failure —
+untrusted source text steering a lane — with a settings-shaped handle on it, and the
+second decides whether a reader can tell a model wrote a sentence, which is the rule that
+outranks the others here. They are withheld by judgement, and the judgement is written
+down rather than encoded in a test that could not have found them.
 
 Everything else in those groups stays writable, including the reason the `ai` and
 `assistant` groups are reachable at all: `ai_model`, `ai_effort`, `assistant_model` and
-`assistant_effort`. Every group on the group allowlist still holds at least one writable
-key, and a test asserts it rather than a reader checking.
+`assistant_effort`. `ai_tone` and `ai_summary_length` stay writable too — they shape how a
+summary reads, which is what resmon says, not what resmon is told. Every group on the
+group allowlist still holds at least one writable key, and a test asserts it rather than a
+reader checking.
 
 The allowlist and the withheld list **partition the app's own key list exactly**.
 `test_every_settings_key_the_app_has_is_either_writable_or_withheld` reads
@@ -658,7 +672,9 @@ other direction of the v2.1 finding, one level down from the group.
 `assistant_choices.route_digest` — the function `get_bound_runtime` already uses to
 refuse a conversation whose route moved — over the whole key list, and requires every key
 it reads to be withheld. That is what keeps this list and the codebase's existing notion
-of a route from drifting apart, since neither file imports the other.
+of a route from drifting apart, since neither file imports the other. It is a floor rather
+than the line: it catches what moves a request, and the last two rows of the table above
+are the reminder that the line is wider than that.
 
 The credential denylist is unchanged and is still checked first, because it answers a
 credential-shaped name with a better sentence than the allowlist would: resmon's keys are

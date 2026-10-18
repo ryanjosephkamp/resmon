@@ -137,9 +137,28 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # advisory metadata the contract itself says a caller may ignore. So the
 # decision belongs in the server.
 #
-# The line, in one sentence: **a tool may change what resmon says, not where
-# resmon sends things, what resmon runs, or where resmon writes.** A key is
-# writable because it is listed here, not because its name avoided seven words.
+# The line, in one sentence, and the sentence the next person adding a key has
+# to answer:
+#
+#     **A tool may change what resmon says. It may not change where resmon
+#     sends things, what resmon runs, where resmon writes, what resmon is
+#     told, or whether the user is told how a result was produced.**
+#
+# A key is writable because it is listed here, not because its name avoided
+# seven words.
+#
+# The last two clauses were added after the first review of this list, and
+# neither is about a request. *What resmon is told* is ``ai_extraction_goals``:
+# free text spliced into the summarizer's prompt and kept, so a model steered
+# once by a poisoned abstract shapes every later summary without the user ever
+# seeing the instruction again. That is the R6 failure with a settings-shaped
+# handle on it. *Whether the user is told how a result was produced* is
+# ``ai_show_audit_prefix``: the line that tells a reader a sentence came from a
+# model. "Provenance is still in the database" is not an answer for someone
+# reading a summary, and never overclaiming outranks every other rule here.
+#
+# Both move no request, which is exactly why a mechanism test cannot find them.
+# They are withheld by judgement, written down.
 #
 # The two lists partition ``resmon._SETTINGS_GROUPS`` exactly, and
 # ``test_every_settings_key_the_app_has_is_either_writable_or_withheld``
@@ -149,7 +168,8 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # ``ai_cli_path`` and ``ai_custom_base_url`` as the conversation's *route*, and
 # ``test_every_key_the_route_digest_reads_is_withheld`` drives that real
 # function over the app's whole key list, so the two notions of "route-shaped"
-# cannot drift apart.
+# cannot drift apart. That test is a floor, not the line: it catches what moves
+# a request, and the two keys above are the reminder that the line is wider.
 SETTINGS_KEYS_WITHHELD: dict[str, str] = {
     # -- what resmon executes ------------------------------------------------
     "ai_cli_path": (
@@ -178,20 +198,33 @@ SETTINGS_KEYS_WITHHELD: dict[str, str] = {
     "smtp_to": "the address routine reports are delivered to",
     # -- where resmon writes -------------------------------------------------
     "export_directory": "the filesystem location resmon writes exported files to",
+    # -- what resmon is told -------------------------------------------------
+    "ai_extraction_goals": (
+        "free text spliced into the summarizer's prompt and kept, so an "
+        "instruction written once shapes every later summary without the "
+        "user seeing it again"),
+    # -- whether the user is told how a result was produced ------------------
+    "ai_show_audit_prefix": (
+        "the line that tells a reader a summary came from a model, and which "
+        "model: turning it off changes what the user is told about a claim, "
+        "not what resmon says"),
 }
 
 # Everything else in ``resmon._SETTINGS_GROUPS``: preferences about what resmon
 # says and how often, which a person might reasonably ask the assistant to
-# change and which cannot move a request, a process or a file.
+# change and which cannot move a request, a process, a file, the summarizer's
+# standing instructions, or what a reader is told about where a claim came from.
 #
 # Written out by name rather than computed as a complement, so that adding a
 # key to the app does not silently add it here, and so a reviewer reads the
 # admitted list instead of inferring it.
 SETTINGS_KEYS_WRITABLE: frozenset[str] = frozenset({
-    # ai -- the summary lane's voice, model and ceilings
+    # ai -- the summary lane's voice, model and ceilings. Voice, not
+    # instructions: ``ai_tone`` and ``ai_summary_length`` shape how a summary
+    # reads, while ``ai_extraction_goals`` tells the model what to do and is
+    # withheld above.
     "ai_model", "ai_local_model", "ai_default_models", "ai_summary_length",
-    "ai_tone", "ai_extraction_goals", "ai_temperature", "ai_show_audit_prefix",
-    "ai_subscription_doc_cap", "ai_effort",
+    "ai_tone", "ai_temperature", "ai_subscription_doc_cap", "ai_effort",
     # assistant -- "use opus for the assistant" is the reason this group is
     # reachable at all; see the note above ``SETTINGS_GROUPS``.
     "assistant_model", "assistant_effort",
@@ -1177,9 +1210,10 @@ def t_update_settings(args: dict) -> Any:
         raise ToolError(
             "invalid_argument",
             f"This tool cannot change {', '.join(withheld)}. A tool may change "
-            "what resmon says, not where resmon sends things, what resmon runs "
-            f"or where resmon writes — {reasons}. Those are changed in the app, "
-            "by the person whose machine it is.",
+            "what resmon says; it may not change where resmon sends things, "
+            "what resmon runs, where resmon writes, what resmon is told, or "
+            f"whether the user is told how a result was produced — {reasons}. "
+            "Those are changed in the app, by the person whose machine it is.",
             # Every writable key, not the group's share of them: this refusal
             # happens before the GET, and a group-to-keys map here would be
             # the copy guard 4 exists to avoid. Which of these the group holds
@@ -1642,9 +1676,11 @@ TOOLS: list[dict] = [
          "Change settings in one group. Returns a before/after diff of exactly "
          "what moved. The keys it may change are an allowlist: it can change "
          "what resmon says — model, tone, length, retention, notifications — "
-         "and it cannot change where resmon sends things, what resmon runs or "
-         "where resmon writes. API keys and passwords are not settings at all; "
-         "they live in the system keychain and are changed in the app."
+         "and it cannot change where resmon sends things, what resmon runs, "
+         "where resmon writes, what resmon is told, or whether the user is "
+         "told how a result was produced. API keys and passwords are not "
+         "settings at all; they live in the system keychain and are changed "
+         "in the app."
      ),
      "schema": {"type": "object", "required": ["group", "settings"], "properties": {
          "group": {"type": "string", "enum": list(SETTINGS_GROUPS)},

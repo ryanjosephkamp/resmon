@@ -148,11 +148,25 @@ def test_boolean_effects_cross_the_real_mcp_http_and_storage_boundary(isolated_b
     for group, values in groups.items():
         assert set(values) == set(resmon._SETTINGS_GROUPS[group])
     fields = [(group, key) for group, values in groups.items()
-              for key, value in values.items() if isinstance(value, bool)]
-    assert fields, "no boolean-valued GET field was found"
-    # These three are string-valued GET fields but boolean flags at their readers.
-    string_flags = [("ai", "ai_show_audit_prefix"), ("cloud", "cloud_auto_backup"),
-                    ("embeddings", "embedding_enabled")]
+              for key, value in values.items()
+              if isinstance(value, bool) and key in mcp.SETTINGS_KEYS_WRITABLE]
+    assert fields, "no writable boolean-valued GET field was found"
+    # String-valued GET fields that are boolean flags at their readers.
+    # ``ai_show_audit_prefix`` was the third of these until v2.3 withheld it:
+    # it decides whether a reader is told a summary came from a model, which a
+    # tool does not get to change. It is checked below as a refusal instead,
+    # because a key that merely vanished from this list would leave no trace
+    # of why.
+    string_flags = [("cloud", "cloud_auto_backup"), ("embeddings", "embedding_enabled")]
+    for group, key in [("ai", "ai_show_audit_prefix")]:
+        before = _settings(base, group)
+        stored_before = _stored(state)
+        refusal = mcp.call_tool(
+            "update_settings", {"group": group, "settings": {key: "false"}})
+        assert refusal["isError"], refusal
+        assert _settings(base, group) == before
+        assert _stored(state) == stored_before, (
+            f"{group}/{key} was refused and the database moved anyway")
     requests = []
     real_request = httpx.request
 
@@ -207,7 +221,12 @@ def test_each_allowed_group_reports_actual_before_after(isolated_backend):
         before = _settings(base, group)
         # No-op writes still cross the real boundary; separate boolean tests
         # establish both directions, and embeddings must use a real stored key.
-        key = sorted(before)[0]
+        # Since v2.3 the key is picked from the writable allowlist rather than
+        # by sorting the group: ``ai`` and ``embeddings`` both sort a withheld
+        # key first, and a refusal there is the tool working, not failing.
+        writable = sorted(k for k in before if k in mcp.SETTINGS_KEYS_WRITABLE)
+        assert writable, f"'{group}' is offered and nothing in it is writable"
+        key = writable[0]
         value = before[key]
         value = str(value).lower() if isinstance(value, bool) else value
         stored_before = _stored(state)
