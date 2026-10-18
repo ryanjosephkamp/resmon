@@ -523,13 +523,20 @@ test('a reason the generator cannot parse throws rather than vanishing', () => {
 
   // Anything else names itself and stops the run. A dropped entry here is
   // how a reason the renderer has never heard of reaches the grid as a tick.
-  for (const bad of ['  Upstream_Failure,', '  "upstream-failure",', '  *OTHER,']) {
+  //
+  // A comma inside a literal is in this list rather than beside it: the
+  // split leaves two fragments and neither is a quoted slug, so the
+  // per-entry check rejects it and the quote count is never reached. The
+  // assertion names that one message rather than offering an alternative,
+  // so it asserts what happens instead of what might.
+  const malformed = [
+    '  Upstream_Failure,', '  "upstream-failure",', '  *OTHER,',
+    '  "missing_key,retired",',
+  ];
+  for (const bad of malformed) {
     expect(() => parse(`  "missing_key",\n${bad}`, '  "missing_key",'))
-      .toThrow(/does not understand|not a plain slug/);
+      .toThrow(/does not understand/);
   }
-  // A comma inside a literal would survive the split but not the count.
-  expect(() => parse('  "missing_key,retired",', '  "missing_key",'))
-    .toThrow(/not a plain slug|does not understand/);
 });
 
 test('an outcome the renderer does not recognize is unknown, never answered', () => {
@@ -542,6 +549,14 @@ test('an outcome the renderer does not recognize is unknown, never answered', ()
   expect(outcomeCategory('teleported', 0, 'answered_empty')).toBe('unknown');
   expect(outcomeCategory('ok', -1, 'answered_empty')).toBe('unknown');
   expect(outcomeCategory(undefined, 3, null)).toBe('unknown');
+  // A count that was never recorded is not a count of zero. This was the
+  // last input on which this function reached `answered` by defaulting --
+  // `?? 0` ran before the integrity check, so "no count" became "zero
+  // records returned" and an ok row with a known reason read as an answer.
+  expect(outcomeCategory('ok', null, 'rights_filtered')).toBe('unknown');
+  expect(outcomeCategory('ok', undefined, 'answered_empty')).toBe('unknown');
+  expect(outcomeCategory('ok', 1.5, 'answered_empty')).toBe('unknown');
+  expect(repoDoneStatus(null, 'rights_filtered')).toBe('not_recorded');
   // And the grid draws it as the one thing it can honestly say.
   expect(repoDoneStatus(0, 'http_503')).toBe('not_recorded');
   expect(repoDoneStatus(7, 'http_503')).toBe('not_recorded');
@@ -681,4 +696,65 @@ test('the search record names an outcome for every reason, never a raw slug', as
     expect(outcomes.some(([, , outcome]) => outcome === reason.replace(/_/g, ' ')))
       .toBe(false);
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* The floating widget's progress count                                */
+/* ------------------------------------------------------------------ */
+
+import { MemoryRouter } from 'react-router-dom';
+import FloatingWidget from '../components/Monitor/FloatingWidget';
+
+test('the widget counts every settled source, not only the ones that answered', async () => {
+  // "N/M repos" is progress, not success. It counted only `done`, so it
+  // stalled short of the end on any run holding a source that could not
+  // answer -- and this work widened that, because entity_unsupported and an
+  // unrecorded zero stopped being miscounted as `done`. A progress bar that
+  // never reaches the end on a finished run is the app saying it is still
+  // working when it is not.
+  progressFetch([
+    {
+      type: 'repo_done', timestamp: '2026-10-18T10:00:00Z', repository: 'arxiv',
+      result_count: 4, zero_reason: null, zero_message: null,
+    },
+    {
+      type: 'repo_done', timestamp: '2026-10-18T10:00:01Z', repository: 'crossref',
+      result_count: 0, zero_reason: 'entity_unsupported',
+      zero_message: SENTENCE.entity_unsupported,
+    },
+    {
+      type: 'repo_done', timestamp: '2026-10-18T10:00:02Z', repository: 'dblp',
+      result_count: 0, zero_reason: 'not_recorded', zero_message: SENTENCE.not_recorded,
+    },
+    {
+      type: 'repo_done', timestamp: '2026-10-18T10:00:03Z', repository: 'springer',
+      result_count: 0, zero_reason: 'missing_key', zero_message: SENTENCE.missing_key,
+    },
+  ]);
+
+  let ctx: ReturnType<typeof useExecution> | null = null;
+  const Probe: React.FC = () => { ctx = useExecution(); return null; };
+  render(
+    <MemoryRouter>
+      <ExecutionProvider>
+        <Probe />
+        <FloatingWidget />
+      </ExecutionProvider>
+    </MemoryRouter>,
+  );
+  await act(async () => {
+    ctx!.startExecution(12, 'watch_sweep', ['arxiv', 'crossref', 'dblp', 'springer']);
+  });
+
+  await waitFor(() => {
+    expect(Object.values(ctx!.activeExecutions[12]?.repoStatuses ?? {})
+      .filter((s) => s === 'pending')).toHaveLength(0);
+  }, { timeout: 5000 });
+
+  // One answered, one could not be asked, one unexplained, one never
+  // queried. All four are finished.
+  expect(ctx!.activeExecutions[12]!.repoStatuses).toEqual({
+    arxiv: 'done', crossref: 'no_answer', dblp: 'not_recorded', springer: 'skipped',
+  });
+  expect(screen.getByText('4/4 repos')).toBeInTheDocument();
 });

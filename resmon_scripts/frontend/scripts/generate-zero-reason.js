@@ -51,9 +51,22 @@ const GENERATED_PATH = path.join('src', 'api', 'zeroReasonVocabulary.ts');
  * a reason the renderer had never heard of would have reached the grid as a
  * green tick — the exact defect this module exists to prevent. So the block
  * is split into entries first and each one is required to be a quoted slug;
- * anything else names itself in the error. A second, independent check
- * counts the quote characters, which catches a literal holding the comma the
- * split relies on.
+ * anything else names itself in the error and stops the run.
+ *
+ * **What this still does not see.** The per-entry check catches an entry
+ * whose *text* is unexpected. It does not catch a change to the *structure*
+ * around the block: `ZERO_REASONS = (...) + EXTRA` or
+ * `frozenset({...}) | EXTRA_SET` parses the inline part alone and reports no
+ * error, because the composition happens outside the delimiters this reads
+ * between. Nothing here would notice, and the byte-compare guard would agree
+ * with it. If the backend ever composes either set, this function has to
+ * learn that shape — a reviewer reading only the code above will not be
+ * warned by it.
+ *
+ * The quote count below is belt-and-braces and, as written, unreachable:
+ * every entry that passes the per-entry regex contributes exactly two
+ * quotes, so the regex rejects the odd cases first. It is kept as a cheap
+ * invariant on the arithmetic rather than as a guard that earns its place.
  */
 function literals(source, name, open, close) {
   const uncommented = source
