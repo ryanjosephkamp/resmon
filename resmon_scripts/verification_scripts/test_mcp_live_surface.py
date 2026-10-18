@@ -522,6 +522,10 @@ def test_update_settings_reaches_every_group_on_its_allowlist(backend):
 
     A group named in the allowlist that the backend does not serve would be a
     tool that fails for every input in that group — the v1.8.2 defect shape.
+    Since 2.3 the key is picked from ``SETTINGS_KEYS_WRITABLE`` rather than by
+    sorting the group: a group whose first key happens to be withheld would
+    otherwise read as the same failure, and a group with *no* writable key is
+    the one this still has to catch.
     """
     for group in mcp.SETTINGS_GROUPS:
         current = _API.get(f"{backend}/api/settings/{group}", timeout=10)
@@ -530,7 +534,11 @@ def test_update_settings_reaches_every_group_on_its_allowlist(backend):
         if group == "embeddings":
             keys = keys["settings"]
         assert keys, f"the '{group}' group came back empty"
-        key = sorted(keys)[0]
+        writable = sorted(k for k in keys if k in mcp.SETTINGS_KEYS_WRITABLE)
+        assert writable, (
+            f"'{group}' is on the group allowlist and nothing in it is "
+            f"writable: the tool accepts the group and refuses every call")
+        key = writable[0]
         value = str(keys[key]).lower() if isinstance(keys[key], bool) else (keys[key] or "")
         result = mcp.call_tool(
             "update_settings", {"group": group, "settings": {key: value}})
@@ -539,6 +547,47 @@ def test_update_settings_reaches_every_group_on_its_allowlist(backend):
         if group == "embeddings":
             after = after["settings"]
         assert after == keys, f"{group}/{key}: a no-op request changed settings"
+
+
+def test_the_writable_allowlist_names_nothing_the_app_does_not_have(backend):
+    """The complement of the hermetic partition test, against a real backend.
+
+    ``test_mcp_settings_allowlist`` checks the two lists against
+    ``resmon._SETTINGS_GROUPS``, which is the same process reading its own
+    source. This reads the keys a running backend actually serves, so a key
+    that exists in the dict and never reaches the GET — the Ledger 33 shape —
+    shows up as an allowlist entry that admits nothing.
+    """
+    served: set[str] = set()
+    for group in mcp.SETTINGS_GROUPS:
+        keys = _API.get(f"{backend}/api/settings/{group}", timeout=10).json()
+        if group == "embeddings":
+            keys = keys["settings"]
+        served |= set(keys)
+
+    named = set(mcp.SETTINGS_KEYS_WRITABLE) | set(mcp.SETTINGS_KEYS_WITHHELD)
+    assert named - served == set(), (
+        f"named in mcp_server and served by no group: {sorted(named - served)}")
+    assert served - named == set(), (
+        f"served by the backend and classified nowhere: {sorted(served - named)}")
+
+
+def test_a_withheld_key_is_refused_against_a_real_backend(backend):
+    """The whole point, at the real boundary: the binary cannot be repointed.
+
+    ``ai_cli_path`` is what ``discover_cli`` honours first and what
+    ``ClaudeCliRuntime._stream`` hands to ``Popen``. Read back from the
+    running app afterwards, because a refusal that still wrote would be the
+    worst of both.
+    """
+    before = _API.get(f"{backend}/api/settings/ai", timeout=10).json()
+    result = mcp.call_tool("update_settings", {
+        "group": "ai", "settings": {"ai_cli_path": "/tmp/not-the-real-claude"}})
+
+    assert result["isError"]
+    assert "ai_cli_path" in _payload(result)["detail"]["refused_keys"]
+    after = _API.get(f"{backend}/api/settings/ai", timeout=10).json()
+    assert after == before, "a refused write reached the database anyway"
 
 
 def test_the_credential_denylist_excludes_nothing_that_exists(backend):
