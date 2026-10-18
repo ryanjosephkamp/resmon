@@ -322,6 +322,23 @@ if (broken.size) {
 }
 
 /*
+ * Exactly one `<h1>` per page. The guide pages are cut from the README with
+ * their heading levels left as they were, so a chunk that happened to begin
+ * with the README's own `# resmon — Research Monitor` produced a second
+ * top-level heading under the page title. Nothing renders wrong; the document
+ * outline is just untrue, and a screen reader reads it.
+ */
+const wrongH1 = pages
+  .map((page) => ({ page, count: (readFileSync(join(OUT, page), 'utf8').match(/<h1[\s>]/g) ?? []).length }))
+  .filter((row) => row.count !== 1);
+if (wrongH1.length) {
+  fail(`${wrongH1.length} of ${pages.length} pages do not have exactly one <h1>:`);
+  for (const row of wrongH1.slice(0, 5)) process.stdout.write(`        ${row.page}: ${row.count}\n`);
+} else {
+  pass(`all ${pages.length} pages have exactly one <h1>`);
+}
+
+/*
  * `<time datetime="...">` must be a valid HTML date string. The posts' front
  * matter is not one — `2026-04-24 12:00:00 -0400` uses a space for the
  * separator and an offset with no colon — and an attribute filled with it

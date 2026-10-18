@@ -16,7 +16,18 @@ interface Props {
 }
 
 const { entry } = Astro.props as Props;
-const { html, headings } = await renderMarkdown(entry.body ?? '', { fromReadme: true });
+/*
+ * The guide bodies are the README's own text with its own heading levels, which
+ * is what makes `split-readme.mjs`'s reassembly check meaningful. One
+ * consequence needs correcting at render time rather than in the file: the
+ * `overview` chunk begins with the README's title, `# resmon — Research
+ * Monitor`, and the page already has an `h1` of its own. A leading `#` is
+ * demoted to `##` so the page has one top-level heading. Only a heading on the
+ * body's first line is touched, and only its level — the text is untouched, and
+ * the Markdown on disk is untouched.
+ */
+const body = (entry.body ?? '').replace(/^(\s*)# (?=\S)/, '$1## ');
+const { html, headings } = await renderMarkdown(body, { fromReadme: true });
 ---
 
 <Document
