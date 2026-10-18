@@ -58,10 +58,15 @@ _MODULE_FOR_SLUG = {"medrxiv": "api_biorxiv"}
 #: payload being the subject. A client that cannot read this records a parse
 #: failure, which does not affect the property under test: the request
 #: sequence is what is asserted.
+#: The identifier list is long enough that a client batching by identifier
+#: makes more than one call for it -- PubMed's `_efetch` takes 200 at a time,
+#: so 250 is two batches. Without that, the client that *had* this defect
+#: never reaches a second request and the case passes vacuously.
+_IDS = ", ".join(f'"{n}"' for n in range(1, 251)).encode()
 _BODY = (
     b'{"results": [], "hits": {"hits": [], "total": 0}, "data": [], '
     b'"response": {"docs": []}, "records": [], "total": 0, '
-    b'"esearchresult": {"idlist": []}}'
+    b'"esearchresult": {"idlist": [' + _IDS + b']}}'
 )
 
 
@@ -85,9 +90,17 @@ def quick_and_isolated(monkeypatch):
     api_base.reset_search_outcome()
 
 
-@pytest.fixture
-def failing_then_answering(monkeypatch):
-    """Fail the first transport attempt of the search, answer every one after.
+def _fail_attempt(monkeypatch, which: int):
+    """Fail the ``which``-th transport attempt of the search, answer the rest.
+
+    Both attempts matter and they catch different things. Failing the **first**
+    reaches the retry ladders, whose second invocation repeats the request.
+    Failing the **second** reaches a client whose opening call is a lookup --
+    PubMed asks `esearch` for identifiers before `efetch` fetches them -- and
+    that is the only way to see the defect this property exists for: with
+    `_efetch`'s old `continue`, the batch after a failed one is a *different*
+    request. A probe that only ever failed the first attempt passed PubMed
+    with its defect restored, which is how this fixture got its second half.
 
     Both transports are replaced: a client that passes a ``deadline=`` goes
     through the cancellable async scope and never touches ``httpx.Client``.
@@ -97,7 +110,7 @@ def failing_then_answering(monkeypatch):
     def respond(_self, method, url, **kwargs):
         seen["n"] += 1
         request = httpx.Request(method, str(url))
-        if seen["n"] == 1:
+        if seen["n"] == which:
             return httpx.Response(503, content=b"", request=request)
         return httpx.Response(200, content=_BODY, request=request)
 
@@ -140,10 +153,9 @@ def _trace_invocations(monkeypatch, module) -> list[dict]:
     return calls
 
 
+@pytest.mark.parametrize("fails_on", [1, 2], ids=["first-call", "second-call"])
 @pytest.mark.parametrize("slug", SLUGS)
-def test_no_client_continues_past_a_failed_request(
-    slug, monkeypatch, failing_then_answering,
-):
+def test_no_client_continues_past_a_failed_request(slug, fails_on, monkeypatch):
     """A second invocation after a failed one must repeat the first request.
 
     Sameness is asserted from the recorded URL and params, not read off the
@@ -151,6 +163,7 @@ def test_no_client_continues_past_a_failed_request(
     obvious and was not checked.
     """
     module = _module_for(slug)
+    _fail_attempt(monkeypatch, fails_on)
     calls = _trace_invocations(monkeypatch, module)
 
     try:
