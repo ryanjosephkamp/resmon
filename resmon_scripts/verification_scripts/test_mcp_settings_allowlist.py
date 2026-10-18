@@ -3,7 +3,7 @@
 The guard on this tool used to be a substring denylist over key *names* —
 ``key``, ``token``, ``secret``, ``password``, ``passphrase``, ``credential``,
 ``auth``. ``ai_cli_path`` contains none of those words, and it is the path
-``ai_cli.discover_cli`` honours first and ``ClaudeCliRuntime._stream`` hands to
+``ai_cli.discover_cli`` honors first and ``ClaudeCliRuntime._stream`` hands to
 ``Popen`` with the user's own environment; ``ai_lanes`` reads the same setting
 for the subscription summary lane, so the binary runs on routine summarization
 with nobody watching. ``ai_custom_base_url`` and ``ai_local_endpoint`` decide
@@ -134,7 +134,7 @@ def test_every_key_the_route_digest_reads_is_withheld():
 def test_a_key_is_writable_only_if_it_is_on_the_allowlist(key):
     """Every one of the app's keys, through the real tool, both ways.
 
-    Parametrised over the app's key list rather than over a sample, so the
+    Parametrized over the app's key list rather than over a sample, so the
     denominator in the handback is the app's own and a key that changes sides
     has to change this file too.
     """

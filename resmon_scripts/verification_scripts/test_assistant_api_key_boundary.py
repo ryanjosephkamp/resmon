@@ -19,7 +19,7 @@ exception above. The provider offers ``x-goog-api-key`` for exactly this reason.
 
 Both are checked against a real socket (``provider_server.ProviderServer``): a
 real ``httpx`` request, a real status code, a real exception. What that cannot
-see is whether Google itself honours ``x-goog-api-key`` for the model this
+see is whether Google itself honors ``x-goog-api-key`` for the model this
 runtime names — that is a live-network fact and no test here spends a token.
 
 The tests assert on **what reaches the log handler**, not on what reaches the

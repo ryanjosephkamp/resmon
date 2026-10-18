@@ -122,7 +122,7 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # **Default-deny, by key name.** Until 2.3 the only content guard on
 # ``update_settings`` was ``_CREDENTIAL_SHAPED`` above: a substring denylist
 # over seven words. ``ai_cli_path`` contains none of them, and it is the path
-# ``ai_cli.discover_cli`` honours first and ``ClaudeCliRuntime._stream`` hands
+# ``ai_cli.discover_cli`` honors first and ``ClaudeCliRuntime._stream`` hands
 # to ``subprocess.Popen`` with the user's own environment -- and ``ai_lanes``
 # reads the same setting for the subscription summary lane, so that binary runs
 # on routine summarization with nobody in the conversation. One accepted

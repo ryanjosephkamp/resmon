@@ -898,7 +898,7 @@ def _sentence_for(exc: Exception, provider: str, secret: Optional[str]) -> str:
     """One sentence a person can act on, with the key stripped out — and the
     log line, written here rather than by the caller.
 
-    Built from what the provider said, never from a guess — and sanitised twice,
+    Built from what the provider said, never from a guess — and sanitized twice,
     once against this runtime's own key and once against the shapes, because an
     upstream can echo back a key this process never sent.
 

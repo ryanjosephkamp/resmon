@@ -575,7 +575,7 @@ def test_the_writable_allowlist_names_nothing_the_app_does_not_have(backend):
 def test_a_withheld_key_is_refused_against_a_real_backend(backend):
     """The whole point, at the real boundary: the binary cannot be repointed.
 
-    ``ai_cli_path`` is what ``discover_cli`` honours first and what
+    ``ai_cli_path`` is what ``discover_cli`` honors first and what
     ``ClaudeCliRuntime._stream`` hands to ``Popen``. Read back from the
     running app afterwards, because a refusal that still wrote would be the
     worst of both.
