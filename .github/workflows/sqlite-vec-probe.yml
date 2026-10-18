@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   probe:
-    # The private working mirror should not duplicate these full packaging jobs.
+    # Runs only here — see README.md in this directory.
     if: github.repository == 'ryanjosephkamp/resmon'
     name: sqlite-vec (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
