@@ -429,3 +429,43 @@ def test_no_writable_key_can_switch_off_the_audit_prefix():
         "a writable key can stop the user being told a summary came from a "
         f"model: {sorted(silences - set(mcp.SETTINGS_KEYS_WITHHELD))}"
     )
+
+
+def test_every_key_that_moves_an_embedding_requests_destination_is_withheld():
+    """The fourth mechanical slice: where corpus text is sent to be embedded.
+
+    ``EmbeddingLane`` carries two destination fields, ``endpoint`` for the
+    local kind and ``base_url`` for an API-key provider, and
+    ``embeddings.build_lane`` is what fills them from settings. Driving all 41
+    keys through the real builder and comparing **only those two fields** is
+    what keeps the question "where does the request go" apart from "which keys
+    the lane reads" — ``embedding_model`` is read by the same function on the
+    same line and is correctly admitted, and an assertion about keys rather
+    than destinations would have to carry it as an exception.
+
+    A probe that leaves no lane at all is skipped rather than counted: "no
+    request happens" is not a request going somewhere else, and
+    ``embedding_enabled`` set to a URL would otherwise read as a destination
+    change.
+    """
+    from implementation_scripts import embeddings
+
+    def destination(settings: dict):
+        lane = embeddings.build_lane(settings)
+        return None if lane is None else (lane.endpoint, lane.base_url)
+
+    moves: set[str] = set()
+    for baseline in ({"embedding_enabled": "true", "embedding_provider": "local"},
+                     {"embedding_enabled": "true", "embedding_provider": "openai"}):
+        before = destination(baseline)
+        assert before is not None, f"no lane for {baseline}; the probe is broken"
+        for key in GROUP_OF:
+            after = destination(dict(baseline, **{key: "http://elsewhere.invalid"}))
+            if after is not None and after != before:
+                moves.add(key)
+
+    assert moves, "no key moves an embedding request; the probe stopped working"
+    assert moves <= set(mcp.SETTINGS_KEYS_WITHHELD), (
+        "a writable key changes where corpus text is sent to be embedded: "
+        f"{sorted(moves - set(mcp.SETTINGS_KEYS_WITHHELD))}"
+    )

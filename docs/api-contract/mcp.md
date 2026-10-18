@@ -715,13 +715,25 @@ refuse a conversation whose route moved — over the whole key list, and require
 it reads to be withheld. That is what keeps this list and the codebase's existing notion
 of a route from drifting apart, since neither file imports the other.
 
-Three slices of this list are now mechanical — what moves a request, what reaches the
-prompt, what silences the audit label — and each has a test that derives its answer from
-behavior. What is left is judgement: `ai_provider` and `assistant_provider` select a host
-indirectly through a table rather than carrying a URL, `smtp_port` is withheld with
-`smtp_server` as one route, and `cloud_auto_backup` and `embedding_enabled` are admitted
-because each starts flow to a destination the user already authorized and neither can
-change that destination. For those, the mechanisms are a floor and not the line.
+**Four slices of this list are mechanical, and they cover 8 of the 20 withheld keys.**
+Each has a test that derives its answer from behavior rather than from this list:
+
+| Mechanism | Derives |
+|---|---|
+| `assistant_choices.route_digest` moves | `ai_cli_path`, `ai_custom_base_url` |
+| the value reaches `SUMMARIZE_ABSTRACT` | `ai_extraction_goals`, `ai_tone`, `ai_summary_length` |
+| the value can clear `_show_audit_prefix` | `ai_show_audit_prefix` |
+| the value moves an `EmbeddingLane` destination | `embedding_endpoint`, `embedding_base_url` |
+
+**The other 12 are withheld by category, with no mechanism behind them** — `ai_chain`,
+`ai_custom_header_prefix`, `ai_local_endpoint`, `ai_provider`, `assistant_provider`,
+`assistant_runtime`, `cloud_provider`, `embedding_provider`, `export_directory`,
+`smtp_server`, `smtp_port`, `smtp_to`. Most of those are plainly route-shaped and the
+reasons beside them in `mcp_server.SETTINGS_KEYS_WITHHELD` say why each is there, but a
+reason in a dict is not a test: moving one of these twelve to the writable list would be
+caught only by the count assertions in this document, which the same change would update.
+So for those twelve the mechanisms are a **floor and not the line**, and a reviewer is
+what stands behind them.
 
 The credential denylist is unchanged and is still checked first, because it answers a
 credential-shaped name with a better sentence than the allowlist would: resmon's keys are

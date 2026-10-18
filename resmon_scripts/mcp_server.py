@@ -204,13 +204,28 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # The two lists partition ``resmon._SETTINGS_GROUPS`` exactly, and
 # ``test_every_settings_key_the_app_has_is_either_writable_or_withheld``
 # fails when they stop doing so -- so a key the app grows later is a decision
-# someone has to make rather than a key that arrives writable. The seed for the
-# withheld list is not taste: ``assistant_choices.route_digest`` already hashes
-# ``ai_cli_path`` and ``ai_custom_base_url`` as the conversation's *route*, and
-# ``test_every_key_the_route_digest_reads_is_withheld`` drives that real
-# function over the app's whole key list, so the two notions of "route-shaped"
-# cannot drift apart. That test is a floor, not the line: it catches what moves
-# a request, and the two keys above are the reminder that the line is wider.
+# someone has to make rather than a key that arrives writable.
+#
+# **Four mechanisms derive 8 of the 20 keys below, and twelve are category
+# judgements.** Count them honestly, because the first draft of this comment's
+# neighboring prose claimed sixteen by counting a key as covered when it
+# merely belonged to a category a mechanism was named after:
+#
+#   route_digest moves                  ai_cli_path, ai_custom_base_url
+#   reaches SUMMARIZE_ABSTRACT          ai_extraction_goals, ai_tone,
+#                                       ai_summary_length
+#   can clear _show_audit_prefix        ai_show_audit_prefix
+#   moves an EmbeddingLane destination   embedding_endpoint, embedding_base_url
+#
+# The remaining twelve -- ai_chain, ai_custom_header_prefix, ai_local_endpoint,
+# ai_provider, assistant_provider, assistant_runtime, cloud_provider,
+# embedding_provider, export_directory, smtp_server, smtp_port, smtp_to -- have
+# a reason each, and a reason is not a test. Move one of those to the writable
+# set and the only thing that goes red is the count assertion in the contract
+# document, which the same change would update: that was measured, not assumed.
+# So the mechanisms are a **floor, not the line**, and for those twelve the
+# thing standing behind the list is a reviewer. A fifth mechanism that retires
+# some of them is the obvious next improvement here.
 SETTINGS_KEYS_WITHHELD: dict[str, str] = {
     # -- what resmon executes ------------------------------------------------
     "ai_cli_path": (
