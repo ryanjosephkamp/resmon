@@ -20,10 +20,6 @@ import { ActiveExecution } from '../../context/ExecutionContext';
  * source answered and had nothing" — the one thing the record does not say.
  */
 function statusIcon(status: string): string {
-  // TEMPORARY, to be reverted in the next commit: proving the new CI
-  // lint job can go red. `no-debugger` is an error-level rule that this
-  // codebase satisfies everywhere else.
-  debugger;
   switch (status) {
     case 'done':
       return '✓';
