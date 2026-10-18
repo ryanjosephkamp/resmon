@@ -54,6 +54,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
   { path: '/evidence', name: 'Evidence' },
   { path: '/analytics', name: 'Analytics' },
   { path: '/watchdog', name: 'Watchdog' },
+  { path: '/source-wall', name: 'Source wall' },
   { path: '/explorer', name: 'Explorer' },
   { path: '/profiles', name: 'Watch Profiles' },
   { path: '/configurations', name: 'Configurations' },

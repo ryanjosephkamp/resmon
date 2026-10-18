@@ -5056,3 +5056,247 @@ a:hover { color: var(--color-accent-hover); }
 .downloads-list { max-height: 28vh; overflow: auto; padding-top: .6rem; }
 .download-record { margin-top: .75rem; padding-top: .5rem; border-top: 1px solid var(--color-border); }
 .download-path { overflow-wrap: anywhere; user-select: text; margin: .35rem 0; }
+
+/* The source wall
+   ---------------------------------------------------------------------------
+   Status is the content on this screen, so every design decision here follows
+   from that. Color is spent entirely on state and on nothing else; the type is
+   one strict scale with exactly one large size, which the verdict gets because
+   it is the one line a user should be able to read from across the room; the
+   grid is dense and its cells do not touch.
+
+   **Every value this screen uses is a custom property declared in the one
+   block below, and the four saturated state colors are the app's existing
+   tokens rather than new hex.** The stylesheet already carries dozens of
+   one-off literals and no light theme; adding more would make both worse. A
+   future theme retargets `--sw-*` and this screen follows.
+
+   **Hue is never the only channel.** Each state also carries its own glyph
+   (set in the component, asserted distinct by `SourceWall.test.tsx`) and its
+   own fill: solid, ring, diagonal hatch, or nothing at all. `not_recorded` is
+   the one state with no saturation and no fill, because it is the one state
+   that is not a verdict and must never read as one. -------------------------- */
+
+.source-wall-page,
+.source-wall {
+  --sw-answered: var(--color-success);
+  --sw-answered-empty: var(--color-accent-hover);
+  --sw-could-not-be-asked: var(--color-warning);
+  --sw-failed: var(--color-error);
+  --sw-not-recorded: var(--color-text-muted);
+
+  --sw-cell: 22px;
+  --sw-gap: 3px;
+  --sw-radius: 3px;
+  --sw-label-width: 190px;
+
+  --sw-text-mark: 12px;
+  --sw-text-micro: 11px;
+  --sw-text-body: 13px;
+  --sw-text-verdict: 20px;
+
+  --sw-ink: var(--color-text);
+  --sw-ink-quiet: var(--color-text-muted);
+  --sw-rule: var(--color-border);
+  --sw-panel: var(--color-surface);
+  --sw-panel-raised: var(--color-surface-hover);
+
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  font-size: var(--sw-text-body);
+}
+
+/* The verdict. Words, not a count: "one source has stopped answering" is the
+   whole product, and a tally of four numbers is the thing it replaces. */
+.source-wall-verdict {
+  border: 1px solid var(--sw-rule);
+  border-left-width: 3px;
+  border-radius: var(--sw-radius);
+  background: var(--sw-panel);
+  padding: .85rem 1rem;
+}
+.source-wall-verdict[data-level="ok"] { border-left-color: var(--sw-answered); }
+.source-wall-verdict[data-level="attention"] { border-left-color: var(--sw-failed); }
+.source-wall-verdict[data-level="unknown"],
+.source-wall-verdict[data-level="empty"] { border-left-color: var(--sw-not-recorded); }
+
+.source-wall-headline {
+  font-size: var(--sw-text-verdict);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--sw-ink);
+}
+.source-wall-detail-line {
+  margin-top: .4rem;
+  font-size: var(--sw-text-body);
+  color: var(--sw-ink-quiet);
+}
+
+.source-wall-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem 1.5rem;
+}
+.source-wall-window { font-size: var(--sw-text-micro); color: var(--sw-ink-quiet); }
+
+.source-wall-legend { display: flex; flex-wrap: wrap; gap: .4rem 1rem; list-style: none; }
+.source-wall-legend-item { display: flex; align-items: center; gap: .35rem; }
+.source-wall-legend-name { font-size: var(--sw-text-micro); color: var(--sw-ink); }
+.source-wall-legend-count {
+  font-size: var(--sw-text-micro);
+  color: var(--sw-ink-quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One mark, drawn the same way in the legend, the grid and the reading pane,
+   so the key and the thing it keys cannot drift apart. */
+.source-wall-swatch,
+.source-wall-cell {
+  width: var(--sw-cell);
+  height: var(--sw-cell);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--sw-radius);
+  font-size: var(--sw-text-mark);
+  line-height: 1;
+  border: 1px solid transparent;
+}
+
+.source-wall-swatch[data-state="answered"],
+.source-wall-cell[data-state="answered"] {
+  color: var(--sw-answered);
+  border-color: var(--sw-answered);
+  background: color-mix(in srgb, var(--sw-answered) 18%, transparent);
+}
+.source-wall-swatch[data-state="answered_empty"],
+.source-wall-cell[data-state="answered_empty"] {
+  color: var(--sw-answered-empty);
+  border-color: var(--sw-answered-empty);
+  background: transparent;
+}
+.source-wall-swatch[data-state="could_not_be_asked"],
+.source-wall-cell[data-state="could_not_be_asked"] {
+  color: var(--sw-could-not-be-asked);
+  border-color: var(--sw-could-not-be-asked);
+  /* The hatch is the third channel: this state is legible as "crossed out"
+     with no color at all. */
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--sw-could-not-be-asked) 30%, transparent) 0 2px,
+    transparent 2px 5px
+  );
+}
+.source-wall-swatch[data-state="failed"],
+.source-wall-cell[data-state="failed"] {
+  color: var(--sw-failed);
+  border-color: var(--sw-failed);
+  background: color-mix(in srgb, var(--sw-failed) 22%, transparent);
+}
+.source-wall-swatch[data-state="not_recorded"],
+.source-wall-cell[data-state="not_recorded"] {
+  color: var(--sw-not-recorded);
+  border-style: dotted;
+  border-color: var(--sw-rule);
+  background: transparent;
+}
+
+/* A partial answer is an answer that may be incomplete. It keeps its state
+   and gains a corner, rather than becoming a sixth thing. */
+.source-wall-cell[data-partial="true"] {
+  background-image: linear-gradient(
+    225deg, var(--sw-ink) 0 4px, transparent 4px
+  );
+}
+
+.source-wall-scroll { overflow: auto; max-height: 62vh; border: 1px solid var(--sw-rule); border-radius: var(--sw-radius); }
+.source-wall-grid { border-collapse: separate; border-spacing: var(--sw-gap); }
+.source-wall-caption {
+  caption-side: top;
+  text-align: left;
+  padding: .5rem .6rem 0;
+  font-size: var(--sw-text-micro);
+  color: var(--sw-ink-quiet);
+}
+
+.source-wall-corner,
+.source-wall-source {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: var(--sw-label-width);
+  max-width: var(--sw-label-width);
+  text-align: left;
+  font-weight: 500;
+  font-size: var(--sw-text-micro);
+  color: var(--sw-ink);
+  background: var(--sw-panel);
+  padding: 0 .5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.source-wall-corner { z-index: 2; color: var(--sw-ink-quiet); }
+
+.source-wall-run {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--sw-panel);
+  font-weight: 400;
+  font-size: var(--sw-text-micro);
+  color: var(--sw-ink-quiet);
+  padding: .35rem 0;
+}
+.source-wall-run-date { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+.source-wall-corner, .source-wall-run { border-bottom: 1px solid var(--sw-rule); }
+
+.source-wall-slot { padding: 0; width: var(--sw-cell); }
+.source-wall-cell { cursor: pointer; padding: 0; font-family: inherit; }
+.source-wall-cell:hover { outline: 1px solid var(--sw-ink); }
+.source-wall-cell:focus-visible { outline: 2px solid var(--color-accent-hover); outline-offset: 1px; }
+
+.source-wall-reading {
+  border: 1px solid var(--sw-rule);
+  border-radius: var(--sw-radius);
+  background: var(--sw-panel);
+  padding: .75rem 1rem;
+  min-height: 5.5rem;
+}
+.source-wall-reading-head { font-size: var(--sw-text-body); color: var(--sw-ink); }
+.source-wall-reading-state { display: flex; align-items: center; gap: .5rem; margin: .4rem 0; font-size: var(--sw-text-micro); color: var(--sw-ink-quiet); }
+.source-wall-reading-note { font-size: var(--sw-text-body); color: var(--sw-ink-quiet); }
+
+.source-wall-notes { list-style: disc; padding-left: 1.1rem; font-size: var(--sw-text-micro); color: var(--sw-ink-quiet); }
+.source-wall-notes li { margin-top: .3rem; }
+
+.source-wall-empty, .source-wall-loading { color: var(--sw-ink-quiet); }
+.source-wall-error {
+  border: 1px solid var(--sw-failed);
+  border-radius: var(--sw-radius);
+  background: var(--sw-panel);
+  padding: .75rem 1rem;
+  margin-bottom: 1rem;
+}
+.source-wall-controls { display: flex; align-items: center; gap: .5rem; }
+.source-wall-controls label { font-size: var(--sw-text-micro); color: var(--sw-ink-quiet); }
+.source-wall-controls select {
+  font: inherit;
+  font-size: var(--sw-text-body);
+  color: var(--sw-ink);
+  background: var(--sw-panel);
+  border: 1px solid var(--sw-rule);
+  border-radius: var(--sw-radius);
+  padding: .35rem .5rem;
+}
+
+/* The grid is an instrument; at a phone-ish width it becomes a list of rows
+   that still scrolls horizontally rather than reflowing into something that
+   is no longer a grid. */
+@media (max-width: 720px) {
+  .source-wall { --sw-label-width: 130px; --sw-cell: 20px; }
+  .source-wall-headline { font-size: 17px; }
+}

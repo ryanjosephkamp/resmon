@@ -11,6 +11,7 @@ import { AssistantProvider } from './context/AssistantContext';
 import { apiClient } from './api/client';
 import AnalyticsPage from './pages/AnalyticsPage';
 import WatchdogPage from './pages/WatchdogPage';
+import SourceWallPage from './pages/SourceWallPage';
 import ExplorerPage from './pages/ExplorerPage';
 import ProfilesPage from './pages/ProfilesPage';
 import DashboardPage from './pages/DashboardPage';
@@ -81,6 +82,7 @@ export const PAGE_ELEMENTS: Record<string, React.ReactElement> = {
   '/evidence': <EvidencePage />,
   '/analytics': <AnalyticsPage />,
   '/watchdog': <WatchdogPage />,
+  '/source-wall': <SourceWallPage />,
   '/explorer': <ExplorerPage />,
   '/profiles': <ProfilesPage />,
   '/configurations': <ConfigurationsPage />,
