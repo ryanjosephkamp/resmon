@@ -113,10 +113,10 @@ from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
     analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store, coverage_audit, embedding_job,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
-    reading_queue, reference_export, search_record, source_coverage, vector_index, watch_profiles,
+    reading_queue, reference_export, response_models, search_record, source_coverage,
+    vector_index, watch_profiles,
     watchdog,
 )
-from implementation_scripts import response_models
 from implementation_scripts.assistant_permissions import broker as permission_broker
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import (
