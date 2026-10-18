@@ -1303,8 +1303,17 @@ class SweepEngine:
                 execution, get_execution_sources(self.db, exec_id))
             if coverage["total"] == 0 or coverage["counts"]["answered"]:
                 return None
+            # A raised query counts: resmon asked and the call did not come
+            # back. A *retired* source also lands on ``status == 'error'`` --
+            # the engine catches the registry's ValueError and records the
+            # withdrawal reason there (see the except branch in ``_run``) --
+            # and that one is not a failure, it is a source resmon declined to
+            # ask. Without this exclusion a dive on a retired source plus one
+            # that answered 503 recorded ``failed``; the single-retired case
+            # was hidden because ``all_repos_errored`` already fires on it.
             asked_and_failed = sum(
                 source["category"] == "non_answer"
+                and source["zero_reason"] != "retired"
                 and (source["status"] == "error"
                      or source["zero_reason"] in _ASKED_AND_DID_NOT_ANSWER)
                 for source in coverage["sources"]

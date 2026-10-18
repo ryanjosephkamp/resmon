@@ -253,14 +253,7 @@ Contract for the client itself:
 
 - `search()` returns `list[NormalizedResult]`, honours `date_from` / `date_to` /
   `max_results`, and returns `[]` on upstream failure — logged, never raised. A source
-  being down degrades the sweep; it does not fail it. **That is a rule about the client,
-  not about the run's status, and the two were once read as one.** A client must not let
-  one source's failure propagate as an exception that aborts the sweep; it does not
-  follow that a run in which *nothing* answered is a success. Where every source asked
-  came back with a recorded non-answer there is nothing left to degrade to, and the
-  execution is `failed` — a run that reports `completed` with `result_count = 0` over a
-  dead source is rendering an empty field where a failure happened, which is what
-  `CAPABILITIES.md` J01 forbids.
+  being down degrades the sweep; it does not fail it.
 - Every HTTP call goes through `safe_request()` with a **module-level** `RateLimiter`
   shared by all instances of that client — concurrent sweeps must contend on one object.
 - The rate limit is whatever the upstream publishes, or slower. Where the upstream states
@@ -268,6 +261,16 @@ Contract for the client itself:
 - `source_repository` is the slug, lowercase, matching the catalog entry.
 - `external_id` is stable across runs: dedup and the lifecycle checks key on it.
 - A malformed record is skipped and logged, never allowed to abort the batch.
+
+**"Degrades the sweep" is a rule about the client, not about the run's status.** The two
+were once read as one. The bullet above binds `search()`: one source's failure must not
+propagate as an exception that aborts the run. It does not follow that a run in which
+*nothing* answered is a success. Where every source that was asked came back with a
+recorded non-answer there is nothing left to degrade to, and the execution is `failed` —
+a run reporting `completed` with `result_count = 0` over a dead source states an empty
+field where a failure happened, which is the one thing this app exists to refuse. Sources
+resmon never asked — no key, withdrawn, no author query, a window the source filters too
+coarsely — are not failures and never make a run one.
 
 **The catalog is not decoration.** `rate_limit`, `upstream_policy` and
 `keyword_combination` are rendered to the user on the Repositories page and are read as

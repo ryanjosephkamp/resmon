@@ -45,6 +45,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 from implementation_scripts import (  # noqa: E402
     api_base,
     api_doaj,
+    api_eric,
     api_openalex,
     api_pubmed,
     config,
@@ -67,6 +68,7 @@ def isolated_outcome(monkeypatch):
     monkeypatch.setattr(api_pubmed, "_RATE_LIMITER", api_base.RateLimiter(1000))
     monkeypatch.setattr(api_openalex, "_RATE_LIMITER", api_base.RateLimiter(1000))
     monkeypatch.setattr(api_doaj, "_RATE_LIMITER", api_base.RateLimiter(1000))
+    monkeypatch.setattr(api_eric, "_RATE_LIMITER", api_base.RateLimiter(1000))
     # ``safe_request`` reads these at call time. Shrinking the ladder keeps an
     # exhausted 503 from sleeping 1 + 2 + 4 seconds on every Python in CI.
     monkeypatch.setattr(config, "DEFAULT_MAX_RETRIES", 1)
@@ -106,11 +108,22 @@ class Wire:
 
 @pytest.fixture
 def wire(monkeypatch) -> Wire:
+    """Both transports, because ``safe_request`` has two.
+
+    A client that passes a ``deadline=`` goes through the cancellable async
+    scope and never touches ``httpx.Client``; ERIC is one, so patching only
+    the synchronous half let its requests reach a real socket.
+    """
     bench = Wire()
-    monkeypatch.setattr(
-        httpx.Client, "request",
-        lambda _self, method, url, **kwargs: bench._request(method, url, **kwargs),
-    )
+
+    def sync(_self, method, url, **kwargs):
+        return bench._request(method, url, **kwargs)
+
+    async def asynchronous(_self, method, url, **kwargs):
+        return bench._request(method, url, **kwargs)
+
+    monkeypatch.setattr(httpx.Client, "request", sync)
+    monkeypatch.setattr(httpx.AsyncClient, "request", asynchronous)
     return bench
 
 
@@ -204,40 +217,6 @@ def test_pubmed_keeps_what_it_had_and_says_the_set_may_be_short(wire):
     assert "may be incomplete" in sentence
 
 
-def test_a_failed_invocation_is_not_erased_by_a_later_successful_one(wire):
-    """The rule ``_efetch``'s ``continue`` defeated, stated on its own.
-
-    Two completed ``safe_request`` invocations in one search: the first
-    exhausts its retries on 503, the second answers 200. ``note_attempt`` on
-    the second clears ``last_call_failed``, which is correct -- that call did
-    not fail -- and before this fix it also erased the first one from every
-    partiality decision. Any client that makes more than one invocation in a
-    search can produce this snapshot, so the rule is fixed rather than the one
-    client that reached it.
-    """
-    wire.answers(lambda url, params, call: (503, b"") if call <= 2 else (200, {}))
-
-    # An exhausted transient status is returned, not raised; ``safe_request``
-    # records the failure and hands the client the reply it got.
-    failed = api_base.safe_request("GET", "https://example.test/first",
-                                   rate_limiter=_limiter())
-    api_base.safe_request("GET", "https://example.test/second",
-                          rate_limiter=_limiter())
-
-    assert failed.status_code == 503
-    snapshot = api_base.search_outcome().snapshot()
-    assert len(wire.calls) == 3
-    assert (snapshot["failures"], snapshot["last_call_failed"]) == (1, False)
-    assert snapshot["failure_history"] == ["http_503", "http_503"]
-
-    issue = zero_reason.terminal_issue(snapshot)
-    assert issue is not None, "an earlier terminal failure must survive a later success"
-    reason, detail = issue
-    assert reason == "upstream_failure"
-    assert detail["detail"] == "http_503"
-    assert detail["status"] == 503
-
-
 def test_a_retry_that_succeeded_is_still_not_a_terminal_issue(wire):
     """The boundary the fix must not cross.
 
@@ -260,24 +239,46 @@ def test_a_retry_that_succeeded_is_still_not_a_terminal_issue(wire):
     assert zero_reason.derive(snapshot) == ("answered_empty", {"attempts": 2})
 
 
-def test_a_rate_limited_batch_is_reported_as_the_429_it_was(wire):
-    """``rate_limited`` is its own category and decodes back to its status.
+def test_a_recovered_retry_ladder_is_not_a_partial_answer(wire):
+    """The other half of that boundary, and the one a guard did not reach.
 
-    The history holds resmon's own word for a 429 rather than ``http_429``,
-    so the branch that reads the history has to know that; a reason rendered
-    without the status reads "the request failed", which is true of a timeout
-    too and tells the user nothing they can act on.
+    Three clients run their documented "retry once" ladder *outside*
+    ``safe_request``, calling it again with ``max_retries=0``: ``api_eric``,
+    ``api_dblp`` and ``api_biorxiv`` (which serves both bioRxiv and medRxiv),
+    so 3 of 26 active modules and 4 of 27 slugs. Each attempt is a separate
+    invocation, so a first-attempt 503 leaves ``failures`` at 1 and the second
+    attempt's success clears ``last_call_failed`` -- the one snapshot shape a
+    rule reading ``failures`` alone would call partial.
+
+    It is not partial. The ladder re-issues the same URL with the same params;
+    the request recovered and no record is missing. A revision of this branch
+    did report it, and told the user "ERIC returned 1 usable record before a
+    later HTTP 503 request failed" about a source that answered. This drives
+    the real ERIC client over the real ladder so the case cannot come back
+    through the gap the internal-retry guard above does not cover.
     """
-    wire.answers(lambda url, params, call: (429, b"") if call <= 2 else (200, {}))
+    record = {"id": "EJ1", "title": "A paper", "author": ["Doe, Jane"],
+              "description": "x", "publicationdateyear": 2024,
+              "subject": ["education"], "url": "https://eric.ed.gov/?id=EJ1"}
+    wire.answers(lambda url, params, call: (
+        (503, b"") if call == 1
+        else (200, {"response": {"docs": [record], "numFound": 1}})))
 
-    api_base.safe_request("GET", "https://example.test/first",
-                          rate_limiter=_limiter())
-    api_base.safe_request("GET", "https://example.test/second",
-                          rate_limiter=_limiter())
+    results = api_eric.EricClient().search(
+        "reading", "2024-01-01", "2024-12-31", max_results=5)
 
-    reason, detail = zero_reason.terminal_issue(api_base.search_outcome().snapshot())
-    assert reason == "upstream_failure"
-    assert (detail["detail"], detail["status"]) == ("rate_limited", 429)
+    # Two separate invocations, the ladder's own, not safe_request's retry.
+    assert len(wire.calls) == 2
+    assert wire.calls[0]["params"] == wire.calls[1]["params"], (
+        "the ladder must re-issue the same request, or this is not a retry")
+    assert len(results) == 1
+
+    snapshot = api_base.search_outcome().snapshot()
+    assert (snapshot["failures"], snapshot["last_call_failed"]) == (1, False)
+    assert snapshot["failure_history"] == ["http_503"]
+    assert zero_reason.terminal_issue(snapshot) is None, (
+        "a request that recovered on its second attempt returned everything "
+        "it was asked for; calling the result partial is a false claim")
 
 
 # ---------------------------------------------------------------------------

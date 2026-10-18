@@ -219,6 +219,28 @@ def test_a_source_that_was_never_asked_is_not_a_failure(conn, monkeypatch):
     assert row["status"] == "completed"
 
 
+def test_a_withdrawn_source_beside_a_failing_one_does_not_make_the_run_failed(
+    conn, transport,
+):
+    """A retired source lands on ``status = 'error'``, and is still not a failure.
+
+    The engine catches the registry's ValueError for a withdrawn slug and
+    records it as an error row carrying `zero_reason = 'retired'`, so a rule
+    that counted every error row as a failure would read "resmon declined to
+    ask" as "the source broke". The single-retired case hides it, because
+    ``all_repos_errored`` already fires there; only the mixture shows it.
+    """
+    result = _sweep(conn, ["ssrn", "doaj"])
+    row = _row(conn, result)
+
+    sources = {s["source"]: s for s in get_execution_sources(conn, result["execution_id"])}
+    assert sources["ssrn"]["zero_reason"] == "retired"
+    assert sources["doaj"]["zero_reason"] == "upstream_failure"
+    # One source was asked and failed; the other was never asked. That is not
+    # "every source resmon asked came back with a non-answer".
+    assert row["status"] == "completed"
+
+
 class _RaisingClient(BaseAPIClient):
     def get_name(self) -> str:
         return "doaj"

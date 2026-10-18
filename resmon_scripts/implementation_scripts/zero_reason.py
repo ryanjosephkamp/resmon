@@ -212,47 +212,44 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
     raise ValueError(f"no sentence for zero reason {reason!r}")
 
 
-def _recorded_failure(snapshot: dict) -> tuple[str, int | None]:
-    """The newest failed attempt in this search, as a category and a status.
-
-    ``failure_history`` holds resmon's own one-word categories, written by
-    ``api_base._failure_detail`` and never copied from a reply. Reading the
-    status back out of ``http_503`` or out of ``rate_limited`` is therefore a
-    decode of something resmon wrote, not an inference about the provider:
-    the two are the only forms that carry a status, and they carry exactly
-    the one the source sent.
-
-    The ``last_*`` fields hold the same facts while they last, but the next
-    attempt clears them. This is the floor underneath them, and when the
-    history is empty too the honest answer is that a call failed and resmon
-    did not keep its category.
-    """
-    history = snapshot.get("failure_history") or []
-    newest = str(history[-1]) if history else ""
-    if newest == "rate_limited":
-        return "rate_limited", 429
-    if newest.startswith("http_") and newest[5:].isdigit():
-        return newest, int(newest[5:])
-    return newest or "request_error", None
-
-
 def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
     """Return an observed terminal issue that can make retained results partial.
 
     This deliberately excludes empty-answer and filtering reasons. A positive
     result is partial only when the client observed a terminal parse failure,
-    a retained server cooldown stopped it before another transport, or **any**
-    request invocation in this search failed.
+    its last request invocation failed, or a retained server cooldown stopped
+    it before another transport.
 
-    *Any* invocation, not the last one. This read ``last_call_failed`` alone
-    until 2026-10-18, and ``note_attempt()`` clears that flag, so a search
-    that made several invocations could lose a whole failed one to a later
-    success: PubMed's ``_efetch`` skipped a 503 batch, finished the rest, and
-    the sweep recorded ``ok`` over 300 of the 500 records the source held. A
-    failed invocation is what ``failures`` counts, and it stays counted; the
-    distinction the contract does keep is that an internal retry which later
-    succeeded is *not* a failed invocation, so a recovered 500 still makes no
-    issue here and is still a fact in the history.
+    **It does not fire on ``failures`` alone, and a branch that did was
+    written and then removed on 2026-10-18.** The reasoning is worth keeping,
+    because the gap it aimed at is real and the next reader will find it.
+
+    ``note_attempt()`` clears ``last_call_failed``, so a search making several
+    invocations can finish with a failed one behind it and the flag false --
+    which is how PubMed's ``_efetch`` lost a 503 batch, finished the rest, and
+    recorded ``ok`` over 300 of the 500 records the source held. Reading
+    ``failures`` instead looked like the general repair.
+
+    It is not, because of who actually produces that snapshot. Every client
+    was driven through a transport that fails once and then succeeds, and the
+    sequence of ``safe_request`` invocations recorded: 23 of 27 slugs make one
+    invocation and stop. The four that make a second -- ``eric``, ``dblp``,
+    ``biorxiv`` and ``medrxiv``, which run their documented "retry once"
+    ladder *outside* ``safe_request`` with ``max_retries=0`` -- re-issue the
+    **same URL and the same params**. That is a request that recovered, so
+    nothing is missing, and calling it partial told the user *"ERIC returned 1
+    usable record before a later HTTP 503 request failed"* about a source that
+    answered. Meanwhile ``_efetch``'s ``break`` means no client abandons a
+    failed request and goes on to a different one, so the case the branch was
+    for cannot occur.
+
+    A client that someday skips a failed page and keeps going would need this
+    back. It would also be a defect in that client, and the fix belongs there:
+    a search that silently drops records is not something this module can
+    infer its way out of. Should it ever be reinstated, it must distinguish a
+    failure followed by a success *for the same logical request* from one
+    followed by a different request, and the guard has to reach the
+    re-invocation ladder rather than only the retry inside one invocation.
     """
     if not snapshot:
         return None
@@ -274,19 +271,6 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
         return "upstream_failure", {
             "detail": "server_cooldown",
             "status": snapshot.get("retained_cooldown_status"),
-            "attempts": snapshot.get("attempts") or 0,
-        }
-
-    # An invocation in this search failed terminally and a later one
-    # succeeded. This branch is last on purpose: it is strictly additive, and
-    # it only answers the case that used to fall through to ``None``. The two
-    # above still take precedence, so what the newest facts say about the
-    # search is unchanged wherever they said anything at all.
-    if snapshot.get("failures"):
-        detail, status = _recorded_failure(snapshot)
-        return "upstream_failure", {
-            "detail": detail,
-            "status": status,
             "attempts": snapshot.get("attempts") or 0,
         }
 
