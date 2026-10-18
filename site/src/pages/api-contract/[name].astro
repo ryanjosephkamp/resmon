@@ -1,0 +1,39 @@
+---
+/**
+ * The per-slice contract documents at `/resmon/api-contract/<name>/`.
+ *
+ * `http.md` among them is generated and guarded: `api_contract.py` writes it
+ * and `test_api_contract.py` regenerates it and fails on a difference. This
+ * page renders that file where it sits; it does not transform or summarise it.
+ */
+import { getCollection, type CollectionEntry } from 'astro:content';
+import Document from '../../layouts/Document.astro';
+import { renderMarkdown } from '../../lib/markdown';
+import { readDocument } from '../../lib/documents';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('apiContract');
+  return entries
+    .filter((entry) => entry.id !== 'README')
+    .map((entry) => ({ params: { name: entry.id }, props: { entry } }));
+}
+
+interface Props {
+  entry: CollectionEntry<'apiContract'>;
+}
+
+const { entry } = Astro.props as Props;
+const head = readDocument(entry.body ?? '', entry.id);
+const { html, headings } = await renderMarkdown(head.body);
+---
+
+<Document
+  title={head.title}
+  description={head.description}
+  path={`/api-contract/${entry.id}/`}
+  eyebrow="Contract"
+  meta={`docs/api-contract/${entry.id}.md`}
+  html={html}
+  headings={headings}
+  width="wide"
+/>

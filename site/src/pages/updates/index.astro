@@ -1,0 +1,40 @@
+---
+/**
+ * The update archive. The home page carries the same list; this page exists so
+ * there is a URL that is only the list, for linking to and for a reader who
+ * arrived from the feed.
+ */
+import { getCollection } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import PostList from '../../components/PostList.astro';
+import { byDateDescending } from '../../lib/posts';
+import { url } from '../../lib/urls';
+
+const posts = (await getCollection('posts')).sort(byDateDescending);
+---
+
+<Base
+  title="Updates"
+  description="Every resmon release update and announcement, newest first."
+  path="/updates/"
+  width="wide"
+>
+  <h1>Updates</h1>
+  <p class="lede">
+    {posts.length} posts, newest first. The in-app <strong>About resmon → Blog</strong> tab builds
+    its list from <a href={url('/feed.xml')}>the Atom feed</a>, which carries the 10 most recent.
+  </p>
+  <PostList posts={posts} withSummary />
+</Base>
+
+<style>
+  h1 {
+    margin-top: 0;
+  }
+
+  .lede {
+    color: var(--color-text-muted);
+    max-width: var(--measure);
+    margin-bottom: var(--space-6);
+  }
+</style>

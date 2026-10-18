@@ -1,0 +1,229 @@
+---
+/**
+ * The page shell: head, masthead, navigation, footer.
+ *
+ * Ships no client JavaScript. There is no script tag on any content page, no
+ * theme toggle writing to localStorage and no font fetched from a third party —
+ * the color scheme follows `prefers-color-scheme` and the type stack is the
+ * reader's own system fonts. That is partly a performance choice and partly a
+ * privacy one: a page on this site makes no request to anywhere but GitHub.
+ */
+import '../styles/tokens.css';
+import '../styles/base.css';
+import { url, absoluteUrl, GITHUB_REPO } from '../lib/urls';
+
+interface Props {
+  title: string;
+  description: string;
+  /** Path on this site, without the base, for the canonical link. */
+  path: string;
+  /** `wide` relaxes the reading measure for listings and reference tables. */
+  width?: 'prose' | 'wide';
+}
+
+const { title, description, path, width = 'prose' } = Astro.props;
+
+const SITE_NAME = 'resmon';
+const fullTitle = title === SITE_NAME ? SITE_NAME : `${title} · ${SITE_NAME}`;
+
+const nav = [
+  { label: 'Overview', href: '/' },
+  { label: 'Guide', href: '/guide/' },
+  { label: 'Reference', href: '/reference/' },
+  { label: 'Updates', href: '/updates/' },
+];
+
+const current = Astro.url.pathname;
+const isCurrent = (href: string) => {
+  const full = url(href);
+  return href === '/' ? current === full || current === `${full}/` : current.startsWith(full);
+};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={absoluteUrl(path)} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE_NAME} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={absoluteUrl(path)} />
+    <meta name="twitter:card" content="summary" />
+    {/*
+      The in-app Blog tab hard-codes the feed URL, so this element is for feed
+      readers and browsers, not for the app. It is still declared at the path
+      the app uses, so the two can never point at different files.
+    */}
+    <link
+      rel="alternate"
+      type="application/atom+xml"
+      title="resmon updates"
+      href={url('/feed.xml')}
+    />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="masthead">
+      <div class="shell masthead-inner">
+        <a class="wordmark" href={url('/')}>
+          resmon<span class="wordmark-dot">.</span>
+        </a>
+        <nav aria-label="Primary">
+          <ul class="nav">
+            {
+              nav.map((item) => (
+                <li>
+                  <a href={url(item.href)} aria-current={isCurrent(item.href) ? 'page' : undefined}>
+                    {item.label}
+                  </a>
+                </li>
+              ))
+            }
+            <li>
+              <a href={GITHUB_REPO} rel="noopener">GitHub</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" class:list={['shell', 'main', width === 'wide' && 'main-wide']}>
+      <slot />
+    </main>
+
+    <footer class="footer">
+      <div class="shell">
+        <p>
+          resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+        </p>
+        <ul class="footer-links">
+          <li><a href={GITHUB_REPO}>Source</a></li>
+          <li><a href={`${GITHUB_REPO}/releases`}>Releases</a></li>
+          <li><a href={url('/guide/license/')}>License</a></li>
+          <li><a href={url('/third-party-notices/')}>Third-party notices</a></li>
+          <li><a href={url('/feed.xml')}>Atom feed</a></li>
+        </ul>
+      </div>
+    </footer>
+  </body>
+</html>
+
+<style>
+  .shell {
+    width: 100%;
+    max-width: var(--measure-wide);
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+
+  .masthead {
+    border-bottom: var(--border-width) solid var(--color-border);
+    background: var(--color-surface);
+  }
+
+  .masthead-inner {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-block: var(--space-3);
+  }
+
+  .wordmark {
+    font-weight: var(--weight-bold);
+    font-size: var(--text-lg);
+    letter-spacing: var(--tracking-tight);
+    color: var(--color-text);
+    text-decoration: none;
+  }
+
+  .wordmark-dot {
+    color: var(--color-link);
+  }
+
+  .nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--text-sm);
+  }
+
+  .nav li + li {
+    margin-top: 0;
+  }
+
+  .nav a {
+    text-decoration: none;
+    color: var(--color-text-muted);
+    padding-block: var(--space-1);
+  }
+
+  .nav a:hover {
+    color: var(--color-link-hover);
+  }
+
+  .nav a[aria-current='page'] {
+    color: var(--color-text);
+    font-weight: var(--weight-semibold);
+    box-shadow: inset 0 calc(-1 * var(--border-width-thick)) 0 var(--color-link);
+  }
+
+  .main {
+    display: block;
+    padding-block: var(--space-6) var(--space-8);
+    max-width: calc(var(--measure) + 2 * var(--gutter));
+    margin-inline: auto;
+  }
+
+  .main-wide {
+    max-width: var(--measure-wide);
+  }
+
+  .footer {
+    border-top: var(--border-width) solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    padding-block: var(--space-5);
+  }
+
+  .footer p {
+    max-width: var(--measure);
+  }
+
+  .footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .footer-links li + li {
+    margin-top: 0;
+  }
+
+  @media (min-width: 40rem) {
+    .shell {
+      padding-inline: var(--gutter-wide);
+    }
+
+    .masthead-inner {
+      flex-direction: row;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-5);
+      padding-block: var(--space-4);
+    }
+  }
+</style>

@@ -1,0 +1,123 @@
+---
+/**
+ * The 27 published update posts, at the permalinks Jekyll gave them.
+ *
+ * This is the route that must not move. `BlogTab.tsx` puts the post's URL
+ * straight into an Electron `<webview>` and into the "Open in browser" button,
+ * and the feed's `<id>` elements are built from the same paths, so an id that
+ * changed would make every post look new to anything that had seen the feed
+ * before. `postPath()` reproduces the Jekyll rule — UTC date from the front
+ * matter, slug from the file name — and `scripts/verify-output.mjs` checks the
+ * 27 paths this emits against the URL list captured from the live Jekyll site.
+ */
+import { getCollection, type CollectionEntry } from 'astro:content';
+import Document from '../layouts/Document.astro';
+import { renderMarkdown } from '../lib/markdown';
+import { postPath, displayDate, byDateDescending } from '../lib/posts';
+import { readDocument } from '../lib/documents';
+import { url } from '../lib/urls';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('posts');
+  return posts.map((post) => ({
+    // Astro adds the leading and trailing slash; the param is the bare path.
+    params: { permalink: postPath(post.id, post.data.date).replace(/^\/|\/$/g, '') },
+    props: { post },
+  }));
+}
+
+interface Props {
+  post: CollectionEntry<'posts'>;
+}
+
+const { post } = Astro.props as Props;
+
+// Posts carry their own `# Heading`, which repeats the front-matter title in a
+// different wording ("Update 26 — The run that finishes" against "resmon Update
+// 26 — September 21, 2026"). The heading is the one worth showing, so it
+// becomes the page title and the front-matter title becomes the browser title.
+const head = readDocument(post.body ?? '', post.data.title);
+const { html, headings } = await renderMarkdown(head.body);
+
+const path = postPath(post.id, post.data.date);
+
+// Previous and next in published order, so a reader can walk the series.
+const all = (await getCollection('posts')).sort(byDateDescending);
+const index = all.findIndex((entry) => entry.id === post.id);
+const newer = index > 0 ? all[index - 1] : null;
+const older = index >= 0 && index < all.length - 1 ? all[index + 1] : null;
+---
+
+<Document
+  title={head.title}
+  description={head.description}
+  path={path}
+  eyebrow="Update"
+  meta={displayDate(post.data.date)}
+  html={html}
+  headings={headings}
+>
+  <nav class="pager" aria-label="Other updates">
+    <div>
+      {
+        older && (
+          <a href={url(postPath(older.id, older.data.date))}>
+            <span class="pager-label">Previous</span>
+            <span>{older.data.title}</span>
+          </a>
+        )
+      }
+    </div>
+    <div class="pager-next">
+      {
+        newer && (
+          <a href={url(postPath(newer.id, newer.data.date))}>
+            <span class="pager-label">Next</span>
+            <span>{newer.data.title}</span>
+          </a>
+        )
+      }
+    </div>
+  </nav>
+</Document>
+
+<style>
+  .pager {
+    display: grid;
+    gap: var(--space-4);
+    margin-top: var(--space-7);
+    font-size: var(--text-sm);
+  }
+
+  .pager a {
+    display: block;
+    padding: var(--space-3) var(--space-4);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-md);
+    text-decoration: none;
+    color: var(--color-text);
+    background: var(--color-surface);
+  }
+
+  .pager a:hover {
+    border-color: var(--color-border-strong);
+  }
+
+  .pager-label {
+    display: block;
+    font-size: var(--text-xs);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+  }
+
+  @media (min-width: 40rem) {
+    .pager {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .pager-next {
+      text-align: end;
+    }
+  }
+</style>

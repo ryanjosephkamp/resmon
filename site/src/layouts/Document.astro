@@ -1,0 +1,127 @@
+---
+/**
+ * A rendered Markdown document: the reference pages, the guide pages split out
+ * of the README, and the update posts all use this.
+ *
+ * The contents list is built from the generated heading ids rather than from a
+ * hand-written list, so it cannot fall out of step with the document. It only
+ * appears when there is enough document to be worth navigating — four or more
+ * top-level sections — and it is plain links, so it works with JavaScript off
+ * and reads as an ordinary list on a phone.
+ */
+import Base from './Base.astro';
+import type { Heading } from '../lib/markdown';
+
+interface Props {
+  title: string;
+  description: string;
+  path: string;
+  /** Small label above the title: the section this page belongs to. */
+  eyebrow?: string;
+  /** Rendered beneath the title: a date, a summary, a source path. */
+  meta?: string;
+  html: string;
+  headings: Heading[];
+  width?: 'prose' | 'wide';
+}
+
+const {
+  title,
+  description,
+  path,
+  eyebrow,
+  meta,
+  html,
+  headings,
+  width = 'prose',
+} = Astro.props;
+
+const sections = headings.filter((heading) => heading.depth === 2);
+const showContents = sections.length >= 4;
+---
+
+<Base title={title} description={description} path={path} width={width}>
+  <article>
+    <header class="doc-head">
+      {eyebrow && <p class="eyebrow">{eyebrow}</p>}
+      <h1>{title}</h1>
+      {meta && <p class="meta">{meta}</p>}
+    </header>
+
+    {
+      showContents && (
+        <nav class="contents" aria-labelledby="contents-heading">
+          <h2 id="contents-heading" class="contents-heading">
+            On this page
+          </h2>
+          <ul>
+            {sections.map((section) => (
+              <li>
+                <a href={`#${section.slug}`} set:html={section.text} />
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )
+    }
+
+    <div class="prose" set:html={html} />
+  </article>
+
+  {/* Anything a page wants beneath the document: a pager, a related list. */}
+  <slot />
+</Base>
+
+<style>
+  .doc-head {
+    margin-bottom: var(--space-5);
+    padding-bottom: var(--space-4);
+    border-bottom: var(--border-width) solid var(--color-border);
+  }
+
+  .doc-head h1 {
+    margin: 0;
+  }
+
+  .eyebrow {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+  }
+
+  .meta {
+    margin: var(--space-2) 0 0;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .contents {
+    margin-bottom: var(--space-6);
+    padding: var(--space-4);
+    background: var(--color-surface);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-md);
+  }
+
+  .contents-heading {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+  }
+
+  .contents ul {
+    margin: 0;
+    padding-inline-start: var(--space-5);
+    font-size: var(--text-sm);
+  }
+
+  .contents li + li {
+    margin-top: var(--space-1);
+  }
+</style>

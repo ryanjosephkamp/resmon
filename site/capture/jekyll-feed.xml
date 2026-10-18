@@ -1,0 +1,1378 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="3.10.0">Jekyll</generator><link href="https://ryanjosephkamp.github.io/resmon/feed.xml" rel="self" type="application/atom+xml" /><link href="https://ryanjosephkamp.github.io/resmon/" rel="alternate" type="text/html" /><updated>2026-10-18T20:03:23+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/feed.xml</id><title type="html">resmon</title><subtitle>Updates, release notes, and announcements for the resmon research-monitoring app.</subtitle><author><name>Ryan Kamp</name></author><entry><title type="html">resmon Update 26 — September 21, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/21/resmon-update-26/" rel="alternate" type="text/html" title="resmon Update 26 — September 21, 2026" /><published>2026-09-21T13:00:00+00:00</published><updated>2026-09-21T13:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/21/resmon-update-26</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/21/resmon-update-26/"><![CDATA[<h1 id="update-26--the-run-that-finishes-and-the-report-that-arrives">Update 26 — The run that finishes, and the report that arrives</h1>
+
+<h2 id="metadata">Metadata</h2>
+
+<ul>
+  <li><strong>Update number:</strong> 26</li>
+  <li><strong>Version:</strong> 2.2.0 → 2.3.0</li>
+  <li><strong>Theme:</strong> a run says what actually happened to it, and a routine’s report has somewhere
+to go and a record of whether it got there</li>
+</ul>
+
+<h2 id="this-is-the-classic-checkpoint">This is the classic checkpoint</h2>
+
+<p>2.3.0 is the last feature release of resmon’s current interface. From here, 2.x continues on
+a <code class="language-plaintext highlighter-rouge">classic</code> branch for security fixes only, and the next major version rebuilds the
+interface on the same engine — the same backend, the same database, the same corpus — and is
+measured against 2.3.0 journey by journey, page by page, rather than against an idea of what
+the app does. Nothing here is being retired and no date is being promised. This release is
+the line the rebuild gets compared to, which is why it is worth having the numbers in it be
+true.</p>
+
+<h2 id="the-short-version">The short version</h2>
+
+<p>Three schema steps, and all three are about resmon being able to say what happened rather
+than what it assumes happened.</p>
+
+<p>A run whose backend was force-quit used to sit at <code class="language-plaintext highlighter-rouge">running</code> for ever, or — on the graceful
+path — was written down as <code class="language-plaintext highlighter-rouge">failed</code>, which was an overclaim: resmon never observed a
+failure. There is now a fifth word for it, <strong>interrupted</strong>, with ownership columns behind it
+so the judgement is a fact and not a guess, and a <strong>Restart</strong> that links the new run back to
+the one it came from (#139).</p>
+
+<p>A routine could fire twice, or be started by hand while its own scheduled fire was already
+running. Now there is <strong>one run per routine and one run per submission</strong>, enforced by the
+database rather than by a check the application hoped it won because it looked first — and a
+record of <strong>missed fires</strong>, the ones whose time had already passed while resmon was not
+running (#141).</p>
+
+<p>And a routine’s report now has <strong>somewhere to go</strong>. Email, a folder, a webhook and a feed:
+four destinations, each with its own row, its own attempts, its own reason for not having
+arrived yet and its own time to try again (#146, #148).</p>
+
+<p>Plus a <strong>backup and restore</strong> that treats the database and the Library vault as one pair,
+with a drill that proves the restore (#153).</p>
+
+<h2 id="a-run-that-was-interrupted-says-so">A run that was interrupted says so</h2>
+
+<p><code class="language-plaintext highlighter-rouge">executions.status</code> had four values — <code class="language-plaintext highlighter-rouge">running</code>, <code class="language-plaintext highlighter-rouge">completed</code>, <code class="language-plaintext highlighter-rouge">failed</code>, <code class="language-plaintext highlighter-rouge">cancelled</code> — and
+none of them is true of a run whose backend was killed. The graceful shutdown path had
+written <code class="language-plaintext highlighter-rouge">failed</code> for years.</p>
+
+<p>Schema 19 rebuilds the table with a fifth value, <code class="language-plaintext highlighter-rouge">interrupted</code>, and four columns that make
+the reconciliation on the next start something resmon can establish rather than assume:
+<code class="language-plaintext highlighter-rouge">owner_pid</code> and <code class="language-plaintext highlighter-rouge">owner_runtime_id</code> say which process claimed the row, <code class="language-plaintext highlighter-rouge">last_seen_at_utc</code>
+says when that process was last observed working on it, and <code class="language-plaintext highlighter-rouge">interrupted_reason</code> says which
+of the two ways resmon found out — <code class="language-plaintext highlighter-rouge">daemon_restart</code> when it watched itself stop,
+<code class="language-plaintext highlighter-rouge">owner_dead</code> when a later start found the owning process gone, <code class="language-plaintext highlighter-rouge">unknown</code> when neither can be
+established. A 30-second heartbeat and a stamp at each stage boundary are what give that
+judgement something to read (#139).</p>
+
+<p>The rule is one-sided on purpose. A row is adopted as interrupted only where its owner can
+be <em>established</em> to be gone; a pid that has been reused, or one belonging to another user,
+reads as alive. Being wrong towards alive costs a row that waits for the next start. Being
+wrong the other way tells somebody a live run has stopped. That rule was written out in
+three places and is now one implementation, tested over its four branches (#149).</p>
+
+<p><code class="language-plaintext highlighter-rouge">Restart</code> re-runs an interrupted execution with the same parameters and records
+<code class="language-plaintext highlighter-rouge">restarted_from</code> on the new row. The original is never edited — the history stays exactly as
+it happened. The real Results page, the badge, the reason sentence, the last-seen time and
+the Restart click are exercised in a real Electron window rather than in jsdom (#147), and
+the renderer now derives its status vocabulary from one exported list that a test compares
+against the CHECK in <code class="language-plaintext highlighter-rouge">database.py</code>, so a status added to the schema and forgotten in the
+renderer fails instead of leaving a finished run showing as still running (#145).</p>
+
+<h2 id="one-run-per-routine-and-the-fires-that-were-missed">One run per routine, and the fires that were missed</h2>
+
+<p>Two things could produce a second simultaneous run of the same routine: the scheduler firing
+while a hand-started run was in flight, and a submission retried by a client that never saw
+the first response.</p>
+
+<p>The first is now a claim taken under a lock before the worker thread starts and released in
+its <code class="language-plaintext highlighter-rouge">finally</code> — not a query on <code class="language-plaintext highlighter-rouge">executions.status</code>, which is both too late (the row does not
+exist yet) and too long (a force-quit backend’s rows would refuse the routine for ever). The
+second is <code class="language-plaintext highlighter-rouge">executions.request_id</code> with a partial UNIQUE index over it: one run per
+submission, enforced by SQLite (#141).</p>
+
+<p>The global admission slot now follows the same discipline. A worker thread that died between
+being admitted and reaching its own <code class="language-plaintext highlighter-rouge">try</code> used to hold the slot for the life of the backend,
+and enough of those meant every Deep Dive and Deep Sweep answered 429 while nothing at all
+was running. The slot is released from the same outer <code class="language-plaintext highlighter-rouge">finally</code> as the routine claim, in the
+same order, and the release is idempotent (#143). The order matters enough to have its own
+guard (#149).</p>
+
+<p><code class="language-plaintext highlighter-rouge">routine_missed_fires</code> records one row per scheduled fire whose time had already passed when
+resmon next started. It claims exactly what was observed — that the persisted next fire was
+in the past when we read it — and not that the run did not happen. <strong>No catch-up run is
+started.</strong> Whether resmon should silently run a week of missed sweeps on the morning a laptop
+is opened is a decision for its owner, not a default chosen by a migration (#141).</p>
+
+<h2 id="the-report-has-somewhere-to-go">The report has somewhere to go</h2>
+
+<p>Until now a routine’s report went to email, from inside the execution worker’s own thread,
+while still holding that run’s admission slot. A mail server that accepted a connection and
+then sat there held the slot open with it.</p>
+
+<p>Schema 21 adds <code class="language-plaintext highlighter-rouge">routine_delivery_targets</code> — where a routine’s report is sent — and
+<code class="language-plaintext highlighter-rouge">deliveries</code>, one row per execution and destination carrying the attempts made, the reason
+it has not arrived, and when to try again. The completion hook no longer sends anything: it
+enqueues a row per enabled destination and wakes a drain thread that owns the sending
+(#146).</p>
+
+<p>Four channels ship, which is the whole of the schema’s vocabulary:</p>
+
+<ul>
+  <li><strong>Email</strong> is the existing sender moved behind a channel adapter — now recorded, retried,
+and attaching the same bundle the export route builds, search-record companions included,
+which the email hook had always quietly left out.</li>
+  <li><strong>Folder</strong> writes that bundle into a directory you chose, atomically. A synced folder
+becomes a delivery destination with no code of ours on the wire.</li>
+  <li><strong>Webhook</strong> posts a signed JSON envelope: what ran, when, how many results and how many
+new, the read-time coverage line, the report’s sha256, a link to the search record, and
+the bundle either as a time-limited link the receiver fetches or, if you ask, inline. The
+signature is HMAC-SHA256 over the exact bytes posted, keyed with a per-target secret in
+your keyring. HTTPS only, except for a receiver on 127.0.0.1 (#148).</li>
+  <li><strong>Feed</strong> writes an Atom file a reader can subscribe to.</li>
+</ul>
+
+<p>A target can be set to <strong>review</strong> instead of automatic, and then its delivery waits at
+<code class="language-plaintext highlighter-rouge">awaiting_review</code> until you say so. There is deliberately no automatic promotion anywhere in
+that module, however long the wait is.</p>
+
+<p>Failures back off one minute, five minutes, twenty-five minutes and then stop with the
+reason on the row. <code class="language-plaintext highlighter-rouge">UNIQUE(execution_id, target_id)</code> plus a compare-and-swap claim is what
+makes <em>delivered exactly once</em> something the database enforces. A row left mid-delivery by a
+backend that was force-quit is re-queued on the next start — and only where that owner can
+be established to be gone, because resmon would rather send a report twice than never (#146,
+#148, #149).</p>
+
+<p>The bundle link is the one route that answers without resmon’s local API token. A webhook
+receiver is not resmon and has no business holding a credential that opens every route, so
+the link carries its own proof: a signature over the delivery id and an expiry, checked by
+the route, with the Host and Origin guards still applying (#148).</p>
+
+<h2 id="backup-and-restore-as-one-pair">Backup and restore, as one pair</h2>
+
+<p>Nothing in resmon backed up the database or a single vault byte, and nothing could restore.
+<code class="language-plaintext highlighter-rouge">POST /api/cloud/backup</code> uploaded the reports tree to Drive and had no counterpart on the
+way back.</p>
+
+<p>There is now one bundle: the database snapshotted through SQLite’s own backup API —
+consistent under WAL, no sidecars — every retained vault byte re-hashed against the catalog
+on the way out, optionally the reports tree, and a manifest naming every file, its hash, the
+table counts, and, <strong>by name and never by value</strong>, the keyring entries a restore cannot
+bring back.</p>
+
+<p>The restore is staged, because a request thread cannot safely replace the database its own
+process has open. <code class="language-plaintext highlighter-rouge">/api/restore</code> verifies the bundle and writes a pointer; the next start
+acts on it before anything opens the database, moving the current database aside rather than
+deleting it. And there is a drill: the restore is exercised end to end rather than asserted
+(#153).</p>
+
+<h2 id="three-schema-steps-in-one-launch-proven-from-a-corpus-220-wrote">Three schema steps in one launch, proven from a corpus 2.2.0 wrote</h2>
+
+<p>A 2.2.0 corpus walks <strong>18 → 21</strong> on the first launch of 2.3.0: the <code class="language-plaintext highlighter-rouge">executions</code> rebuild with
+its wider CHECK and its new columns, then <code class="language-plaintext highlighter-rouge">request_id</code> and <code class="language-plaintext highlighter-rouge">routine_missed_fires</code>, then the
+two delivery tables.</p>
+
+<p>That walk is proven against a database <strong>v2.2.0’s own code wrote</strong> — the fixture that
+release left behind, committed beside its generator, regenerated out of process and diffed
+so that the claim “this is what v2.2.0 produced” stays falsifiable (#135). It is not a
+hand-reasoned idea of what an older database looks like, which is the class of mistake that
+shipped a broken migration once before.</p>
+
+<p>2.3.0 leaves the same thing for the release after it: a schema-21 corpus its own code wrote,
+seeded at every value of every enumerated CHECK the schema carries — except two that no code
+in 2.3.0 writes, which are named in the generator rather than invented. And the walk case
+now runs over <strong>every</strong> released fixture rather than only the newest, because adding this
+one would otherwise have silently dropped the 18 → 21 walk — which is exactly the walk a
+2.2.0 user takes.</p>
+
+<p>CI gained two guards worth naming: it refuses a committed symlink or a maintainer’s home
+directory in a tracked file before anything installs, and that guard was proven by being
+made to go red (#154); and the e2e suite now names the interpreter it starts the backend
+with, and fails loudly instead of exiting 0 on a run where most specs never ran (#150).</p>
+
+<h2 id="smaller-things">Smaller things</h2>
+
+<ul>
+  <li><strong>Nine registered sources that the acknowledgments had never credited</strong> are credited, and
+the lead-in no longer carries a count that had gone stale (#140).</li>
+  <li><strong>Tutorials link the YouTube walk-throughs instead of embedding them.</strong> The tab renders no
+third-party frame and sends no request to YouTube; every link opens in your own browser
+(#134). The two YouTube origins then left the renderer’s Content-Security-Policy, where
+nothing needed them and nothing would have noticed if something started using them again —
+and a test now pins the exact source set per directive, because a CSP only ever loosens
+silently (#144).</li>
+  <li><strong>Two dependencies, examined.</strong> <code class="language-plaintext highlighter-rouge">tailwindcss</code> had been a runtime dependency since the
+initial commit and was never used: no import, no directive, no build step, and a
+production <code class="language-plaintext highlighter-rouge">dist</code> that is byte-for-byte identical without it. It is gone. APScheduler’s
+<code class="language-plaintext highlighter-rouge">[sqlalchemy]</code> extra, which <em>was</em> being relied on, is now declared (#138, #144).</li>
+  <li><strong>A live test that finds nothing now fails by asserting</strong> rather than passing quietly
+(#137), and a HAL budget case no longer depends on how precisely <code class="language-plaintext highlighter-rouge">time.sleep</code> returns
+(#145).</li>
+</ul>
+
+<h2 id="what-this-release-does-not-do">What this release does not do</h2>
+
+<ul>
+  <li><strong>It does not run your missed sweeps for you.</strong> A missed fire is recorded, not caught up
+(#141).</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">routine_missed_fires.disposition</code> has three values and resmon writes two.</strong> <code class="language-plaintext highlighter-rouge">skipped</code>
+is in the vocabulary so a later policy needs no migration; nothing writes it yet, and the
+fixture this release leaves behind therefore contains no row at that value (#141).</li>
+  <li><strong>A delivery record is a record of what resmon did, not proof of what arrived.</strong> A folder
+delivery says the bundle was written; it cannot tell you your sync client uploaded it. A
+webhook delivery says the receiver answered; it cannot tell you a person read it.</li>
+  <li><strong>A row left <code class="language-plaintext highlighter-rouge">delivering</code> may have been sent.</strong> resmon re-queues it on the next start and
+would rather you see one report twice than never see it (#146).</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">interrupted</code> is what resmon can establish, not everything that is true.</strong> A pid that
+has been reused, or one owned by another user, reads as alive, and its row stays
+<code class="language-plaintext highlighter-rouge">running</code> until something can say otherwise (#139, #149).</li>
+  <li><strong>A restore cannot bring back your keyring.</strong> The manifest names the entries by name so
+you know what to re-enter; the values were never in the bundle (#153).</li>
+  <li><strong>The upgrade proof walks 13 → 21 and 18 → 21, from corpora v2.1.0 and v2.2.0 wrote.</strong> It
+establishes nothing about a database written by any other version, about sqlite-vec, or
+about the renderer.</li>
+  <li><strong>An MCP server needs no change this time.</strong> The contract is still 2.3 and the inventory
+is still twenty-five tools. A 2.3 MCP server pointed at a 2.2 backend simply gets no
+delivery summary back.</li>
+  <li><strong>macOS builds are still unsigned.</strong> They cannot self-update, which is why no
+<code class="language-plaintext highlighter-rouge">latest-mac.yml</code> is published for them.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 26 — The run that finishes, and the report that arrives]]></summary></entry><entry><title type="html">resmon Update 25 — September 20, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/20/resmon-update-25/" rel="alternate" type="text/html" title="resmon Update 25 — September 20, 2026" /><published>2026-09-20T13:00:00+00:00</published><updated>2026-09-20T13:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/20/resmon-update-25</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/20/resmon-update-25/"><![CDATA[<h1 id="update-25--keep-the-paper-and-lock-the-door">Update 25 — Keep the paper, and lock the door</h1>
+
+<h2 id="metadata">Metadata</h2>
+
+<ul>
+  <li><strong>Update number:</strong> 25</li>
+  <li><strong>Version:</strong> 2.1.0 → 2.2.0</li>
+  <li><strong>Theme:</strong> resmon keeps the papers themselves, not just the records — and its local API
+stops answering anything that can reach 127.0.0.1</li>
+</ul>
+
+<h2 id="the-short-version">The short version</h2>
+
+<p>Until now resmon held <em>records</em>: titles, authors, DOIs, the provenance of how each one was
+found. The file itself lived wherever you left it.</p>
+
+<p>This release adds a <strong>Library</strong> you own — retained PDF, TXT and Markdown originals in a
+vault you create explicitly (#120) — and an <strong>Evidence</strong> workspace on top of it (#121):
+projects, passages anchored to an exact file version and codepoint range, notes, and a
+portable ZIP (#121) or a single offline HTML file (#123) of what you selected. A saved
+passage that no longer resolves says so rather than quietly re-anchoring itself somewhere
+else.</p>
+
+<p>It also adds the thing you will notice first if you drive resmon from outside the app.
+<strong>The local API now requires a per-instance token, a loopback Host and this app’s exact
+renderer origin</strong> (#130). Before this, any web page open in any browser on your machine
+could drive the whole API.</p>
+
+<p><strong>If you run resmon’s MCP server from a separate checkout, update it in the same sitting as
+the app.</strong> A 2.1.0 MCP server sends no token, and there are no exempt routes, so a 2.2
+backend answers it <code class="language-plaintext highlighter-rouge">401</code> on every call. This is the one thing in the release that can stop
+working on upgrade, and it is deliberate.</p>
+
+<h2 id="the-local-api-was-open-and-now-it-is-not">The local API was open, and now it is not</h2>
+
+<p>resmon’s backend is an HTTP server on <code class="language-plaintext highlighter-rouge">127.0.0.1</code>. That is how the renderer, the MCP server
+and the assistant all talk to it, and it is why a desktop app that never phones home can
+still have a clean seam down its middle.</p>
+
+<p>The cost, until this release, was that <code class="language-plaintext highlighter-rouge">127.0.0.1</code> is not a permission. The backend answered
+every origin (<code class="language-plaintext highlighter-rouge">allow_origins=["*"]</code>), set <code class="language-plaintext highlighter-rouge">Access-Control-Allow-Private-Network: true</code> on
+every response, checked no Host and asked for no credential. A web page open in any browser
+on the machine could drive the whole API, and a DNS-rebinding page could read the answers.</p>
+
+<p>Now every request on every route passes one raw-ASGI guard, registered outermost — before
+CORS, before any request body is read:</p>
+
+<ul>
+  <li><strong>Host</strong> must be this backend’s own loopback address and port, or <code class="language-plaintext highlighter-rouge">403 host_refused</code>,
+even with a valid token.</li>
+  <li><strong>Origin</strong>, when there is one, must be this app’s renderer origin exactly, or
+<code class="language-plaintext highlighter-rouge">403 origin_refused</code>, with no <code class="language-plaintext highlighter-rouge">Access-Control-Allow-Origin</code> on the answer.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">Authorization: Bearer &lt;token&gt;</code></strong> must carry this backend’s secret — 32 bytes from the
+OS CSPRNG, compared in constant time — or <code class="language-plaintext highlighter-rouge">401 token_missing</code> / <code class="language-plaintext highlighter-rouge">401 token_invalid</code>.</li>
+</ul>
+
+<p>There are no exempt routes. <code class="language-plaintext highlighter-rouge">/api/health</code> needs the token too; the exemption list is an
+explicit empty constant, and a test fails if it grows. There is no “auth off” switch, in
+shipped code or in tests.</p>
+
+<p>The token lives in <code class="language-plaintext highlighter-rouge">api-token-&lt;port&gt;</code> in the state directory, owner-only, beside the daemon
+lock, and is removed on clean shutdown. A token file left behind by a crash never lets
+anything in: every start mints a fresh one and accepts only that, so a client reading a
+stale file is answered <code class="language-plaintext highlighter-rouge">401 token_invalid</code>. Electron mints the token, passes it to the
+backend in the child’s environment rather than in argv, and hands it to the renderer over a
+synchronous preload IPC answered only to the main window’s top frame. The main window now
+refuses to navigate off the renderer origin, which confines the token to resmon’s own
+document.</p>
+
+<p>What it deliberately does not defend: processes running as your own OS user, which can read
+the token file, the backend’s environment and the database itself; Windows file
+permissions, where <code class="language-plaintext highlighter-rouge">0600</code> is largely ignored and the file relies on <code class="language-plaintext highlighter-rouge">%LOCALAPPDATA%</code> being
+private to your profile; anything that can run code inside the app’s renderer; and loopback
+traffic itself, which is plain HTTP. The full model is in
+<a href="https://github.com/ryanjosephkamp/resmon/blob/main/docs/local-api-security.md"><code class="language-plaintext highlighter-rouge">docs/local-api-security.md</code></a>.</p>
+
+<h2 id="keep-the-paper">Keep the paper</h2>
+
+<ul>
+  <li><strong>Library</strong> (#120) — retain the original PDF, TXT or Markdown in a vault you create
+explicitly. Find items past the first page, link them to papers already in the corpus,
+export the whole inventory as JSON. Imports preserve originals and earlier retained
+versions, compare duplicate bytes exactly, and enforce stated quotas. Resetting the
+corpus keeps your Library; deleting a linked paper removes the association and nothing
+else. Small TXT and Markdown files open in a bounded in-app reader with line numbers and
+local find; a PDF or an unsupported text gets an explicit refusal and a separate
+external-open request.</li>
+  <li><strong>Evidence</strong> (#121) — collect Library items into a project, read them in the app, and
+save a passage or a plain note. A passage resolves against its exact file, version,
+canonical text hash and codepoint coordinates. If the file changes or goes missing, the
+passage stays <strong>unresolved</strong> and says so. It is never re-anchored to whatever is nearest.
+Removing a collection member preserves notes, originals, retained files, papers and
+provenance.</li>
+  <li><strong>Answers over what you selected</strong> (#122) — ask a question or request a structured
+briefing about excerpts you chose: file versions, pages or passages, and optional
+individual note bodies. You inspect the exact hash-bound disclosure preview before
+pressing Send. The lane runs tools-off, history-free and retry-free. Matching a quotation
+identifies the text it came from; it does not establish that the quotation supports a
+claim, and the interface says so.</li>
+  <li><strong>Take it with you</strong> (#123, #124) — a saved answer exports as a ZIP or as a single
+self-contained UTF-8 HTML file, capped at 4 MiB, that still reads after the app is
+closed: the validated saved snapshot only, with exact citation and return navigation,
+source and note provenance, coverage, requested and reported settings, and the unknowns.
+Untrusted text is escaped; there is no active content and nothing is fetched at open
+time. Library PDFs get a direct “Read PDF in Evidence” action, and completed exports
+appear in a session Downloads panel with the filename, the actual saved path and “Show in
+folder” — with pending, cancelled and interrupted downloads kept distinct from completed
+files.</li>
+</ul>
+
+<h2 id="the-papers-you-meant-to-read">The papers you meant to read</h2>
+
+<p>Results &amp; Logs listed <em>runs</em>. The papers inside a run were reachable only by reading a
+Markdown report, and an execution id is not a paper id.</p>
+
+<p>Now every run has a <strong>Papers</strong> tab, 50 papers to a page with each one’s corpus-local
+document id, and every paper has <strong>Save to read</strong> (#114). The <strong>Reading queue</strong> page holds
+them in <em>To read</em>, <em>Read</em> and <em>All</em>, with the same “why am I seeing this?” evidence panel on
+every row and tick-boxes that feed the existing BibTeX / RIS / CSV export.</p>
+
+<p>Three properties it is arranged around: saving is idempotent, so a weekly routine
+rediscovering a paper you have already read cannot put it back on the pile; a request that
+changes nothing writes nothing; and identity is the stored document id, never a title or a
+DOI, because two records that look like the same work are two papers everywhere else in
+resmon. Removing an entry removes membership and nothing else.</p>
+
+<p>An upgraded corpus starts the queue empty. resmon never observed which papers you meant to
+read before this existed, and inferring it from execution history would be inventing an
+intention.</p>
+
+<h2 id="coverage-before-conclusions">Coverage before conclusions</h2>
+
+<p>Opening a run now shows source coverage <strong>above</strong> its report (#115). A quiet run and a run
+where four sources failed look nothing alike, and they should not. Counts use the saved
+selected-source set when that selection is established; otherwise the panel says plainly
+that the full selection is unknown rather than guessing a denominator. Missing outcomes stay
+unknown, and failed requests and unreadable replies never become evidence that no papers
+exist. Report ZIPs add a generated search-record JSON and Markdown pair per execution and
+identify these companions in the manifest; the original report and log bytes are unchanged.</p>
+
+<p>Alongside it, three export defects are fixed (#113): execution-result reads were returning
+null paper IDs because the reference JSON projection omitted them; exporting several
+selected runs concatenated their per-run exports, repeating shared papers and letting
+distinct papers reuse a BibTeX key, where selected runs are now unioned by document ID and
+rendered once; and selected-record retrieval no longer hits SQLite’s bind-variable ceiling.</p>
+
+<h2 id="chats-and-the-connection-a-conversation-was-started-on">Chats, and the connection a conversation was started on</h2>
+
+<p>Saved conversations were capped at the latest 50 in the Ask history drawer. <strong>Chats</strong> (#118)
+browses all of them: title filtering, stable newest-created paging, a literal persisted
+transcript, and “Continue in Ask” for the same session. Markdown and JSON downloads preserve
+recorded metadata and malformed tool data, state their snapshot limits, and refuse output
+above 8 MiB rather than truncating it. Ask keeps one active turn per renderer while other
+saved chats stay readable and exportable.</p>
+
+<p>And the connection a conversation was started on stays that conversation’s (#119).
+Connection, model and effort are chosen explicitly and fixed at conversation creation, so a
+saved chat no longer follows a changed global default. Requested choices and the literal
+response-model observation are reported separately in Ask, in Chats and in both export
+formats. Changing choices starts an empty conversation. Continuing a historical conversation
+asks once and discloses what would be replayed: an API chat replays saved user and assistant
+text to the chosen provider, while Claude starts fresh native context without sending
+earlier local messages.</p>
+
+<p>Two smaller things in the same area: Ask’s panel and composer referenced undefined palette
+variables and could render transparent, and now use the existing opaque surfaces, readable
+text and explicit keyboard focus (#117); and the desktop header shows which backend it last
+observed, with keyboard-accessible runtime details and explicit acceptance after a runtime
+change (#116).</p>
+
+<h2 id="searches-that-stop-and-say-why">Searches that stop, and say why</h2>
+
+<p>HAL (#125), Zenodo (#126), bioRxiv/medRxiv, ERIC, DBLP and OAPEN (#127) now share one
+45-second cooperative budget across pagination, rate-limiter admission, setup, response
+reads and one bounded retry, with 10-second phase timeouts. A later page that fails no
+longer discards the rows earlier pages already returned — the partial outcome, “N usable
+records before a later request failed”, reaches saved coverage, the activity messages, the
+report and the exported search record. <code class="language-plaintext highlighter-rouge">Retry-After</code> is honoured only when it fits the
+budget. ERIC requests are spaced at least two seconds apart; OAPEN negotiates JSON and gets
+a 20-second per-request timeout, because ten seconds was shorter than the provider’s own
+replies; DBLP author search uses its documented SPARQL service.</p>
+
+<p>A failed search also keeps the <em>order</em> of how it failed (#127). <code class="language-plaintext highlighter-rouge">http_500 -&gt; timeout</code> used
+to be recorded as just <code class="language-plaintext highlighter-rouge">timeout</code>, because each attempt cleared the last. The history is
+fixed vocabulary, at most 8 entries with drops counted, and it never holds a URL, a query
+string or a response body.</p>
+
+<p>And the weekly live suite can now quarantine one provider’s outage without hiding anything
+else (#127). At most two live cases may be quarantined, each with a failure signature, a
+first-observed date, an expiry at most 30 days out and the status captured from two vantage
+points. A quarantined case still runs and still asserts; its failure becomes an xfail only
+when the recorded source outcome shows the search ended on a failed call whose history
+contains that signature. A different status, timeouts alone, a wrong answer after a
+successful retry, or a crash all still fail the run, and a pass is reported as a recovery so
+the quarantine gets lifted. The weekly summary prints its own denominator. Since
+2026-09-18 OAPEN has intermittently answered HTTP 500 from its own database layer, observed
+both from GitHub runners and from a workstation. resmon cannot fix that; it can refuse to
+let it mask everything else.</p>
+
+<h2 id="five-schema-steps-in-one-launch-tested-on-a-real-corpus">Five schema steps in one launch, tested on a real corpus</h2>
+
+<p>This release moves an existing corpus from schema <strong>13 to 18</strong> the first time it opens:
+reading queue (14, #114), assistant composer choices (15, #119), Library (16, #120),
+Evidence (17, #121), selected-evidence answers (18, #122). Every step is additive and
+backfills nothing.</p>
+
+<p>Each of those five steps had a green test — but each started from the step before it, and
+none from a database a <em>released</em> resmon had actually written.</p>
+
+<p>So we made one (#128). Tag v2.1.0 was checked out into a disposable worktree, and its own
+<code class="language-plaintext highlighter-rouge">init_db</code> and its own write functions produced the corpus — not hand-written DDL: 21 tables
+plus the full-text index, 116 rows, every value of every CHECK-constrained column that
+version has, non-Latin author and title text, non-NFC combining characters, a NULL in every
+column v2.1.0 allows one, one paper seen by two sources, one execution with a failed source
+and one skipped for a missing credential, an AI lane left running. That file is committed
+with the generator that produced it, and today’s migrations run against it in the ordinary
+hermetic suite on every pull request.</p>
+
+<p>The denominators the run prints itself: 56 of 56 authored <code class="language-plaintext highlighter-rouge">sqlite_master</code> objects equal to a
+fresh install’s; 40 of 40 objects v2.1.0 owned still present; 31 of 31 tables’ PRAGMAs equal
+to fresh; 116 rows across 21 of 21 schema-13 tables compared column by column; 166 schema-13
+columns still present with the same type and nullability; 8 of 8 AUTOINCREMENT high-water
+marks preserved; 23 enumerated CHECK constraints exercised on the <strong>upgraded</strong> database, 73
+allowed values accepted and 23 sentinels rejected; <code class="language-plaintext highlighter-rouge">PRAGMA integrity_check</code> ok and
+<code class="language-plaintext highlighter-rouge">foreign_key_check</code> empty. Four deliberate mutations to the migration code, each in a
+disposable copy, were each confirmed to turn it red. A companion change (#129) makes the
+fixture’s provenance case run in CI rather than skip there, and that check was itself proven
+by being made to fail.</p>
+
+<p>Everything in that fixture is synthetic. No row comes from anybody’s corpus.</p>
+
+<h2 id="what-this-release-does-not-do">What this release does not do</h2>
+
+<ul>
+  <li><strong>It does not keep a 2.1.0 MCP server working.</strong> That is the point of the lock, not an
+oversight. Update both halves together (#130).</li>
+  <li><strong>It does not fix OAPEN.</strong> The longer timeout makes its HTTP 500 visible as an HTTP 500
+instead of a timeout; no client setting changes what a server sends. The quarantine covers
+one live case, and the OAPEN author-query case is not quarantined and can still fail a
+weekly run during the same outage (#127).</li>
+  <li><strong>The request bounds are cooperative.</strong> They do not preempt DNS shutdown, OS scheduling or
+CPU-bound work (#125, #126, #127).</li>
+  <li><strong>An evidence answer is not a verification.</strong> It quotes what you selected. It does not
+judge whether the quote supports the claim (#122).</li>
+  <li><strong>The upgrade proof walks 13 → 18, from a v2.1.0 corpus.</strong> It establishes nothing about a
+database written by any other version, about sqlite-vec, or about the renderer (#128).</li>
+  <li><strong>The token keeps out other principals, not you.</strong> Anything running as your own user
+account can read the token file — and the database (#130).</li>
+  <li><strong>No Windows Library support, no OCR, no background full-text processing, no inferred
+paper or version association, and no silent re-anchor</strong> (#120, #121).</li>
+  <li><strong>macOS builds are still unsigned.</strong> They cannot self-update, which is why no
+<code class="language-plaintext highlighter-rouge">latest-mac.yml</code> is published for them.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 25 — Keep the paper, and lock the door]]></summary></entry><entry><title type="html">resmon Update 24 — September 7, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/07/resmon-update-24/" rel="alternate" type="text/html" title="resmon Update 24 — September 7, 2026" /><published>2026-09-07T13:00:00+00:00</published><updated>2026-09-07T13:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/07/resmon-update-24</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/07/resmon-update-24/"><![CDATA[<h1 id="update-24--watch-a-person-and-know-what-that-is-worth">Update 24 — Watch a person, and know what that is worth</h1>
+
+<h2 id="metadata">Metadata</h2>
+
+<ul>
+  <li><strong>Update number:</strong> 24</li>
+  <li><strong>Version:</strong> 2.0.2 → 2.1.0</li>
+  <li><strong>Theme:</strong> watching people instead of words, and refusing to pretend a name is an identity</li>
+</ul>
+
+<h2 id="the-short-version">The short version</h2>
+
+<p>Until now a resmon routine watched <strong>words</strong>. If you wanted to know when a particular
+researcher published, you guessed a keyword query that might catch them and lived with
+whatever else it caught.</p>
+
+<p>This release adds <strong>watch profiles</strong>: a person you point a routine at. A name, whatever
+identifiers you have for them, where they work. A routine can then follow them for <strong>new
+papers</strong>, or for <strong>retractions on the papers already matched to them</strong>.</p>
+
+<p>And it adds the thing that makes that honest. <strong>An author match is a string match unless the
+source gave an identifier, and resmon says so on every paper.</strong></p>
+
+<h2 id="why-that-sentence-is-the-whole-feature">Why that sentence is the whole feature</h2>
+
+<p>Scholarly sources do not agree on who anybody is. Most of them return an author’s <em>name</em> and
+nothing else. So “papers by Jane Doe” from such a source means “papers with the string <em>Jane
+Doe</em> in the author field” — which includes every other Jane Doe who has ever published.</p>
+
+<p>Nearly every tool that offers author monitoring quietly presents that as the person. resmon
+will not. Every match records <strong>how</strong> it was made, and the badge says which:</p>
+
+<ul>
+  <li><strong>ORCID match</strong> — the source returned this profile’s ORCID on this paper. This is evidence
+of identity.</li>
+  <li><strong>name + affiliation</strong> — a name matched and an affiliation on the record matched one of the
+profile’s. That is not identity: another researcher with this name at this institution would
+match too.</li>
+  <li><strong>name only</strong> — this name is on the paper. That is the entire claim.</li>
+</ul>
+
+<p>A <code class="language-plaintext highlighter-rouge">name only</code> match is never presented as the person, and the string the source actually
+returned is shown beside it. <code class="language-plaintext highlighter-rouge">J. Smith</code> next to a profile called <code class="language-plaintext highlighter-rouge">John Smith</code> tells you how
+weak the match is better than any summary could.</p>
+
+<p>If a profile has no ORCID, resmon tells you — <strong>while you are typing it</strong>, not after you save
+— that every match it can ever produce will be name-only.</p>
+
+<h2 id="we-measured-it-and-the-numbers-are-in-the-app">We measured it, and the numbers are in the app</h2>
+
+<p>Four profiles, every source resmon can ask about a person, <strong>1,369 matches</strong>, sixty-nine of
+them graded by hand. All of this is on the Watch Profiles page under <em>Why every match carries
+a basis</em>.</p>
+
+<p><strong>The middle badge barely exists.</strong> <code class="language-plaintext highlighter-rouge">name only</code> was 90% of all matches, <code class="language-plaintext highlighter-rouge">ORCID match</code> 9%, and
+<code class="language-plaintext highlighter-rouge">name + affiliation</code> <strong>nine matches in 1,369 — 0.7%</strong>. In practice the rule is binary: an
+ORCID, or a string. That was not what we expected, and it is the strongest argument we have
+for finding an ORCID before you create a profile.</p>
+
+<p><strong>Every ORCID match was the right person — 30 of 30.</strong></p>
+
+<p><strong>The <code class="language-plaintext highlighter-rouge">name + affiliation</code> matches span at least five different researchers.</strong> Two were a
+distinctive name and were correct. The other seven were one common name at one large
+institution: a computer-vision researcher, a laser physicist, a geochronologist, a photonics
+engineer and an optics researcher, all labelled identically. Not one is a false claim in
+resmon’s terms — the badge says <em>a name matched and an affiliation matched</em> — and that is
+exactly why it says that and nothing more.</p>
+
+<p><strong>Of thirty name-only matches, seventeen named somebody whose identity could be checked.
+Fifteen were right. One was wrong.</strong> The wrong one is worth the whole exercise: Open Library’s
+record for <em>Coleridge’s Political Thought</em> lists <strong>Jennifer A. Doudna</strong> as a co-author. It is
+an upstream cataloguing error, resmon matched it faithfully, and it appears in the list
+labelled <strong>name only</strong> — which is precisely the right amount of confidence to have had.</p>
+
+<p>The other thirteen came from profiles that name no particular person. There is no answer to
+“is this them” for those, so we did not invent one.</p>
+
+<h2 id="two-sources-that-had-never-worked">Two sources that had never worked</h2>
+
+<p>Writing the live tests for this found that two sources’ author search had <strong>never returned
+anything</strong>, for anybody, and looked exactly like the person having published nothing.</p>
+
+<ul>
+  <li><strong>arXiv</strong> was being asked <code class="language-plaintext highlighter-rouge">all:au:"Yoshua Bengio"</code> — arXiv answers that with HTTP 400.</li>
+  <li><strong>NDL Search</strong> was being asked for the literal string <code class="language-plaintext highlighter-rouge">creator="…"</code> rather than a creator
+query.</li>
+</ul>
+
+<p>Both are fixed, and both now have a test that asserts the exact query leaving the client, so
+the regression cannot come back between weekly runs.</p>
+
+<h2 id="retractions-by-person">Retractions, by person</h2>
+
+<p>A watch routine in <code class="language-plaintext highlighter-rouge">retractions</code> mode adds <strong>no new provider and invents no finding</strong>. It runs
+the lifecycle check you already have, restricted to that person’s papers, and reports the
+notices resmon already holds — every one with its link, and every one carrying the basis of
+the match it arrived through. A retraction attached to a name is not a retraction attached to
+a person, and a report that blurred those about somebody named would be defamatory.</p>
+
+<p>How much of that person’s work has actually been checked is stated above the findings. “No
+retractions found” means nothing unless you can see how much was looked at.</p>
+
+<h2 id="the-rest-of-it">The rest of it</h2>
+
+<ul>
+  <li><strong>Profiles are yours.</strong> They export and import as JSON on one documented shape, so you can
+move them between machines or share one. A file with one bad entry still imports the good
+ones and says which line it could not read.</li>
+  <li><strong>A starter set ships with the app</strong> — nine well-known open-science figures, every ORCID
+checked against the public ORCID record on the day it was added, with the citation stored
+beside it. A tenth candidate was dropped because his record has no public name to check
+against.</li>
+  <li><strong>Twenty of resmon’s twenty-seven sources can be asked about an author at all.</strong> The seven
+that cannot say so on the run’s own source row rather than returning a bare zero.</li>
+  <li><strong>A source’s author search is a candidate generator, never a verdict.</strong> Every record that
+comes back is re-checked against the profile locally, and the ones that do not survive are
+counted in the run rather than dropped in silence.</li>
+  <li><strong>Your harness gets all of it.</strong> MCP contract v2.2 adds four tools, and every match row
+carries its basis with no argument that removes it.</li>
+</ul>
+
+<h2 id="what-this-release-does-not-do">What this release does not do</h2>
+
+<ul>
+  <li><strong>Institutions and groups are not here yet.</strong> You can store an institution profile, but no
+routine mode can use one, so the routine editor does not offer it. Affiliation matching and
+institution-wide output are the next release.</li>
+  <li><strong>Aliases are not sent to sources.</strong> A source’s author search takes one name, so aliases are
+used when resmon checks the answer rather than when it asks the question. A paper filed only
+under an alias can still be missed.</li>
+  <li><strong>We measured precision, not recall.</strong> Nothing here tells you how many of a person’s papers
+resmon did not find.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">name only</code> is the common case.</strong> It is not an error and it is not coloured like one. It
+is a weaker claim, clearly labelled, and it is on you to decide what it is worth.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 24 — Watch a person, and know what that is worth]]></summary></entry><entry><title type="html">resmon Update 23 — September 7, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/07/resmon-update-23/" rel="alternate" type="text/html" title="resmon Update 23 — September 7, 2026" /><published>2026-09-07T10:00:00+00:00</published><updated>2026-09-07T10:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/07/resmon-update-23</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/07/resmon-update-23/"><![CDATA[<h1 id="update-23--five-minutes-of-nothing">Update 23 — Five Minutes of Nothing</h1>
+
+<h2 id="metadata">Metadata</h2>
+
+<ul>
+  <li><strong>Update number:</strong> 23</li>
+  <li><strong>Version:</strong> 2.0.1 → 2.0.2</li>
+  <li><strong>Theme:</strong> a hotfix — the assistant could hang for five minutes and then tell you nothing useful</li>
+</ul>
+
+<h2 id="what-was-broken">What was broken</h2>
+
+<p>If you installed resmon 2.0.0 or 2.0.1 and asked the assistant a question, it was possible
+for the panel to sit there for <strong>five minutes</strong> and then say:</p>
+
+<blockquote>
+  <p>resmon could not finish that turn.</p>
+</blockquote>
+
+<p>That is every packaged install of 2.0.0 and 2.0.1, on any platform, since <strong>6 September</strong>.
+It did not affect anyone running resmon from a checkout.</p>
+
+<p>The cause is that the <code class="language-plaintext highlighter-rouge">claude</code> command resmon runs can, in some states, start and then say
+nothing at all. resmon waited for it — patiently, for the full five-minute silence limit it
+uses for a turn that is <em>thinking</em> — and then reported a failure that named nothing and
+suggested nothing.</p>
+
+<h2 id="what-changed">What changed</h2>
+
+<p>The wait is now split in two, because there are two different situations and they deserve
+different answers.</p>
+
+<p>A turn that has begun answering and then goes quiet is thinking, and still gets five
+minutes. A turn that has said <strong>nothing at all</strong> has not begun, and now gets <strong>thirty
+seconds</strong> — after which resmon stops waiting and tells you:</p>
+
+<blockquote>
+  <p>The claude command started but said nothing for 30 seconds, so resmon stopped waiting. It
+normally answers within a second. Run <code class="language-plaintext highlighter-rouge">claude</code> once in a terminal to check it works and is
+signed in, then try again.</p>
+</blockquote>
+
+<p>Thirty seconds is not a guess. Across every measurement taken while chasing this — from a
+shell, from the packaged app, from the development build, spawned by Node, spawned by
+Electron, with and without the tool servers attached, cold and warm — the command’s first
+line arrived between <strong>0.25 and 2.98 seconds</strong>. Thirty is ten times the slowest ever seen.</p>
+
+<h2 id="what-this-does-and-does-not-fix">What this does and does not fix</h2>
+
+<p><strong>It does not stop the command hanging.</strong> It stops resmon treating a command that has said
+nothing as one that is thinking hard. If the underlying hang happens to you, you now learn
+within half a minute, with a sentence you can act on, instead of losing five minutes to a
+spinner.</p>
+
+<p>Being straight about the rest: the hang itself was not reproducible by the time this fix was
+written. It was reproduced against the published 2.0.1 build, seven candidate causes were
+each ruled out by measurement — a keychain prompt, inherited environment variables, the tool
+servers, output buffering, the spawn options, the process shape, resmon’s own spawn code —
+and then the machine’s <code class="language-plaintext highlighter-rouge">claude</code> login, which had expired, was signed back in and the hang
+stopped happening. That points at the expired-login path as the likely cause, and it is
+<strong>not established</strong>. The work is written up in full in the project’s handback rather than
+summarised into a certainty here.</p>
+
+<h2 id="if-you-saw-this">If you saw this</h2>
+
+<p><strong>Update to 2.0.2.</strong> If the assistant then tells you the command said nothing, run <code class="language-plaintext highlighter-rouge">claude</code>
+once in a terminal and check it is signed in — that is the state that produced this in the
+field.</p>
+
+<h2 id="also">Also</h2>
+
+<p>A new check runs the assistant inside a backend that Electron actually launched, which is
+the shape the defect lived in and the one nothing covered: the packaged checks asserted that
+the tool servers <em>listed their tools</em>, never that a <em>turn</em> produced its first line.</p>
+
+<p>End-to-end confirmation against the published 2.0.2 build, with a signed-in command, is a
+separate verification pass and has not been done yet. This post does not claim it.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 23 — Five Minutes of Nothing]]></summary></entry><entry><title type="html">resmon Update 22 — September 6, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/07/resmon-update-22/" rel="alternate" type="text/html" title="resmon Update 22 — September 6, 2026" /><published>2026-09-07T01:00:00+00:00</published><updated>2026-09-07T01:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/07/resmon-update-22</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/07/resmon-update-22/"><![CDATA[<h1 id="update-22--bring-your-own-key">Update 22 — Bring your own key</h1>
+
+<h2 id="metadata">Metadata</h2>
+
+<ul>
+  <li><strong>Update number:</strong> 22</li>
+  <li><strong>Version:</strong> 2.0.0 → 2.0.1</li>
+  <li><strong>Theme:</strong> the assistant for people who do not have a subscription CLI, and three things that were quietly not being watched</li>
+</ul>
+
+<h2 id="the-short-version">The short version</h2>
+
+<p>Update 21 shipped the <strong>✦ Ask</strong> panel and said, at the bottom, <em>“No API-key assistant yet. If
+you have an Anthropic or OpenAI key but no CLI, the panel cannot use it. That is the next
+release.”</em></p>
+
+<p>This is that release. Under <strong>Settings → AI → Assistant</strong>, <em>Run it with</em> now offers <strong>an API
+key of your own</strong> alongside the <code class="language-plaintext highlighter-rouge">claude</code> command. Anthropic, OpenAI, Google, xAI, Together,
+DeepSeek, Alibaba, or a custom OpenAI-compatible endpoint.</p>
+
+<p>It is the same panel, the same tools, the same confirmation card, and the same rules on the
+same system channel. What changed is who runs the loop: resmon does it itself instead of
+handing it to a command.</p>
+
+<h2 id="three-things-are-different-and-resmon-says-all-three">Three things are different, and resmon says all three</h2>
+
+<p><strong>It reports tokens, not money.</strong> A provider API tells you how many tokens a call used. It
+does not tell you what they cost, and resmon does not maintain anyone’s price list. So a turn
+on this route shows a token count and says <em>cost not reported</em>, rather than a dollar figure
+computed from a table this app would have to keep correct for eight providers. The <code class="language-plaintext highlighter-rouge">claude</code>
+route still shows a real cost, because the command reports one.</p>
+
+<p><strong>A turn stops after eight tool steps or 100,000 tokens.</strong> The command enforces a spending
+ceiling on itself; here the ceiling has to be on something resmon can count. Both numbers are
+twice the largest of the ten requests measured for 2.0.0 — four tool steps and about 53,000
+tokens at the top end — so an ordinary answer is nowhere near them and a loop is stopped.</p>
+
+<p><strong>It remembers what was said, not what the tools returned.</strong> A provider API keeps no session,
+so resmon replays the conversation itself: your messages and its replies. The raw output of an
+earlier tool call is <em>not</em> re-sent. That means a long conversation does not pay to re-send a
+page of papers on every turn, and text lifted from a paper’s abstract does not follow you from
+turn to turn. The assistant can see what it told you; it cannot see the evidence it told you
+from.</p>
+
+<h2 id="which-providers-can-do-this-at-all">Which providers can do this at all</h2>
+
+<p>The same three-state answer the embedding lane uses, with the evidence that established each
+one:</p>
+
+<ul>
+  <li><strong>OpenAI</strong> and <strong>Anthropic</strong> — established from the SDKs resmon ships, which is better
+evidence than a probe and is checked by a test rather than quoted in a comment.</li>
+  <li><strong>xAI</strong> and <strong>Google</strong> — established by a probe. Sending a deliberately malformed <code class="language-plaintext highlighter-rouge">tools</code>
+field gets a complaint naming <code class="language-plaintext highlighter-rouge">tools</code>; sending a made-up field gets <em>“cannot find field”</em>.
+The difference is the answer.</li>
+  <li><strong>Together, DeepSeek, Alibaba</strong> — <strong>unknown</strong>, and it says so. Those APIs check your key
+before they look at the body, so an invalid key gets the same 401 whatever you send and
+there is nothing to observe from outside. resmon will send the tools and show you exactly
+what comes back, rather than recording a guess with a citation attached.</li>
+  <li>A <strong>custom endpoint</strong> is unknowable in advance, by definition.</li>
+</ul>
+
+<h2 id="a-first-screen-that-asks-for-nothing">A first screen that asks for nothing</h2>
+
+<p>A brand-new install now opens on a <strong>Getting started</strong> card: three optional things — a command
+you already subscribe to, a provider key, a key for one of the five sources that take one —
+each with a link to where it is set and a mark for what resmon can already see.</p>
+
+<p>None of it is required. resmon searches all 25 sources with no AI and no keys at all, and the
+card says so in its first line. It reports <strong>found</strong> and <strong>configured</strong> and never <strong>working</strong>,
+because resmon cannot tell whether a command is signed in or a key accepted until the first
+paper goes through it. <strong>Skip</strong> puts it away permanently, and it retires itself the moment you
+have run anything.</p>
+
+<h2 id="when-the-cli-has-lost-your-conversation">When the CLI has lost your conversation</h2>
+
+<p><code class="language-plaintext highlighter-rouge">claude</code> keeps its conversations in its own storage. If you clear its history, or restore
+resmon’s database onto a machine whose command has never seen that conversation, resmon used
+to answer <em>“exit code 1”</em> and lose your message.</p>
+
+<p>Now it recognises what the command actually said, answers your message in a fresh session, and
+tells you in place: your earlier messages are still on screen, and the assistant can no longer
+see them.</p>
+
+<h2 id="the-part-nobody-was-watching">The part nobody was watching</h2>
+
+<p>resmon has a suite of tests that talk to the real internet — every source client, the whole
+tool surface, the search extension loading inside a running backend. They are excluded from
+the ordinary test run because they are slow and because a provider having an outage is not a
+bug in resmon. <strong>Nothing ran them on a schedule.</strong></p>
+
+<p>In 1.9 one of them started asserting the opposite of what the search contract says, and it sat
+red for two releases with nobody hearing about it. That was found in 2.0.0 by someone happening
+to type the command.</p>
+
+<p>There is now a weekly job. It runs every live test that needs only a network — 56 of the 72 —
+and its summary names, by test, every one it could not run and why. The sixteen it skips need
+an agent command installed and signed in, which no build machine has.</p>
+
+<p><strong>It found something on its first run.</strong> 2.0.0 added an assistant settings group to the app
+after the tool surface’s allowlist was frozen earlier in the same release, so the assistant
+could not change its own model — and nobody had decided that. It can now, behind the same
+confirmation card as everything else. Contract v2.1.</p>
+
+<h2 id="also-in-this-release">Also in this release</h2>
+
+<ul>
+  <li>The assistant’s settings section hides the effort control on the API-key route, because none
+of the provider APIs takes one. A control that silently did nothing would be worse than no
+control — the same rule the summary lanes follow.</li>
+  <li>Both routes now go through <strong>one</strong> permission function. The command reaches it as a tool in
+another process and the API-key loop reaches it as a function call, so <em>“the same card”</em> is a
+fact about the code rather than two things that resemble each other.</li>
+</ul>
+
+<h2 id="what-is-still-not-here">What is still not here</h2>
+
+<p><strong>No voice.</strong> The packaging spike came back with numbers: bundling local transcription adds
+80–90 MB to every installer, the redistribution questions for its dependencies are unanswered,
+and there is no signing story for microphone access on macOS. It returns as its own piece of
+work when the model can be downloaded on first use instead of shipped, not before.</p>
+
+<p><strong>No Ollama assistant.</strong> Ollama does support tool calling — resmon checked, and got a real tool
+call back from a local model — but driving it as an assistant is its own piece of work and is
+recorded rather than rushed.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 22 — Bring your own key]]></summary></entry><entry><title type="html">resmon Update 21 — September 6, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-21/" rel="alternate" type="text/html" title="resmon Update 21 — September 6, 2026" /><published>2026-09-06T22:00:00+00:00</published><updated>2026-09-06T22:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-21</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-21/"><![CDATA[<h1 id="update-21--ask">Update 21 — Ask</h1>
+
+<h2 id="metadata">Metadata</h2>
+
+<ul>
+  <li><strong>Update number:</strong> 21</li>
+  <li><strong>Version:</strong> 1.9.2 → 2.0.0</li>
+  <li><strong>Theme:</strong> an assistant inside the app that can do what you can do, and cannot do anything you have not agreed to</li>
+</ul>
+
+<h2 id="the-short-version">The short version</h2>
+
+<p>There is a <strong>✦ Ask</strong> button in the corner of every page now. It opens a panel, and you can
+tell it what you want in words: <em>what did my arXiv routine find this week</em>, <em>set up a weekly
+sweep on graphene</em>, <em>why did resmon match this paper</em>, <em>export last run’s references</em>, <em>turn
+that routine on</em>.</p>
+
+<p>It runs the <code class="language-plaintext highlighter-rouge">claude</code> command you already installed and signed into, so it draws on the plan
+you already pay for. resmon never sees your credential.</p>
+
+<p>Two things about it are worth more than the feature itself.</p>
+
+<h2 id="everything-it-tells-you-came-from-a-tool-call">Everything it tells you came from a tool call</h2>
+
+<p>The assistant has no other source. It cannot answer about your corpus from memory, from
+training, or from what is usually true of applications like this one — it has to ask resmon,
+and resmon answers with the same care the rest of the app does. When a source returned
+nothing, it passes on the recorded reason, or says the reason was not recorded. When a paper
+matched, it passes on what resmon cannot verify along with what it can.</p>
+
+<p>That is not a style guide handed to a model. resmon starts it with <strong>its own tool surface and
+nothing else</strong> — no built-in tools, none of your own MCP servers or skills, an empty working
+directory — so there is nothing else for it to reach.</p>
+
+<h2 id="anything-that-changes-something-waits-for-you">Anything that changes something waits for you</h2>
+
+<p>Ask it to create a routine, run a sweep, turn something on, or change a setting, and you get a
+<strong>card</strong>: a sentence saying what will happen, the exact call underneath, and Allow / Deny.
+Nothing runs until you press one.</p>
+
+<p>That is enforced outside the model rather than asked of it. The assistant is given the fifteen
+tools that only read. Every other call goes through a permission step resmon controls and the
+assistant cannot invoke, and the write does not execute until the answer comes back. Denying
+is an answer: the call does not run, and it is told so.</p>
+
+<p><strong>Some things it cannot do at all</strong>, because they are not in its tools: deleting anything,
+erasing your corpus, resetting the app, writing a credential, installing the background
+service, linking cloud storage. Ask, and it will tell you to do it in the app.</p>
+
+<p><strong>It cannot reach an API key in either direction.</strong> No tool returns one, and no tool can name
+one. That is checked against a real key planted in a real keyring, with the assistant asked for
+it directly, twice.</p>
+
+<h2 id="why-the-papers-cannot-talk-to-it">Why the papers cannot talk to it</h2>
+
+<p>Titles and abstracts come from the open internet, and sooner or later one of them will contain
+text addressed to the assistant: instructions, claims of authority, a request to run
+something. That text is data it reports on, never an instruction it follows — and the rules
+saying so arrive <strong>above</strong> the conversation, on the command’s own system channel, rather than
+beside the text where they would be arguing with it as a peer.</p>
+
+<p>We know what happens when that goes wrong, because it happened here. In 1.8.4 two
+summarization lanes told the model to follow a constitution and attached nothing; unable to go
+looking, it invented a file search and returned the results as a paper’s summary. The rules
+now arrive on a channel a test watches, at the point the command is actually built.</p>
+
+<h2 id="what-a-turn-costs">What a turn costs</h2>
+
+<p>Ten typical requests were measured against the real command before this shipped. The median
+turn is under nine cents’ worth of usage; the dearest — creating a routine, which is four tool
+calls and a confirmation — was nineteen. Asking it to delete your corpus is the cheapest thing
+you can do, because it declines without calling anything.</p>
+
+<p>Every turn carries a hard ceiling the command enforces on itself, set at four times that
+dearest measurement. An answer that runs away is stopped and says so rather than quietly
+spending your window.</p>
+
+<h2 id="what-is-not-here">What is not here</h2>
+
+<p><strong>Codex is not offered for the assistant.</strong> resmon can give a Codex session its own tools but
+cannot take away Codex’s shell, and <code class="language-plaintext highlighter-rouge">codex exec</code> has no way for you to approve a command
+before it runs — so an assistant on Codex would be an agent that can run commands on your
+machine while reading text off the internet. It remains a summarization lane, where it is
+given no tools at all. The Settings tab says this rather than leaving Codex unmentioned.</p>
+
+<p><strong>No voice yet.</strong> There is no microphone substrate in the app, and the routes to transcription
+are a native dependency or a hosted key. That is being looked at properly rather than bolted
+on.</p>
+
+<p><strong>No API-key assistant yet.</strong> If you have an Anthropic or OpenAI key but no CLI, the panel
+cannot use it. That is the next release.</p>
+
+<h2 id="also-in-this-release">Also in this release</h2>
+
+<ul>
+  <li><strong>Twenty-one MCP tools</strong>, contract v2.0, for harnesses driving resmon from outside: the
+three new ones plus a <code class="language-plaintext highlighter-rouge">requires_confirmation</code> flag on every tool, so an external harness
+knows which calls to put in front of you instead of inferring that an unmarked tool is safe.</li>
+  <li><code class="language-plaintext highlighter-rouge">create_routine</code> returns the routine it created rather than an id and a name.</li>
+  <li>A <code class="language-plaintext highlighter-rouge">live_network</code> test had been asserting the opposite of what the semantic-search contract
+says since 1.9. It is fixed, and the route-conformance check that three contract amendments
+promised as a manual act is now a test that runs every time.</li>
+</ul>
+
+<h2 id="under-the-hood">Under the hood</h2>
+
+<p>Conversations are kept in the database and survive closing the app. Each turn is its own
+short-lived command process resumed by id, so stopping one is a clean stop and a backend
+restart orphans nothing.</p>
+
+<p>Two things were found by building it and are worth naming. The panel’s process was being given
+a carefully-chosen slice of the environment, which dropped <code class="language-plaintext highlighter-rouge">USER</code> — and without <code class="language-plaintext highlighter-rouge">USER</code> the
+command cannot read its own login, so every answer would have been <em>“not signed in”</em> from a
+command that was signed in. And the guard against two answers at once had a window in it wide
+enough for two commands to join the same conversation. Both were found by tests that took the
+trouble to be awkward.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 21 — Ask]]></summary></entry><entry><title type="html">resmon Update 20 — September 6, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-20/" rel="alternate" type="text/html" title="resmon Update 20 — September 6, 2026" /><published>2026-09-06T16:00:00+00:00</published><updated>2026-09-06T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-20</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-20/"><![CDATA[<h1 id="update-20--saying-what-you-meant">Update 20 — Saying What You Meant</h1>
+
+<h2 id="metadata">Metadata</h2>
+
+<ul>
+  <li><strong>Update number:</strong> 20</li>
+  <li><strong>Version:</strong> 1.9.1 → 1.9.2</li>
+  <li><strong>Theme:</strong> the coverage audit gets the one thing it was missing, and both of its lists stop pretending to be complete</li>
+</ul>
+
+<h2 id="the-short-version">The short version</h2>
+
+<p>Update 19 shipped the coverage audit: ask any routine <em>is this finding what I meant?</em> and it
+shows the results sitting furthest from what the routine is for, and papers already in your
+corpus that the routine never returned.</p>
+
+<p>It compares against an <strong>intent</strong> — a sentence describing what you are actually looking for.
+There was nowhere to write one. Every audit therefore fell back to the routine’s keywords,
+which means comparing a query against the results that query produced. The panel said so, in
+those words, and the reading was still circular.</p>
+
+<p><strong>There is now a box in the routine editor.</strong> <em>What this routine is really looking for</em> —
+optional, one sentence, and the audit compares against it from the next time you open the
+panel.</p>
+
+<p><strong>And both audit lists now say how long they really are.</strong> They show 25 papers. If there are
+312, the list says <em>Showing 25 of 312</em> instead of stopping quietly at 25 and letting you read
+that as the whole answer.</p>
+
+<h2 id="why-the-field-was-worth-its-own-release">Why the field was worth its own release</h2>
+
+<p>The audit’s value is entirely in the gap between what you told resmon to search for and what
+you actually wanted. Keywords are the first; the intent is the second. Without a place to
+write the second, the audit could only compare the first against itself — and an honest label
+on a circular reading is still a circular reading.</p>
+
+<p>Writing one takes a sentence. <em>Methods for irregular time series in astronomy</em> is a different
+statement from <code class="language-plaintext highlighter-rouge">time series AND astronomy</code>, and the difference is exactly what the audit is
+looking for.</p>
+
+<p>Nothing is filled in for you. resmon will not copy your keywords into the field: a routine
+whose intent was written by resmon would claim you had stated one, and the whole point of the
+distinction is that the app can tell you which of the two facts it used.</p>
+
+<h2 id="the-counts">The counts</h2>
+
+<p>A list capped at 25 with nothing said about the cap is a small lie of omission — it reads as
+“there are 25”, which is a number resmon never measured. Both lists now carry their total.</p>
+
+<p>One of the two totals is honest in a further way. The off-target count is exact: it is drawn
+from the routine’s own results, all of which are ranked. The <em>missed in corpus</em> count comes
+from a bounded query over the index rather than a scan of it, so when that query fills up with
+papers still inside the range, resmon knows there are at least that many and does not know how
+many more. It says <strong>at least</strong> in that case, rather than printing a precise number it did not
+measure.</p>
+
+<h2 id="also-in-this-release">Also in this release</h2>
+
+<p>Editing a routine now discards the cached audit for it, so writing an intent and reopening the
+panel shows the new comparison rather than the previous answer.</p>
+
+<p>For harnesses driving resmon over MCP, <code class="language-plaintext highlighter-rouge">create_routine</code> takes an optional <code class="language-plaintext highlighter-rouge">intent</code>, and
+<code class="language-plaintext highlighter-rouge">get_routine</code>’s coverage counts are now the totals rather than the length of the page they
+came from. Contract v1.3, additive; nothing existing changes shape.</p>
+
+<h2 id="what-has-not-changed">What has not changed</h2>
+
+<p>The audit still only compares against papers resmon already holds. It has no idea what exists
+in the literature and is not in your corpus, “missed” still means <em>missed by this routine and
+found by something else</em>, and that sentence is still printed under the lists rather than in a
+footnote.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 20 — Saying What You Meant]]></summary></entry><entry><title type="html">resmon Update 19 — September 6, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-19/" rel="alternate" type="text/html" title="resmon Update 19 — September 6, 2026" /><published>2026-09-06T05:00:00+00:00</published><updated>2026-09-06T05:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-19</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-19/"><![CDATA[<h1 id="update-19--the-same-paper-twice">Update 19 — The Same Paper, Twice</h1>
+
+<h2 id="metadata">Metadata</h2>
+
+<ul>
+  <li><strong>Update number:</strong> 19</li>
+  <li><strong>Version:</strong> 1.9.0 → 1.9.1</li>
+  <li><strong>Theme:</strong> resmon notices when it has found the same paper twice, and tells you whether a routine is finding what you meant</li>
+</ul>
+
+<h2 id="the-short-version">The short version</h2>
+
+<p>Two things, both built on the embeddings v1.9.0 added.</p>
+
+<p><strong>resmon now spots the same paper reaching it from two places</strong> — an arXiv preprint and its
+Crossref publication, a bioRxiv record and its PLOS version — and says so on the result. It
+<strong>never merges them</strong>. Both records stay, both counts stay, and collapsing them into one row
+is a switch you turn on, not something that happens to your list.</p>
+
+<p><strong>And every routine can now be asked “is this finding what I meant?”</strong> It shows the results
+sitting furthest from what the routine is for, and papers already in your corpus that the
+routine never returned.</p>
+
+<h2 id="why-the-duplicate-rule-took-three-tries">Why the duplicate rule took three tries</h2>
+
+<p>This is the part worth reading, because the first version of it was almost useless and the
+number says so.</p>
+
+<p>The obvious rule is: two papers are the same work if their titles match and their text is
+close. That was built, run against a real 15,707-paper corpus, and thirty of the pairs it
+produced were graded by hand. <strong>Three were right. Twenty-seven were wrong</strong> — a precision of
+10%.</p>
+
+<p>Twenty-five of the twenty-seven were the same thing: <strong>journal front matter</strong>. Crossref emits
+a record for every issue of every journal, titled <code class="language-plaintext highlighter-rouge">Editorial Board</code>, <code class="language-plaintext highlighter-rouge">Issue Information</code>,
+<code class="language-plaintext highlighter-rouge">Untitled</code>. Every pair of those has an identical title and an identical vector, and none of
+them is the same work as any other.</p>
+
+<p>The reason is worth stating plainly, because it is a mistake that looks like a feature. A
+paper with <strong>no abstract</strong> is embedded from its title alone — so its vector <em>is</em> its title.
+“Similar titles <strong>and</strong> close vectors” is then <strong>one signal counted twice</strong>, dressed up as
+two. Nearly 3,000 of the corpus’s papers are in that state.</p>
+
+<p>So the rule now requires that both papers actually have an abstract before a title match
+counts. A shared DOI is exempt, because a DOI names a work and needs no corroboration.</p>
+
+<p>Measured again on two <strong>fresh</strong> samples — fresh because a score read off the sample that
+chose the thresholds is a score fitted to itself — precision is <strong>83% and 87%</strong>.</p>
+
+<p>And one more thing was tried and rejected. On the second sample the remaining errors
+separated perfectly at a particular distance, and tightening the rule there would have taken
+it to near-100%. On the third sample the same errors straddled that line while genuine pairs
+fell the wrong side of it. So it was not adopted. A threshold that looks clean on one sample
+and not the next is a threshold fitted to a sample.</p>
+
+<p>Every remaining error, in both samples, is one boilerplate title an archive puts on unrelated
+deposits.</p>
+
+<h2 id="what-the-duplicate-feature-will-not-do">What the duplicate feature will not do</h2>
+
+<ul>
+  <li><strong>It will not delete or merge anything.</strong> Ever. The corpus is worth having because it keeps
+what each source actually said, in that source’s own words, with that source’s own terms.</li>
+  <li><strong>It will not hide a row unless you ask.</strong> <code class="language-plaintext highlighter-rouge">Collapse duplicates</code> starts off. When you turn
+it on, the count above the list <strong>does not move</strong> — it still says how many papers matched —
+and the folded row says what it is standing in for. Turning it off brings everything back.</li>
+  <li><strong>It says which kind of claim it is making.</strong> <code class="language-plaintext highlighter-rouge">same DOI</code> is an identifier. <code class="language-plaintext highlighter-rouge">likely
+duplicate</code> is an inference from wording. Those are not the same strength of evidence and
+the badge does not pretend they are.</li>
+</ul>
+
+<h2 id="the-coverage-audit">The coverage audit</h2>
+
+<p>Under each routine: <strong>Is this finding what I meant?</strong></p>
+
+<p>It compares every paper the routine has returned against an <strong>intent</strong> — a sentence in your
+own words describing what you actually want. Then two lists: the results furthest from that
+intent, and papers <strong>already in your corpus</strong> that this routine never returned. The second is
+usually the useful one; it is a keyword gap you can close.</p>
+
+<p>Three things it is careful about.</p>
+
+<p><strong>It says where the intent came from.</strong> If you have not written one, it uses the routine’s
+keywords and tells you so — comparing a query against the results that query produced is
+measuring it against itself, and reading that as a clean bill of health would be wrong.
+Writing one sentence turns it into a real check.</p>
+
+<p><strong>The cutoff is drawn from the routine’s own results</strong>, not a fixed distance, because a fixed
+number means different things for different models and different subjects. With fewer than a
+dozen embedded results it declines to draw one at all and says why, rather than dressing up a
+guess as a measurement.</p>
+
+<p><strong>resmon can only compare against papers it already holds.</strong> This is the one that matters.
+resmon has no idea what exists in the literature and is not in your corpus. “Missed” means
+<em>this routine missed it and something else found it</em> — never <em>resmon missed it</em>. That sentence
+appears everywhere the audit does.</p>
+
+<p>Distance is not relevance, either. The model has not read the papers. The far end of the list
+is a prompt to look, not a verdict, and it is worded that way.</p>
+
+<h2 id="also">Also</h2>
+
+<ul>
+  <li>A corpus-wide duplicate scan takes about four minutes on 15,000 papers and runs when you
+ask for it. Sweeps read the links that exist; they never start a scan.</li>
+  <li>Reports gain a section listing the pairs, which states in as many words that no count above
+it was adjusted.</li>
+  <li>A bug found while building this: titles were compared by stripping everything that is not
+ASCII, which read <strong>every Japanese title as zero words</strong> — so an entire source’s papers
+could never be linked, silently. NDL Search is one of resmon’s 25 sources.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 19 — The Same Paper, Twice]]></summary></entry><entry><title type="html">resmon Update 18 — September 5, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-18/" rel="alternate" type="text/html" title="resmon Update 18 — September 5, 2026" /><published>2026-09-06T02:00:00+00:00</published><updated>2026-09-06T02:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-18</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/06/resmon-update-18/"><![CDATA[<h1 id="update-18--it-understands-papers">Update 18 — It Understands Papers</h1>
+
+<h2 id="metadata">Metadata</h2>
+
+<ul>
+  <li><strong>Update number:</strong> 18</li>
+  <li><strong>Version:</strong> 1.8.7 → 1.9.0</li>
+  <li><strong>Theme:</strong> resmon stops treating papers as strings</li>
+</ul>
+
+<h2 id="the-short-version">The short version</h2>
+
+<p>resmon can now compare papers by <strong>meaning</strong> rather than by the words you happened to type.
+Set up an embedding model — a local one is free and needs no key — and two things appear:
+the Explorer can sort results by how close each paper is to your search, and every result
+gains <strong>Papers like this one</strong>, its nearest neighbours in your own corpus with the distance
+and the source of each.</p>
+
+<p>Nothing leaves your machine unless you choose a paid provider. On a real 15,707-paper
+corpus, embedding everything took <strong>six minutes and eighteen seconds</strong> and cost nothing.</p>
+
+<h2 id="what-you-have-to-know-before-you-turn-it-on">What you have to know before you turn it on</h2>
+
+<p><strong>An Anthropic key cannot do this.</strong> Anthropic does not offer an embeddings API. <strong>Neither
+can the Claude Code or Codex command</strong> — they have no embedding command, so the
+subscription that pays for your summaries does not pay for this. Both are listed in the
+provider menu, disabled, with the reason, rather than quietly left out.</p>
+
+<p>What <em>does</em> work: a local Ollama model (<code class="language-plaintext highlighter-rouge">ollama pull nomic-embed-text</code>, and then pick
+Ollama), or a key from OpenAI, Google, xAI, Together or Alibaba. Each of those answers was
+established by asking the provider’s own API on 5 September 2026, with a control request to
+a path that cannot exist — because an authentication check that runs before routing answers
+401 for everything, and a bare 401 would prove nothing. DeepSeek is marked <strong>unverified</strong>
+rather than guessed at: it answers 401 for paths that do not exist too, so there was nothing
+to observe from outside. Enter a key and press Probe, and you will have a definite answer.</p>
+
+<p><strong>A server that lists models can still refuse to embed.</strong> This is the trap the whole feature
+was built around. The machine this was developed on runs Ollama, lists two models happily,
+and answers an embedding request with <em>“This server does not support embeddings”</em> — because
+a chat model is not an embedding model. resmon reports that as “that is not an embedding
+model, pull one”, never as a corpus with nothing in it to rank.</p>
+
+<h2 id="what-it-costs">What it costs</h2>
+
+<p>Measured on a copy of a real 15,707-paper corpus:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th> </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Time to embed everything</td>
+      <td><strong>378 seconds</strong> (41.6 papers/second)</td>
+    </tr>
+    <tr>
+      <td>Cost, local model</td>
+      <td><strong>nothing</strong></td>
+    </tr>
+    <tr>
+      <td>Cost, OpenAI <code class="language-plaintext highlighter-rouge">text-embedding-3-small</code></td>
+      <td>about <strong>$0.09</strong> for the same corpus</td>
+    </tr>
+    <tr>
+      <td>Database growth</td>
+      <td>33 MB → 174 MB — about <strong>9 KB per paper</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>That last row is the real price and it is worth knowing before you press the button — so
+<strong>Settings shows it before you start</strong>, beside the token cost, computed from the model’s own
+vector width. A local model is free to call and still fills the disk, and the panel says
+both. The
+vectors are stored <strong>twice</strong>: once in a plain table any SQLite can read, and once in the
+search index. That is deliberate. An index needs a loadable extension, and a database whose
+only copy of the vectors lived inside one would be unreadable by anything that could not
+load it. Dropping the index reclaims about a third of the growth and costs a rebuild; it
+never costs a vector.</p>
+
+<h2 id="what-it-refuses-to-do">What it refuses to do</h2>
+
+<p><strong>When it cannot work, it is absent — not present and broken.</strong> If your build cannot load
+the vector extension, or you have not set up a model, the sort control and the similar panel
+do not appear at all. There is no slow fallback that computes distances by hand and pretends
+to be the same feature. That happens for real: one of the machines resmon is tested on runs
+a Python built without SQLite extension support, and resmon says exactly that.</p>
+
+<p><strong>Papers it has not embedded are marked, not hidden.</strong> Mid-backfill, a ranked list shows
+unembedded papers last, labelled <em>not ranked</em> rather than given a large distance. They have
+not been judged distant; they have not been judged.</p>
+
+<p><strong>Two models’ numbers never mix.</strong> Vectors from different models live in unrelated spaces,
+so a corpus half-embedded by one and half by another would produce a confident, meaningless
+order. The model is recorded on every paper, and a ranking will not cross between them.
+There is no fallback chain for embeddings for the same reason: falling back would give a
+wrong answer rather than a degraded one.</p>
+
+<h2 id="where-the-limits-are-stated-plainly">Where the limits are, stated plainly</h2>
+
+<p><strong>Closest and Newest can return different numbers of papers, and that is the feature.</strong>
+Newest matches on the words you type. Closest instead ranks everything your <em>other</em> filters
+allow — source, category, author, date — by how near it is to your phrase, so it will show
+you a paper that contains none of your words. Ask it <em>how do cells decide to divide</em> and it
+answers with work on asymmetric division; a word-match returns nothing at all, because no
+title contains that sentence.</p>
+
+<p>This is the one thing in the release that was designed one way and shipped another. The
+first build ranked <em>inside</em> the word filter, which sounds safer and is: switching the sort
+could never change which papers you were looking at. Then it was measured against a real
+15,707-paper corpus with twenty ordinary questions, and <strong>eleven of them returned an empty
+page</strong> while the vectors, asked directly, found a relevant paper for nearly every one. A
+control that says “Closest to” and answers from a keyword match is not doing what it says,
+so it was changed before this shipped.</p>
+
+<p><strong>Distances compare titles and abstracts, not full text.</strong> resmon does not store full text
+and does not pretend to. And 19% of this corpus has no abstract at all — mostly sources
+whose terms do not permit resmon to keep one — so those papers are embedded from a title
+alone. Each row records which, because two vectors built from different amounts of text are
+not equally informative.</p>
+
+<h2 id="also-in-this-release">Also in this release</h2>
+
+<ul>
+  <li>The MCP surface gains <code class="language-plaintext highlighter-rouge">find_similar</code> and a <code class="language-plaintext highlighter-rouge">semantic</code> mode on <code class="language-plaintext highlighter-rouge">search_corpus</code> — 18 tools,
+contract v1.2. The reply reports the mode it <strong>served</strong>, not the one asked for, so an
+assistant can never report a relevance ranking that is really a date order.</li>
+  <li><code class="language-plaintext highlighter-rouge">/api/health</code> now says whether this backend can load the vector extension, and why not
+when it cannot.</li>
+  <li>Two things the app had been saying that were not true are fixed: the tutorial claimed a
+subscription lane sends ten papers per call when it sends five, and the agent-facing
+documentation said resmon builds for seven platform targets when it builds for four and
+publishes seven files.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 18 — It Understands Papers]]></summary></entry><entry><title type="html">resmon Update 17 — September 4, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/05/resmon-update-17/" rel="alternate" type="text/html" title="resmon Update 17 — September 4, 2026" /><published>2026-09-05T01:30:00+00:00</published><updated>2026-09-05T01:30:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/05/resmon-update-17</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/05/resmon-update-17/"><![CDATA[<h1 id="update-17--a-transport-failure-is-not-an-answer">Update 17 — A Transport Failure Is Not an Answer</h1>
+
+<h2 id="metadata">Metadata</h2>
+
+<ul>
+  <li><strong>Update number:</strong> 17</li>
+  <li><strong>Version:</strong> 1.8.6 → 1.8.7</li>
+  <li><strong>Theme:</strong> a correctness fix on the honesty surface v1.8.6 shipped, and the app is now tested in a real browser</li>
+</ul>
+
+<h2 id="the-short-version">The short version</h2>
+
+<p><strong>v1.8.6 could tell you a source answered when it never did. If you are on 1.8.6, update.</strong></p>
+
+<p>Update 16 was about a source that returns nothing saying why. This release fixes a hole in
+that: three kinds of network failure were recorded as <em>nothing at all</em>, and a zero with no
+recorded failure reads as “the source answered and had nothing”. So the search record could
+print</p>
+
+<blockquote>
+  <p>arXiv answered (HTTP 200) and resmon found no records in the reply.</p>
+</blockquote>
+
+<p>about a source resmon never got a reply from. That is exactly the overclaim v1.8.6 was built
+to remove, on the surface v1.8.6 built, and it shipped inside it.</p>
+
+<h2 id="what-was-actually-wrong">What was actually wrong</h2>
+
+<p>resmon records a failure when a query to a source fails. It was recording only the two
+failures it retries:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>What happened</th>
+      <th>Recorded in 1.8.6</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Connection refused</td>
+      <td>✅ the source did not answer</td>
+    </tr>
+    <tr>
+      <td>Request timed out</td>
+      <td>✅ the source did not answer</td>
+    </tr>
+    <tr>
+      <td><strong>Connection reset part-way through the reply</strong></td>
+      <td>❌ nothing</td>
+    </tr>
+    <tr>
+      <td><strong>Server hung up without replying</strong></td>
+      <td>❌ nothing</td>
+    </tr>
+    <tr>
+      <td><strong>A proxy refused the connection</strong></td>
+      <td>❌ nothing</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>For the bottom three the run had one attempt on record and no failures, which resmon reads as
+<em>“it was asked, and it answered”</em>. Every surface downstream then repeated that: the monitor,
+the results row, the report, and the reproducible search record.</p>
+
+<p><strong>Every network failure is now recorded.</strong> Nothing about retry behaviour changed — the same
+requests are retried the same number of times. What changed is only what the run writes down,
+which was the whole of the fault.</p>
+
+<p>If you sit behind a corporate proxy or a VPN, you are the person most likely to have seen the
+wrong sentence, because a proxy refusing a tunnel is one of the three.</p>
+
+<h3 id="runs-from-before-187-are-not-corrected">Runs from before 1.8.7 are not corrected</h3>
+
+<p>resmon does not rewrite history it did not observe. A run recorded under 1.8.6 that hit one of
+these three keeps its <code class="language-plaintext highlighter-rouge">answered (HTTP 200)</code> sentence, and there is no way to tell from the
+record which runs those were. <strong>A search record from 1.8.6 or earlier should not be cited as
+evidence that a source answered.</strong> New runs are recorded correctly from the moment you update.</p>
+
+<h2 id="why-this-was-not-caught">Why this was not caught</h2>
+
+<p>Every test of that code path used a stand-in that raised only the two exceptions the code
+already handled. <strong>A test double cannot fail the way the real dependency fails</strong> — the same
+root cause as three earlier defects in this project. The replacement test drives a real
+socket: a listener that refuses, one that hangs up, one that answers garbage, and one that
+answers normally, with the last as a control so that widening what counts as a failure has not
+swallowed the honest “the source answered and had nothing” case.</p>
+
+<h2 id="the-app-is-now-tested-in-a-real-browser">The app is now tested in a real browser</h2>
+
+<p>The rest of this release is the verification layer behind that kind of fix.</p>
+
+<p>Until now resmon’s interface was checked by 190 tests that ran against a simulated browser,
+and <strong>nothing had ever started the actual app</strong>. The window code — 700 lines carrying every
+interface fix from the last few releases — had no test of any kind.</p>
+
+<p>Now, on every change, the real application launches and:</p>
+
+<ul>
+  <li><strong>all 24 pages</strong> are opened and checked for errors, including the ten Settings and About
+tabs that were never being swept before. The page list is a single table the app itself
+renders from, so a page that exists is a page with a test.</li>
+  <li><strong>the window itself</strong> is checked — the background colour that fixes the white flash on open,
+external links opening in resmon’s own window rather than throwing you out to a browser, and
+the Back/Forward menu items.</li>
+  <li><strong>the seventeen tutorial videos and the in-app blog</strong> are checked to have actually <em>loaded</em>.
+A video that has been removed still returns a normal response and renders “Video
+unavailable”; each embed is now asked directly whether its player is really there.</li>
+  <li><strong>the packaged app</strong> — the thing you actually install — is launched and walked, and it
+refuses to report success if it is checking a stale build.</li>
+</ul>
+
+<p>It runs on two machines in CI, because a Linux test runner has no window manager and cannot
+see window behaviour at all. Each run publishes a list of <strong>what it did not verify</strong>, rather
+than a green tick that implies everything.</p>
+
+<h2 id="also-in-this-release">Also in this release</h2>
+
+<ul>
+  <li><strong>A Browse… button</strong> beside <em>“Where is the <code class="language-plaintext highlighter-rouge">claude</code> command?”</em> in Settings → AI. Both agent
+CLIs install somewhere a file dialog hides by default — <code class="language-plaintext highlighter-rouge">claude</code> under a hidden folder,
+<code class="language-plaintext highlighter-rouge">codex</code> inside the ChatGPT app bundle — so the picker is set up to show both. Typing the
+path by hand still works.</li>
+</ul>
+
+<h2 id="upgrading">Upgrading</h2>
+
+<p>Nothing to do, and no settings change. Windows and Linux update themselves. macOS builds are
+unsigned, so replace the app manually — right-click → Open on first launch.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 17 — A Transport Failure Is Not an Answer]]></summary></entry></feed>
