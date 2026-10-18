@@ -113,7 +113,7 @@ from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
     analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store, coverage_audit, embedding_job,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
-    reading_queue, reference_export, search_record, source_coverage, vector_index, watch_profiles,
+    reading_queue, reference_export, search_record, source_coverage, source_wall, vector_index, watch_profiles,
     watchdog,
 )
 from implementation_scripts.assistant_permissions import broker as permission_broker
@@ -2073,6 +2073,36 @@ def _source_outcomes(conn, exec_ids: list[int]) -> dict[int, dict]:
             entry["could_not_answer"] += 1
             entry["sources_that_could_not_answer"].append(row["source"])
     return summary
+
+
+@app.get("/api/coverage/source-wall")
+def source_wall_grid(
+    limit: int = Query(source_wall.DEFAULT_RUNS, ge=1, le=source_wall.MAX_RUNS),
+):
+    """Every source's recorded answer to each of the last ``limit`` runs.
+
+    The one read that crosses executions. `/api/executions` and
+    `/api/executions/{id}` each carry the coverage of a single run, which
+    answers "what did this run get"; nobody could ask "is my coverage still
+    what it was" without opening runs one at a time and comparing them by
+    hand. The rows have been on disk since schema 6.
+
+    The cells arrive **classified** -- one of five states from
+    ``source_wall.WALL_STATES`` -- rather than as a status and a reason for
+    the caller to interpret. That is deliberate: every place that has
+    re-derived this classification has eventually derived it differently, and
+    the last time one did it put a tick on sources that had never been asked.
+
+    Bounded by ``limit`` and nothing else: the window is one indexed
+    ``LIMIT`` over ``executions`` and the cells are one lookup restricted to
+    those ids, so a corpus with 50,000 runs reads the same number of rows as
+    one with twelve.
+    """
+    conn = _get_db()
+    try:
+        return source_wall.build(conn, limit=limit)
+    finally:
+        _close_db(conn)
 
 
 @app.get("/api/executions")

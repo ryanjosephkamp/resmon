@@ -4,7 +4,7 @@
 ``docs/api-contract/`` already held the MCP contract and five per-feature
 contracts, each frozen for the duration of the work that needed both harnesses
 at once. Nothing described the *whole* HTTP surface, and nothing went red when
-one of its 184 routes changed shape. A renderer rebuild measured against a
+one of its 185 routes changed shape. A renderer rebuild measured against a
 surface nobody had written down would have had to rediscover it a screen at a
 time, and would have had no way to tell a deliberate change from a slip.
 
@@ -25,7 +25,7 @@ fails when they differ from what is committed, naming the routes rather than
 printing one enormous assertion. A contract change therefore takes its own pull
 request, which is the whole point: the seam moves visibly or not at all.
 
-**What this module does not do.** It invents nothing. Not one of the 184 routes
+**What this module does not do.** It invents nothing. Not one of the 185 routes
 declares a ``response_model``, so ``app.openapi()`` describes a 200 body as the
 empty schema ``{}`` and this file leaves it that way. A route here is described
 by its method, path, parameters and request body; what it *answers* with is
@@ -276,6 +276,8 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("POST", "/api/evidence/projects/{project_id}/answers/{answer_id}/cancel"): ("J36",),
     ("GET", "/api/evidence/projects/{project_id}/answers/{answer_id}/events"): ("J36",),
     ("GET", "/api/evidence/projects/{project_id}/answers/{answer_id}/export"): ("J37", "J36"),
+    # --- The source wall ---------------------------------------------------
+    ("GET", "/api/coverage/source-wall"): ("J29",),
     # --- Executions: history, reports, exports -----------------------------
     ("GET", "/api/executions"): ("J18",),
     ("POST", "/api/executions/export"): ("J18",),

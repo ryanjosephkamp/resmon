@@ -2,7 +2,7 @@
 
 **Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` writes this file from the running FastAPI application; `verification_scripts/test_api_contract.py` regenerates it and fails on any difference. Regenerate with `python -m implementation_scripts.api_contract --write`.
 
-184 routes, over 44 register rows: 39 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
+185 routes, over 44 register rows: 39 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
 
 ## How to read a row
 
@@ -10,9 +10,9 @@
 
 **SSE.** `yes` means the handler answers with `text/event-stream`. The response is a sequence of events, not a JSON body, and a client that reads it with an ordinary fetch-and-parse will hang.
 
-**Purpose.** The first line of the endpoint's docstring, for the 86 of 184 routes that have one. The remaining 98 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
+**Purpose.** The first line of the endpoint's docstring, for the 87 of 185 routes that have one. The remaining 98 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**No response schemas.** Not one of the 184 routes declares a `response_model`, so `openapi.json` describes every 200 body as the empty schema `{}`. What a route accepts — its path and query parameters and its request body — is fully described there; what it answers with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**No response schemas.** Not one of the 185 routes declares a `response_model`, so `openapi.json` describes every 200 body as the empty schema `{}`. What a route accepts — its path and query parameters and its request body — is fully described there; what it answers with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 ## J01 — Deep Dive
 
@@ -292,6 +292,7 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Purpose |
 | --- | --- | --- | --- | --- |
+| `GET` | `/api/coverage/source-wall` | token | — | Every source's recorded answer to each of the last `limit` runs. |
 | `GET` | `/api/executions/{exec_id}` | token | — | *Get Execution* |
 | `GET` | `/api/executions/{exec_id}/search-record` | token | — | The complete, dated account of one search. |
 
@@ -428,7 +429,7 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/auth/renderer-origin` | token | — | Allow one more exact renderer origin on this backend. |
 | `GET` | `/api/deliveries/{delivery_id}/bundle` | signed link | — | The report bundle a webhook envelope linked to, for whoever holds the link. |
 
-The guard is in front of all 184 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
+The guard is in front of all 185 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
 
 ## J43 — Upgrade in place
 
