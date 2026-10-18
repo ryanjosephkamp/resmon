@@ -27,6 +27,19 @@ function typeLabel(t: string): string {
   return t;
 }
 
+/**
+ * The per-source states that mean resmon has finished with that source.
+ *
+ * Progress, not success: a source is finished whether or not it answered.
+ * The bar counted only `done`, so it stalled short of the end on any run
+ * holding a source that could not answer — and it stalled on two more kinds
+ * of run once `entity_unsupported` and an unrecorded zero stopped being
+ * miscounted as `done`.
+ */
+const SETTLED: ReadonlySet<string> = new Set([
+  'done', 'no_answer', 'skipped', 'not_recorded', 'error',
+]);
+
 function repoIcon(status: string): string {
   switch (status) {
     case 'done': return '✓';
@@ -108,15 +121,7 @@ const FloatingWidget: React.FC = () => {
        isFailure ? ' floating-widget--pulse-error' : '')
     : '';
 
-  // Progress, not success: a source resmon has finished with is finished
-  // whether or not it answered. This counted only `done`, so the bar stalled
-  // short of the end on any run holding a source that could not answer —
-  // and it stalled on two more kinds of run once `entity_unsupported` and an
-  // unrecorded zero stopped being miscounted as `done`.
-  const settled: ReadonlySet<string> = new Set([
-    'done', 'no_answer', 'skipped', 'not_recorded', 'error',
-  ]);
-  const doneCount = Object.values(exec.repoStatuses).filter((s) => settled.has(s)).length;
+  const doneCount = Object.values(exec.repoStatuses).filter((s) => SETTLED.has(s)).length;
   const total = exec.totalRepos ?? exec.repositories.length;
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
