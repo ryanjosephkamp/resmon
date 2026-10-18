@@ -29,6 +29,12 @@ jobs:
   build:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
+    # Per matrix leg, and the matrix is four legs across three platforms.
+    # Was unbounded at GitHub's 360-minute default; worst leg ever measured
+    # is 7m09s (macOS Intel, v2.3.0).
+    timeout-minutes: 60
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
 
     strategy:
       # One platform failing must not cancel the others' artifacts.

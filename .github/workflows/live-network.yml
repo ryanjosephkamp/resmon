@@ -48,6 +48,8 @@ jobs:
     name: Live network tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
 
     env:
       # No OS keyring on a runner; without this every credential read pays the

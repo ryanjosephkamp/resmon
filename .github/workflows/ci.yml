@@ -15,6 +15,10 @@ jobs:
   backend:
     name: Backend (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    # Longest observed 22.5 min (Python 3.10, 2026-09-22) over 29 runs.
+    timeout-minutes: 40
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
     strategy:
       fail-fast: false
       matrix:
@@ -117,6 +121,10 @@ jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    # Longest observed 1.5 min over the same 29 runs.
+    timeout-minutes: 10
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
 
     defaults:
       run:

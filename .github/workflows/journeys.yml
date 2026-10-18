@@ -70,6 +70,8 @@ jobs:
     name: Journeys against this build
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
 
     env:
       RESMON_JOURNEY_DRIVER: candidate
@@ -182,10 +184,14 @@ jobs:
     timeout-minutes: 45
     # The expensive leg. It runs when the suite or the launch fixture changes,
     # on a schedule, and on demand — not on every push to every branch.
+    # The repository clause runs it only here — see README.md in this directory.
     if: >-
-      github.event_name == 'schedule'
-      || github.event_name == 'workflow_dispatch'
-      || github.event_name == 'pull_request'
+      github.repository == 'ryanjosephkamp/resmon'
+      && (
+        github.event_name == 'schedule'
+        || github.event_name == 'workflow_dispatch'
+        || github.event_name == 'pull_request'
+      )
 
     env:
       RESMON_JOURNEY_DRIVER: classic

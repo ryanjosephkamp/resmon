@@ -48,6 +48,8 @@ jobs:
     name: Route smoke (Electron under xvfb)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
 
     env:
       # No OS keyring on a runner. Same reasoning as ci.yml's backend job: every
@@ -161,6 +163,8 @@ jobs:
     name: Window behaviour (Electron on macOS)
     runs-on: macos-15
     timeout-minutes: 30
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
 
     env:
       PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
