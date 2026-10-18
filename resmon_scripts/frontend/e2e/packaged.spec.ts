@@ -36,7 +36,12 @@ import { launchEnv, FRONTEND_ROOT, WINDOW_WIDTH } from './fixtures/resmon-app';
 import { readFuses, FUSES_VERIFICATION_DEPENDS_ON, fuseBinaryFor } from './fixtures/electron-fuses';
 import { ROUTES } from './routes';
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// A deliberate `require`: the path is computed, so an `import` cannot express
+// it. This carried a suppression for `@typescript-eslint/no-var-requires`,
+// which typescript-eslint renamed in v8 — so the comment named a rule that no
+// longer exists, for a linter that was never installed. The rule that does
+// exist, `no-require-imports`, reports it as a warning and it is in the
+// backlog in `eslint.config.mjs` rather than silenced here.
 const CHECKOUT_VERSION: string = require(path.join(FRONTEND_ROOT, 'package.json')).version;
 
 /** Where electron-builder leaves the app for each platform. */
