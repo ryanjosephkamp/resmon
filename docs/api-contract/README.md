@@ -40,7 +40,7 @@ Until it has one the guard stays red: a route nobody can name a journey for is a
 has no reason to call.
 
 A route that declares a `response_model` needs one more thing: a case in
-`verification_scripts/test_response_models.py`. That file fails when a modelled route is not driven
+`verification_scripts/test_response_models.py`. That file fails when a modeled route is not driven
 and compared against its own handler's output, so a model cannot be added on trust.
 
 Running the generator to make a red test go green, without looking at what changed, defeats the
@@ -62,12 +62,18 @@ Three things the index is careful about, because a contract that overclaims is w
   from the application, not written down, and the undescribed half is described in prose in the
   root [`README.md`](../../README.md) and in the five feature contracts. Nothing here guesses.
   A declared model is a **lower bound**: every one is `additionalProperties: true`, because
-  FastAPI *filters* a reply against its model and a field nobody declared would otherwise vanish
+  FastAPI *filters* a reply against its model and a key nobody declared would otherwise vanish
   from the body with a 200. [`implementation_scripts/response_models.py`](../../resmon_scripts/implementation_scripts/response_models.py)
   explains the hazard and
   [`verification_scripts/test_response_models.py`](../../resmon_scripts/verification_scripts/test_response_models.py)
   is what holds the models to it, by comparing each route's body against what its handler returned
   on the same request. Rely on a declared field being there; do not rely on there being no others.
+  What an undeclared **key** survives, its **value** does not always survive unchanged: an extra is
+  re-serialized by pydantic rather than by `jsonable_encoder`, which changes a `Decimal` into a
+  string, raises on a `PurePath` where the concrete `Path` beside it is fine, and turns `inf`/`nan`
+  into a quiet `null` where the unmodeled route answered 500. None of the three is reachable in
+  the routes modeled today, and `response_models.py` carries the measured table for whoever
+  models the next one.
 - **Purposes are quoted, not written.** A route's one-line purpose is the first line of its
   docstring. The routes that have no docstring show FastAPI's generated summary *in italics* — the
   function name with the underscores taken out — rather than a sentence somebody invented for them.

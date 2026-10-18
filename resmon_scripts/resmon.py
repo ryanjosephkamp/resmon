@@ -7087,7 +7087,7 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
 #
 # Two things stop that here, and both are tested rather than remembered. Every
 # model inherits `LosslessModel`, whose `extra="allow"` keeps a key nobody
-# modelled; and every one of these routes sets `response_model_exclude_unset`,
+# modeled; and every one of these routes sets `response_model_exclude_unset`,
 # so a declared field the handler did not return is not invented at its default
 # — which is what would otherwise put `"detail": null` into every delete. The
 # body is therefore the handler's own key set, and

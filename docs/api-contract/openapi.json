@@ -1381,7 +1381,7 @@
       },
       "StarterWatchProfile": {
         "additionalProperties": true,
-        "description": "One of the curated profiles that ship with the app.\n\nNot a ``WatchProfile``: a starter is a file on disk, not a row, so it has\nno ``id``, no timestamps, and a ``source_file`` instead. Modelling it as a\nprofile with optional ids would have told a client the two are the same\nthing, which is the drift this contract exists to stop.",
+        "description": "One of the curated profiles that ship with the app.\n\nNot a ``WatchProfile``: a starter is a file on disk, not a row, so it has\nno ``id``, no timestamps, and a ``source_file`` instead. Modeling it as a\nprofile with optional ids would have told a client the two are the same\nthing, which is the drift this contract exists to stop.",
         "properties": {
           "affiliations": {
             "items": {
@@ -1781,7 +1781,7 @@
       },
       "WatchProfileDeleted": {
         "additionalProperties": true,
-        "description": "``DELETE /api/profiles/{profile_id}``.\n\n**The conditionally assembled one.** ``detail`` is added by the handler\nonly when something was watching the profile, and the route therefore sets\n``response_model_exclude_unset=True`` — as every modelled route does —\nso an absent ``detail`` stays absent instead of being serialised as\n``null``. A client distinguishing \"no routines were affected\" from \"one was\nand here is the sentence\" by key presence keeps working.",
+        "description": "``DELETE /api/profiles/{profile_id}``.\n\n**The conditionally assembled one.** ``detail`` is added by the handler\nonly when something was watching the profile, and the route therefore sets\n``response_model_exclude_unset=True`` — as every modeled route does —\nso an absent ``detail`` stays absent instead of being serialized as\n``null``. A client distinguishing \"no routines were affected\" from \"one was\nand here is the sentence\" by key presence keeps working.",
         "properties": {
           "deleted": {
             "title": "Deleted",

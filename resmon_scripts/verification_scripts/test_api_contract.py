@@ -235,11 +235,11 @@ def test_the_index_counts_the_routes_that_describe_their_response():
     said so in prose. The prose has become a count — "the 11 of 184 routes that
     declare one" — generated from ``app.routes`` rather than typed, and what is
     worth guarding is now that the sentence and the application agree. A route
-    modelled without regenerating the index fails
+    modeled without regenerating the index fails
     ``test_the_http_index_is_what_the_app_generates`` above; this one fails if
     the sentence itself stops being computed.
     """
-    count = api_contract.modelled_route_count()
+    count = api_contract.modeled_route_count()
     index = api_contract.HTTP_INDEX_PATH.read_text(encoding="utf-8")
     sentence = f"the {count} of {len(api_contract.route_keys())} routes that declare one"
     assert sentence in index, (
@@ -248,7 +248,7 @@ def test_the_index_counts_the_routes_that_describe_their_response():
     )
 
 
-def test_a_modelled_route_carries_a_real_schema_and_an_unmodelled_one_does_not():
+def test_a_modeled_route_carries_a_real_schema_and_an_unmodeled_one_does_not():
     """The two halves of the surface, each described as it actually is.
 
     A route with a ``response_model`` must have a ``$ref`` under its success
@@ -258,7 +258,7 @@ def test_a_modelled_route_carries_a_real_schema_and_an_unmodelled_one_does_not()
     guessing, and the whole point of this folder is that it does not.
     """
     document = json.loads(_committed(api_contract.OPENAPI_PATH))
-    modelled = set(api_contract.modelled_routes())
+    modeled = set(api_contract.modeled_routes())
     guessed: list[str] = []
     undescribed: list[str] = []
     for method, path in api_contract.route_keys():
@@ -269,9 +269,9 @@ def test_a_modelled_route_carries_a_real_schema_and_an_unmodelled_one_does_not()
             if status.startswith("2")
         ]
         described = any(schema for schema in schemas)
-        if (method, path) in modelled and not described:
+        if (method, path) in modeled and not described:
             undescribed.append(f"{method} {path}")
-        if (method, path) not in modelled and described:
+        if (method, path) not in modeled and described:
             guessed.append(f"{method} {path}")
     assert not undescribed, (
         "these routes declare a response_model but the committed contract has no "

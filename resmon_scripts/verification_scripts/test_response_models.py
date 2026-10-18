@@ -11,7 +11,7 @@ So the models arrive with a mechanism rather than on trust. This file is it.
 What is asserted here
 ---------------------
 
-1. **Equality, per route, on the same request.** Each modelled route is driven
+1. **Equality, per route, on the same request.** Each modeled route is driven
    over HTTP while its endpoint is wrapped so the raw value it returned is
    captured — the same call, not a second one, so nothing has to be stable
    across two requests for the comparison to mean anything. The body a client
@@ -28,7 +28,7 @@ What is asserted here
 3. **Losslessness by construction, enforced on models nobody has written yet.**
    Every model reachable from a route must carry ``extra="allow"``, and every
    route carrying a model must set ``response_model_exclude_unset=True``. The
-   two together are what make the serialised body the handler's own key set:
+   two together are what make the serialized body the handler's own key set:
    the first stops a key being dropped, the second stops one being invented at
    its default. Both are read off the application, so a twelfth model added
    next month is held to this standard without its author reading anything.
@@ -86,7 +86,7 @@ def api_routes() -> list[APIRoute]:
     return [r for r in resmon_mod.app.routes if isinstance(r, APIRoute)]
 
 
-def modelled_routes() -> dict[tuple[str, str], APIRoute]:
+def modeled_routes() -> dict[tuple[str, str], APIRoute]:
     """``(method, path)`` -> route, for every route declaring a response model."""
     out: dict[tuple[str, str], APIRoute] = {}
     for route in api_routes():
@@ -182,7 +182,7 @@ def differences(expected: Any, actual: Any, path: str = "$") -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# One scenario, driving every modelled route against a seeded corpus
+# One scenario, driving every modeled route against a seeded corpus
 # ---------------------------------------------------------------------------
 
 class Drive:
@@ -229,7 +229,7 @@ def driven() -> Drive:
     # ``(method, path)`` keys only when it declares several methods — none here
     # does, but deduplicating by identity costs nothing and keeps a second
     # recorder off a route if one ever does.
-    unique = list({id(r): r for r in modelled_routes().values()}.values())
+    unique = list({id(r): r for r in modeled_routes().values()}.values())
     with recording(unique) as captured:
         drive = Drive(client, captured)
 
@@ -299,7 +299,7 @@ def driven() -> Drive:
 
         # The conditional body, both ways round. A routine pointing at a profile
         # adds ``detail`` to the delete response; nothing pointing at it leaves
-        # the key out altogether, and a model that serialised its default would
+        # the key out altogether, and a model that serialized its default would
         # have turned the second case into the first.
         unwatched = drive("POST", "/api/profiles", expect=201,
                           json={"kind": "person", "display_name": "Nobody Watches"})
@@ -326,10 +326,10 @@ def driven() -> Drive:
 # 1 — the bodies are identical
 # ---------------------------------------------------------------------------
 
-def test_every_modelled_route_answers_exactly_what_its_handler_returned(driven):
+def test_every_modeled_route_answers_exactly_what_its_handler_returned(driven):
     """The mechanism. Body with the model == body without one, key for key.
 
-    ``jsonable_encoder(raw)`` is not an approximation of the old behaviour: it
+    ``jsonable_encoder(raw)`` is not an approximation of the old behavior: it
     is the function FastAPI calls when ``response_model`` is ``None``, so the
     left-hand side of this comparison is literally what the route answered
     before this change.
@@ -366,11 +366,32 @@ def test_the_bytes_are_identical_too_and_not_only_the_fields(driven):
             raw, _body = driven.calls[(method, path)][index]
             expected = json.dumps(
                 jsonable_encoder(raw), separators=(",", ":"), ensure_ascii=False)
-            if text != expected:
+            if text == expected:
+                continue
+            # Key order is only one way these two can differ, and printing the
+            # two key lists for any other cause prints two identical lines and
+            # tells the reader nothing. Ask ``differences`` first: when it has
+            # something to say, it is the real answer and the ordering is a
+            # red herring.
+            semantic = differences(json.loads(expected), json.loads(text))
+            if semantic:
                 problems.append(
-                    f"{method} {path} (call {index + 1}): wire keys "
-                    f"{list(json.loads(text))} vs handler keys "
-                    f"{list(json.loads(expected))}")
+                    f"{method} {path} (call {index + 1}): the bodies differ in "
+                    f"content, not merely in key order — "
+                    + "; ".join(semantic))
+            else:
+                # Same content, so the difference is ordering — and it may be
+                # ordering deep inside a nested object, where the top-level key
+                # lists are identical and printing them says nothing. Point at
+                # the first character that differs instead.
+                at = next((i for i, (x, y) in enumerate(zip(expected, text))
+                           if x != y), min(len(expected), len(text)))
+                start = max(0, at - 40)
+                problems.append(
+                    f"{method} {path} (call {index + 1}): same content, "
+                    f"different key order, first differing at character {at}.\n"
+                    f"    handler : ...{expected[start:at + 60]}\n"
+                    f"    wire    : ...{text[start:at + 60]}")
     assert not problems, "\n".join(problems)
 
 
@@ -415,7 +436,7 @@ def _lossy_twin(model: type[BaseModel], drop: str) -> type[BaseModel]:
 def test_a_model_that_drops_a_field_is_caught(driven):
     """Serve a real payload through a lossy twin and require the check to notice.
 
-    For every modelled route, for every declared field of its model: take the
+    For every modeled route, for every declared field of its model: take the
     payload that route really answered with, serve it through the same model
     with that one field taken out and ``extra="ignore"`` restored, and assert
     ``differences`` reports the loss and names the field. Nine routes' worth of
@@ -427,7 +448,7 @@ def test_a_model_that_drops_a_field_is_caught(driven):
     """
     checked = 0
     for (method, path), calls in sorted(driven.calls.items()):
-        route = modelled_routes()[(method, path)]
+        route = modeled_routes()[(method, path)]
         model = route.response_model
         raw, _body = calls[0]
         encoded = jsonable_encoder(raw)
@@ -491,7 +512,7 @@ def _annotation_models(annotation: Any) -> list[type[BaseModel]]:
 def test_every_response_model_on_the_app_cannot_drop_a_field():
     """``extra="allow"`` on every model a route can reach, nested ones included."""
     offenders: list[str] = []
-    for (method, path), route in sorted(modelled_routes().items()):
+    for (method, path), route in sorted(modeled_routes().items()):
         for model in _reachable_models(route.response_model):
             if model.model_config.get("extra") != "allow":
                 offenders.append(
@@ -501,7 +522,7 @@ def test_every_response_model_on_the_app_cannot_drop_a_field():
     assert not offenders, "\n".join(sorted(set(offenders)))
 
 
-def test_every_modelled_route_excludes_unset_fields():
+def test_every_modeled_route_excludes_unset_fields():
     """The other half: a field the handler did not return is not invented.
 
     Without it, ``detail: Optional[str] = None`` puts ``"detail": null`` into
@@ -510,14 +531,51 @@ def test_every_modelled_route_excludes_unset_fields():
     """
     offenders = [
         f"{method} {path}"
-        for (method, path), route in sorted(modelled_routes().items())
+        for (method, path), route in sorted(modeled_routes().items())
         if not route.response_model_exclude_unset
     ]
     assert not offenders, (
         "these routes declare a response model without "
         "response_model_exclude_unset=True, so an undeclared-but-defaulted "
-        "field is serialised into a body the handler never produced: "
+        "field is serialized into a body the handler never produced: "
         + ", ".join(offenders))
+
+
+def test_every_modeled_route_resolves_to_the_lossless_base():
+    """The two guards above iterate a set. This is what stops it being empty.
+
+    ``_reachable_models`` walks ``BaseModel`` subclasses, and returns nothing
+    at all for a response type that is not one — a pydantic *dataclass*, a
+    ``TypedDict``, a bare ``dict[str, int]``. Both guards then pass over an
+    empty set and report green while the route quietly filters its body: a
+    review of this file planted ``response_model=list[<pydantic dataclass>]``
+    on a real route, watched both of them stay green, and watched the route
+    answer 200 with 2 of its 9 keys. The coverage guard caught it, which is the
+    argument for having four of these and not one — and not an argument for
+    leaving three of them asleep.
+
+    So: a modeled route's response type must resolve to at least one model,
+    and every model it resolves to must be a ``LosslessModel``. A response type
+    that resolves to none of them has not been thought about, and the two
+    guards above cannot say anything true about it.
+    """
+    unresolved: list[str] = []
+    strays: list[str] = []
+    for (method, path), route in sorted(modeled_routes().items()):
+        top = _annotation_models(route.response_model)
+        if not top:
+            unresolved.append(f"{method} {path} -> {route.response_model!r}")
+            continue
+        for model in top:
+            if not issubclass(model, response_models.LosslessModel):
+                strays.append(f"{method} {path} -> {model.__name__}")
+    assert not unresolved, (
+        "these routes declare a response type that resolves to no pydantic "
+        "model, so every structural guard in this file passes over them "
+        "without checking anything: " + ", ".join(unresolved))
+    assert not strays, (
+        "these routes resolve to a model that is not a LosslessModel: "
+        + ", ".join(strays))
 
 
 def test_every_response_model_inherits_the_lossless_base():
@@ -529,7 +587,7 @@ def test_every_response_model_inherits_the_lossless_base():
     """
     strays = sorted({
         model.__name__
-        for route in modelled_routes().values()
+        for route in modeled_routes().values()
         for model in _reachable_models(route.response_model)
         if not issubclass(model, response_models.LosslessModel)
     })
@@ -541,31 +599,31 @@ def test_every_response_model_inherits_the_lossless_base():
 # 4 — the registry and its denominator
 # ---------------------------------------------------------------------------
 
-def test_every_modelled_route_is_driven_by_this_file(driven):
+def test_every_modeled_route_is_driven_by_this_file(driven):
     """A model added without a case here is a red test, not an untested claim."""
-    missing = sorted(set(modelled_routes()) - set(driven.calls))
+    missing = sorted(set(modeled_routes()) - set(driven.calls))
     assert not missing, (
         "these routes declare a response model that nothing in this file "
         "compares against its handler's own output: "
         + ", ".join(f"{m} {p}" for m, p in missing))
 
 
-def test_the_modelled_slice_is_the_watch_profiles_row_and_says_so():
+def test_the_modeled_slice_is_the_watch_profiles_row_and_says_so():
     """The denominator, read from the app rather than counted by hand.
 
-    Eleven of the 184 routes are modelled and they are all of J07. The number
+    Eleven of the 184 routes are modeled and they are all of J07. The number
     on the right is ``len(api_routes())``, so this test moves when the surface
     does; the number on the left is the count of routes declaring a model, so
     it moves when somebody models one. Neither is written down twice.
     """
-    modelled = modelled_routes()
+    modeled = modeled_routes()
     assert len(api_routes()) == 184, (
         f"the surface is now {len(api_routes())} routes; every count in "
         f"docs/api-contract/ and in this file's docstring needs regenerating")
-    assert len(modelled) == 11
-    off_slice = sorted(p for _m, p in modelled if not p.startswith("/api/profiles"))
+    assert len(modeled) == 11
+    off_slice = sorted(p for _m, p in modeled if not p.startswith("/api/profiles"))
     assert not off_slice, (
-        "the pilot slice is J07 alone; these modelled routes are outside it: "
+        "the pilot slice is J07 alone; these modeled routes are outside it: "
         + ", ".join(off_slice))
 
 
@@ -578,7 +636,7 @@ def test_the_contract_reports_the_same_count_this_file_does():
     """
     from implementation_scripts import api_contract  # noqa: PLC0415
 
-    assert api_contract.modelled_route_count() == len(modelled_routes())
+    assert api_contract.modeled_route_count() == len(modeled_routes())
 
 
 # ---------------------------------------------------------------------------
@@ -611,13 +669,79 @@ def test_the_basis_warning_survives_every_route_that_returns_a_profile(driven):
     assert unwarned, "the delete scenario must have run"
 
 
+def test_what_an_undeclared_value_does_and_does_not_survive():
+    """``extra="allow"`` guarantees the key. It does not guarantee the bytes.
+
+    An extra is written by pydantic's inference serializer; an unmodeled
+    route's body is written by FastAPI's ``jsonable_encoder``. They agree on
+    everything the backend actually puts in a response — ``datetime``, ``date``,
+    ``UUID``, ``set``, ``bytes``, ``Path`` — and disagree on three things. This
+    pins all of it, so the table in ``response_models.py`` is checked rather
+    than remembered, and so the next person to model a route meets the
+    exception instead of only the rule.
+
+    None of the three divergent cases is reachable today: there is no
+    ``Decimal`` and no ``PurePath`` anywhere in the backend, and ``math.inf``
+    appears only in ``api_base``'s rate-limiter arithmetic, never in a response
+    dict. That is why this is a note to a future author and not a defect.
+    """
+    import math  # noqa: PLC0415 — only this test needs these
+    from datetime import date, datetime  # noqa: PLC0415
+    from decimal import Decimal  # noqa: PLC0415
+    from pathlib import Path as ConcretePath, PurePosixPath  # noqa: PLC0415
+    from uuid import UUID  # noqa: PLC0415
+
+    from pydantic_core import PydanticSerializationError  # noqa: PLC0415
+
+    class Shell(response_models.LosslessModel):
+        declared: int
+
+    def through_a_model(value):
+        """The body a client gets when ``value`` rides along as an extra."""
+        probe = FastAPI()
+        probe.add_api_route(
+            "/probe", lambda: {"declared": 1, "x": value}, methods=["GET"],
+            response_model=Shell, response_model_exclude_unset=True)
+        return TestClient(probe).get("/probe").json()["x"]
+
+    def unmodeled(value):
+        """The body the same handler gives with no response model at all."""
+        probe = FastAPI()
+        probe.add_api_route(
+            "/probe", lambda: {"declared": 1, "x": value}, methods=["GET"])
+        return TestClient(probe).get("/probe").json()["x"]
+
+    # Agreement, on every type the backend actually returns.
+    for value in (datetime(2026, 1, 2, 3, 4, 5), date(2026, 1, 2),
+                  UUID("12345678-1234-5678-1234-567812345678"),
+                  {1, 2}, b"ab", ConcretePath("/a/b"), None, "", 0, False):
+        assert through_a_model(value) == unmodeled(value), value
+
+    # 1. A Decimal keeps its trailing zero and stops being a number.
+    assert unmodeled(Decimal("1.50")) == 1.5
+    assert through_a_model(Decimal("1.50")) == "1.50"
+
+    # 2. A *pure* path raises where the concrete Path two lines above is fine.
+    #    The two look alike in a diff, which is what makes this worth pinning.
+    with pytest.raises(PydanticSerializationError):
+        through_a_model(PurePosixPath("/a/b"))
+    assert unmodeled(PurePosixPath("/a/b")) == "/a/b"
+
+    # 3. The one that goes the wrong way: a non-finite float is a 500 without
+    #    a model, because json.dumps refuses it, and a silent null with one.
+    for value in (math.inf, math.nan):
+        assert through_a_model(value) is None
+        with pytest.raises(ValueError):
+            unmodeled(value)
+
+
 def test_a_stored_row_the_model_cannot_read_is_a_500_and_not_a_wrong_body():
     """The second hazard, recorded rather than left to be found in the field.
 
     ``response_model`` does not only filter a reply — it *validates* one, and a
     value that fails validation is a ``ResponseValidationError``, which is a
     500. Before the model the same row came back as a 200 with an odd body.
-    That is a behaviour difference, on a path no resmon code can produce: the
+    That is a behavior difference, on a path no resmon code can produce: the
     ``names`` column has held ``[{"value": ..., "script": ...}]`` since the
     table was created, ``watch_profiles._clean_names`` is its only writer, and
     no migration has ever reshaped it. A row in the pre-2.1 shape gets there by

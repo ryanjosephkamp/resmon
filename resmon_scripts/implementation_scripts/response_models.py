@@ -25,28 +25,59 @@ the one people think of:
 
 1. **Dropping.** A key not declared on the model disappears. Pydantic's default
    ``extra="ignore"`` does this.
-2. **Adding.** A declared field the handler did *not* return is serialised at
+2. **Adding.** A declared field the handler did *not* return is serialized at
    its default — so ``detail: Optional[str] = None`` puts ``"detail": null``
    into every body of a route that only sometimes carries a detail. A caller
    testing ``"detail" in body`` now sees it always.
-3. **Coercing.** A declared ``int`` fed the string ``"5"`` is serialised as
+3. **Coercing.** A declared ``int`` fed the string ``"5"`` is serialized as
    ``5``. The key survives; its type does not.
 
 ``LosslessModel`` closes the first two by construction:
 
-* ``extra="allow"`` keeps every undeclared key, so a field nobody modelled
-  travels through unchanged rather than vanishing. The model is then a *lower
-  bound* on the body — every declared field is really there, and there may be
-  more — which is what ``additionalProperties: true`` says in the generated
-  schema. That is honest, and it is the only claim the code can support: no
-  test can prove a handler never adds a key.
+* ``extra="allow"`` keeps every undeclared **key**, so a field nobody modeled
+  reaches the client rather than vanishing. The model is then a *lower bound*
+  on the body — every declared field is really there, and there may be more —
+  which is what ``additionalProperties: true`` says in the generated schema.
+  That is honest, and it is the only claim the code can support: no test can
+  prove a handler never adds a key.
 * Routes declare ``response_model_exclude_unset=True``, so a field the handler
   did not return is not invented at its default. Together with ``extra=allow``
-  the serialised body is the set of keys the handler produced, exactly.
+  the serialized body is the set of keys the handler produced, exactly.
+
+**The key survives; the value is re-serialized, and for three types that is
+visible.** An extra does not pass through untouched: it is written by
+pydantic's inference serializer, where an unmodeled route's body is written by
+FastAPI's ``jsonable_encoder``, and the two disagree in a small, knowable set
+of cases. Measured, in every position an extra can occupy — top level, inside a
+list, inside a dict, and on a nested model:
+
+====================  ==========================  ==========================
+Value                 Unmodeled route            Through a response model
+====================  ==========================  ==========================
+``Decimal("1.50")``   ``1.5`` (a float)           ``"1.50"`` (a string)
+``PurePosixPath``     ``"/a/b"``                  ``PydanticSerializationError`` — a 500
+``float("inf")``,     a 500: ``json.dumps``       ``null``, quietly
+``float("nan")``      refuses a non-finite float
+====================  ==========================  ==========================
+
+Two of those deserve their warning label. A ``PurePath`` raises where the
+concrete ``Path``/``PosixPath`` beside it serializes perfectly well, so the
+failing case and the working one look alike in a diff. And ``inf``/``nan`` go
+the *other* way: the model turns a loud 500 into a quiet ``null``, which is the
+only place on this list where adding a model makes a wrong answer more likely
+rather than less.
+
+None of the three is reachable in the eleven routes modeled today — there is
+no ``Decimal`` and no ``PurePath`` anywhere in the backend, and ``math.inf``
+appears only inside ``api_base``'s rate-limiter arithmetic, never in a response
+dict. This is written down for whoever models the other routes, because the
+claim "an extra passes through unchanged" is the natural thing to assume and it
+is wrong. ``test_what_an_undeclared_value_does_and_does_not_survive`` keeps this
+table honest.
 
 The third is not closed by construction — a wrong annotation is a wrong
 annotation — and is closed by test instead:
-``verification_scripts/test_response_models.py`` drives every modelled route
+``verification_scripts/test_response_models.py`` drives every modeled route
 over HTTP, captures what the handler returned on that same request, and asserts
 the body a client receives equals ``jsonable_encoder`` of that raw value, key
 for key and type for type. The same file asserts that every response model
@@ -72,7 +103,7 @@ J07, *Watch profiles*: the eleven routes under ``/api/profiles``. One slice,
 chosen because it contains every shape the other 173 routes are made of — a
 wrapped list, a nested object, a map with caller-supplied keys, a page with
 counts beside it, and a body assembled conditionally. The rest of the surface
-is unmodelled and still answers ``{}`` in the contract, which ``http.md`` now
+is unmodeled and still answers ``{}`` in the contract, which ``http.md`` now
 counts rather than asserts.
 """
 
@@ -105,7 +136,7 @@ __all__ = [
 
 
 class LosslessModel(BaseModel):
-    """A response model that cannot drop a field it did not think of.
+    """A response model that cannot drop a key it did not think of.
 
     Every response model in resmon inherits this, including the nested ones:
     ``extra="allow"`` on the outer model does nothing for a key inside a list
@@ -113,6 +144,12 @@ class LosslessModel(BaseModel):
     forgotten. ``test_response_models.py`` walks the whole reachable graph from
     each route and fails on a model that does not carry this config, so the
     rule is enforced rather than remembered.
+
+    It guarantees the **key**, not the bytes of its value: an extra is written
+    by pydantic's inference serializer rather than by ``jsonable_encoder``, and
+    the module docstring above has the three measured cases where those two
+    disagree. A route whose body can hold a ``Decimal``, a ``PurePath`` or a
+    non-finite float needs that table read before it is modeled.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -179,7 +216,7 @@ class StarterWatchProfile(LosslessModel):
     """One of the curated profiles that ship with the app.
 
     Not a ``WatchProfile``: a starter is a file on disk, not a row, so it has
-    no ``id``, no timestamps, and a ``source_file`` instead. Modelling it as a
+    no ``id``, no timestamps, and a ``source_file`` instead. Modeling it as a
     profile with optional ids would have told a client the two are the same
     thing, which is the drift this contract exists to stop.
     """
@@ -250,8 +287,8 @@ class WatchProfileDeleted(LosslessModel):
 
     **The conditionally assembled one.** ``detail`` is added by the handler
     only when something was watching the profile, and the route therefore sets
-    ``response_model_exclude_unset=True`` — as every modelled route does —
-    so an absent ``detail`` stays absent instead of being serialised as
+    ``response_model_exclude_unset=True`` — as every modeled route does —
+    so an absent ``detail`` stays absent instead of being serialized as
     ``null``. A client distinguishing "no routines were affected" from "one was
     and here is the sentence" by key presence keeps working.
     """

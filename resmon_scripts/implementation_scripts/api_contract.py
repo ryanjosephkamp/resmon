@@ -33,7 +33,7 @@ prose in ``README.md`` and in the five feature contracts. A schema written here
 would be a guess dressed as a contract.
 
 The response half of the surface is being filled in a route at a time, starting
-with J07. ``modelled_route_count()`` below counts the routes that declare a
+with J07. ``modeled_route_count()`` below counts the routes that declare a
 model by asking the application, and ``http.md`` prints that count rather than
 the sentence it used to carry — "not one of the 184 routes declares a
 ``response_model``" was true when it was written and is exactly the kind of
@@ -425,7 +425,7 @@ def route_keys() -> list[tuple[str, str]]:
     return sorted(set(keys), key=lambda k: (k[1], k[0]))
 
 
-def modelled_routes() -> list[tuple[str, str]]:
+def modeled_routes() -> list[tuple[str, str]]:
     """``(method, path)`` for every route that declares a ``response_model``.
 
     Read off the application. A route with a model has a real schema under its
@@ -444,9 +444,9 @@ def modelled_routes() -> list[tuple[str, str]]:
     return sorted(set(keys), key=lambda k: (k[1], k[0]))
 
 
-def modelled_route_count() -> int:
+def modeled_route_count() -> int:
     """How many of the routes answer with a described shape."""
-    return len(modelled_routes())
+    return len(modeled_routes())
 
 
 def normalised_openapi() -> dict:
@@ -918,7 +918,7 @@ def render_http_md() -> str:
     rows = route_rows()
     total = len(rows)
     documented = sum(1 for row in rows if row["from_docstring"])
-    modelled = sum(1 for row in rows if row["response_model"])
+    modeled = sum(1 for row in rows if row["response_model"])
     mcp_keys, uncertain = mcp_driven_routes()
     by_journey: dict[str, list[dict]] = {}
     for row in rows:
@@ -972,10 +972,10 @@ def render_http_md() -> str:
     )
     out.append("")
     out.append(
-        f"**Response.** The `response_model` the route declares, for the {modelled} of "
+        f"**Response.** The `response_model` the route declares, for the {modeled} of "
         f"{total} routes that declare one — `openapi.json` carries its schema under "
         "that name, and a typed client can be generated from it. The remaining "
-        f"{total - modelled} show `—`: they declare no model, so `openapi.json` "
+        f"{total - modeled} show `—`: they declare no model, so `openapi.json` "
         "describes their 200 body as the empty schema `{}` and what they answer with "
         "is described in prose in [README.md](../../README.md) and in the five feature "
         "contracts beside this file. Nothing here guesses at a response shape."
@@ -984,13 +984,25 @@ def render_http_md() -> str:
     out.append(
         "A declared model is a **lower bound** on the body, not an exact description. "
         "Every one of them is an `additionalProperties: true` schema, because FastAPI "
-        "filters a response against its model and a field nobody declared would "
+        "filters a response against its model and a key nobody declared would "
         "otherwise be dropped from the reply silently; `implementation_scripts/"
         "response_models.py` sets that out in full and "
         "`verification_scripts/test_response_models.py` holds every model to it by "
         "comparing each route's body with what its handler returned on the same "
         "request. So a client may rely on a declared field being there, and may not "
         "rely on there being nothing else."
+    )
+    out.append("")
+    out.append(
+        "What survives is the **key**. An undeclared value is re-serialized by "
+        "pydantic rather than by FastAPI's `jsonable_encoder`, and the two disagree "
+        "for three types: a `Decimal` becomes a string rather than a float, a "
+        "`PurePath` raises instead of serializing (the concrete `Path` beside it is "
+        "fine, which is the trap), and `inf`/`nan` become a quiet `null` where an "
+        "unmodeled route answered 500. None is reachable in the routes modeled "
+        "today; the table and the test that keeps it true are in "
+        "`response_models.py`, and anyone modeling a further route should read it "
+        "first."
     )
     out.append("")
 
