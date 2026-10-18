@@ -73,15 +73,21 @@ export function outcomeCategory(
   resultCount: number | null | undefined,
   reason: string | null | undefined,
 ): OutcomeCategory {
-  const count = resultCount ?? 0;
+  // The count is checked as it arrived, never defaulted first. `?? 0` here
+  // turned "no count was recorded" into "zero records were returned", and
+  // with an `ok` status and a known reason that read all the way through to
+  // *answered* — the last input where this function reached that verdict by
+  // default, in the one function whose subject is that it stops doing so.
+  // `source_coverage.outcome` requires a real non-negative integer before it
+  // classifies anything, and so does this. A missing count is unknown.
   const recognized = (
     typeof status === 'string' && RECORDED_STATUSES.has(status)
-    && Number.isInteger(count) && count >= 0
+    && typeof resultCount === 'number' && Number.isInteger(resultCount) && resultCount >= 0
     && (!reason || (ZERO_REASONS as readonly string[]).includes(reason))
   );
   if (!recognized) return 'unknown';
-  if (answered(status, count, reason)) return 'answered';
-  if (status === 'ok' && count === 0 && (!reason || reason === 'not_recorded')) {
+  if (answered(status, resultCount, reason)) return 'answered';
+  if (status === 'ok' && resultCount === 0 && (!reason || reason === 'not_recorded')) {
     return 'unknown';
   }
   return 'non_answer';

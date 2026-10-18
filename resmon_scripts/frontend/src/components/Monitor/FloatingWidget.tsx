@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useExecution } from '../../context/ExecutionContext';
+import { RepoStatus } from '../../api/zeroReason';
 
 function formatElapsed(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -35,10 +36,21 @@ function typeLabel(t: string): string {
  * holding a source that could not answer — and it stalled on two more kinds
  * of run once `entity_unsupported` and an unrecorded zero stopped being
  * miscounted as `done`.
+ *
+ * Written as a total map of `RepoStatus` rather than a list of the settled
+ * ones: a list is a hand-copy of part of a union and drifts the moment a
+ * seventh status arrives, which is the same failure as the vocabulary this
+ * work came from. Here the compiler asks the question instead.
  */
-const SETTLED: ReadonlySet<string> = new Set([
-  'done', 'no_answer', 'skipped', 'not_recorded', 'error',
-]);
+const SETTLED: Record<RepoStatus, boolean> = {
+  pending: false,
+  querying: false,
+  done: true,
+  no_answer: true,
+  skipped: true,
+  not_recorded: true,
+  error: true,
+};
 
 function repoIcon(status: string): string {
   switch (status) {
@@ -121,7 +133,7 @@ const FloatingWidget: React.FC = () => {
        isFailure ? ' floating-widget--pulse-error' : '')
     : '';
 
-  const doneCount = Object.values(exec.repoStatuses).filter((s) => SETTLED.has(s)).length;
+  const doneCount = Object.values(exec.repoStatuses).filter((s) => SETTLED[s]).length;
   const total = exec.totalRepos ?? exec.repositories.length;
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
