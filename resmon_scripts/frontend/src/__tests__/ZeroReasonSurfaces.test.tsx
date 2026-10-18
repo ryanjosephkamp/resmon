@@ -445,3 +445,198 @@ test('a day-granular source says so too, rather than saying nothing', () => {
     screen.getByText('Exact dates — resmon can ask for any window'),
   ).toBeInTheDocument();
 });
+
+/* ------------------------------------------------------------------ */
+/* Every reason, on every surface                                      */
+/* ------------------------------------------------------------------ */
+/*
+ * The three tests above exercise `upstream_failure`, `answered_empty` and
+ * `not_recorded`. That is three of the backend's ten, and the seven it left
+ * uncovered are where this file failed: `entity_unsupported` was added to
+ * `zero_reason.DID_NOT_ANSWER` in 2.1 and never reached the renderer, which
+ * ticked ✓ — *answered and found nothing* — on every source that has no
+ * author query, beside the backend's own sentence saying it could not be
+ * asked.
+ *
+ * So the denominator below is read from the code rather than written here. A
+ * reason added to `ZERO_REASONS` lands in `cases` on the next run, and the
+ * surface that has no behaviour for it fails instead of quietly rendering the
+ * wrong mark. That is the same device `e2e/zero-reasons.spec.ts` (P13d) uses
+ * for the real-browser coverage list.
+ */
+
+import * as fs from 'fs';
+import * as pathlib from 'path';
+
+import {
+  DID_NOT_ANSWER, ZERO_REASONS, outcomeCategory, repoDoneStatus,
+} from '../api/zeroReason';
+
+// `require`, not `import`: the generator is the CommonJS script `npm run
+// gen:zero-reason` runs, and the test calls the same code rather than a
+// second transcription of the parse.
+const generator = require('../../scripts/generate-zero-reason.js');
+
+/** One sentence per reason. The wording is the backend's; these stand in for it. */
+const SENTENCE: Record<string, string> = Object.fromEntries(
+  ZERO_REASONS.map((reason) => [reason, `A backend sentence about ${reason}.`]),
+);
+
+/** What each reason means, derived from the generated set rather than listed. */
+const cases = ZERO_REASONS.map((reason) => ({
+  reason,
+  category: outcomeCategory('ok', 0, reason),
+  didNotAnswer: DID_NOT_ANSWER.has(reason),
+}));
+
+test('the renderer vocabulary is still the backend vocabulary', () => {
+  // The guard that makes one source of truth true: the committed module is
+  // regenerated from the live `zero_reason.py` and compared byte for byte, so
+  // adding a reason to the backend turns this suite red until the renderer is
+  // regenerated with it.
+  const committed = fs.readFileSync(
+    pathlib.resolve(__dirname, '..', '..', generator.GENERATED_PATH), 'utf8');
+  expect(committed).toBe(generator.renderModule());
+
+  const { zeroReasons, didNotAnswer } = generator.pythonVocabulary();
+  expect([...ZERO_REASONS]).toEqual(zeroReasons);
+  expect([...DID_NOT_ANSWER].sort()).toEqual([...didNotAnswer].sort());
+  // The one that was missing, named so a regression reads as itself.
+  expect(DID_NOT_ANSWER.has('entity_unsupported')).toBe(true);
+});
+
+test('the renderer classifies every reason the way the backend does', () => {
+  // `zero_reason.answered` and `source_coverage.outcome`, transcribed: a zero
+  // whose reason is in DID_NOT_ANSWER is a non-answer, a zero with no reason
+  // on record is unknown, and everything else answered.
+  expect(cases).toHaveLength(ZERO_REASONS.length);
+  for (const { reason, category, didNotAnswer } of cases) {
+    if (reason === 'not_recorded') expect(category).toBe('unknown');
+    else if (didNotAnswer) expect(category).toBe('non_answer');
+    else expect(category).toBe('answered');
+  }
+  // A positive count is an answer whatever the reason says — a partial page
+  // keeps its records and its warning.
+  for (const { reason } of cases) {
+    expect(outcomeCategory('ok', 2, reason)).toBe('answered');
+  }
+});
+
+test('the repository grid marks every reason as the backend classifies it', async () => {
+  const repositories = ZERO_REASONS.map((reason) => `src-${reason}`);
+  progressFetch(ZERO_REASONS.map((reason, i) => ({
+    type: 'repo_done',
+    timestamp: `2026-10-18T10:00:${String(i).padStart(2, '0')}Z`,
+    repository: `src-${reason}`,
+    result_count: 0,
+    zero_reason: reason,
+    zero_message: SENTENCE[reason],
+  })));
+
+  const { result } = renderHook(() => useExecution(), { wrapper: providerWrapper });
+  await act(async () => {
+    result.current.startExecution(11, 'watch_sweep', repositories);
+  });
+  // `startExecution` seeds every selected source as `pending`, so the wait is
+  // for the last one to leave that state rather than for the keys to appear.
+  await waitFor(() => {
+    expect(Object.values(result.current.activeExecutions[11]?.repoStatuses ?? {})
+      .filter((s) => s === 'pending')).toHaveLength(0);
+  }, { timeout: 5000 });
+
+  const exec = result.current.activeExecutions[11]!;
+  // Compared as whole lists so one failure names every reason that is wrong,
+  // rather than stopping at the first.
+  expect(cases.map(({ reason }) => [reason, exec.repoStatuses[`src-${reason}`]]))
+    .toEqual(cases.map(({ reason }) => [reason, repoDoneStatus(0, reason)]));
+  // A tick means the source answered. Nothing else may carry one.
+  expect(cases.filter(({ reason }) => exec.repoStatuses[`src-${reason}`] === 'done')
+    .map(({ reason }) => reason))
+    .toEqual(cases.filter((c) => c.category === 'answered').map((c) => c.reason));
+
+  const { container } = render(<RepoProgressGrid exec={exec} />);
+  const marks = Array.from(container.querySelectorAll('.mon-repo-icon'))
+    .map((el) => el.textContent);
+  expect(marks).toHaveLength(ZERO_REASONS.length);
+  expect(marks.filter((m) => m === '✓'))
+    .toHaveLength(cases.filter((c) => c.category === 'answered').length);
+  // The source that could not be asked about a person is the one this test
+  // exists for: ⚠, never ✓, and never the raw slug as its label.
+  const entity = Array.from(container.querySelectorAll('.mon-repo-row')).find(
+    (row) => row.querySelector('.mon-repo-name')?.textContent === 'src-entity_unsupported',
+  );
+  expect(entity?.className).toContain('mon-repo-row--no_answer');
+  expect(entity?.querySelector('.mon-repo-icon')?.textContent).toBe('⚠');
+  expect(entity?.querySelector('.mon-repo-status-text')?.textContent).toBe('no answer');
+  expect(screen.getByText(SENTENCE.entity_unsupported)).toBeInTheDocument();
+  expect(screen.queryByText(/entity unsupported/i)).not.toBeInTheDocument();
+});
+
+test('the activity log agrees with the grid about the same event', () => {
+  // The log used to invert the test instead of sharing the set, so the two
+  // disagreed about `entity_unsupported` on the same run.
+  const { container } = render(
+    <LiveActivityLog
+      events={ZERO_REASONS.map((reason, i) => ({
+        type: 'repo_done',
+        timestamp: `2026-10-18T10:00:${String(i).padStart(2, '0')}Z`,
+        repository: `src-${reason}`,
+        result_count: 0,
+        zero_reason: reason,
+        zero_message: SENTENCE[reason],
+      })) as any}
+    />,
+  );
+
+  const severity = (reason: string): string | undefined => Array.from(
+    container.querySelectorAll('.mon-log-entry'),
+  ).find((el) => el.textContent?.includes(`src-${reason}:`))?.className;
+
+  const wanted = ({ category }: typeof cases[number]): string => (
+    category === 'answered' ? 'log-success'
+      : category === 'unknown' ? 'log-info' : 'log-warning');
+  expect(cases.map((c) => [c.reason, severity(c.reason)?.includes(wanted(c))]))
+    .toEqual(cases.map((c) => [c.reason, true]));
+});
+
+test('the search record names an outcome for every reason, never a raw slug', async () => {
+  // Modern payloads carry the backend's own `coverage.label`. This drives the
+  // fallback the renderer keeps for a row without one, which used to hold a
+  // nine-of-ten copy of the label map and printed "entity unsupported" — the
+  // slug with its underscores swapped — for the tenth.
+  (global as any).fetch = jest.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      ...RECORD,
+      sources: ZERO_REASONS.map((reason) => ({
+        source: `src-${reason}`,
+        records_identified: 0,
+        status: 'ok',
+        zero_reason: reason,
+        answered: !DID_NOT_ANSWER.has(reason) && reason !== 'not_recorded',
+        note: SENTENCE[reason],
+      })),
+      identification: { ...RECORD.identification, sources_searched: ZERO_REASONS.length },
+    }),
+  }));
+  await act(async () => { render(<SearchRecord executionId={9} />); });
+
+  const outcomes = Array.from(
+    document.querySelectorAll('.search-record .simple-table tbody tr'),
+  ).filter((row) => row.querySelector('td')?.textContent?.startsWith('src-'))
+    .map((row) => Array.from(row.querySelectorAll('td')).map((c) => c.textContent));
+  expect(outcomes).toHaveLength(ZERO_REASONS.length);
+
+  const wanted = ({ category }: typeof cases[number]): string => (
+    category === 'answered' ? 'answered'
+      : category === 'unknown' ? 'zero, reason not recorded' : 'did not answer');
+  expect(cases.map((c) => [
+    c.reason, outcomes.find(([name]) => name === `src-${c.reason}`)?.[2],
+  ])).toEqual(cases.map((c) => [c.reason, wanted(c)]));
+  // No surface may fall through to the slug with its underscores swapped.
+  for (const { reason } of cases) {
+    expect(outcomes.some(([, , outcome]) => outcome === reason.replace(/_/g, ' ')))
+      .toBe(false);
+  }
+});

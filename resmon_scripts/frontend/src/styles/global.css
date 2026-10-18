@@ -1712,6 +1712,12 @@ html, body, #root {
   color: var(--text-secondary);
 }
 
+/* Neither green nor amber: resmon did not observe why this source returned
+   nothing, and both colours would be a claim about a fact it does not hold. */
+.mon-repo-icon--not_recorded {
+  color: var(--text-secondary);
+}
+
 .mon-repo-status {
   flex-wrap: wrap;
 }

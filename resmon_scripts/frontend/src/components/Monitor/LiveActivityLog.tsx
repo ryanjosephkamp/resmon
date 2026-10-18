@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ProgressEvent } from '../../context/ExecutionContext';
+import { isPartialAnswer, outcomeCategory } from '../../api/zeroReason';
 
 function formatTime(iso: string): string {
   try {
@@ -14,11 +15,18 @@ function severityClass(type: string, ev?: ProgressEvent): string {
   switch (type) {
     case 'repo_done':
       // A source that could not answer is not a success, even though the
-      // engine's own bookkeeping calls the run ok.
-      return ev?.zero_reason && ev.zero_reason !== 'answered_empty'
-        && ev.zero_reason !== 'not_recorded'
-        ? 'log-warning'
-        : 'log-success';
+      // engine's own bookkeeping calls the run ok. This used to invert the
+      // grid's test rather than share it, so the log and the grid disagreed
+      // about the same event: the log warned on ``entity_unsupported`` while
+      // the grid ticked it. Both now ask ``api/zeroReason``. A zero whose
+      // reason was never recorded is neither — it is unexplained, and
+      // colouring it green or amber would both be claims resmon cannot make.
+      if (isPartialAnswer(ev?.result_count, ev?.zero_reason)) return 'log-warning';
+      switch (outcomeCategory('ok', ev?.result_count, ev?.zero_reason)) {
+        case 'answered': return 'log-success';
+        case 'unknown': return 'log-info';
+        default: return 'log-warning';
+      }
     case 'complete': return 'log-success';
     case 'repo_skipped_missing_key': return 'log-warning';
     case 'repo_error':

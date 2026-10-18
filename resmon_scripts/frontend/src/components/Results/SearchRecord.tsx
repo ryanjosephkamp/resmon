@@ -3,6 +3,7 @@ import { DedupBlock, SearchRecordData, SearchRecordState, useSearchRecord } from
 import CoverageSummary from './CoverageSummary';
 type SourceRow = SearchRecordData['sources'][number];
 import { backendFetch } from '../../api/client';
+import { OutcomeCategory, outcomeCategory } from '../../api/zeroReason';
 
 /**
  * The reproducible search record for one execution.
@@ -28,26 +29,46 @@ import { backendFetch } from '../../api/client';
  * a disclosure. They travel into the Markdown export for the same reason.
  */
 
-const OUTCOME_LABELS: { [reason: string]: string } = {
-  window_unanswerable: 'could not answer this window',
-  upstream_failure: 'did not answer',
-  parse_failure: 'reply unreadable',
-  rights_filtered: 'answered; nothing storable',
-  records_unusable: 'answered; nothing storable',
-  answered_empty: 'answered, zero',
-  not_recorded: 'zero, reason not recorded',
-  missing_key: 'no API key configured',
-  retired: 'withdrawn',
+/**
+ * Which of the backend's three categories this row is in.
+ *
+ * The backend decides it — `source_coverage.outcome` runs for every row the
+ * search record serves, so `coverage` is what is read here. The fallback is
+ * for a payload without one, and it applies the backend's own rule from the
+ * one copy of its vocabulary rather than guessing from the slug.
+ */
+const sourceCategory = (s: SourceRow): OutcomeCategory => (
+  s.coverage ? s.coverage.category
+    : outcomeCategory(s.status, s.records_identified, s.zero_reason)
+);
+
+/**
+ * The wording for that category.
+ *
+ * This used to be a nine-entry copy of the ten-entry backend taxonomy, and
+ * the entry it was missing was `entity_unsupported` — which therefore
+ * rendered as the slug with its underscores swapped, "entity unsupported", in
+ * a document a systematic reviewer cites. The specific phrasing per reason is
+ * the backend's and arrives as `coverage.label`; where there is none, this
+ * says only the category it can establish, because inventing the sentence
+ * again here is how the two drifted apart in the first place.
+ */
+const CATEGORY_LABEL: Record<OutcomeCategory, string> = {
+  answered: 'answered',
+  non_answer: 'did not answer',
+  unknown: 'zero, reason not recorded',
 };
 
 const outcomeLabel = (s: SourceRow): string => {
   if (s.coverage) return s.coverage.label;
-  if (s.status === 'ok') {
-    if (!s.zero_reason) return 'answered';
-    return OUTCOME_LABELS[s.zero_reason] ?? s.zero_reason.replace(/_/g, ' ');
+  const category = sourceCategory(s);
+  // The one place the backend itself names the status rather than the reason:
+  // a row that never reached `ok` is labelled by its status, so `retired`
+  // reads "withdrawn" and a missing key reads "skipped missing key".
+  if (category === 'non_answer' && s.status !== 'ok') {
+    return s.zero_reason === 'retired' ? 'withdrawn' : s.status.replace(/_/g, ' ');
   }
-  if (s.zero_reason === 'retired') return OUTCOME_LABELS.retired;
-  return s.status.replace(/_/g, ' ');
+  return CATEGORY_LABEL[category];
 };
 
 const nf = new Intl.NumberFormat();
@@ -170,7 +191,7 @@ const SearchRecord: React.FC<{ executionId: number; recordState?: SearchRecordSt
         </thead>
         <tbody>
           {data.sources.map((s) => (
-            <tr key={s.source} className={(s.coverage ? s.coverage.category === 'answered' : s.answered) ? '' : 'record-quiet'}>
+            <tr key={s.source} className={sourceCategory(s) === 'answered' ? '' : 'record-quiet'}>
               <td>{s.source}</td>
               <td>{nf.format(s.records_identified)}</td>
               <td>{outcomeLabel(s)}</td>
