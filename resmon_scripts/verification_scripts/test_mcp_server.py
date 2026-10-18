@@ -141,7 +141,11 @@ def test_tools_list_matches_the_contract():
     # first. v2.1 adds none. v2.2 (phase 2.1a′) adds the four watch-profile
     # tools, additively.
     assert len(names) == 25
-    assert mcp.CONTRACT_VERSION == "2.3"
+    # 2.4 adds none and removes none. It is a narrowing of what
+    # ``update_settings`` will accept, and the string moves because a released
+    # v2.3.0 advertises "2.3" without that guard: a harness has to be able to
+    # tell an accepting server from a refusing one.
+    assert mcp.CONTRACT_VERSION == "2.4"
 
 
 def test_every_tool_declares_whether_it_needs_confirmation():
@@ -411,10 +415,10 @@ def test_update_settings_refuses_an_unknown_key_rather_than_dropping_it():
         "notify_manual": "true", "notify_automatic_mode": "all"}})
     with stub:
         result = mcp.call_tool(
-            "update_settings", {"group": "notifications", "settings": {"ai_tone": "z"}})
+            "update_settings", {"group": "notifications", "settings": {"ai_model": "z"}})
     body = _payload(result)
     assert result["isError"]
-    assert body["detail"]["unknown_keys"] == ["ai_tone"]
+    assert body["detail"]["unknown_keys"] == ["ai_model"]
     assert "notify_manual" in body["detail"]["group_keys"]
     assert not [c for c in stub.seen if c["method"] == "PUT"]
 
