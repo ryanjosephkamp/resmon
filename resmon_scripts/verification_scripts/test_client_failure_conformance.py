@@ -6,9 +6,10 @@ than a paragraph.
 `zero_reason.terminal_issue` does not fire on `failures` alone. A revision of
 PR #169 made it, to catch PubMed's `_efetch` skipping a 503 batch and
 finishing the rest, and the branch had to be taken out again: the only
-snapshots that reach it in this codebase come from the four clients whose
-documented "retry once" ladder runs *outside* `safe_request`, and a ladder
-that recovered has lost nothing. Reporting it as a partial answer told a user
+snapshots that reach it in this codebase come from the four client modules
+whose documented "retry once" ladder runs *outside* `safe_request` -- five
+slugs, since `api_biorxiv` serves two -- and a ladder that recovered has lost
+nothing. Reporting it as a partial answer told a user
 *"ERIC returned 1 usable record before a later HTTP 503 request failed"* about
 a source that answered.
 
@@ -31,7 +32,9 @@ with its own retry ladder compare two invocations at all; four clients
 (`core`, `govinfo`, `nasa_ads`, `springer`) return on a missing credential
 before any request is made, so their cases assert nothing. The rest make one
 invocation and stop, which is the premise holding rather than the test
-working. It checks the
+working. It drives `search()` and never `search_entity()`, so a paging
+scheme reached only by the entity path -- `api_dblp`'s SPARQL is the one -- is
+recorded but never exercised. It checks the
 shape of the request sequence, not the records: a client that re-issues the
 same request and then drops the reply on the floor passes this and is still
 broken. It is one row of the conformance harness the 2026-10-18 audit asked
@@ -42,6 +45,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -92,6 +96,16 @@ def quick_and_isolated(monkeypatch):
     api_base.reset_search_outcome()
     monkeypatch.setattr(config, "DEFAULT_MAX_RETRIES", 0)
     monkeypatch.setattr(config, "DEFAULT_BACKOFF_BASE", 0.01)
+    # And no backoff actually waits. Lowering the base is not enough on its
+    # own: every ladder computes `base ** attempt`, and the first retry is
+    # `base ** 0`, which is 1.0 for any base at all. Four clients therefore
+    # slept a real second each under the 0.01 above. The assertions here are
+    # about the sequence of requests, never about timing, so the wait is
+    # removed rather than shortened -- and at the `time` module, because the
+    # clients look `time.sleep` up at call time and binding varies between
+    # them (`api_inspire_hep` imports its backoff constant directly, so
+    # patching `config` would have missed it anyway).
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
     yield
     api_base.reset_search_outcome()
 
@@ -138,12 +152,17 @@ def _trace_invocations(monkeypatch, module) -> list[dict]:
     real = api_base.safe_request
 
     def traced(method, url, **kwargs):
-        # The body matters as much as the query string: `api_govinfo` carries
-        # its `offsetMark` in JSON, so a trace keyed on url+params alone would
-        # call two different pages of it the same request.
+        # The body matters as much as the query string, and clients disagree
+        # about which kwarg carries it: `api_govinfo` puts its `offsetMark` in
+        # `json=`, and `api_dblp` pages its SPARQL endpoint by writing
+        # LIMIT/OFFSET into the query text and sending it as `content=`. A
+        # trace keyed on url+params alone calls two different pages of either
+        # one the same request. Headers are deliberately not recorded: the only
+        # ones any client sets are credentials and content types.
         record = {"url": str(url).split("?")[0],
                   "params": repr(sorted((kwargs.get("params") or {}).items())),
-                  "body": repr(kwargs.get("json")),
+                  "body": repr(next((kwargs[k] for k in ("json", "content", "data")
+                                     if kwargs.get(k) is not None), None)),
                   "failed": True}
         calls.append(record)
         before = api_base.search_outcome().failures
@@ -227,7 +246,10 @@ def test_the_denominator_is_the_registry_and_the_ladders_are_derived(monkeypatch
                 pass
         if not calls:
             silent.add(slug)
-        elif len(calls) > 1 and calls[0]["failed"]:
+        elif any(earlier["failed"] for earlier, _ in zip(calls, calls[1:])):
+            # Any failed invocation with another after it, not only the first:
+            # a client whose opening call is a successful preflight would
+            # otherwise carry its ladder invisibly.
             ladders.add(slug)
 
     assert ladders == {"biorxiv", "medrxiv", "dblp", "eric", "inspire_hep"}, (
