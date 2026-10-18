@@ -78,7 +78,7 @@ def isolated_outcome(monkeypatch):
 
 
 class Wire:
-    """The synchronous transport these three clients use, and nothing else.
+    """The synchronous transport the clients in this file use, and nothing else.
 
     ``calls`` holds what the client actually put on the wire, which is the
     whole subject of the pagination cases: the defect there is visible only in
@@ -242,10 +242,10 @@ def test_a_retry_that_succeeded_is_still_not_a_terminal_issue(wire):
 def test_a_recovered_retry_ladder_is_not_a_partial_answer(wire):
     """The other half of that boundary, and the one a guard did not reach.
 
-    Three clients run their documented "retry once" ladder *outside*
+    Four clients run their documented "retry once" ladder *outside*
     ``safe_request``, calling it again with ``max_retries=0``: ``api_eric``,
-    ``api_dblp`` and ``api_biorxiv`` (which serves both bioRxiv and medRxiv),
-    so 3 of 26 active modules and 4 of 27 slugs. Each attempt is a separate
+    ``api_dblp``, ``api_biorxiv`` (which serves both bioRxiv and medRxiv) and
+    ``api_inspire_hep``, so 4 of 26 active modules and 5 of 27 slugs. Each attempt is a separate
     invocation, so a first-attempt 503 leaves ``failures`` at 1 and the second
     attempt's success clears ``last_call_failed`` -- the one snapshot shape a
     rule reading ``failures`` alone would call partial.

@@ -233,10 +233,13 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
     It is not, because of who actually produces that snapshot. Every client
     was driven through a transport that fails once and then succeeds, and the
     sequence of ``safe_request`` invocations recorded: 23 of 27 slugs make one
-    invocation and stop. The four that make a second -- ``eric``, ``dblp``,
-    ``biorxiv`` and ``medrxiv``, which run their documented "retry once"
-    ladder *outside* ``safe_request`` with ``max_retries=0`` -- re-issue the
-    **same URL and the same params**. That is a request that recovered, so
+    invocation and stop. The five that make a second -- ``eric``, ``dblp``,
+    ``biorxiv``, ``medrxiv`` and ``inspire_hep``, which run their documented
+    "retry once" ladder *outside* ``safe_request`` with ``max_retries=0`` --
+    re-issue the **same URL and the same params**. (``inspire_hep`` was missed
+    on the first count, which asked for a module constant rather than for the
+    behavior; ``test_client_failure_conformance.py`` now derives the set by
+    running the probe, so the next one cannot be missed the same way.) That is a request that recovered, so
     nothing is missing, and calling it partial told the user *"ERIC returned 1
     usable record before a later HTTP 503 request failed"* about a source that
     answered. Meanwhile ``_efetch``'s ``break`` means no client abandons a

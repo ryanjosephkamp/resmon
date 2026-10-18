@@ -6,7 +6,7 @@ than a paragraph.
 `zero_reason.terminal_issue` does not fire on `failures` alone. A revision of
 PR #169 made it, to catch PubMed's `_efetch` skipping a 503 batch and
 finishing the rest, and the branch had to be taken out again: the only
-snapshots that reach it in this codebase come from the three clients whose
+snapshots that reach it in this codebase come from the four clients whose
 documented "retry once" ladder runs *outside* `safe_request`, and a ladder
 that recovered has lost nothing. Reporting it as a partial answer told a user
 *"ERIC returned 1 usable record before a later HTTP 503 request failed"* about
@@ -23,9 +23,15 @@ it is enforced here.
 The denominator is the registry's own, so a twenty-eighth source is covered on
 the day it is registered rather than on the day somebody remembers this file.
 
-**What this does not establish.** Only the first transport attempt fails here,
-so this says nothing about a client's behavior when several pages fail in a
-row, and nothing about whether a client's retry is a good idea. It checks the
+**What this does not establish.** One transport attempt fails per case -- the
+first, then the second -- so this says nothing about a client's behavior when
+several pages fail in a row, and nothing about whether a client's retry is a
+good idea. Of the 54 behavioral cases, only the handful belonging to a client
+with its own retry ladder compare two invocations at all; four clients
+(`core`, `govinfo`, `nasa_ads`, `springer`) return on a missing credential
+before any request is made, so their cases assert nothing. The rest make one
+invocation and stop, which is the premise holding rather than the test
+working. It checks the
 shape of the request sequence, not the records: a client that re-issues the
 same request and then drops the reply on the floor passes this and is still
 broken. It is one row of the conformance harness the 2026-10-18 audit asked
@@ -132,8 +138,12 @@ def _trace_invocations(monkeypatch, module) -> list[dict]:
     real = api_base.safe_request
 
     def traced(method, url, **kwargs):
+        # The body matters as much as the query string: `api_govinfo` carries
+        # its `offsetMark` in JSON, so a trace keyed on url+params alone would
+        # call two different pages of it the same request.
         record = {"url": str(url).split("?")[0],
                   "params": repr(sorted((kwargs.get("params") or {}).items())),
+                  "body": repr(kwargs.get("json")),
                   "failed": True}
         calls.append(record)
         before = api_base.search_outcome().failures
@@ -176,31 +186,58 @@ def test_no_client_continues_past_a_failed_request(slug, fails_on, monkeypatch):
     for earlier, later in zip(calls, calls[1:]):
         if not earlier["failed"]:
             continue
-        assert (later["url"], later["params"]) == (earlier["url"], earlier["params"]), (
+        assert ((later["url"], later["params"], later["body"])
+                == (earlier["url"], earlier["params"], earlier["body"])), (
             f"{slug} issued a different request after one that failed. That is "
             f"either a retry that changed its own query, or records being "
             f"dropped and the search carrying on -- the second is the defect "
             f"api_pubmed._efetch had, and it leaves no zero reason behind.\n"
-            f"  failed : {earlier['url']} {earlier['params']}\n"
-            f"  next   : {later['url']} {later['params']}"
+            f"  failed : {earlier['url']} {earlier['params']} {earlier['body']}\n"
+            f"  next   : {later['url']} {later['params']} {later['body']}"
         )
 
 
-def test_the_denominator_is_the_registry_and_the_ladders_are_still_four():
-    """What the case above is worth, in numbers taken from the code.
+def test_the_denominator_is_the_registry_and_the_ladders_are_derived(monkeypatch):
+    """What the case above is worth, in numbers taken from behavior.
 
-    The count is not pinned -- a new source must not fail this file on the day
-    it is added -- but the registry is the only list involved, and the
-    known-ladder set is named so that a client growing a second invocation is
-    visible in the record rather than only in a green tick.
+    The registry is the only list involved, so a new source is a new case on
+    the day it is registered. The ladder set is **derived by running the same
+    probe**, not read off an attribute: the first version of this assertion
+    asked for ``_MAX_RESPONSE_ATTEMPTS > 1`` and therefore could not see
+    ``api_inspire_hep``, which runs the identical shape --
+    ``safe_request(..., max_retries=0)`` inside a retry loop -- while reusing
+    the shared ``DEFAULT_MAX_RETRIES`` name. An assertion whose stated purpose
+    is making a new ladder visible in the record could not see one already
+    there. Derive from the behavior the harness measures, never from a name
+    that happens to correlate with it.
     """
     assert SLUGS == api_registry.list_repositories()
     assert len(SLUGS) >= 27, "the registry shrank; a source was retired silently"
-    # The modules that re-invoke `safe_request` themselves, as of 2026-10-18:
-    # each wraps it in `for attempt in range(_MAX_RESPONSE_ATTEMPTS)` with
-    # `max_retries=0`. Any other module gaining that loop is new behavior.
-    ladders = {slug for slug in SLUGS
-               if getattr(_module_for(slug), "_MAX_RESPONSE_ATTEMPTS", 1) > 1}
-    assert ladders == {"biorxiv", "medrxiv", "dblp", "eric"}, (
-        "a client gained or lost its own retry ladder; the reasoning in "
-        "zero_reason.terminal_issue's docstring counts these")
+
+    ladders, silent = set(), set()
+    for slug in SLUGS:
+        module = _module_for(slug)
+        with monkeypatch.context() as patch:
+            _fail_attempt(patch, 1)
+            calls = _trace_invocations(patch, module)
+            try:
+                api_registry.get_client(slug).search(
+                    "machine learning", "2024-01-01", "2024-12-31", 5)
+            except Exception:
+                pass
+        if not calls:
+            silent.add(slug)
+        elif len(calls) > 1 and calls[0]["failed"]:
+            ladders.add(slug)
+
+    assert ladders == {"biorxiv", "medrxiv", "dblp", "eric", "inspire_hep"}, (
+        f"a client gained or lost its own retry ladder: {sorted(ladders)}. The "
+        f"reasoning in zero_reason.terminal_issue's docstring counts these, and "
+        f"`grep -l 'max_retries=0' api_*.py` should agree with this set")
+
+    # Said out loud because "every registered client" overstates the reach.
+    assert silent == {"core", "govinfo", "nasa_ads", "springer"}, (
+        f"the set of clients that never reach the transport changed: "
+        f"{sorted(silent)}. These return on a missing credential before any "
+        f"request is made, so their cases are collected and counted but assert "
+        f"nothing; a credential becoming optional would show up here first")
