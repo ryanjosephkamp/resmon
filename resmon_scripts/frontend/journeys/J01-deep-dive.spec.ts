@@ -25,7 +25,14 @@ journey.describe('J01 Deep Dive', () => {
     });
 
     const facts = await resmon.waitForRunToSettle(run);
-    expect(facts.status, 'a source failing must degrade the run, not fail it').toBe('completed');
+    // The row's invariant is that a source that failed is reported as a
+    // failure, never as an empty field. This dive asked one source and none
+    // answered, so there was nothing left to degrade to: `completed` with
+    // `result_count = 0` would be the run rendering an empty field over a
+    // failure, which is the thing the row exists to forbid. A source failing
+    // still only degrades a run that had other sources to fall back on —
+    // J02 holds that line for a sweep.
+    expect(facts.status, 'the one source asked did not answer, so the run did not succeed').toBe('failed');
 
     // What the app recorded, over its own API.
     const record = await resmon.backend.searchRecord(run);

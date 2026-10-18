@@ -253,7 +253,14 @@ Contract for the client itself:
 
 - `search()` returns `list[NormalizedResult]`, honours `date_from` / `date_to` /
   `max_results`, and returns `[]` on upstream failure — logged, never raised. A source
-  being down degrades the sweep; it does not fail it.
+  being down degrades the sweep; it does not fail it. **That is a rule about the client,
+  not about the run's status, and the two were once read as one.** A client must not let
+  one source's failure propagate as an exception that aborts the sweep; it does not
+  follow that a run in which *nothing* answered is a success. Where every source asked
+  came back with a recorded non-answer there is nothing left to degrade to, and the
+  execution is `failed` — a run that reports `completed` with `result_count = 0` over a
+  dead source is rendering an empty field where a failure happened, which is what
+  `CAPABILITIES.md` J01 forbids.
 - Every HTTP call goes through `safe_request()` with a **module-level** `RateLimiter`
   shared by all instances of that client — concurrent sweeps must contend on one object.
 - The rate limit is whatever the upstream publishes, or slower. Where the upstream states
