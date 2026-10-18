@@ -5092,6 +5092,10 @@ a:hover { color: var(--color-accent-hover); }
   --sw-label-width: 190px;
 
   --sw-text-mark: 12px;
+  /* The two silent glyphs are a dot and a dash: the smallest ink on the
+     screen, and the pair most likely to read as one thing. They get two
+     points over the rest rather than the colour the other four get. */
+  --sw-text-mark-quiet: 14px;
   --sw-text-micro: 11px;
   --sw-text-body: 13px;
   --sw-text-verdict: 20px;
@@ -5201,17 +5205,33 @@ a:hover { color: var(--color-accent-hover); }
 .source-wall-cell[data-state="not_recorded"] {
   color: var(--sw-not-recorded);
   border-style: dotted;
-  border-color: var(--sw-rule);
+  /* The outline was `--sw-rule` (`--color-border`), which measures 1.38:1
+     against the page background: not a channel, and it was being counted as
+     one -- the whole claim that the two silences are told apart by outline
+     against no outline rested on a border nobody could see. The muted text
+     token is the same ink as the glyph and measures about 5.6:1. */
+  border-color: var(--sw-not-recorded);
   background: transparent;
+  font-size: var(--sw-text-mark-quiet);
 }
 /* Nothing was ever due in this cell, so it is drawn as absence rather than
-   as an empty slot: no outline, and the faintest mark on the screen. */
+   as an empty slot: no outline at all.
+
+   It is no longer faint. At .45 opacity this computed to 2.11:1 against the
+   page background, under both WCAG 1.4.11's 3:1 for a graphical object and
+   1.4.3's 4.5:1 for text, and a review measured 2.10:1 in the browser --
+   on 39% of the cells of a grid whose source selection varies run to run.
+   The most common mark on a realistic wall was the one nobody could see.
+   .90 computes to 4.88:1 and clears both. The separation from the other
+   silent state is carried by the outline and the glyph, which is what they
+   are for; it was never the job of making one of the two illegible. */
 .source-wall-swatch[data-state="not_selected"],
 .source-wall-cell[data-state="not_selected"] {
   color: var(--sw-not-selected);
   border-color: transparent;
   background: transparent;
-  opacity: .45;
+  font-size: var(--sw-text-mark-quiet);
+  opacity: .90;
 }
 
 /* A partial answer is an answer that may be incomplete. It keeps its state

@@ -109,13 +109,18 @@ test('P10: the Profiles route is in the sweep table and the sweep grew by exactl
     expect(hashes).toContain('/profiles');
     expect(APP_ROUTES.filter((r) => r.path === '/profiles')).toHaveLength(1);
     // 24 through v2.0.1; Watch Profiles is the twenty-fifth, and 2.2's Reading
-    // queue is the twenty-sixth; Chats the twenty-seventh; Library the twenty-eighth; Evidence the twenty-ninth. Updated by hand:
+    // queue is the twenty-sixth; Chats the twenty-seventh; Library the twenty-eighth; Evidence the twenty-ninth;
+    // the Source wall the thirtieth. Updated by hand:
     // adding a page has to cost somebody a line here, or the denominator stops
-    // being a denominator.
+    // being a denominator. It is the third hand-kept route counter in the
+    // tree -- the others are `src/__tests__/routes.test.tsx` and
+    // `test_selected_evidence_boundary.py` -- and only one of the three is
+    // covered by the API-contract guard.
     expect(hashes).toContain('/reading-queue');
     expect(hashes).toContain('/library');
     expect(hashes).toContain('/evidence');
-    expect(hashes).toHaveLength(29);
+    expect(hashes).toContain('/source-wall');
+    expect(hashes).toHaveLength(30);
   });
 
 test('P10 + P8: the page renders, and a profile with no ORCID says so in a real browser',

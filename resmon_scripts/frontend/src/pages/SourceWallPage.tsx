@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import PageHelp from '../components/Help/PageHelp';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import SourceWall from '../components/SourceWall/SourceWall';
-import { SourceWallGrid, fetchSourceWall } from '../api/sourceWall';
+import {
+  STATE_MARKS, SourceWallGrid, fetchSourceWall, knownState,
+} from '../api/sourceWall';
 
 /**
  * Is my monitoring still intact?
@@ -79,26 +81,32 @@ const SourceWallPage: React.FC = () => {
             ),
           },
           {
-            heading: 'What the six marks mean',
-            body: (
+            // Built from the key the backend served, not written out here.
+            // The first draft of this panel wrote the six marks by hand and
+            // had drifted before the branch was even reviewed: it headed the
+            // list "six" and listed five, and called a quiet field "answered,
+            // nothing new" while the legend four inches above it said
+            // "answered, zero". A second copy of a vocabulary drifts; this
+            // one is not a copy.
+            heading: 'What the marks mean',
+            body: grid ? (
               <ul>
-                <li><strong>answered</strong> — the source replied and returned records.</li>
-                <li>
-                  <strong>answered, nothing new</strong> — it replied and genuinely had
-                  nothing. A quiet field is not a fault.
-                </li>
-                <li>
-                  <strong>could not be asked</strong> — no API key, the source is
-                  retired, it has no author query for this kind of search, or your
-                  window is one it cannot express.
-                </li>
-                <li><strong>failed</strong> — it was asked and the exchange broke.</li>
-                <li>
-                  <strong>not recorded</strong> — resmon did not observe an outcome.
-                  This is never shown as either a success or a failure, and it is
-                  never guessed into one.
-                </li>
+                {grid.state_legend.map((entry) => (
+                  <li key={entry.state}>
+                    <span aria-hidden="true">
+                      {`${STATE_MARKS[knownState(entry.state)]} `}
+                    </span>
+                    <strong>{entry.label}</strong>
+                    {` \u2014 ${entry.meaning}`}
+                  </li>
+                ))}
               </ul>
+            ) : (
+              <p>
+                The key arrives with the grid, so that it cannot say something
+                different from the marks beside it. It appears once the page
+                has loaded.
+              </p>
             ),
           },
           {

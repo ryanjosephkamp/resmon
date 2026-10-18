@@ -303,6 +303,7 @@ def _verdict(sources: list[dict], run_count: int) -> dict:
     silent: list[str] = []
     unobserved: list[str] = []
     unasked: list[str] = []
+    dropped: list[str] = []
     answering = 0
     for source in sources:
         latest = _latest_known_state(source["cells"])
@@ -315,8 +316,24 @@ def _verdict(sources: list[dict], run_count: int) -> dict:
             else:
                 unobserved.append(source["name"])
             continue
+        if latest in _SILENT:
+            # Unreachable while ``_latest_known_state`` skips the silent
+            # states, and here anyway, because this is the branch where
+            # getting it wrong costs the most. A silence that fell through to
+            # the code below would be announced as a source that had *stopped
+            # answering* -- which is how a wall comes to blame a source for a
+            # keystroke the user made. ``failed`` is not allowed to do that to
+            # a cancelled run and the headline is not allowed to do it to a
+            # deselected source; it is the same rule one level up, in the
+            # sentence that is read first.
+            unobserved.append(source["name"])
+            continue
         if latest in _ANSWERING:
             answering += 1
+            # Deselection is not a fault and is never the headline, but it is
+            # a fact the user may not have intended, so it is reported.
+            if source["cells"][-1]["state"] == "not_selected":
+                dropped.append(source["name"])
             continue
         if any(cell["state"] in _ANSWERING for cell in source["cells"]):
             stopped.append(source["name"])
@@ -335,6 +352,15 @@ def _verdict(sources: list[dict], run_count: int) -> dict:
         detail.append(
             f"{len(unasked)} of {total} sources were not in any of these "
             f"{runs}' saved selections, so nothing was asked of them."
+        )
+    if dropped:
+        # Worded as the record, not as a warning. resmon cannot tell a
+        # deliberate change of scope from a mistaken untick, and saying which
+        # it was would be the inference this module exists to refuse.
+        detail.append(
+            f"{_join(sorted(dropped))} answered when last asked and "
+            f"{'is' if len(dropped) == 1 else 'are'} no longer in the most "
+            "recent run's saved selection."
         )
 
     if stopped:
@@ -386,12 +412,30 @@ def _verdict(sources: list[dict], run_count: int) -> dict:
 def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
     """The whole grid for the last ``limit`` executions.
 
-    **Bounded by ``limit``, not by the corpus.** The execution window is one
-    indexed ``ORDER BY ... LIMIT`` over ``executions``; the cells are one
-    query over ``execution_sources`` restricted to those ids by primary key.
-    A corpus with 50,000 executions reads the same ``limit`` rows and the same
-    ``limit × sources`` cells as a corpus with twelve. The only unbounded read
-    is ``COUNT(*)`` over ``executions``, which the window is reported against.
+    **The output is bounded by ``limit``; the input is not.** There is no
+    index on ``executions.start_time``, so ``EXPLAIN QUERY PLAN`` for the
+    window is ``SCAN executions`` plus ``USE TEMP B-TREE FOR ORDER BY``: the
+    whole table is read and sorted to find the newest ``limit`` rows. Only
+    then is the work bounded -- the cells are one query over
+    ``execution_sources`` restricted to those ids by primary key, so the row
+    count this *returns* does not grow with the corpus even though the rows
+    it *reads* do.
+
+    Measured on this machine over a corpus grown to 600,000
+    ``execution_sources`` rows, best of five:
+
+    ======================  ==========  ==========
+    executions              limit=12    limit=50
+    ======================  ==========  ==========
+    12                      0.4 ms      0.4 ms
+    5,000                   0.6 ms      2.1 ms
+    50,000                  5.7 ms      7.5 ms
+    ======================  ==========  ==========
+
+    ``COUNT(*)`` is a second ``SCAN executions`` and costs 1.7 ms of that at
+    50,000. All of it is comfortably inside a screen refresh, which is why
+    there is no index here: adding one is a schema change and belongs in its
+    own migration rather than riding along with a read.
 
     Runs come back **oldest first**, so the newest column is the right-hand
     edge and the grid reads as a timeline. Sources are alphabetical by display

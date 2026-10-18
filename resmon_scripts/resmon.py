@@ -2087,16 +2087,15 @@ def source_wall_grid(
     what it was" without opening runs one at a time and comparing them by
     hand. The rows have been on disk since schema 6.
 
-    The cells arrive **classified** -- one of five states from
+    The cells arrive **classified** -- one of the six states in
     ``source_wall.WALL_STATES`` -- rather than as a status and a reason for
     the caller to interpret. That is deliberate: every place that has
     re-derived this classification has eventually derived it differently, and
     the last time one did it put a tick on sources that had never been asked.
 
-    Bounded by ``limit`` and nothing else: the window is one indexed
-    ``LIMIT`` over ``executions`` and the cells are one lookup restricted to
-    those ids, so a corpus with 50,000 runs reads the same number of rows as
-    one with twelve.
+    ``limit`` bounds what comes back, not what is read: there is no index on
+    ``executions.start_time``, so finding the newest runs scans the table and
+    sorts. Measured at 0.4 ms over 12 executions and 5.7 ms over 50,000.
     """
     conn = _get_db()
     try:

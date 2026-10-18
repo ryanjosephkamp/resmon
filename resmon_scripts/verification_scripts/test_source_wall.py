@@ -322,6 +322,73 @@ def test_a_source_that_stopped_answering_is_named_rather_than_counted(conn):
     assert verdict["headline"] == "arXiv has stopped answering."
 
 
+def test_the_verdict_partitions_every_state_it_can_meet(conn):
+    """The verdict's own three buckets, checked against the state list.
+
+    A state that belongs to none of them falls through to whichever branch
+    happens to catch it, and the branch that catches an unclassified state is
+    the one that says *stopped answering*. That is how a wall ends up blaming
+    a source for something the source did not do, so the partition is
+    asserted rather than reviewed.
+    """
+    buckets = (source_wall._ANSWERING | source_wall._ATTENTION | source_wall._SILENT)
+    assert buckets == set(source_wall.WALL_STATES)
+    assert not (source_wall._ANSWERING & source_wall._ATTENTION)
+    assert not (source_wall._ANSWERING & source_wall._SILENT)
+    assert not (source_wall._ATTENTION & source_wall._SILENT)
+
+
+def test_deselecting_a_source_is_never_reported_as_the_source_failing(conn):
+    """The one sentence the whole screen exists to produce, guarded.
+
+    A user who unticks DOAJ has not been let down by DOAJ. `failed` must not
+    blame a source for a keystroke and neither must the headline, which is the
+    same rule one level up and in the place where it is read first. Removing
+    `not_selected` from the verdict's silent set turns this red; until it
+    existed, that change passed the whole file.
+    """
+    first = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "doaj"])
+    record(conn, first, "arxiv", count=4)
+    record(conn, first, "doaj", count=6)
+    for day in (2, 3):
+        later = make_run(conn, started=f"2026-10-0{day}T09:00:00", repositories=["arxiv"])
+        record(conn, later, "arxiv", count=5)
+
+    wall = source_wall.build(conn)
+    verdict = wall["verdict"]
+
+    assert "DOAJ" not in verdict["headline"]
+    assert "stopped answering" not in verdict["headline"]
+    assert verdict["level"] == "ok"
+    # It answered the last time resmon asked it, which is what the sentence says.
+    assert verdict["headline"] == (
+        "All 2 of 2 sources answered the last time resmon asked them."
+    )
+    # And the deselection is still reported -- quietly, as a fact, not an alarm.
+    assert any("no longer in the most recent run" in line for line in verdict["detail"])
+
+
+def test_a_source_deselected_after_it_broke_is_still_reported_as_broken(conn):
+    """Unticking a source does not launder its last recorded failure.
+
+    The mirror of the case above, and the reason the fix is "read past the
+    silence" rather than "ignore a source that was deselected".
+    """
+    first = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "doaj"])
+    record(conn, first, "arxiv", count=4)
+    record(conn, first, "doaj", count=3)
+    broke = make_run(conn, started="2026-10-02T09:00:00", repositories=["arxiv", "doaj"])
+    record(conn, broke, "arxiv", count=4)
+    record(conn, broke, "doaj", count=0, reason="upstream_failure",
+           detail={"status": 503, "attempts": 2})
+    after = make_run(conn, started="2026-10-03T09:00:00", repositories=["arxiv"])
+    record(conn, after, "arxiv", count=4)
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["headline"] == "DOAJ has stopped answering."
+
+
 def test_a_source_that_never_answered_in_the_window_is_not_called_stopped(conn):
     run = make_run(conn, started="2026-10-01T09:00:00", repositories=["ieee"])
     record(conn, run, "ieee", status="error", reason="retired",
