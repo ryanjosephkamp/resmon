@@ -52,14 +52,36 @@ export function answered(
   return !DID_NOT_ANSWER.has(reason);
 }
 
-/** `source_coverage.outcome`'s category, transcribed. */
+/** The statuses a recorded source outcome can hold — `source_coverage.outcome`. */
+const RECORDED_STATUSES: ReadonlySet<string> = new Set([
+  'ok', 'error', 'skipped_missing_key', 'cancelled',
+]);
+
+/**
+ * `source_coverage.outcome`'s category, transcribed — validity gate included.
+ *
+ * The gate is the half that is easy to leave out, and leaving it out points
+ * the failure the wrong way. The backend decides first whether the row is
+ * one it recognizes at all — a known status, a non-negative count, a reason
+ * from `ZERO_REASONS` — and sends everything else to `unknown`. Without that,
+ * a slug this build has never heard of falls through to *answered* and draws
+ * a tick, which is the one verdict resmon must never reach by accident. A
+ * classifier for this product fails towards "resmon does not know".
+ */
 export function outcomeCategory(
   status: string | null | undefined,
   resultCount: number | null | undefined,
   reason: string | null | undefined,
 ): OutcomeCategory {
-  if (answered(status, resultCount, reason)) return 'answered';
-  if (status === 'ok' && (resultCount ?? 0) === 0 && (!reason || reason === 'not_recorded')) {
+  const count = resultCount ?? 0;
+  const recognized = (
+    typeof status === 'string' && RECORDED_STATUSES.has(status)
+    && Number.isInteger(count) && count >= 0
+    && (!reason || (ZERO_REASONS as readonly string[]).includes(reason))
+  );
+  if (!recognized) return 'unknown';
+  if (answered(status, count, reason)) return 'answered';
+  if (status === 'ok' && count === 0 && (!reason || reason === 'not_recorded')) {
     return 'unknown';
   }
   return 'non_answer';

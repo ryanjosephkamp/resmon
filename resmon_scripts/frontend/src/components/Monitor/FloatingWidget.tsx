@@ -108,7 +108,15 @@ const FloatingWidget: React.FC = () => {
        isFailure ? ' floating-widget--pulse-error' : '')
     : '';
 
-  const doneCount = Object.values(exec.repoStatuses).filter((s) => s === 'done').length;
+  // Progress, not success: a source resmon has finished with is finished
+  // whether or not it answered. This counted only `done`, so the bar stalled
+  // short of the end on any run holding a source that could not answer —
+  // and it stalled on two more kinds of run once `entity_unsupported` and an
+  // unrecorded zero stopped being miscounted as `done`.
+  const settled: ReadonlySet<string> = new Set([
+    'done', 'no_answer', 'skipped', 'not_recorded', 'error',
+  ]);
+  const doneCount = Object.values(exec.repoStatuses).filter((s) => settled.has(s)).length;
   const total = exec.totalRepos ?? exec.repositories.length;
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 

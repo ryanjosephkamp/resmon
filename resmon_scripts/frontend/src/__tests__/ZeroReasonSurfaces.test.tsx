@@ -450,9 +450,10 @@ test('a day-granular source says so too, rather than saying nothing', () => {
 /* Every reason, on every surface                                      */
 /* ------------------------------------------------------------------ */
 /*
- * The three tests above exercise `upstream_failure`, `answered_empty` and
- * `not_recorded`. That is three of the backend's ten, and the seven it left
- * uncovered are where this file failed: `entity_unsupported` was added to
+ * The tests above exercise `upstream_failure`, `answered_empty`,
+ * `not_recorded` and `window_unanswerable`. That is four of the backend's
+ * ten, and the six they left uncovered are where this file failed:
+ * `entity_unsupported` was added to
  * `zero_reason.DID_NOT_ANSWER` in 2.1 and never reached the renderer, which
  * ticked ✓ — *answered and found nothing* — on every source that has no
  * author query, beside the backend's own sentence saying it could not be
@@ -503,6 +504,47 @@ test('the renderer vocabulary is still the backend vocabulary', () => {
   expect([...DID_NOT_ANSWER].sort()).toEqual([...didNotAnswer].sort());
   // The one that was missing, named so a regression reads as itself.
   expect(DID_NOT_ANSWER.has('entity_unsupported')).toBe(true);
+});
+
+test('a reason the generator cannot parse throws rather than vanishing', () => {
+  // The guard above regenerates through the same parser it checks, so a
+  // value the parser silently skips is a value the comparison cannot see.
+  // The first parser scanned for /"([a-z_]+)"/g: a reason in single quotes,
+  // or one holding a digit, dropped out of both sides and agreed.
+  const parse = (zero: string, did: string): { zeroReasons: string[] } => (
+    generator.pythonVocabulary(
+      `ZERO_REASONS = (\n${zero}\n)\n\nDID_NOT_ANSWER = frozenset({\n${did}\n})\n`,
+    )
+  );
+
+  // Both spellings, and a digit, survive.
+  expect(parse("  'quota_exhausted',\n  \"http_503\",", "  'quota_exhausted',").zeroReasons)
+    .toEqual(['quota_exhausted', 'http_503']);
+
+  // Anything else names itself and stops the run. A dropped entry here is
+  // how a reason the renderer has never heard of reaches the grid as a tick.
+  for (const bad of ['  Upstream_Failure,', '  "upstream-failure",', '  *OTHER,']) {
+    expect(() => parse(`  "missing_key",\n${bad}`, '  "missing_key",'))
+      .toThrow(/does not understand|not a plain slug/);
+  }
+  // A comma inside a literal would survive the split but not the count.
+  expect(() => parse('  "missing_key,retired",', '  "missing_key",'))
+    .toThrow(/not a plain slug|does not understand/);
+});
+
+test('an outcome the renderer does not recognize is unknown, never answered', () => {
+  // `source_coverage.outcome` gates on validity before it classifies, and
+  // sends anything it does not recognize to `unknown`. Transcribing the
+  // classification without the gate points the failure the wrong way: a slug
+  // from a newer backend would fall through to `answered` and draw a tick.
+  expect(outcomeCategory('ok', 0, 'http_503')).toBe('unknown');
+  expect(outcomeCategory('ok', 7, 'http_503')).toBe('unknown');
+  expect(outcomeCategory('teleported', 0, 'answered_empty')).toBe('unknown');
+  expect(outcomeCategory('ok', -1, 'answered_empty')).toBe('unknown');
+  expect(outcomeCategory(undefined, 3, null)).toBe('unknown');
+  // And the grid draws it as the one thing it can honestly say.
+  expect(repoDoneStatus(0, 'http_503')).toBe('not_recorded');
+  expect(repoDoneStatus(7, 'http_503')).toBe('not_recorded');
 });
 
 test('the renderer classifies every reason the way the backend does', () => {
