@@ -114,6 +114,44 @@ jobs:
           RESMON_REQUIRE_V230_TAG: '1'
         run: pytest -v
 
+  lint:
+    name: Lint (renderer)
+    runs-on: ubuntu-latest
+    # Both of these are house rules rather than this job's own needs: CI is
+    # free because the repository is public, and a private mirror running the
+    # same workflows once cost $115 in billed minutes.
+    if: github.repository == 'ryanjosephkamp/resmon'
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: resmon_scripts/frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: resmon_scripts/frontend/package-lock.json
+
+      - name: Install dependencies
+        # `npm install`, not `npm ci`, for the reason spelled out in the
+        # Frontend job below: npm omits other platforms' optional
+        # dependencies from a lockfile generated on macOS.
+        run: npm install --no-audit --no-fund
+
+      - name: ESLint
+        # Warnings do not fail this job, and that is the point of it. The
+        # renderer had never been linted, so every rule it does not satisfy
+        # yet is a `warn` listed by name and count in eslint.config.mjs —
+        # 408 of them across 115 files when the job was added. The rules it
+        # does satisfy are errors and this step is what holds them, along
+        # with any `eslint-disable` left behind for a rule that reports
+        # nothing.
+        run: npm run lint
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest

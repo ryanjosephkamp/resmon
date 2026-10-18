@@ -155,6 +155,11 @@ const ExplorerPage: React.FC = () => {
     sources, categories, authors,
     date_from: dateFrom || null,
     date_to: dateTo || null,
+    // Keyed on the serialized `filterKey` on purpose: every field above is
+    // derived from `params`, so one string dependency is the whole set, and
+    // listing them individually would rebuild the object on each render
+    // without changing it. Checked against the real rule now that there is
+    // one, and kept.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [filterKey]);
 
