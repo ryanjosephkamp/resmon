@@ -15,6 +15,14 @@ jobs:
   backend:
     name: Backend (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    # Observed 15-19 min across the three columns; the default is 360.
+    timeout-minutes: 35
+    # Billing guard. Actions is free on a public repository and billed on a
+    # private one. In September 2026 the private mirror ran 235 UI-smoke jobs
+    # and 369 CI jobs; the macOS leg alone came to 1,500 minutes and $86.56.
+    # These jobs are meant to run here and nowhere else. sqlite-vec-probe.yml
+    # and voice-probe.yml have carried this same line since they were written.
+    if: github.repository == 'ryanjosephkamp/resmon'
     strategy:
       fail-fast: false
       matrix:
@@ -117,6 +125,9 @@ jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Billing guard — see the note on the first job in this file.
+    if: github.repository == 'ryanjosephkamp/resmon'
 
     defaults:
       run:

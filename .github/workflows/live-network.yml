@@ -48,6 +48,12 @@ jobs:
     name: Live network tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Billing guard. Actions is free on a public repository and billed on a
+    # private one. In September 2026 the private mirror ran 235 UI-smoke jobs
+    # and 369 CI jobs; the macOS leg alone came to 1,500 minutes and $86.56.
+    # These jobs are meant to run here and nowhere else. sqlite-vec-probe.yml
+    # and voice-probe.yml have carried this same line since they were written.
+    if: github.repository == 'ryanjosephkamp/resmon'
 
     env:
       # No OS keyring on a runner; without this every credential read pays the
