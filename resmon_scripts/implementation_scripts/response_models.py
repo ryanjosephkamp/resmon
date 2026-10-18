@@ -51,14 +51,16 @@ FastAPI's ``jsonable_encoder``, and the two disagree in a small, knowable set
 of cases. Measured, in every position an extra can occupy — top level, inside a
 list, inside a dict, and on a nested model:
 
-====================  ==========================  ==========================
-Value                 Unmodeled route            Through a response model
-====================  ==========================  ==========================
-``Decimal("1.50")``   ``1.5`` (a float)           ``"1.50"`` (a string)
-``PurePosixPath``     ``"/a/b"``                  ``PydanticSerializationError`` — a 500
-``float("inf")``,     a 500: ``json.dumps``       ``null``, quietly
-``float("nan")``      refuses a non-finite float
-====================  ==========================  ==========================
+``Decimal("1.50")``
+    Unmodeled, ``jsonable_encoder`` makes it the float ``1.5``. Through a
+    model, pydantic keeps the trailing zero and makes it the string
+    ``"1.50"`` — so it stops being a number.
+``PurePosixPath("/a/b")``
+    Unmodeled, the string ``"/a/b"``. Through a model,
+    ``PydanticSerializationError``, which is a 500.
+``float("inf")``, ``float("nan")``
+    Unmodeled, a 500: ``json.dumps`` refuses a non-finite float. Through a
+    model, ``null``, with nothing said.
 
 Two of those deserve their warning label. A ``PurePath`` raises where the
 concrete ``Path``/``PosixPath`` beside it serializes perfectly well, so the
