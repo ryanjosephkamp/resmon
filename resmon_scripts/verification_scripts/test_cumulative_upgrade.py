@@ -387,7 +387,11 @@ def test_every_row_written_by_v210_survives_the_walk_unaltered(walked):
     that silently stopped happening is as much a regression as one that
     silently started.
     """
-    before, after = walked["before"], _snapshot(walked["conn"])
+    before, raw_after = walked["before"], _snapshot(walked["conn"])
+    assert _settings_added(before, raw_after) == _MARKERS_A_LAUNCH_MAY_ADD, (
+        "the walk added app_settings keys this file does not name: "
+        f"{sorted(_settings_added(before, raw_after) - _MARKERS_A_LAUNCH_MAY_ADD)}")
+    after = _without_markers(raw_after)
     observed: set = set()
     tables = before["tables"]
     # v2.1.0 creates 22 tables of its own; `documents_fts` is the twenty-second
@@ -712,12 +716,56 @@ def test_every_enumerated_check_value_accepts_and_rejects_on_the_upgraded_databa
 # ---------------------------------------------------------------------------
 
 
-def _fingerprint(conn: sqlite3.Connection) -> str:
-    """One hash over the schema and every row, for comparing whole databases."""
+#: The ``app_settings`` keys a launch may **add** to a database that is already
+#: at today's schema: one-shot markers recording that a backfill has finished.
+#: They are data rather than schema -- no DDL, no CHECK, no version bump -- and
+#: they are what replaced gates that inferred "have I run?" from a count.
+#: ``document_facets_backfilled`` replaced a comparison of
+#: ``COUNT(DISTINCT document_id) FROM document_authors`` against
+#: ``COUNT(*) FROM documents``, which a single document with no authors made
+#: permanently unequal, so the facet backfill re-indexed the whole corpus on
+#: every launch forever.
+#:
+#: Every use below compares this set for **equality**, not membership: a marker
+#: nobody meant to add fails, and a marker that stops being written fails too.
+#: The two older markers -- ``execution_sources_backfilled`` and
+#: ``dedup_columns_backfilled`` -- are not here because every released fixture
+#: already carries them; a key leaves this set once a release ships with it.
+_MARKERS_A_LAUNCH_MAY_ADD = {"document_facets_backfilled"}
+
+
+def _settings_added(before: dict, after: dict) -> set:
+    """The ``app_settings`` keys that appeared between two snapshots."""
+    keys = lambda snapshot: {r["key"] for r in snapshot["rows"].get("app_settings", [])}  # noqa: E731
+    return keys(after) - keys(before)
+
+
+def _without_markers(snapshot: dict) -> dict:
+    """The snapshot with the one-shot backfill markers filtered out of ``app_settings``.
+
+    Used where a comparison is about everything *except* whether this build has
+    recorded its backfills; the caller asserts on that separately, by name.
+    """
+    rows = dict(snapshot["rows"])
+    rows["app_settings"] = [r for r in rows.get("app_settings", [])
+                            if r["key"] not in _MARKERS_A_LAUNCH_MAY_ADD]
+    return {**snapshot, "rows": rows}
+
+
+def _fingerprint(conn: sqlite3.Connection, *, ignore_markers: bool = False) -> str:
+    """One hash over the schema and every row, for comparing whole databases.
+
+    *ignore_markers* drops ``_MARKERS_A_LAUNCH_MAY_ADD`` from the hash. Its one
+    use is comparing a database across a launch that writes a one-shot marker
+    for the first time; the caller asserts separately, and by name, that those
+    were the only keys that appeared.
+    """
     digest = hashlib.sha256()
     for name, sql in sorted(_objects(conn).items(), key=lambda kv: kv[0]):
         digest.update(repr((name, sql)).encode())
     snapshot = _snapshot(conn)
+    if ignore_markers:
+        snapshot = _without_markers(snapshot)
     digest.update(repr(snapshot["sequences"]).encode())
     for table in snapshot["tables"]:
         digest.update(repr((table, snapshot["rows"][table])).encode())
@@ -1080,7 +1128,7 @@ def test_one_init_db_over_the_newest_releases_fixture_keeps_every_row(
     conn.executescript(release.corpus.read_text(encoding="utf-8"))
     conn.commit()
     assert database.get_schema_version(conn) == release.schema_version
-    before_print = _fingerprint(conn)
+    before_print = _fingerprint(conn, ignore_markers=True)
     before = _snapshot(conn)
     before_objects = _objects(conn)
     tables = len(_app_tables(conn))
@@ -1098,15 +1146,29 @@ def test_one_init_db_over_the_newest_releases_fixture_keeps_every_row(
             "A fixture that has shrunk makes this comparison mean less than it "
             "says, and an older release's fixture must not change at all.")
 
+        raw_after = _snapshot(conn)
+        added = _settings_added(before, raw_after)
+        assert added <= _MARKERS_A_LAUNCH_MAY_ADD, (
+            f"the launch added app_settings keys this file does not name: "
+            f"{sorted(added - _MARKERS_A_LAUNCH_MAY_ADD)}")
+
         if release.schema_version == database.SCHEMA_VERSION:
-            assert _fingerprint(conn) == before_print, (
+            # A fixture already at today's schema has one thing left for a
+            # launch to do: record the backfills this build has introduced
+            # since that release. Everything else -- every object, every row,
+            # every sequence -- comes back identical.
+            assert added == _MARKERS_A_LAUNCH_MAY_ADD, (
+                f"the {release.tag} fixture did not gain the one-shot markers "
+                f"this build writes: {sorted(_MARKERS_A_LAUNCH_MAY_ADD - added)}")
+            assert _fingerprint(conn, ignore_markers=True) == before_print, (
                 f"one init_db changed the {release.tag} fixture: same objects, "
                 "same rows and the same sequences were expected")
             print(f"P9 {release.tag}: {rows} rows across {tables} application "
-                  "tables unchanged by one init_db")
+                  f"tables unchanged by one init_db, beyond {len(added)} of "
+                  f"{len(_MARKERS_A_LAUNCH_MAY_ADD)} one-shot backfill markers")
             return
 
-        after = _snapshot(conn)
+        after = _without_markers(raw_after)
         assert after["tables"] == before["tables"] or set(before["tables"]) <= set(
             after["tables"]), "the walk dropped an application table"
         compared = 0

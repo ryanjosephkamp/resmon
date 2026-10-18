@@ -221,6 +221,11 @@ def _copy_vault(conn: sqlite3.Connection, vault_root: Path, into: Path) -> list[
     A vault whose bytes no longer hash to what the catalog recorded is not
     something to back up quietly: the copy would preserve the corruption and
     the manifest would certify it. The backup stops with the file named.
+
+    *conn* is the **bundle's** database, not the live one. The rows this reads
+    and the bytes it copies have to be one instant, and the bundle's snapshot
+    is the only handle that is still at that instant once the snapshot is
+    taken; ``create_backup`` says what went wrong when they were two.
     """
     into.mkdir(parents=True, exist_ok=True)
     entries: list[dict] = []
@@ -370,33 +375,68 @@ def create_backup(
     bundle.mkdir(parents=True)
     try:
         snapshot_database(conn, bundle / DB_NAME)
-        # Measured on the bundle's own copy, which is what a restore will put
-        # back -- not on the live database, which may have moved on since.
+        # Everything the bundle says about the database is read from the
+        # bundle's own copy, which is what a restore will put back -- never
+        # from the live connection, which has moved on since the snapshot.
+        #
+        # The vault catalog is the one that can destroy something. This used to
+        # read ``library_vault`` and ``library_files`` from ``conn`` *after* the
+        # snapshot, and ``POST /api/backup`` serves this on the running backend
+        # holding no import lock, so a Library import committing in between put
+        # a file into ``vault/`` that the bundle's own database had no row for
+        # (a deletion did the reverse). ``library._catalog_tree`` compares the
+        # retained directories against the catalog exactly and has no automatic
+        # recovery, so the restored Library refused every import with
+        # ``needs_attention`` -- the exact failure this module's docstring says
+        # it exists to prevent. ``verify_bundle`` could not catch it either: it
+        # re-hashes the file list that same post-snapshot read wrote.
+        #
+        # Taking the Library's ``.import.lock`` around both halves was the other
+        # option and is worse: that lock is an exclusive-create file with no
+        # automatic stale-lock recovery, so a backup would turn a concurrent
+        # import into ``busy`` and a backup killed mid-run would strand a lock
+        # the app refuses to clear. It would also leave ``table_counts`` split,
+        # because nothing outside the Library takes it.
         snapshot = sqlite3.connect(str(bundle / DB_NAME))
+        snapshot.row_factory = sqlite3.Row
         try:
             fk_listed, fk_total, fk_rows = foreign_key_violations(snapshot)
+
+            vault_id = None
+            vault_files: list[dict] = []
+            vault_row = snapshot.execute(
+                "SELECT vault_id, root_path FROM library_vault WHERE singleton=1").fetchone()
+            if vault_row is not None:
+                vault_id = vault_row["vault_id"]
+                # The rows come from the snapshot; the bytes can only come from
+                # disk. Retained bytes are immutable once published -- a
+                # committed copy is never removed or overwritten -- so a row in
+                # the snapshot names a file that is still there unless
+                # something outside resmon took it, and ``_copy_vault`` stops
+                # the backup by name when it is gone.
+                vault_files = _copy_vault(
+                    snapshot, Path(vault_row["root_path"]), bundle / VAULT_DIR)
+
+            counts = {}
+            for table in _app_tables(snapshot):
+                try:
+                    counts[table] = int(
+                        snapshot.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+                except sqlite3.Error:
+                    logger.debug("Could not count %s for the manifest", table)
+
+            excluded_credentials = (
+                credential_names_present() + webhook_secret_names(snapshot))
         finally:
             snapshot.close()
-        files = [_file_entry(bundle / DB_NAME, DB_NAME)]
 
-        vault_id = None
-        vault_row = conn.execute(
-            "SELECT vault_id, root_path FROM library_vault WHERE singleton=1").fetchone()
-        if vault_row is not None:
-            vault_id = vault_row["vault_id"]
-            files += _copy_vault(conn, Path(vault_row["root_path"]), bundle / VAULT_DIR)
+        # Hashed once the bundle's own connection is closed: a WAL database
+        # that is open has sidecars beside it, and the entry has to describe
+        # the single file a restore will put back.
+        files = [_file_entry(bundle / DB_NAME, DB_NAME)] + vault_files
 
         if include_reports and reports_dir is not None:
             files += _copy_reports(Path(reports_dir), bundle / REPORTS_DIR_NAME)
-
-        counts = {}
-        for table in _app_tables(conn):
-            try:
-                counts[table] = int(conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
-            except sqlite3.Error:
-                logger.debug("Could not count %s for the manifest", table)
-
-        excluded_credentials = credential_names_present() + webhook_secret_names(conn)
         manifest = {
             "manifest_version": MANIFEST_VERSION,
             "app_version": app_version,

@@ -916,6 +916,13 @@ def _migrate_pub_sort(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+#: Backfill guard for the facet tables. The pattern is the one
+#: ``_SOURCES_BACKFILL_KEY`` and ``_DEDUP_BACKFILL_KEY`` already use below, and
+#: it replaces a count comparison that could never converge; ``_migrate_search_index``
+#: carries the measurement and what the marker costs.
+_FACETS_BACKFILL_KEY = "document_facets_backfilled"
+
+
 def _migrate_search_index(conn: sqlite3.Connection) -> None:
     """Create the full-text index and backfill facets for existing corpora.
 
@@ -978,23 +985,72 @@ def _migrate_search_index(conn: sqlite3.Connection) -> None:
         """
     )
 
-    # Backfill, once. Compare counts rather than keeping a flag, so a database
-    # restored from a partial backup repairs itself.
+    # Backfill, once each. Neither half self-repairs, and the comment that said
+    # both did was wrong in opposite directions for two releases.
+    #
+    # The FTS rebuild is gated on the index having been absent before this
+    # call, because ``COUNT(*)`` on an external-content FTS table reads the
+    # content table rather than the index and so can never report a gap. An
+    # index that exists but is stale is therefore *not* rebuilt here. The one
+    # way that happens in practice -- a restore -- calls ``_rebuild_fts``
+    # itself, and the Danger Zone's corpus erase rebuilds too; a corpus that
+    # reaches that state any other way stays missing rows in free-text search
+    # until one of those runs. Asking fts5 for an ``integrity-check`` on every
+    # launch would find it, and would cost a full walk of the index at startup
+    # on exactly the large corpora this function was slowing down.
+    #
+    # The facets are gated on a marker key, like ``_SOURCES_BACKFILL_KEY`` and
+    # ``_DEDUP_BACKFILL_KEY`` below. This used to compare
+    # ``COUNT(DISTINCT document_id) FROM document_authors`` against
+    # ``COUNT(*) FROM documents``, which looks self-repairing and is not: a
+    # document whose source returned no authors -- OSTI, GovInfo, a dataset
+    # record, and one of the twelve papers in the shipped v2.1.0 fixture --
+    # contributes no author rows, so the two counts could never converge. One
+    # such paper made the condition permanently true and re-indexed the entire
+    # corpus on *every* launch, inside a write transaction, repairing nothing
+    # (every insert is an ``INSERT OR IGNORE`` that conflicts). Measured on
+    # synthetic corpora differing only in whether one document has an empty
+    # author string: ``init_db`` 13 ms -> 658 ms at 200,000 documents, on every
+    # start, with the whole ``(id, authors, categories)`` projection
+    # materialised in Python by ``.fetchall()``.
+    #
+    # The gap query now asks the real question instead of inferring it from a
+    # count, and is iterated as a cursor so the corpus is never in memory at
+    # once. It requires *both* facet tables to be empty for a document, because
+    # that is the only shape that means "never indexed": a paper with authors
+    # and no categories, or categories and no authors, was indexed by a source
+    # that gave one and not the other, and treating it as a gap is how the old
+    # count comparison got here. The marker is what a partial restore no longer
+    # repairs by itself: a database whose facet rows are lost without its
+    # ``app_settings`` going with them keeps the marker and is not re-indexed,
+    # and the user sees authors and categories missing from the Explorer's
+    # filter lists for the affected papers. Clearing ``app_settings`` -- which the Danger Zone's
+    # settings reset does, to this marker and to the two below alike -- makes
+    # the next launch walk the gaps again.
     doc_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-    if doc_count:
-        if not fts_existed:
-            conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
+    if doc_count and not fts_existed:
+        conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
 
-        faceted = conn.execute(
-            "SELECT COUNT(DISTINCT document_id) FROM document_authors"
-        ).fetchone()[0]
-        if faceted < doc_count:
-            for row in conn.execute(
-                "SELECT id, authors, categories FROM documents"
-            ).fetchall():
-                index_document_facets(conn, row["id"] if hasattr(row, "keys") else row[0],
-                                      row["authors"] if hasattr(row, "keys") else row[1],
-                                      row["categories"] if hasattr(row, "keys") else row[2])
+    backfilled = conn.execute(
+        "SELECT value FROM app_settings WHERE key = ?", (_FACETS_BACKFILL_KEY,)
+    ).fetchone()
+    if not (backfilled and backfilled[0] == "1"):
+        # A separate cursor for the scan: ``index_document_facets`` writes to
+        # the same connection, and a statement being stepped while its own
+        # table is written to is not something to rely on.
+        scan = conn.execute(
+            "SELECT d.id, d.authors, d.categories FROM documents d "
+            "WHERE NOT EXISTS (SELECT 1 FROM document_authors a "
+            "                  WHERE a.document_id = d.id) "
+            "  AND NOT EXISTS (SELECT 1 FROM document_categories c "
+            "                  WHERE c.document_id = d.id)"
+        )
+        for row in scan:
+            index_document_facets(conn, row[0], row[1], row[2])
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')",
+            (_FACETS_BACKFILL_KEY,),
+        )
     conn.commit()
 
 
@@ -1812,13 +1868,16 @@ def _migrate_jobs_duplicate_protection(conn: sqlite3.Connection) -> None:
 #     ``delivering`` by a backend that was SIGKILLed is re-queued on the next
 #     start **only** where that owner can be established to be gone.
 #
-# The seed is what keeps B4: every routine with ``email_enabled=1`` gets one
-# automatic email target, so a user who had completion emails before the
-# upgrade still has them after it with nothing to edit. ``email_enabled``
-# stays the routine-level switch the Routines page toggles -- an email target
-# whose routine has it off is not enqueued -- and the empty ``target`` those
-# seeded rows carry means "the recipient configured in Settings -> Email",
-# which is exactly where the address used to come from and still does.
+# The seed is what keeps functionality from decreasing: every routine with
+# ``email_enabled=1`` gets one automatic email target **on the launch that
+# performs the 20 -> 21 upgrade**, so a user who had completion emails before
+# the upgrade still has them after it with nothing to edit. It ran on every start until the gate was added, and
+# a target the user deleted therefore came back on the next one.
+# ``email_enabled`` stays the routine-level switch the Routines page toggles --
+# an email target whose routine has it off is not enqueued -- and the empty
+# ``target`` those seeded rows carry means "the recipient configured in
+# Settings -> Email", which is exactly where the address used to come from and
+# still does.
 
 _DELIVERY_V21_DDL = {
     "routine_delivery_targets": (
@@ -1888,6 +1947,10 @@ def _migrate_delivery(conn: sqlite3.Connection) -> None:
     savepoint, and the schema-20 shape check: an object that already exists
     with different SQL is a conflict, not something to accept quietly.
     """
+    # Read before the savepoint, as ``_migrate_evidence`` and
+    # ``_migrate_selected_evidence`` do: the step below writes 21 into this
+    # same row, so the only place to learn what the database was is here.
+    current = get_schema_version(conn)
     conn.execute("SAVEPOINT delivery_v21")
     try:
         for name, ddl in _DELIVERY_V21_DDL.items():
@@ -1904,33 +1967,43 @@ def _migrate_delivery(conn: sqlite3.Connection) -> None:
                     or " ".join((row[1] or "").split()) != " ".join(ddl.split())):
                 raise sqlite3.DatabaseError("Conflicting schema-21 shape: " + name)
 
-        # B4: the email that used to be sent straight from the completion hook
+        # The email that used to be sent straight from the completion hook
         # keeps being sent, to the same address, with no edit by the user. One
         # automatic target per routine that has the switch on, and only where
-        # that routine has no email target already -- the step must be safe to
-        # re-run, because init_db runs on every start.
-        stamp = utc_now_iso()
-        # Guarded by a SELECT rather than left to insert nothing: an
-        # ``INSERT ... SELECT`` that matches no rows still puts a
-        # ``routine_delivery_targets`` row into ``sqlite_sequence`` on an
-        # AUTOINCREMENT table, and a corpus with no email routines would then
-        # differ from a fresh install by a row nothing wrote.
-        needs_seed = conn.execute(
-            "SELECT 1 FROM routines r WHERE r.email_enabled = 1 AND NOT EXISTS ("
-            "    SELECT 1 FROM routine_delivery_targets t "
-            "    WHERE t.routine_id = r.id AND t.channel = 'email') LIMIT 1"
-        ).fetchone()
-        if needs_seed:
-            conn.execute(
-                "INSERT INTO routine_delivery_targets "
-                "(routine_id, channel, target, enabled, mode, created_at_utc, "
-                " updated_at_utc) "
-                "SELECT r.id, 'email', '', 1, 'automatic', ?, ? FROM routines r "
-                "WHERE r.email_enabled = 1 AND NOT EXISTS ("
+        # that routine has no email target already.
+        #
+        # **Only on the launch that performs the 20 -> 21 upgrade.** This used
+        # to run on every ``init_db`` -- its only guard was "does this routine
+        # already have an email target" -- so ``delivery.delete_target``
+        # removed the row, the next start put a new one back, and a user could
+        # not remove an email destination at all. The only thing that stuck was
+        # the separate ``email_enabled`` toggle, which is a different control
+        # in a different place. Seeding is a migration, and a migration runs on
+        # the upgrade that introduces it; re-running it is how a user's
+        # deletion became a round trip.
+        if current < 21:
+            stamp = utc_now_iso()
+            # Guarded by a SELECT rather than left to insert nothing: an
+            # ``INSERT ... SELECT`` that matches no rows still puts a
+            # ``routine_delivery_targets`` row into ``sqlite_sequence`` on an
+            # AUTOINCREMENT table, and a corpus with no email routines would
+            # then differ from a fresh install by a row nothing wrote.
+            needs_seed = conn.execute(
+                "SELECT 1 FROM routines r WHERE r.email_enabled = 1 AND NOT EXISTS ("
                 "    SELECT 1 FROM routine_delivery_targets t "
-                "    WHERE t.routine_id = r.id AND t.channel = 'email')",
-                (stamp, stamp),
-            )
+                "    WHERE t.routine_id = r.id AND t.channel = 'email') LIMIT 1"
+            ).fetchone()
+            if needs_seed:
+                conn.execute(
+                    "INSERT INTO routine_delivery_targets "
+                    "(routine_id, channel, target, enabled, mode, created_at_utc, "
+                    " updated_at_utc) "
+                    "SELECT r.id, 'email', '', 1, 'automatic', ?, ? FROM routines r "
+                    "WHERE r.email_enabled = 1 AND NOT EXISTS ("
+                    "    SELECT 1 FROM routine_delivery_targets t "
+                    "    WHERE t.routine_id = r.id AND t.channel = 'email')",
+                    (stamp, stamp),
+                )
 
         conn.execute(
             "INSERT INTO app_settings(key,value) VALUES (?,?) "
