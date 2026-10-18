@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import { apiClient } from '../api/client';
+import { RepoStatus, repoDoneStatus } from '../api/zeroReason';
 import { ExecutionStatus, TERMINAL_STATUSES } from './executionStatus';
 
 /* ------------------------------------------------------------------ */
@@ -46,11 +47,15 @@ export interface ActiveExecution {
    * never answered — a 503 and a quiet field looked identical on the monitor
    * because they are identical in the engine's result list. ``no_answer``
    * separates them, and ``skipped`` is the source that was never queried at
-   * all because a key it needs is not configured.
+   * all because a key it needs is not configured. ``not_recorded`` is the
+   * fourth end state the Monitor's help text promises: a zero resmon did not
+   * observe the reason for, which is unexplained rather than measured, and so
+   * is neither a tick nor a warning.
+   *
+   * Which state a ``repo_done`` lands in is decided by ``api/zeroReason``,
+   * not here — see that module for why.
    */
-  repoStatuses: Record<
-    string, 'pending' | 'querying' | 'done' | 'error' | 'no_answer' | 'skipped'
-  >;
+  repoStatuses: Record<string, RepoStatus>;
   /** Per-source zero reason and its rendered sentence, from ``repo_done``. */
   repoZeroReasons: Record<string, { reason: string; message: string }>;
   currentStage?: string;
@@ -95,22 +100,6 @@ interface ExecutionContextValue {
 /* State reducer                                                       */
 /* ------------------------------------------------------------------ */
 
-/**
- * The reasons that mean *the source did not answer*, as opposed to *it
- * answered and had nothing*. Mirrors ``DID_NOT_ANSWER`` in
- * ``implementation_scripts/zero_reason.py``; it is duplicated here only to
- * choose an icon. The **sentence** shown to the user is never composed in this
- * file — the backend renders it and it arrives on the event as
- * ``zero_message`` — so there is no second copy of the wording to drift.
- */
-const DID_NOT_ANSWER = new Set([
-  'missing_key',
-  'retired',
-  'window_unanswerable',
-  'upstream_failure',
-  'parse_failure',
-]);
-
 function updateExecutionState(
   prev: ActiveExecution,
   event: ProgressEvent,
@@ -129,11 +118,13 @@ function updateExecutionState(
       break;
     case 'repo_done': {
       const reason: string | undefined = event.zero_reason ?? undefined;
+      // The classification is the backend's, applied from the one copy of its
+      // vocabulary. This used to be an inline test against a hand-written set
+      // that was missing ``entity_unsupported``, so a source with no author
+      // query got a ✓ on every watch-profile sweep.
       next.repoStatuses = {
         ...next.repoStatuses,
-        [event.repository]:
-          (event.result_count ?? 0) === 0 && reason && DID_NOT_ANSWER.has(reason)
-            ? 'no_answer' : 'done',
+        [event.repository]: repoDoneStatus(event.result_count, reason),
       };
       if (reason && event.zero_message) {
         next.repoZeroReasons = {

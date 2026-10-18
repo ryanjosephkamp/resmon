@@ -35,9 +35,9 @@ const MONITOR_HELP_SECTIONS = [
         </p>
         <ul>
           <li><strong>answered, zero</strong> — the source replied and had nothing matching. A ✓.</li>
-          <li><strong>no answer</strong> — the source could not be queried, or cannot answer this window at all. A ⚠, and it is <em>not</em> a zero: it says nothing about whether the papers exist.</li>
+          <li><strong>no answer</strong> — the source could not be queried, cannot answer this window at all, or has no author query and so could not be asked about a person. A ⚠, and it is <em>not</em> a zero: it says nothing about whether the papers exist.</li>
           <li><strong>not queried</strong> — a key the source requires is not configured, so resmon never sent the query. A ⊘.</li>
-          <li><strong>reason not recorded</strong> — resmon did not observe why. Runs from before resmon 1.8.6 carry no reason at all. That is unexplained, not measured, and resmon will not guess.</li>
+          <li><strong>reason not recorded</strong> — resmon did not observe why. Runs from before resmon 1.8.6 carry no reason at all. That is unexplained, not measured, and resmon will not guess, so it is marked <strong>?</strong> rather than being counted either way.</li>
         </ul>
       </>
     ),

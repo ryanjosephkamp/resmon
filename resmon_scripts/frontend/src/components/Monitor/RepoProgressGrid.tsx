@@ -13,6 +13,11 @@ import { ActiveExecution } from '../../context/ExecutionContext';
  * so a 503 and a quiet field arrive here identically. They are different
  * facts and the grid now says so — a tick on a source that never answered is
  * the app agreeing that nothing was wrong.
+ *
+ * The four end states below are the four the Monitor's own help text
+ * promises. ``not_recorded`` is the last of them to arrive here: a zero whose
+ * reason resmon never observed used to fall through to ✓, which reads as "the
+ * source answered and had nothing" — the one thing the record does not say.
  */
 function statusIcon(status: string): string {
   switch (status) {
@@ -22,6 +27,8 @@ function statusIcon(status: string): string {
       return '⚠';
     case 'skipped':
       return '⊘';
+    case 'not_recorded':
+      return '?';
     case 'querying':
       return '⟳';
     case 'error':
@@ -35,6 +42,7 @@ const STATUS_LABEL: Record<string, string> = {
   done: 'done',
   no_answer: 'no answer',
   skipped: 'not queried',
+  not_recorded: 'reason not recorded',
   querying: 'querying',
   error: 'error',
   pending: 'pending',

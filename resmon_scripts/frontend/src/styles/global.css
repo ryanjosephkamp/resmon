@@ -1712,6 +1712,12 @@ html, body, #root {
   color: var(--text-secondary);
 }
 
+/* Neither green nor amber: resmon did not observe why this source returned
+   nothing, and both colours would be a claim about a fact it does not hold. */
+.mon-repo-icon--not_recorded {
+  color: var(--text-secondary);
+}
+
 .mon-repo-status {
   flex-wrap: wrap;
 }
@@ -1872,6 +1878,15 @@ html, body, #root {
 .mon-log-entry.log-error .mon-log-msg {
   color: #f85149;
 }
+
+/*
+ * `log-info` has no rule anywhere in this stylesheet, on purpose — this note
+ * is about its absence, not about the rule below. It is the class every
+ * ordinary event already carries, so a zero whose reason resmon never
+ * observed reads in the log's own default colour: neither the green of an
+ * answer nor the amber of a failure, because resmon does not know which it
+ * was.
+ */
 
 .mon-log-entry.log-warning .mon-log-msg {
   color: #d29922;
