@@ -578,6 +578,49 @@ def test_the_basis_warning_survives_every_route_that_returns_a_profile(driven):
     assert unwarned, "the delete scenario must have run"
 
 
+def test_a_stored_row_the_model_cannot_read_is_a_500_and_not_a_wrong_body():
+    """The second hazard, recorded rather than left to be found in the field.
+
+    ``response_model`` does not only filter a reply — it *validates* one, and a
+    value that fails validation is a ``ResponseValidationError``, which is a
+    500. Before the model the same row came back as a 200 with an odd body.
+    That is a behaviour difference, on a path no resmon code can produce: the
+    ``names`` column has held ``[{"value": ..., "script": ...}]`` since the
+    table was created, ``watch_profiles._clean_names`` is its only writer, and
+    no migration has ever reshaped it. A row in the pre-2.1 shape gets there by
+    somebody editing the SQLite file.
+
+    This test is here so that the difference is a decision somebody made and
+    can find, not a surprise. If the decision changes — a route that answers
+    what it has rather than failing — this is the test to change with it, and
+    the error below is what it is trading away: a message naming the exact
+    field, at the moment the shape stopped matching.
+    """
+    from fastapi.exceptions import ResponseValidationError  # noqa: PLC0415
+
+    resmon_mod._db_path = ":memory:"
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+    client = TestClient(resmon_mod.app)
+    created = client.post("/api/profiles", json={"display_name": "Jane"})
+    assert created.status_code == 201, created.text
+    profile_id = created.json()["id"]
+
+    conn = resmon_mod._get_db()
+    try:
+        conn.execute("UPDATE watch_profiles SET names = ? WHERE id = ?",
+                     (json.dumps(["Jane"]), profile_id))
+        conn.commit()
+    finally:
+        resmon_mod._close_db(conn)
+
+    with pytest.raises(ResponseValidationError) as caught:
+        client.get(f"/api/profiles/{profile_id}")
+    assert "names" in str(caught.value), (
+        "the failure must name the field whose shape it could not read; a "
+        "500 that does not is worse than the body it replaced")
+
+
 def test_the_export_body_still_spells_its_version_key_schema(driven):
     """The aliased field. ``schema`` cannot be an attribute name in pydantic.
 
