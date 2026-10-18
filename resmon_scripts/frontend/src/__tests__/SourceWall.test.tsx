@@ -24,6 +24,16 @@ import {
   SourceWallGrid, STATE_MARKS, WALL_STATE_ORDER, WallCell, WallState,
 } from '../api/sourceWall';
 
+/** The legend the backend serves. The renderer holds no copy of these words. */
+const LEGEND = [
+  { state: 'answered', label: 'answered', meaning: 'Replied with records.' },
+  { state: 'answered_empty', label: 'answered, zero', meaning: 'A quiet field.' },
+  { state: 'could_not_be_asked', label: 'could not be asked', meaning: 'Never asked.' },
+  { state: 'failed', label: 'failed', meaning: 'The exchange broke.' },
+  { state: 'not_recorded', label: 'outcome not recorded', meaning: 'A hole in the record.' },
+  { state: 'not_selected', label: 'not asked on this run', meaning: 'A choice on the run.' },
+];
+
 function cell(executionId: number, state: string, extra: Record<string, unknown> = {}): WallCell {
   return {
     execution_id: executionId,
@@ -52,17 +62,21 @@ function grid(overrides: Partial<SourceWallGrid> = {}): SourceWallGrid {
     ],
     sources: [
       { slug: 'arxiv', name: 'arXiv', in_catalog: true, latest_known_state: 'failed',
-        counts: { answered: 1, answered_empty: 0, could_not_be_asked: 0, failed: 1, not_recorded: 0 },
+        counts: { answered: 1, answered_empty: 0, could_not_be_asked: 0, failed: 1, not_recorded: 0, not_selected: 0 },
         cells: [cell(1, 'answered'), cell(2, 'failed')] },
       { slug: 'doaj', name: 'DOAJ', in_catalog: true, latest_known_state: 'answered_empty',
-        counts: { answered: 0, answered_empty: 1, could_not_be_asked: 0, failed: 0, not_recorded: 1 },
+        counts: { answered: 0, answered_empty: 1, could_not_be_asked: 0, failed: 0, not_recorded: 1, not_selected: 0 },
         cells: [cell(1, 'not_recorded'), cell(2, 'answered_empty')] },
       { slug: 'ieee', name: 'IEEE Xplore', in_catalog: true, latest_known_state: 'could_not_be_asked',
-        counts: { answered: 0, answered_empty: 0, could_not_be_asked: 2, failed: 0, not_recorded: 0 },
+        counts: { answered: 0, answered_empty: 0, could_not_be_asked: 2, failed: 0, not_recorded: 0, not_selected: 0 },
         cells: [cell(1, 'could_not_be_asked'), cell(2, 'could_not_be_asked')] },
     ],
     states: [...WALL_STATE_ORDER],
-    totals: { answered: 1, answered_empty: 1, could_not_be_asked: 2, failed: 1, not_recorded: 1 },
+    state_legend: LEGEND,
+    totals: {
+      answered: 1, answered_empty: 1, could_not_be_asked: 2,
+      failed: 1, not_recorded: 1, not_selected: 0,
+    },
     verdict: { level: 'attention', headline: 'arXiv has stopped answering.', detail: ['Because it did.'] },
     window: { requested: 12, returned: 2, max: 50, runs_available: 2 },
     notes: ['Every cell is one source’s recorded answer to one run.'],
@@ -94,19 +108,53 @@ describe('the source wall', () => {
     expect(first).toHaveAttribute('title', 'answered note for run 1');
   });
 
-  test('each of the five states carries a mark no other state carries', () => {
+  test('each of the six states carries a mark no other state carries', () => {
     render(<SourceWall grid={grid()} />);
 
-    const marks = WALL_STATE_ORDER.map((state) => STATE_MARKS[state].mark);
+    const marks = WALL_STATE_ORDER.map((state) => STATE_MARKS[state]);
     expect(new Set(marks).size).toBe(WALL_STATE_ORDER.length);
+    expect(WALL_STATE_ORDER).toHaveLength(6);
 
-    // The legend is built from the served state list, so a state the backend
-    // adds cannot reach the grid without reaching the key beside it.
+    // The legend is drawn from the list the backend served, so a state the
+    // backend adds cannot reach the grid without reaching the key beside it.
     const legend = screen.getByTestId('source-wall-legend');
-    for (const state of WALL_STATE_ORDER) {
-      expect(within(legend).getByText(STATE_MARKS[state].name)).toBeInTheDocument();
-      expect(within(legend).getAllByText(STATE_MARKS[state].mark).length).toBeGreaterThan(0);
+    for (const entry of LEGEND) {
+      expect(within(legend).getByText(entry.label)).toBeInTheDocument();
+      expect(within(legend).getAllByText(STATE_MARKS[entry.state as WallState]).length)
+        .toBeGreaterThan(0);
     }
+  });
+
+  test('the legend words are the backend\u2019s, not the renderer\u2019s', () => {
+    // The whole fix direction: the backend owns this vocabulary. A renderer
+    // that kept its own copy of it is what put a tick on sources that had
+    // never been asked, and a legend is that copy wearing a different hat.
+    const renamed = grid({
+      state_legend: LEGEND.map((e) => (
+        e.state === 'answered_empty' ? { ...e, label: 'renamed by the backend' } : e
+      )),
+    });
+    render(<SourceWall grid={renamed} />);
+
+    const legend = screen.getByTestId('source-wall-legend');
+    expect(within(legend).getByText('renamed by the backend')).toBeInTheDocument();
+    expect(within(legend).queryByText('answered, zero')).toBeNull();
+    expect(within(legend).queryByText('answered, nothing new')).toBeNull();
+  });
+
+  test('a source that was never asked on a run is a different mark from one with no outcome', () => {
+    const silences = grid();
+    silences.sources[1].cells[0] = cell(1, 'not_selected', {
+      outcome_recorded: false, in_selection: false, label: 'not asked on this run',
+      note: 'This source is not in this run\u2019s saved selection, so it was not asked.',
+    });
+    render(<SourceWall grid={silences} />);
+
+    const notAsked = screen.getByRole('button', { name: /DOAJ.*not asked on this run/s });
+    const noOutcome = screen.getByRole('button', { name: /DOAJ.*answered_empty label/s });
+    expect(notAsked).toHaveAttribute('data-state', 'not_selected');
+    expect(notAsked.textContent).not.toBe(noOutcome.textContent);
+    expect(notAsked.textContent).not.toBe(STATE_MARKS.not_recorded);
   });
 
   test('an unobserved cell is drawn as neither a tick nor a cross', () => {
@@ -116,8 +164,8 @@ describe('the source wall', () => {
     expect(unobserved).toHaveAttribute('data-state', 'not_recorded');
     expect(unobserved).toHaveAttribute('data-recorded', 'false');
     // The two marks that mean a verdict.
-    expect(unobserved.textContent).not.toContain(STATE_MARKS.answered.mark);
-    expect(unobserved.textContent).not.toContain(STATE_MARKS.failed.mark);
+    expect(unobserved.textContent).not.toContain(STATE_MARKS.answered);
+    expect(unobserved.textContent).not.toContain(STATE_MARKS.failed);
   });
 
   test('clicking a cell reads out the backend’s own sentence for it', () => {
@@ -142,7 +190,10 @@ describe('the source wall', () => {
   test('an empty corpus says so and draws no grid', () => {
     render(<SourceWall grid={grid({
       runs: [], sources: [],
-      totals: { answered: 0, answered_empty: 0, could_not_be_asked: 0, failed: 0, not_recorded: 0 },
+      totals: {
+        answered: 0, answered_empty: 0, could_not_be_asked: 0,
+        failed: 0, not_recorded: 0, not_selected: 0,
+      },
       verdict: { level: 'empty', headline: 'No runs are recorded yet, so there is nothing to check.', detail: [] },
       window: { requested: 12, returned: 0, max: 50, runs_available: 0 },
     })} />);

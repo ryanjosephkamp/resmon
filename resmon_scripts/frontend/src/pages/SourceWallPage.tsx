@@ -79,7 +79,7 @@ const SourceWallPage: React.FC = () => {
             ),
           },
           {
-            heading: 'What the five marks mean',
+            heading: 'What the six marks mean',
             body: (
               <ul>
                 <li><strong>answered</strong> — the source replied and returned records.</li>

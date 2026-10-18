@@ -5084,6 +5084,7 @@ a:hover { color: var(--color-accent-hover); }
   --sw-could-not-be-asked: var(--color-warning);
   --sw-failed: var(--color-error);
   --sw-not-recorded: var(--color-text-muted);
+  --sw-not-selected: var(--color-text-muted);
 
   --sw-cell: 22px;
   --sw-gap: 3px;
@@ -5202,6 +5203,15 @@ a:hover { color: var(--color-accent-hover); }
   border-style: dotted;
   border-color: var(--sw-rule);
   background: transparent;
+}
+/* Nothing was ever due in this cell, so it is drawn as absence rather than
+   as an empty slot: no outline, and the faintest mark on the screen. */
+.source-wall-swatch[data-state="not_selected"],
+.source-wall-cell[data-state="not_selected"] {
+  color: var(--sw-not-selected);
+  border-color: transparent;
+  background: transparent;
+  opacity: .45;
 }
 
 /* A partial answer is an answer that may be incomplete. It keeps its state

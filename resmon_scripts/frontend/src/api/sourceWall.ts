@@ -9,65 +9,62 @@
  * derived it differently, and the last copy put a tick on sources that had
  * never been asked.
  *
- * So what lives here is presentation, which the backend has no opinion about:
- * the mark each state is drawn with and the word it is called by. Those are
- * the renderer's to own, and the test beside this file asserts the marks are
- * distinct, because the whole screen rests on five states a person can tell
- * apart.
+ * So what lives here is the one thing the backend has no opinion about: the
+ * glyph each state is drawn with. **The words are not here.** The legend
+ * arrives on the payload as `state_legend`, because a renderer holding its
+ * own name for a backend state is the copy that put a tick on sources that
+ * had never been asked, and a legend is that copy wearing a different hat.
+ * The test beside this file asserts the glyphs are distinct, because the
+ * whole screen rests on six states a person can tell apart.
  */
 import { apiClient } from './client';
 
-/** The five states a cell can hold — `source_wall.WALL_STATES`, in its order. */
+/**
+ * The six states a cell can hold — `source_wall.WALL_STATES`, in its order.
+ *
+ * Five were the approved concept. `not_selected` is the sixth, and it is here
+ * because the stored data distinguished something the concept did not: a
+ * run's saved selection records which sources the user asked, so "I did not
+ * ask this one" and "I asked and do not know what happened" are both on disk.
+ * One is a choice, the other is a hole in the record, and they get different
+ * marks.
+ */
 export const WALL_STATE_ORDER = [
   'answered',
   'answered_empty',
   'could_not_be_asked',
   'failed',
   'not_recorded',
+  'not_selected',
 ] as const;
 
 export type WallState = typeof WALL_STATE_ORDER[number];
 
 /**
- * How each state is drawn, in three channels at once.
+ * The glyph each state is drawn with — the renderer's one contribution to
+ * this vocabulary, and the reason the screen works in three channels at once.
  *
- * Color is one of them and is never the only one. A screen whose five states
+ * Color is one of them and is never the only one. A screen whose states
  * differ only in hue is unreadable to roughly one man in twelve, and this one
  * is a status instrument — if the marks are ambiguous the screen is worse
  * than nothing, because it reads as reassurance.
  *
- * * **mark** — a distinct glyph per state, asserted distinct by the test.
+ * * **glyph** — here, asserted distinct across all six by the test.
  * * **fill** — solid, ring, hatched or empty, set in CSS from `data-state`.
  * * **color** — a custom property, saturated only for the four states that
- *   say something; `not_recorded` is the one state with no saturation at all,
- *   because it is the one state that is not a verdict.
+ *   say something; the two silent states have no saturation at all, because
+ *   neither of them is a verdict.
+ *
+ * The *word* for each state is not here. It comes from `state_legend` on the
+ * payload.
  */
-export const STATE_MARKS: Record<WallState, { mark: string; name: string; meaning: string }> = {
-  answered: {
-    mark: '●',
-    name: 'answered',
-    meaning: 'The source replied and returned records.',
-  },
-  answered_empty: {
-    mark: '○',
-    name: 'answered, nothing new',
-    meaning: 'The source replied and genuinely had nothing. A quiet field, not a fault.',
-  },
-  could_not_be_asked: {
-    mark: '⊘',
-    name: 'could not be asked',
-    meaning: 'No key, retired, no author query, or a window the source cannot answer.',
-  },
-  failed: {
-    mark: '✕',
-    name: 'failed',
-    meaning: 'The source was asked and the exchange broke.',
-  },
-  not_recorded: {
-    mark: '·',
-    name: 'not recorded',
-    meaning: 'resmon did not observe an outcome. This is not a success and not a failure.',
-  },
+export const STATE_MARKS: Record<WallState, string> = {
+  answered: '\u25CF',            // filled disc
+  answered_empty: '\u25CB',      // ring
+  could_not_be_asked: '\u2298',  // slashed circle, on a hatched cell
+  failed: '\u2715',              // cross
+  not_recorded: '\u00B7',        // faint dot, on a dotted cell
+  not_selected: '\u2013',        // en dash, on an unmarked cell
 };
 
 /**
@@ -120,6 +117,13 @@ export interface WallSource {
   latest_known_state: WallState | null;
 }
 
+/** One row of the key, composed by the backend — `source_wall.STATE_LEGEND`. */
+export interface WallLegendEntry {
+  state: string;
+  label: string;
+  meaning: string;
+}
+
 /** What the verdict line at the top says, composed by the backend. */
 export interface WallVerdict {
   level: 'ok' | 'attention' | 'unknown' | 'empty';
@@ -131,6 +135,7 @@ export interface SourceWallGrid {
   runs: WallRun[];
   sources: WallSource[];
   states: string[];
+  state_legend: WallLegendEntry[];
   totals: Record<WallState, number>;
   verdict: WallVerdict;
   window: { requested: number; returned: number; max: number; runs_available: number };

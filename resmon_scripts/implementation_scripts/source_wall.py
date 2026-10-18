@@ -32,7 +32,11 @@ The five states, and what each one is allowed to mean:
     reply resmon could not read, a recorded query error.
 ``not_recorded``
     resmon did not observe an outcome. **Never rendered as either success or
-    failure**, and never inferred into one of the other four.
+    failure**, and never inferred into one of the others.
+``not_selected``
+    This run's saved selection did not name this source, so nothing was asked
+    of it. A silence the user chose, which is a different fact from a silence
+    in the record, and the sixth state exists to keep them apart.
 
 Three collapses are deliberate and are the honest reading of what is stored,
 rather than places where the data ran out:
@@ -45,11 +49,10 @@ rather than places where the data ran out:
 * A ``cancelled`` row is ``not_recorded``. The user stopped the run; resmon
   observed its own cancellation, not an outcome from the source. Drawing it as
   ``failed`` would blame the source for the user's keystroke.
-* A source with no row for a run is ``not_recorded`` whether it was outside
-  that run's saved selection or simply unobserved. The two are distinguished
-  in the cell's ``in_selection`` field and in its note, because the stored data
-  *does* separate them, but they share a state: both mean resmon has nothing
-  to say about that source on that run.
+* A source with no row for a run whose saved selection *cannot be read* is
+  ``not_recorded``, not ``not_selected``. An unreadable selection is not
+  evidence that the user declined to ask: turning it into one would invent a
+  choice nobody made, which is the same move as inventing a zero reason.
 """
 
 from __future__ import annotations
@@ -58,14 +61,49 @@ import sqlite3
 
 from . import repo_catalog, source_coverage, zero_reason
 
-# The wall's vocabulary, in severity order -- answered first, the state that
-# says nothing last. The renderer derives its legend from this order.
+# The wall's vocabulary, in severity order -- answered first, the states that
+# say nothing last. The renderer draws this order and holds no copy of it.
+#
+# Five of these were the approved concept. ``not_selected`` is the sixth and
+# it is here because the stored data distinguished something the concept did
+# not: a run's saved selection says which sources the user asked, so "I did
+# not ask this source" and "I asked and do not know what happened" are both
+# on disk and they are not the same silence. The first is a choice the user
+# made; the second is a hole in the record. Collapsing them is the same
+# compression as calling a 503 an empty field, one level down.
 WALL_STATES: tuple[str, ...] = (
     "answered",
     "answered_empty",
     "could_not_be_asked",
     "failed",
     "not_recorded",
+    "not_selected",
+)
+
+# What each state is called and what it means, served with the grid.
+#
+# **The backend owns this vocabulary and the renderer takes it.** Two of these
+# words are ``source_coverage.outcome``'s own labels and are asserted equal to
+# them by ``test_the_legend_word_for_a_state_is_the_backend_s_own_word``: a
+# quiet field is called *answered, zero* here because that is what every other
+# surface in resmon calls it, not *answered, nothing new*, which was a phrase
+# from a brief. The renderer keeping its own name for a state is the defect
+# that was fixed in "One source of truth for 'did not answer' in the
+# renderer", and a legend is that same copy wearing a different hat. If the
+# word reads badly it is changed here, once, and every surface picks it up.
+STATE_LEGEND: tuple[dict[str, str], ...] = (
+    {"state": "answered", "label": "answered",
+     "meaning": "The source replied and returned records."},
+    {"state": "answered_empty", "label": "answered, zero",
+     "meaning": "The source replied and genuinely had nothing. A quiet field, not a fault."},
+    {"state": "could_not_be_asked", "label": "could not be asked",
+     "meaning": "No key, retired, no author query, or a window the source cannot answer."},
+    {"state": "failed", "label": "failed",
+     "meaning": "The source was asked and the exchange broke."},
+    {"state": "not_recorded", "label": "outcome not recorded",
+     "meaning": "resmon did not observe an outcome. This is not a success and not a failure."},
+    {"state": "not_selected", "label": "not asked on this run",
+     "meaning": "This run's saved selection did not name this source. Nothing was asked of it."},
 )
 
 # Which wall state each *non-answer* reason draws as.
@@ -91,6 +129,11 @@ _ANSWERING = frozenset({"answered", "answered_empty"})
 
 # The states that want the user's attention.
 _ATTENTION = frozenset({"could_not_be_asked", "failed"})
+
+# The two states that are not a verdict. Neither may be read as a source's
+# current condition: one is a hole in the record and the other is a run the
+# user chose not to put the source in.
+_SILENT = frozenset({"not_recorded", "not_selected"})
 
 # How many runs a single request may ask for. The wall is a scanning
 # instrument, not an archive: twelve columns fit a laptop window at the cell
@@ -157,26 +200,39 @@ def _run_label(row: dict, routine_names: dict[int, str]) -> str:
 
 
 def _unrecorded_cell(execution_id: int, in_selection: bool | None) -> dict:
-    if in_selection:
+    """A cell for a source this run has no row for -- one of the two silences.
+
+    ``in_selection`` is what separates them, and it comes from
+    ``source_coverage.selection`` rather than from the rows that happen to
+    exist, because a selection inferred from the outcomes recorded would make
+    a source that was asked and lost indistinguishable from one that was never
+    asked -- which is the distinction this branch exists to draw.
+    """
+    if in_selection is False:
+        state, label = "not_selected", "not asked on this run"
+        note = (
+            "This source is not in this run's saved selection, so it was not "
+            "asked. This is a choice recorded on the run, not a gap in what "
+            "resmon observed."
+        )
+    elif in_selection:
+        state, label = "not_recorded", "outcome not recorded"
         note = (
             "This source was part of this run's saved selection and resmon "
             "recorded no outcome for it. No attempt, failure or empty answer "
             "can be inferred."
         )
-    elif in_selection is False:
-        note = (
-            "This source is not in this run's saved selection, and no outcome "
-            "was recorded for it. It was not asked on this run."
-        )
     else:
+        state, label = "not_recorded", "outcome not recorded"
         note = (
             "This run's saved source selection is unknown and no outcome was "
-            "recorded for this source. Nothing can be inferred."
+            "recorded for this source. Nothing can be inferred -- in "
+            "particular, not that you chose not to ask it."
         )
     return {
         "execution_id": execution_id,
-        "state": "not_recorded",
-        "label": "no outcome recorded",
+        "state": state,
+        "label": label,
         "note": note,
         "result_count": None,
         "status": None,
@@ -217,7 +273,7 @@ def _latest_known_state(cells: list[dict]) -> str | None:
     what resmon recorded there is that it does not know.
     """
     for cell in reversed(cells):
-        if cell["state"] != "not_recorded":
+        if cell["state"] not in _SILENT:
             return cell["state"]
     return None
 
@@ -246,11 +302,18 @@ def _verdict(sources: list[dict], run_count: int) -> dict:
     stopped: list[str] = []
     silent: list[str] = []
     unobserved: list[str] = []
+    unasked: list[str] = []
     answering = 0
     for source in sources:
         latest = _latest_known_state(source["cells"])
         if latest is None:
-            unobserved.append(source["name"])
+            # A source with nothing but silence behind it: say which silence.
+            # "You never asked this one" and "resmon lost track of this one"
+            # want different things from the reader.
+            if all(cell["state"] == "not_selected" for cell in source["cells"]):
+                unasked.append(source["name"])
+            else:
+                unobserved.append(source["name"])
             continue
         if latest in _ANSWERING:
             answering += 1
@@ -267,6 +330,11 @@ def _verdict(sources: list[dict], run_count: int) -> dict:
         detail.append(
             f"{len(unobserved)} of {total} sources recorded no outcome in these "
             f"{runs}; resmon cannot say whether they answered."
+        )
+    if unasked:
+        detail.append(
+            f"{len(unasked)} of {total} sources were not in any of these "
+            f"{runs}' saved selections, so nothing was asked of them."
         )
 
     if stopped:
@@ -448,12 +516,15 @@ def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
         "note carries how many were matched and how many were kept.",
         "A cancelled run reads as not recorded for every source it was still "
         "querying: resmon observed its own cancellation, not an answer.",
+        "Not asked and not recorded are different marks. The first is a choice "
+        "saved on the run; the second is a gap in what resmon observed.",
     ]
     if unknown_selection:
         notes.append(
             f"{unknown_selection} of {len(runs)} runs have no usable saved "
-            "source selection, so for those runs resmon cannot say whether a "
-            "source with no recorded outcome was asked at all."
+            "source selection, so for those runs a source with no recorded "
+            "outcome reads as not recorded rather than not asked: resmon "
+            "cannot tell which it was and will not guess."
         )
     notes.extend(selection_notes)
 
@@ -461,6 +532,9 @@ def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
         "runs": runs,
         "sources": sources,
         "states": list(WALL_STATES),
+        # Served, not transcribed. The renderer draws a glyph per state and
+        # takes every word from here.
+        "state_legend": [dict(entry) for entry in STATE_LEGEND],
         "totals": totals,
         "verdict": _verdict(sources, len(runs)),
         "window": {

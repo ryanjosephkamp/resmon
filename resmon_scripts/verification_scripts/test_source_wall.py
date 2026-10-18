@@ -26,6 +26,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from implementation_scripts import database as db  # noqa: E402
+from implementation_scripts import source_coverage as coverage  # noqa: E402
 from implementation_scripts import source_wall, zero_reason  # noqa: E402
 import resmon as resmon_mod  # noqa: E402
 
@@ -109,10 +110,42 @@ def test_every_recorded_reason_reaches_exactly_one_wall_state(reason):
     assert set(mapped) == set(zero_reason.ZERO_REASONS)
 
 
-def test_the_states_are_the_five_the_screen_draws():
+def test_the_states_are_the_six_the_screen_draws():
+    """Five were approved; the sixth is here because the data had it.
+
+    `not_selected` and `not_recorded` are both silences and they are not the
+    same silence: one is a choice the user made and the other is a hole in the
+    record. Collapsing them is the same compression as calling a 503 an empty
+    field, one level down.
+    """
     assert source_wall.WALL_STATES == (
-        "answered", "answered_empty", "could_not_be_asked", "failed", "not_recorded",
+        "answered", "answered_empty", "could_not_be_asked", "failed",
+        "not_recorded", "not_selected",
     )
+
+
+def test_the_legend_word_for_a_state_is_the_backend_s_own_word():
+    """The renderer holds no copy of this vocabulary, and neither does a brief.
+
+    A zero that is a real answer is called *answered, zero* by
+    `source_coverage.outcome`, and the legend on the wall has to call it that
+    too. The renderer was burned this week by keeping its own copy of exactly
+    this vocabulary; the fix direction is that the backend owns the word and
+    every surface takes it, not that the backend is edited to match a screen.
+    """
+    legend = {entry["state"]: entry["label"] for entry in source_wall.STATE_LEGEND}
+    assert [entry["state"] for entry in source_wall.STATE_LEGEND] == list(source_wall.WALL_STATES)
+
+    quiet = coverage.outcome({"source": "x", "status": "ok", "result_count": 0,
+                              "zero_reason": "answered_empty"})
+    assert legend["answered_empty"] == quiet["label"] == "answered, zero"
+
+    got = coverage.outcome({"source": "x", "status": "ok", "result_count": 3,
+                            "zero_reason": None})
+    assert legend["answered"] == got["label"] == "answered"
+
+    for entry in source_wall.STATE_LEGEND:
+        assert entry["label"] and entry["meaning"]
 
 
 # ---------------------------------------------------------------------------
@@ -120,8 +153,8 @@ def test_the_states_are_the_five_the_screen_draws():
 # ---------------------------------------------------------------------------
 
 
-def test_each_of_the_five_states_is_reachable_from_stored_rows(conn):
-    """Five rows a real sweep can write, and five distinct cells out."""
+def test_each_of_the_six_states_is_reachable_from_stored_rows(conn):
+    """Rows a real sweep can write, and six distinct cells out."""
     slugs = ["arxiv", "biorxiv", "crossref", "doaj", "europe_pmc"]
     run = make_run(conn, started="2026-10-01T09:00:00", repositories=slugs)
     record(conn, run, "arxiv", count=7)
@@ -138,11 +171,19 @@ def test_each_of_the_five_states_is_reachable_from_stored_rows(conn):
     assert cell_for(wall, "crossref")["state"] == "could_not_be_asked"
     assert cell_for(wall, "doaj")["state"] == "failed"
     assert cell_for(wall, "europe_pmc")["state"] == "not_recorded"
+    # The sixth comes from a row recorded outside this run's saved selection,
+    # which gives the grid a source the run never asked.
+    record(conn, run, "zenodo", count=1)
+    later = make_run(conn, started="2026-10-02T09:00:00", repositories=slugs)
+    record(conn, later, "arxiv", count=1)
+    wall = source_wall.build(conn)
+    assert cell_for(wall, "zenodo", 0)["state"] == "answered"
+    assert cell_for(wall, "zenodo", 1)["state"] == "not_selected"
     assert {c["state"] for s in wall["sources"] for c in s["cells"]} == set(
         source_wall.WALL_STATES
     )
     # The cell carries the backend's own sentence; no consumer re-words it.
-    assert "503" in cell_for(wall, "doaj")["note"]
+    assert "503" in cell_for(wall, "doaj", 0)["note"]
 
 
 @pytest.mark.parametrize("reason", ["rights_filtered", "records_unusable"])
@@ -183,22 +224,50 @@ def test_an_unobserved_outcome_is_never_drawn_as_success_or_failure(conn, row):
     assert "cannot say" in wall["verdict"]["headline"]
 
 
-def test_a_source_with_no_row_for_a_run_reads_as_not_recorded(conn):
-    """And says which of the two silences it is, because the data knows."""
+def test_the_two_silences_are_drawn_apart(conn):
+    """"I did not ask" and "I asked and do not know" are different marks.
+
+    The first is a choice the user made; the second is a hole in the record.
+    Both used to draw as `not_recorded` with different hover text, which put
+    the whole distinction behind a mouse.
+    """
     run = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "doaj"])
     record(conn, run, "arxiv", count=4)
     record(conn, run, "pubmed", count=2)  # recorded, outside the saved selection
+    second = make_run(conn, started="2026-10-02T09:00:00", repositories=["arxiv"])
+    record(conn, second, "arxiv", count=5)
 
     wall = source_wall.build(conn)
 
-    selected_but_silent = cell_for(wall, "doaj")
-    assert selected_but_silent["state"] == "not_recorded"
-    assert selected_but_silent["outcome_recorded"] is False
-    assert selected_but_silent["in_selection"] is True
-    assert "recorded no outcome" in selected_but_silent["note"]
+    asked_and_unknown = cell_for(wall, "doaj", 0)
+    assert asked_and_unknown["state"] == "not_recorded"
+    assert asked_and_unknown["outcome_recorded"] is False
+    assert asked_and_unknown["in_selection"] is True
+    assert "recorded no outcome" in asked_and_unknown["note"]
+
+    never_asked = cell_for(wall, "doaj", 1)
+    assert never_asked["state"] == "not_selected"
+    assert never_asked["in_selection"] is False
+    assert "not asked" in never_asked["note"]
+
     # The source outside the selection still has a row: it was recorded.
-    assert cell_for(wall, "pubmed")["state"] == "answered"
-    assert cell_for(wall, "pubmed")["in_selection"] is False
+    assert cell_for(wall, "pubmed", 0)["state"] == "answered"
+    assert cell_for(wall, "pubmed", 0)["in_selection"] is False
+
+
+def test_an_unknown_saved_selection_is_not_turned_into_a_choice(conn):
+    """No usable selection means resmon cannot say the source was not asked."""
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=None)
+    record(conn, run, "arxiv", count=4)
+    later = make_run(conn, started="2026-10-02T09:00:00", repositories=None)
+    record(conn, later, "doaj", count=1)
+
+    wall = source_wall.build(conn)
+
+    silent = cell_for(wall, "arxiv", 1)
+    assert silent["state"] == "not_recorded"
+    assert silent["in_selection"] is None
+    assert "unknown" in silent["note"]
 
 
 def test_a_source_dropped_from_the_selection_keeps_its_row(conn):
@@ -213,7 +282,7 @@ def test_a_source_dropped_from_the_selection_keeps_its_row(conn):
 
     assert [s["slug"] for s in wall["sources"]] == ["arxiv", "doaj"]
     doaj = next(s for s in wall["sources"] if s["slug"] == "doaj")
-    assert [c["state"] for c in doaj["cells"]] == ["answered", "not_recorded"]
+    assert [c["state"] for c in doaj["cells"]] == ["answered", "not_selected"]
     assert doaj["cells"][1]["in_selection"] is False
 
 
@@ -300,6 +369,7 @@ def test_a_trailing_unrecorded_run_does_not_erase_the_last_known_outcome(conn):
     arxiv = next(s for s in wall["sources"] if s["slug"] == "arxiv")
 
     assert [c["state"] for c in arxiv["cells"]] == ["failed", "not_recorded"]
+    assert "not_selected" not in [c["state"] for c in arxiv["cells"]]
     assert arxiv["latest_known_state"] == "failed"
     assert wall["verdict"]["level"] == "attention"
 
@@ -345,6 +415,8 @@ def test_the_endpoint_serves_a_classified_grid(conn, client):
     body = response.json()
 
     assert body["states"] == list(source_wall.WALL_STATES)
+    # The legend travels with the grid, so the renderer keeps no copy of it.
+    assert [e["state"] for e in body["state_legend"]] == list(source_wall.WALL_STATES)
     assert len(body["runs"]) == 1
     # Every cell arrives classified. Nothing downstream has to look at a
     # status and a reason and decide again what they mean.

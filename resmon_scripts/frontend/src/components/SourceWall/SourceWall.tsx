@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   SourceWallGrid,
   STATE_MARKS,
-  WALL_STATE_ORDER,
   WallCell,
   WallSource,
   knownState,
@@ -31,15 +30,21 @@ import {
  * red from green. A status instrument that is ambiguous is worse than no
  * instrument, because it reads as reassurance.
  *
+ * **The two silences are two marks.** A run the user did not put a source in
+ * and a run resmon recorded no outcome for look identical from the outside
+ * and are not the same fact; the first is a choice and the second is a hole.
+ * That is the sixth state, and it is the reason this screen draws six rather
+ * than the five that were drawn on paper.
+ *
  * **Density with space inside it.** The grid is tight enough to take in at a
  * glance and the cells do not touch; the type is one strict scale and the
  * only large text on the screen is the verdict, which is the one thing a user
  * should be able to read from across the room.
  *
  * Everything the screen *says* is composed by the backend. The verdict
- * headline, the per-cell label and the per-cell sentence all arrive on the
- * payload. The renderer picks a glyph and a column; it does not decide what
- * happened.
+ * headline, the per-cell label and sentence, and every word in the key arrive
+ * on the payload. The renderer picks a glyph and a column; it does not decide
+ * what happened and it does not name it either.
  */
 
 interface Props {
@@ -88,17 +93,20 @@ const SourceWall: React.FC<Props> = ({ grid }) => {
           {`Showing ${bounds.returned} of ${bounds.runs_available} recorded runs`}
         </span>
         <ul className="source-wall-legend" data-testid="source-wall-legend">
-          {WALL_STATE_ORDER.map((state) => (
-            <li key={state} className="source-wall-legend-item">
-              <span className="source-wall-swatch" data-state={state} aria-hidden="true">
-                {STATE_MARKS[state].mark}
-              </span>
-              <span className="source-wall-legend-name" title={STATE_MARKS[state].meaning}>
-                {STATE_MARKS[state].name}
-              </span>
-              <span className="source-wall-legend-count">{grid.totals[state] ?? 0}</span>
-            </li>
-          ))}
+          {grid.state_legend.map((entry) => {
+            const state = knownState(entry.state);
+            return (
+              <li key={entry.state} className="source-wall-legend-item">
+                <span className="source-wall-swatch" data-state={state} aria-hidden="true">
+                  {STATE_MARKS[state]}
+                </span>
+                <span className="source-wall-legend-name" title={entry.meaning}>
+                  {entry.label}
+                </span>
+                <span className="source-wall-legend-count">{grid.totals[state] ?? 0}</span>
+              </li>
+            );
+          })}
         </ul>
       </div>
 
@@ -136,7 +144,6 @@ const SourceWall: React.FC<Props> = ({ grid }) => {
                   {source.cells.map((cell, index) => {
                     const run = runs[index];
                     const state = knownState(cell.state);
-                    const mark = STATE_MARKS[state];
                     return (
                       <td className="source-wall-slot" key={`${source.slug}:${cell.execution_id}`}>
                         <button
@@ -158,7 +165,7 @@ const SourceWall: React.FC<Props> = ({ grid }) => {
                             startedAt: run ? run.started_at : '',
                           })}
                         >
-                          <span aria-hidden="true">{mark.mark}</span>
+                          <span aria-hidden="true">{STATE_MARKS[state]}</span>
                         </button>
                       </td>
                     );
@@ -187,7 +194,7 @@ const SourceWall: React.FC<Props> = ({ grid }) => {
                 data-state={knownState(selected.cell.state)}
                 aria-hidden="true"
               >
-                {STATE_MARKS[knownState(selected.cell.state)].mark}
+                {STATE_MARKS[knownState(selected.cell.state)]}
               </span>
               {selected.cell.label}
             </p>
