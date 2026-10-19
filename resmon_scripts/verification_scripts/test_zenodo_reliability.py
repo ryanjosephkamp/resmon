@@ -64,19 +64,22 @@ class FrozenClock:
     — falls through to the real module, so code that wrongly sleeps still
     sleeps and still shows up in the elapsed figure the assertions report.
 
-    What that cannot catch: it governs only the ``time.monotonic()`` reads in
-    ``api_base`` and ``api_zenodo``. Should the budget's bookkeeping ever
-    reach the clock through a third module, or through a ``from time import
-    monotonic`` that binds the name at import, this test would go green
-    without exercising the seam at all — green for the wrong reason, which is
-    the failure mode it was written to end. A caller moving budget arithmetic
-    out of these two modules has to move this fake with it.
+    The fake governs only the ``time.monotonic()`` reads in ``api_base`` and
+    ``api_zenodo``. Should the budget's bookkeeping ever reach the clock
+    through a third module, or through a ``from time import monotonic`` that
+    binds the name at import, this test would go green without exercising the
+    seam at all — green for the wrong reason, which is the failure mode it was
+    written to end. ``reads`` is what keeps that from being only a docstring:
+    the test asserts the production path actually consulted this clock, so a
+    fake that has stopped governing anything fails instead of passing.
     """
 
     def __init__(self, start: float = 10_000.0) -> None:
         self.now = start
+        self.reads = 0
 
     def monotonic(self) -> float:
+        self.reads += 1
         return self.now
 
     def advance(self, seconds: float) -> None:
@@ -279,6 +282,10 @@ def test_later_page_cannot_reset_budget(wire, monkeypatch):
     began = time.monotonic()
     results = api_zenodo.ZenodoClient().search("synthetic", max_results=30)
     spent = elapsed_note(began)
+    # The seam is live: the production path read this clock rather than the
+    # machine's. Without this the fake could stop governing anything — budget
+    # arithmetic moving to a third module — and the test would still pass.
+    assert clock.reads > 0, f"the budget never read the injected clock; {spent}"
     assert len(results) == 25, f"{len(results)} of 25 records kept; {spent}"
     # No second request at all, so the limiter was never even admitted to.
     assert len(wire[0]) == 1, f"a later page started request {len(wire[0])}; {spent}"
