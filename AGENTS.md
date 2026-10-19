@@ -143,8 +143,7 @@ that column alone goes red, suspect a shared `sqlite3.Connection`.
   no matter what `RESMON_STATE_DIR` says, and two such runs with different state
   directories share one database. **Isolating a run means setting `RESMON_DB_PATH` and
   `RESMON_REPORTS_DIR` explicitly**, alongside `RESMON_STATE_DIR`; set `RESMON_PORT_FILE`
-  too unless you want the port file beside the database. The workspace dev launcher already
-  sets all of them.
+  too unless you want the port file beside the database.
 - `_db_path = ":memory:"` is backed by a temp file, not a true in-memory database, so
   every thread's connection sees the same data.
 - A test that asserts on the scheduler needs it live — CI deliberately leaves
