@@ -80,6 +80,176 @@
         "title": "AdminConfirmBody",
         "type": "object"
       },
+      "AiCliProbe": {
+        "additionalProperties": true,
+        "description": "One agent CLI, and where resmon looked for it.\n\n``found`` is detection, never a login check — the endpoint does not run the\nbinary — and ``login_checked`` is the field that says so out loud. It is\nalways ``false`` today, and it is in the body rather than in the\ndocumentation because a client that reads ``found`` as \"ready\" is making a\nclaim resmon has not checked.\n\n``path`` and ``how`` are ``None`` on a machine where the CLI is absent,\nwhich is most CI runners; ``tried`` is the candidate list, and it is here\nbecause \"not found\" alone does not tell a user that resmon looked in the\nwrong place.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "found": {
+            "title": "Found",
+            "type": "boolean"
+          },
+          "how": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "How"
+          },
+          "login_checked": {
+            "title": "Login Checked",
+            "type": "boolean"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "tried": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tried",
+            "type": "array"
+          }
+        },
+        "required": [
+          "provider",
+          "path",
+          "how",
+          "found",
+          "tried",
+          "detail",
+          "login_checked"
+        ],
+        "title": "AiCliProbe",
+        "type": "object"
+      },
+      "AiCliStatus": {
+        "additionalProperties": true,
+        "description": "``GET /api/settings/ai/cli-status``.",
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/AiCliProbe"
+            },
+            "title": "Providers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers"
+        ],
+        "title": "AiCliStatus",
+        "type": "object"
+      },
+      "AiSettings": {
+        "additionalProperties": true,
+        "description": "``GET /api/settings/ai`` — the AI lane, as sixteen stored strings.\n\n``ai_chain`` and ``ai_default_models`` are JSON *documents* stored as text,\nand they are declared ``str`` here because that is what the endpoint\nanswers: the renderer parses them. Declaring them as objects would be this\ncontract describing a shape the route does not send.",
+        "properties": {
+          "ai_chain": {
+            "title": "Ai Chain",
+            "type": "string"
+          },
+          "ai_cli_path": {
+            "title": "Ai Cli Path",
+            "type": "string"
+          },
+          "ai_custom_base_url": {
+            "title": "Ai Custom Base Url",
+            "type": "string"
+          },
+          "ai_custom_header_prefix": {
+            "title": "Ai Custom Header Prefix",
+            "type": "string"
+          },
+          "ai_default_models": {
+            "title": "Ai Default Models",
+            "type": "string"
+          },
+          "ai_effort": {
+            "title": "Ai Effort",
+            "type": "string"
+          },
+          "ai_extraction_goals": {
+            "title": "Ai Extraction Goals",
+            "type": "string"
+          },
+          "ai_local_endpoint": {
+            "title": "Ai Local Endpoint",
+            "type": "string"
+          },
+          "ai_local_model": {
+            "title": "Ai Local Model",
+            "type": "string"
+          },
+          "ai_model": {
+            "title": "Ai Model",
+            "type": "string"
+          },
+          "ai_provider": {
+            "title": "Ai Provider",
+            "type": "string"
+          },
+          "ai_show_audit_prefix": {
+            "title": "Ai Show Audit Prefix",
+            "type": "string"
+          },
+          "ai_subscription_doc_cap": {
+            "title": "Ai Subscription Doc Cap",
+            "type": "string"
+          },
+          "ai_summary_length": {
+            "title": "Ai Summary Length",
+            "type": "string"
+          },
+          "ai_temperature": {
+            "title": "Ai Temperature",
+            "type": "string"
+          },
+          "ai_tone": {
+            "title": "Ai Tone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ai_provider",
+          "ai_model",
+          "ai_local_model",
+          "ai_summary_length",
+          "ai_tone",
+          "ai_extraction_goals",
+          "ai_temperature",
+          "ai_show_audit_prefix",
+          "ai_custom_base_url",
+          "ai_custom_header_prefix",
+          "ai_default_models",
+          "ai_chain",
+          "ai_local_endpoint",
+          "ai_cli_path",
+          "ai_subscription_doc_cap",
+          "ai_effort"
+        ],
+        "title": "AiSettings",
+        "type": "object"
+      },
       "AssistantMessageBody": {
         "additionalProperties": false,
         "properties": {
@@ -195,6 +365,36 @@
         "title": "AssistantSessionCreate",
         "type": "object"
       },
+      "AssistantSettings": {
+        "additionalProperties": true,
+        "description": "``GET /api/settings/assistant``.",
+        "properties": {
+          "assistant_effort": {
+            "title": "Assistant Effort",
+            "type": "string"
+          },
+          "assistant_model": {
+            "title": "Assistant Model",
+            "type": "string"
+          },
+          "assistant_provider": {
+            "title": "Assistant Provider",
+            "type": "string"
+          },
+          "assistant_runtime": {
+            "title": "Assistant Runtime",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assistant_runtime",
+          "assistant_provider",
+          "assistant_model",
+          "assistant_effort"
+        ],
+        "title": "AssistantSettings",
+        "type": "object"
+      },
       "BackupRequest": {
         "properties": {
           "confirm": {
@@ -257,6 +457,26 @@
           }
         },
         "title": "CloudBackup",
+        "type": "object"
+      },
+      "CloudSettings": {
+        "additionalProperties": true,
+        "description": "``GET /api/settings/cloud`` — the Google Drive backup lane's two keys.",
+        "properties": {
+          "cloud_auto_backup": {
+            "title": "Cloud Auto Backup",
+            "type": "string"
+          },
+          "cloud_provider": {
+            "title": "Cloud Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cloud_provider",
+          "cloud_auto_backup"
+        ],
+        "title": "CloudSettings",
         "type": "object"
       },
       "ConfigCreate": {
@@ -339,6 +559,146 @@
         "title": "ConfigUpdate",
         "type": "object"
       },
+      "ConfigurationCreated": {
+        "additionalProperties": true,
+        "description": "``POST /api/configurations`` — 201, with the id the caller needs next.",
+        "properties": {
+          "config_type": {
+            "title": "Config Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "config_type"
+        ],
+        "title": "ConfigurationCreated",
+        "type": "object"
+      },
+      "ConfigurationDeleted": {
+        "additionalProperties": true,
+        "description": "``DELETE /api/configurations/{config_id}``.\n\nDeleting a routine configuration deletes its linked routine too, and the\nbody says nothing about that. It is recorded here rather than in the model\nbecause adding a field would be inventing one the handler does not send.",
+        "properties": {
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "title": "ConfigurationDeleted",
+        "type": "object"
+      },
+      "ConfigurationExport": {
+        "additionalProperties": true,
+        "description": "``POST /api/configurations/export`` — where the zip was written.\n\nA local filesystem path, which is a desktop app's honest answer: the\nrenderer reveals it in the Finder. It is the user's configured export\ndirectory when they have one and a temporary file when they do not.",
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "ConfigurationExport",
+        "type": "object"
+      },
+      "ConfigurationImportResult": {
+        "additionalProperties": true,
+        "description": "``POST /api/configurations/import``.\n\n``routines_created`` is separate from ``imported`` because a routine\nconfiguration arrives as one file and lands as two rows, and a count that\nfolded them together would tell a user they had imported twice what they\ndid. ``errors`` carries the files that could not be read, so a bad entry\nreports itself rather than failing the batch.",
+        "properties": {
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "imported": {
+            "title": "Imported",
+            "type": "integer"
+          },
+          "routines_created": {
+            "title": "Routines Created",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "imported",
+          "routines_created",
+          "errors"
+        ],
+        "title": "ConfigurationImportResult",
+        "type": "object"
+      },
+      "ConfigurationUpdated": {
+        "additionalProperties": true,
+        "description": "``PUT /api/configurations/{config_id}``.\n\n**The body assembled from whichever fields the caller sent.** The handler\nbuilds ``{\"id\": ..., **updates}``, where ``updates`` holds only the fields\nthe request carried, so a rename answers two keys and a rename-plus-rewrite\nanswers three. ``response_model_exclude_unset=True`` is what keeps the\nfirst case two keys instead of three-with-a-null.\n\n``parameters`` is a ``str`` because that is what the handler echoes: it\nstored ``json.dumps(...)`` and puts the stored text back. The list route\nanswers the parsed object instead.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameters"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ConfigurationUpdated",
+        "type": "object"
+      },
+      "CredentialPresence": {
+        "additionalProperties": true,
+        "description": "Whether one credential is there, never what it is.\n\n``status`` is ``present``, ``absent`` or ``unreadable``, and the third is\nthe one that matters: an unsigned macOS build is denied access to keychain\nitems an earlier build stored, and reporting that as absent tells a user\ntheir keys are gone when they are merely unreachable. ``present`` is the\nolder boolean, kept beside it for compatibility.",
+        "properties": {
+          "present": {
+            "title": "Present",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "present",
+          "status"
+        ],
+        "title": "CredentialPresence",
+        "type": "object"
+      },
       "CredentialStore": {
         "properties": {
           "value": {
@@ -379,6 +739,29 @@
           "key"
         ],
         "title": "CredentialValidate",
+        "type": "object"
+      },
+      "CredentialsPresence": {
+        "additionalProperties": true,
+        "description": "``GET /api/credentials``.\n\n``keyring_responsive`` is false once a read has timed out, so the interface\ncan say so once at the top rather than fifteen times over. The map is keyed\nby credential name — the union of the catalog's slots, the AI slots and the\nSMTP slot — and never holds a value.",
+        "properties": {
+          "credentials": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CredentialPresence"
+            },
+            "title": "Credentials",
+            "type": "object"
+          },
+          "keyring_responsive": {
+            "title": "Keyring Responsive",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "keyring_responsive",
+          "credentials"
+        ],
+        "title": "CredentialsPresence",
         "type": "object"
       },
       "DeliveryTargetCreate": {
@@ -575,6 +958,367 @@
         "title": "DocumentIdsBody",
         "type": "object"
       },
+      "EmailSettings": {
+        "additionalProperties": true,
+        "description": "``GET /api/settings/email`` — the SMTP destination, never the password.\n\nThe password lives in the keyring and is reported by ``/api/credentials``\nas present or absent. No field here has ever held a credential value and\nnone may.",
+        "properties": {
+          "smtp_from": {
+            "title": "Smtp From",
+            "type": "string"
+          },
+          "smtp_port": {
+            "title": "Smtp Port",
+            "type": "string"
+          },
+          "smtp_server": {
+            "title": "Smtp Server",
+            "type": "string"
+          },
+          "smtp_to": {
+            "title": "Smtp To",
+            "type": "string"
+          },
+          "smtp_username": {
+            "title": "Smtp Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "smtp_server",
+          "smtp_port",
+          "smtp_username",
+          "smtp_from",
+          "smtp_to"
+        ],
+        "title": "EmailSettings",
+        "type": "object"
+      },
+      "EmbeddingCapability": {
+        "additionalProperties": true,
+        "description": "Whether this backend can rank by similarity at all, and what by.\n\n``available`` needs both a loadable extension and rows in the index; either\nmissing means the sort option and the similar-papers panel are *absent*\nrather than present and empty. ``reason`` is the sentence the Settings page\nshows instead, and it is the field this model exists to keep.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "extension": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extension"
+          },
+          "indexed": {
+            "title": "Indexed",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "available",
+          "extension",
+          "reason",
+          "model",
+          "indexed"
+        ],
+        "title": "EmbeddingCapability",
+        "type": "object"
+      },
+      "EmbeddingCoverage": {
+        "additionalProperties": true,
+        "description": "How much of the corpus is embedded, read from the database not a counter.\n\nFrom the database so the numbers are right after a restart, after a cancel,\nand for a corpus somebody else's run embedded.",
+        "properties": {
+          "embedded": {
+            "title": "Embedded",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "embedded",
+          "total",
+          "model"
+        ],
+        "title": "EmbeddingCoverage",
+        "type": "object"
+      },
+      "EmbeddingIndexState": {
+        "additionalProperties": true,
+        "description": "What the vector index currently holds.",
+        "properties": {
+          "dims": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dims"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model",
+          "dims",
+          "rows"
+        ],
+        "title": "EmbeddingIndexState",
+        "type": "object"
+      },
+      "EmbeddingJobRun": {
+        "additionalProperties": true,
+        "description": "The backfill job's own state, running or not.\n\n``skipped_no_text`` is separate from ``processed`` on purpose: a document\nwith nothing to embed is not a failure and is not progress, and folding the\ntwo together would make a corpus of metadata-only records look embedded.",
+        "properties": {
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "boolean"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "processed": {
+            "title": "Processed",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          },
+          "skipped_no_text": {
+            "title": "Skipped No Text",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "running",
+          "model",
+          "processed",
+          "total",
+          "skipped_no_text",
+          "started_at",
+          "finished_at",
+          "cancelled",
+          "reason"
+        ],
+        "title": "EmbeddingJobRun",
+        "type": "object"
+      },
+      "EmbeddingJobStatus": {
+        "additionalProperties": true,
+        "description": "``run``, ``coverage``, ``extension`` and ``index`` together.",
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/EmbeddingCoverage"
+          },
+          "extension": {
+            "$ref": "#/components/schemas/VectorExtensionStatus"
+          },
+          "index": {
+            "$ref": "#/components/schemas/EmbeddingIndexState"
+          },
+          "run": {
+            "$ref": "#/components/schemas/EmbeddingJobRun"
+          }
+        },
+        "required": [
+          "run",
+          "coverage",
+          "extension",
+          "index"
+        ],
+        "title": "EmbeddingJobStatus",
+        "type": "object"
+      },
+      "EmbeddingLaneView": {
+        "additionalProperties": true,
+        "description": "The configured lane. ``null`` on the route above means the feature is off.\n\n``credential_alias`` is a keyring slot *name*. No field here holds a key\nvalue, in the same way ``EmbeddingLane`` itself does not.",
+        "properties": {
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "batch_size": {
+            "title": "Batch Size",
+            "type": "integer"
+          },
+          "credential_alias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Alias"
+          },
+          "dims": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dims"
+          },
+          "endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint"
+          },
+          "input_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Limit"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "provider",
+          "model",
+          "endpoint",
+          "base_url",
+          "credential_alias",
+          "batch_size",
+          "dims",
+          "input_limit"
+        ],
+        "title": "EmbeddingLaneView",
+        "type": "object"
+      },
       "EmbeddingProbeBody": {
         "description": "An unsaved lane to probe, so a user can test before committing to it.",
         "properties": {
@@ -594,6 +1338,178 @@
         "title": "EmbeddingProbeBody",
         "type": "object"
       },
+      "EmbeddingProviderAnswer": {
+        "additionalProperties": true,
+        "description": "Whether one provider can embed at all, and what that rests on.\n\nEvery provider resmon lists appears here, including the ones that cannot\nembed, because the interface states the limitation rather than omitting the\noption. ``evidence`` is the observation behind ``state`` — a dated request\nand its status — and it is a field a model written from the UI's needs\nwould have dropped, which would have left \"Anthropic does not offer an\nembeddings API\" as an assertion with nothing behind it.",
+        "properties": {
+          "default_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Model"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
+          },
+          "offered": {
+            "title": "Offered",
+            "type": "boolean"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "suggested_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggested Models",
+            "type": "array"
+          }
+        },
+        "required": [
+          "provider",
+          "state",
+          "reason",
+          "evidence",
+          "offered",
+          "default_model",
+          "suggested_models"
+        ],
+        "title": "EmbeddingProviderAnswer",
+        "type": "object"
+      },
+      "EmbeddingSettingsPage": {
+        "additionalProperties": true,
+        "description": "``GET /api/settings/embeddings`` — the stored keys plus everything the\ntab needs in order to render honestly.",
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/EmbeddingCapability"
+          },
+          "lane": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EmbeddingLaneView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/EmbeddingProviderAnswer"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/EmbeddingSettingsValues"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EmbeddingJobStatus"
+          }
+        },
+        "required": [
+          "settings",
+          "providers",
+          "lane",
+          "capability",
+          "status"
+        ],
+        "title": "EmbeddingSettingsPage",
+        "type": "object"
+      },
+      "EmbeddingSettingsSaved": {
+        "additionalProperties": true,
+        "description": "``PUT /api/settings/embeddings`` — the ack, and what the lane can now do.\n\nThe capability rides on the write because a model change rebuilds the\nindex, and a client that had to re-read the page to learn that would render\na stale answer in between.",
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/EmbeddingCapability"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "capability"
+        ],
+        "title": "EmbeddingSettingsSaved",
+        "type": "object"
+      },
+      "EmbeddingSettingsValues": {
+        "additionalProperties": true,
+        "description": "The stored ``embedding_*`` keys, owned by ``EMBEDDING_SETTING_KEYS``.",
+        "properties": {
+          "embedding_base_url": {
+            "title": "Embedding Base Url",
+            "type": "string"
+          },
+          "embedding_batch_size": {
+            "title": "Embedding Batch Size",
+            "type": "string"
+          },
+          "embedding_dims": {
+            "title": "Embedding Dims",
+            "type": "string"
+          },
+          "embedding_enabled": {
+            "title": "Embedding Enabled",
+            "type": "string"
+          },
+          "embedding_endpoint": {
+            "title": "Embedding Endpoint",
+            "type": "string"
+          },
+          "embedding_input_limit": {
+            "title": "Embedding Input Limit",
+            "type": "string"
+          },
+          "embedding_model": {
+            "title": "Embedding Model",
+            "type": "string"
+          },
+          "embedding_provider": {
+            "title": "Embedding Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "embedding_enabled",
+          "embedding_provider",
+          "embedding_model",
+          "embedding_endpoint",
+          "embedding_base_url",
+          "embedding_batch_size",
+          "embedding_dims",
+          "embedding_input_limit"
+        ],
+        "title": "EmbeddingSettingsValues",
+        "type": "object"
+      },
       "ExecutionExport": {
         "properties": {
           "ids": {
@@ -608,6 +1524,26 @@
           "ids"
         ],
         "title": "ExecutionExport",
+        "type": "object"
+      },
+      "ExecutionSettings": {
+        "additionalProperties": true,
+        "description": "``GET /api/settings/execution`` — two integers, parsed and bounded.",
+        "properties": {
+          "max_concurrent_executions": {
+            "title": "Max Concurrent Executions",
+            "type": "integer"
+          },
+          "routine_fire_queue_limit": {
+            "title": "Routine Fire Queue Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_concurrent_executions",
+          "routine_fire_queue_limit"
+        ],
+        "title": "ExecutionSettings",
         "type": "object"
       },
       "ExecutionSettingsBody": {
@@ -626,6 +1562,31 @@
           "routine_fire_queue_limit"
         ],
         "title": "ExecutionSettingsBody",
+        "type": "object"
+      },
+      "ExecutionSettingsSaved": {
+        "additionalProperties": true,
+        "description": "``PUT /api/settings/execution`` echoes what it stored.\n\nThe echo is the point: the handler clamps nothing and refuses out-of-range\nvalues with a 400, so a caller comparing what came back with what it sent\ncan tell a stored value from an ignored one.",
+        "properties": {
+          "max_concurrent_executions": {
+            "title": "Max Concurrent Executions",
+            "type": "integer"
+          },
+          "routine_fire_queue_limit": {
+            "title": "Routine Fire Queue Limit",
+            "type": "integer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "max_concurrent_executions",
+          "routine_fire_queue_limit"
+        ],
+        "title": "ExecutionSettingsSaved",
         "type": "object"
       },
       "ExplorerExportBody": {
@@ -856,6 +1817,44 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "Health": {
+        "additionalProperties": true,
+        "description": "``GET /api/health``.\n\n``embeddings`` is attempted against a real connection on every call rather\nthan read from a cached probe: it is a ``dlopen`` of a 165 KB library, and\na health endpoint answering from memory would keep reporting a capability\nthe process had lost.",
+        "properties": {
+          "embeddings": {
+            "$ref": "#/components/schemas/VectorExtensionStatus"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/RuntimeIdentity"
+          },
+          "pid": {
+            "title": "Pid",
+            "type": "integer"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "identity",
+          "pid",
+          "started_at",
+          "version",
+          "embeddings"
+        ],
+        "title": "Health",
+        "type": "object"
+      },
       "LibraryLinkBody": {
         "additionalProperties": false,
         "properties": {
@@ -943,6 +1942,130 @@
         "title": "LifecycleForDocumentsRequest",
         "type": "object"
       },
+      "NotificationSettings": {
+        "additionalProperties": true,
+        "description": "``GET /api/settings/notifications`` — the one group that is not strings.\n\nThe handler reads the same stored text as every other group and then\n*answers* a bool and a three-valued mode, defaulting ``notify_manual`` to\ntrue on a first load. So this model is ``bool`` and ``str`` where its\nsiblings are ``str`` and ``str``, and a model copied from one of them would\nhave turned ``true`` into ``\"true\"`` without dropping anything.",
+        "properties": {
+          "notify_automatic_mode": {
+            "title": "Notify Automatic Mode",
+            "type": "string"
+          },
+          "notify_manual": {
+            "title": "Notify Manual",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "notify_manual",
+          "notify_automatic_mode"
+        ],
+        "title": "NotificationSettings",
+        "type": "object"
+      },
+      "OnboardingCounts": {
+        "additionalProperties": true,
+        "description": "What the install already has. All three zero is what ``show`` keys on.",
+        "properties": {
+          "documents": {
+            "title": "Documents",
+            "type": "integer"
+          },
+          "executions": {
+            "title": "Executions",
+            "type": "integer"
+          },
+          "routines": {
+            "title": "Routines",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "documents",
+          "executions",
+          "routines"
+        ],
+        "title": "OnboardingCounts",
+        "type": "object"
+      },
+      "OnboardingDismissed": {
+        "additionalProperties": true,
+        "description": "``POST /api/onboarding/dismiss``.",
+        "properties": {
+          "dismissed": {
+            "title": "Dismissed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dismissed"
+        ],
+        "title": "OnboardingDismissed",
+        "type": "object"
+      },
+      "OnboardingState": {
+        "additionalProperties": true,
+        "description": "``GET /api/onboarding``.",
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/OnboardingCounts"
+          },
+          "dismissed": {
+            "title": "Dismissed",
+            "type": "boolean"
+          },
+          "show": {
+            "title": "Show",
+            "type": "boolean"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/OnboardingStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "show",
+          "dismissed",
+          "counts",
+          "steps"
+        ],
+        "title": "OnboardingState",
+        "type": "object"
+      },
+      "OnboardingStep": {
+        "additionalProperties": true,
+        "description": "One first-run step, as a fact rather than as prose.\n\n``done`` is **three-valued**, and declaring it ``bool`` is a real mistake\nthat this file made and ``test_onboarding.py`` caught: the two credential\nsteps call ``_credential_present``, which answers ``None`` when the keyring\nwill not say. An unsigned macOS build is denied the items an earlier build\nstored, and \"no key\" there would tell somebody to add a key they already\nhave — so the backend declines to answer, and the model has to be able to\ncarry that. ``done: bool`` did not merely mis-describe it; it turned a 200\ninto a ``ResponseValidationError``, which is a 500.\n\n``detail`` says which machine it looked on, and for the agent-CLI step it\nis detection and not a login check. The card renders it verbatim; it is not\na key a client may synthesize.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "done": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Done"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "done",
+          "detail"
+        ],
+        "title": "OnboardingStep",
+        "type": "object"
+      },
       "ProfileImportBody": {
         "description": "One exported profile, or a list of them.",
         "properties": {
@@ -971,6 +2094,259 @@
           }
         },
         "title": "ProfileMatchesForDocumentsBody",
+        "type": "object"
+      },
+      "ReadingQueueCounts": {
+        "additionalProperties": true,
+        "description": "How many are in each state, over the whole queue and not this page.",
+        "properties": {
+          "all": {
+            "title": "All",
+            "type": "integer"
+          },
+          "read": {
+            "title": "Read",
+            "type": "integer"
+          },
+          "to_read": {
+            "title": "To Read",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to_read",
+          "read",
+          "all"
+        ],
+        "title": "ReadingQueueCounts",
+        "type": "object"
+      },
+      "ReadingQueueDocument": {
+        "additionalProperties": true,
+        "description": "The stored paper a queue entry points at.\n\n``authors`` is the raw column, a JSON array stored as text; the renderer\nparses it. Every other nullable column of ``documents`` is optional here\nbecause it is nullable there.",
+        "properties": {
+          "abstract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstract"
+          },
+          "authors": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authors"
+          },
+          "categories": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categories"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "external_id": {
+            "title": "External Id",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "source_repository": {
+            "title": "Source Repository",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "source_repository",
+          "external_id",
+          "doi",
+          "title",
+          "authors",
+          "abstract",
+          "publication_date",
+          "url",
+          "categories",
+          "first_seen_at"
+        ],
+        "title": "ReadingQueueDocument",
+        "type": "object"
+      },
+      "ReadingQueueEntry": {
+        "additionalProperties": true,
+        "description": "One saved paper. ``read_at`` is ``None`` until it is marked read.\n\n``document`` is absent from the entry a write returns and present in the\nentry a page lists, which is why it is optional: the writes answer with the\nqueue row alone and the caller already has the paper it just saved.",
+        "properties": {
+          "document": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReadingQueueDocument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          },
+          "saved_at": {
+            "title": "Saved At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "status",
+          "saved_at",
+          "updated_at",
+          "read_at"
+        ],
+        "title": "ReadingQueueEntry",
+        "type": "object"
+      },
+      "ReadingQueuePage": {
+        "additionalProperties": true,
+        "description": "``GET /api/reading-queue``.\n\n``status`` echoes the filter that produced the page and is ``None`` when\nthe caller asked for both, so a client can tell \"everything\" from\n\"everything that happens to be unread\".",
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/ReadingQueueCounts"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/ReadingQueueEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entries",
+          "total",
+          "limit",
+          "offset",
+          "status",
+          "counts"
+        ],
+        "title": "ReadingQueuePage",
+        "type": "object"
+      },
+      "ReadingQueueRemoval": {
+        "additionalProperties": true,
+        "description": "``DELETE /api/reading-queue/{document_id}``. The paper is not touched.",
+        "properties": {
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed",
+          "document_id"
+        ],
+        "title": "ReadingQueueRemoval",
         "type": "object"
       },
       "ReadingQueueSaveBody": {
@@ -1032,6 +2408,26 @@
         "title": "ReferenceExportBody",
         "type": "object"
       },
+      "RendererHeartbeat": {
+        "additionalProperties": true,
+        "description": "``POST /api/renderer/heartbeat``.\n\n``ttl_sec`` is how long this ping suppresses the backend's own desktop\nnotifications. It is returned rather than assumed because the renderer\nsets its interval from it, and a renderer pinging slower than the TTL\nwould get both notifications.",
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "ttl_sec": {
+            "title": "Ttl Sec",
+            "type": "number"
+          }
+        },
+        "required": [
+          "ok",
+          "ttl_sec"
+        ],
+        "title": "RendererHeartbeat",
+        "type": "object"
+      },
       "RendererOriginBody": {
         "additionalProperties": false,
         "properties": {
@@ -1046,6 +2442,196 @@
           "origin"
         ],
         "title": "RendererOriginBody",
+        "type": "object"
+      },
+      "RepositoryCatalogEntry": {
+        "additionalProperties": true,
+        "description": "One source, as the Repositories page renders it.\n\nNot decoration: ``rate_limit``, ``upstream_policy`` and\n``keyword_combination`` are read by a user as statements of fact about\nsomebody else's search engine, and ``attribution`` with its\n``attribution_requirement`` is a license obligation rather than a courtesy\nwhen the requirement says ``required``. Those four are the fields a model\nwritten from the table's visible columns would have dropped, and dropping\nan attribution credit is the one failure mode in this file that is not\nmerely a missing feature.",
+        "properties": {
+          "api_key_requirement": {
+            "title": "Api Key Requirement",
+            "type": "string"
+          },
+          "attribution": {
+            "title": "Attribution",
+            "type": "string"
+          },
+          "attribution_requirement": {
+            "title": "Attribution Requirement",
+            "type": "string"
+          },
+          "attribution_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribution Source"
+          },
+          "client_module": {
+            "title": "Client Module",
+            "type": "string"
+          },
+          "credential_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Name"
+          },
+          "date_granularity": {
+            "title": "Date Granularity",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "entity_search": {
+            "$ref": "#/components/schemas/RepositoryEntitySearch"
+          },
+          "keyword_combination": {
+            "title": "Keyword Combination",
+            "type": "string"
+          },
+          "keyword_combination_notes": {
+            "title": "Keyword Combination Notes",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "string"
+          },
+          "parallel_safe": {
+            "title": "Parallel Safe",
+            "type": "string"
+          },
+          "placeholder": {
+            "title": "Placeholder",
+            "type": "string"
+          },
+          "query_method": {
+            "title": "Query Method",
+            "type": "string"
+          },
+          "rate_limit": {
+            "title": "Rate Limit",
+            "type": "string"
+          },
+          "registration_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registration Url"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "subject_coverage": {
+            "title": "Subject Coverage",
+            "type": "string"
+          },
+          "upstream_policy": {
+            "title": "Upstream Policy",
+            "type": "string"
+          },
+          "website": {
+            "title": "Website",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "description",
+          "subject_coverage",
+          "endpoint",
+          "query_method",
+          "rate_limit",
+          "client_module",
+          "api_key_requirement",
+          "credential_name",
+          "website",
+          "registration_url",
+          "placeholder",
+          "upstream_policy",
+          "parallel_safe",
+          "notes",
+          "keyword_combination",
+          "keyword_combination_notes",
+          "attribution",
+          "attribution_requirement",
+          "attribution_source",
+          "date_granularity",
+          "entity_search"
+        ],
+        "title": "RepositoryCatalogEntry",
+        "type": "object"
+      },
+      "RepositoryEntitySearch": {
+        "additionalProperties": true,
+        "description": "How a source can be asked about a *person*, in that source's own syntax.\n\n``author_syntax`` is the string ``api_base.search_entity`` puts into the\nquery, and a client that rewrites it destroys it silently — which is how\ntwo sources reported that a researcher had published nothing for as long as\nthe capability existed. ``established`` is the dated observation behind the\nrest of the row, and it is the field that makes the others checkable.",
+        "properties": {
+          "author_query": {
+            "title": "Author Query",
+            "type": "string"
+          },
+          "author_syntax": {
+            "title": "Author Syntax",
+            "type": "string"
+          },
+          "established": {
+            "title": "Established",
+            "type": "string"
+          },
+          "identifier_query": {
+            "title": "Identifier Query",
+            "type": "string"
+          },
+          "identifier_syntax": {
+            "title": "Identifier Syntax",
+            "type": "string"
+          },
+          "returns_affiliation": {
+            "title": "Returns Affiliation",
+            "type": "boolean"
+          },
+          "returns_orcid": {
+            "title": "Returns Orcid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "author_query",
+          "identifier_query",
+          "returns_orcid",
+          "returns_affiliation",
+          "author_syntax",
+          "identifier_syntax",
+          "established"
+        ],
+        "title": "RepositoryEntitySearch",
         "type": "object"
       },
       "RestartRequest": {
@@ -1343,6 +2929,94 @@
         "title": "RoutineWatchingProfile",
         "type": "object"
       },
+      "RuntimeIdentity": {
+        "additionalProperties": true,
+        "description": "Which backend, over which corpus — the attach-or-spawn answer.\n\nThis is the shape that exists because an MCP server once fell back to the\ndefault port and answered every question truthfully about the wrong corpus.\n``corpus_id`` and ``build_id`` are ``None`` where the install has not\nrecorded one; ``runtime_id`` is per process and always present.",
+        "properties": {
+          "build_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Id"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "corpus_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corpus Id"
+          },
+          "runtime_id": {
+            "title": "Runtime Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contract_version",
+          "runtime_id",
+          "schema_version",
+          "corpus_id",
+          "build_id"
+        ],
+        "title": "RuntimeIdentity",
+        "type": "object"
+      },
+      "SavedConfiguration": {
+        "additionalProperties": true,
+        "description": "One saved configuration, as the list returns it.\n\n``parameters`` is a parsed object **here** and a JSON string on the body\n``PUT`` answers — see ``ConfigurationUpdated``. The two really do differ,\nthe list route parses the column and the write route echoes what it stored,\nand declaring both the same way would have made this contract wrong about\none of them. It is ``Any`` rather than ``dict`` because the parse is\nbest-effort: a column that will not parse is left as its original string.",
+        "properties": {
+          "config_type": {
+            "title": "Config Type",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parameters": {
+            "title": "Parameters"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "config_type",
+          "parameters",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SavedConfiguration",
+        "type": "object"
+      },
       "ServiceInstallBody": {
         "properties": {
           "port": {
@@ -1377,6 +3051,21 @@
           "settings"
         ],
         "title": "SettingsBody",
+        "type": "object"
+      },
+      "SettingsSaved": {
+        "additionalProperties": true,
+        "description": "What the six plain settings PUTs answer: ``{\"success\": true}``.\n\nOne model for six routes rather than six identical ones. The two PUTs that\nanswer more than this —  embeddings and execution — have their own, because\na shared model that declared their extra keys would put those keys into the\nschema of four routes that never send them.",
+        "properties": {
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "title": "SettingsSaved",
         "type": "object"
       },
       "StarterWatchProfile": {
@@ -1476,6 +3165,36 @@
           "profiles"
         ],
         "title": "StarterWatchProfileList",
+        "type": "object"
+      },
+      "StorageSettings": {
+        "additionalProperties": true,
+        "description": "``GET /api/settings/storage``.",
+        "properties": {
+          "archive_after_days": {
+            "title": "Archive After Days",
+            "type": "string"
+          },
+          "export_directory": {
+            "title": "Export Directory",
+            "type": "string"
+          },
+          "pdf_policy": {
+            "title": "Pdf Policy",
+            "type": "string"
+          },
+          "txt_policy": {
+            "title": "Txt Policy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pdf_policy",
+          "txt_policy",
+          "archive_after_days",
+          "export_directory"
+        ],
+        "title": "StorageSettings",
         "type": "object"
       },
       "SweepRequest": {
@@ -1631,6 +3350,40 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VectorExtensionStatus": {
+        "additionalProperties": true,
+        "description": "Whether sqlite-vec loaded in *this* process, and why not when it did not.\n\nReturned by ``/api/health`` and twice inside the embeddings page. One model\nfor all three, because they are one function's output: ``extension`` is the\nloaded version or ``None``, and exactly one of the two fields is ever set.",
+        "properties": {
+          "extension": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extension"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "extension",
+          "reason"
+        ],
+        "title": "VectorExtensionStatus",
         "type": "object"
       },
       "WatchProfile": {
@@ -2321,6 +4074,130 @@
         "title": "WatchProfileName",
         "type": "object"
       },
+      "WatchdogCounts": {
+        "additionalProperties": true,
+        "description": "``alarms`` is the badge: broken plus unusual, muted ones excluded.",
+        "properties": {
+          "advice": {
+            "title": "Advice",
+            "type": "integer"
+          },
+          "alarms": {
+            "title": "Alarms",
+            "type": "integer"
+          },
+          "broken": {
+            "title": "Broken",
+            "type": "integer"
+          },
+          "muted": {
+            "title": "Muted",
+            "type": "integer"
+          },
+          "unusual": {
+            "title": "Unusual",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "broken",
+          "unusual",
+          "advice",
+          "muted",
+          "alarms"
+        ],
+        "title": "WatchdogCounts",
+        "type": "object"
+      },
+      "WatchdogFinding": {
+        "additionalProperties": true,
+        "description": "One thing the watchdog can say is wrong, with what it rests on.\n\n``scope`` and ``evidence`` are declared ``dict`` rather than modeled, for\ntwo different reasons, and only one of them is good.\n\n``evidence`` holds a different key set for each of the seven finding kinds,\nso there is no field list to write down and ``dict`` is the description\nthat fits.\n\n``scope`` is ``dict`` because a source's scope carries a **string** id and\na routine's carries an **integer** one, and this docstring used to claim\nthat a model declaring either would silently coerce the other. It would\nnot: on the pinned pydantic 2.12.4, ``id: str`` fed ``1`` raises rather\nthan stringifying it, so the mistake would be a 500 the equality sweep\ncatches and not a wrong body nobody notices. ``Union[str, int]`` is the\nright annotation, keeps both runtime types, and would give a client a real\nshape instead of ``object``. It is not here because the premise was found\nto be wrong after this slice was reviewed, and adding an unreviewed model\nto an accepted change is the worse trade. See the module docstring.\n\n``what_to_do`` is a field, not prose the renderer composes, because the\nsentence depends on the finding and a generic one would be advice resmon\nhas not earned.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "muted": {
+            "title": "Muted",
+            "type": "boolean"
+          },
+          "muted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Muted At"
+          },
+          "scope": {
+            "additionalProperties": true,
+            "title": "Scope",
+            "type": "object"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "what_to_do": {
+            "title": "What To Do",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "severity",
+          "kind",
+          "scope",
+          "title",
+          "detail",
+          "what_to_do",
+          "evidence",
+          "muted",
+          "muted_at"
+        ],
+        "title": "WatchdogFinding",
+        "type": "object"
+      },
+      "WatchdogMuteAck": {
+        "additionalProperties": true,
+        "description": "``POST /api/watchdog/mute`` and ``/unmute``, which differ only in ``status``.",
+        "properties": {
+          "finding_key": {
+            "title": "Finding Key",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "finding_key"
+        ],
+        "title": "WatchdogMuteAck",
+        "type": "object"
+      },
       "WatchdogMuteRequest": {
         "properties": {
           "finding_key": {
@@ -2346,6 +4223,166 @@
           "finding_key"
         ],
         "title": "WatchdogMuteRequest",
+        "type": "object"
+      },
+      "WatchdogReport": {
+        "additionalProperties": true,
+        "description": "``GET /api/watchdog``.\n\n``sufficient`` is false when there is no history to reason over at all. The\ninterface then says \"nothing to check yet\" rather than \"all clear\", which\nwould be a claim the watchdog has not earned — and it is exactly the field\na model written from the happy path would have left out.",
+        "properties": {
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/WatchdogCounts"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/WatchdogFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "not_enough_data": {
+            "items": {
+              "$ref": "#/components/schemas/WatchdogUnjudged"
+            },
+            "title": "Not Enough Data",
+            "type": "array"
+          },
+          "sufficient": {
+            "title": "Sufficient",
+            "type": "boolean"
+          },
+          "thresholds": {
+            "$ref": "#/components/schemas/WatchdogThresholds"
+          },
+          "watching": {
+            "$ref": "#/components/schemas/WatchdogWatching"
+          }
+        },
+        "required": [
+          "checked_at",
+          "findings",
+          "counts",
+          "not_enough_data",
+          "watching",
+          "thresholds",
+          "sufficient"
+        ],
+        "title": "WatchdogReport",
+        "type": "object"
+      },
+      "WatchdogThresholds": {
+        "additionalProperties": true,
+        "description": "The numbers every rule above was judged against.\n\nReturned rather than documented, so a user reading \"has failed on its last\n3 runs\" can see that 3 is the threshold and not a coincidence.",
+        "properties": {
+          "cadence_lag_multiple": {
+            "title": "Cadence Lag Multiple",
+            "type": "number"
+          },
+          "consecutive_errors": {
+            "title": "Consecutive Errors",
+            "type": "integer"
+          },
+          "consecutive_zeros": {
+            "title": "Consecutive Zeros",
+            "type": "integer"
+          },
+          "flatline_runs": {
+            "title": "Flatline Runs",
+            "type": "integer"
+          },
+          "min_baseline_runs": {
+            "title": "Min Baseline Runs",
+            "type": "integer"
+          },
+          "min_runs_for_cadence": {
+            "title": "Min Runs For Cadence",
+            "type": "integer"
+          },
+          "overdue_cadence_multiple": {
+            "title": "Overdue Cadence Multiple",
+            "type": "integer"
+          },
+          "overdue_floor_days": {
+            "title": "Overdue Floor Days",
+            "type": "number"
+          }
+        },
+        "required": [
+          "consecutive_errors",
+          "consecutive_zeros",
+          "min_baseline_runs",
+          "flatline_runs",
+          "overdue_cadence_multiple",
+          "overdue_floor_days",
+          "cadence_lag_multiple",
+          "min_runs_for_cadence"
+        ],
+        "title": "WatchdogThresholds",
+        "type": "object"
+      },
+      "WatchdogUnjudged": {
+        "additionalProperties": true,
+        "description": "Something the watchdog is watching and cannot judge yet.\n\nThe other half of an empty findings list: silence from a monitor means\neither \"nothing is wrong\" or \"nothing has been measured\", and this list is\nthe second. ``runs_not_a_measurement`` is present on a source row and\nabsent on a routine row, so it is optional and the route excludes unset.",
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "runs_needed": {
+            "title": "Runs Needed",
+            "type": "integer"
+          },
+          "runs_not_a_measurement": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runs Not A Measurement"
+          },
+          "runs_recorded": {
+            "title": "Runs Recorded",
+            "type": "integer"
+          },
+          "scope": {
+            "additionalProperties": true,
+            "title": "Scope",
+            "type": "object"
+          }
+        },
+        "required": [
+          "scope",
+          "reason",
+          "runs_recorded",
+          "runs_needed"
+        ],
+        "title": "WatchdogUnjudged",
+        "type": "object"
+      },
+      "WatchdogWatching": {
+        "additionalProperties": true,
+        "description": "How many sources and active routines the counts above are over.",
+        "properties": {
+          "routines": {
+            "title": "Routines",
+            "type": "integer"
+          },
+          "sources": {
+            "title": "Sources",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sources",
+          "routines"
+        ],
+        "title": "WatchdogWatching",
         "type": "object"
       }
     }
@@ -3621,7 +5658,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SavedConfiguration"
+                  },
+                  "title": "Response List Configurations Api Configurations Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -3655,7 +5698,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationCreated"
+                }
               }
             },
             "description": "Successful Response"
@@ -3691,7 +5736,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationExport"
+                }
               }
             },
             "description": "Successful Response"
@@ -3727,7 +5774,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationImportResult"
+                }
               }
             },
             "description": "Successful Response"
@@ -3764,7 +5813,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationDeleted"
+                }
               }
             },
             "description": "Successful Response"
@@ -3809,7 +5860,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationUpdated"
+                }
               }
             },
             "description": "Successful Response"
@@ -3877,7 +5930,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialsPresence"
+                }
               }
             },
             "description": "Successful Response"
@@ -6050,7 +8105,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
               }
             },
             "description": "Successful Response"
@@ -6753,7 +8810,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingState"
+                }
               }
             },
             "description": "Successful Response"
@@ -6770,7 +8829,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingDismissed"
+                }
               }
             },
             "description": "Successful Response"
@@ -7277,7 +9338,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingQueuePage"
+                }
               }
             },
             "description": "Successful Response"
@@ -7312,7 +9375,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingQueueEntry"
+                }
               }
             },
             "description": "Successful Response"
@@ -7350,7 +9415,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingQueueRemoval"
+                }
               }
             },
             "description": "Successful Response"
@@ -7396,7 +9463,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingQueueEntry"
+                }
               }
             },
             "description": "Successful Response"
@@ -7423,7 +9492,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RendererHeartbeat"
+                }
               }
             },
             "description": "Successful Response"
@@ -7440,7 +9511,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RepositoryCatalogEntry"
+                  },
+                  "title": "Response Repositories Catalog Api Repositories Catalog Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -8163,7 +10240,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response Search Repositories Api Search Repositories Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -8327,7 +10410,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AiSettings"
+                }
               }
             },
             "description": "Successful Response"
@@ -8351,7 +10436,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -8378,7 +10465,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AiCliStatus"
+                }
               }
             },
             "description": "Successful Response"
@@ -8394,7 +10483,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSettings"
+                }
               }
             },
             "description": "Successful Response"
@@ -8418,7 +10509,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -8444,7 +10537,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CloudSettings"
+                }
               }
             },
             "description": "Successful Response"
@@ -8468,7 +10563,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -8494,7 +10591,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EmailSettings"
+                }
               }
             },
             "description": "Successful Response"
@@ -8518,7 +10617,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -8562,7 +10663,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EmbeddingSettingsPage"
+                }
               }
             },
             "description": "Successful Response"
@@ -8587,7 +10690,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EmbeddingSettingsSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -8613,7 +10718,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionSettings"
+                }
               }
             },
             "description": "Successful Response"
@@ -8637,7 +10744,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionSettingsSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -8663,7 +10772,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettings"
+                }
               }
             },
             "description": "Successful Response"
@@ -8687,7 +10798,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -8713,7 +10826,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StorageSettings"
+                }
               }
             },
             "description": "Successful Response"
@@ -8737,7 +10852,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -8764,7 +10881,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchdogReport"
+                }
               }
             },
             "description": "Successful Response"
@@ -8791,7 +10910,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchdogMuteAck"
+                }
               }
             },
             "description": "Successful Response"
@@ -8828,7 +10949,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WatchdogMuteAck"
+                }
               }
             },
             "description": "Successful Response"
