@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import PageHelp from '../components/Help/PageHelp';
 import LibraryDetail from '../components/Library/LibraryDetail';
-import { LibraryFile, LibraryPage, LibraryStatus, MAX_BATCH_FILES, MAX_FILE_BYTES, libraryApi } from '../api/library';
+import { CREATE_VAULT_TIMEOUT_MESSAGE, LibraryFile, LibraryPage, LibraryStatus, MAX_BATCH_FILES, MAX_FILE_BYTES, libraryApi } from '../api/library';
 import { downloadInventory } from '../lib/libraryDownload';
 
 export default function LibraryPageComponent() {
@@ -15,9 +15,32 @@ export default function LibraryPageComponent() {
   // export, which never renders at the same time as this section.
   const [creating,setCreating]=useState(false);
   const [error,setError]=useState('');const [notice,setNotice]=useState('');const [importing,setImporting]=useState(false);
-  const epoch=useRef(0);const listEpoch=useRef(0);const selection=useRef<LibraryFile|null>(null);
+  // Each asynchronous control carries its own generation counter rather than
+  // sharing one. They shared a single ``epoch``, and ``select`` bumped it - so
+  // every Refresh Library, Search and Next 50 bumped it too, because ``load``
+  // opens with ``select(null)``. A create, an import or an inventory export
+  // still out at that moment had its own outcome discarded as stale: no
+  // confirmation, no refusal, no download, nothing written anywhere. The
+  // vault-creation deadline is what made it visible, because the sentence it
+  // writes names Refresh Library as the thing to press, and Refresh is the one
+  // control left enabled during a create - so following the message put the
+  // page back into exactly the silence the message exists to end.
+  //
+  // A run is now superseded only by a later run of the same control. The page
+  // going away is a separate condition and ``alive`` already carries it; every
+  // guard below reads it first.
+  const runs=useRef({choose:0,create:0,import:0,inventory:0});
+  const begin=(control:keyof typeof runs.current)=>++runs.current[control];
+  const listEpoch=useRef(0);const selection=useRef<LibraryFile|null>(null);
   const list=useRef<HTMLDivElement>(null);const alive=useRef(true);
-  const select=(file:LibraryFile|null)=>{++epoch.current;selection.current=file;setSelected(file);setError('');setNotice('');setBusy(false);};
+  // ``setBusy(false)`` stays, and it is no longer load-bearing for the export's
+  // result - only for its control. Nothing bounds an inventory export, so if
+  // one never answers this is the one thing that gives the user the Export
+  // button back; removing it would trade an erased outcome for a control
+  // disabled forever with nothing written beside it, which is the same defect
+  // wearing different clothes. A second export started that way supersedes the
+  // first and returns the same inventory.
+  const select=(file:LibraryFile|null)=>{selection.current=file;setSelected(file);setError('');setNotice('');setBusy(false);};
   const load=async(q:string,through?:number,before?:number)=>{
     const ticket=++listEpoch.current;select(null);setLoading(true);setError('');setPage(null);
     try{
@@ -30,32 +53,32 @@ export default function LibraryPageComponent() {
     }catch(err){if(alive.current&&ticket===listEpoch.current)setError(err instanceof Error?err.message:'Library could not be loaded.');}
     finally{if(alive.current&&ticket===listEpoch.current)setLoading(false);}
   };
-  useEffect(()=>{alive.current=true;void load('');return()=>{alive.current=false;++epoch.current;++listEpoch.current;};},[]);
+  useEffect(()=>{alive.current=true;void load('');return()=>{alive.current=false;++listEpoch.current;};},[]);
   const choose=async()=>{
-    const ticket=++epoch.current;setError('');
+    const ticket=begin('choose');setError('');
     try{
       if(!window.resmonAPI?.chooseDirectory)throw new Error('The desktop directory picker is unavailable.');
-      const chosen=await window.resmonAPI.chooseDirectory();if(alive.current&&ticket===epoch.current&&chosen)setParent(chosen);
-    }catch(err){if(alive.current&&ticket===epoch.current)setError(String(err));}
+      const chosen=await window.resmonAPI.chooseDirectory();if(alive.current&&ticket===runs.current.choose&&chosen)setParent(chosen);
+    }catch(err){if(alive.current&&ticket===runs.current.choose)setError(String(err));}
   };
   const create=async()=>{
-    const ticket=++epoch.current;setCreating(true);setError('');setNotice('');
+    const ticket=begin('create');setCreating(true);setError('');setNotice('');
     try{
       await libraryApi.create(parent);
-      if(!alive.current||ticket!==epoch.current)return;
+      if(!alive.current||ticket!==runs.current.create)return;
       setParent('');await load(query);
       // ``load`` clears the notice through ``select(null)``, so finishing is
       // said after it rather than before.
       if(alive.current)setNotice('Managed vault created. Import is available below.');
     }
-    catch(err){if(alive.current&&ticket===epoch.current)setError(err instanceof Error?err.message:'Vault creation failed.');}
+    catch(err){if(alive.current&&ticket===runs.current.create)setError(err instanceof Error?err.message:'Vault creation failed.');}
     finally{if(alive.current)setCreating(false);}
   };
   const importFiles=async(files:File[])=>{
     if(!status?.vault)return;
     if(files.length>MAX_BATCH_FILES){setError('Choose at most 20 files per sequential batch. Nothing was imported.');return;}
     if(files.some(f=>!f.size||f.size>MAX_FILE_BYTES)){setError('Each selected file must be nonempty and at most 64 MiB. Nothing was imported.');return;}
-    const vault=status.vault.vault_id;const ticket=++epoch.current;setImporting(true);setError('');setNotice('');
+    const vault=status.vault.vault_id;const ticket=begin('import');setImporting(true);setError('');setNotice('');
     let created=0,reused=0;const failures:string[]=[];
     for(const file of files){
       if(!alive.current)break;
@@ -64,19 +87,19 @@ export default function LibraryPageComponent() {
     }
     if(!alive.current)return;
     setImporting(false);
-    if(ticket!==epoch.current)return;
+    if(ticket!==runs.current.import)return;
     await load(query);
     setNotice(`${created} retained, ${reused} exact duplicates reused, ${files.length-created-reused-failures.length} not attempted. Originals remain unchanged.`);
     if(failures.length)setError(failures.join('\n'));
   };
   const inventory=async()=>{
     if(!status?.vault)return;
-    const vault=status.vault.vault_id,ticket=++epoch.current;setBusy(true);setError('');setNotice('');
+    const vault=status.vault.vault_id,ticket=begin('inventory');setBusy(true);setError('');setNotice('');
     try{
-      const result=await libraryApi.inventory(vault);if(!alive.current||ticket!==epoch.current)return;
+      const result=await libraryApi.inventory(vault);if(!alive.current||ticket!==runs.current.inventory)return;
       downloadInventory(result,vault);setNotice('Complete JSON inventory download requested. This contains metadata, not retained file bytes.');
-    }catch(err){if(alive.current&&ticket===epoch.current)setError(err instanceof Error?err.message:'Inventory export failed.');}
-    finally{if(alive.current&&ticket===epoch.current)setBusy(false);}
+    }catch(err){if(alive.current&&ticket===runs.current.inventory)setError(err instanceof Error?err.message:'Inventory export failed.');}
+    finally{if(alive.current&&ticket===runs.current.inventory)setBusy(false);}
   };
   return <div className="library-page">
     <div className="library-toolbar"><h1>Library</h1><button disabled={loading||importing} onClick={()=>void load(query)}>Refresh Library</button></div>
@@ -88,7 +111,15 @@ export default function LibraryPageComponent() {
       <p>The complete JSON inventory is recorded metadata, limited to 8 MiB. It is not a file bundle, backup, relocation tool or integrity scan. Review original names before sharing. Library catalog and retained files survive existing resets and corpus erasure; paper associations disappear when their local paper is deleted. Database backup alone does not preserve managed bytes. No automatic Library cloud backup is added.</p>
     <p>Creating a vault reports which state it is in: it says it is working while the request is out, names the refusal if one comes back, and confirms when the vault exists. If nothing comes back within 30 seconds the attempt is given up and says so; whether the vault was created is unknown from the page, so Refresh Library is what shows you what is actually there.</p>
     <p>For PDFs, Read PDF in Evidence carries this exact selected version. Choose a project and explicitly add it to open the reader; an existing membership is reused. Downloads at the bottom of the app shows completed export filenames and their saved locations.</p></PageHelp>
-    {error&&<p role="alert" className="library-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
+    {/* A creation the page gave up on is not a refusal. The ``role="alert"``
+        ``library-error`` line is where this page quotes what resmon said when
+        it said no, and a sentence whose own content is "whether the vault was
+        created is unknown from here" claims a failure the client never saw.
+        It gets its own polite line, so a reader - and a test, and an e2e spec
+        reading by role - can tell a refusal from an unknown outcome. */}
+    {error&&(error===CREATE_VAULT_TIMEOUT_MESSAGE
+      ?<p role="status" className="library-unknown">{error}</p>
+      :<p role="alert" className="library-error">{error}</p>)}{notice&&<p role="status">{notice}</p>}
     {loading&&<p role="status">Loading Library…</p>}
     {status&&!status.vault&&<section aria-label="Create managed vault"><h2>Create your managed vault</h2><p>A new child folder will be created inside your selected parent. Existing folders are never adopted.</p>
       <button disabled={creating} onClick={()=>void choose()}>Choose parent folder</button><p>{parent||'No parent selected.'}</p><button disabled={!parent||creating} onClick={()=>void create()}>Create managed vault</button>
