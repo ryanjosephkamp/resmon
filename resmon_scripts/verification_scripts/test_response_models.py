@@ -635,12 +635,25 @@ def _drive_watchdog_and_first_run(drive: Drive) -> None:
     #
     # Patched by hand rather than with ``monkeypatch``: this is a module-scoped
     # fixture and the function-scoped one is not available in it.
-    original = resmon_mod.keyring_is_responsive
+    #
+    # ``probe_credential`` is patched as well as ``keyring_is_responsive``, and
+    # that is not belt and braces. ``_credential_present`` answers ``None``
+    # only when *no* name in the set is present, so leaving the real probe in
+    # place makes this assertion depend on whether some earlier test in the
+    # session stored a key in the shared in-memory keyring. It passed alone and
+    # failed in CI on all three Python versions for exactly that reason: by the
+    # time the full suite reached this file, ``ai_key`` was present and only
+    # ``repository_key`` came back undecided. The scenario now controls both
+    # halves of the condition it is asserting about.
+    original_responsive = resmon_mod.keyring_is_responsive
+    original_probe = resmon_mod.probe_credential
     resmon_mod.keyring_is_responsive = lambda: False
+    resmon_mod.probe_credential = lambda _name: "unreadable"
     try:
         unreadable = drive("GET", "/api/onboarding")
     finally:
-        resmon_mod.keyring_is_responsive = original
+        resmon_mod.keyring_is_responsive = original_responsive
+        resmon_mod.probe_credential = original_probe
     undecided = [s["id"] for s in unreadable["steps"] if s["done"] is None]
     assert undecided == ["ai_key", "repository_key"], (
         "an unreadable keyring must leave both credential steps undecided; "
