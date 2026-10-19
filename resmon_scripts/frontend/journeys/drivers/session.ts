@@ -370,7 +370,13 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     //
     // Only for the build this checkout produced. The classic leg launches a
     // build that predates the flag and would show its window, which is a true
-    // statement about that build and not a failure of this one.
+    // statement about that build and not a failure of this one. The comparison
+    // is on the resolved path rather than on `RESMON_JOURNEY_APP` being unset,
+    // so pointing that variable at this checkout still asserts — but
+    // `appRootAt` normalizes with `path.resolve`, not `realpathSync`, so a path
+    // that reaches this same checkout through a symlink compares unequal and
+    // silently skips. That direction is the safe one: it declines to assert
+    // rather than asserting about somebody else's build.
     if (env.RESMON_HIDDEN_WINDOW === '1' && root.frontend === THIS_CHECKOUT.frontend) {
       const onScreen = await app.evaluate(({ BrowserWindow }) => BrowserWindow
         .getAllWindows().filter((other) => other.isVisible()).length);
