@@ -150,6 +150,75 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     await win().waitForLoadState('networkidle').catch(() => { /* the long-poll pages never idle */ });
   };
 
+  /**
+   * Wait until the app has **stored** what the click asked for.
+   *
+   * This is the readiness predicate for every write in this driver, and it is
+   * deliberately not a screen assertion. A screen assertion after a write is
+   * only sound when the state it names could not already have been true, and
+   * the suite has now paid twice for one that could: `activateRoutine` waited
+   * for a `.badge` matching `hasText: 'Active'`, and Playwright's `hasText`
+   * string form is a **case-insensitive substring** — so "Inactive", the badge
+   * that was already on the row, satisfied it. The wait returned in the same
+   * millisecond as the click, the spec's very next line read the badge, and
+   * J03 failed in three seconds against a healthy seven-second run. Five red
+   * Journeys jobs across four branches, one of them on a pull request whose
+   * whole content was a word in a markdown file, and three people each spent
+   * half an hour ruling out their own diff.
+   *
+   * The record cannot be satisfied early in that way: it is what the write
+   * produced, read back from the app's own API. So a write settles in two
+   * steps — the record first, then the screen agreeing with it — and the
+   * second step is written so that it, too, is false before the write.
+   *
+   * The project learned this shape expensively somewhere else: text visible in
+   * a textarea was once treated as proof that a note had been saved.
+   */
+  const stored = async <T>(
+    what: string,
+    read: () => Promise<T>,
+    holds: (value: T) => boolean,
+    timeout = 30_000,
+  ): Promise<void> => {
+    await expect
+      .poll(async () => holds(await read()), { timeout, message: `the app never recorded ${what}` })
+      .toBe(true);
+  };
+
+  /** One routine's record, by the name a person gave it. */
+  const routineRecord = async (name: string): Promise<Record<string, any>> => {
+    const routines = await session.api<Record<string, any>[]>('GET', '/api/routines');
+    const found = routines.find((r) => r.name === name);
+    expect(found, `no routine named ${name}`).toBeTruthy();
+    return found!;
+  };
+
+  /**
+   * One tab of the report viewer, read only once the app has put something in
+   * it. See `readRunLog` for why the visible body is not that moment.
+   */
+  const readViewerTab = async (
+    run: RunHandle, tab: 'Log' | 'Report', emptySentence: string,
+  ): Promise<string> => {
+    await openResultsRow(run);
+    const button = win().locator('.report-viewer .tab-bar .tab-btn', { hasText: tab }).first();
+    await button.click();
+    await expect(button, `the report viewer never switched to ${tab}`)
+      .toHaveClass(/tab-active/, { timeout: 30_000 });
+    const body = win().locator('.report-viewer-body');
+    await expect(body).toBeVisible({ timeout: 30_000 });
+    // The same request the viewer makes, and the same field it reads.
+    const field = tab === 'Log' ? 'log_text' : 'report_text';
+    const held = await session.api<Record<string, string>>(
+      'GET', `/api/executions/${run.id}/${tab.toLowerCase()}`,
+    ).catch(() => ({} as Record<string, string>));
+    if (String(held[field] ?? '').trim().length > 0) {
+      await expect(body, `the app holds a ${tab.toLowerCase()} for this run and the page shows none`)
+        .not.toHaveText(emptySentence, { timeout: 30_000 });
+    }
+    return (await body.innerText()).trim();
+  };
+
   /** Open Results and click the row for this run, which mounts the report viewer. */
   const openResultsRow = async (run: RunHandle): Promise<void> => {
     await goto(PLACES.Results);
@@ -932,7 +1001,19 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       const row = win().locator('.simple-table tbody tr').filter({ hasText: name }).first();
       await expect(row).toBeVisible({ timeout: 30_000 });
       await row.getByRole('button', { name: 'Activate', exact: true }).click();
-      await expect(row.locator('.badge', { hasText: 'Active' })).toBeVisible({ timeout: 15_000 });
+      // `Boolean`, not `=== true`: `GET /api/routines` is declared with no
+      // response model, so `is_active` arrives as SQLite's 1 and 0 rather than
+      // as JSON booleans. A strict comparison here waited the full thirty
+      // seconds and then said the app had never recorded the activation, which
+      // was a fact about this predicate and not about the app.
+      await stored(`${name} as active`, () => routineRecord(name), (r) => Boolean(r.is_active));
+      // And only then the screen. `toHaveText` with a string is a **whole
+      // text** comparison, unlike the `hasText: 'Active'` locator option this
+      // replaces, which matched "Inactive" and made the wait a no-op.
+      await expect(
+        row.locator('.badge').first(),
+        'the record says active and the row still does not',
+      ).toHaveText('Active', { timeout: 30_000 });
     },
 
     deactivateRoutine: async (name) => {
@@ -940,7 +1021,11 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       const row = win().locator('.simple-table tbody tr').filter({ hasText: name }).first();
       await expect(row).toBeVisible({ timeout: 30_000 });
       await row.getByRole('button', { name: 'Deactivate', exact: true }).click();
-      await expect(row.locator('.badge', { hasText: 'Inactive' })).toBeVisible({ timeout: 15_000 });
+      await stored(`${name} as inactive`, () => routineRecord(name), (r) => !r.is_active);
+      await expect(
+        row.locator('.badge').first(),
+        'the record says inactive and the row still does not',
+      ).toHaveText('Inactive', { timeout: 30_000 });
     },
 
     fireRoutineNow: async (name): Promise<RunHandle> => {
@@ -968,8 +1053,22 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       await expect(row).toBeVisible({ timeout: 30_000 });
       // Three toggles share a class; Notify is the third column of them, in the
       // order the table's own header declares: Email, AI, Notify.
+      //
+      // The flip is read against the value the record held *before* the click,
+      // because "it is on now" is true of a toggle that was already on. What
+      // the journey is about is that the click changed something and that the
+      // change was kept.
+      const before = Boolean((await routineRecord(name)).notify_on_complete);
       await row.locator('.toggle-btn').nth(2).click();
-      await win().waitForTimeout(600);
+      await stored(
+        `${name}'s desktop notification as ${before ? 'off' : 'on'}`,
+        () => routineRecord(name),
+        (r) => Boolean(r.notify_on_complete) !== before,
+      );
+      await expect(
+        row.locator('.toggle-btn').nth(2),
+        'the record flipped the notification and the row still shows the old state',
+      ).toHaveText(before ? 'OFF' : 'ON', { timeout: 30_000 });
     },
 
     readRoutine: async (name): Promise<RoutineFacts> => {
@@ -1105,8 +1204,13 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       // both, so "export every saved configuration" means visiting both. The
       // page opens on Routine Configs and a saved sweep is on the other one.
       for (const tab of ['Routine Configs', 'Manual Configs']) {
-        await win().locator('.tab-bar .tab-btn', { hasText: tab }).click();
-        await win().waitForTimeout(300);
+        const button = win().locator('.tab-bar .tab-btn', { hasText: tab });
+        await button.click();
+        // The page marks the tab it is showing, so wait for that rather than
+        // for a duration before counting the rows underneath it. A count taken
+        // mid-switch is a count of the other tab.
+        await expect(button, `the ${tab} tab never became the one on screen`)
+          .toHaveClass(/tab-active/, { timeout: 30_000 });
         const rows = win().locator('.simple-table tbody tr');
         for (let i = 0; i < await rows.count(); i += 1) {
           const box = rows.nth(i).getByRole('checkbox');
@@ -1328,24 +1432,33 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       );
       await button.click();
       await answered;
-      await win().waitForTimeout(500);
       // The keyword card is the one whose heading names keywords, found by that
       // heading rather than by its position on the page: the cards above it are
       // conditional and counting from the top would break when one is absent.
       const card = win().locator('section.card')
         .filter({ has: win().locator('h2:text-matches("keywords", "i")') }).first();
       await expect(card, 'the page draws no keyword card').toBeVisible({ timeout: 30_000 });
-      const bars: Figure[] = [];
       const rows = card.locator('.analytics-bar-row');
+      // A corpus too small for a share to mean anything gets a sentence instead
+      // of bars, which is an answer rather than an empty card.
+      const thin = card.locator('p.analytics-thin');
+      // The answer is in and the card is mounted; its *body* is a render later.
+      // A bar count taken in between is zero, and zero bars with no sentence is
+      // the one combination the card never means — so wait for the card to have
+      // said something rather than for half a second to pass.
+      await expect
+        .poll(async () => (await rows.count()) + (await thin.count()), {
+          timeout: 30_000,
+          message: 'the keyword card drew neither a bar nor a sentence',
+        })
+        .toBeGreaterThan(0);
+      const bars: Figure[] = [];
       for (let i = 0; i < await rows.count(); i += 1) {
         bars.push({
           label: (await rows.nth(i).locator('.analytics-bar-label').innerText()).trim(),
           value: (await rows.nth(i).locator('.analytics-bar-num').innerText()).trim(),
         });
       }
-      // A corpus too small for a share to mean anything gets a sentence instead
-      // of bars, which is an answer rather than an empty card.
-      const thin = card.locator('p.analytics-thin');
       return {
         bars,
         notEnoughYet: (await thin.count()) ? (await thin.first().innerText()).trim() : '',
@@ -1375,7 +1488,16 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       await expect(link, 'nothing on Analytics offered a way into the Explorer').toBeVisible({ timeout: 60_000 });
       await link.click();
       await win().waitForFunction(() => window.location.hash.startsWith('#/explorer'), undefined, { timeout: 30_000 });
-      await win().waitForTimeout(800);
+      // The hash having changed is not the router having arrived — the same
+      // thing `goto` learned — so wait for the Explorer's own landmark before
+      // reading the address back, and let `readExplorer` wait for the page to
+      // stop searching. Neither needs a duration.
+      for (const landmark of landmarksFor(PLACES.Explorer)) {
+        await expect(
+          win().locator(landmark),
+          `the chart's link never arrived at the Explorer: nothing matched ${landmark}`,
+        ).toHaveCount(1, { timeout: 30_000 });
+      }
       const hash = await win().evaluate(() => window.location.hash);
       return { hash, list: await readExplorer() };
     },
@@ -1416,7 +1538,23 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const answered = win().waitForResponse((r) => r.url().includes('/api/watchdog/mute'));
       await card.getByRole('button', { name: 'Mute', exact: true }).click();
       expect((await answered).ok(), 'Mute was refused').toBe(true);
-      await win().waitForTimeout(800);
+      // HTTP 200 is the request being accepted, not the mute being readable:
+      // the watchdog answer is served from a cache keyed on a fingerprint that
+      // includes `watchdog_mutes`, and the next read is the one that pays for
+      // the gap. So wait for the app's own record of the finding to say muted.
+      await stored(
+        `"${titleFragment}" as muted`,
+        () => backend.watchdogFindings(),
+        (view) => ((view as { findings?: { title?: string; muted?: boolean }[] }).findings ?? [])
+          .some((f) => String(f.title ?? '').includes(titleFragment) && f.muted === true),
+      );
+      // And the page's own refetch, which a hash change to the route it is
+      // already on would not force. The chip is not on the card before the
+      // mute, so this cannot be satisfied by the state it is waiting to leave.
+      await expect(
+        card.locator('.watchdog-chip-muted'),
+        'the record says muted and the finding on screen still does not',
+      ).toHaveCount(1, { timeout: 30_000 });
     },
 
     theSourceGoesDown: () => session.source.answerWith('dead'),
@@ -1455,10 +1593,40 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
 
     readProfileMatches: async (name): Promise<ProfileMatches> => {
       await goto(PLACES['Watch Profiles']);
-      await win().getByTestId('profiles-list').locator('button.profiles-list-item')
-        .filter({ hasText: name }).first().click();
-      await win().waitForTimeout(800);
+      const entry = win().getByTestId('profiles-list').locator('button.profiles-list-item')
+        .filter({ hasText: name }).first();
+      await entry.click();
+      // The page marks the profile it is showing, and the matches panel is a
+      // fetch behind that. Waiting for the selection first and then for the
+      // panel means a read of an empty list is the app saying "none", rather
+      // than the read arriving before the answer did.
+      await expect(entry, `the Watch Profiles page never selected ${name}`)
+        .toHaveClass(/active/, { timeout: 30_000 });
+      // **"No papers have been matched to this profile yet" is also what the
+      // page draws while it is still asking.** `matches` is null until the
+      // fetch lands and the empty state is rendered for null, so a read taken
+      // on arrival reports an absence that the app has not established — the
+      // exact shape of the note once proved saved by text in a textarea. So
+      // the panel is held against the app's own count for this profile.
+      const profiles = await backend.profiles();
+      const profile = (profiles as { id: number; display_name?: string }[])
+        .find((p) => p.display_name === name);
+      expect(profile, `no watch profile named ${name}`).toBeTruthy();
+      const recorded = await session.api<{ total?: number }>(
+        'GET', `/api/profiles/${profile!.id}/matches`,
+      );
       const counts = win().getByTestId('basis-counts');
+      await expect
+        .poll(async () => (
+          Number(recorded.total ?? 0) > 0
+            ? await counts.count()
+            : await win().getByTestId('no-matches').count()
+        ), {
+          timeout: 30_000,
+          message: `the panel for ${name} never agreed with the ${recorded.total ?? 0} match(es) `
+            + 'the app says it has',
+        })
+        .toBeGreaterThan(0);
       const items: ProfileMatches['items'] = [];
       const list = win().getByTestId('profile-matches').locator('li');
       for (let i = 0; i < await list.count(); i += 1) {
@@ -1479,9 +1647,35 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     readBasisBadgesInTheExplorer: async () => {
       await goto(PLACES.Explorer);
       await expect(win().locator('li.explorer-item').first()).toBeVisible({ timeout: 30_000 });
-      await win().waitForTimeout(800);
-      return (await win().getByTestId('basis-matches').locator('span.basis-chip').allInnerTexts())
-        .map((t) => t.trim());
+      // **The badges arrive on a fetch the list does not wait for.** The page
+      // calls `loadProfileMatches(results)` without awaiting it and clears
+      // `loading` regardless — the same shape as the duplicate links next door
+      // — so a read taken when the rows appear reports "no basis badge reached
+      // the Explorer" over a corpus whose profiles have matches. The 800 ms
+      // that used to stand here is the load-bearing duration that produces a
+      // flake rather than a failure.
+      //
+      // So: where the app says a profile has matched something, wait for a
+      // chip. Where it says nothing has matched there is nothing to wait for,
+      // and waiting would be inventing a state.
+      const profiles = await backend.profiles();
+      let recorded = 0;
+      for (const profile of profiles as { id: number }[]) {
+        const matches = await session.api<{ total?: number }>(
+          'GET', `/api/profiles/${profile.id}/matches`,
+        );
+        recorded += Number(matches.total ?? 0);
+      }
+      const chips = win().getByTestId('basis-matches').locator('span.basis-chip');
+      if (recorded > 0) {
+        await expect
+          .poll(() => chips.count(), {
+            timeout: 30_000,
+            message: `the app records ${recorded} profile match(es) and the Explorer drew no badge`,
+          })
+          .toBeGreaterThan(0);
+      }
+      return (await chips.allInnerTexts()).map((t) => t.trim());
     },
 
     readExplorerList: async () => {
@@ -1559,9 +1753,13 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         return { note: '', controlsPresent, list: await readExplorer() };
       }
       await sort.locator('select').selectOption('similarity');
-      await win().waitForTimeout(2_000);
+      // `rank-note` is drawn on `!loading && meta.sort === 'similarity'`, so
+      // the page itself only puts it there once the ranked answer is in and
+      // rendered. It is absent before the sort changes, which is what makes it
+      // a predicate rather than a coincidence — the two seconds that used to
+      // stand here were covering the same wait with a guess.
       const note = win().getByTestId('rank-note');
-      await expect(note).toBeVisible({ timeout: 30_000 });
+      await expect(note, 'the Explorer never finished ranking by meaning').toBeVisible({ timeout: 60_000 });
       return {
         note: (await note.innerText()).trim(),
         controlsPresent,
@@ -1588,8 +1786,19 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     collapseDuplicates: async (on) => {
       const box = win().getByTestId('collapse-toggle').locator('input[type="checkbox"]');
       await expect(box, 'the Explorer offered no way to collapse duplicates').toBeVisible({ timeout: 30_000 });
+      // Turning collapse on sends the page off to `/api/links/collapse-preview`
+      // and it folds nothing until that answers, so the request is watched
+      // rather than waited out. Turning it off needs no answer: the page drops
+      // the grouping in the same render as the checkbox.
+      const grouped = on
+        ? win().waitForResponse((r) => r.url().includes('/api/links/collapse-preview'))
+        : null;
       if (on) await box.check(); else await box.uncheck();
-      await win().waitForTimeout(600);
+      await expect(box, `the collapse control did not turn ${on ? 'on' : 'off'}`)
+        .toBeChecked({ checked: on, timeout: 15_000 });
+      if (grouped) {
+        expect((await grouped).ok(), 'the Explorer was refused its collapse grouping').toBe(true);
+      }
     },
 
     writeRoutineIntent: async (name, intent) => {
@@ -1650,6 +1859,18 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
 
     saveKeyFor: async (source, value) => {
       await goto(PLACES.Repositories);
+      // Which keyring entries the app already reports as present, before the
+      // save. The field is labelled with the source's display name and the
+      // credential is stored under its slug, so rather than map one onto the
+      // other — a second copy of the catalog, in the suite — this waits for
+      // *a* credential to have become present that was not before.
+      const presentNow = async (): Promise<string[]> => {
+        const body = await backend.credentials() as
+          { credentials?: Record<string, { present?: boolean }> };
+        return Object.entries(body.credentials ?? {})
+          .filter(([, state]) => state?.present === true).map(([name]) => name);
+      };
+      const before = new Set(await presentNow());
       const field = win().locator(`input[aria-label="API key for ${source}"]`);
       await expect(field, `${source} has no key field`).toBeVisible({ timeout: 30_000 });
       const saved = win().waitForResponse(
@@ -1658,7 +1879,14 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       await field.fill(value);
       await field.press('Enter');
       expect((await saved).ok(), 'the key the field submitted was refused').toBe(true);
-      await win().waitForTimeout(800);
+      // HTTP 200 on the PUT is the keyring being asked, not the keyring
+      // answering, and `readKeyFields` reads the presence state — so that is
+      // what this waits for.
+      await stored(
+        `the key for ${source}`,
+        presentNow,
+        (names) => names.some((name) => !before.has(name)),
+      );
     },
 
     readKeyFields: async (): Promise<KeyField[]> => {
@@ -1774,16 +2002,44 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         await expect(win().getByTestId('assistant-panel')).toBeVisible({ timeout: 30_000 });
       }
       await win().getByLabel('Earlier conversations').click();
-      await win().waitForTimeout(800);
-      return (await win().locator('button.assistant-session-open').allInnerTexts())
-        .map((t) => t.trim());
+      // The list is drawn from the panel's own session state, and the empty
+      // note is what it draws before that state arrives — so "no earlier
+      // conversations" is what a read taken on the click gets, whether or not
+      // there are any. The app knows how many it has; wait for the list to
+      // show that many.
+      const { sessions } = await session.api<{ sessions: { id: number }[] }>(
+        'GET', '/api/assistant/sessions',
+      );
+      const open = win().locator('button.assistant-session-open');
+      await expect
+        .poll(() => open.count(), {
+          timeout: 30_000,
+          message: `the app has ${sessions.length} saved conversation(s) and the panel lists a different number`,
+        })
+        .toBe(sessions.length);
+      return (await open.allInnerTexts()).map((t) => t.trim());
     },
 
     readTheFirstRunCard: async (): Promise<FirstRunCard> => {
       await goto('/');
       const card = win().getByTestId('first-run-card');
-      await win().waitForTimeout(800);
-      if (!await card.count()) return { present: false, steps: [], text: '' };
+      // **`present: false` was a duration away from being a lie.** The card
+      // renders nothing until `GET /api/onboarding` has answered, so a count
+      // taken on arrival reports "the app shows no first-run card" for an app
+      // that is about to show one — an absence asserted rather than observed,
+      // which is the one thing this project will not ship. The app publishes
+      // whether the card belongs on the page; wait for the screen to agree
+      // with it, either way.
+      const shows = Boolean((await backend.onboarding() as { show?: boolean }).show);
+      await expect
+        .poll(() => card.count(), {
+          timeout: 30_000,
+          message: shows
+            ? 'the app says the first-run card belongs on the Dashboard and it never appeared'
+            : 'the app says the first-run card is done with and it is still on the Dashboard',
+        })
+        .toBe(shows ? 1 : 0);
+      if (!shows) return { present: false, steps: [], text: '' };
       await expect(card).toBeVisible({ timeout: 30_000 });
       const items = card.locator('li[data-testid^="first-run-step-"]');
       const steps: FirstRunCard['steps'] = [];
@@ -1982,6 +2238,14 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         await expect.poll(() => seen.length, { timeout: 30_000 }).toBeGreaterThan(0);
         // The page goes on asking after the first answer; a moment here means
         // the list is what the page really sent rather than its first request.
+        //
+        // journeys:duration-ok an observation window, not a readiness
+        // wait. The question the row asks is "does every request
+        // this place makes carry the token", and there is no state that means
+        // "it has finished making them": the page keeps polling for as long as
+        // it is open. The settle that matters is the assertion above, that at
+        // least one request was seen; this second is how much of the stream
+        // the row is willing to claim to have looked at, and the spec says so.
         await win().waitForTimeout(1_000);
       } finally {
         win().off('request', watch);
@@ -2240,21 +2504,21 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       return (await status.first().innerText()).replace(/\s+/g, ' ').trim();
     },
 
-    readRunLog: async (run) => {
-      await openResultsRow(run);
-      await win().locator('.report-viewer .tab-bar .tab-btn', { hasText: 'Log' }).first().click();
-      const text = win().locator('.report-viewer-body');
-      await expect(text).toBeVisible({ timeout: 30_000 });
-      return (await text.innerText()).trim();
-    },
+    /**
+     * The report viewer's Log or Report tab, read only once it holds one.
+     *
+     * **`.report-viewer-body` is visible on every tab, so waiting for it to be
+     * visible waits for nothing.** The viewer fetches the report and the log
+     * once when it mounts and renders `No report available.` / `No log
+     * available.` for a value that is still `null` — which is byte-identical
+     * to the answer for a run that genuinely has neither. A read taken before
+     * the fetch lands therefore returns the app's own sentence for "there is
+     * none", and a spec asserting on the text believes it. So where the app
+     * says there is one, this waits for the page to be showing it.
+     */
+    readRunLog: async (run) => readViewerTab(run, 'Log', 'No log available.'),
 
-    readTheReport: async (run) => {
-      await openResultsRow(run);
-      await win().locator('.report-viewer .tab-bar .tab-btn', { hasText: 'Report' }).first().click();
-      const text = win().locator('.report-viewer-body');
-      await expect(text).toBeVisible({ timeout: 30_000 });
-      return (await text.innerText()).trim();
-    },
+    readTheReport: async (run) => readViewerTab(run, 'Report', 'No report available.'),
 
     configureEmail: async (settings, password) => {
       await goto(PLACES['Email settings']);
