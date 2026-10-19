@@ -124,6 +124,7 @@
   /* ---- Layout ---------------------------------------------------------- */
   --measure: 42rem;        /* comfortable reading width for prose          */
   --measure-wide: 64rem;   /* page shell, index listings, tables           */
+  --page-min-height: 100dvh; /* so a short page's footer reaches the bottom */
   --gutter: var(--space-4);
   --gutter-wide: var(--space-6);
 
