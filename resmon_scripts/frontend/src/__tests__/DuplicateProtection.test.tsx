@@ -129,6 +129,7 @@ describe('missed fires on the Routines page', () => {
         count: 2, last_due_at_utc: '2026-09-19T07:05:00+00:00',
         overlap_skipped: 2,
         last_overlap_skipped_due_at_utc: '2026-09-19T07:05:00+00:00',
+        last_closed_miss_due_at_utc: null,
       }),
     });
     await renderWithProviders(<RoutinesPage />);
@@ -140,30 +141,49 @@ describe('missed fires on the Routines page', () => {
     expect(screen.queryByTestId('run-now-1')).not.toBeInTheDocument();
   });
 
-  test('both causes on one routine read as two separate lines', async () => {
+  test('each line carries the time of its own cause, not the other\u2019s', async () => {
+    // **The two timestamps are deliberately different, and the overlap skip is
+    // deliberately the later one**, so `last_due_at_utc` -- the maximum over
+    // every row -- is the skip's time. A fixture that gave both lines the same
+    // time could not fail when the closed-miss line rendered the all-rows
+    // maximum, which is exactly how that defect first shipped: the page read
+    // `missed 1 fire while resmon was closed; last due 2026-09-19T07:05:00`,
+    // stamping the closed sentence with the instant the line below it proves
+    // resmon was running.
     mockRoutedFetch({
       '/api/repositories/catalog': [], '/api/credentials': {},
       '/api/routines': routine({
         count: 4, last_due_at_utc: '2026-09-19T07:05:00+00:00',
         overlap_skipped: 1,
         last_overlap_skipped_due_at_utc: '2026-09-19T07:05:00+00:00',
+        last_closed_miss_due_at_utc: '2026-09-18T07:00:00+00:00',
       }),
     });
     await renderWithProviders(<RoutinesPage />);
     // Three of the four were missed while resmon was closed; one was refused
-    // as an overlap. The closed count is the difference, not the total.
-    expect(await screen.findByText(/missed 3 fires while resmon was closed/)).toBeInTheDocument();
-    expect(screen.getByTestId('overlap-skipped-1')).toBeInTheDocument();
+    // as an overlap. The closed count is the difference, not the total, and
+    // the closed time is September 18, not the skip's September 19.
+    expect(await screen.findByText(
+      /missed 3 fires while resmon was closed; last due 2026-09-18T07:00:00\+00:00/,
+    )).toBeInTheDocument();
+    expect(screen.queryByText(
+      /while resmon was closed; last due 2026-09-19T07:05:00\+00:00/,
+    )).not.toBeInTheDocument();
+    expect(screen.getByTestId('overlap-skipped-1')).toHaveTextContent(
+      'last due 2026-09-19T07:05:00+00:00',
+    );
     expect(screen.getByTestId('run-now-1')).toBeInTheDocument();
   });
 
-  test('a backend that does not answer overlap_skipped keeps the old line and number', async () => {
+  test('a backend answering neither new field keeps the old line, number and time', async () => {
     mockRoutedFetch({
       '/api/repositories/catalog': [], '/api/credentials': {},
       '/api/routines': routine({ count: 3, last_due_at_utc: '2026-09-19T07:00:00+00:00' }),
     });
     await renderWithProviders(<RoutinesPage />);
-    expect(await screen.findByText(/missed 3 fires while resmon was closed/)).toBeInTheDocument();
+    expect(await screen.findByText(
+      /missed 3 fires while resmon was closed; last due 2026-09-19T07:00:00\+00:00/,
+    )).toBeInTheDocument();
     expect(screen.queryByTestId('overlap-skipped-1')).not.toBeInTheDocument();
   });
 });

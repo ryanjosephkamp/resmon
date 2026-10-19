@@ -562,6 +562,7 @@ def test_the_api_and_the_analytics_report_the_missed_fires(tmp_path, client):
         # path, which is what the default disposition means.
         "overlap_skipped": 0,
         "last_overlap_skipped_due_at_utc": None,
+        "last_closed_miss_due_at_utc": "2026-09-19T07:00:00+00:00",
     }
     assert [r["due_at_utc"] for r in one["missed_fire_details"]] == [
         "2026-09-18T07:00:00+00:00", "2026-09-19T07:00:00+00:00"]
@@ -579,7 +580,8 @@ def test_a_routine_with_no_missed_fires_says_zero_rather_than_nothing(client):
     rid = _make_routine("clean")
     assert client.get(f"/api/routines/{rid}").json()["missed_fires"] == {
         "count": 0, "last_due_at_utc": None,
-        "overlap_skipped": 0, "last_overlap_skipped_due_at_utc": None}
+        "overlap_skipped": 0, "last_overlap_skipped_due_at_utc": None,
+        "last_closed_miss_due_at_utc": None}
 
 
 def test_an_overlap_skip_is_counted_apart_from_a_fire_missed_while_closed(client):
@@ -588,6 +590,13 @@ def test_an_overlap_skip_is_counted_apart_from_a_fire_missed_while_closed(client
     A screen that added them would tell the user resmon was closed at a moment
     it was demonstrably running, which is the overclaim this split exists to
     prevent. ``count`` stays the total; the caller subtracts.
+
+    **The two due times are deliberately different, and the overlap skip is
+    deliberately the later one.** A fixture where they coincide cannot tell a
+    field that filters by disposition from one that does not -- which is how
+    the first version of this split shipped with the count filtered and the
+    timestamp beside it unfiltered. Ordered the other way round the bug also
+    hides, because the all-rows maximum would happen to be the closed miss.
     """
     conn = resmon_mod._get_db()
     rid = _make_routine("both-causes")
@@ -599,11 +608,42 @@ def test_an_overlap_skip_is_counted_apart_from_a_fire_missed_while_closed(client
     assert summary["count"] == 2
     assert summary["overlap_skipped"] == 1
     assert summary["last_overlap_skipped_due_at_utc"] == "2026-09-19T07:05:00+00:00"
+    # The total's maximum is the skip, because the skip is later. That is
+    # correct for a field whose label is "every row" -- and is exactly why a
+    # screen must not render it next to the word "closed".
     assert summary["last_due_at_utc"] == "2026-09-19T07:05:00+00:00"
+    # The field that line does render: the latest fire that came due while
+    # resmon was not running, which is the September 18 one and nothing else.
+    assert summary["last_closed_miss_due_at_utc"] == "2026-09-18T07:00:00+00:00"
 
     with pytest.raises(ValueError):
         database.record_missed_fire(
             conn, rid, "2026-09-20T07:00:00+00:00", disposition="caught_up")
+
+
+def test_a_late_run_is_still_a_closed_miss_for_the_timestamp(client):
+    """``ran_late`` is a closed miss that was answered, not an overlap.
+
+    The disposition filter is written ``!= 'skipped'`` rather than
+    ``= 'recorded'`` for this reason, and a routine whose misses have all been
+    marked answered must still carry their time on the closed-miss line.
+    """
+    conn = resmon_mod._get_db()
+    rid = _make_routine("answered-then-overlapped")
+    database.record_missed_fire(conn, rid, "2026-09-18T07:00:00+00:00")
+    database.mark_missed_fires_ran_late(conn, rid)
+    database.record_missed_fire(
+        conn, rid, "2026-09-19T07:05:00+00:00", disposition="skipped")
+
+    summary = client.get(f"/api/routines/{rid}").json()["missed_fires"]
+    assert summary["overlap_skipped"] == 1
+    assert summary["last_closed_miss_due_at_utc"] == "2026-09-18T07:00:00+00:00"
+    # And the skip did not become a late run: a manual run answers the fires
+    # resmon was closed for, and erasing the overlap line would take away the
+    # only thing telling the user their routine outruns its own interval, at
+    # the moment they are most likely to click Run now.
+    rows = database.get_missed_fires(conn, rid)
+    assert sorted(r["disposition"] for r in rows) == ["ran_late", "skipped"]
 
 
 # ---------------------------------------------------------------------------

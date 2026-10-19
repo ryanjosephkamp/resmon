@@ -1450,16 +1450,19 @@ def list_routines():
                 except Exception:
                     last_status = None
             r["last_status"] = last_status
-            # Fires that came due while resmon was closed. ``{"count": 0,
-            # "last_due_at_utc": None}`` for a routine that has missed none,
-            # rather than an absent key -- the screen renders nothing either
-            # way, and a missing key would be indistinguishable from an older
-            # backend that cannot answer.
+            # Fires that did not run -- those that came due while resmon was
+            # closed, and those refused because the previous run of this
+            # routine was still going, counted and timestamped apart by
+            # ``missed_fire_summary``. A zeroed summary for a routine that has
+            # missed none, rather than an absent key: the screen renders
+            # nothing either way, and a missing key would be
+            # indistinguishable from an older backend that cannot answer.
             r["missed_fires"] = (
                 missed_fire_summary(conn, int(rid)) if rid is not None
                 else {"count": 0, "last_due_at_utc": None,
                       "overlap_skipped": 0,
-                      "last_overlap_skipped_due_at_utc": None}
+                      "last_overlap_skipped_due_at_utc": None,
+                      "last_closed_miss_due_at_utc": None}
             )
         return routines
     finally:

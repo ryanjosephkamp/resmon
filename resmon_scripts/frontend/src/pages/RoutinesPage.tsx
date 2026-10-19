@@ -38,15 +38,23 @@ interface Routine {
    * render as separate lines because they are separate facts, and the
    * difference is what the user acts on: a fire missed while resmon was closed
    * means open the laptop, a fire skipped as an overlap means the routine takes
-   * longer than the interval it was given. ``overlap_skipped`` is absent on a
-   * backend older than that distinction, which is why it is read with ``?? 0``
-   * rather than assumed.
+   * longer than the interval it was given.
+   *
+   * Each line takes the timestamp belonging to its own cause.
+   * ``last_due_at_utc`` spans every row, so rendering it on the closed-miss
+   * line stamps that line with an overlap skip's time whenever the overlap
+   * was the later of the two -- the closed-miss sentence then carries the
+   * exact instant the line below it proves resmon was running. That is what
+   * ``last_closed_miss_due_at_utc`` exists to prevent. Both new fields are
+   * absent on a backend older than the distinction, so each is read with a
+   * fallback rather than assumed.
    */
   missed_fires?: {
     count: number;
     last_due_at_utc: string | null;
     overlap_skipped?: number;
     last_overlap_skipped_due_at_utc?: string | null;
+    last_closed_miss_due_at_utc?: string | null;
   };
 }
 
@@ -59,6 +67,17 @@ interface Routine {
  */
 const closedMissCount = (m: { count: number; overlap_skipped?: number }): number =>
   Math.max(0, m.count - (m.overlap_skipped ?? 0));
+
+/**
+ * When the last fire missed while resmon was not running came due. Falls back
+ * to the all-rows maximum only on a backend that does not answer the narrower
+ * field, where it is the same number the page showed before and the only one
+ * available. On a backend that does answer, the fallback never fires, so an
+ * overlap skip can no longer put its timestamp on this line.
+ */
+const closedMissLastDue = (
+  m: { last_due_at_utc: string | null; last_closed_miss_due_at_utc?: string | null },
+): string | null => m.last_closed_miss_due_at_utc ?? m.last_due_at_utc;
 
 // Mirror the status-badge palette used on Dashboard / Results & Logs so
 // the Routines page's Last Status column matches the rest of the app —
@@ -377,8 +396,8 @@ const RoutinesPage: React.FC = () => {
                   {r.missed_fires && closedMissCount(r.missed_fires) > 0 && (
                     <div className="text-muted missed-fires-note">
                       {`missed ${closedMissCount(r.missed_fires)} ${closedMissCount(r.missed_fires) === 1 ? 'fire' : 'fires'} while resmon was closed`}
-                      {r.missed_fires.last_due_at_utc
-                        ? `; last due ${r.missed_fires.last_due_at_utc}`
+                      {closedMissLastDue(r.missed_fires)
+                        ? `; last due ${closedMissLastDue(r.missed_fires)}`
                         : ''}
                       {' '}
                       <button

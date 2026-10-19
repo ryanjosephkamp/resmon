@@ -113,14 +113,26 @@ def _on_max_instances(event) -> None:
             job_id,
         )
         return
-    for due in run_times:
-        try:
-            recorder(routine_id, due)
-        except Exception:
-            logger.exception(
-                "Failed to record an overlap-skipped fire: routine_id=%d "
-                "due=%s", routine_id, due,
-            )
+    # The iteration is inside the ``try``, not only the recorder call. A
+    # ``scheduled_run_times`` that is not iterable would otherwise raise a
+    # ``TypeError`` out of the listener and past the one promise this function
+    # makes. APScheduler 3.11.2 -- the pinned version, and the only producer
+    # of this event -- always passes a list, so this is hardening rather than
+    # a reachable bug; the promise is worth more than the branch costs.
+    try:
+        for due in run_times:
+            try:
+                recorder(routine_id, due)
+            except Exception:
+                logger.exception(
+                    "Failed to record an overlap-skipped fire: routine_id=%d "
+                    "due=%s", routine_id, due,
+                )
+    except Exception:
+        logger.exception(
+            "Overlap-skipped fire event for routine_id=%d carried run times "
+            "this listener could not read: %r", routine_id, run_times,
+        )
 
 
 def _parse_cron(cron_expr: str) -> dict:

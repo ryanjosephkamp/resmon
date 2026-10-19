@@ -1747,15 +1747,18 @@ def _migrate_executions_interrupted(conn: sqlite3.Connection) -> None:
 #     than leaning on that dialect detail. The index is what makes "one run per
 #     submission" a fact the database enforces and not a check the application
 #     hopes it won because it looked first.
-#   * ``routine_missed_fires``: one row per scheduled fire whose time had
-#     already passed when resmon next started. ``disposition`` is the column a
-#     later policy would write into; today the only value written is
-#     ``'recorded'``, which claims exactly what was observed -- that the
-#     jobstore's persisted next fire was in the past when we read it -- and not
-#     that the run did not happen. ``'ran_late'`` and ``'skipped'`` are in the
-#     vocabulary because APScheduler's one-hour misfire grace means a fire found
-#     in the past may still run, and a value invented later would need a
-#     migration; nothing writes them yet.
+#   * ``routine_missed_fires``: one row per scheduled fire that did not run.
+#     ``disposition`` says which kind, and all three values in the CHECK are
+#     now written. ``'recorded'`` is the startup path: the jobstore's persisted
+#     next fire was in the past when we read it, which is exactly what was
+#     observed and not a claim that the run did not happen -- APScheduler's
+#     one-hour misfire grace means a fire found in the past may still run.
+#     ``'ran_late'`` is written when the user runs the routine by hand
+#     afterwards. ``'skipped'`` is the overlap path, added later and the
+#     stronger claim of the three: APScheduler refused the submission because
+#     the routine's previous run was still going, so that fire did not run and
+#     never will. Reserving the vocabulary here is what let that third case
+#     ship without a migration.
 #
 # No catch-up run is started for a missed fire. Whether resmon should silently
 # run a week of missed sweeps on the morning a laptop is opened is a decision
@@ -2089,18 +2092,30 @@ def get_missed_fires(conn: sqlite3.Connection, routine_id: int) -> list[dict]:
 def missed_fire_summary(conn: sqlite3.Connection, routine_id: int) -> dict:
     """What a screen renders about one routine's fires that did not run.
 
-    ``count`` and ``last_due_at_utc`` are every row, unchanged. The two
-    ``overlap_skipped`` keys are the subset written because the routine's
-    previous run was still going, and they are reported separately because the
-    two causes are different facts and a screen that merged them would tell
-    the user resmon was closed when it was not. Subtracting gives the fires
-    that came due while resmon was not running.
+    ``count`` and ``last_due_at_utc`` are every row, unchanged, so a caller
+    that wants the total still gets it. Everything else comes in pairs,
+    because a count and the time beside it are one sentence and splitting one
+    without the other is how this function told its last lie: the overlap
+    subset is ``overlap_skipped`` / ``last_overlap_skipped_due_at_utc``, and
+    the fires that came due while resmon was not running are the remainder --
+    ``count`` less ``overlap_skipped``, and ``last_closed_miss_due_at_utc``.
+
+    ``last_closed_miss_due_at_utc`` is **not** ``last_due_at_utc`` filtered
+    after the fact, and the difference is the whole point. The first version
+    of this function reported the overlap count separately and left the
+    screen rendering ``MAX(due_at_utc)`` over every row beside it, so a
+    routine with one genuine closed miss and one later overlap skip printed
+    "missed 1 fire while resmon was closed" stamped with the instant the line
+    below it proved resmon had been running. Every aggregate here is
+    restricted to the rows its own label claims.
     """
     row = conn.execute(
         "SELECT COUNT(*) AS n, MAX(due_at_utc) AS last_due, "
         "COUNT(CASE WHEN disposition = 'skipped' THEN 1 END) AS skipped_n, "
         "MAX(CASE WHEN disposition = 'skipped' THEN due_at_utc END) "
-        "AS last_skipped_due "
+        "AS last_skipped_due, "
+        "MAX(CASE WHEN disposition != 'skipped' THEN due_at_utc END) "
+        "AS last_closed_due "
         "FROM routine_missed_fires WHERE routine_id = ?",
         (int(routine_id),),
     ).fetchone()
@@ -2109,6 +2124,7 @@ def missed_fire_summary(conn: sqlite3.Connection, routine_id: int) -> dict:
         "last_due_at_utc": row["last_due"],
         "overlap_skipped": int(row["skipped_n"] or 0),
         "last_overlap_skipped_due_at_utc": row["last_skipped_due"],
+        "last_closed_miss_due_at_utc": row["last_closed_due"],
     }
 
 
