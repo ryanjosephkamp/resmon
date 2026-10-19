@@ -248,7 +248,7 @@ def fired(tmp_path, monkeypatch):
     resmon_mod._shared_conn = None
     resmon_mod._db_initialized = False
     monkeypatch.setattr(se, "get_client", lambda _name: _EntitySource())
-    monkeypatch.setattr(se, "_REQUIRED_CREDENTIALS", {})
+    monkeypatch.setattr(se, "required_credential_for_sweep", lambda _slug: None)
     monkeypatch.setattr(se, "REPORTS_DIR", tmp_path / "reports")
 
     def _sync_launch(engine, exec_id, conn, ephemeral_credentials=None,

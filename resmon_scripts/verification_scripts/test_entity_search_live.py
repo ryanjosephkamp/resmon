@@ -63,12 +63,13 @@ from live_evidence import (  # noqa: E402
 
 pytestmark = pytest.mark.live_network
 
-# Which credential a source needs, mirroring ``sweep_engine._REQUIRED_CREDENTIALS``.
-# Imported rather than copied would be better; it is a private name in that
-# module and this list is asserted against it below, which is the same guarantee
-# without reaching into another module's internals.
-_KEYED = {"core": "core_api_key", "nasa_ads": "nasa_ads_api_key",
-          "springer": "springer_api_key"}
+# Which credential a source needs. Written out rather than imported so that a
+# silent change to the gate shows up here as a failure rather than as a quiet
+# agreement, and asserted against the engine below. GovInfo joined this list
+# when the engine's own hand-written dict of three was replaced by a read of
+# the catalog, which had declared four all along.
+_KEYED = {"core": "core_api_key", "govinfo": "govinfo_api_key",
+          "nasa_ads": "nasa_ads_api_key", "springer": "springer_api_key"}
 _STRICT_AUTHOR = {"dblp", "eric", "oapen"}
 
 # The person each source is asked about, and why.
@@ -206,7 +207,16 @@ def test_every_askable_source_has_a_live_case():
 def test_the_keyed_sources_list_matches_the_engines():
     """This module's key map is the sweep engine's, checked rather than copied."""
     from implementation_scripts import sweep_engine  # noqa: PLC0415
-    assert _KEYED == sweep_engine._REQUIRED_CREDENTIALS
+    from implementation_scripts.api_registry import (  # noqa: PLC0415
+        list_repositories,
+    )
+
+    engine_view = {
+        slug: sweep_engine.required_credential_for_sweep(slug)
+        for slug in list_repositories()
+        if sweep_engine.required_credential_for_sweep(slug)
+    }
+    assert _KEYED == engine_view
 
 
 @pytest.mark.parametrize("slug", _askable())

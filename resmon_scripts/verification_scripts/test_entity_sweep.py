@@ -89,7 +89,7 @@ def conn(tmp_path):
 def engine(conn, monkeypatch, tmp_path):
     _EntitySource.asked = []
     monkeypatch.setattr(se, "get_client", lambda _name: _EntitySource())
-    monkeypatch.setattr(se, "_REQUIRED_CREDENTIALS", {})
+    monkeypatch.setattr(se, "required_credential_for_sweep", lambda _slug: None)
     monkeypatch.setattr(se, "REPORTS_DIR", tmp_path / "reports")
     return SweepEngine(db_conn=conn, config={})
 
@@ -205,7 +205,7 @@ def test_a_source_that_cannot_be_asked_records_entity_unsupported(
     conn, monkeypatch, tmp_path,
 ):
     monkeypatch.setattr(se, "get_client", lambda _name: _CannotBeAsked())
-    monkeypatch.setattr(se, "_REQUIRED_CREDENTIALS", {})
+    monkeypatch.setattr(se, "required_credential_for_sweep", lambda _slug: None)
     monkeypatch.setattr(se, "REPORTS_DIR", tmp_path / "reports")
     engine = SweepEngine(db_conn=conn, config={})
 

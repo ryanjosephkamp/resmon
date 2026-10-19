@@ -77,7 +77,7 @@ def server():
 @pytest.fixture
 def engine(conn, monkeypatch, tmp_path):
     monkeypatch.setattr(se, "get_client", lambda _name: _FixedSource())
-    monkeypatch.setattr(se, "_REQUIRED_CREDENTIALS", {})
+    monkeypatch.setattr(se, "required_credential_for_sweep", lambda _slug: None)
     monkeypatch.setattr(se, "REPORTS_DIR", tmp_path / "reports")
     return SweepEngine(db_conn=conn, config={})
 

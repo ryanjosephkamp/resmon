@@ -36,7 +36,7 @@ def test_sweep_engine_sets_exec_id_on_client(monkeypatch):
     monkeypatch.setattr(se, "get_client", lambda _name: capture)
     # Force the "missing key" branch into the non-required path so we don't
     # mistakenly skip the search call before the client is invoked.
-    monkeypatch.setattr(se, "_REQUIRED_CREDENTIALS", {})
+    monkeypatch.setattr(se, "required_credential_for_sweep", lambda _slug: None)
 
     engine = SweepEngine(db_conn=conn, config={})
     result = engine.execute_dive("capture", {"query": "x", "max_results": 1})
@@ -54,7 +54,8 @@ def test_sweep_engine_emits_skip_event_on_missing_key(monkeypatch):
     monkeypatch.setattr(se, "get_client", lambda _name: capture)
     # Declare the fake repo as requiring a credential we won't provide.
     monkeypatch.setattr(
-        se, "_REQUIRED_CREDENTIALS", {"capture": "capture_api_key"},
+        se, "required_credential_for_sweep",
+        lambda slug: "capture_api_key" if slug == "capture" else None,
     )
     # Keyring fallback returns nothing → treated as missing.
     from implementation_scripts import credential_manager as cm
