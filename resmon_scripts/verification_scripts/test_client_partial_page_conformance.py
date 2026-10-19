@@ -12,9 +12,24 @@ does not establish" names the gap and names the suspicion:
     exception leaves ``search()``. That consequence is read off the control
     flow here, not measured.
 
-This row measures it. Each client is served **one good page** of records it
-can parse, and then a body nothing can read. Three things are then asserted,
-in the order a user would care about them:
+The measurement found something worse than discarded records, and it is the
+reason this row reads the outcome channel directly rather than through the
+sweep engine. At the instant the exception left ``search()``, nothing had
+been written to the channel, so ``zero_reason.derive`` returned
+**``answered_empty``** -- "the source answered and had nothing" -- for every
+one of the nine. The user was spared that sentence only because the sweep
+engine's catch-all sees an exception before it ever reads the channel. That
+is a coincidence of the engine's control flow, not a guarantee: any caller
+that swallows the exception and asks the channel what happened is handed a
+broken monitor wearing a quiet field's clothes, which is the one failure
+this product exists to prevent. So the fix had to leave the channel correct
+on its own, and assertion 3 below is what holds it correct: it calls
+``zero_reason.derive`` exactly as the engine would, with no engine in the
+picture.
+
+Each client is served **one good page** of records it can parse, and then a
+body nothing can read. Three things are then asserted, in the order a user
+would care about them:
 
 1. ``search()`` returns rather than raising, which the client contract in
    ``AGENTS.md`` requires of every client on every upstream failure;
@@ -259,12 +274,19 @@ def test_a_readable_page_survives_an_unreadable_one(slug, body_name, monkeypatch
         f"unreadable. Records in hand are not discarded because a later page "
         f"failed: that is what the partial-result note exists to describe.")
 
+    # Read off the channel, with no sweep engine in the picture, because the
+    # engine's catch-all is what used to hide this: before the fix the
+    # channel said ``answered_empty`` here -- measured on all nine -- and
+    # only the engine seeing an exception first kept that out of the UI.
     reason, detail = _derived_reason()
     assert reason == "parse_failure", (
-        f"{slug} kept its first page but recorded {reason!r} for the page it "
-        f"could not read. Without parse_failure the sweep engine has no "
-        f"terminal reason to put in the partial note, so a truncated set "
-        f"reads as a complete one. The user would be told: "
+        f"{slug} kept its first page but the outcome channel derives to "
+        f"{reason!r} for the page it could not read. If that is "
+        f"'answered_empty', any caller that reads the channel is told the "
+        f"source looked and had nothing, which is the lie the whole "
+        f"zero-reason phase exists to forbid. If it is anything else, the "
+        f"sweep engine has no terminal reason for its partial note and a "
+        f"truncated set reads as a complete one. The user would be told: "
         f"{zero_reason.sentence(slug, reason, detail)!r}")
 
     # The point of keeping the records *and* the reason: together they render
