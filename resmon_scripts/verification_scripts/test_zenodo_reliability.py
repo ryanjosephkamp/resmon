@@ -35,6 +35,49 @@ def page(records: list, total: object = 100) -> dict:
     return {"hits": {"hits": records, "total": total}}
 
 
+def elapsed_note(began: float) -> str:
+    """How long the call under test really took, for an assertion message.
+
+    A timing failure that says only ``assert (0 == 25)`` cannot be told apart
+    from a logic failure, and a 160 ms overrun cannot be told apart from a
+    five-second one. Every wall-clock assertion in this module carries this.
+    """
+    return f"{(time.monotonic() - began) * 1000:.1f} ms elapsed"
+
+
+class FrozenClock:
+    """A ``time`` stand-in whose monotonic clock moves only when asked.
+
+    ``test_later_page_cannot_reset_budget`` is a statement about the budget's
+    bookkeeping — a page that arrives later does not get a fresh budget — and
+    not about how fast the machine is. It used to make that statement by
+    tightening the budget to 0.15 s and then racing thread start,
+    ``asyncio.run``, ``AsyncClient`` construction and a 25-record parse to fit
+    inside it. That race is tens of milliseconds on a developer machine and
+    was lost three times on loaded CI runners, each time reading as "this
+    branch broke the budget logic" on a branch that had touched nothing
+    nearby. Freezing the clock means the budget expires when the test says so.
+
+    Only ``monotonic`` is faked, and the fake is installed on the two modules
+    that compute the budget rather than on the ``time`` module itself, so the
+    event loop keeps its own clock. Everything else — ``time.sleep`` above all
+    — falls through to the real module, so code that wrongly sleeps still
+    sleeps and still shows up in the elapsed figure the assertions report.
+    """
+
+    def __init__(self, start: float = 10_000.0) -> None:
+        self.now = start
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(time, name)
+
+
 @pytest.fixture(autouse=True)
 def isolated_outcome(monkeypatch):
     api_base.reset_search_outcome()
@@ -111,7 +154,8 @@ def test_every_page_uses_one_deadline_and_fixed_page_size(wire, monkeypatch):
     assert [c["params"]["page"] for c in wire[0]] == [1, 2]
     assert [c["params"]["size"] for c in wire[0]] == [25, 25]
     assert len(options) == 2 and options[0]["deadline"] == options[1]["deadline"]
-    assert 44.9 <= options[0]["deadline"] - began <= 45.1
+    assert 44.9 <= options[0]["deadline"] - began <= 45.1, (
+        f"budget was {options[0]['deadline'] - began:.3f} s, not 45; {elapsed_note(began)}")
     assert all(o["timeout"] == 10.0 and o["max_retries"] == 1 for o in options)
     assert all(o["rate_limiter"] is api_zenodo._RATE_LIMITER for o in options)
     assert all(c["timeout"].read == 10.0 for c in wire[0])
@@ -180,7 +224,7 @@ def test_backoff_expiry_does_not_start_a_second_attempt(wire, monkeypatch):
     outcome = api_base.search_outcome().snapshot()
     assert outcome["attempts"] == len(wire[0]) == 1
     assert outcome["last_detail"] == "operation_deadline" and outcome["failures"] == 1
-    assert time.monotonic() - began < 0.9
+    assert time.monotonic() - began < 0.9, f"backoff slept past the budget; {elapsed_note(began)}"
 
 
 @pytest.mark.parametrize("busy", ["lock", "slot"])
@@ -204,15 +248,36 @@ def test_limiter_budget_does_not_invent_an_attempt(wire, monkeypatch, busy):
 
 
 def test_later_page_cannot_reset_budget(wire, monkeypatch):
-    monkeypatch.setattr(api_zenodo, "_SEARCH_BUDGET_SECONDS", 0.15)
+    clock = FrozenClock()
+    monkeypatch.setattr(api_base, "time", clock)
+    monkeypatch.setattr(api_zenodo, "time", clock)
+    monkeypatch.setattr(api_zenodo, "_SEARCH_BUDGET_SECONDS", 5.0)
     monkeypatch.setattr(api_zenodo, "_RATE_LIMITER", api_base.RateLimiter(1))
     wire[1][:] = [page([record(i) for i in range(25)])]
+
+    original = api_zenodo.safe_request
+
+    def charged(*args, **kwargs):
+        # The wire answers instantly, so the test charges the budget itself:
+        # page 1 arrives, and the whole 5 s is gone by the time the loop asks
+        # for page 2. A deadline recomputed per page would survive that and
+        # issue a second request; the one shared deadline must not.
+        response = original(*args, **kwargs)
+        clock.advance(5.5)
+        return response
+
+    monkeypatch.setattr(api_zenodo, "safe_request", charged)
+
     began = time.monotonic()
     results = api_zenodo.ZenodoClient().search("synthetic", max_results=30)
-    assert len(results) == 25 and len(wire[0]) == 1
+    spent = elapsed_note(began)
+    assert len(results) == 25, f"{len(results)} of 25 records kept; {spent}"
+    # No second request at all, so the limiter was never even admitted to.
+    assert len(wire[0]) == 1, f"a later page started request {len(wire[0])}; {spent}"
     outcome = api_base.search_outcome().snapshot()
-    assert outcome["attempts"] == 1 and outcome["last_detail"] == "operation_deadline"
-    assert time.monotonic() - began < 0.9
+    assert outcome["attempts"] == 1, f"{outcome['attempts']} attempts, not 1; {spent}"
+    assert outcome["last_detail"] == "operation_deadline", (
+        f"last_detail was {outcome['last_detail']!r}; {spent}")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -289,8 +354,9 @@ def test_real_httpx_deadline_cancels_and_closes_transport(server, monkeypatch, m
     began = time.monotonic()
     assert api_zenodo.ZenodoClient().search("synthetic", max_results=3) == []
     elapsed = time.monotonic() - began
-    assert 0.25 <= elapsed < 1.1
-    assert server.closed.wait(0.6), "owned server did not observe transport closure"
+    assert 0.25 <= elapsed < 1.1, f"cancellation did not land in its window; {elapsed_note(began)}"
+    assert server.closed.wait(0.6), (
+        f"owned server did not observe transport closure; {elapsed_note(began)}")
     outcome = api_base.search_outcome().snapshot()
     assert outcome["attempts"] == len(server.hits) == 1
     assert outcome["last_detail"] == "operation_deadline" and outcome["failures"] == 1
