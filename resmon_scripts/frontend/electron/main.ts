@@ -47,12 +47,12 @@ function isBackgroundWindow(): boolean {
 // puts an icon in the Dock or takes over the menu bar, which is what made a run
 // feel like another app had opened even when it had not stolen the keyboard.
 //
-// Applied at module scope rather than inside `app.whenReady()` so the policy is
-// in effect before any window exists and the icon never appears at all, not
-// even briefly. Measured there: no throw, and the Dock icon never appeared. A
-// call from inside `whenReady()` was not tried, so this is not a claim that the
-// later placement would fail. Guarded because the policy is macOS-only and the
-// method does not exist elsewhere.
+// Applied at module scope rather than inside `app.whenReady()`, and that is a
+// measured choice rather than a cautious one: from inside `whenReady()` the
+// Dock icon appears and is then removed, so a run flickers an icon into the
+// Dock on the way past. At module scope the policy is in effect before any
+// window exists and the icon never appears at all. Guarded because the policy
+// is macOS-only and the method does not exist elsewhere.
 if (isBackgroundWindow() && process.platform === 'darwin') {
   app.setActivationPolicy('accessory');
 }
