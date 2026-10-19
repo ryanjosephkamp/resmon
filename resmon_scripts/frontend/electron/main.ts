@@ -9,6 +9,54 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 
+/**
+ * True when this run must put its windows up without taking the foreground.
+ *
+ * The automated suites launch the real app dozens of times in a sitting, and
+ * every launch pulled the keyboard away from whatever the person at the machine
+ * was doing — they had to click back, or wait for the window to close. That is
+ * the only thing this flag is for.
+ *
+ * It is a *launch* flag, not a behaviour flag. The same windows open, at the
+ * same size, with the same contents, in the same order; only the activation
+ * changes. With the variable unset every branch it gates takes the path it took
+ * before the flag existed, which is the same contract `isE2E()` carries.
+ *
+ * Declared here rather than beside `isE2E()` because the activation policy
+ * below has to be applied at module scope — see `setActivationPolicy`.
+ */
+function isBackgroundWindow(): boolean {
+  return process.env.RESMON_BACKGROUND_WINDOW === '1';
+}
+
+// Keep the app out of the Dock, on macOS, when launched in background mode.
+//
+// **This is not the line that stops the foreground grab — `showInactive()` is.**
+// That is worth stating plainly, because the obvious guess is the other way
+// round and acting on it would drop the half that works. Four launches from a
+// frontmost shell, reading the frontmost application's ASN from inside the
+// process before and after the window went up, measured each half alone:
+//
+//   show() + no policy      foreground TAKEN   window focused   Dock icon
+//   showInactive() only     foreground kept    not focused      Dock icon
+//   show() + accessory      foreground TAKEN   window focused   no Dock icon
+//   both (what ships)       foreground kept    not focused      no Dock icon
+//
+// So `accessory` on its own changes nothing about focus. It earns its place for
+// the second half of the complaint rather than the first: a suite run no longer
+// puts an icon in the Dock or takes over the menu bar, which is what made a run
+// feel like another app had opened even when it had not stolen the keyboard.
+//
+// Applied at module scope rather than inside `app.whenReady()` so the policy is
+// in effect before any window exists and the icon never appears at all, not
+// even briefly. Measured there: no throw, and the Dock icon never appeared. A
+// call from inside `whenReady()` was not tried, so this is not a claim that the
+// later placement would fail. Guarded because the policy is macOS-only and the
+// method does not exist elsewhere.
+if (isBackgroundWindow() && process.platform === 'darwin') {
+  app.setActivationPolicy('accessory');
+}
+
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
 let backendPort: number = 8742;
@@ -543,7 +591,13 @@ function createWindow(): void {
   // would immediately discard the size the constructor was given.
   mainWindow.once('ready-to-show', () => {
     if (!isE2E()) mainWindow?.maximize();
-    mainWindow?.show();
+    // `showInactive()` puts the window up without making it the key window, so
+    // an automated run does not take the keyboard from the person at the Mac.
+    // **This is the line that fixes the complaint** — measured, against each
+    // half alone; see the table above `setActivationPolicy`. Unset, this is
+    // `show()` exactly as before.
+    if (isBackgroundWindow()) mainWindow?.showInactive();
+    else mainWindow?.show();
   });
 
   // Browser-style history navigation.
@@ -643,7 +697,9 @@ function openLinkWindow(url: string): void {
     return { action: 'deny' };
   });
 
-  win.once('ready-to-show', () => win.show());
+  // Same rule as the main window: a link window opened during an automated run
+  // must not steal the foreground either.
+  win.once('ready-to-show', () => (isBackgroundWindow() ? win.showInactive() : win.show()));
   void win.loadURL(url);
 }
 

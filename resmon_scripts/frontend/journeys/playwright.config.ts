@@ -1,4 +1,11 @@
 import { defineConfig } from '@playwright/test';
+import { requestBackgroundWindows } from '../e2e/background-window';
+
+// Show the app's windows without taking the foreground. A journey run launches
+// Electron dozens of times and each launch used to pull the keyboard away from
+// whoever was at the machine. See `../e2e/background-window.ts`; the journey
+// drivers inherit this through `launchEnv`, so nothing there had to change.
+requestBackgroundWindows();
 
 /**
  * The journey suite's own runner.
