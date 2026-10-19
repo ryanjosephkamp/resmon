@@ -163,6 +163,166 @@ test.describe('no spec reaches the renderer except through the driver', () => {
 });
 
 /**
+ * The driver may not wait for a duration, and may not read before it has
+ * waited for something.
+ *
+ * **This is the class, not the incident.** J03 read a routine's `active` flag
+ * on the line after activating it and failed in three seconds against a
+ * healthy seven-second run: five red Journeys jobs across four branches and
+ * four dates, one of them on a pull request whose entire content was one word
+ * in a markdown file. A red Journeys job reads as "this branch broke a
+ * journey", so each occurrence cost somebody half an hour ruling out their own
+ * diff, and three different people paid it. Slice 4 removed `goto`'s trailing
+ * 400 ms — the last duration the suite leaned on — and exposed six reads that
+ * had been living behind it; slice 5 was written to sweep the rest and was
+ * never dispatched. These two tests are that sweep made permanent.
+ *
+ * A duration is the tell. It is not a wait for anything: it is a guess about
+ * how long something takes on the machine the author happened to be using, and
+ * every one of them is a flake waiting for a loaded runner.
+ */
+const DRIVERS = path.join(HERE, 'drivers');
+
+/** A read of the screen. The same list the sweep's denominator was taken from. */
+const SCREEN_READS = [
+  'innerText()', 'allInnerTexts()', '.count()', 'inputValue()',
+  'isChecked()', 'getAttribute(', 'isVisible()', 'isEnabled()',
+];
+
+/**
+ * Something that is a wait for a *state*: an assertion, a poll, a response, a
+ * `goto` (which waits for the destination's own landmark), or `stored`, the
+ * driver's own "the app has recorded it" predicate.
+ */
+const SETTLES = /expect\s*\(|expect\.poll|waitForResponse|waitForFunction|\.waitFor\(|waitForLoadState|\bstored\(|\bgoto\(/;
+
+/**
+ * Driver methods whose first screen read has no wait in front of it, each with
+ * the reason it is sound. The list is here rather than absent so that adding
+ * to it is a decision somebody makes in a diff.
+ */
+const UNSETTLED_FIRST_READ_IS_SOUND: Record<string, string> = {
+  readTabsHere: 'reads markup the place renders on mount; the spec reaches it through open(), whose landmark wait is the settle',
+  framesHere: 'the same: a count of the frames a mounted place draws, taken after open()',
+  readExternalLinks: 'the same, for the links on a mounted place',
+  askTheAssistant: 'the count is a presence probe deciding whether to open the panel, not a measurement; the turn it then reads is settled by theTurnHasStoppedMoving',
+  readSavedConversations: 'the same probe; the list it then reads is held against the number of sessions the app says it has',
+  readTheAssistantPanel: 'the same probe, reporting whether the panel is open at all',
+  readTheTurnsChoices: 'runs on a turn askTheAssistant has already settled; the count is of blocks that turn produced',
+};
+
+/** Every `name: (…)` method of the driver object, with its body. */
+function driverMethods(source: string): { name: string; body: string[] }[] {
+  const lines = source.split('\n');
+  const starts: { name: string; line: number }[] = [];
+  lines.forEach((line, index) => {
+    const match = line.match(/^ {4}([A-Za-z_][A-Za-z0-9_]*): (?:async )?[({<]/);
+    if (match) starts.push({ name: match[1], line: index });
+  });
+  return starts.map((start, i) => ({
+    name: start.name,
+    body: lines.slice(start.line, i + 1 < starts.length ? starts[i + 1].line : lines.length),
+  }));
+}
+
+/** A line with its comments stripped, so a read named in prose is not a read. */
+function code(line: string): string {
+  return line.replace(/\/\/.*$/, '').replace(/^\s*\*.*$/, '');
+}
+
+test.describe('the driver waits for states, not for durations', () => {
+  test('no driver waits for a duration without saying why on the line', () => {
+    const hits: string[] = [];
+    for (const name of fs.readdirSync(DRIVERS).filter((f) => f.endsWith('.ts'))) {
+      const lines = fs.readFileSync(path.join(DRIVERS, name), 'utf8').split('\n');
+      lines.forEach((line, index) => {
+        if (!/waitForTimeout\(/.test(code(line))) return;
+        // One escape hatch, and it has to be used out loud. `journeys:duration-ok`
+        // followed by a reason, on the line or in the comment just above it,
+        // marks a pause that is not a readiness wait at all — an observation
+        // window, say — and makes every other one a thing somebody has to
+        // argue for in a diff.
+        const saidWhy = lines.slice(Math.max(0, index - 12), index + 1)
+          .some((near) => /journeys:duration-ok\s+\S/.test(near));
+        if (saidWhy) return;
+        hits.push(`drivers/${name}:${index + 1}: ${line.trim()}`);
+      });
+    }
+    expect(
+      hits,
+      'a duration is a guess about how fast the machine is, and every one of them in this '
+      + 'driver has eventually produced a red CI job on somebody else\'s branch',
+    ).toEqual([]);
+  });
+
+  test('no readiness assertion is built on a hasText string', () => {
+    // **This is the check that catches the bug the other two do not.** An
+    // independent review put `activateRoutine` back to its exact pre-fix shape
+    // — the vacuous `hasText: 'Active'` wait restored — and both guards above
+    // passed, because guard 2 is positional: it asks only whether a
+    // settle-shaped token comes before the first read-shaped token, and an
+    // `expect(...)` around a locator that matches the state it is waiting to
+    // leave is still such a token.
+    //
+    // So this one is about the *content* of the wait. Playwright's `hasText`
+    // string form is a case-insensitive substring, which is right for picking
+    // a row out of a table by its name and wrong for every assertion of the
+    // form "wait until the screen says X": "Inactive" contains "active", and
+    // that one fact cost five red CI jobs. Inside an `expect(...)` the string
+    // form is never what the author meant — `toHaveText('Active')` compares
+    // the whole text, and a regular expression says out loud that it is a
+    // pattern. There are no such sites now; before this branch there were two,
+    // one of them the bug.
+    const hits: string[] = [];
+    for (const name of fs.readdirSync(DRIVERS).filter((f) => f.endsWith('.ts'))) {
+      const source = fs.readFileSync(path.join(DRIVERS, name), 'utf8');
+      for (let at = source.indexOf('expect('); at >= 0; at = source.indexOf('expect(', at + 1)) {
+        // The whole `expect(…)` call, found by balancing its parentheses, so a
+        // wait written over three lines is examined as one thing.
+        let depth = 0;
+        let end = at + 'expect'.length;
+        for (; end < source.length; end += 1) {
+          if (source[end] === '(') depth += 1;
+          else if (source[end] === ')') { depth -= 1; if (depth === 0) { end += 1; break; } }
+        }
+        const call = source.slice(at, end);
+        if (!/hasText:\s*['"`]/.test(call)) continue;
+        hits.push(`drivers/${name}:${source.slice(0, at).split('\n').length}: `
+          + call.replace(/\s+/g, ' ').slice(0, 120));
+      }
+    }
+    expect(
+      hits,
+      "`hasText: '…'` is a case-insensitive substring, so a wait built on it can be satisfied by "
+      + 'the very state it is waiting to leave. Use toHaveText for a whole-text comparison, or a '
+      + 'regular expression if a pattern is really what is meant',
+    ).toEqual([]);
+  });
+
+  test('every driver method waits for something before its first screen read', () => {
+    const source = fs.readFileSync(path.join(DRIVERS, 'classic.ts'), 'utf8');
+    const methods = driverMethods(source);
+    expect(methods.length, 'the driver method scan found nothing, so this guard proves nothing')
+      .toBeGreaterThan(100);
+    const hits: string[] = [];
+    for (const { name, body } of methods) {
+      if (name in UNSETTLED_FIRST_READ_IS_SOUND) continue;
+      const firstRead = body.findIndex((l) => SCREEN_READS.some((r) => code(l).includes(r)));
+      if (firstRead < 0) continue;
+      const firstSettle = body.findIndex((l) => SETTLES.test(code(l)));
+      if (firstSettle < 0 || firstSettle > firstRead) {
+        hits.push(`${name}: ${body[firstRead].trim()}`);
+      }
+    }
+    expect(
+      hits,
+      'a driver method reads the screen before it has waited for anything — which is how a read '
+      + 'measures the state before the write that produced it, and reports it as a fact',
+    ).toEqual([]);
+  });
+});
+
+/**
  * One named row made to fail on purpose, so the two CI legs can be shown red.
  *
  * `RESMON_JOURNEY_BREAK_ROW=J20` makes exactly that row's guard fail and
