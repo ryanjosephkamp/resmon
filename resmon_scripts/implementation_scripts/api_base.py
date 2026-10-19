@@ -777,6 +777,58 @@ def note_parse_failure_unless_transport(exc: BaseException, why: str = "parse_er
     search_outcome().note_parse_failure(why)
 
 
+def read_json_body(response, source: str, *, why: str = "empty_or_invalid_json"):
+    """The decoded JSON body, or ``None`` with a parse failure recorded.
+
+    An HTTP 200 whose body is not JSON is a real thing providers send, not a
+    hypothetical: DBLP's Anubis challenge arrives as 200 carrying
+    ``text/html``, bioRxiv and medRxiv have both answered 200 with
+    ``content-length: 0``, and a stream cut mid-document decodes no better
+    than either. ``docs/dblp-reliability.md`` has the captured headers.
+
+    This helper exists because ten clients wrote the same shape -- the
+    request inside a ``try``/``except`` and ``response.json()`` on the line
+    *after* the ``except`` block -- so nothing caught a reply that would not
+    decode. The cost was not a quiet field. The exception escaped ``search()``
+    to the sweep engine's catch-all, which recorded the source as ``error``
+    with no zero reason and rendered the decoder's own message at the user,
+    and -- because unwinding ``search()`` destroys the frame its result list
+    lives in -- it threw away every record earlier pages had already yielded.
+    Measured on the nine of those ten that paginate: between 50 and 1,000
+    records each, 1,850 in all, discarded by one unreadable second page
+    (``test_client_partial_page_conformance.py``).
+
+    Returning ``None`` rather than raising is what lets the caller ``break``
+    out of its pagination loop with the records it has. ``parse_failure`` is
+    then the terminal reason the sweep engine puts in its partial note, so
+    the user is told "N usable records before a later HTTP 200 reply could
+    not be read" instead of being shown a Python traceback's first line.
+
+    The pattern is ``api_dblp._request_payload``'s, generalized; DBLP keeps
+    its own version because it also retries once and recognizes the challenge
+    page before trying to decode at all.
+
+    ``source`` is the provider's display name and reaches only the log line.
+    It is logged through this module's logger rather than the caller's, so
+    the name is in the message and not only in the logger's path -- which is
+    why it is a required argument and not read off the client.
+    """
+    try:
+        return response.json()
+    except Exception as exc:
+        # ``note_parse_failure_unless_transport`` and not ``note_parse_failure``:
+        # ``response.json()`` on a response whose body was never read raises an
+        # ``httpx`` error, and calling that an unreadable reply would say the
+        # source answered when the transport is what failed. Every caller here
+        # passes a fully read response, so in practice this is a decoder error
+        # -- but the guard costs nothing and the wrong sentence is the exact
+        # harm this helper was written to stop.
+        note_parse_failure_unless_transport(exc, why)
+        logger.error("%s answered 200 with a body resmon could not read: %s",
+                     source, exc)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # safe_request
 # ---------------------------------------------------------------------------

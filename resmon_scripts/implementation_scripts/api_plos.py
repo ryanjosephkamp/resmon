@@ -3,7 +3,8 @@
 
 import logging
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, safe_request
+from .api_base import (BaseAPIClient, NormalizedResult, RateLimiter,
+                       read_json_body, safe_request)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,10 @@ class PlosClient(BaseAPIClient):
                 logger.exception("PLOS API request failed")
                 break
 
-            data = response.json()
+            data = read_json_body(response, "PLOS")
+            if data is None:
+                break
+
             docs = data.get("response", {}).get("docs", [])
             if not docs:
                 break

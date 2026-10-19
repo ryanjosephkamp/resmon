@@ -266,7 +266,18 @@ def test_a_readable_page_survives_an_unreadable_one(slug, body_name, monkeypatch
         f"terminal reason to put in the partial note, so a truncated set "
         f"reads as a complete one. The user would be told: "
         f"{zero_reason.sentence(slug, reason, detail)!r}")
-    assert zero_reason.answered("ok", len(results), reason) is False
+
+    # The point of keeping the records *and* the reason: together they render
+    # the one sentence that says the set is short and why. Either alone does
+    # not -- records with no reason read as a complete answer, and a reason
+    # with no records reads as a source that sent nothing. ``answered`` is
+    # correctly True here, because the source did answer; the truncation is
+    # what this sentence is for, and the sweep engine persists it verbatim.
+    assert zero_reason.answered("ok", len(results), reason) is True
+    assert zero_reason.partial_sentence(slug, reason, detail, len(results)) == (
+        f"{slug} returned {len(results)} usable records before a later "
+        f"HTTP 200 reply could not be read. The retained set may be "
+        f"incomplete.")
 
 
 def _derived_reason() -> tuple[str, dict]:

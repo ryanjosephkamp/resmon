@@ -12,10 +12,11 @@ everything, and requires the recorded outcome to derive to a reason meaning
 
 *Row 2* drives every registered client against HTTP 200 carrying a body no
 client can read, and requires ``parse_failure`` -- the reason whose sentence
-is "answered, and resmon could not read the reply". The nine-plus clients that
-instead let ``json.JSONDecodeError`` escape ``search()`` are marked ``xfail``
-and named in ``_RAISES_ON_UNREADABLE_BODY`` with what they do instead; see the
-note on that constant. Fixing them belongs in its own pull request.
+is "answered, and resmon could not read the reply". It found ten clients that
+instead let ``json.JSONDecodeError`` escape ``search()``; they were marked
+``xfail`` and named in ``_RAISES_ON_UNREADABLE_BODY`` with what they did
+instead, and fixing them was its own pull request. That list is now empty and
+the mechanism around it is kept; the note on the constant says why.
 
 Both rows exist because the 2026-10-18 audit found three engine defects that a
 table-driven suite would have caught on the day each client was written, and
@@ -38,11 +39,11 @@ row carries 23 asserting and 4 silent.
 
 **What this does not establish.** Every request of the search fails the same
 way, so neither row says anything about a client that fails on its *second*
-page having kept its first -- the case where records were already in hand. (It
-is not academic: the clients in ``_RAISES_ON_UNREADABLE_BODY`` throw away
-everything they hold when a later page cannot be read, because the exception
-leaves ``search()``. That consequence is read off the control flow here, not
-measured.) Only ``search()`` is driven, never ``search_entity()``, so a code
+page having kept its first -- the case where records were already in hand.
+That gap was the reason ``test_client_partial_page_conformance.py`` was
+written: it serves one readable page and then an unreadable one, and it is
+where the "records already in hand survive" property is asserted. It is not
+asserted here. Only ``search()`` is driven, never ``search_entity()``, so a code
 path reached only when asking about a person -- ``api_dblp``'s SPARQL route is
 the one -- is counted in the denominator and never exercised. 503 is the only
 failure status driven; a 429 with a ``Retry-After``, a connect error and a
@@ -248,38 +249,39 @@ _UNREADABLE_BODIES = {
 }
 
 #: The clients that let ``json.JSONDecodeError`` out of ``search()`` instead of
-#: recording a parse failure. **This is a live defect, found by this row.**
+#: recording a parse failure. **Empty, and that is this row's own proof.**
 #:
-#: All ten share one idiom: ``safe_request`` is wrapped in ``try``/``except``
-#: and ``response.json()`` sits on the line *after* the ``except`` block, so
-#: nothing catches a reply that cannot be decoded. The other seventeen either
-#: parse inside the ``try`` or call ``api_base.note_parse_failure``.
+#: It held ten names when this row was written: ``core``, ``crossref``,
+#: ``doaj``, ``europepmc``, ``nasa_ads``, ``openalex``, ``plos``, ``pubmed``,
+#: ``semantic_scholar`` and ``springer``. All ten shared one idiom --
+#: ``safe_request`` wrapped in ``try``/``except`` with ``response.json()`` on
+#: the line *after* the ``except`` block, so nothing caught a reply that could
+#: not be decoded. All ten now read their reply through
+#: ``api_base.read_json_body``, which records ``parse_failure`` and returns
+#: ``None`` so the caller can stop with the records it already has.
 #:
-#: What a user sees today is not the quiet field this row's sentence forbids:
-#: the exception escapes to ``sweep_engine``'s catch-all, which records the
-#: source as ``error`` with ``zero_reason=None`` and renders the decoder's own
-#: message -- *"The query failed: Expecting value: line 1 column 1 (char 0).
-#: This is not a zero -- the source did not answer."* So the harm is narrower
-#: than a lie and wider than cosmetics: the reason column is empty where
-#: ``parse_failure`` belongs, the user is shown a Python parser message instead
-#: of resmon's sentence, and -- because the exception unwinds ``search()`` --
-#: any records already collected from earlier pages are discarded.
+#: What those ten did to a user was not the quiet field this row's sentence
+#: forbids. The exception escaped to ``sweep_engine``'s catch-all, which
+#: recorded the source as ``error`` with ``zero_reason=None`` and rendered the
+#: decoder's own message -- *"The query failed: Expecting value: line 1 column
+#: 1 (char 0). This is not a zero -- the source did not answer."* So the harm
+#: was narrower than a lie and wider than cosmetics: the reason column was
+#: empty where ``parse_failure`` belonged, the user was shown a Python parser
+#: message instead of resmon's sentence, and -- because the exception unwound
+#: ``search()`` -- any records already collected from earlier pages were
+#: discarded. That third consequence was reasoned about here and then
+#: measured: ``test_client_partial_page_conformance.py`` serves nine of the
+#: ten one good page and then an unreadable one, and before the fix they lost
+#: between 50 and 1,000 records each, 1,850 in all on one body shape.
 #:
-#: Marked ``xfail(strict=True)`` so that fixing one of these fails this row
-#: until its slug is removed from the list, and a *new* client written with the
-#: same idiom fails outright rather than joining a growing exception list.
-_RAISES_ON_UNREADABLE_BODY = frozenset({
-    "core",
-    "crossref",
-    "doaj",
-    "europepmc",
-    "nasa_ads",
-    "openalex",
-    "plos",
-    "pubmed",
-    "semantic_scholar",
-    "springer",
-})
+#: The list stays, empty, rather than being deleted with the mechanism around
+#: it. ``xfail(strict=True)`` means a name put back here has to be a name that
+#: really fails, and
+#: ``test_the_denominator_is_the_registry_and_the_exclusions_are_named``
+#: requires every name in it to be a registered slug. A new client written
+#: with the old idiom fails this row outright, which is the point: the defect
+#: list is a defect list, not a design, and the empty set is what says so.
+_RAISES_ON_UNREADABLE_BODY = frozenset()
 
 
 def _slug_params():
@@ -353,9 +355,13 @@ def test_a_json_body_with_no_known_container_splits_the_clients():
     unreadable -- ``arxiv`` and ``ndl_search`` -- do so by accident of format:
     an XML parser cannot read a JSON object whatever its root. The other eight
     checked the shape and said so. The seventeen in the other set are not a
-    uniform group either: ten of them never got as far as looking, because
-    they are the clients that raise on a body that does not decode and this
-    one does.
+    uniform group either: ten of them reach ``answered_empty`` only because
+    the container they look for is missing from a body that did decode, which
+    is the reading ``api_openalex`` makes and this census declines to call
+    wrong. Those ten are the clients that used to raise on a body that does
+    *not* decode; ``read_json_body`` changed what they do with an undecodable
+    reply and deliberately changed nothing about this one, which is why both
+    sets below are unchanged by that fix.
     """
     body = b'{"unexpected_root": {"nothing": 1}}'
     unreadable, empty_answer, other = set(), set(), {}
@@ -414,4 +420,7 @@ def test_the_denominator_is_the_registry_and_the_exclusions_are_named():
     assert _RAISES_ON_UNREADABLE_BODY <= set(SLUGS), (
         f"_RAISES_ON_UNREADABLE_BODY names a slug the registry does not serve: "
         f"{sorted(_RAISES_ON_UNREADABLE_BODY - set(SLUGS))}")
-    assert len(_RAISES_ON_UNREADABLE_BODY) == 10
+    # It held ten; it holds none. Asserted rather than left implicit because
+    # the number is the deliverable: row 2 now asserts on all 27 registered
+    # slugs with nothing excluded, which is the claim the empty set licenses.
+    assert _RAISES_ON_UNREADABLE_BODY == frozenset()

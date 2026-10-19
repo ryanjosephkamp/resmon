@@ -3,7 +3,8 @@
 
 import logging
 
-from .api_base import Author, BaseAPIClient, NormalizedResult, RateLimiter, bare_orcid, safe_request
+from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
+                       bare_orcid, read_json_body, safe_request)
 from .credential_manager import get_credential_for
 
 logger = logging.getLogger(__name__)
@@ -140,7 +141,10 @@ class SemanticScholarClient(BaseAPIClient):
                 logger.exception("Semantic Scholar API request failed")
                 break
 
-            data = response.json()
+            data = read_json_body(response, "Semantic Scholar")
+            if data is None:
+                break
+
             papers = data.get("data", [])
             if not papers:
                 break

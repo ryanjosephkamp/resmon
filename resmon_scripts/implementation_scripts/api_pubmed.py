@@ -11,6 +11,7 @@ from .api_base import (
     NormalizedResult,
     RateLimiter,
     note_parse_failure,
+    read_json_body,
     safe_request,
 )
 from .credential_manager import get_credential_for
@@ -79,7 +80,13 @@ class PubmedClient(BaseAPIClient):
             logger.exception("PubMed esearch request failed")
             return []
 
-        data = response.json()
+        # esearch is the search's only JSON request and the only page there
+        # is, so an unreadable reply ends the search with no identifiers --
+        # but it ends it with a recorded reason rather than an exception.
+        data = read_json_body(response, "PubMed esearch")
+        if data is None:
+            return []
+
         return data.get("esearchresult", {}).get("idlist", [])
 
     def _efetch(self, pmids: list[str]) -> list[NormalizedResult]:
