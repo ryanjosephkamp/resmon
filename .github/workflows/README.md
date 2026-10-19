@@ -1,6 +1,6 @@
 # Workflows
 
-Seven workflows, eleven jobs. Two things are true of every one of them, and a new job is not finished until
+Seven workflows, twelve jobs. Two things are true of every one of them, and a new job is not finished until
 both are true of it as well.
 
 **This page used to be the whole of the enforcement, and it had already drifted.** It said *ten* jobs
@@ -34,7 +34,7 @@ That second half matters more than the first. **A required status check that ski
 and branch protection waits for it forever with a symptom that does not look like its cause. Two
 consequences:
 
-- If this repository is ever renamed or transferred, all eleven jobs skip and merging freezes. The fix is to
+- If this repository is ever renamed or transferred, all twelve jobs skip and merging freezes. The fix is to
   update the literal in every workflow. A variable would avoid that, but a literal is the form that cannot
   be changed from inside a fork, which is the whole point.
 - A new job that is also a required check must have its guard true here before it is made required.
