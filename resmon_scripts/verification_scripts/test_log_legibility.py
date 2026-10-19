@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -151,12 +152,25 @@ def test_the_cap_is_a_safety_limit_and_not_a_formatting_rule():
 # ---------------------------------------------------------------------------
 
 def _suite_step() -> str:
-    """The ``Run the hermetic test suite`` step, as text."""
+    """The ``Run the hermetic test suite`` step, as text.
+
+    Ends at the next step *or* the next job, whichever comes first. It used to
+    look only for the next ``- name:``, and because this is the backend job's
+    last step that ran on into ``lint:`` -- so an assertion about this step
+    could have been satisfied by another job's text. Nothing was wrong because
+    of it; it was wrong anyway.
+    """
     text = CI_WORKFLOW.read_text(encoding="utf-8")
     start = text.index("- name: Run the hermetic test suite")
-    rest = text[start + 1:]
-    end = rest.find("\n      - name:")
-    return rest if end == -1 else rest[:end]
+    lines = text[start:].splitlines()
+    collected = [lines[0]]
+    for line in lines[1:]:
+        if line.startswith("      - name:"):
+            break
+        if line.strip() and not line.startswith("        "):
+            break                                 # dedented out of this step
+        collected.append(line)
+    return "\n".join(collected)
 
 
 def test_the_suite_step_captures_and_re_raises_pytests_own_status():
@@ -237,13 +251,24 @@ def test_the_shipped_run_block_preserves_a_status(tmp_path, script, expected):
     because ``$$`` does not change in a subshell, and ``$BASHPID``, which
     does, is empty under the bash 3.2 that ships with macOS.
 
-    **Which branch this exercises depends on the machine.** The probe picks
-    GNU time where it exists and falls through where it does not, so a macOS
-    developer runs the ``else`` and a Linux runner runs the ``if``. The ``if``
-    branch is known to run on CI -- the Backend job log carries a
-    ``Maximum resident set size`` line, which only GNU time prints -- and the
-    reviewer confirmed it preserves 137 and 139 there. This case does not
-    establish both branches from one machine.
+    **Which branch this exercises depends on the machine, and only one of
+    them has ever been measured.** The probe picks GNU time where it exists
+    and falls through where it does not, so a macOS developer runs the
+    ``else`` and a Linux runner runs the ``if``. The ``if`` branch is the one
+    that runs on CI -- the Backend job log carries a
+    ``Maximum resident set size`` line, which only GNU time prints -- and
+    **nobody has measured whether it preserves 128+N**. Reading GNU time's
+    ``main()`` suggests it exits with ``WTERMSIG(status)``, the bare 9 or 11,
+    which would make the notice wrong in exactly the case it exists for. An
+    earlier draft of this docstring said a reviewer had confirmed otherwise;
+    they had not -- their script used bash alone, with ``/usr/bin/true`` as
+    the stand-in, so what it established was that bash's ``$?`` is 128+N.
+    That sentence was a reading credited as a measurement, inside the module
+    that exists because the two are not the same thing.
+
+    This case is the instrument. On CI it takes the ``if`` branch and asserts
+    137 and 139; if GNU time collapses them it goes red and the log settles
+    the question.
     """
     shim = tmp_path / "bin"
     shim.mkdir()
@@ -358,9 +383,21 @@ def test_the_cases_measured_near_the_limit_carry_their_own_timeout(filename, cas
         f"{filename}::{case} was measured at over 90% of pytest.ini's "
         f"{INI_TIMEOUT}s and carries no @pytest.mark.timeout of its own"
     )
-    assert max(marks) > INI_TIMEOUT, (
-        f"{filename}::{case} declares {marks}, which is no more headroom than "
-        f"the {INI_TIMEOUT}s default it already had"
+    # The *last* decorator, not the largest. Stacked marks were measured
+    # rather than assumed: `@timeout(300)` over `@timeout(2)` around a
+    # five-second sleep expired at two seconds, and `@timeout(2)` over
+    # `@timeout(300)` passed in 5.01 s. The decorator nearest the `def` --
+    # last in `decorator_list` -- is the one pytest honours, both ways round.
+    #
+    # `max()` was here first and it is the same defect as the regex it
+    # replaced, one level in: [300, 60] satisfied a gate whose whole job is
+    # to guarantee headroom, while the effective limit was 60 -- half the
+    # 120-second default the gate exists to improve on.
+    effective = marks[-1]
+    assert effective > INI_TIMEOUT, (
+        f"{filename}::{case} declares {marks} and pytest honours the last of "
+        f"them, {effective}s, which is no more headroom than the "
+        f"{INI_TIMEOUT}s default it already had"
     )
 
 
@@ -391,6 +428,80 @@ def test_a_timeout_mark_on_a_neighbouring_case_does_not_count(tmp_path):
     assert timeout_marks_on(moved, case) == [], (
         "a timeout mark on a neighbouring case still counts for the measured "
         "one -- the gate is reading a region of text, not a decorator list"
+    )
+
+
+def test_the_last_stacked_mark_is_the_one_that_counts():
+    """Stacked marks, measured rather than read.
+
+    pytest honours the decorator nearest the ``def``. Measured both ways
+    round against a five-second sleep under this repository's own
+    ``timeout_method = thread``:
+
+    ======================================  ==================
+    ``@timeout(300)`` over ``@timeout(2)``  expired at 2 s
+    ``@timeout(2)`` over ``@timeout(300)``  passed in 5.01 s
+    ======================================  ==================
+
+    So ``decorator_list[-1]`` is the effective one, and reducing with
+    ``max()`` -- which this gate did first -- accepts ``[300, 60]`` while the
+    real limit is 60: half the default the gate exists to improve on. A
+    reviewer found that by stacking the marks rather than by reading the
+    code, which is the same lesson this module keeps paying for.
+    """
+    source = (VERIFICATION / "test_library_text.py").read_text(encoding="utf-8")
+    case = NEAR_THE_LIMIT["test_library_text.py"]
+    assert timeout_marks_on(source, case) == [300]
+
+    # A smaller mark added *below* the real one: pytest would enforce 60.
+    worse = source.replace(
+        "@pytest.mark.timeout(300)\n",
+        "@pytest.mark.timeout(300)\n@pytest.mark.timeout(60)\n", 1)
+    assert worse != source
+    marks = timeout_marks_on(worse, case)
+    assert marks == [300, 60], marks
+    assert marks[-1] == 60, "the effective mark must be the last one, not the largest"
+    assert max(marks) == 300, (
+        "and max() must be seen to disagree, or this case proves nothing"
+    )
+
+    # Above the real one, the real one still wins -- order is what matters,
+    # not size, so the gate must accept this.
+    better = source.replace(
+        "@pytest.mark.timeout(300)\n",
+        "@pytest.mark.timeout(60)\n@pytest.mark.timeout(300)\n", 1)
+    assert timeout_marks_on(better, case)[-1] == 300
+
+
+def test_the_suite_step_reports_the_slowest_cases():
+    """--durations is the only standing watch on the headroom, so guard it.
+
+    Two cases sit at 90% and 93% of the 120-second limit and the only reason
+    anybody knows that is a one-off measurement somebody happened to take.
+    ``timeout_method = thread`` expires by calling ``os._exit(1)``, so the run
+    that finally crosses the line reports nothing at all -- there is no red to
+    read, which is why a standing watch and not an alert.
+
+    This assertion exists because the flag was added with nothing holding it,
+    which is the one place this change did not follow its own thesis.
+    """
+    step = _suite_step()
+    assert "--durations=" in step, (
+        "ci.yml no longer reports the slowest cases, so nothing is watching "
+        "how close any of them is to pytest.ini's timeout"
+    )
+    count = int(re.search(r"--durations=(\d+)", step).group(1))
+    assert count >= 10, (
+        f"--durations={count} is too few to show the cases approaching the "
+        "limit behind the two already known"
+    )
+    # Counted over the executable block, not the whole step: the comment
+    # above it names the flag too, and a gate that counts prose is not
+    # counting the thing it is about.
+    block = _suite_run_block()
+    assert block.count("pytest -v --durations=") == block.count("pytest -v"), (
+        "both branches of the /usr/bin/time probe must report durations, or "
+        "the watch depends on which runner picked the job up"
     )
 
 
