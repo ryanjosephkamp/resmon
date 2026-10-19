@@ -3,7 +3,7 @@
 ``response_model`` is the only thing in FastAPI that can take a field out of a
 reply without anybody writing code to do so. A key the handler returned and the
 model did not declare is dropped, with a 200 and no log line, and on a surface
-of 184 routes whose bodies are dicts assembled across several modules that is a
+of 185 routes whose bodies are dicts assembled across several modules that is a
 functionality decrease waiting for one forgetful afternoon.
 
 So the models arrive with a mechanism rather than on trust. This file is it.
@@ -34,8 +34,10 @@ What is asserted here
    next month is held to this standard without its author reading anything.
 
 4. **Coverage of the registry.** Every route on the app that declares a
-   response model must be exercised by the scenario below. A model added
-   without a case is a red test rather than an untested claim.
+   response model must be exercised by the scenario below, and the set of
+   modeled routes must be exactly ``THE_MODELED_SURFACE`` below. A model added
+   without a case is a red test rather than an untested claim, and a route
+   modeled without being declared is a red test rather than a quiet widening.
 
 What is deliberately not asserted
 ---------------------------------
@@ -73,6 +75,100 @@ from implementation_scripts import watch_profiles as wp        # noqa: E402
 
 
 # ---------------------------------------------------------------------------
+# The contract: which routes are modeled, declared slice by slice
+# ---------------------------------------------------------------------------
+#
+# This replaces the pilot's fence. That fence said "every modeled route starts
+# with /api/profiles", which kept the pilot honest and would have had to be
+# deleted the first time anybody modeled anything else -- leaving nothing in
+# its place. What is worth holding is not *which* slice is modeled but that the
+# modeled set is exactly the declared one: a route that grows a response_model
+# without a line here is a quiet widening of a surface whose whole point is
+# that it cannot change quietly, and it reddens
+# ``test_the_modeled_surface_is_exactly_what_is_declared`` below.
+#
+# Each route here is also driven by the scenario, and the two properties are
+# separate tests on purpose: a declaration with no drive is an untested claim,
+# and a drive with no declaration is a change nobody wrote down.
+
+THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
+    "watch profiles": (
+        ("GET", "/api/profiles"),
+        ("POST", "/api/profiles"),
+        ("GET", "/api/profiles/starter"),
+        ("GET", "/api/profiles/{profile_id}"),
+        ("PUT", "/api/profiles/{profile_id}"),
+        ("DELETE", "/api/profiles/{profile_id}"),
+        ("GET", "/api/profiles/{profile_id}/export"),
+        ("GET", "/api/profiles/{profile_id}/lifecycle"),
+        ("GET", "/api/profiles/{profile_id}/matches"),
+        ("POST", "/api/profiles/import"),
+        ("POST", "/api/profiles/matches/for-documents"),
+    ),
+    "settings": (
+        ("GET", "/api/settings/ai"),
+        ("PUT", "/api/settings/ai"),
+        ("GET", "/api/settings/ai/cli-status"),
+        ("GET", "/api/settings/assistant"),
+        ("PUT", "/api/settings/assistant"),
+        ("GET", "/api/settings/cloud"),
+        ("PUT", "/api/settings/cloud"),
+        ("GET", "/api/settings/email"),
+        ("PUT", "/api/settings/email"),
+        ("GET", "/api/settings/embeddings"),
+        ("PUT", "/api/settings/embeddings"),
+        ("GET", "/api/settings/execution"),
+        ("PUT", "/api/settings/execution"),
+        ("GET", "/api/settings/notifications"),
+        ("PUT", "/api/settings/notifications"),
+        ("GET", "/api/settings/storage"),
+        ("PUT", "/api/settings/storage"),
+    ),
+    "reading queue": (
+        ("GET", "/api/reading-queue"),
+        ("POST", "/api/reading-queue"),
+        ("PUT", "/api/reading-queue/{document_id}"),
+        ("DELETE", "/api/reading-queue/{document_id}"),
+    ),
+    "watchdog": (
+        ("GET", "/api/watchdog"),
+        ("POST", "/api/watchdog/mute"),
+        ("POST", "/api/watchdog/unmute"),
+    ),
+    "first run": (
+        ("GET", "/api/onboarding"),
+        ("POST", "/api/onboarding/dismiss"),
+    ),
+    "process identity and the catalogs": (
+        ("GET", "/api/health"),
+        ("GET", "/api/credentials"),
+        ("GET", "/api/repositories/catalog"),
+        ("GET", "/api/search/repositories"),
+        ("POST", "/api/renderer/heartbeat"),
+    ),
+    "saved configurations": (
+        ("GET", "/api/configurations"),
+        ("POST", "/api/configurations"),
+        ("PUT", "/api/configurations/{config_id}"),
+        ("DELETE", "/api/configurations/{config_id}"),
+        ("POST", "/api/configurations/export"),
+        ("POST", "/api/configurations/import"),
+    ),
+}
+
+#: Routes whose body is a list of **strings**, so there is no object anywhere
+#: in it and no pydantic model to walk. The structural guards below say nothing
+#: at all about these -- there is no key for a model to drop -- so they are
+#: named here and their annotation is pinned instead. Adding a route to this
+#: set is how you say "this one answers scalars"; it is not a way out of the
+#: guards for a route that answers objects, because the pin below fails on any
+#: annotation that is not exactly ``list[str]``.
+SCALAR_LIST_ROUTES: frozenset[tuple[str, str]] = frozenset({
+    ("GET", "/api/search/repositories"),
+})
+
+
+# ---------------------------------------------------------------------------
 # Reading the application, rather than a list somebody keeps up to date
 # ---------------------------------------------------------------------------
 
@@ -84,6 +180,18 @@ def api_routes() -> list[APIRoute]:
     would make every denominator wrong by four.
     """
     return [r for r in resmon_mod.app.routes if isinstance(r, APIRoute)]
+
+
+def api_contract_route_keys() -> list[tuple[str, str]]:
+    """``(method, path)`` for the whole surface, from the contract generator.
+
+    The same selection the generated ``docs/api-contract/`` files are built
+    from, borrowed rather than reimplemented so a route this file thinks exists
+    and the contract does not is impossible.
+    """
+    from implementation_scripts import api_contract  # noqa: PLC0415
+
+    return api_contract.route_keys()
 
 
 def modeled_routes() -> dict[tuple[str, str], APIRoute]:
@@ -213,12 +321,17 @@ class Drive:
 
 @pytest.fixture(scope="module")
 def driven() -> Drive:
-    """Drive all eleven J07 routes once, recording raw returns beside bodies.
+    """Drive every modeled route against a corpus this scenario builds.
 
-    Module-scoped because the scenario is a sequence — a profile is created,
-    matched, read, exported, imported, and finally deleted twice over, once
-    with a routine watching it and once without — and because the lossy-twin
-    test needs the same real payloads this one compares.
+    Module-scoped because the scenario is a *sequence* and the order carries
+    meaning: the first-run card is read before anything exists, the embeddings
+    page before and after a lane is configured, the watchdog after six runs
+    have been recorded against it. Re-running each slice from a clean database
+    would be cheaper to read and would lose exactly the bodies worth comparing.
+
+    The slices are functions below, each taking ``drive`` and returning what
+    the next one needs. They run in one transaction-free sequence against one
+    ``:memory:`` corpus, which is also what the lossy-twin test replays.
     """
     resmon_mod._db_path = ":memory:"
     resmon_mod._shared_conn = None
@@ -232,6 +345,12 @@ def driven() -> Drive:
     unique = list({id(r): r for r in modeled_routes().values()}.values())
     with recording(unique) as captured:
         drive = Drive(client, captured)
+
+        # Before anything exists, so the card's ``show`` is true on this call
+        # and false on the one at the end of the watchdog slice.
+        drive("GET", "/api/onboarding")
+        _drive_process_identity(drive)
+        _drive_settings(drive)
 
         # A profile with no identifier, so ``basis_warning`` is a sentence and
         # not ``None``: the field most easily lost is the one carrying a value.
@@ -319,7 +438,249 @@ def driven() -> Drive:
         drive("DELETE", f"/api/profiles/{unwatched['id']}")
         drive("DELETE", f"/api/profiles/{watched_by_routine['id']}")
 
+        _drive_reading_queue(drive, doc_ids[0])
+        _drive_watchdog_and_first_run(drive)
+        _drive_configurations(drive)
+
         yield drive
+
+
+# ---------------------------------------------------------------------------
+# The slices
+# ---------------------------------------------------------------------------
+
+def _drive_process_identity(drive: Drive) -> None:
+    """Five reads that belong to no feature and that every client makes first.
+
+    ``/api/health`` and ``/api/credentials`` answer objects; the two catalogs
+    answer **bare lists**, one of objects and one of plain strings, which is
+    the shape the structural guards cannot speak about. Both are driven here
+    so the equality sweep does speak about them.
+    """
+    drive("GET", "/api/health")
+    sources = drive("GET", "/api/search/repositories")
+    assert sources and all(isinstance(s, str) for s in sources), (
+        "the bare-list-of-strings case needs a non-empty list to be evidence")
+    catalog = drive("GET", "/api/repositories/catalog")
+    assert catalog, "the catalog must have rows for its model to be exercised"
+    drive("GET", "/api/credentials")
+    drive("POST", "/api/renderer/heartbeat")
+
+
+def _drive_settings(drive: Drive) -> None:
+    """Every stored group read, written and read again.
+
+    Read first so the empty state is compared, written with values a real tab
+    would send, and read again so the stored state is compared too — the
+    second read is where a model that silently coerced ``"4"`` to ``4``, or
+    ``true`` to ``"true"``, shows up.
+
+    The embeddings page is driven across a lane being configured, because
+    ``lane`` is ``null`` until one is and a scenario that only saw the null
+    would never exercise ``EmbeddingLaneView`` at all. Same reasoning for the
+    agent-CLI probe: the second read has an ``ai_cli_path`` stored, so the
+    explicit-path branch of ``discover_cli`` is the one being described.
+    """
+    for group, body in (
+        ("email", {"settings": {"smtp_server": "smtp.example.org",
+                                "smtp_port": "587",
+                                "smtp_username": "someone",
+                                "smtp_from": "someone@example.org",
+                                "smtp_to": "someone@example.org"}}),
+        ("cloud", {"settings": {"cloud_provider": "gdrive",
+                                "cloud_auto_backup": "1"}}),
+        ("storage", {"settings": {"pdf_policy": "keep", "txt_policy": "keep",
+                                  "archive_after_days": "30",
+                                  "export_directory": ""}}),
+        ("assistant", {"settings": {"assistant_runtime": "claude_cli",
+                                    "assistant_provider": "claude_code",
+                                    "assistant_model": "a-model",
+                                    "assistant_effort": "medium"}}),
+    ):
+        drive("GET", f"/api/settings/{group}")
+        drive("PUT", f"/api/settings/{group}", json=body)
+        drive("GET", f"/api/settings/{group}")
+
+    # notifications: the group whose read is a bool and an enum rather than
+    # the stored strings its siblings answer.
+    drive("GET", "/api/settings/notifications")
+    drive("PUT", "/api/settings/notifications",
+          json={"settings": {"notify_manual": False,
+                             "notify_automatic_mode": "selected"}})
+    drive("GET", "/api/settings/notifications")
+
+    # execution: integers, and a PUT that echoes what it stored.
+    drive("GET", "/api/settings/execution")
+    drive("PUT", "/api/settings/execution",
+          json={"max_concurrent_executions": 4, "routine_fire_queue_limit": 8})
+    drive("GET", "/api/settings/execution")
+
+    # ai, and the CLI probe either side of a configured path.
+    drive("GET", "/api/settings/ai")
+    drive("GET", "/api/settings/ai/cli-status")
+    drive("PUT", "/api/settings/ai",
+          json={"settings": {"ai_provider": "claude_code",
+                             "ai_model": "a-model",
+                             "ai_cli_path": "/nonexistent/claude",
+                             "ai_effort": "medium",
+                             "ai_chain": json.dumps([{"provider": "claude_code"}]),
+                             "ai_default_models": json.dumps({"openai": "m"})}})
+    drive("GET", "/api/settings/ai")
+    drive("GET", "/api/settings/ai/cli-status")
+
+    # embeddings: a page before a lane exists and a page after one does.
+    before = drive("GET", "/api/settings/embeddings")
+    assert before["lane"] is None, "the null-lane branch must be the first read"
+    drive("PUT", "/api/settings/embeddings",
+          json={"settings": {"embedding_enabled": "1",
+                             "embedding_provider": "openai",
+                             "embedding_model": "text-embedding-3-small",
+                             "embedding_batch_size": "16"}})
+    after = drive("GET", "/api/settings/embeddings")
+    assert after["lane"], (
+        "EmbeddingLaneView is only exercised when a lane is configured; this "
+        "read must be the one that has one")
+
+
+def _drive_reading_queue(drive: Drive, document_id: int) -> None:
+    """Save a paper, list it, mark it read, take it out again.
+
+    The page is read twice, once unfiltered and once with ``?status=``, so
+    ``ReadingQueuePage.status`` is compared as ``null`` and as a string — the
+    field that tells "everything" from "everything that happens to be unread".
+    """
+    drive("POST", "/api/reading-queue", expect=201,
+          json={"document_id": document_id})
+    page = drive("GET", "/api/reading-queue")
+    assert page["entries"], "the page must have a row for its entry model to run"
+    assert page["status"] is None
+    filtered = drive("GET", "/api/reading-queue?status=to_read")
+    assert filtered["status"] == "to_read"
+    drive("PUT", f"/api/reading-queue/{document_id}", json={"status": "read"})
+    drive("DELETE", f"/api/reading-queue/{document_id}")
+
+
+def _drive_watchdog_and_first_run(drive: Drive) -> None:
+    """Give the watchdog something to find, then mute it and let it go.
+
+    Six recorded runs of one routine, the last three of them failures against
+    one source and a second source that has only been seen twice: that is a
+    ``broken`` finding and a row in ``not_enough_data`` at the same time, which
+    is the pair of lists this report exists to keep apart. An empty
+    ``findings`` would have let a model that dropped the whole list pass.
+
+    The runs are stamped months back so the routine reads as overdue, which
+    is the second finding and the one whose ``scope.id`` is an **integer**
+    where the source finding's is a **string** — the reason both scopes are
+    declared ``dict`` rather than modeled.
+    """
+    conn = resmon_mod._get_db()
+    try:
+        conn.execute(
+            "INSERT INTO routines (name, schedule_cron, parameters, is_active) "
+            "VALUES ('Nightly', '0 9 * * *', ?, 1)",
+            (json.dumps({"keywords": ["x"], "repositories": ["arxiv", "pubmed"]}),))
+        routine_id = conn.execute(
+            "SELECT id FROM routines WHERE name = 'Nightly'").fetchone()["id"]
+        for index in range(6):
+            stamp = f"2026-0{index + 1}-01 00:00:00"
+            conn.execute(
+                "INSERT INTO executions (execution_type, status, parameters, "
+                "start_time, end_time, result_count, new_result_count, routine_id) "
+                "VALUES ('automated_sweep', 'completed', ?, ?, ?, 0, 0, ?)",
+                (json.dumps({"keywords": ["x"]}), stamp,
+                 f"2026-0{index + 1}-01 00:05:00", routine_id))
+            exec_id = conn.execute(
+                "SELECT MAX(id) AS m FROM executions").fetchone()["m"]
+            conn.execute(
+                "INSERT INTO execution_sources (execution_id, source, status, "
+                "result_count, error_message, recorded_at) VALUES (?,?,?,?,?,?)",
+                (exec_id, "arxiv", "error" if index > 2 else "ok", 0,
+                 "upstream refused the connection" if index > 2 else None, stamp))
+            if index < 2:
+                conn.execute(
+                    "INSERT INTO execution_sources (execution_id, source, status, "
+                    "result_count, error_message, recorded_at) VALUES (?,?,?,?,?,?)",
+                    (exec_id, "pubmed", "ok", 3, None, stamp))
+        conn.commit()
+    finally:
+        resmon_mod._close_db(conn)
+
+    report = drive("GET", "/api/watchdog")
+    assert report["findings"], "the watchdog must have found something to report"
+    assert report["not_enough_data"], (
+        "the unjudged list must have a row; it is the half of this report that "
+        "says silence has not been measured rather than that nothing is wrong")
+    assert {f["severity"] for f in report["findings"]} >= {"broken"}
+
+    key = report["findings"][0]["key"]
+    drive("POST", "/api/watchdog/mute", json={"finding_key": key, "note": "known"})
+    muted = drive("GET", "/api/watchdog")
+    assert any(f["key"] == key and f["muted"] and f["muted_at"]
+               for f in muted["findings"]), (
+        "a muted finding must come back carrying both its mute flag and its "
+        "timestamp; those are the two fields the mute round-trip adds")
+    drive("POST", "/api/watchdog/unmute", json={"finding_key": key})
+
+    # The first-run card again, now that the corpus has rows: ``show`` is false
+    # where the call at the top of the scenario had it true.
+    second_look = drive("GET", "/api/onboarding")
+    assert second_look["show"] is False
+    drive("POST", "/api/onboarding/dismiss")
+
+
+def _drive_configurations(drive: Drive) -> None:
+    """Create one, rename it, rewrite it, export it, delete it, import it back.
+
+    The two PUTs are the point. One sends a name alone and the other sends a
+    name and parameters, so the same route answers two and three keys on the
+    same corpus — which is what ``response_model_exclude_unset=True`` is for,
+    and what a model serializing its defaults would have flattened into three
+    keys both times.
+
+    The round trip through the zip is a real one: the file the export wrote is
+    the file the import reads, so the two routes are checked against each other
+    rather than against a fixture.
+    """
+    import zipfile  # noqa: PLC0415 — only this slice needs it
+
+    drive("GET", "/api/configurations")
+    made = drive("POST", "/api/configurations", expect=201,
+                 json={"name": "Nightly sweep", "config_type": "manual_sweep",
+                       "parameters": {"keywords": ["x"], "repositories": ["arxiv"]}})
+    config_id = made["id"]
+    listed = drive("GET", "/api/configurations")
+    assert listed and isinstance(listed[0]["parameters"], dict), (
+        "the list route parses the parameters column; that is the half of the "
+        "asymmetry with the PUT below that has to be real for either model to "
+        "be right")
+
+    renamed = drive("PUT", f"/api/configurations/{config_id}",
+                    json={"name": "Nightly sweep, renamed"})
+    assert set(renamed) == {"id", "name"}, (
+        "a rename must answer two keys; a third means a default was invented")
+    rewritten = drive("PUT", f"/api/configurations/{config_id}",
+                      json={"name": "Nightly sweep",
+                            "parameters": {"keywords": ["y"],
+                                           "repositories": ["arxiv"]}})
+    assert set(rewritten) == {"id", "name", "parameters"}
+    assert isinstance(rewritten["parameters"], str), (
+        "the write route echoes the stored text, not the parsed object")
+
+    exported = drive("POST", "/api/configurations/export", json={"ids": [config_id]})
+    archive = Path(exported["path"])
+    assert archive.exists(), "the export must have written the file it names"
+    with zipfile.ZipFile(archive) as bundle:
+        members = [(name, bundle.read(name)) for name in bundle.namelist()]
+    assert members, "the exported archive must carry the configuration"
+
+    drive("DELETE", f"/api/configurations/{config_id}")
+    result = drive(
+        "POST", "/api/configurations/import",
+        files=[("files", (name, data, "application/json")) for name, data in members])
+    assert result["imported"] == 1, (
+        "the import must have taken the exported file back in; a zero here "
+        "means the two routes were never checked against each other")
 
 
 # ---------------------------------------------------------------------------
@@ -439,28 +800,50 @@ def test_a_model_that_drops_a_field_is_caught(driven):
     For every modeled route, for every declared field of its model: take the
     payload that route really answered with, serve it through the same model
     with that one field taken out and ``extra="ignore"`` restored, and assert
-    ``differences`` reports the loss and names the field. Nine routes' worth of
-    this is what makes the green in the test above mean something.
+    ``differences`` reports the loss and names the field, once per declared
+    field of every modeled route. That volume is what makes the green in the
+    test above mean something.
 
     A field the handler did not actually return on this payload is skipped: its
     removal cannot be observed in a body that never carried it, and asserting
-    otherwise would be the test lying about its own reach.
+    otherwise would be the test lying about its own reach. A route whose body
+    is a bare list is probed through ``list[twin]`` on the same payload, so the
+    three list-shaped routes are held to the same standard as the rest: that is
+    where a dropped field is least visible, because the loss repeats in every
+    row and the body still reads like a list of the right things.
+
+    ``SCALAR_LIST_ROUTES`` is skipped, and that is not a loophole: a list of
+    strings has no key, so there is nothing a response model could drop from
+    it. ``test_every_modeled_route_resolves_to_the_lossless_base`` pins those
+    routes to ``list[str]`` so one cannot grow keys here without being noticed.
     """
     checked = 0
     for (method, path), calls in sorted(driven.calls.items()):
+        if (method, path) in SCALAR_LIST_ROUTES:
+            continue
         route = modeled_routes()[(method, path)]
-        model = route.response_model
+        declared = route.response_model
+        models = _annotation_models(declared)
+        assert len(models) == 1, (
+            f"{method} {path}: this check probes one model per route and "
+            f"{declared!r} resolves to {len(models)}")
+        model = models[0]
+        #: True when the route answers ``list[model]`` rather than ``model``.
+        is_list = model is not declared
         raw, _body = calls[0]
         encoded = jsonable_encoder(raw)
+        # The row a field has to be present in for its removal to be visible.
+        sample = (encoded[0] if is_list and encoded else encoded)
         for name, field in model.model_fields.items():
             key = field.alias or name
-            if not isinstance(encoded, dict) or key not in encoded:
+            if not isinstance(sample, dict) or key not in sample:
                 continue
             probe = FastAPI()
             twin = _lossy_twin(model, name)
             probe.add_api_route(
                 "/probe", lambda raw=raw: raw, methods=["GET"],
-                response_model=twin, response_model_exclude_unset=True)
+                response_model=list[twin] if is_list else twin,
+                response_model_exclude_unset=True)
             lossy = TestClient(probe).get("/probe").json()
             found = differences(encoded, lossy)
             assert found, (
@@ -471,7 +854,7 @@ def test_a_model_that_drops_a_field_is_caught(driven):
                 f"{method} {path}: dropping {key!r} was noticed but not named; "
                 f"the report said {found}")
             checked += 1
-    assert checked >= 40, (
+    assert checked >= 170, (
         f"only {checked} field removals were observable; the scenario's payloads "
         f"are too thin to be evidence that the comparison works")
 
@@ -562,7 +945,17 @@ def test_every_modeled_route_resolves_to_the_lossless_base():
     """
     unresolved: list[str] = []
     strays: list[str] = []
+    mispinned: list[str] = []
     for (method, path), route in sorted(modeled_routes().items()):
+        if (method, path) in SCALAR_LIST_ROUTES:
+            # A list of strings has no key for a model to drop, so the guards
+            # in this section genuinely have nothing to check. Pin the shape
+            # instead: a route that quietly starts answering objects stops
+            # being ``list[str]`` and reddens here rather than slipping past
+            # every structural guard in the file.
+            if route.response_model != list[str]:
+                mispinned.append(f"{method} {path} -> {route.response_model!r}")
+            continue
         top = _annotation_models(route.response_model)
         if not top:
             unresolved.append(f"{method} {path} -> {route.response_model!r}")
@@ -577,6 +970,9 @@ def test_every_modeled_route_resolves_to_the_lossless_base():
     assert not strays, (
         "these routes resolve to a model that is not a LosslessModel: "
         + ", ".join(strays))
+    assert not mispinned, (
+        "these routes are listed in SCALAR_LIST_ROUTES, which claims they "
+        "answer a bare list of strings, and they do not: " + ", ".join(mispinned))
 
 
 def test_every_response_model_inherits_the_lossless_base():
@@ -609,28 +1005,80 @@ def test_every_modeled_route_is_driven_by_this_file(driven):
         + ", ".join(f"{m} {p}" for m, p in missing))
 
 
-def test_the_modeled_slice_is_the_watch_profiles_row_and_says_so():
-    """The denominator, read from the app rather than counted by hand.
+def test_the_modeled_surface_is_exactly_what_is_declared():
+    """The fence, widened without being removed.
 
-    Eleven of the 185 routes are modeled and they are all of J07. The number
-    on the right is ``len(api_routes())``, so this test moves when the surface
-    does; the number on the left is the count of routes declaring a model, so
-    it moves when somebody models one. Neither is written down twice.
+    The pilot asserted that every modeled route began with ``/api/profiles``.
+    That had teeth exactly once: the first time a second slice landed, the
+    assertion had to go, and an assertion that is deleted to make a change pass
+    protects nothing afterwards. What replaces it is the same shape of claim
+    made about a list that moves with the rollout — the modeled set is
+    ``THE_MODELED_SURFACE``, slice for slice, route for route.
 
-    185 since the source wall's ``GET /api/coverage/source-wall``, which is
-    deliberately **not** modeled: the pilot slice is J07 and the assertion
-    below is the fence around it. Widening the slice is the rollout's call,
-    not a new route's.
+    So a route that grows a ``response_model`` without a line in that table
+    fails here, and a line in that table whose route lost its model fails here
+    too. Both directions matter: the first is a surface widening nobody wrote
+    down, the second is a model that was removed while the contract still
+    promised it.
+
+    No number is written out. The denominator is ``len(api_routes())`` and the
+    numerator is read off the application, so neither needs a human to
+    maintain it and neither can be right about a version of the app that no
+    longer exists.
     """
-    modeled = modeled_routes()
-    assert len(api_routes()) == 185, (
-        f"the surface is now {len(api_routes())} routes; every count in "
-        f"docs/api-contract/ and in this file's docstring needs regenerating")
-    assert len(modeled) == 11
-    off_slice = sorted(p for _m, p in modeled if not p.startswith("/api/profiles"))
-    assert not off_slice, (
-        "the pilot slice is J07 alone; these modeled routes are outside it: "
-        + ", ".join(off_slice))
+    declared = {route for routes in THE_MODELED_SURFACE.values() for route in routes}
+    # A route named in two slices would make the count disagree with the table
+    # while every route still matched, which is the one way this could pass
+    # while the table was wrong about itself.
+    flat = [route for routes in THE_MODELED_SURFACE.values() for route in routes]
+    assert len(flat) == len(declared), (
+        "a route appears in more than one slice of THE_MODELED_SURFACE: "
+        + ", ".join(sorted(f"{m} {p}" for m, p in
+                           {r for r in flat if flat.count(r) > 1})))
+
+    actual = set(modeled_routes())
+    undeclared = sorted(actual - declared)
+    unfulfilled = sorted(declared - actual)
+    assert not undeclared, (
+        "these routes declare a response model and no slice of "
+        "THE_MODELED_SURFACE claims them, so the modeled surface grew without "
+        "anybody saying so: "
+        + ", ".join(f"{m} {p}" for m, p in undeclared))
+    assert not unfulfilled, (
+        "THE_MODELED_SURFACE claims these routes are modeled and they are not: "
+        + ", ".join(f"{m} {p}" for m, p in unfulfilled))
+
+    # Every declared route must exist. A typo in the table would otherwise show
+    # up only as the two sets differing, which reads as a missing model.
+    surface = set(api_contract_route_keys())
+    unknown = sorted(declared - surface)
+    assert not unknown, (
+        "THE_MODELED_SURFACE names routes that are not on the app: "
+        + ", ".join(f"{m} {p}" for m, p in unknown))
+
+
+def test_the_slices_are_coherent_rather_than_a_scatter_of_routes():
+    """A slice is a feature area, and the paths in it say which one.
+
+    The rollout's unit is a slice with a scenario behind it, not a route
+    somebody found easy. This holds the table to that: every route in a slice
+    shares a path prefix with the rest of its slice, so a route modeled on its
+    own has to be filed somewhere it does not belong before this passes.
+
+    ``process identity and the catalogs`` is the exception and is named here
+    rather than silently excused: five single-route reads that belong to no
+    one feature and are the first thing every client calls.
+    """
+    scattered: list[str] = []
+    for slice_name, routes in THE_MODELED_SURFACE.items():
+        if slice_name == "process identity and the catalogs":
+            continue
+        prefixes = {"/".join(path.split("/")[:3]) for _m, path in routes}
+        if len(prefixes) != 1:
+            scattered.append(f"{slice_name}: {sorted(prefixes)}")
+    assert not scattered, (
+        "these slices span more than one path prefix, so they are not one "
+        "feature area: " + "; ".join(scattered))
 
 
 def test_the_contract_reports_the_same_count_this_file_does():

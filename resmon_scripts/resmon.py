@@ -480,7 +480,8 @@ def _check_expected_runtime(expected_runtime_id: Optional[str]) -> None:
             "expected_runtime_id": expected_runtime_id, "actual_runtime_id": actual})
 
 
-@app.get("/api/health")
+@app.get("/api/health", response_model=response_models.Health,
+         response_model_exclude_unset=True)
 def health(expected_runtime_id: Optional[str] = None):
     """Liveness endpoint. Returns process identity so clients can attach-or-spawn.
 
@@ -520,18 +521,22 @@ def health(expected_runtime_id: Optional[str] = None):
 # Search (manual dive / sweep)
 # ---------------------------------------------------------------------------
 
-@app.get("/api/search/repositories")
+@app.get("/api/search/repositories", response_model=list[str],
+         response_model_exclude_unset=True)
 def search_repositories():
     return list_repositories()
 
 
-@app.get("/api/repositories/catalog")
+@app.get("/api/repositories/catalog",
+         response_model=list[response_models.RepositoryCatalogEntry],
+         response_model_exclude_unset=True)
 def repositories_catalog():
     """Return the static repository catalog (never returns secrets)."""
     return catalog_as_dicts()
 
 
-@app.get("/api/credentials")
+@app.get("/api/credentials", response_model=response_models.CredentialsPresence,
+         response_model_exclude_unset=True)
 def credentials_presence():
     """Return per-credential status for every known credential name.
 
@@ -1395,7 +1400,8 @@ def _sched_remove_routine(routine_id: int) -> None:
         )
 
 
-@app.post("/api/renderer/heartbeat")
+@app.post("/api/renderer/heartbeat", response_model=response_models.RendererHeartbeat,
+          response_model_exclude_unset=True)
 def renderer_heartbeat():
     """Renderer-presence ping.
 
@@ -2625,7 +2631,9 @@ def get_execution_papers(
 # Configurations
 # ---------------------------------------------------------------------------
 
-@app.get("/api/configurations")
+@app.get("/api/configurations",
+         response_model=list[response_models.SavedConfiguration],
+         response_model_exclude_unset=True)
 def list_configurations(config_type: Optional[str] = None):
     conn = _get_db()
     try:
@@ -2641,7 +2649,9 @@ def list_configurations(config_type: Optional[str] = None):
         _close_db(conn)
 
 
-@app.post("/api/configurations", status_code=201)
+@app.post("/api/configurations", status_code=201,
+          response_model=response_models.ConfigurationCreated,
+          response_model_exclude_unset=True)
 def create_configuration(body: ConfigCreate):
     conn = _get_db()
     try:
@@ -2669,7 +2679,9 @@ def create_configuration(body: ConfigCreate):
         _close_db(conn)
 
 
-@app.put("/api/configurations/{config_id}")
+@app.put("/api/configurations/{config_id}",
+         response_model=response_models.ConfigurationUpdated,
+         response_model_exclude_unset=True)
 def update_configuration_endpoint(config_id: int, body: ConfigUpdate):
     conn = _get_db()
     try:
@@ -2689,7 +2701,9 @@ def update_configuration_endpoint(config_id: int, body: ConfigUpdate):
         _close_db(conn)
 
 
-@app.delete("/api/configurations/{config_id}")
+@app.delete("/api/configurations/{config_id}",
+            response_model=response_models.ConfigurationDeleted,
+            response_model_exclude_unset=True)
 def delete_configuration_endpoint(config_id: int):
     conn = _get_db()
     try:
@@ -2716,7 +2730,8 @@ def delete_configuration_endpoint(config_id: int):
         _close_db(conn)
 
 
-@app.post("/api/configurations/export")
+@app.post("/api/configurations/export", response_model=response_models.ConfigurationExport,
+          response_model_exclude_unset=True)
 def export_configurations(body: ConfigExport):
     conn = _get_db()
     try:
@@ -2741,7 +2756,9 @@ def export_configurations(body: ConfigExport):
         _close_db(conn)
 
 
-@app.post("/api/configurations/import")
+@app.post("/api/configurations/import",
+          response_model=response_models.ConfigurationImportResult,
+          response_model_exclude_unset=True)
 async def import_configurations(files: list[UploadFile] = File(...)):
     conn = _get_db()
     try:
@@ -2932,7 +2949,8 @@ def _reading_queue_status(value: Optional[str]) -> Optional[str]:
     return value
 
 
-@app.get("/api/reading-queue")
+@app.get("/api/reading-queue", response_model=response_models.ReadingQueuePage,
+         response_model_exclude_unset=True)
 def list_reading_queue(
     status: Optional[str] = None,
     limit: int = reading_queue.DEFAULT_PAGE_SIZE,
@@ -2950,7 +2968,9 @@ def list_reading_queue(
         _close_db(conn)
 
 
-@app.post("/api/reading-queue", status_code=201)
+@app.post("/api/reading-queue", status_code=201,
+          response_model=response_models.ReadingQueueEntry,
+          response_model_exclude_unset=True)
 def save_to_reading_queue(body: ReadingQueueSaveBody):
     """Save a stored paper. Saving one already saved returns it unchanged.
 
@@ -2968,7 +2988,9 @@ def save_to_reading_queue(body: ReadingQueueSaveBody):
         _close_db(conn)
 
 
-@app.put("/api/reading-queue/{document_id}")
+@app.put("/api/reading-queue/{document_id}",
+         response_model=response_models.ReadingQueueEntry,
+         response_model_exclude_unset=True)
 def set_reading_queue_status(document_id: int, body: ReadingQueueStatusBody):
     """Mark a saved paper read or unread."""
     conn = _get_db()
@@ -2982,7 +3004,9 @@ def set_reading_queue_status(document_id: int, body: ReadingQueueStatusBody):
         _close_db(conn)
 
 
-@app.delete("/api/reading-queue/{document_id}")
+@app.delete("/api/reading-queue/{document_id}",
+            response_model=response_models.ReadingQueueRemoval,
+            response_model_exclude_unset=True)
 def remove_from_reading_queue(document_id: int):
     """Take a paper out of the queue. The paper itself is not touched.
 
@@ -4345,7 +4369,8 @@ class WatchdogMuteRequest(BaseModel):
     note: Optional[str] = Field(default=None, max_length=500)
 
 
-@app.get("/api/watchdog")
+@app.get("/api/watchdog", response_model=response_models.WatchdogReport,
+         response_model_exclude_unset=True)
 def watchdog_report():
     """Findings, what could not be judged yet, and the thresholds used."""
     conn = _get_db()
@@ -4359,7 +4384,8 @@ def watchdog_report():
         _close_db(conn)
 
 
-@app.post("/api/watchdog/mute")
+@app.post("/api/watchdog/mute", response_model=response_models.WatchdogMuteAck,
+          response_model_exclude_unset=True)
 def watchdog_mute(request: WatchdogMuteRequest):
     """Acknowledge one finding so it stops counting toward the alarm total.
 
@@ -4375,7 +4401,8 @@ def watchdog_mute(request: WatchdogMuteRequest):
         _close_db(conn)
 
 
-@app.post("/api/watchdog/unmute")
+@app.post("/api/watchdog/unmute", response_model=response_models.WatchdogMuteAck,
+          response_model_exclude_unset=True)
 def watchdog_unmute(request: WatchdogMuteRequest):
     """Un-acknowledge a finding, returning it to the alarm total."""
     conn = _get_db()
@@ -4642,7 +4669,8 @@ def _set_settings_group(conn, group: str, data: dict) -> None:
             set_setting(conn, k, str(v))
 
 
-@app.get("/api/settings/email")
+@app.get("/api/settings/email", response_model=response_models.EmailSettings,
+         response_model_exclude_unset=True)
 def get_email_settings():
     conn = _get_db()
     try:
@@ -4651,7 +4679,8 @@ def get_email_settings():
         _close_db(conn)
 
 
-@app.put("/api/settings/email")
+@app.put("/api/settings/email", response_model=response_models.SettingsSaved,
+         response_model_exclude_unset=True)
 def update_email_settings(body: SettingsBody):
     conn = _get_db()
     try:
@@ -4716,7 +4745,8 @@ def send_test_email_endpoint():
     return {"success": True, "recipient": first_recipient}
 
 
-@app.get("/api/settings/ai")
+@app.get("/api/settings/ai", response_model=response_models.AiSettings,
+         response_model_exclude_unset=True)
 def get_ai_settings():
     conn = _get_db()
     try:
@@ -4725,7 +4755,8 @@ def get_ai_settings():
         _close_db(conn)
 
 
-@app.put("/api/settings/ai")
+@app.put("/api/settings/ai", response_model=response_models.SettingsSaved,
+         response_model_exclude_unset=True)
 def update_ai_settings(body: SettingsBody):
     conn = _get_db()
     try:
@@ -4735,7 +4766,8 @@ def update_ai_settings(body: SettingsBody):
         _close_db(conn)
 
 
-@app.get("/api/settings/ai/cli-status")
+@app.get("/api/settings/ai/cli-status", response_model=response_models.AiCliStatus,
+         response_model_exclude_unset=True)
 def get_ai_cli_status():
     """Report whether each subscription-lane CLI can be found, and where.
 
@@ -4827,7 +4859,8 @@ def _embedding_capability(conn) -> dict:
     }
 
 
-@app.get("/api/settings/embeddings")
+@app.get("/api/settings/embeddings", response_model=response_models.EmbeddingSettingsPage,
+         response_model_exclude_unset=True)
 def get_embedding_settings():
     """The stored settings, plus everything the tab needs to render honestly.
 
@@ -4866,7 +4899,8 @@ def get_embedding_settings():
         _close_db(conn)
 
 
-@app.put("/api/settings/embeddings")
+@app.put("/api/settings/embeddings", response_model=response_models.EmbeddingSettingsSaved,
+         response_model_exclude_unset=True)
 def update_embedding_settings(body: SettingsBody):
     """Store the settings, refusing a provider that cannot embed.
 
@@ -5045,7 +5079,8 @@ def rebuild_embedding_index():
         _close_db(conn)
 
 
-@app.get("/api/settings/cloud")
+@app.get("/api/settings/cloud", response_model=response_models.CloudSettings,
+         response_model_exclude_unset=True)
 def get_cloud_settings():
     conn = _get_db()
     try:
@@ -5054,7 +5089,8 @@ def get_cloud_settings():
         _close_db(conn)
 
 
-@app.put("/api/settings/cloud")
+@app.put("/api/settings/cloud", response_model=response_models.SettingsSaved,
+         response_model_exclude_unset=True)
 def update_cloud_settings(body: SettingsBody):
     conn = _get_db()
     try:
@@ -5064,7 +5100,8 @@ def update_cloud_settings(body: SettingsBody):
         _close_db(conn)
 
 
-@app.get("/api/settings/storage")
+@app.get("/api/settings/storage", response_model=response_models.StorageSettings,
+         response_model_exclude_unset=True)
 def get_storage_settings():
     conn = _get_db()
     try:
@@ -5073,7 +5110,8 @@ def get_storage_settings():
         _close_db(conn)
 
 
-@app.put("/api/settings/storage")
+@app.put("/api/settings/storage", response_model=response_models.SettingsSaved,
+         response_model_exclude_unset=True)
 def update_storage_settings(body: SettingsBody):
     conn = _get_db()
     try:
@@ -5083,7 +5121,8 @@ def update_storage_settings(body: SettingsBody):
         _close_db(conn)
 
 
-@app.get("/api/settings/notifications")
+@app.get("/api/settings/notifications", response_model=response_models.NotificationSettings,
+         response_model_exclude_unset=True)
 def get_notification_settings():
     conn = _get_db()
     try:
@@ -5101,7 +5140,8 @@ def get_notification_settings():
         _close_db(conn)
 
 
-@app.put("/api/settings/notifications")
+@app.put("/api/settings/notifications", response_model=response_models.SettingsSaved,
+         response_model_exclude_unset=True)
 def update_notification_settings(body: SettingsBody):
     data = body.settings or {}
     cleaned: dict = {}
@@ -5517,7 +5557,8 @@ def get_scheduler_jobs():
     return scheduler.get_active_jobs()
 
 
-@app.get("/api/settings/execution")
+@app.get("/api/settings/execution", response_model=response_models.ExecutionSettings,
+         response_model_exclude_unset=True)
 def get_execution_settings():
     conn = _get_db()
     try:
@@ -5530,7 +5571,8 @@ def get_execution_settings():
         _close_db(conn)
 
 
-@app.put("/api/settings/execution")
+@app.put("/api/settings/execution", response_model=response_models.ExecutionSettingsSaved,
+         response_model_exclude_unset=True)
 def update_execution_settings(body: ExecutionSettingsBody):
     if not (1 <= body.max_concurrent_executions <= 8):
         raise HTTPException(400, "max_concurrent_executions must be between 1 and 8")
@@ -6704,7 +6746,8 @@ def _assistant_runtime_for(conn):
     )
 
 
-@app.get("/api/settings/assistant")
+@app.get("/api/settings/assistant", response_model=response_models.AssistantSettings,
+         response_model_exclude_unset=True)
 def get_assistant_settings():
     conn = _get_db()
     try:
@@ -6713,7 +6756,8 @@ def get_assistant_settings():
         _close_db(conn)
 
 
-@app.put("/api/settings/assistant")
+@app.put("/api/settings/assistant", response_model=response_models.SettingsSaved,
+         response_model_exclude_unset=True)
 def update_assistant_settings(body: SettingsBody):
     conn = _get_db()
     try:
@@ -7416,7 +7460,8 @@ def _credential_present(names) -> Optional[bool]:
     return False
 
 
-@app.get("/api/onboarding")
+@app.get("/api/onboarding", response_model=response_models.OnboardingState,
+         response_model_exclude_unset=True)
 def onboarding_state():
     """What the first-run card renders, as facts rather than as prose."""
     from implementation_scripts.ai_cli import (  # noqa: PLC0415
@@ -7482,7 +7527,8 @@ def onboarding_state():
     }
 
 
-@app.post("/api/onboarding/dismiss")
+@app.post("/api/onboarding/dismiss", response_model=response_models.OnboardingDismissed,
+          response_model_exclude_unset=True)
 def dismiss_onboarding():
     """Put the card away for good.
 

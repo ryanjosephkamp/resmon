@@ -12,7 +12,7 @@
 
 **Purpose.** The first line of the endpoint's docstring, for the 87 of 185 routes that have one. The remaining 98 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 11 of 185 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 174 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 48 of 185 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 137 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -25,7 +25,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | *Get Execution Progress Events* |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
 | `POST` | `/api/search/dive` | token | — | — | *Search Dive* |
-| `GET` | `/api/search/repositories` | token | — | — | *Search Repositories* |
+| `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
 
 ## J02 — Deep Sweep
 
@@ -33,7 +33,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | *Get Execution Progress Events* |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
-| `GET` | `/api/search/repositories` | token | — | — | *Search Repositories* |
+| `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
 | `POST` | `/api/search/sweep` | token | — | — | *Search Sweep* |
 
 ## J03 — Routines
@@ -81,9 +81,9 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | `POST` | `/api/lifecycle/for-documents` | token | — | — | Lifecycle events for a page of results, in one round trip. |
 | `POST` | `/api/lifecycle/stop` | token | — | — | Ask a running check to stop after its current slice. |
 | `GET` | `/api/profiles/{profile_id}/lifecycle` | token | — | `WatchProfileLifecycle` | Retractions and other lifecycle findings on this profile's papers. |
-| `GET` | `/api/watchdog` | token | — | — | Findings, what could not be judged yet, and the thresholds used. |
-| `POST` | `/api/watchdog/mute` | token | — | — | Acknowledge one finding so it stops counting toward the alarm total. |
-| `POST` | `/api/watchdog/unmute` | token | — | — | Un-acknowledge a finding, returning it to the alarm total. |
+| `GET` | `/api/watchdog` | token | — | `WatchdogReport` | Findings, what could not be judged yet, and the thresholds used. |
+| `POST` | `/api/watchdog/mute` | token | — | `WatchdogMuteAck` | Acknowledge one finding so it stops counting toward the alarm total. |
+| `POST` | `/api/watchdog/unmute` | token | — | `WatchdogMuteAck` | Un-acknowledge a finding, returning it to the alarm total. |
 
 ## J07 — Watch profiles
 
@@ -117,8 +117,8 @@ No route of its own. The capability is in the normaliser, the catalog's `entity_
 | `POST` | `/api/embeddings/rebuild` | token | — | — | Rebuild the vector index from the canonical table. |
 | `GET` | `/api/embeddings/status` | token | — | — | N of M embedded with model X, the run, the index, and the extension. |
 | `POST` | `/api/explorer/search` | token | — | — | Search the whole corpus. POST because the filter set is a structure. |
-| `GET` | `/api/settings/embeddings` | token | — | — | The stored settings, plus everything the tab needs to render honestly. |
-| `PUT` | `/api/settings/embeddings` | token | — | — | Store the settings, refusing a provider that cannot embed. |
+| `GET` | `/api/settings/embeddings` | token | — | `EmbeddingSettingsPage` | The stored settings, plus everything the tab needs to render honestly. |
+| `PUT` | `/api/settings/embeddings` | token | — | `EmbeddingSettingsSaved` | Store the settings, refusing a provider that cannot embed. |
 
 ## J10 — Near-duplicate links
 
@@ -158,9 +158,9 @@ No route of its own. The capability is in the normaliser, the catalog's `entity_
 | `POST` | `/api/assistant/sessions/{session_id}/cancel` | token | — | — | Stop the running turn. Idempotent, and it says which happened. |
 | `POST` | `/api/assistant/sessions/{session_id}/messages` | token | yes | — | *Send Assistant Message* |
 | `GET` | `/api/assistant/status` | token | — | — | Whether the assistant can run, and if not, the reason in one sentence. |
-| `GET` | `/api/settings/ai/cli-status` | token | — | — | Report whether each subscription-lane CLI can be found, and where. |
-| `GET` | `/api/settings/assistant` | token | — | — | *Get Assistant Settings* |
-| `PUT` | `/api/settings/assistant` | token | — | — | *Update Assistant Settings* |
+| `GET` | `/api/settings/ai/cli-status` | token | — | `AiCliStatus` | Report whether each subscription-lane CLI can be found, and where. |
+| `GET` | `/api/settings/assistant` | token | — | `AssistantSettings` | *Get Assistant Settings* |
+| `PUT` | `/api/settings/assistant` | token | — | `SettingsSaved` | *Update Assistant Settings* |
 
 ## J14 — The assistant on a key
 
@@ -173,8 +173,8 @@ No route of its own. The capability is in the normaliser, the catalog's `entity_
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/onboarding` | token | — | — | What the first-run card renders, as facts rather than as prose. |
-| `POST` | `/api/onboarding/dismiss` | token | — | — | Put the card away for good. |
+| `GET` | `/api/onboarding` | token | — | `OnboardingState` | What the first-run card renders, as facts rather than as prose. |
+| `POST` | `/api/onboarding/dismiss` | token | — | `OnboardingDismissed` | Put the card away for good. |
 
 ## J16 — Weekly live-network job
 
@@ -185,8 +185,8 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/api/ai/models` | token | — | — | Return the list of model IDs the BYOK credential can access. |
-| `GET` | `/api/settings/ai` | token | — | — | *Get Ai Settings* |
-| `PUT` | `/api/settings/ai` | token | — | — | *Update Ai Settings* |
+| `GET` | `/api/settings/ai` | token | — | `AiSettings` | *Get Ai Settings* |
+| `PUT` | `/api/settings/ai` | token | — | `SettingsSaved` | *Update Ai Settings* |
 
 ## J18 — Reports and exports
 
@@ -222,33 +222,33 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/configurations` | token | — | — | *List Configurations* |
-| `POST` | `/api/configurations` | token | — | — | *Create Configuration* |
-| `POST` | `/api/configurations/export` | token | — | — | *Export Configurations* |
-| `POST` | `/api/configurations/import` | token | — | — | *Import Configurations* |
-| `DELETE` | `/api/configurations/{config_id}` | token | — | — | *Delete Configuration Endpoint* |
-| `PUT` | `/api/configurations/{config_id}` | token | — | — | *Update Configuration Endpoint* |
+| `GET` | `/api/configurations` | token | — | `list` | *List Configurations* |
+| `POST` | `/api/configurations` | token | — | `ConfigurationCreated` | *Create Configuration* |
+| `POST` | `/api/configurations/export` | token | — | `ConfigurationExport` | *Export Configurations* |
+| `POST` | `/api/configurations/import` | token | — | `ConfigurationImportResult` | *Import Configurations* |
+| `DELETE` | `/api/configurations/{config_id}` | token | — | `ConfigurationDeleted` | *Delete Configuration Endpoint* |
+| `PUT` | `/api/configurations/{config_id}` | token | — | `ConfigurationUpdated` | *Update Configuration Endpoint* |
 
 ## J22 — Repositories and keys
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/credentials` | token | — | — | Return per-credential status for every known credential name. |
+| `GET` | `/api/credentials` | token | — | `CredentialsPresence` | Return per-credential status for every known credential name. |
 | `POST` | `/api/credentials/validate` | token | — | — | *Validate Credential* |
 | `DELETE` | `/api/credentials/{key_name}` | token | — | — | *Delete Credential Endpoint* |
 | `PUT` | `/api/credentials/{key_name}` | token | — | — | *Store Credential Endpoint* |
-| `GET` | `/api/repositories/catalog` | token | — | — | Return the static repository catalog (never returns secrets). |
-| `GET` | `/api/search/repositories` | token | — | — | *Search Repositories* |
+| `GET` | `/api/repositories/catalog` | token | — | `list` | Return the static repository catalog (never returns secrets). |
+| `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
 
 ## J23 — Notifications and email
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/settings/email` | token | — | — | *Get Email Settings* |
-| `PUT` | `/api/settings/email` | token | — | — | *Update Email Settings* |
+| `GET` | `/api/settings/email` | token | — | `EmailSettings` | *Get Email Settings* |
+| `PUT` | `/api/settings/email` | token | — | `SettingsSaved` | *Update Email Settings* |
 | `POST` | `/api/settings/email/test` | token | — | — | Send a test email using the currently-stored SMTP settings. |
-| `GET` | `/api/settings/notifications` | token | — | — | *Get Notification Settings* |
-| `PUT` | `/api/settings/notifications` | token | — | — | *Update Notification Settings* |
+| `GET` | `/api/settings/notifications` | token | — | `NotificationSettings` | *Get Notification Settings* |
+| `PUT` | `/api/settings/notifications` | token | — | `SettingsSaved` | *Update Notification Settings* |
 
 ## J24 — Google Drive backup
 
@@ -258,8 +258,8 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 | `POST` | `/api/cloud/link` | token | — | — | *Cloud Link* |
 | `GET` | `/api/cloud/status` | token | — | — | *Cloud Status* |
 | `POST` | `/api/cloud/unlink` | token | — | — | *Cloud Unlink* |
-| `GET` | `/api/settings/cloud` | token | — | — | *Get Cloud Settings* |
-| `PUT` | `/api/settings/cloud` | token | — | — | *Update Cloud Settings* |
+| `GET` | `/api/settings/cloud` | token | — | `CloudSettings` | *Get Cloud Settings* |
+| `PUT` | `/api/settings/cloud` | token | — | `SettingsSaved` | *Update Cloud Settings* |
 
 ## J25 — In-app documentation
 
@@ -287,10 +287,10 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/reading-queue` | token | — | — | One page of saved papers. `status` omitted (or `all`) means both. |
-| `POST` | `/api/reading-queue` | token | — | — | Save a stored paper. Saving one already saved returns it unchanged. |
-| `DELETE` | `/api/reading-queue/{document_id}` | token | — | — | Take a paper out of the queue. The paper itself is not touched. |
-| `PUT` | `/api/reading-queue/{document_id}` | token | — | — | Mark a saved paper read or unread. |
+| `GET` | `/api/reading-queue` | token | — | `ReadingQueuePage` | One page of saved papers. `status` omitted (or `all`) means both. |
+| `POST` | `/api/reading-queue` | token | — | `ReadingQueueEntry` | Save a stored paper. Saving one already saved returns it unchanged. |
+| `DELETE` | `/api/reading-queue/{document_id}` | token | — | `ReadingQueueRemoval` | Take a paper out of the queue. The paper itself is not touched. |
+| `PUT` | `/api/reading-queue/{document_id}` | token | — | `ReadingQueueEntry` | Mark a saved paper read or unread. |
 
 ## J29 — Recorded-source coverage
 
@@ -304,8 +304,8 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/health` | token | — | — | Liveness endpoint. Returns process identity so clients can attach-or-spawn. |
-| `POST` | `/api/renderer/heartbeat` | token | — | — | Renderer-presence ping. |
+| `GET` | `/api/health` | token | — | `Health` | Liveness endpoint. Returns process identity so clients can attach-or-spawn. |
+| `POST` | `/api/renderer/heartbeat` | token | — | `RendererHeartbeat` | Renderer-presence ping. |
 
 ## J31 — Readable Ask
 
@@ -384,7 +384,7 @@ No route. Recorded in the register as not carried forward.
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/executions/{exec_id}` | token | — | — | *Get Execution* |
 | `POST` | `/api/executions/{exec_id}/restart` | token | — | — | Start a fresh execution with the source's parameters, linked back to it. |
-| `POST` | `/api/renderer/heartbeat` | token | — | — | Renderer-presence ping. |
+| `POST` | `/api/renderer/heartbeat` | token | — | `RendererHeartbeat` | Renderer-presence ping. |
 
 ## J39 — One run per routine, one per submission, missed fires
 
@@ -394,8 +394,8 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/routines/{routine_id}/run` | token | — | — | Run a routine immediately, outside its schedule. |
 | `POST` | `/api/search/dive` | token | — | — | *Search Dive* |
 | `POST` | `/api/search/sweep` | token | — | — | *Search Sweep* |
-| `GET` | `/api/settings/execution` | token | — | — | *Get Execution Settings* |
-| `PUT` | `/api/settings/execution` | token | — | — | *Update Execution Settings* |
+| `GET` | `/api/settings/execution` | token | — | `ExecutionSettings` | *Get Execution Settings* |
+| `PUT` | `/api/settings/execution` | token | — | `ExecutionSettingsSaved` | *Update Execution Settings* |
 
 ## J40 — Delivery: where a report goes, and whether it got there
 
@@ -423,8 +423,8 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/restore/acknowledge` | token | — | — | Dismiss the one-time "what a restore did not bring back" card. |
 | `POST` | `/api/restore/cancel` | token | — | — | Forget a staged restore. Nothing had been moved yet, so nothing is undone. |
 | `POST` | `/api/restore/undo-copy/delete` | token | — | — | Delete the database copies a restore set aside. Irreversible, so confirm-gated. |
-| `GET` | `/api/settings/storage` | token | — | — | *Get Storage Settings* |
-| `PUT` | `/api/settings/storage` | token | — | — | *Update Storage Settings* |
+| `GET` | `/api/settings/storage` | token | — | `StorageSettings` | *Get Storage Settings* |
+| `PUT` | `/api/settings/storage` | token | — | `SettingsSaved` | *Update Storage Settings* |
 
 ## J42 — Local API locked to this app
 
@@ -449,7 +449,7 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | `GET` | `/api/analytics/publication-volume` | token | — | — | Papers per publication month, split by source or subject category. |
 | `GET` | `/api/analytics/routine-health` | token | — | — | Per routine: new results per run, and whether it has gone quiet. |
 | `GET` | `/api/analytics/source-contribution` | token | — | — | Per source: papers delivered, and how many nothing else found. |
-| `GET` | `/api/credentials` | token | — | — | Return per-credential status for every known credential name. |
+| `GET` | `/api/credentials` | token | — | `CredentialsPresence` | Return per-credential status for every known credential name. |
 | `GET` | `/api/documents/{doc_id}/lifecycle` | token | — | — | Lifecycle events recorded against one paper. |
 | `GET` | `/api/documents/{doc_id}/why` | token | — | — | What is locally verifiable about why this paper is in the corpus. |
 | `GET` | `/api/documents/{document_id}/similar` | token | — | — | The papers nearest this one, with distances and their sources. |
@@ -459,12 +459,12 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | `GET` | `/api/executions/{exec_id}/search-record` | token | — | — | The complete, dated account of one search. |
 | `POST` | `/api/explorer/search` | token | — | — | Search the whole corpus. POST because the filter set is a structure. |
 | `POST` | `/api/export/references` | token | — | — | Render one selection, with one entry per stored document ID. |
-| `GET` | `/api/health` | token | — | — | Liveness endpoint. Returns process identity so clients can attach-or-spawn. |
+| `GET` | `/api/health` | token | — | `Health` | Liveness endpoint. Returns process identity so clients can attach-or-spawn. |
 | `GET` | `/api/profiles` | token | — | `WatchProfileList` | *List Watch Profiles* |
 | `POST` | `/api/profiles` | token | — | `WatchProfile` | *Create Watch Profile* |
 | `GET` | `/api/profiles/{profile_id}` | token | — | `WatchProfile` | *Get Watch Profile* |
 | `GET` | `/api/profiles/{profile_id}/matches` | token | — | `WatchProfileMatchPage` | Papers matched to this profile, **each with the basis it was matched on**. |
-| `GET` | `/api/repositories/catalog` | token | — | — | Return the static repository catalog (never returns secrets). |
+| `GET` | `/api/repositories/catalog` | token | — | `list` | Return the static repository catalog (never returns secrets). |
 | `GET` | `/api/routines` | token | — | — | *List Routines* |
 | `POST` | `/api/routines` | token | — | — | *Create Routine* |
 | `GET` | `/api/routines/{routine_id}` | token | — | — | Fetch a single routine by ID. |
@@ -474,7 +474,7 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | `GET` | `/api/routines/{routine_id}/deliveries` | token | — | — | *List Routine Deliveries* |
 | `POST` | `/api/routines/{routine_id}/run` | token | — | — | Run a routine immediately, outside its schedule. |
 | `POST` | `/api/search/sweep` | token | — | — | *Search Sweep* |
-| `GET` | `/api/watchdog` | token | — | — | Findings, what could not be judged yet, and the thresholds used. |
+| `GET` | `/api/watchdog` | token | — | `WatchdogReport` | Findings, what could not be judged yet, and the thresholds used. |
 
 Read out of `resmon_scripts/mcp_server.py` rather than transcribed: `api_contract.mcp_driven_routes()` parses every `backend.request(method, path)` call in that module — method included, so a path the harness only reads does not appear here as a path it also deletes — and matches each against the route table.
 

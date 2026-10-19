@@ -69,10 +69,10 @@ the *other* way: the model turns a loud 500 into a quiet ``null``, which is the
 only place on this list where adding a model makes a wrong answer more likely
 rather than less.
 
-None of the three is reachable in the eleven routes modeled today — there is
-no ``Decimal`` and no ``PurePath`` anywhere in the backend, and ``math.inf``
+None of the three is reachable in the routes modeled today — there is no
+``Decimal`` and no ``PurePath`` anywhere in the backend, and ``math.inf``
 appears only inside ``api_base``'s rate-limiter arithmetic, never in a response
-dict. This is written down for whoever models the other routes, because the
+dict. This is written down for whoever models the rest, because the
 claim "an extra passes through unchanged" is the natural thing to assume and it
 is wrong. ``test_what_an_undeclared_value_does_and_does_not_survive`` keeps this
 table honest.
@@ -101,25 +101,100 @@ declared optional so the schema says so.
 Scope today
 -----------
 
-J07, *Watch profiles*: the eleven routes under ``/api/profiles``. One slice,
-chosen because it contains every shape the other 173 routes are made of — a
-wrapped list, a nested object, a map with caller-supplied keys, a page with
-counts beside it, and a body assembled conditionally. The rest of the surface
-is unmodeled and still answers ``{}`` in the contract, which ``http.md`` now
-counts rather than asserts.
+Six slices. The first shipped the mechanism; the other five are the rollout,
+and the authoritative list of which routes are modeled is
+``verification_scripts/test_response_models.py``'s ``THE_MODELED_SURFACE`` —
+declared there rather than here, because the thing worth guarding is that the
+*application* and the declaration agree, and a declaration living in the module
+the application imports could not say anything the application did not already
+say.
+
+* **Watch profiles**, the eleven routes under ``/api/profiles``. The pilot.
+* **Settings**, seventeen routes: a GET and a PUT for each of the eight stored
+  groups, plus the agent-CLI probe. Each group has its own model because each
+  group really is a different shape — six of them are maps of stored strings,
+  ``notifications`` coerces two of them to a bool and an enum before answering,
+  ``execution`` answers integers, and ``embeddings`` answers a page.
+* **Reading queue**, four routes: a page with counts, the entry a 201 returns,
+  the entry a status change returns, and a delete acknowledgement.
+* **The watchdog and the first-run card**, five routes.
+* **Process identity and the catalogs**, five routes — including the two that
+  answer a *bare list* rather than an object, which is the shape the structural
+  guards have the least to say about. See ``test_response_models.py``'s
+  ``SCALAR_LIST_ROUTES``.
+* **Saved configurations**, six routes — including the body that is assembled
+  from whichever fields the caller sent, which is what
+  ``response_model_exclude_unset=True`` exists for.
+
+Why some fields here are declared ``dict`` and not a model
+----------------------------------------------------------
+
+A handful of fields carry a shape that genuinely varies by the row's kind:
+a watchdog finding's ``evidence`` holds different keys for a failing source
+than for an overdue routine, and its ``scope`` holds a **string** id for a
+source and an **integer** id for a routine. Declaring ``id: str`` there would
+not drop the key — it would quietly coerce ``1`` into ``"1"``, which is hazard
+3 above and the one the base class cannot close. Declaring the field ``dict``
+says "an object, whose keys this contract does not enumerate", which is less
+than a client would like and is all the code can support. Where that choice was
+made it is said in the model's own docstring.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
+    "AiCliProbe",
+    "AiCliStatus",
+    "AiSettings",
+    "AssistantSettings",
+    "CloudSettings",
+    "ConfigurationCreated",
+    "ConfigurationDeleted",
+    "ConfigurationExport",
+    "ConfigurationImportResult",
+    "ConfigurationUpdated",
+    "CredentialPresence",
+    "CredentialsPresence",
+    "EmailSettings",
+    "EmbeddingCapability",
+    "EmbeddingCoverage",
+    "EmbeddingIndexState",
+    "EmbeddingJobRun",
+    "EmbeddingJobStatus",
+    "EmbeddingLaneView",
+    "EmbeddingProviderAnswer",
+    "EmbeddingSettingsPage",
+    "EmbeddingSettingsSaved",
+    "EmbeddingSettingsValues",
+    "ExecutionSettings",
+    "ExecutionSettingsSaved",
+    "Health",
     "LosslessModel",
+    "NotificationSettings",
+    "OnboardingCounts",
+    "OnboardingDismissed",
+    "OnboardingState",
+    "OnboardingStep",
+    "ReadingQueueCounts",
+    "ReadingQueueDocument",
+    "ReadingQueueEntry",
+    "ReadingQueuePage",
+    "ReadingQueueRemoval",
+    "RendererHeartbeat",
+    "RepositoryCatalogEntry",
+    "RepositoryEntitySearch",
     "RoutineWatchingProfile",
+    "RuntimeIdentity",
+    "SavedConfiguration",
+    "SettingsSaved",
     "StarterWatchProfile",
     "StarterWatchProfileList",
+    "StorageSettings",
+    "VectorExtensionStatus",
     "WatchProfile",
     "WatchProfileDeleted",
     "WatchProfileExport",
@@ -134,6 +209,13 @@ __all__ = [
     "WatchProfileMatchRow",
     "WatchProfileMatchesByDocument",
     "WatchProfileName",
+    "WatchdogCounts",
+    "WatchdogFinding",
+    "WatchdogMuteAck",
+    "WatchdogReport",
+    "WatchdogThresholds",
+    "WatchdogUnjudged",
+    "WatchdogWatching",
 ]
 
 
@@ -437,3 +519,747 @@ class WatchProfileLifecycle(LosslessModel):
     matched_documents: int
     checked_documents: int
     coverage_note: str
+
+
+# ===========================================================================
+# Settings — the eight stored groups, and the agent-CLI probe beside them
+# ===========================================================================
+#
+# ``_SETTINGS_GROUPS`` in ``resmon.py`` is the key list for each group, and
+# ``_get_settings_group`` answers ``""`` rather than ``null`` for a key nobody
+# has stored — so every field of the six plain groups below is a ``str`` that
+# may be empty, never an optional one. ``test_response_models.py`` asserts each
+# of those models declares exactly the group's own key list, so a setting added
+# to the group and not to the model is a red test rather than a key that only
+# ``extra="allow"`` is holding up.
+
+class EmailSettings(LosslessModel):
+    """``GET /api/settings/email`` — the SMTP destination, never the password.
+
+    The password lives in the keyring and is reported by ``/api/credentials``
+    as present or absent. No field here has ever held a credential value and
+    none may.
+    """
+
+    smtp_server: str
+    smtp_port: str
+    smtp_username: str
+    smtp_from: str
+    smtp_to: str
+
+
+class AiSettings(LosslessModel):
+    """``GET /api/settings/ai`` — the AI lane, as sixteen stored strings.
+
+    ``ai_chain`` and ``ai_default_models`` are JSON *documents* stored as text,
+    and they are declared ``str`` here because that is what the endpoint
+    answers: the renderer parses them. Declaring them as objects would be this
+    contract describing a shape the route does not send.
+    """
+
+    ai_provider: str
+    ai_model: str
+    ai_local_model: str
+    ai_summary_length: str
+    ai_tone: str
+    ai_extraction_goals: str
+    ai_temperature: str
+    ai_show_audit_prefix: str
+    ai_custom_base_url: str
+    ai_custom_header_prefix: str
+    ai_default_models: str
+    ai_chain: str
+    ai_local_endpoint: str
+    ai_cli_path: str
+    ai_subscription_doc_cap: str
+    ai_effort: str
+
+
+class CloudSettings(LosslessModel):
+    """``GET /api/settings/cloud`` — the Google Drive backup lane's two keys."""
+
+    cloud_provider: str
+    cloud_auto_backup: str
+
+
+class StorageSettings(LosslessModel):
+    """``GET /api/settings/storage``."""
+
+    pdf_policy: str
+    txt_policy: str
+    archive_after_days: str
+    export_directory: str
+
+
+class AssistantSettings(LosslessModel):
+    """``GET /api/settings/assistant``."""
+
+    assistant_runtime: str
+    assistant_provider: str
+    assistant_model: str
+    assistant_effort: str
+
+
+class NotificationSettings(LosslessModel):
+    """``GET /api/settings/notifications`` — the one group that is not strings.
+
+    The handler reads the same stored text as every other group and then
+    *answers* a bool and a three-valued mode, defaulting ``notify_manual`` to
+    true on a first load. So this model is ``bool`` and ``str`` where its
+    siblings are ``str`` and ``str``, and a model copied from one of them would
+    have turned ``true`` into ``"true"`` without dropping anything.
+    """
+
+    notify_manual: bool
+    notify_automatic_mode: str
+
+
+class ExecutionSettings(LosslessModel):
+    """``GET /api/settings/execution`` — two integers, parsed and bounded."""
+
+    max_concurrent_executions: int
+    routine_fire_queue_limit: int
+
+
+class SettingsSaved(LosslessModel):
+    """What the six plain settings PUTs answer: ``{"success": true}``.
+
+    One model for six routes rather than six identical ones. The two PUTs that
+    answer more than this —  embeddings and execution — have their own, because
+    a shared model that declared their extra keys would put those keys into the
+    schema of four routes that never send them.
+    """
+
+    success: bool
+
+
+class ExecutionSettingsSaved(LosslessModel):
+    """``PUT /api/settings/execution`` echoes what it stored.
+
+    The echo is the point: the handler clamps nothing and refuses out-of-range
+    values with a 400, so a caller comparing what came back with what it sent
+    can tell a stored value from an ignored one.
+    """
+
+    success: bool
+    max_concurrent_executions: int
+    routine_fire_queue_limit: int
+
+
+class AiCliProbe(LosslessModel):
+    """One agent CLI, and where resmon looked for it.
+
+    ``found`` is detection, never a login check — the endpoint does not run the
+    binary — and ``login_checked`` is the field that says so out loud. It is
+    always ``false`` today, and it is in the body rather than in the
+    documentation because a client that reads ``found`` as "ready" is making a
+    claim resmon has not checked.
+
+    ``path`` and ``how`` are ``None`` on a machine where the CLI is absent,
+    which is most CI runners; ``tried`` is the candidate list, and it is here
+    because "not found" alone does not tell a user that resmon looked in the
+    wrong place.
+    """
+
+    provider: str
+    path: Optional[str]
+    how: Optional[str]
+    found: bool
+    tried: list[str]
+    detail: str
+    login_checked: bool
+
+
+class AiCliStatus(LosslessModel):
+    """``GET /api/settings/ai/cli-status``."""
+
+    providers: list[AiCliProbe]
+
+
+# ---------------------------------------------------------------------------
+# Embeddings — the settings page that is a page rather than a map
+# ---------------------------------------------------------------------------
+
+class EmbeddingSettingsValues(LosslessModel):
+    """The stored ``embedding_*`` keys, owned by ``EMBEDDING_SETTING_KEYS``."""
+
+    embedding_enabled: str
+    embedding_provider: str
+    embedding_model: str
+    embedding_endpoint: str
+    embedding_base_url: str
+    embedding_batch_size: str
+    embedding_dims: str
+    embedding_input_limit: str
+
+
+class EmbeddingProviderAnswer(LosslessModel):
+    """Whether one provider can embed at all, and what that rests on.
+
+    Every provider resmon lists appears here, including the ones that cannot
+    embed, because the interface states the limitation rather than omitting the
+    option. ``evidence`` is the observation behind ``state`` — a dated request
+    and its status — and it is a field a model written from the UI's needs
+    would have dropped, which would have left "Anthropic does not offer an
+    embeddings API" as an assertion with nothing behind it.
+    """
+
+    provider: str
+    state: str
+    reason: str
+    evidence: Optional[str]
+    offered: bool
+    default_model: Optional[str]
+    suggested_models: list[str]
+
+
+class EmbeddingLaneView(LosslessModel):
+    """The configured lane. ``null`` on the route above means the feature is off.
+
+    ``credential_alias`` is a keyring slot *name*. No field here holds a key
+    value, in the same way ``EmbeddingLane`` itself does not.
+    """
+
+    kind: str
+    provider: str
+    model: str
+    endpoint: Optional[str]
+    base_url: Optional[str]
+    credential_alias: Optional[str]
+    batch_size: int
+    dims: Optional[int]
+    input_limit: Optional[int]
+
+
+class VectorExtensionStatus(LosslessModel):
+    """Whether sqlite-vec loaded in *this* process, and why not when it did not.
+
+    Returned by ``/api/health`` and twice inside the embeddings page. One model
+    for all three, because they are one function's output: ``extension`` is the
+    loaded version or ``None``, and exactly one of the two fields is ever set.
+    """
+
+    extension: Optional[str]
+    reason: Optional[str]
+
+
+class EmbeddingCoverage(LosslessModel):
+    """How much of the corpus is embedded, read from the database not a counter.
+
+    From the database so the numbers are right after a restart, after a cancel,
+    and for a corpus somebody else's run embedded.
+    """
+
+    embedded: int
+    total: int
+    model: Optional[str]
+
+
+class EmbeddingIndexState(LosslessModel):
+    """What the vector index currently holds."""
+
+    model: Optional[str]
+    dims: Optional[int]
+    rows: int
+
+
+class EmbeddingJobRun(LosslessModel):
+    """The backfill job's own state, running or not.
+
+    ``skipped_no_text`` is separate from ``processed`` on purpose: a document
+    with nothing to embed is not a failure and is not progress, and folding the
+    two together would make a corpus of metadata-only records look embedded.
+    """
+
+    running: bool
+    model: Optional[str]
+    processed: int
+    total: int
+    skipped_no_text: int
+    started_at: Optional[str]
+    finished_at: Optional[str]
+    cancelled: bool
+    reason: Optional[str]
+
+
+class EmbeddingJobStatus(LosslessModel):
+    """``run``, ``coverage``, ``extension`` and ``index`` together."""
+
+    run: EmbeddingJobRun
+    coverage: EmbeddingCoverage
+    extension: VectorExtensionStatus
+    index: EmbeddingIndexState
+
+
+class EmbeddingCapability(LosslessModel):
+    """Whether this backend can rank by similarity at all, and what by.
+
+    ``available`` needs both a loadable extension and rows in the index; either
+    missing means the sort option and the similar-papers panel are *absent*
+    rather than present and empty. ``reason`` is the sentence the Settings page
+    shows instead, and it is the field this model exists to keep.
+    """
+
+    available: bool
+    extension: Optional[str]
+    reason: Optional[str]
+    model: Optional[str]
+    indexed: int
+
+
+class EmbeddingSettingsPage(LosslessModel):
+    """``GET /api/settings/embeddings`` — the stored keys plus everything the
+    tab needs in order to render honestly."""
+
+    settings: EmbeddingSettingsValues
+    providers: list[EmbeddingProviderAnswer]
+    lane: Optional[EmbeddingLaneView]
+    capability: EmbeddingCapability
+    status: EmbeddingJobStatus
+
+
+class EmbeddingSettingsSaved(LosslessModel):
+    """``PUT /api/settings/embeddings`` — the ack, and what the lane can now do.
+
+    The capability rides on the write because a model change rebuilds the
+    index, and a client that had to re-read the page to learn that would render
+    a stale answer in between.
+    """
+
+    success: bool
+    capability: EmbeddingCapability
+
+
+# ===========================================================================
+# Reading queue
+# ===========================================================================
+
+class ReadingQueueDocument(LosslessModel):
+    """The stored paper a queue entry points at.
+
+    ``authors`` is the raw column, a JSON array stored as text; the renderer
+    parses it. Every other nullable column of ``documents`` is optional here
+    because it is nullable there.
+    """
+
+    id: int
+    source_repository: str
+    external_id: str
+    doi: Optional[str]
+    title: str
+    authors: Optional[str]
+    abstract: Optional[str]
+    publication_date: Optional[str]
+    url: Optional[str]
+    categories: Optional[str]
+    first_seen_at: str
+
+
+class ReadingQueueEntry(LosslessModel):
+    """One saved paper. ``read_at`` is ``None`` until it is marked read.
+
+    ``document`` is absent from the entry a write returns and present in the
+    entry a page lists, which is why it is optional: the writes answer with the
+    queue row alone and the caller already has the paper it just saved.
+    """
+
+    document_id: int
+    status: str
+    saved_at: str
+    updated_at: str
+    read_at: Optional[str]
+    document: Optional[ReadingQueueDocument] = None
+
+
+class ReadingQueueCounts(LosslessModel):
+    """How many are in each state, over the whole queue and not this page."""
+
+    to_read: int
+    read: int
+    all: int
+
+
+class ReadingQueuePage(LosslessModel):
+    """``GET /api/reading-queue``.
+
+    ``status`` echoes the filter that produced the page and is ``None`` when
+    the caller asked for both, so a client can tell "everything" from
+    "everything that happens to be unread".
+    """
+
+    entries: list[ReadingQueueEntry]
+    total: int
+    limit: int
+    offset: int
+    status: Optional[str]
+    counts: ReadingQueueCounts
+
+
+class ReadingQueueRemoval(LosslessModel):
+    """``DELETE /api/reading-queue/{document_id}``. The paper is not touched."""
+
+    removed: bool
+    document_id: int
+
+
+# ===========================================================================
+# The watchdog, and the first-run card
+# ===========================================================================
+
+class WatchdogFinding(LosslessModel):
+    """One thing the watchdog can say is wrong, with what it rests on.
+
+    ``scope`` and ``evidence`` are declared ``dict`` rather than modeled, and
+    the reason is in the module docstring: a source's scope carries a **string**
+    id and a routine's carries an **integer** one, so a model declaring either
+    type would coerce the other instead of dropping it — and ``evidence`` holds
+    a different key set for each of the seven finding kinds. An object whose
+    keys this contract does not enumerate is the honest description.
+
+    ``what_to_do`` is a field, not prose the renderer composes, because the
+    sentence depends on the finding and a generic one would be advice resmon
+    has not earned.
+    """
+
+    key: str
+    severity: str
+    kind: str
+    scope: dict
+    title: str
+    detail: str
+    what_to_do: str
+    evidence: dict
+    muted: bool
+    muted_at: Optional[str]
+
+
+class WatchdogUnjudged(LosslessModel):
+    """Something the watchdog is watching and cannot judge yet.
+
+    The other half of an empty findings list: silence from a monitor means
+    either "nothing is wrong" or "nothing has been measured", and this list is
+    the second. ``runs_not_a_measurement`` is present on a source row and
+    absent on a routine row, so it is optional and the route excludes unset.
+    """
+
+    scope: dict
+    reason: str
+    runs_recorded: int
+    runs_needed: int
+    runs_not_a_measurement: Optional[int] = None
+
+
+class WatchdogCounts(LosslessModel):
+    """``alarms`` is the badge: broken plus unusual, muted ones excluded."""
+
+    broken: int
+    unusual: int
+    advice: int
+    muted: int
+    alarms: int
+
+
+class WatchdogWatching(LosslessModel):
+    """How many sources and active routines the counts above are over."""
+
+    sources: int
+    routines: int
+
+
+class WatchdogThresholds(LosslessModel):
+    """The numbers every rule above was judged against.
+
+    Returned rather than documented, so a user reading "has failed on its last
+    3 runs" can see that 3 is the threshold and not a coincidence.
+    """
+
+    consecutive_errors: int
+    consecutive_zeros: int
+    min_baseline_runs: int
+    flatline_runs: int
+    overdue_cadence_multiple: int
+    overdue_floor_days: float
+    cadence_lag_multiple: float
+    min_runs_for_cadence: int
+
+
+class WatchdogReport(LosslessModel):
+    """``GET /api/watchdog``.
+
+    ``sufficient`` is false when there is no history to reason over at all. The
+    interface then says "nothing to check yet" rather than "all clear", which
+    would be a claim the watchdog has not earned — and it is exactly the field
+    a model written from the happy path would have left out.
+    """
+
+    checked_at: str
+    findings: list[WatchdogFinding]
+    counts: WatchdogCounts
+    not_enough_data: list[WatchdogUnjudged]
+    watching: WatchdogWatching
+    thresholds: WatchdogThresholds
+    sufficient: bool
+
+
+class WatchdogMuteAck(LosslessModel):
+    """``POST /api/watchdog/mute`` and ``/unmute``, which differ only in ``status``."""
+
+    status: str
+    finding_key: str
+
+
+class OnboardingCounts(LosslessModel):
+    """What the install already has. All three zero is what ``show`` keys on."""
+
+    documents: int
+    executions: int
+    routines: int
+
+
+class OnboardingStep(LosslessModel):
+    """One first-run step, as a fact rather than as prose.
+
+    ``done`` for the agent-CLI step is detection and not a login check, and
+    ``detail`` says which machine it looked on. The card renders ``detail``
+    verbatim; it is not a key a client may synthesize.
+    """
+
+    id: str
+    done: bool
+    detail: str
+
+
+class OnboardingState(LosslessModel):
+    """``GET /api/onboarding``."""
+
+    show: bool
+    dismissed: bool
+    counts: OnboardingCounts
+    steps: list[OnboardingStep]
+
+
+class OnboardingDismissed(LosslessModel):
+    """``POST /api/onboarding/dismiss``."""
+
+    dismissed: bool
+
+
+# ===========================================================================
+# Process identity, and the catalogs
+# ===========================================================================
+
+class RuntimeIdentity(LosslessModel):
+    """Which backend, over which corpus — the attach-or-spawn answer.
+
+    This is the shape that exists because an MCP server once fell back to the
+    default port and answered every question truthfully about the wrong corpus.
+    ``corpus_id`` and ``build_id`` are ``None`` where the install has not
+    recorded one; ``runtime_id`` is per process and always present.
+    """
+
+    contract_version: int
+    runtime_id: str
+    schema_version: int
+    corpus_id: Optional[str]
+    build_id: Optional[str]
+
+
+class Health(LosslessModel):
+    """``GET /api/health``.
+
+    ``embeddings`` is attempted against a real connection on every call rather
+    than read from a cached probe: it is a ``dlopen`` of a 165 KB library, and
+    a health endpoint answering from memory would keep reporting a capability
+    the process had lost.
+    """
+
+    status: str
+    identity: RuntimeIdentity
+    pid: int
+    started_at: str
+    version: str
+    embeddings: VectorExtensionStatus
+
+
+class RepositoryEntitySearch(LosslessModel):
+    """How a source can be asked about a *person*, in that source's own syntax.
+
+    ``author_syntax`` is the string ``api_base.search_entity`` puts into the
+    query, and a client that rewrites it destroys it silently — which is how
+    two sources reported that a researcher had published nothing for as long as
+    the capability existed. ``established`` is the dated observation behind the
+    rest of the row, and it is the field that makes the others checkable.
+    """
+
+    author_query: str
+    identifier_query: str
+    returns_orcid: bool
+    returns_affiliation: bool
+    author_syntax: str
+    identifier_syntax: str
+    established: str
+
+
+class RepositoryCatalogEntry(LosslessModel):
+    """One source, as the Repositories page renders it.
+
+    Not decoration: ``rate_limit``, ``upstream_policy`` and
+    ``keyword_combination`` are read by a user as statements of fact about
+    somebody else's search engine, and ``attribution`` with its
+    ``attribution_requirement`` is a license obligation rather than a courtesy
+    when the requirement says ``required``. Those four are the fields a model
+    written from the table's visible columns would have dropped, and dropping
+    an attribution credit is the one failure mode in this file that is not
+    merely a missing feature.
+    """
+
+    slug: str
+    name: str
+    description: str
+    subject_coverage: str
+    endpoint: str
+    query_method: str
+    rate_limit: str
+    client_module: str
+    api_key_requirement: str
+    credential_name: Optional[str]
+    website: str
+    registration_url: Optional[str]
+    placeholder: str
+    upstream_policy: str
+    parallel_safe: str
+    notes: str
+    keyword_combination: str
+    keyword_combination_notes: str
+    attribution: str
+    attribution_requirement: str
+    attribution_source: Optional[str]
+    date_granularity: str
+    entity_search: RepositoryEntitySearch
+
+
+class CredentialPresence(LosslessModel):
+    """Whether one credential is there, never what it is.
+
+    ``status`` is ``present``, ``absent`` or ``unreadable``, and the third is
+    the one that matters: an unsigned macOS build is denied access to keychain
+    items an earlier build stored, and reporting that as absent tells a user
+    their keys are gone when they are merely unreachable. ``present`` is the
+    older boolean, kept beside it for compatibility.
+    """
+
+    present: bool
+    status: str
+
+
+class CredentialsPresence(LosslessModel):
+    """``GET /api/credentials``.
+
+    ``keyring_responsive`` is false once a read has timed out, so the interface
+    can say so once at the top rather than fifteen times over. The map is keyed
+    by credential name — the union of the catalog's slots, the AI slots and the
+    SMTP slot — and never holds a value.
+    """
+
+    keyring_responsive: bool
+    credentials: dict[str, CredentialPresence]
+
+
+class RendererHeartbeat(LosslessModel):
+    """``POST /api/renderer/heartbeat``.
+
+    ``ttl_sec`` is how long this ping suppresses the backend's own desktop
+    notifications. It is returned rather than assumed because the renderer
+    sets its interval from it, and a renderer pinging slower than the TTL
+    would get both notifications.
+    """
+
+    ok: bool
+    ttl_sec: float
+
+
+# ===========================================================================
+# Saved configurations
+# ===========================================================================
+
+class SavedConfiguration(LosslessModel):
+    """One saved configuration, as the list returns it.
+
+    ``parameters`` is a parsed object **here** and a JSON string on the body
+    ``PUT`` answers — see ``ConfigurationUpdated``. The two really do differ,
+    the list route parses the column and the write route echoes what it stored,
+    and declaring both the same way would have made this contract wrong about
+    one of them. It is ``Any`` rather than ``dict`` because the parse is
+    best-effort: a column that will not parse is left as its original string.
+    """
+
+    id: int
+    name: str
+    config_type: str
+    parameters: Any
+    created_at: str
+    updated_at: str
+
+
+class ConfigurationCreated(LosslessModel):
+    """``POST /api/configurations`` — 201, with the id the caller needs next."""
+
+    id: int
+    name: str
+    config_type: str
+
+
+class ConfigurationUpdated(LosslessModel):
+    """``PUT /api/configurations/{config_id}``.
+
+    **The body assembled from whichever fields the caller sent.** The handler
+    builds ``{"id": ..., **updates}``, where ``updates`` holds only the fields
+    the request carried, so a rename answers two keys and a rename-plus-rewrite
+    answers three. ``response_model_exclude_unset=True`` is what keeps the
+    first case two keys instead of three-with-a-null.
+
+    ``parameters`` is a ``str`` because that is what the handler echoes: it
+    stored ``json.dumps(...)`` and puts the stored text back. The list route
+    answers the parsed object instead.
+    """
+
+    id: int
+    name: Optional[str] = None
+    parameters: Optional[str] = None
+
+
+class ConfigurationDeleted(LosslessModel):
+    """``DELETE /api/configurations/{config_id}``.
+
+    Deleting a routine configuration deletes its linked routine too, and the
+    body says nothing about that. It is recorded here rather than in the model
+    because adding a field would be inventing one the handler does not send.
+    """
+
+    success: bool
+
+
+class ConfigurationExport(LosslessModel):
+    """``POST /api/configurations/export`` — where the zip was written.
+
+    A local filesystem path, which is a desktop app's honest answer: the
+    renderer reveals it in the Finder. It is the user's configured export
+    directory when they have one and a temporary file when they do not.
+    """
+
+    path: str
+
+
+class ConfigurationImportResult(LosslessModel):
+    """``POST /api/configurations/import``.
+
+    ``routines_created`` is separate from ``imported`` because a routine
+    configuration arrives as one file and lands as two rows, and a count that
+    folded them together would tell a user they had imported twice what they
+    did. ``errors`` carries the files that could not be read, so a bad entry
+    reports itself rather than failing the batch.
+    """
+
+    imported: int
+    routines_created: int
+    errors: list[str]
