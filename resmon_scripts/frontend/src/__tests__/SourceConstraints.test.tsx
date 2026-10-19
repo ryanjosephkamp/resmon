@@ -168,6 +168,24 @@ describe('the sentence a user reads', () => {
   test('with no dates set there is nothing specific to promise', () => {
     expect(windowSentence(DBLP, '', '')).toBeNull();
   });
+
+  test('a date it cannot read produces silence, not "will not be searched"', () => {
+    // A saved configuration can carry a date in some other shape. Reporting
+    // that as "your dates contain no complete calendar year" would be a
+    // confident statement about something that never happened.
+    expect(windowSentence(DBLP, '2025', '2026')).toBeNull();
+    expect(windowSentence(DBLP, 'last tuesday', '2026-12-31')).toBeNull();
+    expect(windowSentence(DBLP, '2025-01-01', 'soon')).toBeNull();
+  });
+
+  test('a one-sided window still names what will be searched', () => {
+    expect(windowSentence(DBLP, '2025-06-01', '')).toBe(
+      'DBLP will search 2026 onwards — only the complete calendar years inside your dates.',
+    );
+    expect(windowSentence(SEMANTIC, '2025-06-01', '')).toBe(
+      'Semantic Scholar will search 2025 onwards, so results can fall outside your exact dates.',
+    );
+  });
 });
 
 describe('SourceConstraintNotice', () => {

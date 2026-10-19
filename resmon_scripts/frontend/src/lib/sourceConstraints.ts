@@ -111,6 +111,13 @@ export function windowSentence(
   if (constraints.window_effect === 'as_asked') return null;
   if (!dateFrom && !dateTo) return null;
 
+  // A date this function cannot read is not the same fact as a window with no
+  // whole year in it, and the inward branch below would report the second for
+  // the first — telling somebody their source will not be searched when all
+  // that happened is a saved configuration carried a date in some other
+  // shape. Say nothing instead.
+  if ((dateFrom && !parts(dateFrom)) || (dateTo && !parts(dateTo))) return null;
+
   if (constraints.window_effect === 'whole_months') {
     const months = wholeMonthsTouched(dateFrom, dateTo);
     if (!months) return null;
