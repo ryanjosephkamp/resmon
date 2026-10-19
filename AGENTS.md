@@ -132,6 +132,19 @@ that column alone goes red, suspect a shared `sqlite3.Connection`.
   e2e specs call the backend through `e2eFetch` / `e2eAuth` from `fixtures/resmon-app.ts`,
   never a bare `fetch`, while the app's own requests are left untouched so the suite proves
   the renderer sends the token itself. Properties: `test_local_api_auth.py`.
+- **`RESMON_STATE_DIR` alone does not isolate a run.** It is read by `daemon.state_dir()`,
+  so the daemon lock and the `api-token-<port>` files follow it — but `config.py` never
+  reads it. The database comes from `RESMON_DB_PATH`, falling back to a path relative to
+  the checkout (`config.py:19`), reports from `RESMON_REPORTS_DIR`, and the port file from
+  `RESMON_PORT_FILE`, which defaults to sitting beside the database. `electron/main.ts`
+  does derive the first two from the state directory, but only inside `if (app.isPackaged)`
+  (the block at `main.ts:390`). So a backend started directly — which is what a test
+  harness does — and an unpackaged Electron run both keep using the checkout's `resmon.db`
+  no matter what `RESMON_STATE_DIR` says, and two such runs with different state
+  directories share one database. **Isolating a run means setting `RESMON_DB_PATH` and
+  `RESMON_REPORTS_DIR` explicitly**, alongside `RESMON_STATE_DIR`; set `RESMON_PORT_FILE`
+  too unless you want the port file beside the database. The workspace dev launcher already
+  sets all of them.
 - `_db_path = ":memory:"` is backed by a temp file, not a true in-memory database, so
   every thread's connection sees the same data.
 - A test that asserts on the scheduler needs it live — CI deliberately leaves
