@@ -255,6 +255,50 @@ test.describe('the driver waits for states, not for durations', () => {
     ).toEqual([]);
   });
 
+  test('no readiness assertion is built on a hasText string', () => {
+    // **This is the check that catches the bug the other two do not.** An
+    // independent review put `activateRoutine` back to its exact pre-fix shape
+    // — the vacuous `hasText: 'Active'` wait restored — and both guards above
+    // passed, because guard 2 is positional: it asks only whether a
+    // settle-shaped token comes before the first read-shaped token, and an
+    // `expect(...)` around a locator that matches the state it is waiting to
+    // leave is still such a token.
+    //
+    // So this one is about the *content* of the wait. Playwright's `hasText`
+    // string form is a case-insensitive substring, which is right for picking
+    // a row out of a table by its name and wrong for every assertion of the
+    // form "wait until the screen says X": "Inactive" contains "active", and
+    // that one fact cost five red CI jobs. Inside an `expect(...)` the string
+    // form is never what the author meant — `toHaveText('Active')` compares
+    // the whole text, and a regular expression says out loud that it is a
+    // pattern. There are no such sites now; before this branch there were two,
+    // one of them the bug.
+    const hits: string[] = [];
+    for (const name of fs.readdirSync(DRIVERS).filter((f) => f.endsWith('.ts'))) {
+      const source = fs.readFileSync(path.join(DRIVERS, name), 'utf8');
+      for (let at = source.indexOf('expect('); at >= 0; at = source.indexOf('expect(', at + 1)) {
+        // The whole `expect(…)` call, found by balancing its parentheses, so a
+        // wait written over three lines is examined as one thing.
+        let depth = 0;
+        let end = at + 'expect'.length;
+        for (; end < source.length; end += 1) {
+          if (source[end] === '(') depth += 1;
+          else if (source[end] === ')') { depth -= 1; if (depth === 0) { end += 1; break; } }
+        }
+        const call = source.slice(at, end);
+        if (!/hasText:\s*['"`]/.test(call)) continue;
+        hits.push(`drivers/${name}:${source.slice(0, at).split('\n').length}: `
+          + call.replace(/\s+/g, ' ').slice(0, 120));
+      }
+    }
+    expect(
+      hits,
+      "`hasText: '…'` is a case-insensitive substring, so a wait built on it can be satisfied by "
+      + 'the very state it is waiting to leave. Use toHaveText for a whole-text comparison, or a '
+      + 'regular expression if a pattern is really what is meant',
+    ).toEqual([]);
+  });
+
   test('every driver method waits for something before its first screen read', () => {
     const source = fs.readFileSync(path.join(DRIVERS, 'classic.ts'), 'utf8');
     const methods = driverMethods(source);

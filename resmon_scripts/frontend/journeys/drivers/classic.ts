@@ -2533,11 +2533,17 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       // The password is not a setting: it goes to the machine's own credential
       // store, by its own button, and only the fact of it comes back.
       await field('SMTP Password').fill(password);
-      const stored = win().waitForResponse(
+      // Named for the request, not `stored`: there is a module-level `stored`
+      // predicate above and a local of that name shadowing it reads as the
+      // predicate being used when it is not.
+      const passwordAccepted = win().waitForResponse(
         (r) => r.url().includes('/api/credentials/smtp_password'),
       );
       await win().locator('.key-input-row button', { hasText: /^(Store|Replace)$/ }).click();
-      expect((await stored).ok(), 'the SMTP password was refused by the credential store').toBe(true);
+      expect(
+        (await passwordAccepted).ok(),
+        'the SMTP password was refused by the credential store',
+      ).toBe(true);
       const saved = win().waitForResponse(
         (r) => r.url().endsWith('/api/settings/email') && r.request().method() === 'PUT',
       );
