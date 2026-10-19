@@ -54,7 +54,16 @@ import json
 import sys
 from pathlib import Path
 
-from implementation_scripts import source_coverage, zero_reason
+# ``conftest.py`` puts ``resmon_scripts/`` on the path for the suite, which is
+# enough for the pytest guard and not enough for the regeneration command this
+# module's own docstring tells you to run: ``python -m
+# resmon_scripts.verification_scripts.zero_reason_truth_table`` from the
+# repository root puts the root on the path and not ``resmon_scripts/``, so the
+# import below failed with ``No module named 'implementation_scripts'``. The
+# same line ``live_backend.py`` carries, for the same reason.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from implementation_scripts import source_coverage, zero_reason  # noqa: E402
 
 #: The committed table. Read by the pytest guard and by the renderer suite.
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "zero_reason_truth_table.json"
