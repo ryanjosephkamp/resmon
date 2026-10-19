@@ -150,14 +150,21 @@ describe('missed fires on the Routines page', () => {
     // `missed 1 fire while resmon was closed; last due 2026-09-19T07:05:00`,
     // stamping the closed sentence with the instant the line below it proves
     // resmon was running.
+    const fixture = {
+      count: 4, last_due_at_utc: '2026-09-19T07:05:00+00:00',
+      overlap_skipped: 1,
+      last_overlap_skipped_due_at_utc: '2026-09-19T07:05:00+00:00',
+      last_closed_miss_due_at_utc: '2026-09-18T07:00:00+00:00',
+    };
+    // The ordering, asserted rather than left to the comment above it. A tidy
+    // of these two dates would otherwise disarm this case silently and leave
+    // it green.
+    expect(fixture.last_overlap_skipped_due_at_utc > fixture.last_closed_miss_due_at_utc)
+      .toBe(true);
+    expect(fixture.last_due_at_utc).toBe(fixture.last_overlap_skipped_due_at_utc);
     mockRoutedFetch({
       '/api/repositories/catalog': [], '/api/credentials': {},
-      '/api/routines': routine({
-        count: 4, last_due_at_utc: '2026-09-19T07:05:00+00:00',
-        overlap_skipped: 1,
-        last_overlap_skipped_due_at_utc: '2026-09-19T07:05:00+00:00',
-        last_closed_miss_due_at_utc: '2026-09-18T07:00:00+00:00',
-      }),
+      '/api/routines': routine(fixture),
     });
     await renderWithProviders(<RoutinesPage />);
     // Three of the four were missed while resmon was closed; one was refused

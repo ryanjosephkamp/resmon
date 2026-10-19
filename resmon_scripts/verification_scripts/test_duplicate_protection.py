@@ -615,6 +615,15 @@ def test_an_overlap_skip_is_counted_apart_from_a_fire_missed_while_closed(client
     # The field that line does render: the latest fire that came due while
     # resmon was not running, which is the September 18 one and nothing else.
     assert summary["last_closed_miss_due_at_utc"] == "2026-09-18T07:00:00+00:00"
+    # And the ordering itself, asserted rather than left to the comment above
+    # it. The skip has to be the *later* of the two or this case stops being
+    # able to fail: with the closed miss last, the all-rows maximum coincides
+    # with the filtered one and an unfiltered implementation passes. A tidy of
+    # these two dates would otherwise disarm the case silently and leave it
+    # green, which is the failure this repository keeps meeting -- a check
+    # satisfied by prose about the thing rather than by the thing.
+    assert (summary["last_overlap_skipped_due_at_utc"]
+            > summary["last_closed_miss_due_at_utc"])
 
     with pytest.raises(ValueError):
         database.record_missed_fire(
@@ -638,6 +647,10 @@ def test_a_late_run_is_still_a_closed_miss_for_the_timestamp(client):
     summary = client.get(f"/api/routines/{rid}").json()["missed_fires"]
     assert summary["overlap_skipped"] == 1
     assert summary["last_closed_miss_due_at_utc"] == "2026-09-18T07:00:00+00:00"
+    # Same ordering requirement, same reason: the answered miss has to be the
+    # earlier of the two for an unfiltered maximum to be wrong here.
+    assert (summary["last_overlap_skipped_due_at_utc"]
+            > summary["last_closed_miss_due_at_utc"])
     # And the skip did not become a late run: a manual run answers the fires
     # resmon was closed for, and erasing the overlap line would take away the
     # only thing telling the user their routine outruns its own interval, at
