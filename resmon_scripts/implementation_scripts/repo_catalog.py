@@ -431,7 +431,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://info.arxiv.org/help/api/index.html',
         constraints=_constraints(
             established=(
-                "api_arxiv.py:70-75 pads both bounds to a valid clock time and "
+                "api_arxiv.py, the submittedDate clause in search() pads both bounds to a valid clock time and "
                 "sends them as submittedDate:[YYYYMMDDHHMM TO YYYYMMDDHHMM], so "
                 "the window reaches arXiv exactly as typed."),
             notices=(
@@ -439,7 +439,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "date_window",
                     "arXiv's date window is its submission date, not a journal "
                     "publication date.",
-                    "api_arxiv.py:65-75 filters on submittedDate.",
+                    "api_arxiv.py, the submittedDate clause in search() filters on submittedDate.",
                     needs_date_window=True,
                 ),
             ),
@@ -473,8 +473,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         constraints=_constraints(
             keyword_search="client_side",
             established=(
-                "api_biorxiv.py:118 builds the URL from the two dates with no "
-                "rounding; api_biorxiv.py:174-181 matches the keywords locally "
+                "api_biorxiv.py, the /details URL built in search() builds the URL from the two dates with no "
+                "rounding; api_biorxiv.py, the per-item loop in search() matches the keywords locally "
                 "because the endpoint has no query parameter."),
             notices=(
                 _notice(
@@ -483,15 +483,15 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "preprints posted in your date range and matches your terms "
                     "against each title and abstract itself; a preprint is kept "
                     "when any one of your terms appears.",
-                    "api_biorxiv.py:174-181 and _matches_query at "
-                    "api_biorxiv.py:202-213; the /details endpoint takes a "
+                    "api_biorxiv.py, the per-item loop in search() and _matches_query at "
+                    "api_biorxiv.py, _matches_query; the /details endpoint takes a "
                     "server, a date range and a cursor and nothing else.",
                 ),
                 _notice(
                     "applied_default",
                     "With no start date, resmon asks bioRxiv from January 1, "
                     "2020. Nothing posted before that is retrieved.",
-                    "api_biorxiv.py:114.",
+                    "api_biorxiv.py, the 2020-01-01 d_from default in search().",
                 ),
             ),
         ),
@@ -526,7 +526,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://core.ac.uk/faq',
         constraints=_constraints(
             established=(
-                "api_core.py:49-52 interpolates both bounds into the query "
+                "api_core.py, the createdDate clause in search() interpolates both bounds into the query "
                 "string without rounding them."),
             notices=(
                 _notice(
@@ -535,7 +535,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "That is a different field from the work's publication "
                     "date, so a work published long ago but added to CORE "
                     "recently falls inside a recent window.",
-                    "api_core.py:52 sends createdDate>= and createdDate<=.",
+                    "api_core.py, the createdDate clause in search() sends createdDate>= and createdDate<=.",
                     needs_date_window=True,
                 ),
             ),
@@ -568,7 +568,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="CrossRef ranks by relevance, not strict boolean; documents containing more of the words rank higher but single-term matches can still surface.",
         constraints=_constraints(
             established=(
-                "api_crossref.py:79-85 sends from-pub-date and until-pub-date "
+                "api_crossref.py, the from-pub-date / until-pub-date filters in search() sends from-pub-date and until-pub-date "
                 "built from the two bounds as typed; nothing else reshapes the "
                 "query."),
         ),
@@ -611,10 +611,10 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             window_rounding="outward",
             window_refiltered_locally=True,
             established=(
-                "api_datacite.py:32-44 builds the documented year-only "
-                "published filter, api_datacite.py:108-118 falls back to a "
+                "api_datacite.py, _publication_year_filter builds the documented year-only "
+                "published filter, api_datacite.py, the publicationYear fallback in search() falls back to a "
                 "publicationYear range for wider or one-sided windows, and "
-                "api_datacite.py:165-173 drops a record whose own date falls "
+                "api_datacite.py, the _inside_requested_window check in search() drops a record whose own date falls "
                 "outside the dates you typed."),
             notices=(
                 _notice(
@@ -623,14 +623,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "resmon asks for the whole calendar years your window "
                     "touches and then drops anything outside your exact dates "
                     "once it arrives.",
-                    "api_datacite.py:32-44 and api_datacite.py:108-118.",
+                    "api_datacite.py, _publication_year_filter and api_datacite.py, the publicationYear fallback in search().",
                     needs_date_window=True,
                 ),
                 _notice(
                     "record_filter",
                     "A DataCite record dated to the year alone is kept only "
                     "when your window covers the whole of that year.",
-                    "_inside_requested_window at api_datacite.py:73-86 expands "
+                    "_inside_requested_window at api_datacite.py, _inside_requested_window expands "
                     "a year-only record date to January 1 - December 31 and "
                     "requires the whole interval inside the window.",
                     needs_date_window=True,
@@ -684,10 +684,10 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             window_effect="whole_years",
             window_rounding="inward",
             established=(
-                "_whole_year_bounds at api_dblp.py:138-152 keeps only calendar "
-                "years wholly inside the window; api_dblp.py:239-242 returns "
+                "_whole_year_bounds at api_dblp.py, _whole_year_bounds keeps only calendar "
+                "years wholly inside the window; api_dblp.py, the note_unanswerable early return in search() returns "
                 "with no request at all when there are none; "
-                "api_dblp.py:531-545 matches each hit's year after the results "
+                "api_dblp.py, the year check in _parse_info matches each hit's year after the results "
                 "arrive, because the REST API has no date parameter."),
             notices=(
                 _notice(
@@ -696,14 +696,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "calendar years inside your window and matches them after "
                     "the results arrive. A window containing no complete "
                     "calendar year is refused before any request is sent.",
-                    "api_dblp.py:138-152 and api_dblp.py:239-242.",
+                    "api_dblp.py, _whole_year_bounds and api_dblp.py, the note_unanswerable early return in search().",
                     needs_date_window=True,
                 ),
                 _notice(
                     "record_filter",
                     "A DBLP record carrying no year at all is dropped whenever "
                     "you set a date window.",
-                    "api_dblp.py:544-546.",
+                    "api_dblp.py, the `elif date_from or date_to` branch in _parse_info.",
                     needs_date_window=True,
                 ),
             ),
@@ -742,7 +742,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             window_effect="whole_years",
             window_rounding="outward",
             established=(
-                "api_doaj.py:33-36 clips both bounds to their first four "
+                "api_doaj.py, the bibjson.year clause in search() clips both bounds to their first four "
                 "characters and sends bibjson.year:[YYYY TO YYYY]; nothing "
                 "narrows the answer back to the days asked for."),
             notices=(
@@ -751,7 +751,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "DOAJ is searched by publication year, so a window inside "
                     "a single year widens to the whole of it and results can "
                     "fall outside the dates you set.",
-                    "api_doaj.py:36.",
+                    "api_doaj.py, the bibjson.year clause in search().",
                     needs_date_window=True,
                 ),
             ),
@@ -789,7 +789,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="Dryad's OpenAPI /search documentation says multiple q terms return only items containing all terms.",
         constraints=_constraints(
             established=(
-                "api_dryad.py:119-122 sends publishedSince and publishedBefore "
+                "api_dryad.py, the publishedSince / publishedBefore params in search() sends publishedSince and publishedBefore "
                 "built from the two bounds as typed."),
         ),
         entity_search=_entity(
@@ -824,8 +824,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             window_effect="whole_years",
             window_rounding="inward",
             established=(
-                "_search_year_bounds at api_eric.py:138-174 keeps only calendar "
-                "years wholly inside the window, and api_eric.py:236-246 "
+                "_search_year_bounds at api_eric.py, _search_year_bounds keeps only calendar "
+                "years wholly inside the window, and api_eric.py, the note_unanswerable early return in search() "
                 "records year_granularity and returns without a request when "
                 "there are none."),
             notices=(
@@ -835,7 +835,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "whole calendar years inside your window, and refuses a "
                     "window containing none rather than returning records whose "
                     "position in it cannot be known.",
-                    "api_eric.py:138-174 and api_eric.py:236-246.",
+                    "api_eric.py, _search_year_bounds and api_eric.py, the note_unanswerable early return in search().",
                     needs_date_window=True,
                 ),
             ),
@@ -870,7 +870,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://www.ebi.ac.uk/about/terms-of-use/',
         constraints=_constraints(
             established=(
-                "api_europepmc.py:33-36 sends FIRST_PDATE:[from TO to] built "
+                "api_europepmc.py, the FIRST_PDATE clause in search() sends FIRST_PDATE:[from TO to] built "
                 "from the two bounds as typed."),
         ),
         entity_search=_entity(
@@ -913,7 +913,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         ),
         constraints=_constraints(
             established=(
-                "api_govinfo.py:45-56 validates both bounds and sends the "
+                "api_govinfo.py, the publishdate range clause in search() validates both bounds and sends the "
                 "documented publishdate:range(from,to) with closed calendar "
                 "endpoints."),
         ),
@@ -948,7 +948,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://doc.hal.science/en/legal-aspects/',
         constraints=_constraints(
             established=(
-                "api_hal.py:46-50 sends producedDate_tdate:[fromT00:00:00Z TO "
+                "api_hal.py, the producedDate_tdate fq clause in search() sends producedDate_tdate:[fromT00:00:00Z TO "
                 "toT23:59:59Z] built from the two bounds as typed."),
         ),
         entity_search=_entity(
@@ -983,7 +983,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="Adjacent free-form terms currently return the same total as explicit AND in the live API; explicit OR broadens the result set. INSPIRE's help page documents the operators but not this default.",
         constraints=_constraints(
             established=(
-                "api_inspire_hep.py:167-170 appends de>{from} and de<{to} to "
+                "api_inspire_hep.py, the de> / de< query parts in search() appends de>{from} and de<{to} to "
                 "the query, built from the two bounds as typed."),
         ),
         entity_search=_entity(
@@ -1019,8 +1019,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             keyword_search="client_side",
             established=(
                 "medRxiv shares api_biorxiv.py with bioRxiv. "
-                "api_biorxiv.py:118 builds the URL from the two dates with no "
-                "rounding; api_biorxiv.py:174-181 matches the keywords locally "
+                "api_biorxiv.py, the /details URL built in search() builds the URL from the two dates with no "
+                "rounding; api_biorxiv.py, the per-item loop in search() matches the keywords locally "
                 "because the endpoint has no query parameter."),
             notices=(
                 _notice(
@@ -1029,15 +1029,15 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "preprints posted in your date range and matches your terms "
                     "against each title and abstract itself; a preprint is kept "
                     "when any one of your terms appears.",
-                    "api_biorxiv.py:174-181 and _matches_query at "
-                    "api_biorxiv.py:202-213; the /details endpoint takes a "
+                    "api_biorxiv.py, the per-item loop in search() and _matches_query at "
+                    "api_biorxiv.py, _matches_query; the /details endpoint takes a "
                     "server, a date range and a cursor and nothing else.",
                 ),
                 _notice(
                     "applied_default",
                     "With no start date, resmon asks medRxiv from January 1, "
                     "2020. Nothing posted before that is retrieved.",
-                    "api_biorxiv.py:114.",
+                    "api_biorxiv.py, the 2020-01-01 d_from default in search().",
                 ),
             ),
         ),
@@ -1072,7 +1072,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             window_effect="whole_months",
             window_rounding="outward",
             established=(
-                "api_nasa_ads.py:39-45 clips both bounds to YYYY-MM and sends "
+                "api_nasa_ads.py, the pubdate clause in search() clips both bounds to YYYY-MM and sends "
                 "pubdate:[YYYY-MM TO YYYY-MM]; nothing narrows the answer back "
                 "to the days asked for."),
             notices=(
@@ -1081,7 +1081,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "NASA ADS is searched by publication month, so a window "
                     "inside a month widens to the whole of it and results can "
                     "fall outside the dates you set.",
-                    "api_nasa_ads.py:42-45.",
+                    "api_nasa_ads.py, the pubdate clause in search().",
                     needs_date_window=True,
                 ),
             ),
@@ -1128,7 +1128,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://ndlsearch.ndl.go.jp/en/help/api/',
         constraints=_constraints(
             established=(
-                "api_ndl_search.py:178-183 sends each bound at the precision it "
+                "api_ndl_search.py, the precision handling in search() sends each bound at the precision it "
                 "was given, expanding only to keep two different precisions "
                 "inclusive."),
             notices=(
@@ -1138,8 +1138,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "for more than 500 needs both a start and an end date so "
                     "resmon can split the window; without both it returns "
                     "nothing rather than a silently truncated set.",
-                    "_MAX_RECORDS at api_ndl_search.py:24 and "
-                    "api_ndl_search.py:184-197.",
+                    "_MAX_RECORDS at api_ndl_search.py, _MAX_RECORDS and "
+                    "api_ndl_search.py, the _MAX_RECORDS branch in search().",
                 ),
                 _notice(
                     "record_filter",
@@ -1147,9 +1147,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "keeps only those carrying a single Public Domain Mark 1.0, "
                     "CC0 1.0 or CC BY 4.0 metadata-rights statement. Anything "
                     "else is dropped and counted rather than stored.",
-                    "_ALLOWED_RIGHTS at api_ndl_search.py:45-49, the dpid=open "
-                    "clause at api_ndl_search.py:329 and the per-record check "
-                    "at api_ndl_search.py:402-416.",
+                    "api_ndl_search.py: _ALLOWED_RIGHTS, the dpid clause in "
+                    "_cql, and the rights check in the record parser.",
                 ),
             ),
         ),
@@ -1197,8 +1196,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications',
         constraints=_constraints(
             established=(
-                "api_nist_rmm.py:115-121 requires day-granular ISO bounds and "
-                "sends the start date unchanged; api_nist_rmm.py:137-140 says "
+                "api_nist_rmm.py, the _request_date validation in search() requires day-granular ISO bounds and "
+                "sends the start date unchanged; api_nist_rmm.py, the from_date-only comment and param in search() says "
                 "why the end date is not sent."),
             notices=(
                 _notice(
@@ -1207,8 +1206,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "date. resmon sends your start date and applies your end "
                     "date to the records after they arrive, so a run can come "
                     "back with fewer in-window records than the cap you set.",
-                    "api_nist_rmm.py:137-140 and the per-record check at "
-                    "api_nist_rmm.py:227-232.",
+                    "api_nist_rmm.py, the from_date-only comment and param in search() and the per-record check at "
+                    "api_nist_rmm.py, the date check in the record parser.",
                     needs_date_window=True,
                 ),
                 _notice(
@@ -1216,8 +1215,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "NIST RMM accepts only whole-day dates written YYYY-MM-DD. "
                     "A year or a year and month is refused rather than "
                     "expanded.",
-                    "_request_date at api_nist_rmm.py:45-53, applied at "
-                    "api_nist_rmm.py:115-121.",
+                    "_request_date at api_nist_rmm.py, _request_date, applied at "
+                    "api_nist_rmm.py, the _request_date validation in search().",
                     needs_date_window=True,
                 ),
             ),
@@ -1261,9 +1260,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             established=(
                 "_search_year_bounds in api_openlibrary.py, imported by "
                 "api_oapen.py, keeps only calendar years wholly inside the "
-                "window; api_oapen.py:57-61 records year_granularity and "
+                "window; api_oapen.py, the note_unanswerable early return in search() records year_granularity and "
                 "returns without a request when there are none; "
-                "api_oapen.py:64-65 builds the fq range from whole years."),
+                "api_oapen.py, the fq range built from whole years in search() builds the fq range from whole years."),
             notices=(
                 _notice(
                     "date_window",
@@ -1271,7 +1270,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "searches the whole calendar years inside your window, and "
                     "refuses a window containing none rather than turning an "
                     "index default into a publication-date claim.",
-                    "api_oapen.py:57-65.",
+                    "api_oapen.py, the year bounds and fq range in search().",
                     needs_date_window=True,
                 ),
             ),
@@ -1310,7 +1309,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://graph.openaire.eu/docs/apis/terms/',
         constraints=_constraints(
             established=(
-                "api_openaire.py:93-96 sends fromDateAccepted and "
+                "api_openaire.py, the fromDateAccepted / toDateAccepted params in search() sends fromDateAccepted and "
                 "toDateAccepted built from the two bounds as typed."),
             notices=(
                 _notice(
@@ -1318,7 +1317,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "resmon sends your window to OpenAIRE as a date-accepted "
                     "range. That is a different field from the work's "
                     "publication date.",
-                    "api_openaire.py:93-96 sends fromDateAccepted and "
+                    "api_openaire.py, the fromDateAccepted / toDateAccepted params in search() sends fromDateAccepted and "
                     "toDateAccepted.",
                     needs_date_window=True,
                 ),
@@ -1354,7 +1353,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="OpenAlex's search ranks by relevance across title/abstract/fulltext; not a strict boolean.",
         constraints=_constraints(
             established=(
-                "api_openalex.py:106-110 sends from_publication_date and "
+                "api_openalex.py, the from_publication_date / to_publication_date filters in search() sends from_publication_date and "
                 "to_publication_date built from the two bounds as typed."),
         ),
         entity_search=_entity(
@@ -1395,9 +1394,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             window_effect="whole_years",
             window_rounding="inward",
             established=(
-                "_search_year_bounds at api_openlibrary.py:63-99 keeps only "
+                "_search_year_bounds at api_openlibrary.py, _search_year_bounds keeps only "
                 "calendar years wholly inside the window, and "
-                "api_openlibrary.py:193-203 records year_granularity and "
+                "api_openlibrary.py, the note_unanswerable early return in search() records year_granularity and "
                 "returns without a request when there are none."),
             notices=(
                 _notice(
@@ -1406,8 +1405,8 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "finer. resmon searches the whole calendar years inside "
                     "your window, and refuses a window containing none rather "
                     "than overstating what it knows about a book's date.",
-                    "_publication_year_clause at api_openlibrary.py:101-112 "
-                    "and api_openlibrary.py:193-203.",
+                    "_publication_year_clause at api_openlibrary.py, _publication_year_clause "
+                    "and api_openlibrary.py, the note_unanswerable early return in search().",
                     needs_date_window=True,
                 ),
             ),
@@ -1442,7 +1441,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://www.osti.gov/disclaim',
         constraints=_constraints(
             established=(
-                "api_osti.py:201-205 sends publication_date_start and "
+                "api_osti.py, the publication_date_start / publication_date_end params in search() sends publication_date_start and "
                 "publication_date_end, converted to OSTI's MM/DD/YYYY form "
                 "from the two bounds as given."),
         ),
@@ -1476,7 +1475,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://api.plos.org/api-display-policy/',
         constraints=_constraints(
             established=(
-                "api_plos.py:38-41 sends publication_date:[fromT00:00:00Z TO "
+                "api_plos.py, the publication_date clause in search() sends publication_date:[fromT00:00:00Z TO "
                 "toT23:59:59Z] built from the two bounds as typed."),
         ),
         entity_search=_entity(
@@ -1507,7 +1506,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="NCBI E-utilities default operator is AND; space-separated terms are joined with AND before submission to PubMed's search index.",
         constraints=_constraints(
             established=(
-                "api_pubmed.py:60-64 sends mindate and maxdate with "
+                "api_pubmed.py, the mindate / maxdate params in _esearch sends mindate and maxdate with "
                 "datetype=pdat, built from the two bounds as typed."),
         ),
         entity_search=_entity(
@@ -1547,7 +1546,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             window_effect="whole_years",
             window_rounding="outward",
             established=(
-                "api_semantic_scholar.py:114-122 clips both bounds to their "
+                "api_semantic_scholar.py, the year param in search() clips both bounds to their "
                 "year and sends year=YYYY-YYYY; nothing narrows the answer back "
                 "to the days asked for."),
             notices=(
@@ -1556,7 +1555,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "Semantic Scholar is searched by publication year, so a "
                     "window inside a single year widens to the whole of it and "
                     "results can fall outside the dates you set.",
-                    "api_semantic_scholar.py:115-122.",
+                    "api_semantic_scholar.py, the year param in search().",
                     needs_date_window=True,
                 ),
             ),
@@ -1594,7 +1593,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="Springer Nature's Meta API ranks by relevance with an OR-based default; documents matching more terms rank higher.",
         constraints=_constraints(
             established=(
-                "api_springer.py:43-47 appends onlinedatefrom and onlinedateto "
+                "api_springer.py, the onlinedatefrom / onlinedateto terms in search() appends onlinedatefrom and onlinedateto "
                 "to the query, built from the two bounds as typed."),
             notices=(
                 _notice(
@@ -1603,7 +1602,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "publication date range, which for a journal article is "
                     "the date it first appeared online rather than its issue "
                     "date.",
-                    "api_springer.py:44-47 sends onlinedatefrom and "
+                    "api_springer.py, the onlinedatefrom / onlinedateto terms in search() sends onlinedatefrom and "
                     "onlinedateto.",
                     needs_date_window=True,
                 ),
@@ -1637,7 +1636,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         keyword_combination_notes="Zenodo's search guide says space-separated terms match with OR by default and results are ranked against the query; explicit AND requires both terms.",
         constraints=_constraints(
             established=(
-                "api_zenodo.py:94-99 wraps publication_date:[from TO to] into "
+                "api_zenodo.py, the publication_date clause in search() wraps publication_date:[from TO to] into "
                 "the query, built from the two bounds as typed."),
         ),
         entity_search=_entity(

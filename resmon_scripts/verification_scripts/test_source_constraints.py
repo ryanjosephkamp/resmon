@@ -248,6 +248,54 @@ def test_the_sources_route_returns_the_constraints():
     assert dblp["constraints"]["window_rounding"] == "inward"
 
 
+def test_every_citation_names_a_file_and_a_construct_that_exist():
+    """A citation pointing at nothing is worse than no citation at all.
+
+    These say ``api_dblp.py, _whole_year_bounds`` rather than
+    ``api_dblp.py:138-152`` on purpose: a line number is wrong the moment
+    anybody edits the file above it, and silently so. A name is checkable,
+    and this is the check — the module must exist and must still contain
+    every identifier the sentence claims to be quoting.
+    """
+    import re  # noqa: PLC0415
+
+    module_dir = Path(__file__).resolve().parent.parent / "implementation_scripts"
+    filename = re.compile(r"api_[a-z_]+\.py")
+    # Private helpers, `search()`, and SHOUTING_CONSTANTS are the three shapes
+    # a citation names. The prose words below are not identifiers.
+    identifier = re.compile(r"(?<![\w.])(_[a-z][a-z0-9_]*|search\(\)|[A-Z][A-Z0-9_]{2,})")
+    prose = {"URL", "YYYY", "JSON", "API", "HTTP", "ISO", "REST", "SRU", "CQL",
+             "PDM", "CC0", "RMM", "NDL", "DBLP", "DOI", "OAPEN"}
+
+    problems: list[str] = []
+    checks = 0
+    for entry in REPOSITORY_CATALOG:
+        citations = [entry.constraints.established]
+        citations += [notice.established for notice in entry.constraints.notices]
+        for citation in citations:
+            named = set(filename.findall(citation))
+            if not named:
+                problems.append(f"{entry.slug}: citation names no module — {citation[:60]}")
+                continue
+            for name in named:
+                path = module_dir / name
+                if not path.exists():
+                    problems.append(f"{entry.slug}: {name} does not exist")
+                    continue
+                source = path.read_text(encoding="utf-8")
+                for found in set(identifier.findall(citation)):
+                    token = found[:-2] if found.endswith("()") else found
+                    if token in prose:
+                        continue
+                    checks += 1
+                    if token not in source:
+                        problems.append(f"{entry.slug}: {name} has no {token}")
+    assert not problems, "\n".join(problems)
+    # A floor rather than an exact count, so adding a citation does not need
+    # this number edited; a drop to zero would mean the regex stopped matching.
+    assert checks >= 50, f"only {checks} identifiers were actually checked"
+
+
 def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
     """The denominators the PR and the comments use, read from the catalog.
 
