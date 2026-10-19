@@ -23,20 +23,42 @@ sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 import mcp_server as mcp  # noqa: E402
 
 
+# The port this module's doubles answer on. An arbitrary high number, named by
+# the fixture below so that every test here starts from a *named* instance --
+# which is the only way the server finds one at all. It is deliberately not the
+# port resmon's background service uses: this suite neither binds nor addresses
+# that port, and the behavior under test is that the server never reaches for
+# it on its own.
+STUB_PORT = 9001
+STUB_BASE = f"http://127.0.0.1:{STUB_PORT}"
+
+
 @pytest.fixture(autouse=True)
 def _reset_backend(monkeypatch, tmp_path):
-    """A clean client, and token files for every port these tests name (2.2).
+    """A clean client, a named port, and token files for every port named here.
 
-    Discovery now reads ``<state dir>/api-token-<port>`` before probing a port,
-    so each test gets its own state directory holding one for each port used
+    Discovery reads ``<state dir>/api-token-<port>`` before probing a port, so
+    each test gets its own state directory holding one for each port used
     below. The HTTP doubles here do not check the header; that the header is
     sent, and that a real backend refuses without it, is
     ``test_local_api_auth.py``'s job, against a real process.
+
+    ``RESMON_PORT`` and ``RESMON_PORT_FILE`` are both set because the server
+    names no port of its own: with neither mechanism naming one, discovery
+    refuses, and every test below that goes through discovery would be
+    measuring that refusal instead of itself. The port file is pointed at a
+    path that does not exist for the second reason the suite already learned
+    once -- a ``resmon.port`` left in the checkout by a dev run would otherwise
+    add a candidate nobody mentioned, and change results under the test.
     """
     from implementation_scripts import api_auth
 
     monkeypatch.setenv("RESMON_STATE_DIR", str(tmp_path / "state"))
-    for port in (mcp.DEFAULT_PORT, 8791, 9001, 9002, 9999):
+    monkeypatch.setenv("RESMON_PORT", str(STUB_PORT))
+    monkeypatch.setenv("RESMON_PORT_FILE", str(tmp_path / "absent.port"))
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE",
+                        tmp_path / "absent.port")
+    for port in (8791, 9001, 9002, 9999):
         api_auth.write_token_file(port, api_auth.mint_token())
     mcp.backend._base = None
     mcp.backend._token = None
@@ -51,7 +73,7 @@ def _payload(result: dict) -> dict:
     return json.loads(result["content"][0]["text"])
 
 
-def _stub(routes: dict, base: str = "http://127.0.0.1:8742",
+def _stub(routes: dict, base: str = STUB_BASE,
           formats: tuple[str, ...] = ("bibtex", "ris", "csv", "json")):
     """Serve canned JSON for exact paths; anything else 404s.
 
@@ -274,7 +296,7 @@ def test_update_settings_sends_only_the_keys_it_was_given():
         body = group if len([c for c in calls if c[0] == "GET"]) == 1 else stub_get_after
         return httpx.Response(200, json=body, request=httpx.Request(method, url))
 
-    mcp.backend._base = "http://127.0.0.1:8742"
+    mcp.backend._base = STUB_BASE
     with patch.object(mcp.httpx, "request", side_effect=_sequence):
         body = _payload(mcp.call_tool(
             "update_settings", {"group": "ai", "settings": {"ai_effort": "low"}}))
@@ -503,24 +525,99 @@ def test_port_discovery_prefers_the_environment(monkeypatch):
     assert mcp._candidate_ports()[0] == 9999
 
 
-def test_port_discovery_falls_back_to_the_default(monkeypatch, tmp_path):
-    """Only when nothing names a port -- an older backend writes no port file."""
+def test_port_discovery_reads_the_port_file_when_the_environment_is_silent(
+        monkeypatch, tmp_path):
+    """The second of the two mechanisms, on its own."""
     monkeypatch.delenv("RESMON_PORT", raising=False)
-    monkeypatch.setenv("RESMON_PORT_FILE", str(tmp_path / "absent.port"))
-    import implementation_scripts.config as cfg
-    monkeypatch.setattr(cfg, "PORT_FILE", tmp_path / "absent.port")
-    assert mcp._candidate_ports() == [mcp.DEFAULT_PORT]
+    named = tmp_path / "named.port"
+    named.write_text("9002\n", encoding="utf-8")
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE", named)
+    assert mcp._candidate_ports() == [9002]
 
 
-def test_a_named_port_is_never_widened_to_the_default(monkeypatch):
+def test_nothing_names_a_port_and_the_server_names_none_either(monkeypatch, tmp_path):
+    """No third candidate. The empty list is the refusal's precondition.
+
+    This used to return the default port, on the reading that an older backend
+    writes no port file and the default is how such a backend is reached. It
+    cannot be: a backend old enough not to write a port file predates 2.2 and
+    writes no token file either, and ``base_url`` skips a port whose token file
+    is absent before it probes. The only backend the default could ever have
+    reached is a current one on that port, which on a machine with resmon's
+    background service installed is that service -- a different process over a
+    different database.
+    """
+    monkeypatch.delenv("RESMON_PORT", raising=False)
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE",
+                        tmp_path / "absent.port")
+    assert mcp._candidate_ports() == []
+
+
+def test_a_named_port_is_never_widened(monkeypatch, tmp_path):
     """The bug this prevents attached the server to the launchd daemon.
 
-    When a named port stopped answering, falling through to 8742 connected to a
-    different process over a different database, and every tool then answered
-    truthfully about the wrong corpus. Failing is the correct outcome.
+    When a named port stopped answering, falling through to the default
+    connected the server to a different process over a different database, and
+    every tool then answered truthfully about the wrong corpus. Failing is the
+    correct outcome.
     """
     monkeypatch.setenv("RESMON_PORT", "8791")
-    assert mcp.DEFAULT_PORT not in mcp._candidate_ports()
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE",
+                        tmp_path / "absent.port")
+    assert mcp._candidate_ports() == [8791]
+
+
+def test_an_unnamed_backend_is_a_refusal_that_tells_the_operator_what_to_do(
+        monkeypatch, tmp_path):
+    """A quiet failure and a wrong answer must not look the same.
+
+    The message is asserted on, not merely its error code, because the message
+    is the whole of what replaces the fallback. It has to say that nothing
+    named a backend, name *both* mechanisms that do, and say the server did not
+    pick one -- an operator who reads "backend_unavailable" and nothing else
+    learns only that something is wrong.
+    """
+    monkeypatch.delenv("RESMON_PORT", raising=False)
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE",
+                        tmp_path / "absent.port")
+
+    def _never(*a, **k):
+        raise AssertionError("a port was probed although none was named")
+
+    monkeypatch.setattr(mcp.httpx, "get", _never)
+    monkeypatch.setattr(mcp.httpx, "request", _never)
+
+    result = mcp.call_tool("search_corpus", {"query": "x"})
+    assert result["isError"] is True
+    body = _payload(result)
+    assert body["error"] == "backend_unavailable"
+
+    message = body["message"]
+    assert "RESMON_PORT" in message, "the environment mechanism is not named"
+    assert "port file" in message, "the port-file mechanism is not named"
+    assert "did not guess" in message, "it does not say it declined to guess"
+    assert "Start resmon" in message, "it does not say what to do"
+    # It names no address, because it chose none.
+    assert "127.0.0.1" not in message
+    assert body["detail"]["tried"] == []
+    assert body["detail"]["no_port_named"] is True
+    assert body["detail"]["port_file"] == str(tmp_path / "absent.port")
+
+
+def test_the_unnamed_refusal_does_not_claim_resmon_is_not_running(
+        monkeypatch, tmp_path):
+    """Nothing here establishes that. Saying it would be the house overclaim.
+
+    "resmon is not running" is the right sentence for a *named* port that did
+    not answer. With no port named, a backend may well be running on a port
+    this process was never told about, and the honest report is that it was not
+    told.
+    """
+    monkeypatch.delenv("RESMON_PORT", raising=False)
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE",
+                        tmp_path / "absent.port")
+    body = _payload(mcp.call_tool("health", {}))
+    assert "not running" not in body["message"]
 
 
 def test_a_dead_named_port_is_backend_unavailable(monkeypatch, tmp_path):
@@ -690,7 +787,7 @@ def test_create_routine_creates_it_inactive():
         return httpx.Response(201, json={"id": 1, "is_active": False},
                               request=httpx.Request(method, url))
 
-    mcp.backend._base = "http://127.0.0.1:8742"
+    mcp.backend._base = STUB_BASE
     with patch.object(mcp.httpx, "request", side_effect=_request):
         body = _payload(mcp.call_tool("create_routine", {
             "name": "n", "keywords": ["a", "b"], "sources": ["arxiv"],
@@ -702,8 +799,8 @@ def test_create_routine_creates_it_inactive():
     # ``{id, name}`` and the contract promised "the created routine". The
     # caller can now see ``is_active`` rather than take the detail sentence's
     # word for it.
-    assert seen == [("POST", "http://127.0.0.1:8742/api/routines"),
-                    ("GET", "http://127.0.0.1:8742/api/routines/1")]
+    assert seen == [("POST", f"{STUB_BASE}/api/routines"),
+                    ("GET", f"{STUB_BASE}/api/routines/1")]
     assert body["routine"]["is_active"] is False
     # A dict, not a JSON string: RoutineCreate declares `parameters: dict` and
     # rejects the string form with a 422. The column stores JSON text, which
@@ -730,7 +827,7 @@ def test_create_routine_passes_a_stated_intent_through():
         return httpx.Response(201, json={"id": 1, "is_active": False},
                               request=httpx.Request(method, url))
 
-    mcp.backend._base = "http://127.0.0.1:8742"
+    mcp.backend._base = STUB_BASE
     with patch.object(mcp.httpx, "request", side_effect=_request):
         mcp.call_tool("create_routine", {
             "name": "n", "keywords": ["a"], "sources": ["arxiv"],
@@ -761,7 +858,7 @@ def test_the_coverage_counts_on_get_routine_are_totals_not_page_lengths():
         payload = audit if url.endswith("/coverage") else {"id": 4, "name": "r"}
         return httpx.Response(200, json=payload, request=httpx.Request(method, url))
 
-    mcp.backend._base = "http://127.0.0.1:8742"
+    mcp.backend._base = STUB_BASE
     with patch.object(mcp.httpx, "request", side_effect=_request):
         body = _payload(mcp.call_tool("get_routine", {"routine_id": 4}))
 
@@ -815,12 +912,15 @@ def test_run_routine_calls_the_new_endpoint():
 # The version guard — the wrong-instance hazard
 # ---------------------------------------------------------------------------
 #
-# resmon writes a port file only while it is running, so with the app closed
-# nothing names a port and the default applies. On a machine where an older
-# resmon holds that port, it answers -- and every tool then reports another
-# installation's corpus as the user's own. That happened with a v1.2.1 daemon.
+# A port a caller *named* can still be held by the wrong resmon: a port file a
+# crash left behind, a RESMON_PORT exported in an earlier session, a port
+# another installation took over. On such a machine an older resmon answers --
+# and every tool then reports another installation's corpus as the user's own.
+# That happened with a v1.2.1 daemon. The port below is therefore injected
+# rather than discovered: which port it is does not matter to this guard, and
+# the suite addresses no real one.
 
-def _health(version, port=8742, status=200):
+def _health(version, status=200):
     def _get(url, **kwargs):
         body = {"status": "ok"} if version is None else {"status": "ok", "version": version}
         return httpx.Response(status, json=body, request=httpx.Request("GET", url))
@@ -830,15 +930,15 @@ def _health(version, port=8742, status=200):
 @pytest.mark.parametrize("version", ["1.8.0", "1.8.2", "1.10.0", "2.0.0"])
 def test_a_supported_backend_is_accepted(monkeypatch, version):
     monkeypatch.setattr(mcp.httpx, "get", _health(version))
-    with patch.object(mcp, "_candidate_ports", return_value=[8742]):
-        assert mcp.backend.base_url() == "http://127.0.0.1:8742"
+    with patch.object(mcp, "_candidate_ports", return_value=[STUB_PORT]):
+        assert mcp.backend.base_url() == STUB_BASE
 
 
 @pytest.mark.parametrize("version", ["1.2.1", "1.7.9", "0.1.0"])
 def test_an_older_backend_is_refused_rather_than_used(monkeypatch, version):
     """The whole point: answering about the wrong corpus is worse than failing."""
     monkeypatch.setattr(mcp.httpx, "get", _health(version))
-    with patch.object(mcp, "_candidate_ports", return_value=[8742]):
+    with patch.object(mcp, "_candidate_ports", return_value=[STUB_PORT]):
         with pytest.raises(mcp.ToolError) as excinfo:
             mcp.backend.base_url()
     assert excinfo.value.code == "backend_unavailable"
@@ -850,14 +950,14 @@ def test_an_older_backend_is_refused_rather_than_used(monkeypatch, version):
 def test_a_backend_that_cannot_say_its_version_is_refused(monkeypatch, version):
     """Unparseable is refused, not assumed good — that is the case guarded against."""
     monkeypatch.setattr(mcp.httpx, "get", _health(version))
-    with patch.object(mcp, "_candidate_ports", return_value=[8742]):
+    with patch.object(mcp, "_candidate_ports", return_value=[STUB_PORT]):
         with pytest.raises(mcp.ToolError):
             mcp.backend.base_url()
 
 
 def test_the_refusal_names_the_version_so_a_user_can_act(monkeypatch):
     monkeypatch.setattr(mcp.httpx, "get", _health("1.2.1"))
-    with patch.object(mcp, "_candidate_ports", return_value=[8742]):
+    with patch.object(mcp, "_candidate_ports", return_value=[STUB_PORT]):
         with pytest.raises(mcp.ToolError) as excinfo:
             mcp.backend.base_url()
     message = excinfo.value.message
