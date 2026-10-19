@@ -134,12 +134,12 @@ def test_each_naming_mechanism_reaches_the_instance_it_names(
         assert body.get("error") is None, body
         assert body["pid"] == named.proc.pid
         assert body["pid"] != unnamed.proc.pid
-        assert body["identity"]["runtime_id"] != _identity_of(unnamed, shared_state)
+        assert body["identity"]["runtime_id"] != _identity_of(unnamed)
         for backend in (mine, other):
             assert backend.token not in stdout and backend.token not in stderr
 
 
-def _identity_of(backend: Backend, state: Path) -> str:
+def _identity_of(backend: Backend) -> str:
     """The runtime id of a backend, read from the backend itself."""
     with backend.client() as c:
         return c.get("/api/health").json()["identity"]["runtime_id"]
