@@ -24,7 +24,7 @@ interface Props {
 
 const { entry } = Astro.props as Props;
 const head = readDocument(entry.body ?? '', entry.id);
-const { html, headings } = await renderMarkdown(head.body);
+const { html, headings } = await renderMarkdown(head.body, { from: 'docs/api-contract' });
 ---
 
 <Document

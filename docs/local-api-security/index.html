@@ -35,7 +35,7 @@ secret from the OS keyring. Host and Origin are still enforced, so this widens e
 to one holder of one 24-hour signature. A missing, wrong or expired signature — and a delivery
 that was not a webhook — all get the same <code>403 signature_invalid</code>. This is not an exemption from
 authentication; it is a different credential, scoped to one file. See
-<a href="delivery.md">delivery.md</a>.</p>
+<a href="/resmon/delivery/">delivery.md</a>.</p>
 <p>A CORS preflight (<code>OPTIONS</code> with <code>Access-Control-Request-Method</code>) carries no credentials by
 specification, so it is answered without the token — but only for the renderer’s origin.
 <code>Access-Control-Allow-Private-Network: true</code> is sent only on such a preflight that asked for it.

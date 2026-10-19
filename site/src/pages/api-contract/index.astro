@@ -12,7 +12,7 @@ const entry = await getEntry('apiContract', 'README');
 if (!entry) throw new Error('docs/api-contract/README.md is missing');
 
 const head = readDocument(entry.body ?? '', 'The API contract');
-const { html, headings } = await renderMarkdown(head.body);
+const { html, headings } = await renderMarkdown(head.body, { from: 'docs/api-contract' });
 ---
 
 <Document

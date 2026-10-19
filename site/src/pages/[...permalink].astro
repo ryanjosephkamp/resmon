@@ -37,7 +37,7 @@ const { post } = Astro.props as Props;
 // 26 — September 21, 2026"). The heading is the one worth showing, so it
 // becomes the page title and the front-matter title becomes the browser title.
 const head = readDocument(post.body ?? '', post.data.title);
-const { html, headings } = await renderMarkdown(head.body);
+const { html, headings } = await renderMarkdown(head.body, { from: 'docs/_posts' });
 
 const path = postPath(post.id, post.data.date);
 
