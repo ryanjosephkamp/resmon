@@ -63,6 +63,14 @@ class FrozenClock:
     event loop keeps its own clock. Everything else — ``time.sleep`` above all
     — falls through to the real module, so code that wrongly sleeps still
     sleeps and still shows up in the elapsed figure the assertions report.
+
+    What that cannot catch: it governs only the ``time.monotonic()`` reads in
+    ``api_base`` and ``api_zenodo``. Should the budget's bookkeeping ever
+    reach the clock through a third module, or through a ``from time import
+    monotonic`` that binds the name at import, this test would go green
+    without exercising the seam at all — green for the wrong reason, which is
+    the failure mode it was written to end. A caller moving budget arithmetic
+    out of these two modules has to move this fake with it.
     """
 
     def __init__(self, start: float = 10_000.0) -> None:
