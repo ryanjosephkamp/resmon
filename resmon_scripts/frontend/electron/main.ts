@@ -9,6 +9,44 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 
+/**
+ * True when this run must put its windows up without taking the foreground.
+ *
+ * The automated suites launch the real app dozens of times in a sitting, and
+ * every launch pulled the keyboard away from whatever the person at the machine
+ * was doing — they had to click back, or wait for the window to close. That is
+ * the only thing this flag is for.
+ *
+ * It is a *launch* flag, not a behaviour flag. The same windows open, at the
+ * same size, with the same contents, in the same order; only the activation
+ * changes. With the variable unset every branch it gates takes the path it took
+ * before the flag existed, which is the same contract `isE2E()` carries.
+ *
+ * Declared here rather than beside `isE2E()` because the activation policy
+ * below has to be applied at module scope — see `setActivationPolicy`.
+ */
+function isBackgroundWindow(): boolean {
+  return process.env.RESMON_BACKGROUND_WINDOW === '1';
+}
+
+// Never become the active application, on macOS, when launched in background
+// mode.
+//
+// `showInactive()` alone is not enough on darwin. It keeps the *window* from
+// taking key status, but the process still becomes the active application when
+// it finishes launching: the Dock icon appears, the menu bar changes to
+// resmon's, and the person's own window loses focus even though resmon's window
+// never gained it. `accessory` is the policy that says "this process has no
+// Dock icon and never becomes active"; it is what menu-bar-only apps use.
+//
+// At module scope, not inside `app.whenReady()`: the activation that has to be
+// prevented happens as part of finishing launch, so a call that waits for ready
+// is a call that happens after the thing it was meant to stop. Guarded because
+// the policy is macOS-only and the method does not exist elsewhere.
+if (isBackgroundWindow() && process.platform === 'darwin') {
+  app.setActivationPolicy('accessory');
+}
+
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
 let backendPort: number = 8742;
@@ -543,7 +581,11 @@ function createWindow(): void {
   // would immediately discard the size the constructor was given.
   mainWindow.once('ready-to-show', () => {
     if (!isE2E()) mainWindow?.maximize();
-    mainWindow?.show();
+    // `showInactive()` puts the window up without making it the key window, so
+    // an automated run does not take the keyboard from the person at the Mac.
+    // Unset, this is `show()` exactly as before.
+    if (isBackgroundWindow()) mainWindow?.showInactive();
+    else mainWindow?.show();
   });
 
   // Browser-style history navigation.
@@ -643,7 +685,9 @@ function openLinkWindow(url: string): void {
     return { action: 'deny' };
   });
 
-  win.once('ready-to-show', () => win.show());
+  // Same rule as the main window: a link window opened during an automated run
+  // must not steal the foreground either.
+  win.once('ready-to-show', () => (isBackgroundWindow() ? win.showInactive() : win.show()));
   void win.loadURL(url);
 }
 

@@ -98,10 +98,40 @@ so the packaged run neither calls GitHub nor pops a dialog over a screenshot).
 `default-behaviour.spec.ts` launches the app twice — with and without — and
 asserts the unset path still maximizes.
 
+## `RESMON_BACKGROUND_WINDOW`
+
+The suite launches the real app over and over, and every launch used to come to
+the front and take the keyboard from whoever was at the machine. With this set
+the windows go up with `showInactive()` and, on macOS, the process runs under
+the `accessory` activation policy, so it never becomes the active application
+and never enters the Dock.
+
+`playwright.config.ts` here and `journeys/playwright.config.ts` both set it, by
+calling `requestBackgroundWindows()` from [`background-window.ts`](background-window.ts).
+A config module runs in the runner and in every worker before any test, and
+both suites build the app's environment by copying the ambient one, so the
+drivers needed no change. Set `RESMON_BACKGROUND_WINDOW=0` yourself to get the
+old behavior back for one run.
+
+**One job must not have it.** `ui-smoke.yml`'s *Window behaviour (Electron on
+macOS)* job exists to watch maximize, focus and stacking, and an accessory-policy
+app has none of those to watch — it would keep passing while testing something
+nobody ships. That job sets `RESMON_WINDOW_BEHAVIOR_JOB=1`; `background-window.ts`
+declines to set the flag when it sees that, and throws if both arrive together,
+which takes the run down before the first spec. `src/__tests__/backgroundWindow.test.ts`
+is the static half and reads the workflow on every pull request.
+
+One known cost: under `accessory` the app has no system menu bar and no Dock
+icon, so a developer watching a run cannot reach resmon with Cmd+Tab or use its
+menus by hand. `Menu.getApplicationMenu()` still returns the menu, which is how
+`main-window.spec.ts` P4 drives it.
+
 ## Environment variables the suite itself reads
 
 | Variable | Effect |
 |---|---|
+| `RESMON_BACKGROUND_WINDOW` | `1` shows windows inactive and, on macOS, runs under the `accessory` activation policy. Both Playwright configs set it; `0` opts out. |
+| `RESMON_WINDOW_BEHAVIOR_JOB` | `1` marks a run whose subject is the window. The configs never set the background flag for it and refuse to run if something else did. |
 | `RESMON_E2E_WIDTH` / `RESMON_E2E_HEIGHT` | The fixed window size. Defaults 1440x900. |
 | `RESMON_E2E_BREAK_ROUTE` | Appends a route `App.tsx` does not declare, so the suite goes red on purpose. `ui-smoke.yml` exposes it as a `workflow_dispatch` input. |
 | `RESMON_PYTHON` | Which interpreter runs the backend. Defaults to the checkout's `.venv`, falling back to `python3`. |
