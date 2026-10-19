@@ -201,6 +201,7 @@ export const sections: TutorialSection[] = [
       'What resmon can say about a delivery is that it handed the report to your mail server or wrote it into the folder. Whether it reached an inbox, or finished syncing, it cannot see.',
       'Deleting a routine preserves its historical execution rows on Results & Logs.',
       'A missed fire is recorded, never quietly caught up: resmon does not run a weekend of sweeps the moment you open the laptop. What the row says is that the fire was overdue when resmon looked \u2014 not that the search never happened, since a fire under an hour late can still run.',
+      'A routine runs one copy of itself at a time. A fire that comes due while the last run is still working is refused, not queued, and the row says so separately: skipped because the previous run was still going. That one is certain \u2014 it did not run \u2014 and the fix is a longer interval, not another run.',
     ],
     destination: { path: '/routines', label: 'Go to Page' },
   },
