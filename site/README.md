@@ -28,9 +28,14 @@ also loads the site's pages into an Electron `<webview>` that is locked to that 
 So three things are fixed, and `scripts/verify-output.mjs` asserts all three against
 `capture/`, which holds the live site exactly as it was served before any of this existed:
 
-1. **`/feed.xml` is Atom, at that path, with the same 10 entries.** Not a redirect — the app
-   parses the bytes. Not RSS: the app collects `<entry>` elements, and an RSS feed's `<item>`
-   elements would parse cleanly into an empty post list.
+1. **`/feed.xml` is Atom, at that path.** Not a redirect — the app parses the bytes. Not RSS:
+   the app collects `<entry>` elements, and an RSS feed's `<item>` elements would parse
+   cleanly into an empty post list. The captured feed carried 10 entries because
+   `jekyll-feed`'s default said so and nobody had overridden it; this one carries all 27,
+   because the Blog tab has no pagination and a post outside the feed is a post the owner
+   cannot open from inside the app. The verifier asserts both halves of that: every post in
+   `docs/_posts` has an entry, **and** the captured 10 are still the first 10, in order, in
+   every field the app reads.
 2. **All 27 post permalinks resolve** at `/:year/:month/:day/:slug/`, with the day taken from
    the front-matter date in UTC. `src/lib/posts.ts` explains why that is not the file name's
    date for three of the 27.

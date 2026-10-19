@@ -27,7 +27,7 @@ const { entry } = Astro.props as Props;
  * the Markdown on disk is untouched.
  */
 const body = (entry.body ?? '').replace(/^(\s*)# (?=\S)/, '$1## ');
-const { html, headings } = await renderMarkdown(body, { fromReadme: true });
+const { html, headings } = await renderMarkdown(body, { from: '.', fromReadme: true });
 ---
 
 <Document

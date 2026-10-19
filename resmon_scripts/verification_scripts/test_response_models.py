@@ -471,9 +471,13 @@ def _drive_settings(drive: Drive) -> None:
     """Every stored group read, written and read again.
 
     Read first so the empty state is compared, written with values a real tab
-    would send, and read again so the stored state is compared too — the
-    second read is where a model that silently coerced ``"4"`` to ``4``, or
-    ``true`` to ``"true"``, shows up.
+    would send, and read again so the stored state is compared too. The second
+    read is where a coercion shows up, and it is the half that matters here:
+    six of these groups answer stored **strings**, ``execution`` answers
+    **ints** and ``notifications`` answers a **bool**, and pydantic will take a
+    string into an int or a bool without a word. An empty corpus answers ``""``
+    and ``0`` for most of them, where a coercion is invisible; a stored ``"4"``
+    behind ``max_concurrent_executions`` is where it is not.
 
     The embeddings page is driven across a lane being configured, because
     ``lane`` is ``null`` until one is and a scenario that only saw the null

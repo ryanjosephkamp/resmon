@@ -43,9 +43,23 @@ from resmon_scripts.verification_scripts.live_evidence import (  # noqa: E402
     quarantine_line,
     utc_today,
 )
+from resmon_scripts.verification_scripts.deselection_report import (  # noqa: E402
+    HEADING as _DESELECTION_HEADING,
+    as_markdown as _deselection_markdown,
+    project_marker_names as _project_marker_names,
+    render as _render_deselection,
+)
 
 
 _LIVE_EVIDENCE: LiveEvidenceWriter | None = None
+
+# Every case this run took out of the collection: ``(nodeid, marker names)``.
+# Filled by ``pytest_deselected`` and reported by ``pytest_terminal_summary``.
+# See ``deselection_report.py`` for why a green gate has to say this out loud.
+_DESELECTED: list[tuple[str, list[str]]] = []
+
+# How many cases the run did go on to select, set at collection.
+_SELECTED: dict[str, int] = {"count": 0}
 
 # The provider-outage quarantine for this session: live node id -> entry.
 # Empty unless the session collected live cases. See ``live_evidence.py``.
@@ -78,6 +92,7 @@ def pytest_configure(config):
 
 
 def pytest_collection_finish(session):
+    _SELECTED["count"] = len(session.items)
     records: list[dict] = []
     live = {
         item.nodeid for item in session.items
@@ -144,17 +159,114 @@ def pytest_runtest_makereport(item, call):
     return report
 
 
-def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Print the quarantine's denominator whenever live cases were collected."""
-    if _QUARANTINE_STATE["line"] is None:
+# ---------------------------------------------------------------------------
+# Test ids a log reader can actually receive
+# ---------------------------------------------------------------------------
+#
+# Every Backend job log in this repository has been silently cut in half, on
+# passing runs as well as failing ones, and the cause is a test id.
+#
+# ``ci.yml`` runs ``pytest -v`` so that the last line printed names the last
+# test that finished — pytest-timeout's dump does not say which item it killed,
+# and in quiet mode a hang leaves a row of dots to count. With ``-v`` every
+# parametrised case prints its id, and
+# ``test_evidence_reader.py``'s bounds case carries ``b"a" * 262144`` as a
+# parameter, which pytest renders *into the id*. The collected line is 262,284
+# bytes. ``gh run view --log`` reads with Go's ``bufio.Scanner`` at its default
+# 64 KiB limit and stops, unchecked, at the first line over it — measured at
+# 1,872 of 3,740 lines on three jobs, including a passing one, the cut always
+# landing at (first over-long line − 1).
+#
+# So the flag chosen to make the log name the culprit is the flag that stops
+# anyone reading as far as it. Capping the id fixes it once, for every
+# oversized parameter anybody adds later, rather than per test.
+#
+# The cap keeps ids distinguishing: the two byte cases that mattered become
+# ``raw-bytes262144`` and ``raw-bytes262145``, which differ exactly where the
+# test does. Returning ``None`` hands the value back to pytest's own
+# generation, so every short parameter is untouched.
+#
+# 512, not 64. The first version used 64 and a reviewer measured what that
+# cost: 20 of 3,562 ids changed, no collisions, but five of them lost readable
+# content while sitting nowhere near any limit -- ``[raw-bytes74]`` at 74
+# bytes, and, pointedly, this branch's own new gate rendered as
+# ``[test_evidence_reader.py-case-str66]``. A cap is meant to stop a line that
+# breaks a reader, not to shorten ids for its own sake. At 512 those five
+# stay legible at roughly 600 bytes, which is a hundredfold under the 64 KiB
+# scanner limit, and the 256 KiB parameters are still described rather than
+# printed.
+#
+# Until a run predates this, the whole log is still available through
+#   gh api --allow-escape-sequences /repos/<owner>/<repo>/actions/jobs/<id>/logs
+_MAX_PARAMETRIZE_ID = 512
+
+
+def pytest_make_parametrize_id(config, val, argname):
+    """Describe a large parameter instead of printing it into the test id."""
+    try:
+        size = len(val)
+    except TypeError:                                # not sized: pytest's problem
+        return None
+    if isinstance(val, (bytes, bytearray, str, list, tuple, dict, set, frozenset)):
+        if size > _MAX_PARAMETRIZE_ID:
+            return f"{argname}-{type(val).__name__}{size}"
+    return None
+
+
+def pytest_deselected(items):
+    """Remember what was taken out of the collection, and why.
+
+    The markers are read off the items here rather than recomputed later: once
+    the session is over these objects are the only place that says whether a
+    deselected case needed a network, a signed-in CLI, or neither.
+    """
+    if not items:
         return
-    terminalreporter.write_sep("-", "live quarantine")
-    terminalreporter.write_line(_QUARANTINE_STATE["line"])
-    for sentence in _QUARANTINE_STATE["seen"]:
-        terminalreporter.write_line(sentence)
-    if _QUARANTINE_STATE["error"]:
-        terminalreporter.write_line(
-            "QUARANTINE UNREADABLE — nothing was excused: " + _QUARANTINE_STATE["error"])
+    declared = _project_marker_names(items[0].config.inipath)
+    for item in items:
+        _DESELECTED.append((
+            item.nodeid,
+            sorted({mark.name for mark in item.iter_markers()} & declared),
+        ))
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print the quarantine's denominator, and what this run never selected."""
+    if _QUARANTINE_STATE["line"] is not None:
+        terminalreporter.write_sep("-", "live quarantine")
+        terminalreporter.write_line(_QUARANTINE_STATE["line"])
+        for sentence in _QUARANTINE_STATE["seen"]:
+            terminalreporter.write_line(sentence)
+        if _QUARANTINE_STATE["error"]:
+            terminalreporter.write_line(
+                "QUARANTINE UNREADABLE — nothing was excused: " + _QUARANTINE_STATE["error"])
+
+    lines = _render_deselection(
+        _DESELECTED,
+        collected=_SELECTED["count"],
+        markexpr=getattr(config.option, "markexpr", "") or "",
+        keyword=getattr(config.option, "keyword", "") or "",
+    )
+    if not lines:
+        return
+    terminalreporter.write_sep("-", _DESELECTION_HEADING)
+    for line in lines:
+        terminalreporter.write_line(line)
+
+    # The same statement where the person reading a green CI run is actually
+    # looking. $GITHUB_STEP_SUMMARY is set for every step of every job, so no
+    # workflow needs a line added to it, and the weekly live job gets this
+    # beside the summary it already writes. A failure here must never fail the
+    # run: this is reporting, not a gate.
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        try:
+            with open(summary, "a", encoding="utf-8") as handle:
+                handle.write(_deselection_markdown(lines))
+        except OSError as exc:                       # pragma: no cover - CI only
+            terminalreporter.write_line(
+                f"could not write the deselection report to GITHUB_STEP_SUMMARY: "
+                f"{type(exc).__name__}")
 
 
 def pytest_runtest_logstart(nodeid, location):
@@ -432,7 +544,31 @@ socket.socket.connect = _guarded_connect
 socket.socket.connect_ex = _guarded_connect_ex
 
 
+# The measurement instrument behind the deselection report.
+#
+# 110 cases are deselected from every green merge, and the obvious question is
+# how many of them a hermetic runner could actually run — the marker says
+# "reaches the network, **or** binds a real socket", and the second half does
+# not need an internet connection at all. Guessing at that from the names is
+# the mistake this project keeps re-learning: reasoning from what a thing is
+# *for* loses to driving the real code and recording what it did.
+#
+# With RESMON_FORCE_HERMETIC=1 the guard stays closed for live cases too, so
+#
+#     RESMON_FORCE_HERMETIC=1 pytest -m "live_network and not needs_agent_cli"
+#
+# answers the question by running it. A case that passes there reached nothing
+# outside loopback. It is an instrument, not a mode: nothing in CI sets it, and
+# a pass under it is evidence about reachability, not a promise that the case
+# is meaningful without a network — a test that swallows its own connection
+# error passes here and asserts nothing. Read the ones it names before
+# believing them.
+_FORCE_HERMETIC = os.environ.get("RESMON_FORCE_HERMETIC") == "1"
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
     """Open the network only for tests that declare they need it."""
-    _allow_network["value"] = item.get_closest_marker("live_network") is not None
+    _allow_network["value"] = (
+        item.get_closest_marker("live_network") is not None and not _FORCE_HERMETIC
+    )

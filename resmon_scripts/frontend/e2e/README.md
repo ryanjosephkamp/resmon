@@ -98,10 +98,66 @@ so the packaged run neither calls GitHub nor pops a dialog over a screenshot).
 `default-behaviour.spec.ts` launches the app twice — with and without — and
 asserts the unset path still maximizes.
 
+## `RESMON_BACKGROUND_WINDOW`
+
+The suite launches the real app over and over, and every launch used to come to
+the front and take the keyboard from whoever was at the machine. With this set
+the windows go up with `showInactive()` and, on macOS, the process runs under
+the `accessory` activation policy.
+
+**The two halves do different things, and it is not the division you would
+guess.** Four launches from a frontmost shell, reading the frontmost
+application before and after the window went up:
+
+| | frontmost app | window focused | Dock icon |
+|---|---|---|---|
+| `show()`, no policy | **takes the foreground** | yes | yes |
+| `showInactive()` only | unchanged | no | yes |
+| `show()` + `accessory` | **takes the foreground** | yes | no |
+| both — what the flag does | unchanged | no | no |
+
+`showInactive()` is what stops the foreground grab; `accessory` on its own does
+not help with focus at all, and only removes the Dock icon and the menu bar. If
+you are ever tempted to simplify this to one of the two, that table is the
+reason to keep whichever one you were about to drop for the right reason.
+
+`playwright.config.ts` here and `journeys/playwright.config.ts` both set it, by
+calling `requestBackgroundWindows()` from [`background-window.ts`](background-window.ts).
+A config module runs in the runner and in every worker before any test, and
+both suites build the app's environment by copying the ambient one, so the
+drivers needed no change. Set `RESMON_BACKGROUND_WINDOW=0` yourself to get the
+old behavior back for one run.
+
+**One job must not have it.** `ui-smoke.yml`'s *Window behaviour (Electron on
+macOS)* job exists to watch maximize, focus and stacking, and a run with this
+flag has none of those to watch — no window ever reports focus, so the job would
+keep passing while testing something nobody ships. That job sets
+`RESMON_WINDOW_BEHAVIOR_JOB=1`; `background-window.ts` declines to set the flag
+when it sees that, and throws if both arrive together, which takes the run down
+before the first spec. `src/__tests__/backgroundWindow.test.ts` is the static
+half and reads the workflow on every pull request.
+
+**What a local `npm run e2e` on macOS no longer verifies.** That exemption is
+not bookkeeping. `window-manager.spec.ts`'s link-window focus arm calls
+`test.skip()` when no window reports focus, and under this flag no window ever
+does — so on your own Mac that assertion is now skipped rather than run, every
+time, and the run still goes green. The macOS window job is what keeps it
+honest, which is the whole reason that job is exempted. If you are changing
+link-window focus behavior, run it with `RESMON_BACKGROUND_WINDOW=0` or you will
+not be testing your change.
+
+Two known costs: under `accessory` the app has no system menu bar and no Dock
+icon, so a developer watching a run cannot reach resmon with Cmd+Tab or use its
+menus by hand; and the skip above. `Menu.getApplicationMenu()` still returns the
+menu, `getMenuItemById()` still finds the item and the item is still enabled —
+measured under the policy — so `main-window.spec.ts` P4 is unaffected.
+
 ## Environment variables the suite itself reads
 
 | Variable | Effect |
 |---|---|
+| `RESMON_BACKGROUND_WINDOW` | `1` shows windows inactive and, on macOS, runs under the `accessory` activation policy. Both Playwright configs set it; `0` opts out. |
+| `RESMON_WINDOW_BEHAVIOR_JOB` | `1` marks a run whose subject is the window. The configs never set the background flag for it and refuse to run if something else did. |
 | `RESMON_E2E_WIDTH` / `RESMON_E2E_HEIGHT` | The fixed window size. Defaults 1440x900. |
 | `RESMON_E2E_BREAK_ROUTE` | Appends a route `App.tsx` does not declare, so the suite goes red on purpose. `ui-smoke.yml` exposes it as a `workflow_dispatch` input. |
 | `RESMON_PYTHON` | Which interpreter runs the backend. Defaults to the checkout's `.venv`, falling back to `python3`. |

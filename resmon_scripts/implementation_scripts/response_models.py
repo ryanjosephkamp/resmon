@@ -1,7 +1,7 @@
 # resmon_scripts/implementation_scripts/response_models.py
 """What the HTTP routes answer with, declared so a client can be generated.
 
-``docs/api-contract/`` describes what each of the 184 routes *accepts* in full,
+``docs/api-contract/`` describes what each of the 185 routes *accepts* in full,
 and described what they *answer* with not at all: no route declared a
 ``response_model``, so ``openapi.json`` gave every 200 body the empty schema
 ``{}``. A typed client generated from that contract would have had types for
@@ -129,15 +129,48 @@ say.
 Why some fields here are declared ``dict`` and not a model
 ----------------------------------------------------------
 
-A handful of fields carry a shape that genuinely varies by the row's kind:
-a watchdog finding's ``evidence`` holds different keys for a failing source
-than for an overdue routine, and its ``scope`` holds a **string** id for a
-source and an **integer** id for a routine. Declaring ``id: str`` there would
-not drop the key — it would quietly coerce ``1`` into ``"1"``, which is hazard
-3 above and the one the base class cannot close. Declaring the field ``dict``
-says "an object, whose keys this contract does not enumerate", which is less
-than a client would like and is all the code can support. Where that choice was
-made it is said in the model's own docstring.
+A handful of fields carry a shape that genuinely varies by the row's kind. A
+watchdog finding's ``evidence`` is the clear case: it holds a different key
+set for each of the seven finding kinds, so there is no field list to write
+down and ``dict`` — "an object whose keys this contract does not enumerate" —
+is the honest description.
+
+**A field whose *type* varies is not that case, and an earlier draft of this
+docstring said it was.** A finding's ``scope`` holds a string id for a source
+and an integer id for a routine, and this file claimed that declaring
+``id: str`` would "quietly coerce ``1`` into ``"1"``". It would not, and the
+reason is worth knowing because hazard 3 above is real: **pydantic's coercion
+is directional.** Measured on the pinned pydantic 2.12.4::
+
+    int  <- "5"     ->  5        quiet, and this is hazard 3
+    int  <- True    ->  1        quiet
+    bool <- "true"  ->  True     quiet
+    str  <- 5       ->  ValidationError, 'string_type'
+    str  <- True    ->  ValidationError, 'string_type'
+
+So a declared ``int`` or ``bool`` really will swallow a string and change its
+type without a word — but a declared ``str`` fed anything else **raises**,
+which is a ``ResponseValidationError``, which is a 500, and which the equality
+sweep in ``verification_scripts/test_response_models.py`` reaches before any
+user does. ``OnboardingStep.done`` is the worked example: declared ``bool``,
+fed ``None``, it 500'd rather than lying.
+
+The rule that follows is: a field whose type varies wants a **wider
+annotation**, not none at all. ``Union[str, int]`` carries both and keeps each
+value's runtime type — ``1`` stays an ``int``, ``"arxiv"`` stays a ``str``.
+Reaching for ``dict`` because a type varies gives up a shape the client could
+have had, for a hazard that does not exist in that direction.
+
+``scope`` is still ``dict`` here, and that is a scheduling decision rather than
+a technical one: it was typed that way on a wrong premise, the mistake was
+found in review after the slice was accepted, and widening it to a real
+``WatchdogFindingScope`` adds a model nobody has reviewed. The next author to
+touch the watchdog should type it. Nothing is lost in the meantime —
+``extra="allow"`` carries every key and ``jsonable_encoder`` carries every
+value — but the client gets ``object`` where it could have had a shape.
+
+Where a field is declared ``dict``, the model's own docstring says which of
+these two reasons applies.
 """
 
 from __future__ import annotations
@@ -909,12 +942,23 @@ class ReadingQueueRemoval(LosslessModel):
 class WatchdogFinding(LosslessModel):
     """One thing the watchdog can say is wrong, with what it rests on.
 
-    ``scope`` and ``evidence`` are declared ``dict`` rather than modeled, and
-    the reason is in the module docstring: a source's scope carries a **string**
-    id and a routine's carries an **integer** one, so a model declaring either
-    type would coerce the other instead of dropping it — and ``evidence`` holds
-    a different key set for each of the seven finding kinds. An object whose
-    keys this contract does not enumerate is the honest description.
+    ``scope`` and ``evidence`` are declared ``dict`` rather than modeled, for
+    two different reasons, and only one of them is good.
+
+    ``evidence`` holds a different key set for each of the seven finding kinds,
+    so there is no field list to write down and ``dict`` is the description
+    that fits.
+
+    ``scope`` is ``dict`` because a source's scope carries a **string** id and
+    a routine's carries an **integer** one, and this docstring used to claim
+    that a model declaring either would silently coerce the other. It would
+    not: on the pinned pydantic 2.12.4, ``id: str`` fed ``1`` raises rather
+    than stringifying it, so the mistake would be a 500 the equality sweep
+    catches and not a wrong body nobody notices. ``Union[str, int]`` is the
+    right annotation, keeps both runtime types, and would give a client a real
+    shape instead of ``object``. It is not here because the premise was found
+    to be wrong after this slice was reviewed, and adding an unreviewed model
+    to an accepted change is the worse trade. See the module docstring.
 
     ``what_to_do`` is a field, not prose the renderer composes, because the
     sentence depends on the finding and a generic one would be advice resmon
