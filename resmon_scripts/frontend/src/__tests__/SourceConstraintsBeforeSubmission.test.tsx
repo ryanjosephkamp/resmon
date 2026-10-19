@@ -78,7 +78,7 @@ function routes() {
 }
 
 async function selectRepository(slug: string) {
-  // The multi-select renders one checkbox per slug, labelled with the slug.
+  // The multi-select renders one checkbox per slug, labeled with the slug.
   const checkbox = screen.getByRole('checkbox', { name: slug });
   await act(async () => {
     fireEvent.click(checkbox);

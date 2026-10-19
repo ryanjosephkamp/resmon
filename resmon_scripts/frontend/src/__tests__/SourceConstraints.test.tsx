@@ -88,7 +88,7 @@ const BIORXIV = entry('biorxiv', 'bioRxiv', {
   ],
 });
 
-// arXiv honours the window exactly and still has one thing to say about it:
+// arXiv honors the window exactly and still has one thing to say about it:
 // the window is its submission date. That sentence is about nothing until a
 // date is set, which is the case `needs_date_window` exists for.
 const ARXIV_DATED = entry('arxiv', 'arXiv', {
@@ -161,7 +161,7 @@ describe('the sentence a user reads', () => {
     );
   });
 
-  test('a source that honours the window exactly says nothing about dates', () => {
+  test('a source that honors the window exactly says nothing about dates', () => {
     expect(windowSentence(ARXIV, '2025-03-01', '2025-03-31')).toBeNull();
   });
 
@@ -306,7 +306,7 @@ describe('advisoriesFor', () => {
   });
 
   test('a source with no computed sentence keeps its date notice', () => {
-    // arXiv honours the window exactly, so there is nothing concrete to say
+    // arXiv honors the window exactly, so there is nothing concrete to say
     // and the general sentence is the only one there is.
     const [row] = advisoriesFor([ARXIV_DATED], '2025-01-01', '2025-06-30');
     expect(row.window).toBeNull();

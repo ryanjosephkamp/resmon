@@ -724,7 +724,7 @@ class SweepEngine:
                     # batch size.
                     #
                     # It used to be strictly one document per call, on purpose:
-                    # cancellation could then be honoured between documents and
+                    # cancellation could then be honored between documents and
                     # the live log could show per-article progress. Both still
                     # hold. Cancellation is checked between slices *and*
                     # reaches inside one -- ``_summarize_with_heartbeat`` runs
@@ -1390,7 +1390,7 @@ class SweepEngine:
 
         Same shape as :meth:`_search_with_heartbeat` and for the same reason,
         plus one that is specific to batching: a batched call is a **single
-        CLI process holding ten documents**, so a cancel honoured only between
+        CLI process holding ten documents**, so a cancel honored only between
         calls would leave the user waiting out the whole batch after pressing
         the button. ``chain.cancel()`` reaches into the lane and terminates the
         process that is actually running.

@@ -183,7 +183,7 @@ WindowEffect = Literal["as_asked", "whole_years", "whole_months"]
 #              and the honest answer is no results at all.
 # ``outward``  the whole periods the window *touches* are searched, so records
 #              outside the dates the user typed can come back.
-# ``none``     the window is honoured as given.
+# ``none``     the window is honored as given.
 #
 # Both are truthful and they fail in opposite directions, which is why one
 # enum cannot carry both and a user cannot be told "year granularity" and left

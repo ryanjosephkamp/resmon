@@ -180,7 +180,7 @@ export interface SourceAdvisory {
  * theirs survives — which is the whole reason they have one.
  *
  * Whether a key is missing is **not** here. Every form that mounts this also
- * mounts `RepoKeyStatus`, which says so in colour and offers a field to fix
+ * mounts `RepoKeyStatus`, which says so in color and offers a field to fix
  * it, and saying it twice on one screen is the same noise as saying it about
  * everything.
  */
