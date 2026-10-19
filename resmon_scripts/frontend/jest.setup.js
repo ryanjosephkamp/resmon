@@ -21,6 +21,14 @@ if (!window.Element.prototype.scrollIntoView) {
 
 // The renderer discovers the backend port through the Electron contextBridge.
 // Under jsdom there is no bridge, so provide the same shape the preload exposes.
+//
+// This double used to answer with the number `8742` — two lies at once, and
+// both in the direction that hid a defect. The preload exposes a *string*, so
+// nothing under test ever met the type the renderer is declared to receive;
+// and 8742 is the background daemon's port, so every suite in this directory
+// was quietly rehearsing a conversation with the one instance the app must
+// never address by accident. An arbitrary ephemeral-range port, as a string, is
+// what a real preload hands over.
 global.window.resmonAPI = global.window.resmonAPI || {
-  getBackendPort: () => 8742,
+  getBackendPort: () => '51234',
 };

@@ -15,6 +15,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import SearchRecord from '../components/Results/SearchRecord';
+import { restoreDesktopBridge } from './testUtils';
 
 const RECORD = {
   generated_at: '2026-08-20T12:00:00Z',
@@ -202,7 +203,7 @@ describe('SearchRecord', () => {
       expect(revoked).toHaveBeenCalledWith('blob:record');
     } finally {
       click.mockRestore();
-      delete (window as any).resmonAPI;
+      restoreDesktopBridge();
     }
   });
 
