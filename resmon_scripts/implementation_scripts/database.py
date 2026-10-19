@@ -2042,6 +2042,7 @@ def record_missed_fire(
     due_at_utc: str,
     *,
     observed_at_utc: str | None = None,
+    disposition: str = "recorded",
 ) -> bool:
     """Record one missed fire. True when a new row was written.
 
@@ -2049,12 +2050,27 @@ def record_missed_fire(
     the routine firing in between must not count the same missed fire twice,
     and the persisted ``next_run_time`` is unchanged until something re-adds
     the job, so the second start reads exactly the same due time.
+
+    ``disposition`` defaults to ``'recorded'``, which is all the startup path
+    can honestly say -- the jobstore's next fire was in the past when it
+    looked, and the hour of misfire grace means that fire may still run.
+    ``'skipped'`` is the value the overlap path writes, and it is a stronger
+    statement because a stronger one is true there: APScheduler refused the
+    submission outright, so that fire did not run and never will. The
+    vocabulary is unchanged -- ``'skipped'`` has been in the CHECK since
+    schema 20, reserved and unwritten, for exactly this.
     """
+    if disposition not in MISSED_FIRE_DISPOSITIONS:
+        raise ValueError(
+            f"disposition must be one of {MISSED_FIRE_DISPOSITIONS!r}, "
+            f"got {disposition!r}"
+        )
     cursor = conn.execute(
         "INSERT OR IGNORE INTO routine_missed_fires "
         "(routine_id, due_at_utc, observed_at_utc, disposition) "
-        "VALUES (?, ?, ?, 'recorded')",
-        (int(routine_id), due_at_utc, observed_at_utc or utc_now_iso()),
+        "VALUES (?, ?, ?, ?)",
+        (int(routine_id), due_at_utc, observed_at_utc or utc_now_iso(),
+         disposition),
     )
     conn.commit()
     return cursor.rowcount > 0
@@ -2071,15 +2087,28 @@ def get_missed_fires(conn: sqlite3.Connection, routine_id: int) -> list[dict]:
 
 
 def missed_fire_summary(conn: sqlite3.Connection, routine_id: int) -> dict:
-    """``{count, last_due_at_utc}`` for one routine -- what a screen renders."""
+    """What a screen renders about one routine's fires that did not run.
+
+    ``count`` and ``last_due_at_utc`` are every row, unchanged. The two
+    ``overlap_skipped`` keys are the subset written because the routine's
+    previous run was still going, and they are reported separately because the
+    two causes are different facts and a screen that merged them would tell
+    the user resmon was closed when it was not. Subtracting gives the fires
+    that came due while resmon was not running.
+    """
     row = conn.execute(
-        "SELECT COUNT(*) AS n, MAX(due_at_utc) AS last_due "
+        "SELECT COUNT(*) AS n, MAX(due_at_utc) AS last_due, "
+        "COUNT(CASE WHEN disposition = 'skipped' THEN 1 END) AS skipped_n, "
+        "MAX(CASE WHEN disposition = 'skipped' THEN due_at_utc END) "
+        "AS last_skipped_due "
         "FROM routine_missed_fires WHERE routine_id = ?",
         (int(routine_id),),
     ).fetchone()
     return {
         "count": int(row["n"] or 0),
         "last_due_at_utc": row["last_due"],
+        "overlap_skipped": int(row["skipped_n"] or 0),
+        "last_overlap_skipped_due_at_utc": row["last_skipped_due"],
     }
 
 

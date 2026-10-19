@@ -110,10 +110,60 @@ describe('missed fires on the Routines page', () => {
   test('a routine that missed none says nothing at all', async () => {
     mockRoutedFetch({
       '/api/repositories/catalog': [], '/api/credentials': {},
-      '/api/routines': routine({ count: 0, last_due_at_utc: null }),
+      '/api/routines': routine({ count: 0, last_due_at_utc: null, overlap_skipped: 0 }),
     });
     await renderWithProviders(<RoutinesPage />);
     await screen.findByText('Morning arXiv sweep');
     expect(screen.queryByText(/missed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/skipped/i)).not.toBeInTheDocument();
+  });
+
+  test('a fire skipped as an overlap does not read as resmon having been closed', async () => {
+    // The whole point of counting the two causes apart. Before the overlap
+    // record existed the page had one line, and a fire refused while resmon
+    // was demonstrably running would have been reported as missed while it was
+    // closed -- a claim the app had no basis for.
+    mockRoutedFetch({
+      '/api/repositories/catalog': [], '/api/credentials': {},
+      '/api/routines': routine({
+        count: 2, last_due_at_utc: '2026-09-19T07:05:00+00:00',
+        overlap_skipped: 2,
+        last_overlap_skipped_due_at_utc: '2026-09-19T07:05:00+00:00',
+      }),
+    });
+    await renderWithProviders(<RoutinesPage />);
+    expect(await screen.findByText(
+      /skipped 2 fires because the previous run was still going; last due 2026-09-19T07:05:00\+00:00/,
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/while resmon was closed/)).not.toBeInTheDocument();
+    // No Run now beside an overlap skip: running it again is the wrong answer.
+    expect(screen.queryByTestId('run-now-1')).not.toBeInTheDocument();
+  });
+
+  test('both causes on one routine read as two separate lines', async () => {
+    mockRoutedFetch({
+      '/api/repositories/catalog': [], '/api/credentials': {},
+      '/api/routines': routine({
+        count: 4, last_due_at_utc: '2026-09-19T07:05:00+00:00',
+        overlap_skipped: 1,
+        last_overlap_skipped_due_at_utc: '2026-09-19T07:05:00+00:00',
+      }),
+    });
+    await renderWithProviders(<RoutinesPage />);
+    // Three of the four were missed while resmon was closed; one was refused
+    // as an overlap. The closed count is the difference, not the total.
+    expect(await screen.findByText(/missed 3 fires while resmon was closed/)).toBeInTheDocument();
+    expect(screen.getByTestId('overlap-skipped-1')).toBeInTheDocument();
+    expect(screen.getByTestId('run-now-1')).toBeInTheDocument();
+  });
+
+  test('a backend that does not answer overlap_skipped keeps the old line and number', async () => {
+    mockRoutedFetch({
+      '/api/repositories/catalog': [], '/api/credentials': {},
+      '/api/routines': routine({ count: 3, last_due_at_utc: '2026-09-19T07:00:00+00:00' }),
+    });
+    await renderWithProviders(<RoutinesPage />);
+    expect(await screen.findByText(/missed 3 fires while resmon was closed/)).toBeInTheDocument();
+    expect(screen.queryByTestId('overlap-skipped-1')).not.toBeInTheDocument();
   });
 });

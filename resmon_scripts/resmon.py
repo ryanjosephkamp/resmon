@@ -124,7 +124,11 @@ from implementation_scripts.admission import (
     routine_claims,
     RoutineAlreadyRunning,
 )
-from implementation_scripts.scheduler import ResmonScheduler, set_dispatcher
+from implementation_scripts.scheduler import (
+    ResmonScheduler,
+    set_dispatcher,
+    set_overlap_recorder,
+)
 from implementation_scripts.repo_catalog import (
     REPOSITORY_CATALOG,
     catalog_as_dicts,
@@ -1453,7 +1457,9 @@ def list_routines():
             # backend that cannot answer.
             r["missed_fires"] = (
                 missed_fire_summary(conn, int(rid)) if rid is not None
-                else {"count": 0, "last_due_at_utc": None}
+                else {"count": 0, "last_due_at_utc": None,
+                      "overlap_skipped": 0,
+                      "last_overlap_skipped_due_at_utc": None}
             )
         return routines
     finally:
@@ -5479,6 +5485,59 @@ def _record_missed_fires(sched: ResmonScheduler) -> int:
     return written
 
 
+def _record_overlap_skipped_fire(routine_id: int, due_at) -> None:
+    """Write down a fire APScheduler refused because the run before it was alive.
+
+    The sibling of ``_record_missed_fires``, one case over. That function
+    covers the fire that came due while resmon was shut; this one covers the
+    fire that came due while resmon was running and this routine's previous
+    run had not finished. Both were silent, the first until schema 20 and this
+    one until now, and both produce the same failure for the user: a routine
+    that did not run is indistinguishable from a routine that ran and found
+    nothing.
+
+    The disposition written is ``'skipped'`` rather than ``'recorded'``
+    because more is known here. The startup path sees a fire that was overdue
+    when it looked and cannot say whether the misfire grace will still carry
+    it; this path is told by APScheduler's executor that the submission was
+    refused, so the fire did not run, and will not. No catch-up run is
+    started -- the overlap rule is deliberate, and running the sweep the
+    moment the previous one finishes is the behavior the rule exists to
+    prevent.
+
+    Called on the scheduler's own thread, so it takes that thread's
+    connection from ``_get_db`` and must not raise;
+    ``scheduler._on_max_instances`` logs anything that escapes.
+    """
+    conn = _get_db()
+    try:
+        due = due_at.astimezone(timezone.utc) if due_at.tzinfo else due_at.replace(
+            tzinfo=timezone.utc)
+        wrote = record_missed_fire(
+            conn, int(routine_id), due.isoformat(),
+            observed_at_utc=utc_now_iso(), disposition="skipped",
+        )
+    finally:
+        _close_db(conn)
+    if wrote:
+        logging.getLogger(__name__).warning(
+            "Routine fire skipped because the previous run was still going: "
+            "routine_id=%d due=%s. The routine takes longer than its "
+            "interval; recorded, not run.", int(routine_id), due.isoformat(),
+        )
+
+
+def _install_scheduler_hooks() -> None:
+    """Point the scheduler module at this process's dispatcher and recorder.
+
+    One place, because the two hooks have to be installed together: a
+    scheduler that can start a run but cannot write down a fire it refused is
+    the defect this pair closes.
+    """
+    set_dispatcher(_dispatch_routine_fire)
+    set_overlap_recorder(_record_overlap_skipped_fire)
+
+
 def _init_scheduler_on_startup() -> None:
     global scheduler
     # Update 4 / Fix D — When the Electron main process spawns this
@@ -5493,7 +5552,7 @@ def _init_scheduler_on_startup() -> None:
         )
         scheduler = None
         return
-    set_dispatcher(_dispatch_routine_fire)
+    _install_scheduler_hooks()
     # When tests override the app DB to ``:memory:``, give the APScheduler
     # jobstore a disposable on-disk SQLite so its SingletonThreadPool can
     # share schema across worker threads. Tests clean up via ``shutdown``.
@@ -5548,6 +5607,7 @@ def _shutdown_scheduler() -> None:
         finally:
             scheduler = None
     set_dispatcher(None)
+    set_overlap_recorder(None)
 
 
 @app.get("/api/scheduler/jobs")
