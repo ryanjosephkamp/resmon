@@ -97,6 +97,13 @@ describe('the source wall’s six words live in one place', () => {
 
   test('no renderer file writes one of the compound labels down', () => {
     const compound = legend.filter((e) => e.label.includes(' '));
+    // This floor is what makes the compound-only rule safe, not a sanity
+    // check on the parse. The rule skips single-word labels on purpose --
+    // "answered" and "failed" appear in dozens of unrelated files and a
+    // screen does not get to own a common English word. But that exemption
+    // is only sound while the labels stay compound: shorten one to a single
+    // word and it would silently leave the rule's scope. The count drops and
+    // this reddens instead, so the rule cannot quietly shrink itself.
     expect(compound.length).toBeGreaterThanOrEqual(4);
     const exempt = new Set([
       // Prose about the marks, held to rule 3 below instead.

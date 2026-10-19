@@ -116,7 +116,7 @@ const SourceWallPage: React.FC = () => {
                 Runs recorded before resmon stored a reason read as{' '}
                 <em>not recorded</em>, and they are not backfilled: a reason
                 reconstructed afterwards would be a guess wearing a fact&rsquo;s
-                clothes. A source that was never in a run&rsquo;s saved selection
+                clothes. A source that was not in a run&rsquo;s saved selection
                 is a different mark again: you chose not to ask it, which is not a
                 gap in the record.
               </p>
