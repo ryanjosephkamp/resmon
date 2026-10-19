@@ -216,21 +216,54 @@ if (!existsSync(newFeedPath)) {
     fail('the new feed parsed to ZERO entries. The in-app Blog tab would show an empty post list.');
   }
 
-  if (before.length !== after.length) {
-    fail(`entry count ${before.length} -> ${after.length}`);
+  /*
+   * The entry count is the one thing about this feed that is deliberately not
+   * what the capture holds.
+   *
+   * `jekyll-feed` capped the feed at its own default of 10 and the old
+   * `_config.yml` never overrode it, so the capture is a 10-entry feed. The
+   * app's Blog tab has no pagination: its post list is whatever the feed
+   * carries, which meant 17 of the 27 updates could not be opened from inside
+   * the app at all. `FEED_LIMIT` in `src/pages/feed.xml.ts` now carries every
+   * post, so the count is expected to differ and the capture is *not* reissued
+   * to match — it is the record of what the old site served and stays that way.
+   *
+   * What replaces the equal-count assertion is two stronger ones:
+   *
+   *   1. every post source on disk has an entry, so the expectation is derived
+   *      from the posts rather than from a number typed here that would go
+   *      stale on the 28th post; and
+   *   2. the 10 entries the captured feed carried are still the first 10 of the
+   *      new feed, in the same order, identical in all five fields the app
+   *      reads. A feed that grew by reordering or by rewriting an `<id>` would
+   *      make every row in the app's list look new, and that is what this
+   *      catches.
+   */
+  const postSources = readdirSync(join(SITE, '..', 'docs', '_posts')).filter((name) =>
+    name.endsWith('.md'),
+  );
+
+  if (after.length !== postSources.length) {
+    fail(
+      `the feed carries ${after.length} of the ${postSources.length} posts in docs/_posts. ` +
+        'The Blog tab shows the feed and nothing else, so the rest cannot be opened in the app.',
+    );
   } else {
-    pass(`${after.length} entries, same count as the captured feed`);
+    pass(
+      `${after.length} entries — every one of the ${postSources.length} posts in docs/_posts ` +
+        `(the captured feed carried ${before.length})`,
+    );
   }
 
   const FIELDS = ['id', 'title', 'link', 'published', 'summary'];
   let mismatches = 0;
   const rows = [];
-  for (let index = 0; index < Math.max(before.length, after.length); index += 1) {
+  for (let index = 0; index < before.length; index += 1) {
     const a = before[index];
     const b = after[index];
-    if (!a || !b) {
+    if (!b) {
       mismatches += 1;
-      rows.push(`  [${index}] present in only one feed`);
+      rows.push(`  [${index}] in the captured feed only: ${a.id}`);
       continue;
     }
     const differing = FIELDS.filter((field) => a[field] !== b[field]);
@@ -245,15 +278,20 @@ if (!existsSync(newFeedPath)) {
       }
     }
   }
+  for (let index = before.length; index < after.length; index += 1) {
+    rows.push(
+      `  [${index}] added     ${after[index].id.replace(`${BLOG_ORIGIN}${BASE_PATH}`, '')}`,
+    );
+  }
   process.stdout.write(`${rows.join('\n')}\n`);
 
   if (mismatches === 0) {
     pass(
       `all ${FIELDS.length} fields the app reads (${FIELDS.join(', ')}) are identical ` +
-        `for all ${after.length} entries`,
+        `for all ${before.length} entries the captured feed carried, and in the same order`,
     );
   } else {
-    fail(`${mismatches} of ${before.length} entries differ in a field the app reads`);
+    fail(`${mismatches} of ${before.length} captured entries differ in a field the app reads`);
   }
 
   // Byte comparison, reported rather than asserted — the answer is known to be
@@ -385,6 +423,96 @@ if (broken.size) {
   }
 } else {
   pass(`all ${linkCount} internal links across ${pages.length} pages resolve to a file`);
+}
+
+/*
+ * The links the check above cannot see.
+ *
+ * It matches `href="/resmon/…"` and nothing else, so it only ever examined
+ * links the site's own templates wrote. The links that come out of the
+ * *documents* are repository-relative — `http.md`, `../LICENSE`,
+ * `../../README.md` — written for GitHub's file browser, where they work. On
+ * the published site a browser resolves them against the page's own URL, and
+ * they land somewhere else entirely. Nothing caught it: 34 such links were
+ * live on the site, including one on the API contract index that resolved to
+ * `https://ryanjosephkamp.github.io/README.md` — a different repository's
+ * README, on the owner's personal site.
+ *
+ * So resolve every anchor the way a browser would, from the page's published
+ * URL, and sort the result into three kinds of wrong:
+ *
+ *   - **off-base**: resolves outside `/resmon/`. Another site's problem, or
+ *     nobody's.
+ *   - **raw source**: resolves to a `.md`, `.py`, `.yml` or `LICENSE` path.
+ *     Some of those paths really are served, because `sync-docs.mjs` preserves
+ *     the Markdown sources in `docs/` — so the reader gets plain source text
+ *     with no navigation and no way back, rather than the rendered page that
+ *     exists one directory over. A 200 is not the same as a working link.
+ *   - **404**: resolves under `/resmon/` to nothing at all.
+ *
+ * `src/lib/markdown.ts` rewrites these at render time. This is what says it
+ * worked.
+ */
+const RAW_SOURCE = /(?:\.(?:md|markdown|py|ya?ml|txt|toml|cfg|ini)|\/LICENSE[A-Z_]*)$/;
+
+/** `api-contract/index.html` -> the published URL path a browser would be at. */
+const publishedUrlOf = (page) => `${BASE_PATH}/${page.replace(/index\.html$/, '')}`;
+
+const documentLinks = { offBase: [], rawSource: [], notFound: [] };
+let documentLinkCount = 0;
+for (const page of pages) {
+  const html = readFileSync(join(OUT, page), 'utf8');
+  const pageUrl = new URL(publishedUrlOf(page), BLOG_ORIGIN);
+  for (const match of html.matchAll(/<a\b[^>]*\shref="([^"]+)"/g)) {
+    const href = match[1];
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(href)) continue;
+    documentLinkCount += 1;
+    const resolved = new URL(href, pageUrl).pathname;
+    const row = `${page}  "${href}"  ->  ${resolved}`;
+    if (!resolved.startsWith(`${BASE_PATH}/`)) documentLinks.offBase.push(row);
+    else if (RAW_SOURCE.test(resolved)) documentLinks.rawSource.push(row);
+    else if (!existsSync(fileFor(resolved))) documentLinks.notFound.push(row);
+  }
+}
+
+const KINDS = [
+  ['offBase', 'resolve outside /resmon/ altogether'],
+  ['rawSource', 'resolve to raw source text instead of the page that renders it'],
+  ['notFound', 'resolve under /resmon/ to nothing'],
+];
+
+/**
+ * Four links in three posts point at files that are not in the repository at
+ * all — `update_4_25_26_workflow.md` and three like it, written when those
+ * files sat beside the post and gone before the repository was public. There
+ * is nowhere to rewrite them to. They are listed by name so that the number
+ * below is a decision rather than a tolerance, and they stay in the posts
+ * because a post is a dated record and is not edited after the fact.
+ */
+const UNRESOLVABLE = new Set([
+  '/resmon/2026/04/25/update_4_25_26/update_4_25_26_workflow.md',
+  '/resmon/2026/04/27/update_4_27_26/update_4_27_26_workflow.md',
+  '/resmon/2026/05/05/resmon-update-4/resmon_update_4_overview.md',
+  '/resmon/2026/05/05/resmon-update-4/update_5_5_26_workflow.md',
+]);
+
+let documentLinkProblems = 0;
+for (const [kind, description] of KINDS) {
+  const rows = documentLinks[kind].filter((row) => !UNRESOLVABLE.has(row.split('  ->  ')[1]));
+  documentLinkProblems += rows.length;
+  if (rows.length) {
+    fail(`${rows.length} link(s) written inside a document ${description}:`);
+    for (const row of rows.slice(0, 10)) process.stdout.write(`        ${row}\n`);
+    if (rows.length > 10) process.stdout.write(`        … and ${rows.length - 10} more\n`);
+  }
+}
+if (documentLinkProblems === 0) {
+  const tolerated = [...documentLinks.offBase, ...documentLinks.rawSource, ...documentLinks.notFound];
+  pass(
+    `all ${documentLinkCount - tolerated.length} of ${documentLinkCount} document links resolve ` +
+      `to a rendered page or off-site; the other ${tolerated.length} are the named files that ` +
+      'left the repository before it was public',
+  );
 }
 
 // ---------------------------------------------------------------------------
