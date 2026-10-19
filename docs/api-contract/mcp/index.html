@@ -3,7 +3,7 @@
 </style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
 resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Contract</p> <h1 data-astro-cid-c2uqhu5p>The resmon MCP tool surface — contract v2</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/api-contract/mcp.md</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
 On this page
-</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#architecture" data-astro-cid-c2uqhu5p>Architecture</a> </li><li data-astro-cid-c2uqhu5p> <a href="#safety" data-astro-cid-c2uqhu5p>Safety</a> </li><li data-astro-cid-c2uqhu5p> <a href="#error-model" data-astro-cid-c2uqhu5p>Error model</a> </li><li data-astro-cid-c2uqhu5p> <a href="#tools" data-astro-cid-c2uqhu5p>Tools</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-one-gap-this-contract-found" data-astro-cid-c2uqhu5p>The one gap this contract found</a> </li><li data-astro-cid-c2uqhu5p> <a href="#excluded-from-v1-on-purpose" data-astro-cid-c2uqhu5p>Excluded from v1, on purpose</a> </li><li data-astro-cid-c2uqhu5p> <a href="#amendments" data-astro-cid-c2uqhu5p>Amendments</a> </li><li data-astro-cid-c2uqhu5p> <a href="#versioning" data-astro-cid-c2uqhu5p>Versioning</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v23-amendment-opt-in-runtime-identity-on-two-reads" data-astro-cid-c2uqhu5p>v2.3 amendment: opt-in runtime identity on two reads</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v23--transport-every-call-carries-the-backends-local-api-token" data-astro-cid-c2uqhu5p>v2.3 — transport: every call carries the backend’s local API token</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v24--update_settings-admits-a-key-by-name" data-astro-cid-c2uqhu5p>v2.4 — update_settings admits a key by name</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><p><strong>Status: frozen on merge.</strong> Changing anything below takes its own pull request that says
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#architecture" data-astro-cid-c2uqhu5p>Architecture</a> </li><li data-astro-cid-c2uqhu5p> <a href="#safety" data-astro-cid-c2uqhu5p>Safety</a> </li><li data-astro-cid-c2uqhu5p> <a href="#error-model" data-astro-cid-c2uqhu5p>Error model</a> </li><li data-astro-cid-c2uqhu5p> <a href="#tools" data-astro-cid-c2uqhu5p>Tools</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-one-gap-this-contract-found" data-astro-cid-c2uqhu5p>The one gap this contract found</a> </li><li data-astro-cid-c2uqhu5p> <a href="#excluded-from-v1-on-purpose" data-astro-cid-c2uqhu5p>Excluded from v1, on purpose</a> </li><li data-astro-cid-c2uqhu5p> <a href="#amendments" data-astro-cid-c2uqhu5p>Amendments</a> </li><li data-astro-cid-c2uqhu5p> <a href="#versioning" data-astro-cid-c2uqhu5p>Versioning</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v23-amendment-opt-in-runtime-identity-on-two-reads" data-astro-cid-c2uqhu5p>v2.3 amendment: opt-in runtime identity on two reads</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v23--transport-every-call-carries-the-backends-local-api-token" data-astro-cid-c2uqhu5p>v2.3 — transport: every call carries the backend’s local API token</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v24--update_settings-admits-a-key-by-name" data-astro-cid-c2uqhu5p>v2.4 — update_settings admits a key by name</a> </li><li data-astro-cid-c2uqhu5p> <a href="#v24-amendment-port-discovery-names-no-port-of-its-own" data-astro-cid-c2uqhu5p>v2.4 amendment: port discovery names no port of its own</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><p><strong>Status: frozen on merge.</strong> Changing anything below takes its own pull request that says
 what changed and why. Implementation is built against this document, not the other way
 round.</p>
 <p>This exists because two things consume the same surface: external harnesses (Claude Code,
@@ -26,27 +26,42 @@ forgets MCP is impossible.</li>
 <p>The cost is honest and accepted: <strong>the backend must be running.</strong> resmon is a desktop
 application, so in practice it is — but see <em>When the backend is not running</em>.</p>
 <h3 id="port-discovery">Port discovery</h3>
-<p>The same way the renderer does it, in order:</p>
+<p>Two things name a backend, and the server names none of its own:</p>
 <ol>
 <li><code>RESMON_PORT</code> in the environment.</li>
-<li>The port file the backend writes into its state directory on startup.</li>
-<li><code>8742</code>, the default — <strong>only when neither of the above named a port.</strong></li>
+<li>The port file the backend writes beside its database on startup.</li>
 </ol>
 <p>Every candidate is confirmed with <code>GET /api/health</code> before use. This matters because a
 user can run the packaged app and a dev build at once, on different ports.</p>
-<p><strong>A named port is never widened to the default.</strong> If step 1 or step 2 supplies a port and
-that port does not answer, the answer is <code>backend_unavailable</code>. Implementing this found
-why: when a named port had stopped answering, falling through to <code>8742</code> connected the
-server to the <strong>launchd daemon</strong> — a different process, a different version, a different
+<p><strong>A named port is never widened.</strong> If step 1 or step 2 supplies a port and that port does
+not answer, the answer is <code>backend_unavailable</code>. Implementing this found why: when a named
+port had stopped answering, falling through to resmon’s default port connected the server
+to the <strong>background service</strong> — a different process, a different version, a different
 database — and every tool then answered truthfully about the wrong corpus. A harness
 asking “what did my routine find this week” would have reported another installation’s
-papers as the user’s own. Failing is the correct outcome; the default exists only for a
-backend old enough not to write a port file.</p>
-<h3 id="when-the-backend-is-not-running">When the backend is not running</h3>
-<p>Every tool returns a single structured error:</p>
+papers as the user’s own.</p>
+<p><strong>And when neither names a port, that is a refusal too.</strong> Until this amendment the server
+fell through to the default port in that case, justified here and in the code as the way
+to reach “a backend old enough not to write a port file”. That justification could not be
+acted on: such a backend predates 2.2, so it publishes no token file either, and discovery
+skips any port whose token file is absent before it probes. The only backend the default
+could ever have reached is a current one — which, on the default port, is the background
+service. So the default was not a bridge to an old installation; it was a second route to
+the wrong corpus, and it opened whenever a harness was pointed at one instance’s state
+directory without also being pointed at its port file.</p>
+<h3 id="when-the-backend-is-not-named-or-not-running">When the backend is not named, or not running</h3>
+<p>Every tool returns a single structured error. The two cases are different and say so.</p>
+<p>A port was named and did not answer:</p>
 <pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"error"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"backend_unavailable"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF"> "message"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"resmon is not running. Start the resmon app and try again."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
-<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF"> "tried"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: [</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"http://127.0.0.1:8742"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]}</span></span></code></pre>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF"> "tried"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: [</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"http://127.0.0.1:51734"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]}</span></span></code></pre>
+<p>Nothing named a port, so nothing was tried:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"error"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"backend_unavailable"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF"> "message"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"No resmon was named, so this server did not look for one and did not guess. Two things name one: the RESMON_PORT environment variable, and the port file a running resmon writes at &#x3C;path>. Neither named a port. Guessing one would attach this harness to whichever resmon happens to be listening there — possibly another installation, over another database — and answering about the wrong corpus is worse than not answering. Start resmon and try again; if it is already running, set RESMON_PORT to its port, or point RESMON_PORT_FILE at the port file that instance writes."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF"> "tried"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: [], </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"no_port_named"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>The second message does not say resmon is not running, because this server does not know
+that: a backend may be listening on a port it was never told about. What it knows, and
+says, is that it was not told.</p>
 <p>Never a stack trace, never a hang, never a silent empty result. A harness that gets an
 empty paper list because the app is closed would report “you have no papers”, which is a
 lie the surface must not make possible.</p>
@@ -722,14 +737,18 @@ backend’s own port, and — when it sends an <code>Origin</code> — send the 
 <strong>There are no exempt routes:</strong> <code>health</code> is authenticated like everything else. The full
 model, including what it deliberately does not defend, is
 <a href="/resmon/local-api-security/"><code>docs/local-api-security.md</code></a>.</p>
-<p>The server finds the token the same way it finds the port, and in the same order. It
-resolves the port from <code>RESMON_PORT</code>, then the port file, then the default only when
-nothing named a port; it then reads that port’s token from <code>api-token-&#x3C;port></code> in resmon’s
-state directory, beside <code>daemon.lock</code> and the port file. The file is written owner-only by
-the backend that minted the token and removed on clean shutdown. A stale file admits
-nothing: every backend start mints a fresh token and accepts only the one it holds, so a
-reader of a stale file is answered <code>401 token_invalid</code>.</p>
-<p>A harness has two things to get right:</p>
+<p>The server resolves the port first — from <code>RESMON_PORT</code>, then the port file, and from
+nothing else — and then reads that port’s token from <code>api-token-&#x3C;port></code> in resmon’s state
+directory, beside <code>daemon.lock</code>. The file is written owner-only by the backend that minted
+the token and removed on clean shutdown. A stale file admits nothing: every backend start
+mints a fresh token and accepts only the one it holds, so a reader of a stale file is
+answered <code>401 token_invalid</code>.</p>
+<p><strong>The two are not in the same directory, and that is the thing to get right.</strong> The token
+file follows <code>RESMON_STATE_DIR</code>; the port file follows <code>RESMON_DB_PATH</code> (or
+<code>RESMON_PORT_FILE</code>, which names it outright). Pointing a harness at an instance therefore
+means naming both, and naming only the state directory used to leave nothing naming a port
+— which is the hole the default port filled, with the wrong instance.</p>
+<p>A harness has three things to get right:</p>
 <ul>
 <li><strong>A named port whose token cannot be found is reported as unavailable, naming that
 instance.</strong> It never falls through to another port, because attaching to a different
@@ -739,6 +758,9 @@ in the MCP server’s environment when the instance it should reach does not use
 default one. The CLI runtime’s MCP configuration names the port and the state directory
 only; the token is never written into it, and tool results and relayed errors are
 scrubbed of it.</li>
+<li><strong>Naming the state directory is not naming the instance.</strong> Set <code>RESMON_PORT</code>, or point
+<code>RESMON_PORT_FILE</code> at that instance’s port file. With neither set the server refuses and
+says so, rather than reaching for a default.</li>
 </ul>
 <p><strong>A pre-2.2 MCP server gets <code>401 token_missing</code> from a 2.2 backend on every call</strong>, because
 it sends no <code>Authorization</code> header and no route is exempt. Symmetrically, a 2.2 server does
@@ -947,7 +969,46 @@ So for those twelve the mechanisms are a <strong>floor and not the line</strong>
 what stands behind them.</p>
 <p>The credential denylist is unchanged and is still checked first, because it answers a
 credential-shaped name with a better sentence than the allowlist would: resmon’s keys are
-not settings, they live in the system keychain, and they are changed in the app.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+not settings, they live in the system keychain, and they are changed in the app.</p>
+<hr>
+<h2 id="v24-amendment-port-discovery-names-no-port-of-its-own">v2.4 amendment: port discovery names no port of its own</h2>
+<p><strong>The contract number does not move.</strong> No tool was added, removed or reshaped; no input
+schema and no return shape changed; <code>mcp_server.CONTRACT_VERSION</code> stays at 2.4. This
+follows the precedent of the v1.1 amendment, which corrected the same section on the same
+grounds: a discovery rule brought into line with the intent the document already stated,
+rather than a change of intent. One observable behavior does change, in one case, and it
+is set out below so a reader is not left to infer it.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Was</th><th>Now</th><th>Why</th></tr></thead><tbody><tr><td>Discovery had three steps: <code>RESMON_PORT</code>, the port file, then resmon’s default port when neither named one.</td><td>Two steps. With neither naming a port, the answer is <code>backend_unavailable</code> carrying <code>no_port_named</code> and an empty <code>tried</code>.</td><td>The parity register’s external-harness row has always required it: <em>a wrong or absent app is a refusal, never a silent fallback to the daemon’s port</em>. The third step was that fallback.</td></tr><tr><td>The default was documented as reaching “a backend old enough not to write a port file”.</td><td>There is no such path, and this document no longer claims one.</td><td>A backend that writes no port file predates 2.2 and writes no token file either; discovery skips a port with no token file before probing it. The default could only ever have reached a <em>current</em> backend on that port — the background service.</td></tr><tr><td>“resmon is not running” was the error for every unreachable case.</td><td>It is the error for a <strong>named</strong> port that did not answer. An unnamed backend gets its own message.</td><td>The server cannot know whether resmon is running on a port nobody named. Saying so would be an assertion it has not earned.</td></tr></tbody></table>
+<p><strong>What a caller has to do differently.</strong> A harness that named a port, by either mechanism,
+is unaffected. A harness that named none was previously answered by whatever held the
+default port and is now refused; the refusal names both mechanisms and what to set. The
+case that changes is the case the register already forbade, and a caller relying on it was
+relying on reaching an instance nobody had chosen.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
 resmon is a local-first literature-surveillance desktop application. Everything it
           retrieves stays on the machine that retrieved it.
 </p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

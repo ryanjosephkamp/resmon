@@ -125,15 +125,19 @@ a key called anything like <code>api_key</code>, <code>token</code>, <code>secre
 request is even built, because resmon’s keys live in your system keychain and are not
 settings.</p>
 <p>Finding the right resmon matters more than it sounds: the server checks <code>RESMON_PORT</code>, then
-the port file the backend writes beside its database, and only falls back to the default port
-when neither names one. A port that was named and is not answering is reported as
-unavailable rather than widened to the default — otherwise a harness can silently attach to a
-different resmon installation and answer truthfully about the wrong corpus.</p>
+the port file the backend writes beside its database, and nothing else. A port that was named
+and is not answering is reported as unavailable rather than widened — otherwise a harness can
+silently attach to a different resmon installation and answer truthfully about the wrong
+corpus. When neither names a port the server refuses in the same way, saying which two things
+name one and that it did not guess; it used to fall back to resmon’s default port, which on a
+machine running resmon’s background service meant answering about that service’s corpus.</p>
 <p><strong>The backend asks every caller for its local API token</strong> (2.2), and the MCP server reads it
 from the owner-only file the backend writes beside its daemon lock, <code>api-token-&#x3C;port></code> in
 resmon’s state directory. Nothing needs configuring for the installed app. For a development
-instance with its own state directory, set <code>RESMON_STATE_DIR</code> for the MCP server too; a named
-port whose token cannot be found is reported as unavailable, naming that instance. See
+instance with its own state directory, set <code>RESMON_STATE_DIR</code> for the MCP server too — and
+<code>RESMON_PORT</code> or <code>RESMON_PORT_FILE</code> as well, because the port file follows the database
+rather than the state directory, so naming one does not name the other. A named port whose
+token cannot be found is reported as unavailable, naming that instance. See
 <a href="/resmon/local-api-security/"><code>docs/local-api-security.md</code></a>.</p>
 <p><strong>If you run the MCP server from a separate checkout, update it in the same sitting as the
 app.</strong> A pre-2.2 MCP server sends no <code>Authorization</code> header, and no route is exempt — not
