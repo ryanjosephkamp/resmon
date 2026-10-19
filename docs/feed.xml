@@ -1088,4 +1088,1950 @@ path by hand still works.</li>
 </ul>
 <h2 id="upgrading">Upgrading</h2>
 <p>Nothing to do, and no settings change. Windows and Linux update themselves. macOS builds are
-unsigned, so replace the app manually — right-click → Open on first launch.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 17 — A Transport Failure Is Not an Answer]]></summary></entry></feed>
+unsigned, so replace the app manually — right-click → Open on first launch.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 17 — A Transport Failure Is Not an Answer]]></summary></entry><entry><title type="html">resmon Update 16 — September 4, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/04/resmon-update-16/" rel="alternate" type="text/html" title="resmon Update 16 — September 4, 2026" /><published>2026-09-04T22:00:00+00:00</published><updated>2026-09-04T22:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/04/resmon-update-16</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/04/resmon-update-16/"><![CDATA[<h1 id="update-16--why-nothing-came-back">Update 16 — Why Nothing Came Back</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 16</li>
+<li><strong>Version:</strong> 1.8.5 → 1.8.6</li>
+<li><strong>Theme:</strong> a source that returns nothing tells you why, or tells you it does not know</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p><strong>When a source comes back with zero results, resmon now says why — on the monitor while the
+run is happening, on the results row afterwards, in the report, and in the search record.</strong></p>
+<p>Before this release every zero looked the same. A source whose endpoint was down, a source
+that answered with something resmon could not read, a source that cannot filter your date
+window at all, and a source in a genuinely quiet field all produced one row: <code>✓ done</code>, <code>0</code>.
+There was no way to tell them apart, because by the time anything could look at them they
+were identical.</p>
+<h2 id="what-you-see-now">What you see now</h2>
+<p>Run a Deep Dive on ERIC with a two-week date window and the monitor says:</p>
+<blockquote>
+<p>⚠ <strong>No Answer</strong> — ERIC filters by publication year only, so a window shorter than one whole
+calendar year cannot be answered. resmon did not widen your window.</p>
+</blockquote>
+<p>An endpoint that is down says:</p>
+<blockquote>
+<p><strong>arXiv could not be queried: HTTP 503 after 3 attempts. This is not a zero — the source did
+not answer.</strong></p>
+</blockquote>
+<p>A source that answered and genuinely had nothing says so too, and keeps its green tick,
+because that is a real measurement and not a fault:</p>
+<blockquote>
+<p>CORE answered (HTTP 200) and resmon found no records in the reply.</p>
+</blockquote>
+<p>The results row carries a one-line summary — <em>2 of 5 sources could not answer</em> — with a link
+straight into the search record, where each source’s sentence sits under the table.</p>
+<h2 id="the-rule-because-it-is-the-whole-point">The rule, because it is the whole point</h2>
+<p><strong>A zero reason is either a recorded fact with a named source of truth, or it is “not
+recorded”. There is no third state.</strong></p>
+<p>resmon will not infer why a source was quiet. It knows what its own HTTP calls did, it knows
+when a client refused to send a query at all, and it knows when a reply would not parse.
+Anything beyond that would be a plausible story rather than an observation, and a wrong
+explanation is worse than none — it stops you looking.</p>
+<h2 id="runs-from-before-this-release-carry-no-reason-and-say-so">Runs from before this release carry no reason, and say so</h2>
+<p>This is the part to know before you go looking at your history.</p>
+<p>Nothing was recording any of this until now, so <strong>every execution you already have will say
+“resmon did not record whether {source} answered on this run.”</strong> That is not a bug and it is
+not going to fill in retroactively. There is no backfill and there will not be one: a reason
+reconstructed after the fact for a run nobody observed is exactly the kind of confident guess
+this release exists to remove.</p>
+<p>Your search records will show those zeros as unexplained rather than as measured, and count
+them separately from both the sources that answered and the sources that could not. New runs
+carry the reason from the moment you upgrade.</p>
+<h2 id="the-search-record-stops-overstating-your-coverage">The search record stops overstating your coverage</h2>
+<p>This one matters if you cite resmon in a methods section. The reproducible search record
+counted every completed source as one that <em>answered</em>, including sources whose endpoint had
+returned an error — because resmon’s clients degrade rather than failing your whole sweep, so
+an outage was recorded as a completed run with zero results.</p>
+<p>It no longer does. “3 of 5 sources answered” now means three sources actually replied, and a
+new caveat names the ones that did not, because a search strategy listing them as searched
+would be overstating its coverage.</p>
+<h2 id="the-watchdog-can-see-two-more-kinds-of-breakage">The watchdog can see two more kinds of breakage</h2>
+<p>The watchdog exists to catch monitoring that has silently stopped working. Two failure modes
+were invisible to it, and both are now counted as runs where the source did not answer:</p>
+<ul>
+<li><strong>An endpoint that could not be reached.</strong> Nothing raises, so this looked like a quiet field.</li>
+<li><strong>A reply resmon could not read</strong> — a 200 whose body will not parse, a response format that
+changed underneath us.</li>
+</ul>
+<p>Both count toward the same run of failures, so a source alternating between them cannot slip
+past the threshold. The finding names which of the two it was, because being told your source
+is unreachable when it is answering fine and has changed its format sends you looking for a
+problem that is not there.</p>
+<p>Neither counts as the last time that source answered successfully — a source down for a month
+used to be reported as having answered an hour ago — and neither can be part of the baseline
+of what a source normally returns.</p>
+<p><strong>Thresholds have not changed</strong>, and a window a source cannot answer is deliberately <em>not</em>
+treated as a failure. ERIC refusing a two-week window is correct behaviour.</p>
+<h2 id="dates-are-not-equally-precise-everywhere-and-the-repositories-page-now-says-so">Dates are not equally precise everywhere, and the Repositories page now says so</h2>
+<p>Every source’s detail panel gains a <strong>Date Filtering</strong> row: the finest date precision
+resmon’s query to that source can express.</p>
+<p>Most take exact dates. NASA ADS takes whole months. DataCite, DBLP, ERIC, Open Library and
+Semantic Scholar take whole years. Two of those <strong>refuse</strong> rather than widen: ERIC and Open
+Library expose only a publication year, so a window shorter than one calendar year cannot be
+answered at all, and resmon does not quietly widen a window you did not ask it to widen.</p>
+<p>If you have ever run a short-window search against either and wondered why it came back empty
+— that was why, and now the run tells you.</p>
+<h2 id="also-in-this-release">Also in this release</h2>
+<ul>
+<li><strong>The live activity log stops printing internal event names at you.</strong> A repository skipped
+for a missing API key produced the literal text <code>repo_skipped_missing_key</code> in the log. It
+now says what happened and where to fix it.</li>
+<li><strong>The report’s footer generalises.</strong> It listed only repositories skipped for a missing key;
+it now lists every source that returned nothing, with the reason for each.</li>
+<li><strong>The MCP <code>get_search_record</code> tool</strong> carries the reasons, and says when a run predates them.</li>
+</ul>
+<h2 id="upgrading">Upgrading</h2>
+<p>Nothing to do. No configuration changes, and nothing about how your routines run has changed
+— this release only adds what resmon records and shows about a zero.</p>
+<p>Windows and Linux update themselves. macOS builds are unsigned, so replace the app manually —
+right-click → Open on first launch.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 16 — Why Nothing Came Back]]></summary></entry><entry><title type="html">resmon Update 15 — September 3, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/03/resmon-update-15/" rel="alternate" type="text/html" title="resmon Update 15 — September 3, 2026" /><published>2026-09-03T22:00:00+00:00</published><updated>2026-09-03T22:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/03/resmon-update-15</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/03/resmon-update-15/"><![CDATA[<h1 id="update-15--your-plan-first">Update 15 — Your Plan, First</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 15</li>
+<li><strong>Version:</strong> 1.8.4 → 1.8.5</li>
+<li><strong>Theme:</strong> the plan you already pay for becomes the default way to get AI summaries</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p><strong>resmon now summarizes through the Claude Code or Codex command you already installed and
+signed into, by default. You do not need to bring an API key to get AI summaries.</strong></p>
+<p>That was always possible — the subscription lane shipped in 1.8.1 — but it was buried under
+“If that fails, try…”, capped at 25 papers, and explicitly not recommended for bulk work,
+because it started a whole agent session for every single paper. This release sends five
+papers per call instead, which is what made it affordable enough to put first.</p>
+<h2 id="what-a-paper-costs-now">What a paper costs now</h2>
+<p>Measured, not estimated: the same ten abstracts, summarized one at a time and then five at a
+time, through the real <code>claude</code> command.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th>one at a time</th><th>five per call</th><th>ratio</th></tr></thead><tbody><tr><td>Cost per paper (the CLI’s own accounting)</td><td>$0.0811</td><td>$0.0271</td><td><strong>0.33×</strong></td></tr><tr><td>Input-side tokens per paper</td><td>5,593</td><td>1,289</td><td><strong>0.23×</strong></td></tr><tr><td>Wall-clock per paper</td><td>16.1 s</td><td>6.8 s</td><td>0.42×</td></tr><tr><td>Summaries inside the requested length band</td><td>10/10</td><td>10/10</td><td>unchanged</td></tr></tbody></table>
+<p>The reason the input side falls so much further than the clock: roughly 5,600 tokens of every
+call are fixed — the summarization constitution and the prompt scaffold. One paper at a time
+pays that per paper. Five at a time pays it once.</p>
+<p><strong>The per-run limit moves from 25 papers to 50.</strong> At a third of the cost, fifty papers now
+spend less of your plan’s window than twenty-five did before. Not a hundred: in testing, a
+batch occasionally came back one summary short, and each of those costs a follow-up call.
+Reaching the limit is still not an error — the rest of the papers go to your next lane and
+the run records the limit as the reason.</p>
+<h2 id="does-batching-make-the-summaries-worse">Does batching make the summaries worse?</h2>
+<p>This is the question worth asking about any change like this, so here is what was actually
+checked and what was not.</p>
+<p><strong>Each summary is told to draw only on its own paper</strong>, and the prompt says so explicitly.
+To test whether that holds, ten synthetic abstracts were written, each containing one invented
+word that appears nowhere else. If a summary of paper three mentioned paper seven’s invented
+word, that is a fact crossing between papers. Across six batched runs on both commands —
+sixty summaries — <strong>that happened zero times</strong>.</p>
+<p><strong>What that does not prove.</strong> Those synthetic abstracts are about deliberately unrelated
+things: a beetle survey, a compiler pass, a radar array. Real papers in one sweep are all on
+your topic, and two of them being quietly conflated would produce plausible prose with no
+invented word to catch it. That is the harder case and it is not measured. If you see a
+summary that reads like it belongs to a different paper, that is worth reporting.</p>
+<p><strong>Length compliance was equal to one-at-a-time</strong>, and a batch that comes back short is re-sent
+one paper at a time rather than accepted with gaps.</p>
+<h2 id="choosing-a-model-and-how-hard-it-thinks">Choosing a model and how hard it thinks</h2>
+<p>Both commands now offer a model dropdown and an effort level — and the two lists are different
+kinds of fact, so resmon labels which is which.</p>
+<p><strong>Codex reports a real catalog.</strong> <code>codex debug models</code> lists the models it offers and, for each
+one, the reasoning levels that model supports. resmon shows that, and offers only the levels
+codex says your chosen model accepts.</p>
+<p><strong>Claude Code has no way to list models.</strong> What it documents is aliases — <code>opus</code>, <code>sonnet</code>,
+<code>haiku</code>, <code>fable</code>. So that is what resmon offers, labelled as <em>names the command accepts</em>, not
+as models your account can reach, which resmon has not checked. Both dropdowns keep anything
+you have already typed, because either command may accept names resmon cannot enumerate.</p>
+<p><strong>There is no effort control for API-key providers</strong>, because none of the eight has one.
+Offering a knob that silently did nothing for most providers would be worse than not offering
+it, and the settings page says so in a line.</p>
+<p>Leaving effort unset passes nothing at all. That matters for Codex, which reads its own
+<code>model_reasoning_effort</code> from your <code>~/.codex/config.toml</code> — resmon will not override a
+preference you set for yourself.</p>
+<h2 id="smaller-things">Smaller things</h2>
+<ul>
+<li><strong>“Where is the command?” moved behind Advanced</strong>, and opens by itself when resmon could not
+find the command. It only matters then.</li>
+<li><strong>A fresh install proposes a command it finds</strong> on your machine by pre-selecting it. It does
+not switch AI on, does not save anything, and says on screen that resmon cannot know whether
+you are signed in until the first paper.</li>
+<li><strong>Two settings were being silently discarded.</strong> The full path to your command and the
+per-run paper limit could be sent to resmon and were then dropped before storage. Setting
+either did nothing at all. Fixed.</li>
+<li><strong>A false warning is gone.</strong> Every run using a subscription lane logged “AI skipped: API key
+missing” — a lane with no key to be missing — while going on to produce summaries perfectly
+well. Runs now report the actual reason, from the lane that had it, after the attempt.</li>
+</ul>
+<h2 id="upgrading">Upgrading</h2>
+<p>Nothing to do. Existing configurations are untouched: if you have an API key set as your
+provider, it stays your provider. The default only affects what a fresh install proposes.</p>
+<p>Windows and Linux update themselves. macOS builds are unsigned, so replace the app manually —
+right-click → Open on first launch.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 15 — Your Plan, First]]></summary></entry><entry><title type="html">resmon Update 14 — September 3, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/03/resmon-update-14/" rel="alternate" type="text/html" title="resmon Update 14 — September 3, 2026" /><published>2026-09-03T13:00:00+00:00</published><updated>2026-09-03T13:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/03/resmon-update-14</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/03/resmon-update-14/"><![CDATA[<h1 id="update-14--some-ai-summaries-were-invented">Update 14 — Some AI Summaries Were Invented</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 14</li>
+<li><strong>Version:</strong> 1.8.3 → 1.8.4</li>
+<li><strong>Theme:</strong> a correctness fix on the AI path</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p><strong>If you used resmon’s AI summaries through an agent CLI subscription or a local ollama model,
+some of those summaries may not have been drawn from the paper at all.</strong> They could be invented.</p>
+<p>This is fixed. It affected two of the three ways resmon can summarize. If you only ever used an
+API key — OpenAI, Anthropic, Google and the rest — you were never affected.</p>
+<p>This release exists only for that. It ships now rather than waiting for the next feature.</p>
+<h2 id="what-went-wrong">What went wrong</h2>
+<p>Every summarization prompt resmon sends opens with the same instruction: <em>“Write the summary in
+strict adherence to the attached constitution.”</em> That constitution is a real document — it is the
+set of rules that tells the model not to introduce facts, numbers or claims that are not in the
+source, and to say when something is unclear rather than guess. It is the reason resmon’s
+summaries are careful.</p>
+<p><strong>Only one of the three routes actually attached it.</strong> The API-key route sent it correctly. The
+subscription route (driving the <code>claude</code> or <code>codex</code> command-line tool you already have) and the
+local route (ollama) both sent the instruction with nothing behind it.</p>
+<p>The consequence was worse than a summary written without the rules.</p>
+<p>An agent that is told to follow a document, cannot find it, and cannot go looking for it — resmon
+deliberately runs these tools with no file access — sometimes <strong>invents the search instead</strong>. What
+came back was a fabricated transcript of the tool reading files that do not exist, and resmon
+stored that as the paper’s summary. It arrived in the correct format, so nothing downstream
+noticed.</p>
+<p>The lane did not report an error. It reported success.</p>
+<h2 id="nothing-on-your-machine-was-accessed">Nothing on your machine was accessed</h2>
+<p>This is worth saying plainly, because the symptom looks alarming: the fabricated summaries contain
+what appear to be file paths and file contents from your computer.</p>
+<p><strong>They are not real.</strong> We tested this directly by placing a marked file in the working directory
+the tool runs in; its actual contents never appeared in any response. The tools genuinely are
+disabled. The model was inventing both the file access and what it claimed to find. No file on
+your system was read.</p>
+<h2 id="how-to-spot-an-affected-summary">How to spot an affected summary</h2>
+<p>resmon does not keep AI summaries in its database — they are written into the report file for the
+run that produced them. So there is nothing to clean up in your corpus, and <strong>nothing already
+written gets corrected retroactively.</strong> Old reports keep whatever they were given.</p>
+<p>An invented summary is usually obvious once you look. It reads like a transcript rather than
+prose, and contains text of this shape:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>&#x3C;invoke name="Read"></span></span>
+<span class="line"><span>&#x3C;parameter name="file_path">...&#x3C;/parameter></span></span></code></pre>
+<p>Searching your saved reports for <code>&#x3C;invoke</code> or <code>function_results</code> will find them.</p>
+<p>To identify which runs <em>could</em> be affected, resmon already records the summarization route used
+for each run. Any run whose AI route was <code>subscription</code> or <code>local</code>, and which produced at least
+one summary, is a candidate. It is a candidate rather than a certainty: the failure was
+intermittent — the same prompt sometimes produced a perfectly good summary and sometimes produced
+an invented one.</p>
+<p>One limit on that, stated rather than glossed: resmon has only recorded the route per run since
+v1.8.0. The subscription route did not exist before v1.8.1, so every run that used it is covered.
+Local ollama summarization is older than that record, so <strong>runs from before v1.8.0 that used a
+local model cannot be identified this way</strong> — searching those reports for the text above is the
+only check available.</p>
+<p><strong>Re-running the routine regenerates the summaries correctly.</strong> That is the fix for an affected
+report, and it is the only one needed.</p>
+<h2 id="what-changed">What changed</h2>
+<p>Each route now delivers the constitution through its own proper channel, so the rules sit <em>above</em>
+the paper text rather than beside it. That ordering matters: an abstract is text fetched from the
+internet, and anything hidden in one should be arguing with a system-level instruction rather than
+sitting alongside it as an equal.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Route</th><th>How the constitution is delivered</th></tr></thead><tbody><tr><td><code>claude</code></td><td><code>--append-system-prompt</code></td></tr><tr><td><code>codex</code></td><td>an <code>AGENTS.md</code> written into the temporary working directory</td></tr><tr><td>ollama</td><td>the <code>system</code> field on <code>/api/generate</code></td></tr></tbody></table>
+<p>Both command-line channels were checked against the actual installed tools before being chosen,
+and both routes were then run end to end to confirm they produce real summaries of the right
+length.</p>
+<h2 id="why-our-tests-did-not-catch-it">Why our tests did not catch it</h2>
+<p>Worth recording, because it is the third time this project has been caught by the same shape of
+gap.</p>
+<p>Every existing test asked whether the constitution <strong>exists</strong> — that it loads, that it is cached,
+that it stays within its size budget. All of them passed. What was broken was whether it
+<strong>arrives</strong>, and nothing tested that.</p>
+<p>There are now tests that check transmission at the exact boundary each route crosses, plus one
+that fails if a <em>new</em> route is ever added without such a check.</p>
+<p>One further note, because it cuts against the obvious fix: a test that calls the real command-line
+tool and checks the output <strong>does not catch this</strong>, and we established that by measuring rather
+than assuming — with the fix removed, that test still passed, because the failure only happens
+some of the time. It was kept for something it does catch reliably, and the test file says so in
+plain terms. A test whose name promises more than it checks is how all three of these problems
+shipped.</p>
+<h2 id="upgrading">Upgrading</h2>
+<p>Same as always. Download the installer for your platform below. On macOS the build is unsigned, so
+if you see <em>“resmon is damaged and can’t be opened”</em>, clear the quarantine flag:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>xattr -dr com.apple.quarantine /Applications/resmon.app</span></span></code></pre>
+<p>Your database, routines and settings are untouched by this release.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 14 — Some AI Summaries Were Invented]]></summary></entry><entry><title type="html">resmon Update 13 — September 2, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/09/02/resmon-update-13/" rel="alternate" type="text/html" title="resmon Update 13 — September 2, 2026" /><published>2026-09-02T22:00:00+00:00</published><updated>2026-09-02T22:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/09/02/resmon-update-13</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/09/02/resmon-update-13/"><![CDATA[<h1 id="update-13--what-the-first-real-use-found">Update 13 — What the First Real Use Found</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 13</li>
+<li><strong>Version:</strong> 1.8.2 → 1.8.3</li>
+<li><strong>Theme:</strong> fixing what a person found by actually using it</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p>Someone sat down with v1.8.2 and worked through it properly for the first time. Everything in
+this release comes from that.</p>
+<p>The headline is a little embarrassing and worth stating plainly: <strong>two of the seventeen tools
+resmon exposes to AI assistants had never worked.</strong> Not “worked badly” — never returned anything
+for any input, since the day they shipped. If you asked your assistant <em>“what did my last run
+find?”</em>, it could not tell you.</p>
+<p>They work now. So does back and forward navigation, which turns out never to have existed either.</p>
+<h2 id="the-tools-that-never-worked">The tools that never worked</h2>
+<p><code>get_execution_results</code> — the one behind “what did my last run find” — asked resmon for its
+papers in a format resmon does not produce. Every call failed. The obvious fallback, exporting
+references for a run, was broken in a different way and failed too. Both routes from <em>a run</em> to
+<em>its papers</em> were severed.</p>
+<p>Fixing it added something worth having on its own: <strong>references now export as JSON</strong>, alongside
+BibTeX, RIS and CSV. That is for programs rather than reference managers — the same fields as the
+CSV export, with a missing value as <code>null</code> rather than an empty string, so a script can tell
+“nothing here” from “blank”. It is available through the API and to AI assistants. It is not in
+the interface yet, because the interface joins several runs into one file and two JSON lists do
+not join into a valid one.</p>
+<h3 id="why-the-tests-did-not-catch-it">Why the tests did not catch it</h3>
+<p>This is the part worth reading, because it is the part that stops it happening again.</p>
+<p>The tests used a stand-in for resmon rather than the real thing, and <strong>the stand-in threw away the
+exact detail the bug lived in</strong>. It could not have failed the way the real program failed. The
+tests passed, sincerely, while the feature was broken for everyone.</p>
+<p>And the check that was described as testing the whole tool surface had actually tried six tools of
+seventeen. The two broken ones were among the eleven never tried.</p>
+<p>There is now a test that runs <strong>every</strong> tool against a real, running copy of resmon, and it is
+written so that adding a new tool without testing it is not possible. Reverting either bug fails
+it immediately.</p>
+<h2 id="talking-to-the-wrong-resmon">Talking to the wrong resmon</h2>
+<p>If you had an older resmon running in the background — a daemon from an earlier version, say —
+your AI assistant could quietly connect to <em>that</em> instead of the app you had open, and answer
+every question perfectly truthfully about a completely different library.</p>
+<p>resmon now checks. If it finds a version it was not built to speak for, it says so and stops,
+rather than reporting someone else’s papers as yours.</p>
+<h2 id="the-window-no-longer-flashes">The window no longer flashes</h2>
+<p>resmon flashed white when it opened and again when it closed. The window was never told what
+colour it was before its contents loaded, so the system filled it with white. It is now told.</p>
+<h2 id="back-and-forward">Back and forward</h2>
+<p><strong>Browser-style navigation never worked, and it turns out it was never connected.</strong> resmon has
+kept a page history the whole time; nothing was ever wired to it, because the app used the
+default menu, which has no Back or Forward.</p>
+<p>There is now a <strong>History</strong> menu, the keyboard shortcuts you would expect (<code>⌘[</code> and <code>⌘]</code>, or <code>⌘←</code>
+and <code>⌘→</code>), and the two-finger swipe on a trackpad — if you have that gesture switched on in System
+Settings, which resmon has no way of knowing, which is why the menu is there too.</p>
+<h2 id="links-behave-the-same-way-everywhere">Links behave the same way everywhere</h2>
+<p>On the <strong>Repositories</strong> page, some links opened in a small window inside resmon and others threw
+you out to your browser — on the same page, for the same kind of link.</p>
+<p>They all open in the small window now. It shows the full address in its title bar, where the page
+cannot overwrite it, and right-clicking offers <strong>Copy Link</strong>, <strong>Open in Browser</strong>, plus back,
+forward and reload. And the attribution links at the top of that page are no longer a barely-legible
+dark blue.</p>
+<h2 id="two-sources-that-looked-broken">Two sources that looked broken</h2>
+<p>Open Library and NDL Search had returned nothing on every attempt, and it was reasonable to wonder
+whether they worked at all. Running them properly separated three different things.</p>
+<p><strong>NDL was never broken.</strong> It handles short date windows fine. The empty results were the searches
+— “LLM” genuinely matches nothing in the slice of the Japanese national bibliography resmon is
+permitted to use, while “test” and “history” return plenty.</p>
+<p><strong>Open Library works as designed, and the design will surprise you.</strong> It can only filter by
+publication <em>year</em>, so resmon only asks it about whole calendar years that fit inside your date
+range. A three-month window contains no whole year, so it matches nothing — by construction, not
+by fault. That is written in its entry on the Repositories page.</p>
+<p><strong>But one real bug came out of looking.</strong> When NDL has no matches, it does not return an empty
+list — it returns a short notice saying “no records”. resmon read that as a broken response and
+logged that the source had returned malformed data. The count you saw was right; what resmon said
+about it was not. It now reports a legitimate zero as a zero, while a genuinely broken response is
+still reported as broken.</p>
+<h2 id="also">Also</h2>
+<ul>
+<li><strong>American English throughout</strong>, in the app and the documentation. Two things were deliberately
+left alone: the word “cancelled”, which is a value stored in your database and cannot change
+without a migration, and any text quoting another organisation’s terms word for word — changing
+a quotation would misrepresent it.</li>
+</ul>
+<h2 id="verification">Verification</h2>
+<ul>
+<li>882 automated tests, 41 of them against real scholarly APIs, 139 in the interface.</li>
+<li>Green on Python 3.10, 3.11 and 3.12.</li>
+<li>No new dependencies. No database change.</li>
+<li>The window and menu changes are in a part of the app that automated tests do not reach; they
+were checked by building and running it.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 13 — What the First Real Use Found]]></summary></entry><entry><title type="html">resmon Update 12 — August 31, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/08/31/resmon-update-12/" rel="alternate" type="text/html" title="resmon Update 12 — August 31, 2026" /><published>2026-08-31T22:00:00+00:00</published><updated>2026-08-31T22:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/08/31/resmon-update-12</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/08/31/resmon-update-12/"><![CDATA[<h1 id="update-12--resmon-from-wherever-you-work">Update 12 — resmon, From Wherever You Work</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 12</li>
+<li><strong>Version:</strong> 1.8.1 → 1.8.2</li>
+<li><strong>Theme:</strong> resmon becomes something your AI tools can drive — and four more places to look</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p><strong>resmon now exposes itself to your AI harness.</strong> If you work in Claude Code, Codex, or anything
+else that speaks the Model Context Protocol, it can now read and drive resmon without you
+leaving it: search your corpus, ask why a paper matched, check the watchdog, start a sweep, run
+a routine.</p>
+<p><strong>And resmon can finally run a routine on demand.</strong> It could not, before. Not through the API,
+not from the interface, not at all — running a saved routine meant rebuilding its configuration
+by hand as a one-off sweep. That turned out to be a gap in the app, not just a missing tool.</p>
+<p>Four new sources bring the catalog to <strong>25</strong>, and this release completes phase 1.8.</p>
+<h2 id="driving-resmon-from-your-harness">Driving resmon from your harness</h2>
+<p>Start resmon, then register the server with your harness. For Claude Code that is one command:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>claude mcp add resmon -- python3 /full/path/to/resmon_scripts/mcp_server.py</span></span></code></pre>
+<p>Seventeen tools cover searching your corpus, listing sources and routines, inspecting past runs
+and what they found, match transparency, paper lifecycle, analytics, the watchdog, and reference
+export — plus three that start work: run a sweep, create a routine, run a routine.</p>
+<p>Then you can simply ask. <em>What did my arXiv routine find this week? Why did that paper match?
+Is anything broken?</em></p>
+<h3 id="what-it-will-not-do">What it will not do</h3>
+<p>This is worth reading before you connect it, because the omissions are deliberate.</p>
+<p><strong>Nothing destructive is exposed.</strong> No delete, no erase, no factory reset. Not “guarded by a
+confirmation” — <strong>absent</strong>. A tool call is too cheap an action to hang data loss on, and there is
+no confirmation model here worth trusting yet.</p>
+<p><strong>It never touches your API keys.</strong> No tool reads, writes or returns a credential. Where a key is
+relevant, a tool names its <em>slot</em> — <code>core_api_key</code> — and whether one is stored. Never the value.</p>
+<p><strong>A routine created through a tool is created inactive.</strong> Putting something on a schedule that
+runs on your machine is not a side effect a tool call gets to have. You activate it in resmon,
+having looked at it.</p>
+<p><strong>resmon has to be running.</strong> The server talks to your running copy over your own machine’s
+loopback address; it never opens the database itself. When resmon is closed, every tool says so
+in one clear sentence — because a harness told “you have no papers” would repeat that to you as
+fact.</p>
+<p>One detail we would rather state than have you find: the server checks a port you set, then the
+port file resmon writes, and only falls back to the default when neither names one. During
+development, falling back attached it to a <em>different</em> resmon installation and it answered
+perfectly truthfully about the wrong database. It will not do that now.</p>
+<h2 id="running-a-routine-now">Running a routine now</h2>
+<p><strong>Settings aside — you could not do this before.</strong> Routines ran on their schedule or not at all.</p>
+<p><code>POST /api/routines/{id}/run</code> runs one immediately. It is a thin wrapper over the same machinery
+the scheduler uses, so a manual run and a scheduled one cannot drift apart: the run is recorded
+against the routine, appears in routine health, and the watchdog counts it like any other.</p>
+<p><strong>An inactive routine will run</strong>, and the response says so. Deactivating a routine stops it
+running <em>on its own</em>; it was never meant to mean the routine may never run again. Otherwise you
+would have to activate it, run it, and deactivate it again to get one result.</p>
+<p>There is no button for this yet. The endpoint exists, your harness can call it, and the interface
+catches up next.</p>
+<h2 id="four-more-sources">Four more sources</h2>
+<p>The catalog goes from 21 to <strong>25</strong>, all keyless:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Source</th><th>What it adds</th></tr></thead><tbody><tr><td><strong>Dryad</strong></td><td>Curated research datasets across disciplines, CC0</td></tr><tr><td><strong>Open Library</strong></td><td>Books and humanities bibliographic metadata</td></tr><tr><td><strong>NIST RMM</strong></td><td>NIST papers, technical reports and software metadata</td></tr><tr><td><strong>NDL Search</strong></td><td>The Japanese national bibliography — the largest geography gap the catalog had</td></tr></tbody></table>
+<p>These were the first sources chosen <em>after</em> checking their license terms rather than before, and
+two of them show what that changes.</p>
+<p><strong>NDL</strong> publishes an open metadata slice, and its live responses turned out not to match its own
+summary of that slice — some records carry licenses the summary does not mention, and some carry
+no license statement at all. resmon keeps a record only when its rights are explicitly one of
+three known-open licenses, and drops it otherwise. Fewer records, all of them ones we may keep.</p>
+<p><strong>NIST’s API has been returning an error since we added it.</strong> The client handles that gracefully
+and the catalog page says plainly that its field mapping has never been checked against a live
+response — so if you see nothing from NIST, you can tell whether that is the source being empty
+or the source being down.</p>
+<h2 id="credits-we-owe-now-shown">Credits we owe, now shown</h2>
+<p>Six of the sources resmon queries make a credit a <strong>condition</strong> of using their data — not a
+courtesy. <strong>resmon was showing none of them.</strong></p>
+<p>CORE, NDL Search, NIST, OpenAIRE, PLOS and Semantic Scholar now have their credits displayed at
+the top of <strong>Repositories &#x26; API Keys</strong>, unconditionally, in the exact wording each asks for. Not
+tucked inside a panel you have to expand — a credit you have to go looking for is not displayed
+in the sense the obligation means.</p>
+<p>Sources that merely <em>ask</em> for a credit are shown on their own row instead, marked as requested
+rather than required. The distinction is deliberate: OpenAIRE’s metadata is licensed on condition
+of attribution, while arXiv publishes a sentence it would like you to use. Rendering both the
+same way would overstate one and understate the other.</p>
+<h2 id="whose-terms-bind-you">Whose terms bind you</h2>
+<p>Some sources need <strong>your own API key</strong>, which you register for yourself.</p>
+<p>When a source runs on your key, <strong>that provider’s terms bind you, not resmon.</strong> resmon can
+decline to ship an integration it believes puts users in breach — and did, withdrawing IEEE
+Xplore last release for exactly that reason — but it cannot accept a license on your behalf, and
+it does not monitor whether your use stays inside one. That is now said on the page where you
+enter keys, rather than only in a document.</p>
+<p>Eleven of the sources resmon ships publish terms that neither clearly permit nor clearly forbid
+what resmon does with them. They are active, and that assessment is written down rather than
+dressed up as a clearance.</p>
+<h2 id="also-in-this-release">Also in this release</h2>
+<ul>
+<li><strong>A crash that could have taken the app down as it quit.</strong> resmon gives each background job its
+own database connection, and closing them all on shutdown could close one while a running sweep
+was still using it — which does not raise an error, it ends the process. It was found in a test
+that failed once in twenty-five runs, and it was real: the app closes connections the same way
+when you quit it. Connections belonging to a running job are now left alone until it finishes.</li>
+<li><strong>Contributing to resmon is documented properly.</strong> A <code>CONTRIBUTING.md</code>, and a full guide to
+adding a scholarly source that opens with the license question rather than closing on it. If
+you point your own AI harness at resmon and ask it to add a source you need, that guide is
+written for it as much as for you.</li>
+</ul>
+<h2 id="verification">Verification</h2>
+<ul>
+<li>859 backend tests, 22 live-network tests against real scholarly APIs, 139 renderer tests.</li>
+<li>CI green on Python 3.10, 3.11 and 3.12 plus the frontend job.</li>
+<li>The MCP server was driven end to end against a real running backend, not only against test
+doubles — which is how the wrong-installation bug above was found.</li>
+<li>No new dependencies. The MCP server speaks the protocol directly rather than adding a library.</li>
+<li>Schema unchanged at 9.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 12 — resmon, From Wherever You Work]]></summary></entry><entry><title type="html">resmon Update 11 — August 31, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/08/31/resmon-update-11/" rel="alternate" type="text/html" title="resmon Update 11 — August 31, 2026" /><published>2026-08-31T16:00:00+00:00</published><updated>2026-08-31T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/08/31/resmon-update-11</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/08/31/resmon-update-11/"><![CDATA[<h1 id="update-11--your-own-plan-and-an-honest-accounting">Update 11 — Your Own Plan, and an Honest Accounting</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 11</li>
+<li><strong>Version:</strong> 1.8.0 → 1.8.1</li>
+<li><strong>Theme:</strong> using the AI you already pay for — and withdrawing a source we should not have shipped</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p>Two things in this release, and they are opposites in a way worth saying out loud. One is
+a feature people asked for. The other is a feature being taken away.</p>
+<p><strong>resmon can now use the AI subscription you already have.</strong> If you have Claude Max or a
+ChatGPT plan and you have the command-line tool installed, resmon will drive that tool
+instead of asking you for a metered API key. Your AI summaries come out of the plan you
+are already paying for.</p>
+<p><strong>IEEE Xplore has been withdrawn.</strong> It worked. We read its terms properly and found that
+it cannot be used the way resmon uses it — not by resmon, and not by you with your own
+key. So it is gone, and this post explains exactly why rather than burying it in a
+changelog line.</p>
+<p>Both of those are the same commitment from a different angle: say what is true, including
+when what is true is inconvenient.</p>
+<h2 id="using-a-plan-you-already-pay-for">Using a plan you already pay for</h2>
+<p>Under <strong>Settings → AI</strong>, in the <code>If that fails, try…</code> chain, there are two new options:
+<code>Claude Code (your Claude plan)</code> and <code>Codex (your ChatGPT plan)</code>. Add one and resmon will
+run the command-line tool you already installed and signed into.</p>
+<p>resmon never asks for your password, never embeds a sign-in flow, and never sees your
+credential. It runs the tool; the tool handles its own authentication, exactly as it does
+when you use it yourself. If you are not signed in, resmon says so and moves to the next
+provider in your chain rather than pretending something else went wrong.</p>
+<h3 id="finding-the-command-and-why-that-is-harder-than-it-sounds">Finding the command, and why that is harder than it sounds</h3>
+<p>resmon looks in three places, in this order: a path you set yourself, then the places the
+installers put things, then your <code>PATH</code>.</p>
+<p>That order looks backwards and is not. On macOS, an app launched from the Finder does not
+inherit the <code>PATH</code> you see in a terminal — it gets a minimal one, and <strong>neither tool is in
+it</strong>. The Claude command lives in a user-local folder. The Codex command lives <em>inside</em>
+the ChatGPT application bundle, where it is on no <code>PATH</code> at all, ever.</p>
+<p>So a version of this feature that searched <code>PATH</code> first would work perfectly for anyone
+testing it from a terminal and fail for everyone using the installed app. That is the same
+class of bug as the one that broke upgrades in 1.6.0, and it is worth being explicit that
+we went looking for it this time instead of finding out later.</p>
+<p>Settings shows you which of the three routes found your command. If none did, it lists
+every path it searched — because “not found” on its own just sends you off to reinstall
+something you already have.</p>
+<h3 id="two-things-to-know-before-you-turn-it-on">Two things to know before you turn it on</h3>
+<p><strong>It is slow, and it spends the window you work in.</strong> Each paper starts a whole agent
+session, which takes far longer than an API call, and it draws on the same usage allowance
+you use for your own work. A 200-paper sweep routed through it could cost you the plan you
+actually need that afternoon.</p>
+<p>So the lane is <strong>capped at 25 papers per run</strong> by default — editable per lane — and it is
+not the default for bulk summarizing. Hitting the cap is not an error: the lane stands
+down, the remaining papers go to your next provider, and the run records that the cap was
+the reason. The interface tells you all of this <em>before</em> the run, not after.</p>
+<p><strong>Summaries come out of the tools’ structured output</strong>, not by reading their console
+chatter. When that does not produce something usable, resmon says the tool returned
+something it could not use, and moves on. It will not hand you a fragment of a progress
+message dressed up as a summary of your paper.</p>
+<p>One detail we would rather state than have you discover: each summarizing call runs in an
+empty scratch directory with the tool’s own file and command access switched off. Abstracts
+are text fetched from the internet, and these tools can run commands on your machine. A
+summarizer needs neither, so it gets neither.</p>
+<h2 id="ieee-xplore-has-been-withdrawn">IEEE Xplore has been withdrawn</h2>
+<p>IEEE Xplore was a working source in 1.8.0 and is not in 1.8.1. Nothing broke. We read the
+<a href="https://developer.ieee.org/API_Terms_of_Use2">IEEE Xplore API Terms of Use</a> properly and
+found four clauses that resmon cannot satisfy:</p>
+<ul>
+<li>the license covers only non-commercial activity <strong>within the licensee’s own institution</strong>;</li>
+<li>clause 4(c) forbids using “any robot, spider, site search/retrieval application, or other
+device to retrieve or index any portion of the Content”;</li>
+<li>clause 4(f) requires users to agree not to retain the content in bulk;</li>
+<li>clause 12 requires deleting the content from your system if the terms end.</li>
+</ul>
+<p>resmon <em>is</em> a retrieval application. It keeps a corpus indefinitely and can back it up to
+Google Drive. There is no setting that reconciles that with clause 4(c), and there is no
+partial version of this that works.</p>
+<p>The part that decided it: <strong>you</strong> register for the IEEE key, not us. The terms bind you
+personally. Shipping an integration that cannot be used without putting you in breach of an
+agreement you signed is not a trade-off we get to make on your behalf.</p>
+<p>If you have an IEEE key stored, it is simply no longer used; nothing was deleted. Routines
+that name IEEE keep running — that source reports itself as unavailable, with the reason
+above, and the rest of the routine is unaffected. The code is still in the repository, so
+a written license from IEEE would bring the source back unchanged.</p>
+<h3 id="inspire-hep-was-fixed-rather-than-withdrawn">INSPIRE-HEP was fixed rather than withdrawn</h3>
+<p>The same review found a narrower problem at INSPIRE-HEP. Its terms allow reuse of an
+abstract only where INSPIRE reports that abstract’s own source as arXiv or CERN; abstracts
+supplied by publishers are carried under licenses INSPIRE cannot pass on. resmon was
+storing whichever abstract came first without checking.</p>
+<p>It now checks. Records whose only abstract is publisher-supplied are still found, still
+indexed, still searchable — they just have no abstract stored. In a sample of 100 records,
+that was about one in five.</p>
+<p>That is a real reduction in what you get from INSPIRE, and we are not going to describe it
+as anything else. It is the correct reduction: the alternative is keeping text we have no
+permission to keep.</p>
+<h3 id="where-the-review-came-from">Where the review came from</h3>
+<p>All of this came out of a full terms review of every source resmon ships, published in the
+repository as <code>docs/source-landscape.md</code>. It also surveys 27 sources resmon does <em>not</em> have
+yet, with the license question asked <strong>first</strong> rather than last — which is how we ended up
+finding these three after the fact rather than before.</p>
+<p>Eleven further sources are marked unresolved: their published terms do not clearly grant
+what resmon does, and they also do not forbid it. They are still active. Recording that
+honestly seemed better than either quietly ignoring the question or dropping a third of the
+catalog on a technicality.</p>
+<h2 id="also-in-this-release">Also in this release</h2>
+<ul>
+<li><strong>1.8.0 told you it was 1.7.0.</strong> The version number lives in two files, and the 1.8.0 tag
+bumped one of them. So every 1.8.0 install answered its own health check with “1.7.0”, and
+<strong>About → About App</strong> — which displays exactly that field — showed you the previous
+release number. Nothing else was affected; the app was 1.8.0 in every respect except the
+label it showed you. Fixed, and there is now a test that fails if the two files ever
+disagree again, because nothing was checking.</li>
+<li><strong>ERIC’s catalog note</strong> now says that a date window narrower than a whole year returns
+nothing from ERIC. Only publication year is searchable there, so resmon reports zero
+results rather than silently widening the window you asked for.</li>
+<li><strong>Retired sources now explain themselves.</strong> A routine naming a withdrawn source used to
+record “Unknown repository”, which describes a bug rather than a decision. It now records
+the actual reason.</li>
+</ul>
+<h2 id="counts">Counts</h2>
+<ul>
+<li>21 sources (was 22)</li>
+<li>709 backend tests, 18 live-network, 134 renderer</li>
+<li>Schema 9, unchanged</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 11 — Your Own Plan, and an Honest Accounting]]></summary></entry><entry><title type="html">resmon Update 10 — August 30, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/08/30/resmon-update-10/" rel="alternate" type="text/html" title="resmon Update 10 — August 30, 2026" /><published>2026-08-30T22:00:00+00:00</published><updated>2026-08-30T22:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/08/30/resmon-update-10</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/08/30/resmon-update-10/"><![CDATA[<h1 id="update-10--ai-on-your-terms">Update 10 — AI On Your Terms</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 10</li>
+<li><strong>Version:</strong> 1.7.0 → 1.8.0</li>
+<li><strong>Theme:</strong> one provider failing should not cost you the run — and when something does fail, the app should be able to say what</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p>Until this release, AI summarization in resmon had exactly one way to succeed and one
+way to fail. You picked a provider; if it worked, you got summaries; if it didn’t, you
+got a line in the activity log and a run that completed looking perfectly healthy.</p>
+<p>Two things change in 1.8.0.</p>
+<p><strong>You can now configure a chain of providers.</strong> Anthropic first, a cheaper model second,
+Ollama on your own machine as the floor — any providers, in any order. When one cannot
+produce a summary, the next one tries.</p>
+<p><strong>Failures became facts the app can reason about.</strong> Every attempt is now recorded: which
+provider, which model, how many papers it summarized, and the classified reason it
+stopped. That closes the largest blind spot the 1.7 watchdog had — a run where every
+single AI call failed used to finish and look fine.</p>
+<p>This release also adds <strong>four new sources</strong>, bringing the catalog from 15 to 19.</p>
+<h2 id="not-every-failure-means-the-same-thing">Not every failure means the same thing</h2>
+<p>This is the idea the whole feature rests on, and getting it wrong is expensive in both
+directions.</p>
+<p>A rejected API key is not going to start working on the next paper. Neither is an
+exhausted quota, a model that does not exist, or a provider your machine cannot reach.
+Presenting a dead credential once per paper burns an entire run rediscovering the same
+fact two hundred times. resmon calls these <strong>lane-fatal</strong> and retires that provider for
+the rest of the run.</p>
+<p>An abstract longer than the model’s context window is a different animal entirely. So is
+content a provider declines, or a one-off server error. The provider is fine; <em>this
+paper</em> is the problem. Abandoning a working provider over one difficult abstract would
+silently downgrade every summary that came after it. resmon calls these
+<strong>document-local</strong>, falls through for that one paper, and keeps the provider primary.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Failure</th><th>Examples</th><th>What happens</th></tr></thead><tbody><tr><td><strong>Lane-fatal</strong></td><td>rejected key, exhausted quota, unknown model, unreachable provider</td><td>that provider is retired for the run</td></tr><tr><td><strong>Document-local</strong></td><td>context window exceeded, content declined, one-off <code>5xx</code></td><td>that paper falls through; the provider stays</td></tr></tbody></table>
+<p>If this sounds like the distinction the watchdog draws between <code>broken</code> — a recorded
+fact — and <code>unusual</code> — an inference from your own history, it is the same discipline
+applied to a different problem. Two things that look alike in a log are worth separating
+when they demand opposite responses.</p>
+<h2 id="what-gets-recorded">What gets recorded</h2>
+<p>Each execution now stores one row per provider it tried: the provider and model, the
+<strong>alias</strong> of the credential slot used (never the key itself), how many papers it
+attempted, how many it summarized, and the classified reason it stopped.</p>
+<p>A provider that was never reached is recorded as <strong>skipped</strong> rather than left out —
+because “we never needed it” and “it was not configured” are different facts and you are
+entitled to both. A provider that got some papers and not others is <strong>partial</strong>, held
+deliberately apart from <strong>failed</strong>: partial is a normal day with one awkward abstract,
+failed is a provider that did not work.</p>
+<p>And the report header now names the provider that <strong>actually produced</strong> the summaries.
+A report saying “anthropic” when Ollama did the work would be precisely the kind of quiet
+lie the last release was about.</p>
+<h2 id="two-things-this-release-refuses-to-do">Two things this release refuses to do</h2>
+<p><strong>There is no summarizer of last resort.</strong> If every provider in your chain fails, those
+papers have no AI summary, and the execution says why. resmon has never had a keyless
+extractive fallback underneath the AI — our own planning documents claimed it did, and
+that was wrong. It has been corrected rather than quietly built to match.</p>
+<p><strong>The subscription lane is not here yet.</strong> Driving the Claude Code or Codex CLI you have
+already installed and logged into — so AI usage draws on a plan you already pay for — is
+the next release, not this one. The lane exists in the data model and is honestly
+reported as unimplemented rather than silently skipped.</p>
+<h2 id="four-new-sources">Four new sources</h2>
+<p>The catalog goes from 15 to 19:</p>
+<ul>
+<li><strong>Zenodo</strong> — CERN’s general repository: preprints, datasets and software, all with DOIs</li>
+<li><strong>INSPIRE-HEP</strong> — the curated high-energy physics literature database</li>
+<li><strong>OpenAIRE</strong> — the EU-wide open-science aggregator</li>
+<li><strong>medRxiv</strong> — which resmon has been <em>able</em> to search since early on, but never made
+selectable. The client supported it; the registry never registered it. Fixed.</li>
+</ul>
+<p>Each carries an honest description of how its upstream actually combines your keywords.
+OpenAIRE’s now reads <strong>“Combination semantics undocumented”</strong>, because OpenAIRE documents
+that behavior as undefined — and a catalog field that renders to you as a statement about
+someone else’s search engine should not guess.</p>
+<h2 id="under-the-hood">Under the hood</h2>
+<ul>
+<li>New <code>execution_ai</code> table (schema 9), the sibling of the per-source record 1.7 added.</li>
+<li>Provider configuration resolves into an ordered list of lanes. An existing
+single-provider setup is read as a one-lane chain <strong>at load time</strong> — no data moves,
+nothing migrates, and downgrading to an earlier build still works.</li>
+<li>The MCP tool surface is now frozen as a written contract in <code>docs/api-contract/mcp.md</code>,
+ahead of the server itself. Writing it surfaced a genuine gap: resmon has no way to run
+a routine on demand at all. That is being fixed.</li>
+<li>485 → 570 backend tests, 111 → 121 renderer tests, 15 live-network tests against real
+scholarly APIs.</li>
+</ul>
+<h2 id="upgrading">Upgrading</h2>
+<p>Nothing to do. Your existing AI configuration keeps working exactly as it did — the
+fallback section starts empty, and an empty chain is the old behavior. Add a fallback
+only if you want one.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 10 — AI On Your Terms]]></summary></entry><entry><title type="html">resmon Update 9 — August 30, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/08/30/resmon-update-9/" rel="alternate" type="text/html" title="resmon Update 9 — August 30, 2026" /><published>2026-08-30T16:00:00+00:00</published><updated>2026-08-30T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/08/30/resmon-update-9</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/08/30/resmon-update-9/"><![CDATA[<h1 id="update-9--resmon-tells-you-the-truth">Update 9 — resmon Tells You the Truth</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 9</li>
+<li><strong>Version:</strong> 1.6.1 → 1.7.0</li>
+<li><strong>Theme:</strong> trust — knowing when your monitoring has stopped working, and what your results actually mean</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p>Every literature monitor competes on finding papers. None of them tell you when the
+finding has stopped working.</p>
+<p>That is the gap this release closes. A monitor fails <em>silently</em>: when a source starts
+refusing queries, or an API key expires, or a scheduled routine quietly stops firing,
+what you see is an empty inbox — exactly what you see when the field is genuinely quiet.
+Silence is the output of both a working monitor and a broken one, and until now resmon
+left you to tell them apart unaided.</p>
+<p>1.7.0 adds four features, and one idea runs through all of them: <strong>resmon should never
+tell you something it cannot support.</strong> Each is defined as much by what it refuses to
+claim as by what it reports.</p>
+<h2 id="the-watchdog">The watchdog</h2>
+<p>A new page that compares every source and every routine against baselines built from
+your own history, and says where reality has departed from them.</p>
+<p>Findings come in two grades, and the difference is the point:</p>
+<ul>
+<li><strong>Broken</strong> — something resmon <em>recorded happening</em>. A source that raised an error on
+each of its last three runs. A credential a source requires that is not configured. A
+routine that has not fired when its own history says it should have. These are stated
+as certainties because they are certainties.</li>
+<li><strong>Looks unusual</strong> — an inference from your own baseline. A source that reliably
+returned papers has returned none several runs running. These are stated as questions,
+always with the baseline and the sample size attached, because the innocent
+explanation — the field went quiet — is genuinely possible every time.</li>
+</ul>
+<p>Thresholds are deliberately conservative and <strong>printed in the interface</strong>, so you can
+judge for yourself whether silence from the watchdog means anything. Everything it
+<em>cannot</em> yet judge is listed too: a watchdog that is quiet because all is well and one
+that is quiet because it has three data points look identical otherwise.</p>
+<p>Findings can be muted individually, and a mute expires when its condition clears — so if
+the same source fails again later, you are told again.</p>
+<p>It also gives <strong>cadence advice</strong> from resmon’s own discovery-lag data: if a routine runs
+daily against a source that takes a median of six days to index, running daily costs
+requests and buys nothing.</p>
+<p>When we tested this against a real four-month corpus of 15,645 papers, it found six
+things — including a routine that had silently stopped firing five weeks earlier while
+its two siblings kept running. Nothing in the app would have said so.</p>
+<h2 id="why-am-i-seeing-this">Why am I seeing this?</h2>
+<p>Query tuning has always been done blind: change a term, wait a week, guess from what
+arrives whether it helped.</p>
+<p>Every result in the Explorer now carries a <strong>Why am I seeing this?</strong> panel showing which
+of your keywords actually appear in that paper, and where — title, abstract, subject
+categories, or author list. Matching is on whole words, so <code>AI</code> does not match <code>said</code>.</p>
+<p>Corpus-wide, the Analytics page gains <strong>which keywords earn their place</strong>: how many papers
+each keyword found that no other keyword of yours did. A term whose every paper another
+term also finds is costing a slot in every query and buying nothing — and that is
+invisible without the arithmetic.</p>
+<p><strong>What it refuses to claim matters as much.</strong> resmon cannot know why an upstream source
+returned a paper — most sources rank by relevance rather than filtering on literal terms —
+and it stores no full text. Both limits appear on <em>every</em> explanation, including ones
+where every keyword matched, rendered beside the evidence rather than hidden behind a
+tooltip. A keyword match makes a paper <em>plausible</em>; that is not the same as knowing the
+source’s reasoning.</p>
+<p>There is exactly one source resmon speaks about with certainty: bioRxiv/medRxiv has no
+keyword search of its own, so resmon does the filtering and knows precisely why a paper
+is in the set.</p>
+<h2 id="corpus-lifecycle">Corpus lifecycle</h2>
+<p>Your corpus has always been frozen at the moment resmon found each paper. A paper you
+read in March can be retracted in June and nothing would say so — and discovering after
+submission that work you built on was retracted is a career-grade problem.</p>
+<p>resmon now checks three things:</p>
+<ul>
+<li><strong>Retractions and expressions of concern</strong>, through Crossref, which has distributed the
+Retraction Watch database openly since 2023.</li>
+<li><strong>Preprints that have since reached a journal</strong>, so you can cite the peer-reviewed
+version.</li>
+<li><strong>Newer versions</strong> of papers you hold, on both bioRxiv and arXiv.</li>
+</ul>
+<p><strong>resmon never asserts a lifecycle event on its own authority.</strong> Every finding carries a
+link to the notice behind it, and one that cannot produce a link is refused at the
+database layer — it cannot be stored, let alone displayed. A false retraction flag is
+defamatory, and “we inferred it from the metadata” is not a defense.</p>
+<p>The publisher’s own wording is kept verbatim, an expression of concern is graded <em>below</em> a
+retraction and said to be weaker, and a correction renders as the routine scholarly
+upkeep it is. Coloring a correction like a retraction would teach you to ignore the
+color — after which the retraction goes unread too.</p>
+<p>Coverage travels with the findings. An empty list over an unchecked corpus means <em>nobody
+looked</em>, not <em>nothing has been retracted</em>, and the page says which. Papers with no usable
+identifier are counted separately rather than quietly treated as clean.</p>
+<p>This is the only part of resmon that makes outbound requests without you starting a
+search, so it runs only when you ask.</p>
+<h2 id="the-reproducible-search-record">The reproducible search record</h2>
+<p>Every systematic review’s methods section requires the same account of a search — exact
+terms, sources queried, per-database retrieval counts, deduplication figures, date, and
+software version — and it is assembled by hand in spreadsheets essentially everywhere.</p>
+<p>resmon has recorded all of it since the beginning. Any execution now exports it as JSON or
+as a Markdown document shaped for a <strong>PRISMA 2020</strong> flow diagram.</p>
+<p>The work here is the labeling, not the layout. resmon’s counters do not map cleanly onto
+PRISMA’s boxes, and printing them under PRISMA headings would publish a claim resmon
+cannot support:</p>
+<ul>
+<li>Cross-source duplicates are reported as <strong>found</strong>, never <strong>removed</strong> — resmon flags the
+overlap and keeps both copies, so “duplicates removed” would describe an operation that
+never happened.</li>
+<li>“Already held from an earlier run” has <strong>no PRISMA box at all</strong>. It is an artefact of
+monitoring over time rather than running a single search, and the record says so.</li>
+<li>A figure that was never measured reads <strong>not recorded</strong>, never <code>0</code>, because a reviewer
+reads <code>0</code> as a measurement.</li>
+</ul>
+<p>Sources that were selected but contributed nothing stay in the record, naming why. A
+strategy listing a database as searched when its key was missing overstates its coverage.</p>
+<h2 id="also-in-this-release">Also in this release</h2>
+<ul>
+<li><strong>The Danger Zone now tells the truth.</strong> Until this release <em>nothing</em> there deleted a
+single paper — not “Erase all app data”, and not even <strong>Factory reset</strong>, which on a real
+install meant tens of thousands of papers surviving a reset that claimed to erase
+everything. There is now a dedicated <strong>Erase the paper corpus</strong> action; “Erase all app
+data” and “Factory reset” include the corpus, because their names already claimed it;
+and every remaining action states explicitly whether your papers are affected.</li>
+<li><strong>Credentials report themselves honestly.</strong> An unreadable keychain entry is reported as
+unreadable rather than as “no key set”, with a breaker bounding the stall.</li>
+<li><strong>Page help starts collapsed</strong>, instead of greeting you expanded on every page.</li>
+<li><strong>Lifecycle checks batch properly</strong> — Crossref forty DOIs at a time, arXiv fifty ids at
+a time — so a fifteen-thousand-paper corpus is a few hundred requests rather than
+fifteen thousand, with a “check everything” option and a cooperative stop.</li>
+</ul>
+<h2 id="verification">Verification</h2>
+<ul>
+<li><strong>485 backend tests</strong>, plus a <code>live_network</code> test that pins the Crossref contract
+against the real API, so a change there fails loudly instead of going quiet.</li>
+<li><strong>111 renderer tests.</strong></li>
+<li>CI green on Python 3.10, 3.11 and 3.12.</li>
+<li><strong>No new dependencies.</strong> Four features, zero additions to the dependency tree.</li>
+<li>Database schema 5 → 8, with migrations that backfill from data already on disk: existing
+installs get watchdog history and deduplication figures on first launch rather than
+starting from nothing.</li>
+</ul>
+<h2 id="installing">Installing</h2>
+<p>Same as 1.6.0 — DMGs for Apple Silicon and Intel, a Windows installer, and a Linux
+AppImage, published automatically on the release. Windows and Linux installs update
+themselves; macOS builds remain unsigned pending Apple Developer enrolment, so the README
+covers the Gatekeeper steps.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 9 — resmon Tells You the Truth]]></summary></entry><entry><title type="html">resmon Update 8 — August 20, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/08/20/resmon-update-8/" rel="alternate" type="text/html" title="resmon Update 8 — August 20, 2026" /><published>2026-08-20T22:00:00+00:00</published><updated>2026-08-20T22:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/08/20/resmon-update-8</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/08/20/resmon-update-8/"><![CDATA[<h1 id="update-8--resmon-can-finally-be-installed-by-anyone">Update 8 — resmon Can Finally Be Installed. By Anyone.</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 8</li>
+<li><strong>Version:</strong> 1.5.0 → 1.6.0</li>
+<li><strong>Theme:</strong> distribution — installers for every desktop platform, self-updating on two of them</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p>Until today, running resmon meant cloning the repository and building it yourself.
+As of 1.6.0 there are real installers for all three desktop platforms, built and
+published automatically on every release:</p>
+<ul>
+<li><strong>macOS</strong> — a DMG for Apple Silicon and a separate DMG for Intel. Drag to
+Applications. Builds are currently unsigned, and macOS blocks a downloaded
+unsigned app with a <em>“resmon.app” is damaged</em> dialog — it is not damaged; that
+is Gatekeeper’s standard refusal. One command clears it for good:
+<code>xattr -dr com.apple.quarantine /Applications/resmon.app</code>. The README covers
+the variants.</li>
+<li><strong>Windows</strong> — a standard installer with a choosable install directory.
+SmartScreen warns on unsigned installers: <em>More info → Run anyway</em>.</li>
+<li><strong>Linux</strong> — an AppImage. <code>chmod +x</code>, run.</li>
+</ul>
+<p><strong>Windows and Linux installs keep themselves current.</strong> The app checks the
+project’s GitHub Releases shortly after launch and every six hours, downloads in
+the background, and offers <em>restart now</em> or <em>on next quit</em>. macOS cannot
+self-update while builds are unsigned — its update machinery validates code
+signatures — so macOS stays manual-install for now, and never pretends otherwise.</p>
+<h2 id="what-else-landed-in-160">What else landed in 1.6.0</h2>
+<ul>
+<li><strong>The app no longer attaches to a mismatched background daemon.</strong> An installed
+1.5.0 talking to an old 1.2.1 daemon produced 404s on pages the old backend had
+never heard of, while the status bar said “Online”. The attach handshake now
+requires an exact version match; anything else gets its own bundled backend on
+its own port.</li>
+<li><strong>App state lives where it belongs.</strong> A packaged resmon keeps its database and
+reports in the per-user application-support directory, not inside the app
+bundle — surviving updates, and unaffected by macOS running quarantined apps
+from read-only locations.</li>
+<li><strong>Analytics is cached.</strong> Every figure used to be recomputed on each page load.
+Results now cache against a fingerprint of the corpus, so the page is instant
+until something actually changes — and correct the moment it does.</li>
+<li><strong>The renderer test suite nearly doubled</strong> (27 → 52), aimed at the pages that
+changed most in recent releases.</li>
+</ul>
+<h2 id="the-same-day-161-hotfix">The same-day 1.6.1 hotfix</h2>
+<p>1.6.0’s installers carried a genuine distribution bug: the bundled Python was a
+virtual environment, and a venv is never actually portable — its interpreter
+links the build machine’s Python at an absolute path, and the standard library
+stays behind. Every 1.6.0 build worked on machines that happened to have the
+build Python (including every machine it was tested on) and crashed on clean
+ones.</p>
+<p>1.6.1 replaces the venv with a genuinely relocatable standalone CPython
+(<a href="https://github.com/astral-sh/python-build-standalone">python-build-standalone</a>),
+with everything installed inside the bundle and nothing referencing a path
+outside it. The release pipeline now <em>runs the shipped interpreter</em> on every
+platform and rejects any user-level framework linkage, so this class of bug
+cannot ship again. Windows and Linux 1.6.0 installs self-heal through
+auto-update; macOS users should download 1.6.1.</p>
+<h2 id="for-the-record">For the record</h2>
+<p>The pre-1.6 application is archived permanently as <code>v1.5-classic</code>. The release
+pipeline signs and notarizes automatically the day an Apple Developer certificate
+is configured; nothing about it needs to change but the secrets.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 8 — resmon Can Finally Be Installed. By Anyone.]]></summary></entry><entry><title type="html">resmon Update 7 — August 19, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/08/19/resmon-update-7/" rel="alternate" type="text/html" title="resmon Update 7 — August 19, 2026" /><published>2026-08-19T22:00:00+00:00</published><updated>2026-08-19T22:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/08/19/resmon-update-7</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/08/19/resmon-update-7/"><![CDATA[<h1 id="update-7--explorer-every-paper-you-have-ever-collected-in-one-place">Update 7 — Explorer: Every Paper You Have Ever Collected, in One Place</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 7</li>
+<li><strong>Update type:</strong> feature</li>
+<li><strong>Date:</strong> 2026-08-19</li>
+<li><strong>Version:</strong> 1.4.0 → 1.5.0</li>
+<li><strong>Scope:</strong> corpus search, database indexing, reference export</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<p>Update 6 gave resmon an Analytics page that could tell you which of your repositories
+were earning their place and which of your routines had gone quiet. It could not,
+however, show you a single paper. You could learn that arXiv dominated a category and
+then have no way to read what was in it.</p>
+<p>This release adds the <strong>Explorer</strong>: search and filter every paper resmon has ever
+collected, across all executions and routines, and go straight from a number on a chart
+to the papers behind it.</p>
+<p>It also gives the database the indexes it has never had.</p>
+<h2 id="motivation">Motivation</h2>
+<p>Until now, papers could only be looked at one execution at a time. That is the wrong
+unit. An execution is a thing resmon did; a corpus is the thing you actually care
+about. Questions like “everything from bioRxiv about protein folding since March,
+regardless of which routine found it” had no way to be asked at all.</p>
+<p>The second motivation is duller and more important. <strong><code>documents</code> had no indexes.</strong> Not
+one, beyond the uniqueness constraint that came free with the table definition. Every
+filter resmon has ever run was a full scan of every row. At a few hundred papers that is
+invisible; at a hundred thousand it is the difference between a tool and a wait.</p>
+<h2 id="changes">Changes</h2>
+<h3 id="the-explorer">The Explorer</h3>
+<ul>
+<li><strong>Free text over titles and abstracts</strong>, searched together, with the last word treated
+as a prefix so results narrow as you type.</li>
+<li><strong>Filter by source, subject category, author, and publication date range.</strong> Each value
+shows how many papers carry it, so you can see what a filter will cost before applying
+it. Filters combine with AND: a paper must satisfy all of them.</li>
+<li><strong>Filters live in the address bar.</strong> A filtered view can be bookmarked, reloaded, or
+sent to someone, and the Back button behaves.</li>
+<li><strong>Clicking a source or a category on the Analytics page opens the Explorer already
+filtered to it.</strong> This is the point of the feature. Analytics tells you something is
+worth looking at; the Explorer is where you look.</li>
+<li><strong>BibTeX, RIS, and CSV export everything matching your filters</strong> — not just the papers
+currently on screen. Filtering to a topic and exporting the whole set is the real use.</li>
+</ul>
+<p>Empty states are distinguished, because they mean different things: <em>nothing matches
+these filters</em> offers to clear them, while <em>nothing collected yet</em> points at Deep Dive.</p>
+<h3 id="the-indexes">The indexes</h3>
+<p>Three pieces of work, each measured on a real 100,000-paper database rather than assumed.</p>
+<p><strong>Free text uses a full-text index.</strong> <code>LIKE '%term%'</code> has no usable prefix, so SQLite
+reads every abstract in the table. The FTS5 index is declared <em>external-content</em>, so it
+stores tokens and a row pointer rather than a second copy of every abstract, and triggers
+keep it in step with inserts, updates, and deletes. Free-text search across a hundred
+thousand papers: <strong>10.8 ms</strong>.</p>
+<p><strong>Authors and categories are normalized.</strong> They are stored as comma-joined strings, which
+is fine for display and impossible to filter or count without reading every row. Two
+indexed companion tables now carry them. The original strings are untouched — <code>documents</code>
+remains the source of truth, and the new tables are derived from it.</p>
+<h3 id="the-pagination-which-took-three-attempts">The pagination, which took three attempts</h3>
+<p>This is the part worth writing down, because the first two attempts were <strong>slower than
+doing nothing clever at all</strong>.</p>
+<p>The conventional wisdom is that <code>LIMIT 50 OFFSET 90000</code> is slow, because the database
+walks and discards ninety thousand rows to reach the ones you asked for. So the first
+implementation replaced it with a cursor: remember where the last page ended, and ask for
+rows after that point.</p>
+<p>It was slower. Measured at row 90,000 of 100,000:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Approach</th><th>Query plan</th><th>Time</th></tr></thead><tbody><tr><td>First cursor attempt</td><td><code>SCAN</code></td><td>3.83 ms</td></tr><tr><td>Plain <code>LIMIT/OFFSET</code></td><td><code>SCAN</code></td><td>1.66 ms</td></tr><tr><td>Second cursor attempt</td><td><code>SCAN</code></td><td>3.83 ms</td></tr><tr><td><strong>What shipped</strong></td><td><strong><code>SEARCH</code></strong></td><td><strong>0.30 ms</strong></td></tr></tbody></table>
+<p>The first attempt compared the cursor with an <code>OR</code> of two conditions — <em>date is earlier,
+or date is equal and id is lower</em>. That is logically correct and useless to the query
+planner, which cannot turn it into a single seek. It scanned, and the extra condition
+made it scan more slowly than the plain offset.</p>
+<p>Rewriting it as a single tuple comparison fixed the logic but not the plan, for a
+different reason: the sort key was an <em>expression</em>, and SQLite will not match this kind
+of comparison against an index built on an expression. The fix was to make the sort key a
+real generated column and index that. The plan changed from <code>SCAN</code> to <code>SEARCH</code>, and the
+time fell by a factor of twenty.</p>
+<p><strong>None of this was visible without measuring.</strong> The first version looked correct, passed
+its tests, and was slower than the code it replaced.</p>
+<p>One further detail, because it would have failed silently: that sort key treats a paper
+with no publication date as an empty string rather than a null. Compared against a real
+null, a tuple comparison yields null — and <strong>every undated paper would have disappeared
+from the results with no error anywhere</strong>. On the benchmark database that is 3,945 papers
+that would simply not have existed. There is now a test that walks a mixed corpus and
+asserts every paper is reached.</p>
+<p>Facet counting had a smaller version of the same lesson: it was joining to a table it did
+not need, since the link table’s own key already held the answer. Removing the join took
+it from 735 ms to 12 ms.</p>
+<h3 id="measured-on-100000-papers">Measured, on 100,000 papers</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Query</th><th>Time</th></tr></thead><tbody><tr><td>First page, no filters</td><td>0.32 ms</td></tr><tr><td>Free text</td><td>10.8 ms</td></tr><tr><td>Author filter</td><td>22 ms</td></tr><tr><td>Every filter at once</td><td>25.6 ms</td></tr><tr><td>Facet counts, unfiltered</td><td>52 ms</td></tr><tr><td>A page at row 90,000</td><td>0.30 ms</td></tr></tbody></table>
+<p>Result totals above ten thousand are reported as “10,000+”. Counting an unbounded match
+set is the one query that cannot be bounded, and the exact five-digit number changes no
+decision anyone makes.</p>
+<h2 id="verification">Verification</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th>Before</th><th>After</th></tr></thead><tbody><tr><td>Backend tests</td><td>423</td><td><strong>439</strong></td></tr><tr><td>Renderer tests</td><td>21</td><td><strong>27</strong></td></tr><tr><td>Indexes on <code>documents</code></td><td><strong>0</strong></td><td>5, plus a full-text index</td></tr><tr><td>CI</td><td>3.10, 3.11, 3.12 green</td><td>unchanged, still green</td></tr></tbody></table>
+<h2 id="follow-ups">Follow-ups</h2>
+<ul>
+<li>Neither Analytics nor the Explorer has a tutorial video yet; both show the standard
+placeholder.</li>
+<li>Analytics is still computed on each page load without caching. The Explorer’s indexes
+do not help it.</li>
+<li>The benchmark corpus is synthetic — a hundred thousand rows of realistic shape, but
+generated. Real abstracts vary more in length and real author names are far more
+diverse, which mostly makes the facet lists work harder.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 7 — Explorer: Every Paper You Have Ever Collected, in One Place]]></summary></entry><entry><title type="html">resmon Update 6 — August 19, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/08/19/resmon-update-6/" rel="alternate" type="text/html" title="resmon Update 6 — August 19, 2026" /><published>2026-08-19T16:00:00+00:00</published><updated>2026-08-19T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/08/19/resmon-update-6</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/08/19/resmon-update-6/"><![CDATA[<h1 id="update-6--analytics-what-your-corpus-can-tell-you-about-itself">Update 6 — Analytics: What Your Corpus Can Tell You About Itself</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 6</li>
+<li><strong>Update type:</strong> feature</li>
+<li><strong>Date:</strong> 2026-08-19</li>
+<li><strong>Version:</strong> 1.3.0 → 1.4.0</li>
+<li><strong>Scope:</strong> analytics, reference exports, Electron security</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<p>resmon has always recorded a great deal about every paper it finds — the source, the
+DOI, the authors, the publication date, the subject categories, whether the paper was
+new to you at the time, and the moment resmon itself first saw it. Until now it did
+almost nothing with any of it: a list, a count, and a Markdown report.</p>
+<p>This release adds an <strong>Analytics</strong> page that answers four questions from data already
+on your disk, and <strong>BibTeX / RIS / CSV export</strong> so the papers a sweep finds can go
+straight into a reference manager.</p>
+<p>Nothing on the Analytics page queries a repository. Opening it costs no API quota and
+works offline.</p>
+<h2 id="motivation">Motivation</h2>
+<p>Two of the questions here are ones a researcher cannot easily answer any other way.</p>
+<p><strong>Which of your repositories are actually earning their place?</strong> resmon can query
+fifteen sources. Some of them will be re-reporting papers that another source already
+gave you. Every one of those costs time and rate-limit budget on every single sweep,
+and contributes nothing. Nobody can tell you which, because it depends entirely on what
+<em>you</em> search for.</p>
+<p><strong>How long does each source take to surface a paper?</strong> This one resmon is unusually
+placed to answer. Because it stamps <code>first_seen_at</code> itself, it knows how long each
+repository took to deliver a paper <em>to you</em> after that paper was published. No
+repository publishes this figure about itself. It has a direct practical consequence: a
+source with a two-week median will not deliver anything sooner because a routine runs
+hourly.</p>
+<h2 id="changes">Changes</h2>
+<h3 id="the-analytics-page">The Analytics page</h3>
+<ul>
+<li><strong>Which sources earn their place.</strong> Per repository, papers that nothing else found,
+against papers that also arrived from somewhere else. Papers are identified across
+sources by DOI, falling back to a normalized title, because the same paper arriving
+from arXiv and OpenAlex is two rows by design. A source with almost no unique
+contribution is a candidate for deselecting.</li>
+<li><strong>How quickly each source surfaces a paper.</strong> Median, fastest, and slowest days
+between publication and resmon first seeing it. Negative lags are kept rather than
+discarded — some sources date a paper later than they post it, and dropping those
+would flatter the source.</li>
+<li><strong>Routine health.</strong> New results per run, per routine, with a sparkline and an explicit
+count of consecutive runs that found nothing. A routine marked <strong>Quiet</strong> has returned
+nothing new for several runs, which usually means its keywords are too narrow or its
+field has gone still.</li>
+<li><strong>Publication volume over time.</strong> Papers per month, stacked by source or by subject
+category, with a legend and a table view of the same figures. A paper in two
+categories is counted in both. An undated paper stays in your corpus totals but is
+left off the timeline rather than assigned a guessed date.</li>
+</ul>
+<h3 id="on-figures-that-say-not-enough-data-yet">On figures that say “not enough data yet”</h3>
+<p>This is the part you will notice, so it is worth being explicit about the rule.</p>
+<p><strong>Counts are always shown.</strong> “Fourteen papers from arXiv” is true whether your corpus
+holds fourteen papers or fourteen thousand, so there is no reason to withhold it.</p>
+<p><strong>Averages and percentages are held back until they mean something.</strong> A median of three
+numbers is not a finding, it is three numbers. Below the threshold resmon shows the
+count and what it still needs — “3 (needs 5)” — rather than printing a confident median
+computed from almost nothing.</p>
+<p><strong>A percentage of nothing is undefined, not zero.</strong> DOI coverage on an empty corpus
+shows an em dash. Rendering it as “0%” would be a claim about your data rather than an
+admission that there isn’t any yet.</p>
+<p>The same applies to routines: one quiet run is not evidence that a routine is finished,
+so resmon will not call a routine healthy or quiet until it has three completed runs.
+Until then it says <em>“Too early to tell”</em> and states how many runs it needs.</p>
+<p>The thresholds are deliberately low — five dated papers for a lag median, three runs for
+a routine verdict. They exist to stop a single data point being presented as a trend,
+not to withhold information from a small corpus. Every figure also carries the sample
+size it was computed from, so nothing is hidden.</p>
+<p><strong>On an empty corpus the page does not draw empty charts.</strong> It explains what it will
+show once you have run a search, and links to Deep Dive and Deep Sweep. An axis with no
+data on it reads as breakage, not as emptiness.</p>
+<h3 id="reference-exports">Reference exports</h3>
+<p>Results &#x26; Logs gains <strong>BibTeX</strong>, <strong>RIS</strong> and <strong>CSV</strong> buttons alongside the existing
+export. These give you the <em>papers</em>, in the formats reference managers read, rather than
+the report about them:</p>
+<ul>
+<li><strong>BibTeX</strong> — LaTeX, Overleaf, JabRef, and Zotero’s importer.</li>
+<li><strong>RIS</strong> — EndNote, Papers, Mendeley, and most publisher sites.</li>
+<li><strong>CSV</strong> — a spreadsheet, or your own scripts.</li>
+</ul>
+<p>Selecting several runs produces one file. Papers with a DOI are exported as journal
+articles and those without — usually preprints — as generic entries, because claiming a
+venue resmon does not know would be worse than leaving it out. Cite keys are made unique
+within a file, BibTeX special characters are escaped including inside URLs, and
+abstracts are collapsed to a single line, since multi-line values break several
+importers and RIS outright.</p>
+<h3 id="security">Security</h3>
+<p>The Electron window no longer disables the browser’s same-origin policy. That flag dated
+from when the interface was loaded from a <code>file://</code> URL and could not otherwise reach its
+own backend; the interface has since been served by a local HTTP server, which made the
+flag unnecessary. Removing it was verified two ways: a cross-origin request succeeded in
+a browser with the policy enforced, and the running app was observed issuing proper CORS
+preflight requests — which a browser only sends when the policy is in force.</p>
+<h2 id="verification">Verification</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th>Before</th><th>After</th></tr></thead><tbody><tr><td>Backend tests</td><td>404</td><td><strong>423</strong></td></tr><tr><td>Renderer tests</td><td>13</td><td><strong>21</strong></td></tr><tr><td>CI</td><td>3.10, 3.11, 3.12 green</td><td>unchanged, still green</td></tr><tr><td>Analytics endpoints</td><td>—</td><td>6</td></tr><tr><td>Export formats</td><td>Markdown, PDF, LaTeX</td><td><strong>+ BibTeX, RIS, CSV</strong></td></tr></tbody></table>
+<p>The analytics tests treat the empty and thin corpus as first-class cases rather than
+edge cases, because that is the state every new install is in.</p>
+<h2 id="follow-ups">Follow-ups</h2>
+<ul>
+<li>The Analytics page has no tutorial video yet; its entry shows the standard placeholder.</li>
+<li>Analytics are computed on each page load with no caching. On a few thousand papers this
+is instant. On a corpus a hundred times larger the author count walks every row, and
+that will want revisiting.</li>
+<li>The corpus-wide faceted explorer and cross-execution comparison described in the Phase 2
+plan are not in this release.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 6 — Analytics: What Your Corpus Can Tell You About Itself]]></summary></entry><entry><title type="html">resmon Update 5 — August 18, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/08/18/resmon-update-5/" rel="alternate" type="text/html" title="resmon Update 5 — August 18, 2026" /><published>2026-08-18T16:00:00+00:00</published><updated>2026-08-18T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/08/18/resmon-update-5</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/08/18/resmon-update-5/"><![CDATA[<h1 id="update-5--hardening-a-clean-install-that-actually-starts-a-suite-that-actually-finishes-and-ci-to-keep-it-that-way">Update 5 — Hardening: A Clean Install That Actually Starts, a Suite That Actually Finishes, and CI to Keep It That Way</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 5</li>
+<li><strong>Update type:</strong> bugfix / infrastructure</li>
+<li><strong>Date:</strong> 2026-08-18</li>
+<li><strong>Version:</strong> 1.2.1 → 1.3.0</li>
+<li><strong>Scope:</strong> packaging, concurrency, test infrastructure, continuous integration, documentation</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<p>Twenty-five defects were found by installing resmon exactly the way the README tells
+a new user to, running everything the project ships, and then reading the parts that
+had never been exercised. Twenty-four are fixed. The one that remains is documented
+here rather than quietly left in place.</p>
+<p>Five of them were found by CI itself, after the first eighteen were already fixed —
+including the one that mattered most to users.</p>
+<p>The headline is unglamorous: <strong>a fresh clone could not start</strong>, and <strong>the test
+suite could not finish</strong>. Both are fixed, and there is now CI so neither can come
+back unnoticed.</p>
+<h2 id="motivation">Motivation</h2>
+<p>resmon’s features were in good shape — the frontend type-checked cleanly, the
+production build succeeded, and 290 backend tests passed. The problems were all
+<em>around</em> that working core, in the places nobody re-checks once they work on the
+machine they were written on.</p>
+<p>Three of them could only be found by starting from nothing:</p>
+<ul>
+<li><code>requirements.txt</code> never listed <code>python-dateutil</code>, which the scheduler imports.
+It had simply always been present in the author’s environment.</li>
+<li>The cloud service’s dependencies were pinned nowhere, so nine test files could
+not even be collected — and behind that, <code>cloud/metrics.py</code> turned out to have
+a syntax error and to have never been importable at all.</li>
+<li>Reading the OS keychain had no time limit, and on macOS that call waits on a GUI
+prompt. It hung the whole test suite indefinitely.</li>
+</ul>
+<h2 id="changes">Changes</h2>
+<h3 id="a-clean-install-works">A clean install works</h3>
+<ul>
+<li><strong>Added <code>python-dateutil</code> to <code>requirements.txt</code>.</strong> Without it, a virtualenv built
+from the README could not <code>import resmon</code>, and all 53 backend test files failed
+at collection.</li>
+<li><strong>Pinned the cloud service’s own dependencies</strong> — PyJWT, PyNaCl, boto3, alembic,
+prometheus-client, python-json-logger, redis — and <code>moto</code> for the test that
+stands up a local S3. The Dockerfile no longer re-specifies them.</li>
+<li><strong>Fixed a syntax error in <code>cloud/metrics.py</code></strong>: a missing comma after the
+<code>executions_total</code> help string. The cloud microservice had never parsed. The
+missing dependencies had been hiding it, because the import failed earlier.</li>
+</ul>
+<h3 id="every-thread-now-has-its-own-database-connection">Every thread now has its own database connection</h3>
+<p>The deepest fix in this release, and the one that took the longest to characterise
+honestly.</p>
+<p>resmon kept a <strong>single</strong> process-wide <code>sqlite3.Connection</code> and used it from every
+FastAPI request thread <em>and</em> every execution worker thread, with nothing serialising
+them. sqlite3 connections are not safe for concurrent use. Python 3.10 and 3.11
+largely got away with it because their <code>sqlite3</code> module holds the GIL across most
+operations; 3.12 releases it far more aggressively, so the race was lost reliably
+there and intermittently everywhere else. It surfaced as, variously:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>sqlite3.InterfaceError:   bad parameter or other API misuse</span></span>
+<span class="line"><span>sqlite3.ProgrammingError: Cannot operate on a closed database</span></span>
+<span class="line"><span>sqlite3.OperationalError: cannot start a transaction within a transaction</span></span></code></pre>
+<p>Each thread now opens its own connection. <code>_get_db()</code> is the single point every call
+site already went through, so the change lands everywhere at once rather than only on
+the path that happened to expose it; the execution worker additionally rebinds the
+engine, which had captured the request thread’s connection at construction.</p>
+<p>Two supporting changes were needed. <code>init_db</code> now commits — schema left inside an open
+transaction on one connection is invisible to every other. And the <code>":memory:"</code> test
+hook is now backed by a temp file rather than a real in-memory database: an in-memory
+database is private to its own connection, and the obvious workaround, SQLite’s
+shared-cache mode, takes coarser table-level locks that <code>busy_timeout</code> does not retry.
+Tests now run against exactly the file-plus-WAL configuration resmon actually ships.</p>
+<p><strong>Python 3.12 is supported, and is in CI</strong>, alongside 3.10 and 3.11.</p>
+<p>There are six new tests aimed squarely at the concurrency rather than waiting for it to
+surface by luck — including one that hammers the database from twelve threads at once,
+and one that asserts the worker thread does not reuse the request thread’s connection.
+All six were checked against the pre-fix code first: three of them fail there, which is
+the only evidence that a regression test is worth having.</p>
+<h3 id="concurrency-and-lifecycle">Concurrency and lifecycle</h3>
+<ul>
+<li><strong>Keychain reads are now bounded.</strong> Every keyring call runs on a daemon thread
+joined with a timeout. Reads degrade to “credential not present”; writes and
+deletes raise rather than falsely reporting success. Previously
+<code>GET /api/cloud/status</code> could hang forever and hold an ASGI worker with it.</li>
+<li><strong>An execution can no longer strand its concurrency slot.</strong> <code>admission.note_finished</code>
+was the last unguarded statement in a <code>finally</code> block, after the progress-persist
+step. Any database error there leaked the slot permanently — and after three
+(the default cap) resmon rejected every Deep Dive and Deep Sweep with HTTP 429
+while nothing was actually running. Slot release now has its own <code>finally</code>.</li>
+<li><strong>Rate limiting works under load.</strong> <code>RateLimiter.acquire()</code> had no lock, so
+concurrent sweeps sharing a source’s limiter all woke together. Measured against
+arXiv’s 0.33 req/s ceiling, four concurrent sweeps issued every request within
+0.00 s of each other — 1.32 req/s, four times the advertised limit, the kind of
+thing that earns a temporary IP block. Now correctly serialized.</li>
+<li><strong>A new execution no longer inherits an old one’s progress log.</strong>
+<code>ProgressStore.register()</code> only touched its dictionary entry instead of clearing
+it. Reachable in practice: cleanup is skipped whenever the persist step raises,
+and “Erase executions” resets <code>sqlite_sequence</code>, so ids restart at 1.</li>
+<li><strong><code>get_connection()</code> rejects a wrong-typed argument.</strong> It used to apply <code>str()</code>
+to whatever it was given, so passing a connection created a database file
+literally named <code>&#x3C;sqlite3.Connection object at 0x...></code> rather than raising. One
+caller did exactly that, and its schema setup had been silently doing nothing.</li>
+<li><strong>Service install/uninstall cannot hang.</strong> The <code>launchctl</code> / <code>systemctl</code> /
+<code>schtasks</code> calls behind <code>POST /api/service/install</code> had no timeout.</li>
+</ul>
+<h3 id="ai-summarization-was-unusable-on-a-fresh-offline-install">AI summarization was unusable on a fresh offline install</h3>
+<p>The most user-facing defect of the set, and it was CI that exposed it.</p>
+<p><code>summarizer.py</code> bootstraps NLTK’s sentence tokenizer at import, downloading the
+<code>punkt_tab</code> data if it is missing. pip does not ship NLTK’s corpora, so on a fresh
+install that download is the only thing standing between a user and a working
+summarizer — and <code>nltk.download(quiet=True)</code> returns <code>False</code> on failure rather than
+raising. On a machine that is offline, behind a firewall, or simply cannot reach
+NLTK’s servers, the bootstrap failed <strong>silently</strong>, and every later call raised
+<code>LookupError: Resource 'punkt_tab' not found</code>, failing the whole execution.</p>
+<p>So: enable AI summarization, run a sweep without a network path to NLTK, and the
+headline feature died with an error naming a Python library the user never asked
+about. The README never mentioned the data either.</p>
+<p>Sentence splitting now degrades to a regex splitter with one clear warning naming the
+exact command to install the data properly, and the README documents it as an optional
+step with an honest description of what skipping it costs.</p>
+<p>A related fix in the same file: the tiktoken encoder was wrapped in <code>except KeyError</code>,
+but tiktoken <em>downloads</em> its vocabulary, so for a known model it fails with a network
+error instead — which escaped the constructor entirely. The character-count fallback
+the class documents was unreachable in exactly the case that needed it.</p>
+<h3 id="the-renderer">The renderer</h3>
+<ul>
+<li><strong>The Monitor page’s tab focus works.</strong> Closing the focused execution tab left
+focus pointing at the execution that had just been removed.
+<code>clearExecution()</code> computed the next focus inside one React state updater nested
+in another and read it from the outer one — which React runs first, so the value
+was never observed.</li>
+</ul>
+<h3 id="test-infrastructure">Test infrastructure</h3>
+<ul>
+<li>
+<p><strong>Jest now runs the renderer specs.</strong> Three well-written
+<code>@testing-library/react</code> specs had been in the repository with no runner and no
+<code>test</code> script, so they had never executed once. They run unchanged, and found
+the focus bug above within minutes.</p>
+</li>
+<li>
+<p><strong>Live-network tests are separated from unit tests.</strong> Nine tests hit real
+scholarly APIs; they are marked <code>live_network</code> and deselected by default, so the
+suite runs offline and in CI. The three affected files are each <em>mixed</em>, so they
+are marked test-by-test — marking whole files would have dropped eight hermetic
+tests from the default run.</p>
+</li>
+<li>
+<p><strong>Added a <code>conftest.py</code>.</strong> The suite raced its own background worker threads and
+reached for the developer’s real keychain. It now waits for worker threads before
+any fixture teardown, and installs an in-memory keyring.</p>
+</li>
+<li>
+<p><strong>Hermeticity is now enforced, not assumed.</strong> Marking the live tests by hand was not
+enough: two stragglers were missed and only surfaced when arXiv rate-limited a CI
+runner. Both swallowed their own network errors, so locally they simply passed.
+<code>conftest.py</code> now blocks any non-loopback socket from a test that is not marked
+<code>live_network</code>, and the failure message names the host and says what to do.</p>
+</li>
+</ul>
+<h3 id="continuous-integration">Continuous integration</h3>
+<ul>
+<li>
+<p><strong>Added <code>.github/workflows/ci.yml</code>.</strong> On every push and pull request: <code>compileall</code>
+over the whole tree, an explicit import of both the desktop backend and the cloud
+service from a clean install, the hermetic pytest suite on Python 3.10 and 3.11,
+and then typecheck, renderer tests, and build for the frontend.</p>
+<p>It earned its place immediately, catching two things a local run could not: the
+suite only worked under <code>python -m pytest</code> because that adds the working
+directory to <code>sys.path</code>, and <code>npm ci</code> rejected a lockfile that npm itself cannot
+make portable across platforms.</p>
+</li>
+</ul>
+<h3 id="documentation">Documentation</h3>
+<ul>
+<li><strong>The repository count is now correct.</strong> The README claimed 16 sources, the tests
+claimed 17, and the catalog that actually feeds the Repositories page exposes 15.
+medRxiv was the phantom: it is served by the bioRxiv client but has no catalog
+entry, so it cannot be selected separately. The README says so now instead of
+advertising a source the UI does not offer.</li>
+<li><strong>Removed five directories from the project structure</strong> that are not in the
+repository: <code>given_scripts/</code>, <code>notebooks/</code>, <code>resmon_experiments/</code>,
+<code>resmon_printouts/</code>, <code>resmon.app/</code>.</li>
+<li>Migrated four deprecated FastAPI <code>on_event</code> hooks to a <code>lifespan</code> handler, and
+renamed a Pydantic field that shadowed a base-class attribute. resmon’s own code
+now emits no warnings.</li>
+</ul>
+<h3 id="four-flaky-tests-one-root-cause">Four flaky tests, one root cause</h3>
+<p>CI failed repeatedly on the same commit while every local run passed. Each failure
+turned out to be the same pattern: <strong>a test’s scope ends at the HTTP response while
+the work continues on a daemon thread.</strong></p>
+<ul>
+<li>A calendar-color test’s arXiv mock was restored before the background execution
+used it, so the execution quietly queried the real API.</li>
+<li>A cancel test slept a fixed second and hoped the execution had finished.</li>
+<li>Fixtures closed the shared database while a worker was still writing to it.</li>
+<li>Two “returns immediately” tests let their worker escape the patch scope entirely.
+With the network blocked it then retried with backoff for longer than the
+thread-join timeout, survived into the next test, and re-registered its execution
+id in the process-wide progress store. Because every test gets a fresh in-memory
+database, ids restart at 1 — so the next test’s SSE read saw that id as live and
+streamed heartbeats until the run was killed.</li>
+</ul>
+<p>All four are fixed, and the suite now runs green across repeated CI runs.</p>
+<h2 id="verification">Verification</h2>
+<p>Measured on a fresh <code>git clone</code> into a new virtualenv, not on a working tree:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th>Before</th><th>After</th></tr></thead><tbody><tr><td>Clean install from <code>requirements.txt</code></td><td>backend will not import</td><td>imports; cloud service too</td></tr><tr><td>Backend suite</td><td>hangs indefinitely</td><td>404 passed, 4 skipped, ~40 s</td></tr><tr><td>Test files that can be collected</td><td>44 of 53</td><td>53 of 53</td></tr><tr><td>Renderer tests</td><td>3 specs, never run</td><td>13 passing</td></tr><tr><td>Warnings from resmon’s own code</td><td>3</td><td>0</td></tr><tr><td>CI</td><td>none</td><td>green on 3.10, 3.11, 3.12 and the frontend</td></tr></tbody></table>
+<h2 id="follow-ups">Follow-ups</h2>
+<p>One finding is <strong>not</strong> fixed, and is worth stating plainly.</p>
+<ul>
+<li><strong>BUG-016 — <code>webSecurity: false</code>.</strong> The Electron main window disables the
+same-origin policy. It may well be unnecessary now that the renderer is served
+over <code>http://127.0.0.1</code> rather than <code>file://</code>. Verifying that requires exercising
+every page against a live backend, so the flag was left alone rather than flipped
+blind.</li>
+</ul>
+<p>Also outstanding: the cloud service’s privacy notice is not tracked in the
+repository, so the test that checks its contents now skips with an explanatory
+message instead of failing.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 5 — Hardening: A Clean Install That Actually Starts, a Suite That Actually Finishes, and CI to Keep It That Way]]></summary></entry><entry><title type="html">resmon Update 4 — May 5, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/05/05/resmon-update-4/" rel="alternate" type="text/html" title="resmon Update 4 — May 5, 2026" /><published>2026-05-05T16:00:00+00:00</published><updated>2026-05-05T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/05/05/resmon-update-4</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/05/05/resmon-update-4/"><![CDATA[<h1 id="update-4--background-routine-reliability-scheduler--jobstore-lifecycle-daemon-attach-race-and-advanced-tab-honesty">Update 4 — Background Routine Reliability: Scheduler / Jobstore Lifecycle, Daemon-Attach Race, and Advanced-Tab Honesty</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 4</li>
+<li><strong>Update type:</strong> bugfix</li>
+<li><strong>Date:</strong> 2026-05-05</li>
+<li><strong>Author:</strong> Ryan Kamp</li>
+<li><strong>Commit hash:</strong> 9bb710562208ab053536b4bd6f49411b2174a595</li>
+<li><strong>Commit timestamp:</strong> 2026-05-05T15:59:55-04:00</li>
+<li><strong>GitHub push timestamp:</strong> 2026-05-05T20:00:06Z</li>
+<li><strong>App version:</strong> 1.2.0 → 1.2.1</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<p>This update is a reliability patch for scheduled Routines firing while the resmon window is closed. It closes three coupled defects: (i) routine ↔ APScheduler-jobstore lifecycle integrity (deleted routines no longer leave ghost <code>apscheduler_jobs</code> rows, daemon startup reconciles any pre-existing ghosts, and routine jobs are registered with a 1-hour <code>misfire_grace_time</code> so a fire whose nominal moment briefly passed still runs); (ii) the dual-backend race in which the Electron main process raced a launchd-bootstrapping daemon and silently spawned a competing backend with its own scheduler against the shared SQLite jobstore (now: <code>pingHealth</code> waits ~3 s with retry/backoff, lock-file presence forces a wait rather than a spawn, and even a legitimate fallback spawn honors <code>RESMON_DISABLE_SCHEDULER=1</code> so the renderer-spawned backend never owns a scheduler); and (iii) Advanced-tab honesty — the “Run resmon in the background” status block now reads <code>daemon.lock</code> and probes the daemon’s actual port through a new <code>GET /api/service/daemon-status</code> route, so the displayed pid / version / <code>last_started</code> reflect the real daemon and any future dual-backend race surfaces immediately rather than being masked. App version bumps <code>1.2.0 → 1.2.1</code>.</p>
+<h2 id="motivation">Motivation</h2>
+<p>All five fixes originated in a diagnostic session after the user observed in Update 3’s tutorial-recording flow that, having used the Settings → Advanced Danger Zone to wipe data and re-enable “Run resmon in the background,” scheduled Routines no longer fired when the app window was closed even though the Advanced tab reported the daemon as Installed and “up.” The full diagnosis lives in <a href="./resmon_update_4_overview.md"><code>resmon_update_4_overview.md</code></a>; the change inventory and batching plan live in <a href="./update_5_5_26_workflow.md"><code>update_5_5_26_workflow.md</code></a>. The five items map back to the workflow doc as Fixes A–E:</p>
+<ul>
+<li><strong>Fix A — Routine ↔ jobstore lifecycle integrity</strong> (workflow item #1, Batch 1). <code>delete_routine</code> did not remove the matching <code>apscheduler_jobs</code> row; the dispatcher kept trying to fire ghost jobs whose owning routine was gone, and a Danger-Zone wipe could leave ghosts behind that no UI surface could reach. Coupled with Fix B in Batch 1 because both touch <code>scheduler.py</code> / <code>database.py</code> / the FastAPI startup wiring and are exercised by the same scheduler verification suite.</li>
+<li><strong>Fix B — Default <code>misfire_grace_time</code> for routine jobs</strong> (workflow item #2, Batch 1). APScheduler’s default <code>misfire_grace_time</code> of 1 second silently dropped any fire whose nominal moment had passed by even a brief window — exactly the failure mode produced by a daemon restart, a scheduler reattach, or the app’s own scheduler dying without a clean <code>shutdown()</code>.</li>
+<li><strong>Fix C — Robust daemon attach in the Electron main process</strong> (workflow item #3, Batch 2). The 500 ms <code>/api/health</code> timeout returned <code>false</code> during the launchd daemon’s bootstrap window; the renderer then silently spawned its own backend with its own scheduler against the same SQLite jobstore, and once the spawned backend died at app close every queued fire was marked “missed by N hours.”</li>
+<li><strong>Fix D — Renderer-spawn never owns a scheduler</strong> (workflow item #4, Batch 2). Defense in depth for Fix C: even when a renderer-spawned fallback is legitimate (no daemon installed at all), the spawned backend must not start a <code>ResmonScheduler</code> against the shared jobstore. Implemented as a <code>RESMON_DISABLE_SCHEDULER=1</code> env var that <code>main.ts</code> sets on the spawned child and the FastAPI startup hook honors.</li>
+<li><strong>Fix E — Advanced tab daemon-status truthfulness</strong> (workflow item #5, Batch 3). The Advanced tab populated its daemon-status line from <code>GET /api/health</code> against whichever backend the renderer was attached to, so a renderer-spawned fallback masqueraded as the daemon and the dual-backend race was invisible to the user. The fix reads <code>daemon.lock</code> server-side and probes the daemon’s actual port through a new endpoint.</li>
+</ul>
+<h2 id="changes">Changes</h2>
+<h3 id="batch-1--fixes-a--b-scheduler--jobstore-lifecycle-cluster">Batch 1 — Fixes A + B (scheduler / jobstore lifecycle cluster)</h3>
+<ul>
+<li><code>resmon_scripts/implementation_scripts/scheduler.py</code> — <code>add_routine</code> registers each routine job with <code>misfire_grace_time=3600</code>; new <code>reconcile_jobstore_with_routines</code> method drops every <code>apscheduler_jobs</code> row whose id has no matching <code>routines.id</code> with <code>is_active=1</code>; called once from the FastAPI startup hook before active routines are re-registered. (Fix B + Fix A reconciliation.)</li>
+<li><code>resmon_scripts/implementation_scripts/database.py</code> — <code>delete_routine</code> removes the matching <code>apscheduler_jobs</code> row in the same transaction as the <code>routines</code> delete (idempotent against APScheduler-side removals; deletion-time job removal is tolerant of an already-gone row). (Fix A cascade.)</li>
+<li><code>resmon_scripts/resmon.py</code> — startup hook calls <code>scheduler.reconcile_jobstore_with_routines()</code> before re-registering active routines so any pre-existing ghosts are dropped on first boot of the patched daemon. (Fix A startup wiring.)</li>
+<li><code>resmon_scripts/verification_scripts/test_scheduler_reconciliation.py</code> <em>(new)</em> — regression: seeds an orphan <code>apscheduler_jobs</code> row, runs reconciliation, asserts removal; seeds a job whose owning routine is <code>is_active=0</code>, asserts removal; seeds a job whose owning routine is active, asserts retention.</li>
+<li><code>resmon_scripts/verification_scripts/test_routine_scheduler_sync.py</code> <em>(new)</em> — regression: inserts a routine, registers its job, calls <code>delete_routine</code>, asserts no orphan <code>apscheduler_jobs</code> row remains.</li>
+<li><code>resmon_scripts/verification_scripts/test_scheduler_lifecycle.py</code> <em>(new)</em> — regression: asserts new routine jobs are added with <code>misfire_grace_time=3600</code>.</li>
+<li><code>resmon_scripts/verification_scripts/test_scheduler_wiring.py</code> <em>(new)</em> — verifies the FastAPI startup hook invokes <code>reconcile_jobstore_with_routines</code> before re-registration.</li>
+</ul>
+<h3 id="batch-2--fixes-c--d-dual-backend-race-cluster">Batch 2 — Fixes C + D (dual-backend race cluster)</h3>
+<ul>
+<li><code>resmon_scripts/frontend/electron/main.ts</code> — <code>pingHealth</code> AbortController timeout raised from 500 ms to ~3 s; the lock-file → health-probe sequence is wrapped in a 2–3 attempt retry loop with brief backoff (hard ceiling ~4.5 s wall); when <code>read_lock()</code> returns a payload but the health probe has not yet responded, the main process waits for the daemon rather than falling through to the spawn branch; the spawn branch sets <code>RESMON_DISABLE_SCHEDULER=1</code> on the child env so a legitimate renderer-spawned fallback never owns a scheduler.</li>
+<li><code>resmon_scripts/resmon.py</code> — FastAPI startup hook gates <code>ResmonScheduler</code> instantiation and <code>set_dispatcher</code> on <code>os.environ.get("RESMON_DISABLE_SCHEDULER")</code> being unset / falsy; default behavior preserved for direct <code>python resmon.py &#x3C;port></code> invocations and for <code>create_app()</code> test calls.</li>
+<li><code>resmon_scripts/frontend/dist/electron/main.js</code> — rebuilt from <code>main.ts</code> via <code>tsc --project tsconfig.electron.json</code>.</li>
+<li><code>resmon_scripts/verification_scripts/test_scheduler_disable_env.py</code> <em>(new)</em> — regression: with <code>RESMON_DISABLE_SCHEDULER=1</code> set, <code>create_app()</code> startup must not instantiate <code>ResmonScheduler</code> and must not call <code>set_dispatcher</code>; with the env var unset / falsy, scheduler startup proceeds normally.</li>
+</ul>
+<h3 id="batch-3--fix-e-advanced-tab-daemon-status-truthfulness">Batch 3 — Fix E (Advanced tab daemon-status truthfulness)</h3>
+<ul>
+<li><code>resmon_scripts/resmon.py</code> — new <code>GET /api/service/daemon-status</code> route that calls <code>daemon.read_lock()</code>, probes <code>http://127.0.0.1:&#x3C;lock_port>/api/health</code> via <code>httpx</code> (1.5 s timeout), and returns <code>{ lock_present, running, pid, port, version, started_at, lock_pid, lock_port, lock_version, error, is_self }</code>; the <code>is_self</code> flag is set when the probed pid equals the current process pid so the renderer can render the distinction between “daemon is the current backend” and “daemon is a separate process.”</li>
+<li><code>resmon_scripts/frontend/src/components/Settings/AdvancedSettings.tsx</code> — added <code>DaemonStatusResponse</code> type; <code>refresh()</code> polls <code>/api/service/daemon-status</code> alongside the existing <code>/api/service/status</code> and <code>/api/health</code> calls; status block rewritten to render three explicit states (“daemon up” with pid/version and an <code>, this process</code> tag when <code>is_self</code>; “lock present but unreachable” with the diagnostic error; “no daemon running”); the renderer-attached backend’s identity is shown separately as <code>· this window → pid …, v…</code> so any divergence between the two is immediately visible. <code>Last started</code> is now sourced from the daemon-status response rather than <code>/api/health</code>.</li>
+<li><code>resmon_scripts/frontend/dist/bundle.js</code> — rebuilt from the renderer source via <code>webpack --mode production</code>.</li>
+<li><code>resmon_scripts/verification_scripts/test_daemon_status_endpoint.py</code> <em>(new)</em> — three regression tests: (a) no lock file → <code>lock_present=False, running=False</code>; (b) stale lock pointing at a closed port → <code>lock_present=True, running=False, error</code> populated; (c) valid lock + monkey-patched <code>httpx.Client</code> returning a healthy response → <code>running=True</code> with daemon identity surfaced.</li>
+</ul>
+<h3 id="t-upd-3-documentation-pass-this-step">T-UPD-3 documentation pass (this step)</h3>
+<ul>
+<li><code>resmon_scripts/implementation_scripts/config.py</code> — <code>APP_VERSION = "1.2.0"</code> → <code>"1.2.1"</code>.</li>
+<li><code>resmon_scripts/frontend/package.json</code> — <code>"version": "1.2.0"</code> → <code>"1.2.1"</code>.</li>
+<li><code>resmon_scripts/frontend/src/components/AboutResmon/AboutAppTab.tsx</code> — <code>backendVersion</code> initial fallback bumped <code>1.0.0</code> → <code>1.2.1</code>; “Recent Update” card rewritten to summarize Update 4 (replacing the Update 3 copy).</li>
+<li><code>resmon_reports/info_docs/settings_info.md</code> — Advanced panel description now documents the new <code>GET /api/service/daemon-status</code> endpoint and the three-state status block; endpoint table gains the new route.</li>
+<li><code>resmon_reports/info_docs/system_info.md</code> — “headless daemon split” paragraph now documents the raised <code>pingHealth</code> timeout / retry+backoff, the lock-file-aware wait, and the <code>RESMON_DISABLE_SCHEDULER</code> env gate that ensures only the daemon ever owns a scheduler.</li>
+<li><code>resmon_reports/info_docs/routines_info.md</code> — Delete-a-routine flow now documents the <code>delete_routine</code> cascade into <code>apscheduler_jobs</code>, the daemon-startup reconciliation, and the <code>misfire_grace_time=3600</code> registration default.</li>
+<li><code>.ai/updates/update_5_5_26/update_5_5_26.md</code> — this log.</li>
+<li><code>.ai/updates/updates.csv</code> — appended Update 4 row (commit_hash / commit_timestamp / github_push_timestamp = pending; T-UPD-4 will overwrite).</li>
+</ul>
+<h2 id="verification">Verification</h2>
+<p>Per-batch test command and results (verification suite at <code>resmon_scripts/verification_scripts/</code>):</p>
+<ul>
+<li><strong>Batch 1</strong> — <code>python -m pytest resmon_scripts/verification_scripts/test_scheduler_disable_env.py resmon_scripts/verification_scripts/test_scheduler_lifecycle.py resmon_scripts/verification_scripts/test_scheduler_wiring.py resmon_scripts/verification_scripts/test_scheduler_reconciliation.py resmon_scripts/verification_scripts/test_routine_scheduler_sync.py resmon_scripts/verification_scripts/test_daemon.py</code> — all passing (this superset is the same command used for the post-Batch-3 sanity run; per-batch counts were captured at the time of each batch report).</li>
+<li><strong>Batch 2</strong> — Python regression <code>test_scheduler_disable_env.py</code> covers Fix D’s <code>RESMON_DISABLE_SCHEDULER</code> env gate; Fix C’s Electron main-process retry/backoff is exercised by manual UI verification (the project does not currently host a JS-side Electron main test harness — same posture documented in Updates 2 and 3).</li>
+<li><strong>Batch 3</strong> — <code>python -m pytest resmon_scripts/verification_scripts/test_daemon_status_endpoint.py resmon_scripts/verification_scripts/test_daemon.py resmon_scripts/verification_scripts/test_service_units.py</code> → <strong>21/21 passing, 0 skipped</strong>.</li>
+<li><strong>Frontend build</strong> — <code>cd resmon_scripts/frontend &#x26;&#x26; npm run build</code> succeeded after the Batch 2 / Batch 3 edits (webpack production renderer bundle clean; <code>tsc --project tsconfig.electron.json</code> for <code>dist/electron/main.js</code> clean).</li>
+<li><strong>Manual UI smoke</strong> — daemon was restarted via <code>launchctl kickstart -k gui/$UID/com.resmon.daemon</code> to reload the patched Python; <code>resmon.app</code> launched and attached to the daemon on port 8742 (no fallback backend spawned); <code>GET /api/service/daemon-status</code> returns the documented shape with <code>is_self=true</code> when the renderer is attached to the daemon.</li>
+</ul>
+<p>Concatenated counts string (for the CSV row): <code>backend: 21/21 passing, 0 skipped on the targeted batch-3 suite (test_daemon_status_endpoint.py + test_daemon.py + test_service_units.py); batch-1 suite (test_scheduler_disable_env.py + test_scheduler_lifecycle.py + test_scheduler_wiring.py + test_scheduler_reconciliation.py + test_routine_scheduler_sync.py + test_daemon.py) all passing; platform-gated Linux systemd --user and Windows Task Scheduler tests remain skipped on macOS via their existing skipif guards (no daemon / service-unit code path on those platforms changed in this update); frontend: webpack production build clean after every batch; manual UI smoke confirmed daemon attach via launchd, no fallback backend spawn, /api/service/daemon-status three-state rendering, and that scheduled Routines now fire from the daemon's scheduler with the new misfire grace</code>.</p>
+<h2 id="follow-ups">Follow-ups</h2>
+<ul>
+<li><strong>Stale-daemon caveat for upgrading users.</strong> As with Updates 2 and 3, an existing <code>resmon-daemon</code> started before this update is still running the old <code>scheduler.py</code> / <code>database.py</code> / <code>resmon.py</code> and therefore still has the 1-second misfire grace, the <code>delete_routine</code> cascade gap, and the missing <code>/api/service/daemon-status</code> route. Users upgrading from 1.2.0 should restart the daemon (<code>launchctl kickstart -k gui/$UID/com.resmon.daemon</code> on macOS, <code>systemctl --user restart resmon-daemon</code> on Linux, or unregister/re-register the Task Scheduler entry on Windows) so the renderer attaches to a fresh backend.</li>
+<li><strong>Electron main-process test harness.</strong> Fix C’s retry/backoff / lock-file-aware wait is currently covered only by manual UI verification. A future update could introduce a focused JS-side test harness for <code>frontend/electron/main.ts</code> (mocking <code>fetch</code> and the lock-file reader) so Fix C’s branches are regression-protected the same way Fix D is.</li>
+<li><strong>Scheduler-diagnostics surface.</strong> The Advanced tab’s <code>/api/scheduler/jobs</code> panel now reflects the daemon’s jobstore truthfully (since only the daemon owns a scheduler). A small follow-up could surface <code>misfire_grace_time</code> and the most-recent reconciliation pass timestamp on each row for operator transparency.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 4 — Background Routine Reliability: Scheduler / Jobstore Lifecycle, Daemon-Attach Race, and Advanced-Tab Honesty]]></summary></entry><entry><title type="html">resmon Update 3 — April 27, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/27/resmon-update-3/" rel="alternate" type="text/html" title="resmon Update 3 — April 27, 2026" /><published>2026-04-27T16:00:00+00:00</published><updated>2026-04-27T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/27/resmon-update-3</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/27/resmon-update-3/"><![CDATA[<h1 id="update-3--calendar-bug-cluster-ai-key-deep-link-and-the-new-about-resmon-page-tutorials-issues-blog-about-app">Update 3 — Calendar Bug Cluster, AI-Key Deep-Link, and the New About resmon Page (Tutorials, Issues, Blog, About App)</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 3</li>
+<li><strong>Update type:</strong> mixed (bugfix + feature)</li>
+<li><strong>Date:</strong> 2026-04-27</li>
+<li><strong>Author:</strong> Ryan Kamp</li>
+<li><strong>Commit hash:</strong> 0570bc5ac416b42b774b3e1609e1602d6c8adc27</li>
+<li><strong>Commit timestamp:</strong> 2026-04-30T17:35:25-04:00</li>
+<li><strong>GitHub push timestamp:</strong> 2026-04-30T21:35:39Z</li>
+<li><strong>App version:</strong> 1.1.0 → 1.2.0</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<p>This update lands two Calendar bugs, one small deep-link feature, and one large feature — a brand-new top-level <strong>About resmon</strong> page — together with eleven out-of-band additions that emerged mid-flight and were folded into the same change set per the <code>T-UPD-ADD</code> rule. The Calendar’s scheduled-routine times no longer drift by ~4 hours and Custom-cadence first-fire / interval anomalies (every-N-months, every-5-hours, every-5-days, every-3-weeks, every-1-year) all expand correctly; the 30-minute “orange-bar” cosmetic bug is fixed; and the expansion window now extends to a full 12 months with a user-facing notice when the FullCalendar viewport is navigated past the horizon. The Repositories &#x26; API Keys page gains a “Looking for AI API key settings?” deep-link button to <code>Settings → AI</code>. A new top-level <strong>About resmon</strong> page hosts four tabs — <strong>Tutorials</strong> (eighteen embedded YouTube walk-throughs covering the full app, every page, and every Settings sub-tab), <strong>Issues</strong> (a credentials-free <code>mailto:</code> + GitHub-issue-deep-link form), <strong>Blog</strong> (an in-app reader fed by the new GitHub Pages site at <code>https://ryanjosephkamp.github.io/resmon/</code>), and <strong>About App</strong> (relocated out of Settings); a shared <code>TutorialLinkButton</code> is rendered next to every page header and every Settings sub-panel header so any user can deep-link straight into the matching tutorial section. App version bumps <code>1.1.0 → 1.2.0</code>.</p>
+<h2 id="motivation">Motivation</h2>
+<p>All items in this update originated in the user’s third-after-release feedback session and map back to the change inventory in <a href="../update_4_27_26/update_4_27_26_workflow.md"><code>.ai/updates/update_4_27_26/update_4_27_26_workflow.md</code></a>.</p>
+<ul>
+<li><strong>Bug 1 — Calendar scheduled-routine times incorrect</strong> (workflow item #1, batch 1). Daily / weekday / weekly / monthly cron expansions on the Calendar page rendered 4 hours earlier than they actually fired (UTC vs. local-time mismatch), and several Custom cadences exhibited first-fire / interval anomalies. The Calendar’s 90-day expansion window also silently truncated upcoming fires for high-frequency cadences with no user-facing notice.</li>
+<li><strong>Bug 2 — Cosmetic 30-minute routines render as multi-day orange bars</strong> (workflow item #2, batch 1). Same Calendar subsystem; FullCalendar event mapping was treating short-duration routine fires as all-day events.</li>
+<li><strong>Feature 3 — “Looking for AI API key settings?” deep-link button</strong> (workflow item #3, batch 2). Users repeatedly looked for AI provider keys (OpenAI, Anthropic, etc.) on the Repositories &#x26; API Keys page even though those keys live on <code>Settings → AI</code>. A small inline button between the page intro paragraph and the scope selector now routes them directly to <code>/settings/ai</code>.</li>
+<li><strong>Feature 4 — New About resmon top-level page</strong> (workflow item #4, batch 3). Users had no in-app place to learn how each page worked, no credentials-free way to file a bug or request a feature, and no surfaced channel for per-update release notes. The About App tab was also crowding the Settings page. Update 3 introduces the new top-level page with <strong>Tutorials</strong>, <strong>Issues</strong>, <strong>Blog</strong>, and the relocated <strong>About App</strong> tab, plus a shared <code>TutorialLinkButton</code> next to every page and every Settings sub-panel header.</li>
+<li><strong>Out-of-band additions (T-UPD-ADD).</strong> Eleven user-requested additions emerged after T-UPD-1 was scaffolded and during T-UPD-2 execution; they were folded into the active batches per the workflow’s T-UPD-ADD rule. They are listed under <a href="#changes">Changes</a> below and motivated individually in <code>update_4_27_26_workflow.md</code> (OOB-1 … OOB-11).</li>
+</ul>
+<h2 id="changes">Changes</h2>
+<h3 id="batch-1--calendar-bug-cluster-bug-1--bug-2--window-extension--horizon-notice">Batch 1 — Calendar bug cluster (Bug 1 + Bug 2 + window extension + horizon notice)</h3>
+<ul>
+<li><code>resmon_scripts/resmon.py</code> — <code>/api/calendar/events</code> cron expansion now resolves trigger fire times in the local timezone rather than UTC (fixes the ~4-hour shift); Custom-cadence first-fire arithmetic is reworked to honor <code>IntervalTrigger</code> start-date semantics for every-N-hours / every-N-days / every-N-weeks / every-N-months / every-N-years schedules so first-fires and intervals are correct; the expansion window is extended from 90 days to a full 12 months and <code>MAX_PER_ROUTINE</code> is raised proportionally so high-frequency cadences (<code>every 5 hours</code>) are not truncated; the response now carries a <code>horizon_end</code> timestamp the frontend can compare against the FullCalendar viewport.</li>
+<li><code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — FullCalendar event mapping now sets <code>allDay: false</code> and a real <code>end</code> derived from the routine duration so 30-minute routines render as a tight bar rather than a full-width orange band; renders a user-facing notice when the FullCalendar viewport is navigated past the 12-month horizon explaining that the calendar only projects scheduled fires up to 12 months ahead.</li>
+</ul>
+<h3 id="batch-2--repositories--api-keys-deep-link-button">Batch 2 — Repositories &#x26; API Keys deep-link button</h3>
+<ul>
+<li><code>resmon_scripts/frontend/src/pages/RepositoriesPage.tsx</code> — adds a “Looking for AI API key settings?” inline button between the page intro paragraph and the scope selector that routes to <code>/settings/ai</code>.</li>
+</ul>
+<h3 id="batch-3--about-resmon-page--tutorial-deep-link-buttons--settings--about-app-relocation">Batch 3 — About resmon page + tutorial deep-link buttons + Settings → About App relocation</h3>
+<ul>
+<li><strong>New top-level page and routes.</strong>
+<ul>
+<li><code>resmon_scripts/frontend/src/pages/AboutResmonPage.tsx</code> <em>(new)</em> — top-level page with the tab strip and nested router; final tab order <strong>Tutorials → Issues → Blog → About App</strong> (Issues and Blog were added under OOB-5 / OOB-6).</li>
+<li><code>resmon_scripts/frontend/src/components/AboutResmon/TutorialsTab.tsx</code> <em>(new)</em> — eighteen tutorial sections (one full-app overview + ten page sections + seven Settings sub-tab sections), each with an embedded <code>youtube-nocookie.com/embed/&#x3C;id></code> iframe, a TOC, and prev / next navigation; deep-link hash drives smooth-scroll into view.</li>
+<li><code>resmon_scripts/frontend/src/components/AboutResmon/AboutAppTab.tsx</code> <em>(new — relocated content)</em> — the previous Settings → About App panel content, now mounted under <code>/about-resmon/about-app</code>.</li>
+<li><code>resmon_scripts/frontend/src/App.tsx</code> — adds the <code>/about-resmon/*</code> route and the sidebar nav entry appended after Settings.</li>
+</ul>
+</li>
+<li><strong>Shared <code>TutorialLinkButton</code> next to every page header and every Settings sub-panel header.</strong>
+<ul>
+<li><code>resmon_scripts/frontend/src/components/AboutResmon/TutorialLinkButton.tsx</code> <em>(new)</em> — single shared component navigating to <code>/about-resmon/tutorials#&#x3C;anchor></code>.</li>
+<li>All ten page components (<code>DashboardPage</code>, <code>DeepDivePage</code>, <code>DeepSweepPage</code>, <code>RoutinesPage</code>, <code>CalendarPage</code>, <code>ResultsPage</code>, <code>ConfigurationsPage</code>, <code>MonitorPage</code>, <code>RepositoriesPage</code>, <code>SettingsPage</code>) plus all seven Settings sub-panels (<code>EmailSettings</code>, <code>CloudAccountSettings</code>, <code>CloudSettings</code>, <code>AISettings</code>, <code>StorageSettings</code>, <code>NotificationSettings</code>, <code>AdvancedSettings</code>) render <code>TutorialLinkButton</code> next to their <code>&#x3C;h1></code> / <code>&#x3C;h2></code> headers.</li>
+</ul>
+</li>
+<li><strong>Settings → About App removal.</strong>
+<ul>
+<li><code>resmon_scripts/frontend/src/pages/SettingsPage.tsx</code> — removes the <code>About App</code> <code>NavLink</code> and nested <code>&#x3C;Route></code>; removes the <code>AboutAppSettings</code> import; tab count goes 8 → 7. The <code>Settings</code> index redirect to <code>/settings/email</code> is unchanged.</li>
+<li><code>resmon_scripts/frontend/src/components/Settings/AboutAppSettings.tsx</code> — deleted (content relocated to <code>AboutResmon/AboutAppTab.tsx</code>).</li>
+</ul>
+</li>
+</ul>
+<h3 id="out-of-band-additions-t-upd-add">Out-of-band additions (T-UPD-ADD)</h3>
+<ul>
+<li><strong>OOB-1 — Calendar <code>Routines: x of y</code> dropdown filters to active-only.</strong> <code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — <code>fetchData</code> seeds <code>visibleRoutines</code> from the active subset and a derived <code>activeRoutines</code> constant drives the <code>Select all</code> action and the rendered checkbox list.</li>
+<li><strong>OOB-2 — Calendar event popover shows <code>Name:</code> and <code>Cron Schedule:</code> info lines.</strong> <code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — popover renders two new <code>event-popover-meta</code> lines for the matching active routine.</li>
+<li><strong>OOB-3 — <code>Edit Routine</code> button on Calendar popover + shared <code>RoutineEditModal</code> + cross-page sync.</strong>
+<ul>
+<li><code>resmon_scripts/frontend/src/lib/routinesBus.ts</code> <em>(new)</em> — pub/sub bus mirroring <code>configurationsBus.ts</code> with <code>notifyRoutinesChanged()</code> + <code>useRoutinesVersion()</code>.</li>
+<li><code>resmon_scripts/frontend/src/components/Routines/RoutineEditModal.tsx</code> <em>(new)</em> — extracted reusable create/edit modal that broadcasts on both <code>routinesBus</code> and <code>configurationsBus</code> on save.</li>
+<li><code>resmon_scripts/frontend/src/pages/RoutinesPage.tsx</code> — refactored to consume the shared modal; subscribes to <code>useRoutinesVersion()</code>.</li>
+<li><code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — adds the <code>Edit Routine</code> popover button; subscribes to <code>useRoutinesVersion()</code> and re-runs <code>fetchData()</code> on save without closing the popover.</li>
+</ul>
+</li>
+<li><strong>OOB-4 — <code>.modal-overlay</code> z-index above the Calendar event popover.</strong> <code>resmon_scripts/frontend/src/styles/global.css</code> — bumps <code>.modal-overlay</code> from <code>z-index: 1000</code> → <code>1100</code>.</li>
+<li><strong>OOB-5 — <code>About resmon → Issues</code> tab + GitHub issue templates.</strong>
+<ul>
+<li><code>resmon_scripts/frontend/src/components/AboutResmon/IssuesTab.tsx</code> <em>(new)</em> — credentials-free form with two read-only submit paths (<code>mailto:</code> link + GitHub-issue deep link); both routed through <code>window.resmonAPI.openPath</code> (falls back to <code>window.location.href</code> / <code>window.open</code> when the preload bridge is unavailable).</li>
+<li><code>.github/ISSUE_TEMPLATE/bug.yml</code>, <code>feature.yml</code>, <code>question.yml</code>, <code>config.yml</code> <em>(new)</em> — typed GitHub issue forms whose IDs match the slugs the Issues tab generates.</li>
+<li><code>resmon_scripts/frontend/src/pages/AboutResmonPage.tsx</code> — mounts the new tab between Tutorials and About App.</li>
+</ul>
+</li>
+<li><strong>OOB-6 — <code>About resmon → Blog</code> tab + GitHub Pages publishing infrastructure.</strong>
+<ul>
+<li><code>resmon_scripts/frontend/src/components/AboutResmon/BlogTab.tsx</code> <em>(new)</em> — fetches the Atom feed at <code>https://ryanjosephkamp.github.io/resmon/feed.xml</code>, parses client-side via <code>DOMParser</code>, renders a two-pane layout with an origin-locked Electron <code>&#x3C;webview></code>; off-origin links open in the user’s default browser.</li>
+<li><code>resmon_scripts/frontend/electron/main.ts</code> — enables <code>webPreferences.webviewTag: true</code> and adds a <code>will-attach-webview</code> hardening hook that scrubs <code>nodeIntegration</code>, <code>preload</code>, and any non-https <code>src</code>.</li>
+<li><code>resmon_scripts/frontend/src/index.html</code> — widens the CSP <code>&#x3C;meta></code> to permit <code>https://ryanjosephkamp.github.io</code> for <code>frame-src</code> / <code>child-src</code> / <code>connect-src</code>, plus <code>https://www.youtube-nocookie.com</code> and <code>https://www.youtube.com</code> for the Tutorials embeds.</li>
+<li><code>docs/_config.yml</code>, <code>docs/Gemfile</code>, <code>docs/index.md</code>, <code>docs/README.md</code>, <code>docs/_posts/2026-04-23-welcome-to-the-resmon-blog.md</code> <em>(new — Jekyll site scaffolding)</em>. The two republished update posts (<code>docs/_posts/2026-04-24-resmon-update-1.md</code>, <code>docs/_posts/2026-04-25-resmon-update-2.md</code>) shipped in a separate <code>7f1ea24</code> commit on 2026-04-29 ahead of T-UPD-4 and are noted here for the record; they are not staged as part of the Update 3 commit.</li>
+<li><code>resmon_scripts/frontend/src/pages/AboutResmonPage.tsx</code> — mounts the new tab between Issues and About App.</li>
+</ul>
+</li>
+<li><strong>OOB-7 — New T-UPD-5 prompt template in <code>update_prompts.md</code>.</strong> <code>.ai/updates/update_prompts.md</code> — adds a <strong>T-UPD-5 — Publish Update as Blog Post</strong> prompt template formalizing the seven-step per-post procedure, bumps the document to version 1.3, extends the usage / TOC / hard rules to reflect the new five-prompt sequence, and adds a “Push before publish” hard rule.</li>
+<li><strong>OOB-8 — <code>saved_configuration_id</code> linkage on the <code>executions</code> table.</strong>
+<ul>
+<li><code>resmon_scripts/implementation_scripts/database.py</code> — adds a nullable <code>saved_configuration_id INTEGER REFERENCES saved_configurations(id) ON DELETE SET NULL</code> column to the <code>executions</code> table via an idempotent <code>ALTER TABLE … ADD COLUMN</code> migration.</li>
+<li><code>resmon_scripts/resmon.py</code> — <code>_enrich_execution_row</code> <code>LEFT JOIN</code>s <code>saved_configurations</code> and projects <code>saved_configuration_id</code> + <code>saved_configuration_name</code> onto every execution-returning endpoint; extends <code>DiveRequest</code> and <code>SweepRequest</code> with an optional <code>saved_configuration_id</code>; adds <code>PATCH /api/executions/{id}</code> accepting <code>{ saved_configuration_id: int }</code>.</li>
+<li><code>resmon_scripts/frontend/src/pages/DeepDivePage.tsx</code>, <code>resmon_scripts/frontend/src/pages/DeepSweepPage.tsx</code> — track the loaded id in a <code>loadedConfigIdRef</code> populated by <code>ConfigLoader.applyConfig</code>; user edits clear the ref via a <code>dirtyRef</code> guard.</li>
+<li><code>resmon_scripts/frontend/src/components/Save/SaveConfigButton.tsx</code>, <code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — <code>PATCH</code> the originating execution row with the new id after a successful Save Config.</li>
+</ul>
+</li>
+<li><strong>OOB-9 — <code>Saved as &#x3C;name></code> badge + <code>Name</code> column wiring.</strong> <code>resmon_scripts/frontend/src/pages/DashboardPage.tsx</code>, <code>resmon_scripts/frontend/src/components/Results/ResultsList.tsx</code>, <code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code>, <code>resmon_scripts/frontend/src/components/Save/SaveConfigButton.tsx</code> — adds a <code>Name</code> column (with <code>saved_configuration_name → routine_name → Execution #{id}</code> fallback chain) and a <code>Saved as &#x3C;name></code> badge that reconciles in place after a save broadcast.</li>
+<li><strong>OOB-10 — Configurations page <code>View JSON</code> per-row read-only modal.</strong> <code>resmon_scripts/frontend/src/pages/ConfigurationsPage.tsx</code> — adds a per-row <code>View JSON</code> button next to <code>Edit</code> that opens a read-only modal with a Copy-to-clipboard button.</li>
+<li><strong>OOB-11 — Settings → Advanced <strong>Danger Zone</strong> (16 destructive actions, two-tier confirmation).</strong>
+<ul>
+<li><code>resmon_scripts/frontend/src/components/Settings/ConfirmDangerModal.tsx</code> <em>(new)</em> — typed-<code>CONFIRM</code> confirmation gate for the six destructive data/settings actions.</li>
+<li><code>resmon_scripts/frontend/src/components/Settings/AdvancedSettings.tsx</code> — appends a Danger Zone section with two columns (Local / Cloud) of 8 buttons each; broadcasts on <code>configurationsBus</code>, <code>routinesBus</code>, and the <code>resmon:execution-completed</code> window event on success; the cloud column is rendered disabled with a <code>Coming soon</code> muted note.</li>
+<li><code>resmon_scripts/resmon.py</code> — adds 8 admin route handlers under <code>POST /api/admin/...</code>; the two API-key wipes accept an empty body, the six data/settings destructions require <code>{ "confirm": "CONFIRM" }</code>.</li>
+<li><code>resmon_scripts/implementation_scripts/database.py</code> — helpers for whole-table truncates with FK cascade.</li>
+<li><code>resmon_scripts/implementation_scripts/credential_manager.py</code> — bulk-wipe helpers for the API-key categories.</li>
+</ul>
+</li>
+</ul>
+<h3 id="documentation-version-and-about-app-tab">Documentation, version, and About App tab</h3>
+<ul>
+<li><code>resmon_reports/info_docs/about_resmon_info.md</code>, <code>settings_info.md</code>, <code>calendar_info.md</code>, <code>configs_info.md</code>, <code>dashboard_info.md</code>, <code>results_and_logs_info.md</code>, <code>repos_and_api_keys_info.md</code>, <code>system_info.md</code>, <code>deep_dive_info.md</code>, <code>deep_sweep_info.md</code> — refreshed in T-UPD-3 sub-tranche 1 to reflect Update 3 changes (<code>routines_info.md</code> and <code>monitor_info.md</code> were verified up-to-date and left as-is).</li>
+<li><code>resmon_scripts/implementation_scripts/config.py</code> — bumps <code>APP_VERSION</code> from <code>1.1.0</code> to <code>1.2.0</code>.</li>
+<li><code>resmon_scripts/frontend/package.json</code> — bumps <code>version</code> from <code>1.1.0</code> to <code>1.2.0</code>.</li>
+<li><code>resmon_scripts/frontend/src/components/AboutResmon/AboutAppTab.tsx</code> — version banner now reads <code>1.2.0</code> and the Recent Update card is rewritten with this update’s number, name, and summary.</li>
+<li><code>README.md</code> — adds an <code>#/about-resmon/*</code> row to the routes table, an <strong>About resmon</strong> bullet under Key Features describing all four tabs, a short <strong>Blog</strong> subsection linking the GitHub Pages site, a note in the existing <strong>Reporting Issues</strong> subsection that issues can be filed via the in-app form, and a brief <strong>Maintenance / Danger Zone</strong> subsection pointing readers at Settings → Advanced.</li>
+</ul>
+<h2 id="verification">Verification</h2>
+<p>Test results from each batch and from the OOB additions, run from the project root with the <code>.venv</code> virtualenv active and the frontend tooling under <code>resmon_scripts/frontend/</code>.</p>
+<ul>
+<li><strong>Batch 1 (Calendar bug cluster):</strong>
+<ul>
+<li><code>pytest resmon_scripts/verification_scripts/ -q</code> → all green; the Calendar timezone-shift and IntervalTrigger first-fire fixes are exercised by the existing scheduler / cron expansion suites.</li>
+<li>Frontend: <code>webpack 5.106.2 compiled successfully</code>; manual UI verification of every cron expression enumerated in the bug report (8 AM daily, midnight daily, Mon 9 AM, weekday 8 AM, first-of-month, every-2-months, every-5-hours, every-5-days, every-3-weeks, every-1-year, plus a 30-minute routine) on month / week / day views.</li>
+</ul>
+</li>
+<li><strong>Batch 2 (AI-key deep-link button):</strong> <code>webpack 5.106.2 compiled successfully</code>; manual click-through on the Repositories &#x26; API Keys page → lands on <code>#/settings/ai</code>.</li>
+<li><strong>Batch 3 (About resmon page + tutorial deep-link buttons + Settings relocation):</strong>
+<ul>
+<li><code>cd resmon_scripts/frontend &#x26;&#x26; npm run typecheck</code> → clean.</li>
+<li><code>webpack 5.106.2 compiled successfully</code>; renderer <code>bundle.js</code> ~1.06 MiB after the YouTube embed pivot.</li>
+<li>Manual nav to <code>/about-resmon</code> confirmed all four tabs; manual click-through on every <code>TutorialLinkButton</code> instance (10 page headers + 7 Settings sub-panel headers) confirmed correct deep-link behavior; Settings tab count is 7 with no stranded <code>/settings/about</code> references.</li>
+</ul>
+</li>
+<li><strong>OOB-1 / OOB-2 / OOB-3 / OOB-4 (Calendar polish + RoutineEditModal + z-index fix):</strong> webpack build clean; manual UI smoke confirmed the Routines dropdown now shows active-only routines, the popover surfaces the <code>Name:</code> and <code>Cron Schedule:</code> lines, the <code>Edit Routine</code> button opens the modal above the popover and updates both Calendar and Routines without a manual reload.</li>
+<li><strong>OOB-5 (Issues tab + GitHub issue templates):</strong> webpack build clean; manual click-through on <strong>Open in Email</strong> opened the default mail client with the correct subject / body / diagnostic block, and <strong>File on GitHub</strong> opened the GitHub new-issue page with the correct template auto-selected and the form fields pre-populated.</li>
+<li><strong>OOB-6 (Blog tab + GitHub Pages):</strong> webpack build clean; the GitHub Pages site is live at <code>https://ryanjosephkamp.github.io/resmon/</code>; the in-app Blog tab successfully fetches <code>feed.xml</code>, lists the three published posts, and renders each post in the embedded <code>&#x3C;webview></code>. Off-origin links route to the user’s default browser.</li>
+<li><strong>OOB-7 (T-UPD-5 prompt template):</strong> documentation-only change; no test suite applies. Verified by re-reading the document end-to-end after the edit.</li>
+<li><strong>OOB-8 (<code>saved_configuration_id</code> linkage):</strong> <code>pytest resmon_scripts/verification_scripts/ -q</code> → green (idempotent migration covered by the existing schema-migration suite); manual UI verification of the round-trip on Deep Dive → Save Config → Dashboard / Results &#x26; Logs / Calendar popover.</li>
+<li><strong>OOB-9 (<code>Saved as &#x3C;name></code> badge + <code>Name</code> column):</strong> webpack build clean; manual UI verification of the fallback chain (<code>saved_configuration_name → routine_name → Execution #{id}</code>) and of the in-place reconciliation when a save originates on a different page.</li>
+<li><strong>OOB-10 (View JSON modal):</strong> webpack build clean; manual UI verification of the read-only modal across all three config types (<code>manual_dive</code>, <code>manual_sweep</code>, <code>routine</code>); Copy-to-clipboard succeeded under both <code>navigator.clipboard.writeText</code> and the <code>document.execCommand('copy')</code> fallback path.</li>
+<li><strong>OOB-11 (Danger Zone):</strong> <code>pytest resmon_scripts/verification_scripts/ -q</code> → green for the new admin-route tests (typed-<code>CONFIRM</code> gate enforced server-side, FK cascades verified). Manual UI verification of all 8 local actions (the two API-key wipes through the simple modal, the six data/settings destructions through the typed-<code>CONFIRM</code> modal); cloud column rendered disabled with the <code>Coming soon</code> note as designed.</li>
+</ul>
+<p>Skipped tests: platform-gated Linux <code>systemd --user</code> and Windows Task Scheduler tests remain skipped on macOS via their existing <code>skipif</code> guards (these were exercised under Update 2’s manual verification matrix and are not re-exercised here because no notification-dispatch code changed in this update). No new dependencies; the <code>executions.saved_configuration_id</code> ALTER is idempotent and forward-compatible with installs that already migrated.</p>
+<p>Commands:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Backend</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">source</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> .venv/bin/activate</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">pytest</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/verification_scripts/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Frontend</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/frontend</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> typecheck</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> build</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> start</span><span style="color:#6A737D;--shiki-dark:#6A737D">  # full Electron + backend smoke</span></span></code></pre>
+<h2 id="follow-ups">Follow-ups</h2>
+<ul>
+<li><strong>Tutorials full-app overview video</strong> — the full-app overview entry currently embeds a placeholder video; the user has reserved the final replacement recording for <strong>Update 4</strong> so the rest of the app can be bug-tested first. The placeholder is functional and replaceable by a single <code>youtubeId</code> change.</li>
+<li><strong>Cloud-side Danger Zone column</strong> — the eight cloud-mirror buttons in the Settings → Advanced Danger Zone are intentionally rendered disabled (<code>Coming soon</code>). They will activate when the <code>Cloud Account</code> feature lands and the matching <code>/api/admin/cloud/...</code> routes are added.</li>
+<li><strong>Stale-daemon caveat (carried forward from Update 2’s settings-allowlist)</strong> — users upgrading should kill any running <code>resmon-daemon</code> process so the renderer attaches to a fresh backend that has loaded the new admin endpoints and the <code>executions.saved_configuration_id</code> migration.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 3 — Calendar Bug Cluster, AI-Key Deep-Link, and the New About resmon Page (Tutorials, Issues, Blog, About App)]]></summary></entry><entry><title type="html">resmon Update 2 — April 25, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/25/resmon-update-2/" rel="alternate" type="text/html" title="resmon Update 2 — April 25, 2026" /><published>2026-04-25T16:00:00+00:00</published><updated>2026-04-25T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/25/resmon-update-2</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/25/resmon-update-2/"><![CDATA[<h1 id="update-2--calendar-readability-cross-platform-desktop-notifications-multi-provider-ai-keys-per-execution-ai-override-parity-and-configurations-lockstep">Update 2 — Calendar Readability, Cross-Platform Desktop Notifications, Multi-Provider AI Keys, Per-Execution AI Override Parity, and Configurations Lockstep</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 2</li>
+<li><strong>Update type:</strong> mixed (bugfix + feature)</li>
+<li><strong>Date:</strong> 2026-04-25</li>
+<li><strong>Author:</strong> Ryan Kamp</li>
+<li><strong>Commit hash:</strong> 023d7abc176f50a5eddac35d04bf86e288ac13a8</li>
+<li><strong>Commit timestamp:</strong> 2026-04-26T18:06:13-04:00</li>
+<li><strong>GitHub push timestamp:</strong> 2026-04-26T22:06:23Z</li>
+<li><strong>App version:</strong> 1.0.0 → 1.1.0</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<p>This update lands two bug fixes and three feature clusters, plus eleven out-of-band additions that emerged mid-update and were folded back into the same change set per the workflow’s T-UPD-ADD rule. The Calendar week/day views are switched to the readable dot+text rendering already used on the month view; desktop completion notifications now fire on macOS, Linux, and Windows for both manual and routine executions (including app-closed routines under the headless-daemon path); the AI summarization stack is reworked to store one API key per provider with transparent migration of any pre-existing global key, and the Deep Dive / Deep Sweep / Routines pages gain a single shared full-parity AI override panel (Provider + Model + Length + Tone + Temperature + Extraction Goals) with per-field merge semantics. The Settings → AI panel is rebuilt around a four-column <strong>Stored API Keys</strong> table backed by a new <code>ai_default_models</code> per-provider default-model map; the Configurations page gains a per-row <strong>Edit</strong> action with three config-type-aware modal variants and a stale-link 404 fallback; and the configuration-import endpoint now auto-materializes a deactivated routine for every imported routine config, restoring the bidirectional Routines ↔ routine-configs invariant.</p>
+<h2 id="motivation">Motivation</h2>
+<p>All items in this update originated in the user’s second-after-release feedback session and map back to the change inventory in <a href="../update_4_25_26/update_4_25_26_workflow.md"><code>.ai/updates/update_4_25_26/update_4_25_26_workflow.md</code></a>.</p>
+<ul>
+<li><strong>Bug A — Calendar week/day event readability</strong> (workflow item #1, batch 1). The <code>timeGridWeek</code> and <code>timeGridDay</code> views rendered each event as a status-colored background block with type-colored text on top; the two color channels collided and the text was unreadable. The month view already used a status-dot + type-colored-text pattern that worked, so the fix was to extend that pattern down into week and day.</li>
+<li><strong>Bug B — Desktop notifications not firing on any platform</strong> (workflow item #2, batch 2). Notifications enabled in Settings → Notifications were silently dropped for both manual completions and routine fires, on all three supported platforms. Routine notifications additionally needed to fire when the app window was closed under headless-daemon / background-execution mode (the launchd / <code>systemd --user</code> / Task Scheduler service path). Per the user, cross-platform parity was required inside this same update — not deferred.</li>
+<li><strong>Feature 1 — Multi-provider AI API key storage</strong> (workflow item #3, batch 3). The previous design supported exactly one stored AI key at a time, forcing users to delete one provider’s key to test another. The user requested concurrent per-provider key slots with a transparent one-shot migration of any pre-existing global key on first launch.</li>
+<li><strong>Feature 2 — Full per-execution AI override parity</strong> (workflow item #4, batch 4). The Dive/Sweep override block exposed only Length / Tone / free-text Model and was missing entirely from Routines. The user requested full parity with the Settings → AI panel (Provider + Model + Length + Tone + Temperature + Extraction Goals) on all three pages, wired to the multi-provider credentials introduced in Feature 1, with per-field merge semantics (empty/blank = use app default; populated = override).</li>
+<li><strong>Feature 3 — Settings → AI tooltips</strong> (workflow item #5, batch 4). The Length / Tone / Temperature / Extraction Goals labels on Settings → AI had no in-app explanation. The user requested an <code>InfoTooltip</code> ”?” hover on each of the four labels.</li>
+<li><strong>Out-of-band additions OOB-1..OOB-11.</strong> Eleven follow-on requests landed mid-update after T-UPD-1: a richer Stored API Keys table on Settings → AI (OOB-1, -2, -7, -8); a Model dropdown + Load-models button + inline missing-key entry + Save-as-default-model action on the override panel (OOB-3, -4); a new <code>ai_default_models</code> per-provider default-model map (OOB-5); race-safe writers in <code>AISettings.tsx</code> to stop two writers from clobbering the map (OOB-6); a per-row <strong>Edit</strong> action on the Configurations page with three modal variants (OOB-9); a stale <code>linked_routine_id</code> 404 fallback (OOB-10); and an import-side fix that auto-materializes a deactivated routine for every imported routine config so the bidirectional Routines ↔ routine-configs invariant holds (OOB-11). All eleven are part of this same Update 2 per workflow direction; this log is the single source of truth.</li>
+</ul>
+<h2 id="changes">Changes</h2>
+<h3 id="batch-1--bug-a-calendar-weekday-event-readability">Batch 1 — Bug A: Calendar week/day event readability</h3>
+<ul>
+<li><code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — wired the FullCalendar <code>eventContent</code> / <code>eventClassNames</code> / <code>eventDidMount</code> hooks for the <code>timeGridWeek</code> and <code>timeGridDay</code> views to the same dot+type-colored-text rendering already used on the <code>dayGridMonth</code> view; week and day events no longer paint a status-colored background block under type-colored text.</li>
+<li><code>resmon_scripts/frontend/src/styles/global.css</code> (or the calendar-scoped styles file actually used) — removed the <code>background-color</code> rules from the <code>calendar-type-*</code> / <code>fc-event-*</code> classes when the active view is <code>timeGridWeek</code> or <code>timeGridDay</code>; the status dot is now the sole status channel in those views.</li>
+</ul>
+<h3 id="batch-2--bug-b-desktop-notifications-across-macos-linux-and-windows">Batch 2 — Bug B: Desktop notifications across macOS, Linux, and Windows</h3>
+<ul>
+<li>In-process notification dispatcher (the module reachable via <code>notify_on_complete</code>) — repaired the dispatch path that swallowed notifications when the renderer was the active window and when the headless daemon fired routines with no attached renderer.</li>
+<li><code>resmon_scripts/implementation_scripts/daemon.py</code> and <code>resmon_scripts/implementation_scripts/service_manager.py</code> — wired the headless-daemon execution path into the notification dispatcher so routine completions raised by the launchd / <code>systemd --user</code> / Task Scheduler service path emit a desktop notification even when no renderer is attached.</li>
+<li><code>resmon_scripts/service_units/</code> (launchd plist, <code>systemd --user</code> unit, Task Scheduler XML) — verified per-platform notification permissions are not blocked by the service template; documented the per-platform manual-verification checklist where the dev machine could not natively exercise both Linux and Windows.</li>
+<li>No new runtime dependency was added; the existing notifier surface covers all three platforms once the dispatcher is reached.</li>
+</ul>
+<h3 id="batch-3--feature-1-multi-provider-ai-api-key-storage-with-transparent-migration">Batch 3 — Feature 1: Multi-provider AI API key storage with transparent migration</h3>
+<ul>
+<li><code>resmon_scripts/implementation_scripts/credential_manager.py</code> — added a per-provider credential-naming scheme (<code>ai_api_key__&#x3C;provider_slug></code>) and a one-shot, idempotent migration helper invoked at backend startup that re-keys any pre-existing legacy global AI credential under the per-provider name corresponding to the user’s currently selected provider. The legacy entry is only removed after the new entry is confirmed written.</li>
+<li><code>resmon_scripts/resmon.py</code> — surfaced per-provider presence on <code>GET /api/credentials</code>, accepted per-provider names on <code>PUT /api/credentials/{name}</code> and <code>DELETE /api/credentials/{name}</code>, and updated the AI factory / provider-resolution path so the correct stored key is selected at execution time based on the active provider.</li>
+<li><code>resmon_scripts/frontend/src/components/Settings/AISettings.tsx</code> — replaced the single-key form with a presence map keyed by provider; this is the foundation OOB-1..OOB-8 build on.</li>
+</ul>
+<h3 id="batch-4--feature-2--feature-3-per-execution-ai-override-parity-and-settings--ai-tooltips">Batch 4 — Feature 2 + Feature 3: Per-execution AI override parity and Settings → AI tooltips</h3>
+<ul>
+<li><code>resmon_scripts/frontend/src/components/AIOverridePanel.tsx</code> <em>(new)</em> — single shared override panel rendering the full Settings → AI control set (Provider + Model + Length + Tone + Temperature + Extraction Goals). Empty values are dropped via a <code>buildAIOverridePayload</code> helper before posting so they cannot clobber persisted defaults during the backend per-field merge.</li>
+<li><code>resmon_scripts/frontend/src/pages/DeepDivePage.tsx</code>, <code>resmon_scripts/frontend/src/pages/DeepSweepPage.tsx</code>, <code>resmon_scripts/frontend/src/pages/RoutinesPage.tsx</code> — mounted <code>AIOverridePanel</code> inside the form / create-edit modal; replaced the previous Length/Tone/free-text-Model trio with the shared panel (Routines previously had no override block at all).</li>
+<li><code>resmon_scripts/resmon.py</code> (AI execution-settings merge) — extended the per-execution merge to accept Provider + Model + Length + Tone + Temperature + Extraction Goals as per-field overrides; per-execution overrides never write back to the persisted <code>app_settings</code> row.</li>
+<li><code>resmon_scripts/frontend/src/components/Settings/AISettings.tsx</code> — added <code>InfoTooltip</code> ”?” hovers next to the <strong>Length</strong>, <strong>Tone</strong>, <strong>Temperature</strong>, and <strong>Extraction Goals</strong> labels (Feature 3).</li>
+</ul>
+<h3 id="out-of-band-additions">Out-of-Band Additions</h3>
+<ul>
+<li><strong>OOB-1, OOB-2, OOB-7, OOB-8 — Settings → AI Stored API Keys table.</strong> <code>resmon_scripts/frontend/src/components/Settings/AISettings.tsx</code> now renders a four-column <code>Stored API Keys</code> table (Provider / Status / Default Model / Actions). The Provider name (only — not the row) is the click target for setting the app default; Status carries a <code>Default</code> badge for the active provider; per-row Actions expose <code>Clear default model</code> and <code>Clear API key</code>. The table is lifted out of the <code>.settings-form</code> 480 px-capped container into its own <code>min(960px, 100%)</code> wrapper with non-stacking horizontal Actions buttons. (<code>global.css</code> minor tweak from OOB-1 only; OOB-7/-8 stayed inline so the shared <code>.settings-form</code> rule is not perturbed.)</li>
+<li><strong>OOB-3, OOB-4 — Override panel: provider-aware Model dropdown + missing-key inline entry + Save-as-default-model.</strong> <code>resmon_scripts/frontend/src/components/AIOverridePanel.tsx</code> replaced the override-panel free-text Model input with a dropdown populated by <code>POST /api/ai/models</code> for the chosen Provider, behind a <code>Load models</code> button. When the chosen Provider has no stored key, the panel renders an inline API-key input that POSTs to <code>/api/credentials/{name}</code> (re-using the Settings → AI endpoint). A <code>Save as default model</code> button persists the chosen model into <code>ai_default_models[provider]</code> without leaving the page; after save, the panel emits the live-update event so other surfaces refresh. No backend route additions.</li>
+<li><strong>OOB-5 — <code>ai_default_models</code> per-provider default-model map.</strong> <code>resmon_scripts/resmon.py</code> added <code>ai_default_models</code> (JSON-encoded <code>{provider: model_id}</code> dict) to <code>_SETTINGS_GROUPS["ai"]</code>. All read/write paths (Settings → AI panel, override panel, the <code>AIDefaultsInfo</code> strip on Dive/Sweep/Routines) consult the map keyed by the active provider, falling back to the legacy global <code>ai_model</code> / <code>ai_local_model</code> only for the active provider’s row when the map has no entry. Non-breaking, additive — no schema migration. <strong>Operational caveat:</strong> existing daemons started before this allowlist entry existed silently dropped <code>ai_default_models</code> writes; users upgrading past this update must restart the daemon (kill the existing <code>resmon-daemon</code> process and let the renderer attach to a fresh one).</li>
+<li><strong>OOB-6 — Race-safe writers in <code>AISettings.tsx</code>.</strong> <code>handleClearDefaultModel</code>, <code>handleSetDefaultProvider</code>, and <code>handleSave</code> in <code>resmon_scripts/frontend/src/components/Settings/AISettings.tsx</code> each <code>GET /api/settings/ai</code> immediately before each <code>PUT</code>, merge the fresh <code>ai_default_models</code> map with their intended delta, and <code>PUT</code> only the narrow set of keys they need to change; the override panel already used a similarly narrow PUT. This stops the two writers (Settings panel + override panel) from clobbering each other.</li>
+<li><strong>OOB-9 — Configurations page per-row Edit action.</strong> <code>resmon_scripts/frontend/src/pages/ConfigurationsPage.tsx</code> gained an <code>Edit</code> button on every row’s Actions column with a config-type-aware modal: <code>routine</code> → full Routines-style editor (cron + multi-repo + date range + keywords + max-results + AI/Email/Email-AI/Notify toggles + Execution-Location radio + shared <code>AIOverridePanel</code>) saving via <code>PUT /api/routines/{linked_routine_id}</code>; <code>manual_sweep</code> → same form minus cron and the routine-only toggles, saving via <code>PUT /api/configurations/{id}</code>; <code>manual_dive</code> → same as <code>manual_sweep</code> but with <code>RepositorySelector mode="single"</code>. No new backend routes.</li>
+<li><strong>OOB-10 — Stale <code>linked_routine_id</code> 404 fallback.</strong> <code>handleEditSave</code> in <code>resmon_scripts/frontend/src/pages/ConfigurationsPage.tsx</code> now tries <code>PUT /api/routines/{linked_routine_id}</code> first and, on 404, falls back to <code>PUT /api/configurations/{id}</code> with the full routine payload (and <code>linked_routine_id</code> cleared). Defense-in-depth retained for any non-import path that could leave a config row orphaned; for the import path itself, OOB-11 makes the fallback unnecessary by always materializing the routine.</li>
+<li><strong>OOB-11 — Import ↔ Routines bidirectional invariant.</strong> <code>resmon_scripts/resmon.py</code>’s <code>import_configurations</code> endpoint post-processes each imported row: for every <code>config_type == 'routine'</code> config it parses the inner parameters JSON, builds a routine insert payload, <strong>forces <code>is_active=0</code></strong> (imported routines are deactivated by default so bulk imports never auto-fire), calls <code>insert_routine</code>, captures the new id, and rewrites the just-imported config row’s parameters JSON so <code>linked_routine_id</code> points at the new routine and <code>is_active=False</code>. The response gains a <code>routines_created</code> counter. <code>resmon_scripts/frontend/src/pages/RoutinesPage.tsx</code> subscribes to <code>useConfigurationsVersion()</code> so the routines list refetches on import without a page reload. No new dependencies; no schema changes.</li>
+</ul>
+<h3 id="public-facing-documentation-touch-ups-t-upd-3">Public-Facing Documentation Touch-Ups (T-UPD-3)</h3>
+<ul>
+<li><code>README.md</code> — extended the <strong>AI-powered summarization</strong> Key-Features bullet to mention concurrent per-provider key storage and full per-execution AI override parity across Deep Dive / Deep Sweep / Routines; added a new <strong>Cross-platform desktop notifications</strong> Key-Features bullet covering macOS / Linux / Windows including the headless-daemon path; verified no other section (installation, supported repositories, operational modes, technology stack) required edits.</li>
+<li><code>resmon_reports/info_docs/settings_info.md</code> — added the new four-column <code>Stored API Keys</code> table description, click-provider-name-to-set-default semantics, <code>Default</code> badge in Status, <code>Clear default model</code> / <code>Clear API key</code> actions, the <code>ai_default_models</code> map, and the four <code>InfoTooltip</code> additions on the AI panel; clarified the Notifications panel covers all three platforms (with the daemon caveat for app-closed routine notifications) and that Advanced → Background Execution is a precondition for app-closed notifications.</li>
+<li><code>resmon_reports/info_docs/deep_dive_info.md</code>, <code>deep_sweep_info.md</code>, <code>routines_info.md</code> — replaced the Length/Tone/free-text-Model override description with the full-parity <code>AIOverridePanel</code> description (Provider-aware Model dropdown with <code>Load models</code>, inline API-key entry for missing-key providers, <code>Save as default model</code>); added the panel description to <code>routines_info.md</code> (previously absent).</li>
+<li><code>resmon_reports/info_docs/configs_info.md</code> — documented the new per-row <strong>Edit</strong> action and its three modal variants (OOB-9), the stale <code>linked_routine_id</code> 404 fallback (OOB-10), and the import-bidirectional-sync rule from OOB-11; added the <code>routines_created</code> response field to the <code>/api/configurations/import</code> description.</li>
+<li><code>resmon_reports/info_docs/routines_info.md</code> — also noted that routine rows can now appear via Configurations-page imports (deactivated by default) in addition to the Create-modal path, and that the page subscribes to the configurations bus so imports surface without a reload.</li>
+<li><code>resmon_reports/info_docs/calendar_info.md</code> — updated the Event Styling paragraph for week/day views to describe the new dot+type-colored-text rendering.</li>
+</ul>
+<h3 id="app-version-bump">App Version Bump</h3>
+<ul>
+<li><code>resmon_scripts/implementation_scripts/config.py</code> — <code>APP_VERSION</code> bumped from <code>"1.0.0"</code> to <code>"1.1.0"</code> (minor: new user-visible features under a stable major).</li>
+<li><code>resmon_scripts/frontend/package.json</code> — <code>"version"</code> bumped from <code>"1.0.0"</code> to <code>"1.1.0"</code> to match.</li>
+<li><code>resmon_scripts/frontend/src/components/Settings/AboutAppSettings.tsx</code> — added a <strong>Recent Update</strong> card to the <code>about-grid</code> summarizing this update by number, name, and one-paragraph summary; the version line continues to read from <code>/api/health</code> so it tracks <code>APP_VERSION</code> automatically.</li>
+</ul>
+<h2 id="verification">Verification</h2>
+<h3 id="test-suites-run">Test Suites Run</h3>
+<p>The Python suite (<code>pytest</code>) was executed from the repository root inside the project’s <code>.venv</code> after every batch and every OOB change:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">source</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> .venv/bin/activate</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">pytest</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/verification_scripts/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span></span></code></pre>
+<ul>
+<li><strong>Batch 1 (Calendar):</strong> frontend webpack production build → <code>webpack 5.106.2 compiled successfully</code>; manual UI smoke confirmed dot+type-colored-text rendering on <code>dayGridMonth</code>, <code>timeGridWeek</code>, and <code>timeGridDay</code>, and that no background fill is applied to week/day events.</li>
+<li><strong>Batch 2 (Notifications):</strong> notification-dispatcher unit tests → green; manual smoke (a) app open, manual Dive completion notification fires; (b) app open, routine completion notification fires; (c) app closed under macOS launchd-managed daemon, routine completion notification fires. Linux (<code>systemd --user</code>) and Windows (Task Scheduler) verified via the dispatcher entry-point unit tests plus the written manual-verification checklist where the dev machine could not natively exercise both OSes.</li>
+<li><strong>Batch 3 (Multi-provider keys):</strong> <code>credential_manager</code> unit tests for per-provider naming and migration idempotency → green; <code>/api/credentials</code> route tests → green; AI factory provider-selection test → green; first-launch migration test against a synthetic legacy keyring entry → green.</li>
+<li><strong>Batch 4 (Override parity + tooltips):</strong> AI execution-settings merge tests (per-execution per-field overrides do not write back to the persisted Settings → AI row) → green; routine-creation tests carrying override settings end-to-end → green; frontend webpack production build → green; one end-to-end smoke run on each of Dive / Sweep / Routine with one non-default override field populated and the others left blank confirmed per-field merge.</li>
+<li><strong>OOB-1..OOB-11:</strong> webpack production build run after each OOB change → <code>compiled successfully</code> at every step. Backend Python unit tests for the credential-manager / settings paths remained green throughout. Backend <code>curl</code> round-trip on <code>PUT /api/settings/ai</code> confirmed <code>ai_default_models</code> persists across PUT/GET (after the stale-daemon caveat in OOB-5 was applied). Manual UI smoke confirmed: per-provider key storage round-trips; clicking only the Provider name sets the app default and adds the <code>Default</code> badge; <code>Clear default model</code> / <code>Clear API key</code> per-row Actions behave; OOB-6’s race-safe merge accumulates entries across alternating saves from the two surfaces; the override panel’s Load-models / inline-key / Save-as-default flow works on Dive / Sweep / Routines; Configurations Edit modal pre-populates and saves the right endpoint for each of the three config types; the OOB-10 fallback path saves successfully against an imported routine config with a stale <code>linked_routine_id</code>; and importing a routine config materializes a deactivated routine on the Routines page without reload.</li>
+<li><strong>Final aggregate run</strong> at the end of T-UPD-2: <code>pytest resmon_scripts/verification_scripts/ -q</code> → all tests green, no skips beyond pre-existing platform-gated tests (Linux-only / Windows-only systemd and Task Scheduler integration paths are skipped on macOS by design and were exercised through the manual checklist instead).</li>
+</ul>
+<h3 id="skipped-test-rationale">Skipped-Test Rationale</h3>
+<ul>
+<li>The platform-gated Linux <code>systemd --user</code> and Windows Task Scheduler integration tests are skipped on macOS by their existing <code>pytest.mark.skipif</code> guards. They were exercised manually against the platform-specific service templates per the workflow’s manual-verification checklist; no test was disabled or deleted.</li>
+</ul>
+<h3 id="build-verification">Build Verification</h3>
+<ul>
+<li>Frontend: <code>npm run build</code> (production webpack) ran clean after each batch and after each OOB change.</li>
+<li>Backend: <code>python -c "import resmon_scripts.resmon"</code> and the daemon attach path ran clean after every backend touch; <code>[main] Attached to existing resmon-daemon on port 8742</code> confirmed at the end of T-UPD-2.</li>
+</ul>
+<h2 id="follow-ups">Follow-ups</h2>
+<ul>
+<li><strong>Stale-daemon advisory (OOB-5).</strong> Users upgrading from a build that predates <code>ai_default_models</code> must restart any long-lived <code>resmon-daemon</code> process so the new settings-allowlist entry is picked up. The behavior is silent-drop, not error, on the old daemon. Consider adding a startup version check in a future update so the renderer can warn when the attached daemon is older than the renderer.</li>
+<li><strong>Linux / Windows live-OS verification.</strong> Cross-platform parity for desktop notifications is covered by unit tests + the manual checklist; live-OS smoke runs on a Linux box and a Windows box are still recommended in a follow-up update once that hardware is available.</li>
+<li><strong>Configurations-page edit history.</strong> OOB-9’s Edit modal saves immediately; an undo / “revert to last saved” affordance was discussed but deferred — call it out as a candidate enhancement for a future update.</li>
+<li><strong>Per-paper artifact retention</strong> (Settings → Storage PDF / TXT retention policies) remains reserved for a future per-paper artifact-download feature; this update does not exercise that surface.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 2 — Calendar Readability, Cross-Platform Desktop Notifications, Multi-Provider AI Keys, Per-Execution AI Override Parity, and Configurations Lockstep]]></summary></entry><entry><title type="html">resmon Update 1 — April 24, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/24/resmon-update-1/" rel="alternate" type="text/html" title="resmon Update 1 — April 24, 2026" /><published>2026-04-24T16:00:00+00:00</published><updated>2026-04-24T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/24/resmon-update-1</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/24/resmon-update-1/"><![CDATA[<h1 id="update-1--config-deletion-propagation-fix--query-keyword-transparency">Update 1 — Config-Deletion Propagation Fix &#x26; Query Keyword Transparency</h1>
+<h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 1</li>
+<li><strong>Update type:</strong> mixed (bugfix + feature)</li>
+<li><strong>Date:</strong> 2026-04-24</li>
+<li><strong>Author:</strong> Ryan Kamp</li>
+<li><strong>Commit hash:</strong> 707c07221f607297a7a919bd3f4d527a968832c8</li>
+<li><strong>Commit timestamp:</strong> 2026-04-25T03:01:35-04:00</li>
+<li><strong>GitHub push timestamp:</strong> 2026-04-25T07:01:45Z</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<p>This update ships the first post-release change set for resmon. It fixes a frontend cache-staleness bug where deleted <code>manual_dive</code> / <code>manual_sweep</code> configurations continued to appear in the Deep Dive and Deep Sweep <code>Load Configuration</code> dropdowns, and it introduces a “Query Keyword Transparency” feature that surfaces, on every page where a user picks repositories, exactly how each repository’s upstream API combines space-separated keywords. The feature also adds a consolidated, grouped, color-coded glossary on the Repositories &#x26; API Keys page and per-repository keyword-combination metadata in the catalog and on <code>.ai/prep/repos.csv</code>. Per-repository research replaces the previously lumped row for SSRN, RePEc, PLOS, DBLP, and IEEE Xplore (SSRN and RePEc are not in the active catalog and were therefore not added; PLOS, DBLP, and IEEE were classified individually).</p>
+<h2 id="motivation">Motivation</h2>
+<p>Both items in this update originated in the user’s first-after-release feedback session and map back to the change inventory in <code>.ai/updates/update_4_24_26/update_4_24_26_workflow.md</code>:</p>
+<ul>
+<li><strong>Bug — Improper Config Deletion</strong> (workflow item #1, batch 1). After deleting a <code>manual_dive</code> or <code>manual_sweep</code> configuration from the Configurations page, the deleted entry was still selectable in the <code>Load Configuration</code> dropdown on the Deep Dive and Deep Sweep pages and could still auto-populate the form. The Routines page was unaffected. Root cause: the shared <code>ConfigLoader</code> only refetched on its <code>configType</code> / <code>refreshKey</code> props, neither of which changed when a deletion happened on a different page; there was no cross-page invalidation channel.</li>
+<li><strong>Feature — Query Keyword Transparency</strong> (workflow item #2, batch 2). Users had no in-app indication of how each repository’s upstream API combines keywords (some are implicit AND, some are implicit OR, several are relevance-ranked Lucene/Solr backends). The user requested per-repo banners on Deep Dive, Deep Sweep, and Routines, an enriched expander plus a glossary on the Repositories &#x26; API Keys page, the same metadata in <code>.ai/prep/repos.csv</code>, and individual research for the lumped row in <code>.ai/prep/keyword_booleans_overview.md</code>.</li>
+</ul>
+<h2 id="changes">Changes</h2>
+<h3 id="batch-1--improper-config-deletion-cluster-shared-root-cause">Batch 1 — Improper Config Deletion (cluster, shared root cause)</h3>
+<ul>
+<li><code>resmon_scripts/frontend/src/lib/configurationsBus.ts</code> <em>(new, 33 lines)</em> — tiny in-renderer pub/sub bus with <code>notifyConfigurationsChanged()</code> and <code>useConfigurationsVersion()</code> so any mutation site can invalidate every mounted <code>ConfigLoader</code> without page-to-page coupling.</li>
+<li><code>resmon_scripts/frontend/src/components/Forms/ConfigLoader.tsx</code> — subscribe to the bus via <code>useConfigurationsVersion()</code> and add the version to the fetch effect’s dependency array so deletions, saves, and imports anywhere in the app force a refetch.</li>
+<li><code>resmon_scripts/frontend/src/pages/ConfigurationsPage.tsx</code> — call <code>notifyConfigurationsChanged()</code> after a successful delete and after a successful import.</li>
+<li><code>resmon_scripts/frontend/src/pages/DeepDivePage.tsx</code> — call <code>notifyConfigurationsChanged()</code> after a successful “Save Configuration” so newly saved rows immediately appear in sibling loaders.</li>
+<li><code>resmon_scripts/frontend/src/pages/DeepSweepPage.tsx</code> — same notify-on-save wiring as Deep Dive.</li>
+</ul>
+<h3 id="batch-2--query-keyword-transparency-single-feature">Batch 2 — Query Keyword Transparency (single feature)</h3>
+<ul>
+<li><code>resmon_scripts/implementation_scripts/repo_catalog.py</code> — add <code>keyword_combination</code> and <code>keyword_combination_notes</code> fields to <code>RepoCatalogEntry</code> and populate them for all 16 active repositories, using “Implicit AND”, “Explicit OR”, “Relevance-ranked”, or “Relevance-ranked (… upstream-default, unverified)” labels per the workflow’s uncertainty policy. DBLP, IEEE Xplore, and PLOS are individually classified (replacing the previously lumped row); SSRN and RePEc are not in the active catalog and were therefore not added.</li>
+<li><code>resmon_scripts/verification_scripts/test_repo_catalog.py</code> — extend <code>expected_keys</code> and add <code>test_keyword_combination_populated_for_every_active_repo</code>.</li>
+<li><code>resmon_scripts/frontend/src/api/repositories.ts</code> — extend the <code>RepoCatalogEntry</code> TypeScript interface with the two new optional fields.</li>
+<li><code>resmon_scripts/frontend/src/components/Forms/KeywordCombinationBanner.tsx</code> <em>(new, 42 lines)</em> — compact banner mounted under the repository selector on Deep Dive, Deep Sweep, and Routines that shows the keyword-combination label and notes for each currently selected repository, with a tooltip pointing to the consolidated glossary.</li>
+<li><code>resmon_scripts/frontend/src/components/Repositories/KeywordSemanticsGlossary.tsx</code> <em>(new, 182 lines)</em> — consolidated, expandable glossary on the Repositories &#x26; API Keys page. Three categories (“Boolean combination”, “Ranking &#x26; confidence”, “Underlying search platforms”), each rendered as a color-accented section with a card grid of color-coded badge + short label + definition for every term (“Implicit AND”, “Explicit AND”, “Implicit OR”, “Explicit OR”, “Relevance-ranked”, “upstream-default, unverified”, “Lucene”, “Solr”). Iterated through three visual formats during review; final layout is the grouped card-grid format.</li>
+<li><code>resmon_scripts/frontend/src/components/Repositories/RepoDetailsPanel.tsx</code> — render the new “Effective Default Keyword Combination” and “Keyword Combination Notes” rows in the per-repo expander.</li>
+<li><code>resmon_scripts/frontend/src/pages/DeepDivePage.tsx</code> — mount <code>KeywordCombinationBanner</code> for the selected single repository.</li>
+<li><code>resmon_scripts/frontend/src/pages/DeepSweepPage.tsx</code> — mount <code>KeywordCombinationBanner</code> for each selected repository.</li>
+<li><code>resmon_scripts/frontend/src/pages/RoutinesPage.tsx</code> — mount <code>KeywordCombinationBanner</code> in the Create/Edit modal for each selected repository.</li>
+<li><code>resmon_scripts/frontend/src/pages/RepositoriesPage.tsx</code> — mount <code>KeywordSemanticsGlossary</code> above the catalog table.</li>
+<li><code>.ai/prep/repos.csv</code> <em>(internal scaffolding, not tracked by git)</em> — extended with <code>keyword_combination</code> and <code>keyword_combination_notes</code> columns mirroring the catalog entries; per the user’s directive this file is enriched in place rather than relocated.</li>
+</ul>
+<h3 id="out-of-band-additions-t-upd-add">Out-of-Band Additions (T-UPD-ADD)</h3>
+<p>None.</p>
+<h2 id="verification">Verification</h2>
+<ul>
+<li><strong>Backend unit tests:</strong> <code>python -m pytest resmon_scripts/verification_scripts/test_repo_catalog.py -q</code> → <code>10 passed in 0.02s</code>. Includes the new <code>test_keyword_combination_populated_for_every_active_repo</code> and the extended <code>test_catalog_as_dicts_shape</code> <code>expected_keys</code> set.</li>
+<li><strong>Frontend production build:</strong> <code>npm run build:renderer</code> (run from <code>resmon_scripts/frontend/</code>) → <code>webpack 5.106.2 compiled successfully in 5111 ms</code> after batch 2’s components were finalized. Re-run after each visual iteration of the glossary; final iteration also compiled cleanly.</li>
+<li><strong>Manual UI verification:</strong> the live Electron app (attached to the running daemon on <code>127.0.0.1:8742</code>) was used to verify (a) deleting a <code>manual_dive</code> config from the Configurations page makes it disappear from the Deep Dive <code>Load Configuration</code> dropdown without a reload, and the same for <code>manual_sweep</code> on the Deep Sweep page; (b) the keyword-combination banner appears under the repository selector on Deep Dive, Deep Sweep, and the Routines create/edit modal, and lists one row per selected repository with the correct label; (c) the consolidated glossary on the Repositories &#x26; API Keys page expands, renders three category sections with colored accents, and shows every defined term as a card; (d) each row in the catalog table exposes the two new entries in its expander.</li>
+<li><strong>Skipped tests:</strong> none. No frontend Jest suite was run because the project does not currently maintain one for these surfaces; manual UI verification is the existing standard for renderer-only changes.</li>
+</ul>
+<h2 id="follow-ups">Follow-ups</h2>
+<ul>
+<li>Optional: add a Playwright/Jest smoke test for <code>ConfigLoader</code> cross-page invalidation so future regressions are caught without manual reproduction.</li>
+<li>Optional: confirm the “upstream-default, unverified” labels for DBLP, IEEE Xplore, and PLOS by directly probing each upstream search box; promote the labels to the unqualified form once verified.</li>
+<li>The cloud catalog mirror (if/when the cloud service serializes the catalog independently) will need the two new fields surfaced in its <code>/api/v2/repositories/catalog</code> response; not in scope for this update.</li>
+</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 1 — Config-Deletion Propagation Fix &#x26; Query Keyword Transparency]]></summary></entry><entry><title type="html">Welcome to the resmon blog</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/23/welcome-to-the-resmon-blog/" rel="alternate" type="text/html" title="Welcome to the resmon blog" /><published>2026-04-23T00:00:00+00:00</published><updated>2026-04-23T00:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/23/welcome-to-the-resmon-blog</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/23/welcome-to-the-resmon-blog/"><![CDATA[<p>This is the first post on the resmon blog. Going forward, every release update
+to the resmon app will be mirrored here as its own post, including the full
+contents of that update’s <code>update_&#x3C;DATE>.md</code> document, screen-recording GIFs
+of new features and bug fixes (where applicable), and any other context that
+helps users understand the change.</p>
+<p>The blog is also surfaced inside the resmon app itself, on the
+<strong>About resmon → Blog</strong> tab. The in-app reader fetches this site’s feed at
+<code>/feed.xml</code> and renders the post list directly from it, so any post published
+here appears in the app on the next tab open without an app re-release.</p>
+<p>Thanks for reading.</p>]]></content><author><name>Ryan Kamp</name></author><category term="announcements" /><summary type="html"><![CDATA[This is the first post on the resmon blog. Going forward, every release update to the resmon app will be mirrored here as its own post, including the full contents of that update’s update_&#x3C;DATE>.md document, screen-recording GIFs of new features and bug fixes (where applicable), and any other context that helps users understand the change.]]></summary></entry></feed>

@@ -21,7 +21,17 @@
   --ink-2: #eceeef;
   --ink-3: #dcdfe1;
   --ink-4: #b4babd;
-  --ink-5: #7c8488;
+  /*
+   * Darkened from #7c8488, which was the only color on the site that failed
+   * WCAG AA. It is `--color-text-faint`, and `--color-text-faint` is not a
+   * decoration: it is the "UPDATE" eyebrow above a post title, the "On this
+   * page" heading, the "Previous"/"Next" labels and the "README lines 1-69"
+   * provenance line. Measured on the published site it came to 3.58:1 on
+   * `--ink-1` and 3.81:1 on white, against the 4.5:1 that 12.48px text needs.
+   * This value is 4.97:1 and 5.28:1. Dark mode's ramp rebuilds `--ink-5`
+   * separately and already passed at 4.89:1, so it is left alone.
+   */
+  --ink-5: #656d70;
   --ink-6: #4e5558;
   --ink-7: #2b3134;
   --ink-8: #16191b;
@@ -114,6 +124,7 @@
   /* ---- Layout ---------------------------------------------------------- */
   --measure: 42rem;        /* comfortable reading width for prose          */
   --measure-wide: 64rem;   /* page shell, index listings, tables           */
+  --page-min-height: 100dvh; /* so a short page's footer reaches the bottom */
   --gutter: var(--space-4);
   --gutter-wide: var(--space-6);
 

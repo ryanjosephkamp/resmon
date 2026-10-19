@@ -53,6 +53,7 @@ are not what you meant, stop there.
 | `RESMON_JOURNEY_APP` | The `frontend/` directory of the build under test. Defaults to this checkout. It must already be built; the suite refuses a directory with no `dist/electron/main.js` rather than quietly building one. |
 | `RESMON_JOURNEY_DRIVER` | `classic` or `candidate`. Defaults to `candidate`. Anything else stops the run — a typo that quietly fell back would report green against the wrong renderer. |
 | `RESMON_JOURNEY_BREAK_ROW` | Fails one named register row on purpose, e.g. `J20`. This is how the CI job is shown to be able to go red. |
+| `RESMON_JOURNEY_LAG` | Delays the app's own HTTP calls, e.g. `/api/routines=2500,/api/watchdog=1500`. This is how a read-after-write race is shown to be fixed rather than merely unobserved — widen the gap a read has to survive, and a read that was only passing because the machine was quiet fails. Unset, nothing is intercepted. |
 | `RESMON_JOURNEY_SCREENSHOT_DIR` | Where pictures land. Defaults to `journeys/screenshots/`, which is gitignored. |
 | `RESMON_PYTHON` | The interpreter the backend runs under. It is *not* part of the build under test; it only has to have `requirements.txt` installed. |
 | `RESMON_HIDDEN_WINDOW` | Set to `1` by `playwright.config.ts` for every run of this suite: the app's windows are created and loaded but never shown, so a run puts nothing on the screen. `RESMON_HIDDEN_WINDOW=0 npm run journeys` brings them back when you want to watch one. |
@@ -96,7 +97,18 @@ other half of that check and it is in the pull request.
 | `fixtures/gates.ts` | Runs one of the build's own pytest gates, for the rows whose journey has no screen. |
 | `J<nn>-<slug>.spec.ts` | One register row each. |
 
-## Five things to know before adding a row
+## Six things to know before adding a row
+
+**A driver waits for a state, never for a duration.** A `waitForTimeout` under
+`drivers/` fails `register.spec.ts` unless the line, or the comment above it,
+carries `journeys:duration-ok` and a reason — and so does a driver method that
+reads the screen before it has waited for anything. The wait after a write is
+`stored(…)`: the app's own record of what the write produced, read back over
+its API, and only then an assertion that the screen agrees. That second
+assertion has to be one the pre-write state could not satisfy, which is not
+automatic — `activateRoutine` waited for a badge matching
+`hasText: 'Active'`, Playwright's `hasText` string form is a case-insensitive
+substring, and "Inactive" satisfied it for as long as the method existed.
 
 **A row and a spec exist together, or the run fails.** Add a row to
 `register.ts` with `slice: '1'` and no spec, and the guard says which file it

@@ -113,6 +113,64 @@ function killTree(pid: number | undefined, group: number | null): string {
   return attempts.length ? attempts.join(' and ') : 'nothing: the group and the pid were both already gone';
 }
 
+/**
+ * A deliberate lag on the app's own HTTP calls, so a read-after-write race can
+ * be made to happen rather than waited for.
+ *
+ * **This exists because the alternative is waiting for a flake.** The race this
+ * suite keeps paying for is a read taken before the write that produced it has
+ * reached the screen, and it fires when the gap between the two is wide enough
+ * — which on a quiet laptop it never is. Five red Journeys jobs across four
+ * branches and four dates, one of them on a pull request whose whole content
+ * was a word in a markdown file, is what the condition looks like when nobody
+ * can reproduce it: three people each spent half an hour ruling out their own
+ * diff. So the gap is made widenable on demand, in the same spirit as
+ * `RESMON_JOURNEY_BREAK_ROW`: a guard nobody can make go red is a guard
+ * trusted on somebody's word.
+ *
+ * `RESMON_JOURNEY_LAG='/api/routines=2500,/api/watchdog=1500'` delays every
+ * request the window makes whose URL contains that fragment by that many
+ * milliseconds. Unset — which is every ordinary run and both CI legs — nothing
+ * is installed and no route is intercepted at all.
+ *
+ * **It lags the suite's own reads too, and that is the honest version.** The
+ * driver asks the backend through this same window, so a settle that polls the
+ * stored effect pays the lag as well. A knob that exempted the suite would be
+ * measuring a race the app cannot have.
+ */
+interface Lag { fragment: string; ms: number }
+
+function configuredLag(): Lag[] {
+  const raw = (process.env.RESMON_JOURNEY_LAG || '').trim();
+  if (!raw) return [];
+  return raw.split(',').map((entry) => {
+    const [fragment, ms] = entry.split('=');
+    const delay = Number(ms);
+    if (!fragment || !fragment.trim() || !Number.isFinite(delay) || delay < 0) {
+      throw new Error(
+        `RESMON_JOURNEY_LAG is "${raw}", which is not a comma-separated list of `
+        + '<url-fragment>=<milliseconds>. A typo here would quietly lag nothing and '
+        + 'report the run as evidence that the race is gone.',
+      );
+    }
+    return { fragment: fragment.trim(), ms: delay };
+  });
+}
+
+/** Install the configured lag on one window. A no-op when none is configured. */
+async function installLag(page: Page, lags: Lag[]): Promise<void> {
+  if (!lags.length) return;
+  for (const { fragment, ms } of lags) {
+    console.log(`[journeys] lagging every request containing "${fragment}" by ${ms} ms`);
+  }
+  await page.route('**/*', async (route) => {
+    const url = route.request().url();
+    const hit = lags.find((lag) => url.includes(lag.fragment));
+    if (hit) await after(hit.ms);
+    await route.continue();
+  });
+}
+
 /** The build under test: `RESMON_JOURNEY_APP`, or the checkout this suite lives in. */
 export function targetAppRoot(): AppRoot {
   const configured = (process.env.RESMON_JOURNEY_APP || '').trim();
@@ -267,6 +325,8 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
   const alsoRemove: string[] = [];
   /** Servers a journey started of its own, which must not outlive the session. */
   const alsoClose: (() => Promise<void>)[] = [];
+  /** The deliberate lag, read once: see `configuredLag`. Empty on every ordinary run. */
+  const lags = configuredLag();
 
   const bring = async (): Promise<void> => {
     app = await electron.launch({
@@ -279,6 +339,10 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     // moment the question has an answer.
     appGroup = groupLedBy(app.process()?.pid);
     win = await app.firstWindow({ timeout: 180_000 });
+    // Before anything is waited for: a lag installed after the first fetch has
+    // gone out is a lag that did not apply to it. Relaunches come back through
+    // here too, so the knob survives `reopenTheApp()`.
+    await installLag(win, lags);
     await win.waitForLoadState('domcontentloaded');
     await win.locator('.app-main').waitFor({ state: 'visible', timeout: 90_000 });
     port = await win.evaluate(
