@@ -65,7 +65,13 @@ const SourceConstraintNotice: React.FC<Props> = ({
     <div className="form-field" data-testid="source-constraint-notice">
       <label className="form-label">
         Before you run this
-        <InfoTooltip text="What the sources you have selected will do to this query. Only sources that will change something appear here; a source with nothing to say is left out. Full details for every source are on the Repositories & API Keys page." />
+        {/*
+          Not "full details are on the Repositories page": these sentences are
+          not rendered there, and sending somebody to a page that does not
+          carry what they were promised is the small kind of overclaim. What
+          that page does carry is named instead.
+        */}
+        <InfoTooltip text="What the sources you have selected will do to this query. Only sources that will change something appear here; a source with nothing to say is left out. Each source's date-filtering precision, rate limit, upstream policy and terms are on the Repositories & API Keys page." />
       </label>
       <ul className="repo-key-status-stack" style={{ margin: 0, paddingLeft: 0, listStyle: 'none' }}>
         {advisories.map((advisory) => (
