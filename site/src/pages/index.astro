@@ -44,17 +44,35 @@ const starters = starting
     </p>
   </section>
 
+  {/*
+    The screenshot is 1440 by 868 and the column it sits in is a little over
+    a third as wide, less than a quarter on a phone. At either size the app's
+    own text inside it is too small to read, which is most of what a dashboard
+    screenshot is for. So
+    the figure is a link to the file itself: one tap or click and the reader
+    has it at full size. That is the whole fix — making the thumbnail legible
+    is a question about what this image should be, which belongs with the
+    visual design rather than here.
+
+    `loading="lazy"` was on it, and it is the first image on the page and in
+    the opening viewport on a desktop: lazy loading delays exactly the thing
+    the page is waiting to show. `eager` is what it should have said.
+  */}
   <figure class="shot">
-    <img
-      src={url('/screenshots/dashboard.png')}
-      alt="The resmon dashboard: a left-hand navigation list, a panel explaining the three run types, a watchdog line reading that nothing looks wrong, and a recent-activity table with one completed Deep Dive against arXiv."
-      width="1440"
-      height="868"
-      loading="lazy"
-      decoding="async"
-    />
+    <a href={url('/screenshots/dashboard.png')}>
+      <img
+        src={url('/screenshots/dashboard.png')}
+        alt="The resmon dashboard: a left-hand navigation list, a panel explaining the three run types, a watchdog line reading that nothing looks wrong, and a recent-activity table with one completed Deep Dive against arXiv."
+        width="1440"
+        height="868"
+        loading="eager"
+        decoding="async"
+      />
+    </a>
     <figcaption>
-      The dashboard, from the end-to-end suite's own run against a disposable corpus.
+      The dashboard, from the end-to-end suite's own run against a disposable
+      corpus. <a href={url('/screenshots/dashboard.png')}>Open it at full size</a>
+      to read the panels.
     </figcaption>
   </figure>
 

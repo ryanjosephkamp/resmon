@@ -33,6 +33,20 @@ body {
   line-height: var(--leading-normal);
   /* Long technical words (route paths, slugs) must not push the page sideways. */
   overflow-wrap: break-word;
+  /*
+   * On a page shorter than the window — 404, and the shortest guide pages —
+   * the footer ended wherever the content did and the rest of the window was
+   * bare canvas below it, which reads as the page having failed to finish
+   * loading. Column layout with the main region taking the slack puts the
+   * footer at the bottom of a short page and leaves a long one alone.
+   */
+  display: flex;
+  flex-direction: column;
+  min-height: var(--page-min-height);
+}
+
+body > main {
+  flex: 1 0 auto;
 }
 
 /* ---- Links ------------------------------------------------------------- */

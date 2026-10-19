@@ -42,13 +42,46 @@ import { absoluteUrl } from '../lib/urls';
  *     not the whole post. Because the app prefers `<summary>`, dropping it
  *     would silently change every preview line in the app's post list.
  *
- * The entry count also matches: `jekyll-feed` publishes the 10 most recent
- * posts unless `feed.posts_limit` says otherwise, and `_config.yml` did not.
- * All 27 posts are on the site; the feed carries the same 10 it always did.
+ * The one element that no longer matches is the entry count, and that is the
+ * subject of FEED_LIMIT below.
  */
 
-/** What `jekyll-feed` defaulted to, now stated rather than inherited. */
-const FEED_LIMIT = 10;
+/**
+ * How many posts the feed carries. Every one of them.
+ *
+ * `jekyll-feed` publishes the 10 most recent posts unless `feed.posts_limit`
+ * says otherwise, and the old `_config.yml` never said otherwise. Nobody chose
+ * 10; it was a plugin default nobody had read. The consequence was that the
+ * in-app Blog tab — which has no pagination and no other way to reach a post —
+ * listed 10 of the updates and silently withheld the rest. The Astro migration
+ * held the number at 10 on purpose, so that a change claiming to preserve the
+ * feed did not also alter it; this is that change, made on its own.
+ *
+ * There is no cap now rather than a larger one, because any cap is the same
+ * bug with a bigger number: the app's post list is the whole feed, so a post
+ * outside the limit is a post the owner cannot open from inside the app.
+ *
+ * The cost is size. The app fetches this file on every open of **About resmon
+ * -> Blog**, and each entry carries the post's full rendered HTML in
+ * `<content>`. Measured on the 27 posts as they stand, that is 286,596 bytes
+ * against the 10-entry feed's 91,016, and 88,076 against 30,964 gzipped,
+ * which is how GitHub Pages serves it.
+ *
+ * **That 88 KB is paid on every tab open, not once.** `BlogTab.tsx` fetches
+ * with `cache: 'no-store'`, which bypasses the ten-minute cache GitHub Pages
+ * sets on this file, so opening the tab twice fetches it twice, and so does
+ * every press of **Refresh**. Nothing retained grows with the post count —
+ * `parseAtomFeed` keeps five fields per entry and cuts the summary at 240
+ * characters, discarding the `<content>` that is almost all of the bytes —
+ * so the cost is the transfer, not the memory.
+ *
+ * It is worth re-reading if the post count grows by an order of magnitude.
+ * The lever to reach for then is dropping `<content>` from older entries, not
+ * a limit, because `<summary>` is what the app's list actually displays. A
+ * cheaper one, if the transfer ever matters, is for the component to stop
+ * passing `no-store`.
+ */
+const FEED_LIMIT = Number.POSITIVE_INFINITY;
 
 /** From the old `_config.yml`, verbatim. */
 const FEED_TITLE = 'resmon';
@@ -109,12 +142,12 @@ export const GET: APIRoute = async () => {
     const title = xmlEscape(post.data.title);
 
     // The whole post, from the same processor the post page uses.
-    const { html } = await renderMarkdown(body);
+    const { html } = await renderMarkdown(body, { from: 'docs/_posts' });
 
     // The excerpt: everything up to the first blank line, which is what Jekyll's
     // default `excerpt_separator` of "\n\n" produced.
     const firstBlock = body.replace(/^\s+/, '').split(/\n\s*\n/, 1)[0] ?? '';
-    const { html: excerptHtml } = await renderMarkdown(firstBlock);
+    const { html: excerptHtml } = await renderMarkdown(firstBlock, { from: 'docs/_posts' });
     const summary = stripHtml(excerptHtml);
 
     const categoryElements = categoriesOf(post.data.categories)
