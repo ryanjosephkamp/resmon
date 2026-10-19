@@ -780,11 +780,15 @@ def note_parse_failure_unless_transport(exc: BaseException, why: str = "parse_er
 def read_json_body(response, source: str, *, why: str = "empty_or_invalid_json"):
     """The decoded JSON body, or ``None`` with a parse failure recorded.
 
-    An HTTP 200 whose body is not JSON is a real thing providers send, not a
-    hypothetical: DBLP's Anubis challenge arrives as 200 carrying
-    ``text/html``, bioRxiv and medRxiv have both answered 200 with
-    ``content-length: 0``, and a stream cut mid-document decodes no better
-    than either. ``docs/dblp-reliability.md`` has the captured headers.
+    A reply that cannot be decoded is a real thing providers send, not a
+    hypothetical. DBLP answers an automated client with an HTML challenge
+    page rather than a status code -- ``docs/dblp-reliability.md`` records
+    the 2026-09-17 diagnostic that observed one from both REST search
+    endpoints, and ``api_dblp._looks_like_access_challenge`` is the detector
+    written for it, which checks ``text/html`` before it checks the status at
+    all. bioRxiv has been observed answering HTTP 200 with an empty body; the
+    docstring of ``api_biorxiv._request_json`` records it and retries once for
+    it. A stream cut mid-document decodes no better than either.
 
     This helper exists because ten clients wrote the same shape -- the
     request inside a ``try``/``except`` and ``response.json()`` on the line
