@@ -214,7 +214,9 @@ def test_the_catalog_dicts_carry_the_constraints():
         assert isinstance(record, dict), row["slug"]
         assert "window_effect" in record and "notices" in record, row["slug"]
         for notice in record["notices"]:
-            assert set(notice) == {"kind", "effect", "established"}, row["slug"]
+            assert set(notice) == {
+                "kind", "effect", "established", "needs_date_window",
+            }, row["slug"]
 
 
 def test_the_sources_route_returns_the_constraints():
@@ -244,6 +246,31 @@ def test_the_sources_route_returns_the_constraints():
     dblp = next(row for row in rows if row["slug"] == "dblp")
     assert dblp["constraints"]["window_effect"] == "whole_years"
     assert dblp["constraints"]["window_rounding"] == "inward"
+
+
+def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
+    """The denominators the PR and the comments use, read from the catalog.
+
+    Two different counts are easy to confuse and both get quoted: how many
+    sources carry no constraint at all, and how many will put a line on a
+    search form. They are not the same number, because a ``date_window``
+    notice is shown only once a date is set. Pinning both stops a later
+    change quietly making a stated figure wrong.
+    """
+    quiet = [e.slug for e in REPOSITORY_CATALOG if not e.constraints.has_anything_to_say]
+    assert len(quiet) == 11, f"{len(quiet)} quiet sources, not 11: {sorted(quiet)}"
+    assert sorted(quiet) == [
+        "crossref", "dryad", "europepmc", "govinfo", "hal", "inspire_hep",
+        "openalex", "osti", "plos", "pubmed", "zenodo",
+    ]
+
+    # What a form shows with no date range set: every notice that is not
+    # about a date window, plus nothing else.
+    with_open_window = sorted(
+        e.slug for e in REPOSITORY_CATALOG
+        if any(not n.needs_date_window for n in e.constraints.notices)
+    )
+    assert with_open_window == ["biorxiv", "medrxiv", "ndl_search"], with_open_window
 
 
 def test_constraints_for_answers_by_slug_and_refuses_an_unknown_one():

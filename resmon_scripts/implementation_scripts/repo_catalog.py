@@ -226,6 +226,15 @@ class SourceNotice:
     kind: ConstraintKind
     effect: str
     established: str
+    # Whether this sentence is about something only a date window makes
+    # happen. Those are hidden until the form has a date, because they are
+    # the common case and they are about nothing until then: arXiv's window
+    # being its submission date matters a great deal to somebody filtering by
+    # date and not at all to anybody else, and arXiv is on most selections
+    # every time. It is a separate flag rather than a reading of ``kind``
+    # because two of these are record filters that only bite inside a window,
+    # and relabelling them to get the display right would make ``kind`` lie.
+    needs_date_window: bool = False
 
 
 @dataclass(frozen=True)
@@ -269,8 +278,19 @@ def _constraints(
     )
 
 
-def _notice(kind: ConstraintKind, effect: str, established: str) -> SourceNotice:
-    return SourceNotice(kind=kind, effect=effect, established=established)
+def _notice(
+    kind: ConstraintKind,
+    effect: str,
+    established: str,
+    *,
+    needs_date_window: bool = False,
+) -> SourceNotice:
+    return SourceNotice(
+        kind=kind,
+        effect=effect,
+        established=established,
+        needs_date_window=needs_date_window,
+    )
 
 
 @dataclass(frozen=True)
@@ -372,8 +392,11 @@ def _entry(
         # Same reasoning as ``entity_search`` above, for the same reason: the
         # omitted default has an empty citation, so a source added without an
         # answer fails the guard instead of quietly claiming it constrains
-        # nothing. "This source constrains nothing" is a real answer and 19 of
+        # nothing. "This source constrains nothing" is a real answer and 11 of
         # the 27 rows below give it — but it is written down, not defaulted.
+        # Of the other 16, five say only that the window means a date other
+        # than the publication date, which is a sentence worth one line to
+        # somebody filtering by date and worth none to anybody else.
         constraints=constraints or _constraints(),
     )
 
@@ -417,6 +440,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "arXiv's date window is its submission date, not a journal "
                     "publication date.",
                     "api_arxiv.py:65-75 filters on submittedDate.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -512,6 +536,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "date, so a work published long ago but added to CORE "
                     "recently falls inside a recent window.",
                     "api_core.py:52 sends createdDate>= and createdDate<=.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -599,6 +624,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "touches and then drops anything outside your exact dates "
                     "once it arrives.",
                     "api_datacite.py:32-44 and api_datacite.py:108-118.",
+                    needs_date_window=True,
                 ),
                 _notice(
                     "record_filter",
@@ -607,6 +633,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "_inside_requested_window at api_datacite.py:73-86 expands "
                     "a year-only record date to January 1 - December 31 and "
                     "requires the whole interval inside the window.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -670,12 +697,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "the results arrive. A window containing no complete "
                     "calendar year is refused before any request is sent.",
                     "api_dblp.py:138-152 and api_dblp.py:239-242.",
+                    needs_date_window=True,
                 ),
                 _notice(
                     "record_filter",
                     "A DBLP record carrying no year at all is dropped whenever "
                     "you set a date window.",
                     "api_dblp.py:544-546.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -723,6 +752,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "a single year widens to the whole of it and results can "
                     "fall outside the dates you set.",
                     "api_doaj.py:36.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -806,6 +836,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "window containing none rather than returning records whose "
                     "position in it cannot be known.",
                     "api_eric.py:138-174 and api_eric.py:236-246.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -1051,6 +1082,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "inside a month widens to the whole of it and results can "
                     "fall outside the dates you set.",
                     "api_nasa_ads.py:42-45.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -1177,6 +1209,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "back with fewer in-window records than the cap you set.",
                     "api_nist_rmm.py:137-140 and the per-record check at "
                     "api_nist_rmm.py:227-232.",
+                    needs_date_window=True,
                 ),
                 _notice(
                     "date_window",
@@ -1185,6 +1218,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "expanded.",
                     "_request_date at api_nist_rmm.py:45-53, applied at "
                     "api_nist_rmm.py:115-121.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -1238,6 +1272,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "refuses a window containing none rather than turning an "
                     "index default into a publication-date claim.",
                     "api_oapen.py:57-65.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -1285,6 +1320,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "publication date.",
                     "api_openaire.py:93-96 sends fromDateAccepted and "
                     "toDateAccepted.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -1372,6 +1408,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "than overstating what it knows about a book's date.",
                     "_publication_year_clause at api_openlibrary.py:101-112 "
                     "and api_openlibrary.py:193-203.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -1520,6 +1557,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "window inside a single year widens to the whole of it and "
                     "results can fall outside the dates you set.",
                     "api_semantic_scholar.py:115-122.",
+                    needs_date_window=True,
                 ),
             ),
         ),
@@ -1567,6 +1605,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "date.",
                     "api_springer.py:44-47 sends onlinedatefrom and "
                     "onlinedateto.",
+                    needs_date_window=True,
                 ),
             ),
         ),

@@ -77,11 +77,27 @@ const BIORXIV = entry('biorxiv', 'bioRxiv', {
       kind: 'keyword_search',
       effect: 'bioRxiv cannot be asked for keywords.',
       established: 'fixture',
+      needs_date_window: false,
     },
     {
       kind: 'applied_default',
       effect: 'With no start date, resmon asks bioRxiv from January 1, 2020.',
       established: 'fixture',
+      needs_date_window: false,
+    },
+  ],
+});
+
+// arXiv honours the window exactly and still has one thing to say about it:
+// the window is its submission date. That sentence is about nothing until a
+// date is set, which is the case `needs_date_window` exists for.
+const ARXIV_DATED = entry('arxiv', 'arXiv', {
+  notices: [
+    {
+      kind: 'date_window',
+      effect: "arXiv's date window is its submission date.",
+      established: 'fixture',
+      needs_date_window: true,
     },
   ],
 });
@@ -226,5 +242,21 @@ describe('advisoriesFor', () => {
   test('only sources with something to say are returned', () => {
     const rows = advisoriesFor([ARXIV, DBLP, BIORXIV], '2025-01-01', '2025-12-31');
     expect(rows.map((r) => r.slug)).toEqual(['dblp', 'biorxiv']);
+  });
+
+  test('a notice that is about a window stays hidden until there is one', () => {
+    // arXiv is on most people's selection every time. Telling them on every
+    // keyword-only search that its window is a submission date is noise about
+    // a window they did not set.
+    expect(advisoriesFor([ARXIV_DATED], '', '')).toEqual([]);
+    const dated = advisoriesFor([ARXIV_DATED], '2025-01-01', '2025-06-30');
+    expect(dated).toHaveLength(1);
+    expect(dated[0].notices[0].effect).toBe("arXiv's date window is its submission date.");
+  });
+
+  test('a notice that is not about a window shows with no dates at all', () => {
+    const rows = advisoriesFor([BIORXIV], '', '');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].notices).toHaveLength(2);
   });
 });

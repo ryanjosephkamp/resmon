@@ -81,6 +81,8 @@ export interface SourceNotice {
   effect: string;
   /** Where the sentence was read from. Carried, not rendered. */
   established: string;
+  /** Whether this sentence is about something only a date window makes happen. */
+  needs_date_window: boolean;
 }
 
 /**

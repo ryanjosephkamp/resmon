@@ -2696,12 +2696,17 @@
           "kind": {
             "title": "Kind",
             "type": "string"
+          },
+          "needs_date_window": {
+            "title": "Needs Date Window",
+            "type": "boolean"
           }
         },
         "required": [
           "kind",
           "effect",
-          "established"
+          "established",
+          "needs_date_window"
         ],
         "title": "RepositorySourceNotice",
         "type": "object"

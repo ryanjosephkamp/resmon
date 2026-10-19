@@ -154,8 +154,15 @@ export interface SourceAdvisory {
  * A source with nothing to say is left out entirely rather than given a row
  * saying it is fine: a panel that lists every source warns about none of
  * them, and the whole value of this is that its presence means something.
- * Nineteen of the twenty-seven catalog rows have nothing to say, so on most
- * selections this produces no panel at all.
+ * Eleven of the twenty-seven catalog rows have nothing to say under any
+ * circumstances, and with no date range set the number that do drops to
+ * three.
+ *
+ * **A `date_window` notice only appears once a date is set**, because that
+ * is the only state in which it is about anything. arXiv's window is its
+ * submission date rather than a publication date, which matters a great deal
+ * to somebody filtering by date and not at all to somebody who is not, and
+ * arXiv is on most people's selection every time.
  *
  * Whether a key is missing is **not** here. Every form that mounts this also
  * mounts `RepoKeyStatus`, which says so in colour and offers a field to fix
@@ -167,11 +174,14 @@ export function advisoriesFor(
   dateFrom: string,
   dateTo: string,
 ): SourceAdvisory[] {
+  const datesSet = Boolean(dateFrom || dateTo);
   const out: SourceAdvisory[] = [];
   for (const entry of entries) {
     if (!entry || !entry.constraints) continue;
     const window = windowSentence(entry, dateFrom, dateTo);
-    const notices = entry.constraints.notices.map((n) => ({ kind: n.kind, effect: n.effect }));
+    const notices = entry.constraints.notices
+      .filter((n) => datesSet || !n.needs_date_window)
+      .map((n) => ({ kind: n.kind, effect: n.effect }));
     if (!window && notices.length === 0) continue;
     out.push({ slug: entry.slug, name: entry.name, window, notices });
   }

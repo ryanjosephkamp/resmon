@@ -30,8 +30,9 @@ interface Props {
  *
  * Two rules keep it worth reading:
  *
- * - **Only sources with something to say appear.** Nineteen of the
- *   twenty-seven catalog rows have no constraint at all, and a panel listing
+ * - **Only sources with something to say appear.** Eleven of the twenty-seven
+ *   catalog rows have no constraint at all, and with no date range set only
+ *   three of the remaining sixteen have anything to add. A panel listing
  *   every selected source — most of them to say nothing is wrong — is a panel
  *   people stop seeing.
  * - **Where a window will actually be reshaped, the sentence names the dates
