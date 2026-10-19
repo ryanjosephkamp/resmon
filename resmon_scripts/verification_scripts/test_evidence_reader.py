@@ -60,6 +60,13 @@ def test_text_page_inputs_are_exact_integers_and_only_logical_page_one(workspace
     assert sql_snapshot(workspace.conn) == before
 
 
+# 300 s, not pytest.ini's 120. Measured at 111.7-112.2 s on four CI jobs, which
+# is 93% of the default limit, and pytest-timeout's thread method -- the only
+# one that works with this backend's threaded pipeline -- expires by calling
+# os._exit(1), bypassing the summary. A 7% slowdown on a loaded runner would
+# therefore convert a legible red into a run that reports nothing at all. The
+# sizes are the real production bounds asserted below and cannot be shrunk.
+@pytest.mark.timeout(300)
 @pytest.mark.parametrize("raw,reason", [(b"a" * 262144, None), (b"a" * 262145, "too_large"),
                                         (b"\n" * 4999, None), (b"\n" * 5000, "too_many_lines")])
 def test_evidence_reuses_actual_library_text_limits_without_truncation(workspace: Workspace, raw: bytes, reason: str | None) -> None:

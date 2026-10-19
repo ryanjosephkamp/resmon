@@ -103,7 +103,13 @@ def test_google_hits_generativelanguage_endpoint():
         "https://generativelanguage.googleapis.com/v1beta/models/"
         "gemini-1.5-flash:generateContent"
     )
-    assert "key=g-test" in url
+    # The key used to be appended as `?key=g-test`, and this line used to
+    # assert that it was. It is now a header; where it lands is the subject of
+    # `test_llm_remote_key_transport.py`, which drives a real `httpx.Client`
+    # rather than this `MagicMock` and can therefore speak about the request
+    # instead of the f-string.
+    assert "key=" not in url
+    assert post.call_args.kwargs["headers"]["x-goog-api-key"] == "g-test"
 
 
 def test_max_tokens_band_matches_length():

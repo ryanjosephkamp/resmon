@@ -3,7 +3,8 @@
 
 import logging
 
-from .api_base import Author, BaseAPIClient, NormalizedResult, RateLimiter, bare_orcid, safe_request
+from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
+                       bare_orcid, read_json_body, safe_request)
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,10 @@ class EuropepmcClient(BaseAPIClient):
                 logger.exception("EuropePMC API request failed")
                 break
 
-            data = response.json()
+            data = read_json_body(response, "EuropePMC")
+            if data is None:
+                break
+
             result_list = data.get("resultList", {}).get("result", [])
             if not result_list:
                 break

@@ -25,6 +25,14 @@ def test_exact_bytes_normalized_display_and_no_database_write(vault, name, raw):
     assert set(result)=={'version','kind','vault_id','file_id','version_id','sha256','media_type','encoding','normalization','byte_size','line_count','text'}
 
 
+# 300 s, not pytest.ini's 120. Measured at roughly 108 s on CI, which is 90% of
+# the default limit, and pytest-timeout's thread method -- the only one that
+# works with this backend's threaded pipeline -- expires by calling os._exit(1).
+# That bypasses the summary entirely, so a 10% slowdown on a loaded runner would
+# turn a legible red into a run with no report at all. The fixture sizes are the
+# real production bounds asserted on the next line and cannot be shrunk to buy
+# the margin instead.
+@pytest.mark.timeout(300)
 @pytest.mark.parametrize('raw,reason', [(b'a'*262144,None),(b'a'*262145,'too_large'),(b'\n'*4999,None),(b'\n'*5000,'too_many_lines')])
 def test_real_production_bounds_preserve_readable_or_refused_item(vault,raw,reason):
     c,vid,root=vault;item=put(c,vid,content=raw)['file']

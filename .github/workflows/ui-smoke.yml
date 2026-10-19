@@ -171,6 +171,18 @@ jobs:
       RESMON_KEYRING_TIMEOUT: '2.0'
       RESMON_PYTHON: python3
       RESMON_E2E_BREAK_ROUTE: ${{ github.event.inputs.break_route }}
+      # This job is the one that must launch the app normally.
+      #
+      # The e2e config asks for background windows — shown inactive, and on
+      # macOS under the `accessory` activation policy — so a local run does not
+      # take the foreground. That app has no Dock icon and never becomes
+      # active, so maximize, focus and stacking are not the same subject, and
+      # this job would go on passing while testing something nobody ships.
+      #
+      # This marker is how the config knows to leave the flag alone, and
+      # `resmon_scripts/frontend/e2e/background-window.ts` throws if the two
+      # are ever set together. Do not remove it without reading that file.
+      RESMON_WINDOW_BEHAVIOR_JOB: '1'
 
     steps:
       - uses: actions/checkout@v4

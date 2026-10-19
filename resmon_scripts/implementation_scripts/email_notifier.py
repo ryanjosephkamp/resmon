@@ -18,6 +18,33 @@ logger = logging.getLogger(__name__)
 # Compose
 # ---------------------------------------------------------------------------
 
+#: What a count line says when the composer was not given the count.
+#:
+#: ``execution_data.get("new_count", 0)`` turned a caller's silence into the
+#: sentence "New results: 0", which is a finding resmon had no basis for -- and
+#: is indistinguishable from the real finding that a run turned up nothing new.
+#: That is not academic: ``email_sender`` read ``new_count`` where the
+#: ``executions`` column is ``new_result_count``, so the key was absent on every
+#: real send and every completion email reported zero. Fixing that caller did
+#: not remove the default that made its mistake silent.
+#:
+#: ``delivery._atom_feed`` renders the same absence as "an unrecorded number";
+#: this is the same statement in a ``Label: value`` line.
+UNRECORDED_COUNT = "not recorded"
+
+
+def _count(execution_data: dict, key: str) -> object:
+    """A count for the body: the number if there is one, else a label.
+
+    ``None`` is handled beside the missing key on purpose. A row loaded from
+    SQLite carries ``None`` for a null column rather than omitting the key, so
+    a fix that only changed ``dict.get``'s default would have shipped the line
+    "New results: None" to a user.
+    """
+    value = execution_data.get(key)
+    return UNRECORDED_COUNT if value is None else value
+
+
 def compose_notification(
     execution_data: dict,
     ai_summary: str | None = None,
@@ -30,7 +57,8 @@ def compose_notification(
 
     *execution_data* should contain at least: ``routine_name``,
     ``start_time``, ``end_time``, ``status``, ``result_count``,
-    ``new_count``.
+    ``new_count``. A count that is missing or ``None`` is reported as
+    ``not recorded``; see :data:`UNRECORDED_COUNT`.
 
     When *attachment_path* is provided and points to an existing file,
     the file is attached to the outgoing message. Used by the
@@ -39,8 +67,8 @@ def compose_notification(
     """
     routine_name = execution_data.get("routine_name", "Unknown Routine")
     status = execution_data.get("status", "unknown")
-    result_count = execution_data.get("result_count", 0)
-    new_count = execution_data.get("new_count", 0)
+    result_count = _count(execution_data, "result_count")
+    new_count = _count(execution_data, "new_count")
     start_time = execution_data.get("start_time", "—")
     end_time = execution_data.get("end_time", "—")
 

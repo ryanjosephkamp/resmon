@@ -777,6 +777,90 @@ def note_parse_failure_unless_transport(exc: BaseException, why: str = "parse_er
     search_outcome().note_parse_failure(why)
 
 
+def read_json_body(response, source: str, *, why: str = "empty_or_invalid_json"):
+    """The decoded JSON body, or ``None`` with a parse failure recorded.
+
+    A reply that cannot be decoded is a real thing providers send, not a
+    hypothetical. DBLP answers an automated client with an HTML challenge
+    page rather than a status code -- ``docs/dblp-reliability.md`` records
+    the 2026-09-17 diagnostic that observed one from both REST search
+    endpoints, and ``api_dblp._looks_like_access_challenge`` is the detector
+    written for it, which checks ``text/html`` before it checks the status at
+    all. bioRxiv has been observed answering HTTP 200 with an empty body; the
+    docstring of ``api_biorxiv._request_json`` records it and retries once for
+    it. A stream cut mid-document decodes no better than either.
+
+    This helper exists because ten clients wrote the same shape -- the
+    request inside a ``try``/``except`` and ``response.json()`` on the line
+    *after* the ``except`` block -- so nothing caught a reply that would not
+    decode. The cost was not a quiet field. The exception escaped ``search()``
+    to the sweep engine's catch-all, which recorded the source as ``error``
+    with no zero reason and rendered the decoder's own message at the user,
+    and -- because unwinding ``search()`` destroys the frame its result list
+    lives in -- it threw away every record earlier pages had already yielded.
+    Measured on the nine of those ten that paginate: between 50 and 1,000
+    records each, 1,850 in all, discarded by one unreadable second page
+    (``test_client_partial_page_conformance.py``).
+
+    Returning ``None`` rather than raising is what lets the caller ``break``
+    out of its pagination loop with the records it has. ``parse_failure`` is
+    then the terminal reason the sweep engine puts in its partial note, so
+    the user is told "N usable records before a later HTTP 200 reply could
+    not be read" instead of being shown a Python traceback's first line.
+
+    The pattern is ``api_dblp._request_payload``'s, generalized; DBLP keeps
+    its own version because it also retries once and recognizes the challenge
+    page before trying to decode at all.
+
+    **It returns a mapping or ``None``, and a decoded non-mapping is
+    ``None``.** That is not tidiness; without it the ``None`` sentinel is a
+    defect of its own. ``response.json()`` on a body of ``null`` *succeeds*
+    and returns Python ``None``, which a caller checking ``if data is None``
+    cannot tell from "I could not read this" -- so it would stop, nothing
+    would be recorded, and ``zero_reason.derive`` would fall through to
+    ``answered_empty``: *the source answered and resmon found no records in
+    the reply*. A reply of ``null`` carries no records and no envelope, and
+    calling it an empty answer is the quiet field this helper exists to
+    delete. Every caller reads its records out of a named container, so an
+    array or a string root is equally unusable -- all of them raised
+    ``AttributeError`` on those before this helper existed. Requiring a
+    mapping closes all three and loses nothing legitimate. A source whose
+    reply really is a bare array, ``api_oapen`` and ``api_osti``, reads its
+    own body and does not come through here.
+
+    ``source`` is the provider's display name and reaches only the log line.
+    It is logged through this module's logger rather than the caller's, so
+    the name is in the message and not only in the logger's path -- which is
+    why it is a required argument and not read off the client.
+    """
+    try:
+        payload = response.json()
+    except Exception as exc:
+        # ``note_parse_failure_unless_transport`` and not ``note_parse_failure``:
+        # ``response.json()`` on a response whose body was never read raises an
+        # ``httpx`` error, and calling that an unreadable reply would say the
+        # source answered when the transport is what failed. Every caller here
+        # passes a fully read response, so in practice this is a decoder error
+        # -- but the guard costs nothing and the wrong sentence is the exact
+        # harm this helper was written to stop.
+        note_parse_failure_unless_transport(exc, why)
+        logger.error("%s answered 200 with a body resmon could not read: %s",
+                     source, exc)
+        return None
+
+    if not isinstance(payload, dict):
+        # A separate reason word from the undecodable case, and the one
+        # ``api_dblp`` and ``api_eric`` already use for it: the body did
+        # decode, and saying so is more useful to whoever reads the search
+        # record than collapsing both into "could not read".
+        note_parse_failure("malformed_json_shape")
+        logger.error("%s answered 200 with a %s at the root of its reply, "
+                     "not an object", source, type(payload).__name__)
+        return None
+
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # safe_request
 # ---------------------------------------------------------------------------

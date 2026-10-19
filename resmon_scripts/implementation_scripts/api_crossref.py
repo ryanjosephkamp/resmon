@@ -3,7 +3,8 @@
 
 import logging
 
-from .api_base import Author, BaseAPIClient, NormalizedResult, RateLimiter, bare_orcid, safe_request
+from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
+                       bare_orcid, read_json_body, safe_request)
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,10 @@ class CrossrefClient(BaseAPIClient):
                 logger.exception("CrossRef API request failed")
                 break
 
-            data = response.json()
+            data = read_json_body(response, "CrossRef")
+            if data is None:
+                break
+
             items = data.get("message", {}).get("items", [])
             if not items:
                 break

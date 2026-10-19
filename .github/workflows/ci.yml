@@ -107,6 +107,33 @@ jobs:
         # item it killed, so a hang in quiet mode leaves only a row of dots to
         # count. With -v the last line printed is the last test that finished,
         # which names the culprit immediately.
+        #
+        # That sentence was false for as long as it had been written. -v prints
+        # every parametrised id, one case carried a 256 KiB bytes parameter, and
+        # `gh run view --log` reads with Go's bufio.Scanner at its default 64 KiB
+        # and stops at the first longer line — so half of every Backend log, pass
+        # or fail, was unreachable and the last visible line named an innocent
+        # test. conftest.py's pytest_make_parametrize_id now caps ids (longest in
+        # the whole suite: 188 bytes), which is what finally makes the comment
+        # above true. For a log written before that, the whole thing is still
+        # available through
+        #   gh api --allow-escape-sequences /repos/<owner>/<repo>/actions/jobs/<id>/logs
+        #
+        # --durations=25 because nothing was watching the headroom. Two cases sit
+        # at 90% and 93% of pytest.ini's 120 s, and the only reason anybody knew
+        # that was a one-off measurement; timeout_method = thread expires by
+        # calling os._exit(1), so the run that finally crosses the line reports
+        # nothing at all. Twenty-five lines at the end of a log that is now
+        # readable is the cheapest standing watch there is, and it makes the
+        # next case to approach the limit visible before it arrives.
+        #
+        # The status is captured and re-raised rather than left to the shell, and
+        # it is echoed as a notice because a job killed by a signal exits 128+N
+        # and that single number settles what happened: 137 is an OOM kill, 139 a
+        # segfault. /usr/bin/time -v alongside it records peak RSS, which is what
+        # turns "137" into a diagnosis rather than a guess. There is deliberately
+        # no pipe here: a pipeline would put pytest's exit code behind tee's, the
+        # defect that let a crashed run report success in 1.8.7.
         env:
           # One switch per released fixture, each turning "the tag is not here"
           # from a skip into a failure. A new release adds its own rather than
@@ -116,7 +143,23 @@ jobs:
           RESMON_REQUIRE_V210_TAG: '1'
           RESMON_REQUIRE_V220_TAG: '1'
           RESMON_REQUIRE_V230_TAG: '1'
-        run: pytest -v
+        run: |
+          set +e
+          # Probe the flag, not the file. `-x /usr/bin/time` is true for BSD
+          # time as well, which has no -v and would fail the step on a flag
+          # rather than on a test. Running it against `true` settles presence
+          # and -v support in one go: absent gives 127, BSD gives a usage
+          # error, GNU gives 0.
+          if /usr/bin/time -v true >/dev/null 2>&1; then
+            /usr/bin/time -v pytest -v --durations=25
+          else
+            echo "::warning title=Backend suite::/usr/bin/time -v is unavailable on this runner; no peak RSS recorded"
+            pytest -v --durations=25
+          fi
+          status=$?
+          set -e
+          echo "::notice title=Backend suite (Python ${{ matrix.python-version }})::pytest exited ${status}. Over 128 means a signal: 137 is an OOM kill, 139 a segfault, and the peak RSS above says which."
+          exit "${status}"
 
   lint:
     name: Lint (renderer)

@@ -3,6 +3,16 @@
 Seven workflows, eleven jobs. Two things are true of every one of them, and a new job is not finished until
 both are true of it as well.
 
+**This page used to be the whole of the enforcement, and it had already drifted.** It said *ten* jobs
+while the tree held eleven: `ci.yml`'s `lint` was added without the count moving, and had no row in the
+timeout table below. Nothing was broken by that — `lint` carries both — but a denominator that is one
+short is a denominator nobody can use, and "every one of them" means nothing when the reader and the tree
+disagree about how many there are. The rule is now held by
+`resmon_scripts/verification_scripts/test_workflow_hygiene.py`, which parses every file in this directory
+and fails when a job lacks either, when this page's count disagrees with the files, or when the table
+below has no row for a job. It runs inside `ci.yml`'s backend job rather than as a job of its own,
+deliberately — see *A new gate must not be a check that can skip*, below.
+
 ## Every job carries a repository guard
 
 ```yaml
@@ -42,6 +52,7 @@ a hung runner turns into a long, quiet bill. The values below are set from measu
 | Job | Limit | Longest successful run | Sample |
 |---|---|---|---|
 | `ci.yml` backend | 40 | 22.5 min (Python 3.10) | 20 successful 3.10 legs of the 30 most recent CI runs |
+| `ci.yml` lint | 10 | 0.63 min (38 s; spread 23–38 s) | 16 successful legs of the 20 most recent CI runs, 2026-10-19 |
 | `ci.yml` frontend | 10 | 1.5 min (spread 0.9–1.5) | 29 successful legs of the same 30 runs |
 | `ci.yml` site | 10 | 24s | 2 runs, and see below |
 | `ui-smoke.yml` smoke | 25 | 9.8 min | 11 |
@@ -53,10 +64,15 @@ a hung runner turns into a long, quiet bill. The values below are set from measu
 | `sqlite-vec-probe.yml` | 35 | 9.7 min (macos-x64) | 23 |
 | `voice-probe.yml` | 50 | 14.8 min (macos-x64) | 5 |
 
-Measured 2026-10-18 from the 25 most recent runs of each workflow (30 for `ci.yml`), successful legs only.
-Headroom runs from **1.78x to 14x**, and the tightest is the one worth watching: `ci.yml` backend, at
+Measured 2026-10-18 from the 25 most recent runs of each workflow (30 for `ci.yml`), successful legs only;
+the `lint` row was measured separately on 2026-10-19, when the job-count check above found it missing.
+Headroom runs from **1.78x to 16x**, and the tightest is the one worth watching: `ci.yml` backend, at
 40 against a measured 22.5. That leg is a required check and its duration grows with the suite, so it is
 the row that will need raising first.
+
+The `lint` row's sample is 16 and not 20 because the per-run job listing for two of the twenty runs
+returned a server error and two others carried no `lint` leg at all. Four unknowns out of twenty, named
+rather than rounded away.
 
 The gaps this table once left blank were not hiding a problem, and recording that is worth more than a
 blank row that invites the opposite assumption.
@@ -97,6 +113,18 @@ if: >-
     || github.event_name == 'pull_request'
   )
 ```
+
+## A new gate must not be a check that can skip
+
+The guard above makes a job **skip** rather than fail off this repository, and a required status check
+that skips is never satisfied. That makes a new job the worst possible home for a check about the guard:
+the one gate whose whole subject is "does every job carry the thing that makes jobs skip" would itself be
+the gate most likely to skip and freeze merging, with a symptom that looks nothing like its cause.
+
+So the guard-and-timeout rule is a pytest case in `test_workflow_hygiene.py`, running inside `ci.yml`'s
+backend job — already required, already guarded, and unskippable because it is an assertion inside a suite
+rather than a job with a condition in front of it. The same reasoning applies to anything else that wants
+to check this directory: add it to the suite, not to the matrix.
 
 ## Making a job go red
 

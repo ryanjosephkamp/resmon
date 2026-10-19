@@ -383,12 +383,40 @@ def delete_target(conn: sqlite3.Connection, target_id: int) -> bool:
     The FK is ``ON DELETE SET NULL`` rather than CASCADE on purpose: a record
     of where a report was sent does not stop being true when the user stops
     sending there.
+
+    **Removing the last email target also turns ``routines.email_enabled``
+    off.** The switch on the Routines page and the email target row are two
+    representations of one intent, and while they could disagree a deletion did
+    not stick: the schema-21 seed used to re-create the row on the next launch
+    (gated on the upgrade now), and ``enqueue_for_execution`` still re-creates
+    it on the routine's next completed run, because a routine with the switch
+    on and no target is also how a pre-21 routine looks and that one has to
+    keep sending. Nothing in that path could tell the two apart. Writing both
+    halves of the intent here is what tells them apart, and it leaves the
+    enqueue path exactly as it was.
+
+    Both writes share the one implicit transaction this module's connections
+    run in and are committed together, so a crash between them cannot leave
+    the switch on with the destination already gone.
     """
+    existing = get_target(conn, target_id)
     cursor = conn.execute(
         "DELETE FROM routine_delivery_targets WHERE id = ?", (int(target_id),)
     )
+    deleted = cursor.rowcount > 0
+    if deleted and existing is not None and existing["channel"] == "email":
+        routine_id = int(existing["routine_id"])
+        remaining = conn.execute(
+            "SELECT 1 FROM routine_delivery_targets "
+            "WHERE routine_id = ? AND channel = 'email' LIMIT 1",
+            (routine_id,),
+        ).fetchone()
+        if remaining is None:
+            conn.execute(
+                "UPDATE routines SET email_enabled = 0 WHERE id = ?", (routine_id,)
+            )
     conn.commit()
-    return cursor.rowcount > 0
+    return deleted
 
 
 # ---------------------------------------------------------------------------
