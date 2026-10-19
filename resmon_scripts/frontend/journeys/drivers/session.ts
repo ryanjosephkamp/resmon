@@ -289,6 +289,33 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     // a suite that will one day write to it.
     expect(port, 'a journey must never attach to the live daemon').not.toBe('8742');
     expect(port).toMatch(/^\d+$/);
+    // And no window reached the screen, asserted on every launch for the same
+    // reason the port is.
+    //
+    // `RESMON_HIDDEN_WINDOW` is the whole of what makes a journey run
+    // invisible, and **nothing else in this suite would notice if it stopped
+    // working**: every spec reads the app over IPC and the backend over HTTP,
+    // so all 41 of them pass with the window up. That was measured in review
+    // by deleting the one line in `electron/main.ts` that implements the flag
+    // — 622 renderer tests and three typecheck projects stayed green.
+    //
+    // It belongs here rather than in a spec because it is a property of the
+    // harness and not of a register row: a spec here has to claim a row, and
+    // `register.spec.ts` keeps specs from reaching past the driver to the
+    // Electron application this reads.
+    //
+    // Only for the build this checkout produced. The classic leg launches a
+    // build that predates the flag and would show its window, which is a true
+    // statement about that build and not a failure of this one.
+    if (env.RESMON_HIDDEN_WINDOW === '1' && root.frontend === THIS_CHECKOUT.frontend) {
+      const onScreen = await app.evaluate(({ BrowserWindow }) => BrowserWindow
+        .getAllWindows().filter((other) => other.isVisible()).length);
+      expect(
+        onScreen,
+        'RESMON_HIDDEN_WINDOW=1 and a window reached the screen anyway — the flag in '
+        + 'electron/main.ts is not doing what this suite is run under',
+      ).toBe(0);
+    }
     // The window being up is not the backend being ready. `init_db` runs at
     // startup and takes a write lock, and a request sent into that window can
     // wait on it for as long as the caller is willing to wait — which for a

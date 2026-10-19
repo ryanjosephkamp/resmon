@@ -630,16 +630,22 @@ function createWindow(): void {
   // E2E hunk 2 of 3 — the other half of the fixed-size change above. Maximizing
   // would immediately discard the size the constructor was given.
   mainWindow.once('ready-to-show', () => {
+    // Under `RESMON_HIDDEN_WINDOW` this handler does nothing at all, and the
+    // order matters: **`maximize()` shows a window that was never shown.**
+    // Measured — a window created `show: false`, maximized, `show()` never
+    // called, is on screen at 0,33 1728x1084 and reports `isVisible() ===
+    // true`. So a gate placed below the maximize would have left the flag
+    // working only because `launchEnv` happens to set `RESMON_E2E` for every
+    // journey, which is a different variable in a different file with nothing
+    // tying the two together. `launchEnv(stateDir, false)` already exists one
+    // opt-in away. Found in review, not by me.
+    if (isHiddenWindow()) return;
     if (!isE2E()) mainWindow?.maximize();
     // `showInactive()` puts the window up without making it the key window, so
     // an automated run does not take the keyboard from the person at the Mac.
     // **This is the line that fixes the complaint** — measured, against each
     // half alone; see the table above `setActivationPolicy`. Unset, this is
     // `show()` exactly as before.
-    // And under `RESMON_HIDDEN_WINDOW` it is shown neither way: the window
-    // stays off the screen entirely for the length of the run. See
-    // `isHiddenWindow()` for what that was measured against.
-    if (isHiddenWindow()) return;
     if (isBackgroundWindow()) mainWindow?.showInactive();
     else mainWindow?.show();
   });
