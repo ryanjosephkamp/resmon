@@ -68,7 +68,7 @@ Three things the index is careful about, because a contract that overclaims is w
   [`verification_scripts/test_response_models.py`](../../resmon_scripts/verification_scripts/test_response_models.py)
   is what holds the models to it, by comparing each route's body against what its handler returned
   on the same request. Rely on a declared field being there; do not rely on there being no others.
-  What an undeclared **key** survives, its **value** does not always survive unchanged: an extra is
+  While an undeclared **key** survives, its **value** does not always survive unchanged: an extra is
   re-serialized by pydantic rather than by `jsonable_encoder`, which changes a `Decimal` into a
   string, raises on a `PurePath` where the concrete `Path` beside it is fine, and turns `inf`/`nan`
   into a quiet `null` where the unmodeled route answered 500. None of the three is reachable in
