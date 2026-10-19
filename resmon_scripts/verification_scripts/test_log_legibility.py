@@ -31,6 +31,8 @@ anywhere near it.
 
 from __future__ import annotations
 
+import ast
+import os
 import re
 import subprocess
 import sys
@@ -160,49 +162,92 @@ def test_the_suite_step_reports_the_status_and_the_peak_memory():
         "number in a log"
     )
     assert "/usr/bin/time -v" in step
-    assert "if [ -x /usr/bin/time ]" in step, (
-        "a runner without GNU time must still run the suite"
+    assert "if /usr/bin/time -v true" in step, (
+        "a runner without GNU time must still run the suite, and the probe "
+        "must test -v rather than the file: `-x /usr/bin/time` is true for "
+        "BSD time, which has no -v"
     )
+
+
+def _suite_run_block() -> str:
+    """The suite step's shipped `run:` script, dedented, ready to execute.
+
+    Taken out of ci.yml rather than retyped. The first version of this test
+    ran a hand-written approximation -- `( script )` in place of the real
+    if/else -- which a reviewer pointed out is not the shape that ships: it
+    would have stayed green through an edit to either branch.
+    """
+    step = _suite_step()
+    body = step.split("run: |", 1)[1]
+    lines = []
+    for line in body.splitlines()[1:]:
+        if line.strip() and not line.startswith(" " * 10):
+            break
+        lines.append(line[10:])
+    block = "\n".join(lines).rstrip() + "\n"
+    assert "status=$?" in block and "/usr/bin/time" in block, block
+    return block
 
 
 @pytest.mark.parametrize("script,expected", [
     ("exit 3", 3),
     ("exit 0", 0),
-    ("sh -c 'kill -s KILL $$'", 137),
-    ("sh -c 'kill -s SEGV $$'", 139),
+    ("kill -s KILL $$", 137),
+    ("kill -s SEGV $$", 139),
 ])
-def test_the_capture_and_re_raise_shape_really_preserves_a_status(script, expected):
-    """The shell logic itself, run, including the two signal cases.
+def test_the_shipped_run_block_preserves_a_status(tmp_path, script, expected):
+    """ci.yml's own script, executed, with a stand-in on PATH for pytest.
 
     GitHub runs each ``run:`` block under ``bash -e -o pipefail``, where a
-    failing command would normally end the step before ``status=$?`` executed.
-    That is the reason for the ``set +e`` around it, and the reason this is
-    worth running rather than reading: the same four lines without the ``set
-    +e`` pass every text assertion above and report the wrong thing.
+    failing command would normally end the step before ``status=$?`` ran. That
+    is what the ``set +e`` is for, and why this is worth executing rather than
+    grepping: the same lines without it satisfy every text assertion above and
+    report the wrong thing.
 
-    The signal cases send the signal to a child ``sh``, whose ``$$`` is its
-    own pid. Two shorter spellings were tried and both were wrong in ways that
-    looked right: a bare ``kill -s KILL $$`` inside a subshell targets the
-    *parent* shell, because ``$$`` does not change in a subshell; and
-    ``$BASHPID``, which does, is empty under the bash 3.2 that ships with
-    macOS, so the command degenerated to a usage error and the case reported
-    exit 1. Both are the class of mistake this module is about -- a check that
-    appears to exercise a failure and exercises something else.
+    The stand-in is a real executable named ``pytest``, so ``$$`` inside it is
+    its own pid -- the signal reaches the process whose status is being
+    measured. Two shorter spellings were wrong first in ways that looked
+    right: ``kill -s KILL $$`` inside a bash *subshell* targets the parent,
+    because ``$$`` does not change in a subshell, and ``$BASHPID``, which
+    does, is empty under the bash 3.2 that ships with macOS.
+
+    **Which branch this exercises depends on the machine.** The probe picks
+    GNU time where it exists and falls through where it does not, so a macOS
+    developer runs the ``else`` and a Linux runner runs the ``if``. The ``if``
+    branch is known to run on CI -- the Backend job log carries a
+    ``Maximum resident set size`` line, which only GNU time prints -- and the
+    reviewer confirmed it preserves 137 and 139 there. This case does not
+    establish both branches from one machine.
     """
-    block = (
-        "set +e\n"
-        f"( {script} )\n"
-        "status=$?\n"
-        "set -e\n"
-        'echo "pytest exited ${status}"\n'
-        'exit "${status}"\n'
-    )
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    executable = shim / "pytest"
+    executable.write_text("#!/bin/sh\n" + script + "\n", encoding="utf-8")
+    executable.chmod(0o755)
+    environment = dict(os.environ)
+    environment["PATH"] = f"{shim}:{environment['PATH']}"
+
     result = subprocess.run(
-        ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", block],
-        capture_output=True, text=True, timeout=60,
+        ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c",
+         _suite_run_block().replace("${{ matrix.python-version }}", "3.11")],
+        capture_output=True, text=True, timeout=120, env=environment,
     )
     assert result.returncode == expected, result
     assert f"pytest exited {expected}" in result.stdout
+
+
+def test_the_block_under_test_is_the_one_ci_ships():
+    """Guard the extraction itself: a mis-sliced block would test nothing."""
+    block = _suite_run_block()
+    shipped = CI_WORKFLOW.read_text(encoding="utf-8")
+    for line in block.splitlines():
+        if line.strip():
+            assert line.strip() in shipped
+    assert block.strip().endswith('exit "${status}"')
+    assert "if /usr/bin/time -v true" in block, (
+        "the probe must test the flag, not the file: `-x /usr/bin/time` is "
+        "true for BSD time, which has no -v"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +265,56 @@ NEAR_THE_LIMIT = {
 }
 
 
+def timeout_marks_on(source: str, case: str) -> list[int]:
+    """The ``@pytest.mark.timeout(N)`` values on *case*'s own decorator list.
+
+    Read with ``ast``, deliberately. The first version of this scanned
+    ``source[:index]`` -- the whole file above the ``def`` -- with a regex and
+    took the last match, so **any** timeout mark anywhere earlier in the file
+    satisfied it. A reviewer moved the mark off the 112-second case and onto an
+    unrelated one 43 lines above; the measured case silently went back to the
+    120-second default and this gate reported two passes.
+
+    That is the boundary-defect class this repository has now shipped three
+    times: a check that is green under the exact failure it is named after.
+    The technique that fixes it was already in the same diff --
+    ``route_census.py`` reads decorator lists properly -- which is the part
+    worth remembering. Attaching a check to a *region of text* rather than to
+    the *object* it is about is the mistake; proximity in a file is not
+    ownership.
+
+    Raises rather than returning empty when the function is absent, because a
+    renamed case must be a red here and not a silent pass.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name != case:
+            continue
+        values: list[int] = []
+        for decorator in node.decorator_list:
+            if not isinstance(decorator, ast.Call) or not decorator.args:
+                continue
+            function = decorator.func
+            # pytest.mark.timeout(...) -- Attribute(timeout) on
+            # Attribute(mark) on Name(pytest). Spelled out so that a
+            # `mark.timeout` imported under another name does not match
+            # something that is not pytest's.
+            if (
+                isinstance(function, ast.Attribute)
+                and function.attr == "timeout"
+                and isinstance(function.value, ast.Attribute)
+                and function.value.attr == "mark"
+                and isinstance(function.value.value, ast.Name)
+                and function.value.value.id == "pytest"
+                and isinstance(decorator.args[0], ast.Constant)
+                and isinstance(decorator.args[0].value, int)
+            ):
+                values.append(decorator.args[0].value)
+        return values
+    raise AssertionError(f"no function named {case} in the source given")
+
+
 @pytest.mark.parametrize("filename,case", sorted(NEAR_THE_LIMIT.items()))
 def test_the_cases_measured_near_the_limit_carry_their_own_timeout(filename, case):
     """pytest-timeout's thread method ends the process, not the test.
@@ -232,17 +327,51 @@ def test_the_cases_measured_near_the_limit_carry_their_own_timeout(filename, cas
     about.
     """
     source = (VERIFICATION / filename).read_text(encoding="utf-8")
-    index = source.index(f"def {case}(")
-    preamble = source[:index]
-    marks = re.findall(r"@pytest\.mark\.timeout\((\d+)\)", preamble)
+    marks = timeout_marks_on(source, case)
     assert marks, (
         f"{filename}::{case} was measured at over 90% of pytest.ini's "
-        f"{INI_TIMEOUT}s and carries no @pytest.mark.timeout"
+        f"{INI_TIMEOUT}s and carries no @pytest.mark.timeout of its own"
     )
-    assert int(marks[-1]) > INI_TIMEOUT, (
-        f"{filename}::{case} declares a timeout of {marks[-1]}s, which is no "
-        f"more headroom than the {INI_TIMEOUT}s default it already had"
+    assert max(marks) > INI_TIMEOUT, (
+        f"{filename}::{case} declares {marks}, which is no more headroom than "
+        f"the {INI_TIMEOUT}s default it already had"
     )
+
+
+def test_a_timeout_mark_on_a_neighbouring_case_does_not_count(tmp_path):
+    """The reviewer's mutation, kept as a case.
+
+    Moves the real mark off the measured case and onto a different one earlier
+    in the same real file. The gate must see the measured case as unmarked.
+    Driven over ``test_evidence_reader.py``'s own text rather than a sample,
+    because the defect was specifically about distance within a real file.
+    """
+    filename = "test_evidence_reader.py"
+    case = NEAR_THE_LIMIT[filename]
+    source = (VERIFICATION / filename).read_text(encoding="utf-8")
+    assert timeout_marks_on(source, case) == [300], "the fixture no longer matches the file"
+
+    moved = source.replace("@pytest.mark.timeout(300)\n", "", 1)
+    assert moved != source
+    neighbour = "test_text_page_inputs_are_exact_integers_and_only_logical_page_one"
+    anchor = f"def {neighbour}("
+    # Above the neighbour's own decorators, which is where a tidying edit or a
+    # careless move would actually land it.
+    marker = '@pytest.mark.parametrize("page",'
+    assert marker in moved and moved.index(marker) < moved.index(anchor)
+    moved = moved.replace(marker, "@pytest.mark.timeout(300)\n" + marker, 1)
+
+    assert timeout_marks_on(moved, neighbour) == [300], "the mutation did not land"
+    assert timeout_marks_on(moved, case) == [], (
+        "a timeout mark on a neighbouring case still counts for the measured "
+        "one -- the gate is reading a region of text, not a decorator list"
+    )
+
+
+def test_a_renamed_case_is_a_red_and_not_a_silent_pass():
+    source = (VERIFICATION / "test_library_text.py").read_text(encoding="utf-8")
+    with pytest.raises(AssertionError):
+        timeout_marks_on(source, "test_a_name_that_is_not_in_this_file")
 
 
 def test_the_ini_still_uses_the_thread_method_this_reasoning_depends_on():
