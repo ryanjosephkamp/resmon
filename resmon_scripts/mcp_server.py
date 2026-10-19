@@ -862,9 +862,10 @@ def t_list_routines(args: dict) -> Any:
             "schedule": r.get("schedule_cron"),
             "active": bool(r.get("is_active")),
             "last_run": r.get("last_executed_at"),
-            # Fires that came due while resmon was closed. A count, not a
-            # verdict: it says the schedule was not kept, not that the run
-            # would have found anything.
+            # Fires that did not run -- came due while resmon was closed, or
+            # were refused because the previous run of this routine was still
+            # going. A count, not a verdict: it says the schedule was not
+            # kept, not that the run would have found anything.
             "missed_fires": (r.get("missed_fires") or {}).get("count", 0),
         } for r in rows],
         "count": len(rows),

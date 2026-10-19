@@ -261,10 +261,13 @@ def routine_health(conn: sqlite3.Connection) -> dict:
             None,
         )
 
-        # Fires that came due while resmon was not running. A routine can look
-        # perfectly healthy by every measure above -- it returns new results
-        # whenever it runs -- while quietly running a third as often as the
-        # user believes it does, and only this column says so.
+        # Fires that did not run: those that came due while resmon was not
+        # running, and those refused because the routine's previous run was
+        # still going. A routine can look perfectly healthy by every measure
+        # above -- it returns new results whenever it runs -- while quietly
+        # running a third as often as the user believes it does, and only this
+        # column says so. It is a total; the Routines page is where the two
+        # causes are told apart, via ``missed_fire_summary``.
         missed = conn.execute(
             "SELECT COUNT(*) AS n, MAX(due_at_utc) AS last_due "
             "FROM routine_missed_fires WHERE routine_id = ?",

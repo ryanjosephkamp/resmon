@@ -25,6 +25,7 @@ says anything about what a *search* does -- only about which runs start.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import sys
 import threading
@@ -554,8 +555,15 @@ def test_the_api_and_the_analytics_report_the_missed_fires(tmp_path, client):
     database.record_missed_fire(conn, rid, "2026-09-19T07:00:00+00:00")
 
     one = client.get(f"/api/routines/{rid}").json()
-    assert one["missed_fires"] == {"count": 2,
-                                   "last_due_at_utc": "2026-09-19T07:00:00+00:00"}
+    assert one["missed_fires"] == {
+        "count": 2,
+        "last_due_at_utc": "2026-09-19T07:00:00+00:00",
+        # Neither of these was an overlap: both were written by the startup
+        # path, which is what the default disposition means.
+        "overlap_skipped": 0,
+        "last_overlap_skipped_due_at_utc": None,
+        "last_closed_miss_due_at_utc": "2026-09-19T07:00:00+00:00",
+    }
     assert [r["due_at_utc"] for r in one["missed_fire_details"]] == [
         "2026-09-18T07:00:00+00:00", "2026-09-19T07:00:00+00:00"]
 
@@ -571,7 +579,84 @@ def test_the_api_and_the_analytics_report_the_missed_fires(tmp_path, client):
 def test_a_routine_with_no_missed_fires_says_zero_rather_than_nothing(client):
     rid = _make_routine("clean")
     assert client.get(f"/api/routines/{rid}").json()["missed_fires"] == {
-        "count": 0, "last_due_at_utc": None}
+        "count": 0, "last_due_at_utc": None,
+        "overlap_skipped": 0, "last_overlap_skipped_due_at_utc": None,
+        "last_closed_miss_due_at_utc": None}
+
+
+def test_an_overlap_skip_is_counted_apart_from_a_fire_missed_while_closed(client):
+    """The two causes are one table and must not read as one number.
+
+    A screen that added them would tell the user resmon was closed at a moment
+    it was demonstrably running, which is the overclaim this split exists to
+    prevent. ``count`` stays the total; the caller subtracts.
+
+    **The two due times are deliberately different, and the overlap skip is
+    deliberately the later one.** A fixture where they coincide cannot tell a
+    field that filters by disposition from one that does not -- which is how
+    the first version of this split shipped with the count filtered and the
+    timestamp beside it unfiltered. Ordered the other way round the bug also
+    hides, because the all-rows maximum would happen to be the closed miss.
+    """
+    conn = resmon_mod._get_db()
+    rid = _make_routine("both-causes")
+    database.record_missed_fire(conn, rid, "2026-09-18T07:00:00+00:00")
+    database.record_missed_fire(
+        conn, rid, "2026-09-19T07:05:00+00:00", disposition="skipped")
+
+    summary = client.get(f"/api/routines/{rid}").json()["missed_fires"]
+    assert summary["count"] == 2
+    assert summary["overlap_skipped"] == 1
+    assert summary["last_overlap_skipped_due_at_utc"] == "2026-09-19T07:05:00+00:00"
+    # The total's maximum is the skip, because the skip is later. That is
+    # correct for a field whose label is "every row" -- and is exactly why a
+    # screen must not render it next to the word "closed".
+    assert summary["last_due_at_utc"] == "2026-09-19T07:05:00+00:00"
+    # The field that line does render: the latest fire that came due while
+    # resmon was not running, which is the September 18 one and nothing else.
+    assert summary["last_closed_miss_due_at_utc"] == "2026-09-18T07:00:00+00:00"
+    # And the ordering itself, asserted rather than left to the comment above
+    # it. The skip has to be the *later* of the two or this case stops being
+    # able to fail: with the closed miss last, the all-rows maximum coincides
+    # with the filtered one and an unfiltered implementation passes. A tidy of
+    # these two dates would otherwise disarm the case silently and leave it
+    # green, which is the failure this repository keeps meeting -- a check
+    # satisfied by prose about the thing rather than by the thing.
+    assert (summary["last_overlap_skipped_due_at_utc"]
+            > summary["last_closed_miss_due_at_utc"])
+
+    with pytest.raises(ValueError):
+        database.record_missed_fire(
+            conn, rid, "2026-09-20T07:00:00+00:00", disposition="caught_up")
+
+
+def test_a_late_run_is_still_a_closed_miss_for_the_timestamp(client):
+    """``ran_late`` is a closed miss that was answered, not an overlap.
+
+    The disposition filter is written ``!= 'skipped'`` rather than
+    ``= 'recorded'`` for this reason, and a routine whose misses have all been
+    marked answered must still carry their time on the closed-miss line.
+    """
+    conn = resmon_mod._get_db()
+    rid = _make_routine("answered-then-overlapped")
+    database.record_missed_fire(conn, rid, "2026-09-18T07:00:00+00:00")
+    database.mark_missed_fires_ran_late(conn, rid)
+    database.record_missed_fire(
+        conn, rid, "2026-09-19T07:05:00+00:00", disposition="skipped")
+
+    summary = client.get(f"/api/routines/{rid}").json()["missed_fires"]
+    assert summary["overlap_skipped"] == 1
+    assert summary["last_closed_miss_due_at_utc"] == "2026-09-18T07:00:00+00:00"
+    # Same ordering requirement, same reason: the answered miss has to be the
+    # earlier of the two for an unfiltered maximum to be wrong here.
+    assert (summary["last_overlap_skipped_due_at_utc"]
+            > summary["last_closed_miss_due_at_utc"])
+    # And the skip did not become a late run: a manual run answers the fires
+    # resmon was closed for, and erasing the overlap line would take away the
+    # only thing telling the user their routine outruns its own interval, at
+    # the moment they are most likely to click Run now.
+    rows = database.get_missed_fires(conn, rid)
+    assert sorted(r["disposition"] for r in rows) == ["ran_late", "skipped"]
 
 
 # ---------------------------------------------------------------------------
@@ -683,3 +768,123 @@ def test_the_disposition_vocabulary_is_enforced_on_the_upgraded_database(tmp_pat
         conn.rollback()
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# P6 -- a fire dropped because the previous run of that routine was still going
+#
+# The sibling of P4, one case over. P4 covers the fire that came due while
+# resmon was shut. This covers the fire that came due while resmon was wide
+# awake and the routine's previous run had not finished: APScheduler's
+# ``max_instances`` of 1 refuses the submission, raises
+# ``MaxInstancesReachedError`` inside its own thread, and emits
+# ``EVENT_JOB_MAX_INSTANCES``. Nothing listened for that event, so a routine
+# whose sweep outlasts its own interval -- the "Every 5 minutes" preset over a
+# sweep of many sources, say -- quietly ran at a fraction of the cadence the
+# user set, and a routine that did not run looked exactly like a routine that
+# ran and found nothing.
+# ---------------------------------------------------------------------------
+
+
+def _overlap_scheduler(tmp_path):
+    """A real ``ResmonScheduler`` on its own jobstore file, nothing patched."""
+    from implementation_scripts.scheduler import ResmonScheduler
+    return ResmonScheduler(db_url=f"sqlite:///{tmp_path / 'overlap-jobs.sqlite'}")
+
+
+def test_a_fire_dropped_because_the_previous_run_was_still_going_is_recorded(
+        tmp_path, caplog):
+    """A real BackgroundScheduler, a real overlap, a real dropped submission.
+
+    **What is substituted and what is not.** The dispatcher is a blocking stub
+    -- the point is to hold the routine's one instance slot open, not to run a
+    sweep -- and the trigger is rescheduled to one second, because the fastest
+    schedule the product can express is one minute and a test that waited for
+    it would be a minute long. Everything that decides whether the second fire
+    is dropped is production: the job is registered through
+    ``ResmonScheduler.add_routine``, so it carries the kwargs that method
+    passes, and the refusal comes from APScheduler's own executor, not from
+    anything this test asserts into existence.
+
+    The APScheduler warning is asserted as well as the row. Without it a run
+    where the second fire never came due at all -- a slow machine, a scheduling
+    hiccup -- would look the same as a run where the drop was recorded, and the
+    test would pass for the wrong reason.
+    """
+    from apscheduler.triggers.interval import IntervalTrigger
+    from implementation_scripts import scheduler as scheduler_mod
+
+    resmon_mod._db_path = str(tmp_path / "corpus.db")
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+    conn = resmon_mod._get_db()
+    rid = _make_routine("outlasts-its-interval")
+
+    entered = threading.Event()
+    release = threading.Event()
+    counter_lock = threading.Lock()
+    live = 0
+    peak = 0
+
+    def _blocking_dispatcher(routine_id: int, parameters: str) -> None:
+        nonlocal live, peak
+        with counter_lock:
+            live += 1
+            peak = max(peak, live)
+        entered.set()
+        try:
+            # Bounded, like ``_Gate``: a dispatcher nobody releases must fail
+            # this test rather than wedge the suite.
+            release.wait(timeout=20)
+        finally:
+            with counter_lock:
+                live -= 1
+
+    sched = _overlap_scheduler(tmp_path)
+    caplog.set_level(logging.WARNING)
+    try:
+        # The hooks this process installs at startup, installed the same way,
+        # then the dispatcher alone swapped for the blocking stub.
+        resmon_mod._install_scheduler_hooks()
+        scheduler_mod.set_dispatcher(_blocking_dispatcher)
+
+        sched.start()
+        sched.add_routine({
+            "id": rid,
+            "name": "outlasts-its-interval",
+            "schedule_cron": "* * * * *",
+            "parameters": "{}",
+        })
+        sched._scheduler.reschedule_job(
+            str(rid), trigger=IntervalTrigger(seconds=1),
+        )
+
+        assert entered.wait(timeout=30), "the first fire never reached the dispatcher"
+        # Hold the slot across at least two further due times.
+        time.sleep(3)
+        release.set()
+    finally:
+        sched.shutdown()
+        scheduler_mod.set_dispatcher(None)
+        scheduler_mod.set_overlap_recorder(None)
+
+    # The invariant this fix must not touch: never two runs of one routine at
+    # once. More than one run in total is expected and correct -- the routine
+    # fires again on the next tick once the first run lets go.
+    assert peak == 1, (
+        f"the overlap rule itself changed: {peak} runs of one routine were "
+        "alive at the same time"
+    )
+    assert any(
+        "maximum number of running instances reached" in record.getMessage()
+        for record in caplog.records
+    ), "APScheduler never refused a submission; no overlap happened to record"
+
+    rows = database.get_missed_fires(conn, rid)
+    skipped = [r for r in rows if r["disposition"] == "skipped"]
+    assert skipped, (
+        "a fire was dropped because the previous run was still going and "
+        "nothing recorded it -- the skip is silent"
+    )
+    assert all(r["due_at_utc"] for r in skipped)
+    resmon_mod.close_db()

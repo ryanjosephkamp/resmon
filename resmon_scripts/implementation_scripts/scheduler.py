@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
 
+from apscheduler.events import EVENT_JOB_MAX_INSTANCES
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.triggers.base import BaseTrigger
@@ -45,6 +46,93 @@ def set_dispatcher(fn: Optional[Callable[[int, str], None]]) -> None:
     """
     global _dispatcher
     _dispatcher = fn
+
+
+# ---------------------------------------------------------------------------
+# Overlap-skipped fires
+#
+# ``max_instances=1`` means a fire that comes due while that routine's previous
+# run is still going is refused by APScheduler's executor, which raises
+# ``MaxInstancesReachedError`` on its own thread and emits
+# ``EVENT_JOB_MAX_INSTANCES``. Until this listener existed nothing was
+# subscribed to any APScheduler event, so the drop produced a warning in
+# APScheduler's own logger and nothing else -- no row, no screen, no record a
+# user could reach. A routine whose sweep takes longer than its interval
+# therefore ran at a fraction of the cadence its owner set, and looked
+# identical to a routine that ran on time and found nothing. That is the one
+# thing resmon exists not to do.
+#
+# The recorder is installed the same way the dispatcher is, and for the same
+# reason: this module knows nothing about the database or FastAPI, and the
+# process that owns the scheduler installs the real one at startup. The
+# refusal itself is unchanged -- one run per routine is the invariant, and this
+# only makes the refusal legible.
+# ---------------------------------------------------------------------------
+
+_overlap_recorder: Optional[Callable[[int, "datetime"], None]] = None
+
+
+def set_overlap_recorder(fn: Optional[Callable[[int, "datetime"], None]]) -> None:
+    """Install the callable invoked for each fire dropped as an overlap.
+
+    The callable receives ``(routine_id: int, due_at: datetime)`` -- the time
+    the fire was scheduled for, not the time it was refused. Passing ``None``
+    clears it (used in test teardown).
+    """
+    global _overlap_recorder
+    _overlap_recorder = fn
+
+
+def _on_max_instances(event) -> None:
+    """Route ``EVENT_JOB_MAX_INSTANCES`` to the installed recorder.
+
+    One call per scheduled run time in the event. With ``coalesce=True`` that
+    is a single time, but the field is a list in APScheduler's own event and
+    reading it as one keeps this correct if coalescing is ever turned off for
+    a routine.
+
+    Listeners run on the scheduler's thread. Nothing here may raise: an
+    exception escaping a listener is swallowed by APScheduler, which would
+    turn a silent skip into a silent failure to record a silent skip.
+    """
+    recorder = _overlap_recorder
+    job_id = getattr(event, "job_id", None)
+    run_times = getattr(event, "scheduled_run_times", None) or []
+    if recorder is None:
+        logger.warning(
+            "Routine fire skipped because the previous run was still going, "
+            "and no recorder is installed to write it down: routine_id=%s",
+            job_id,
+        )
+        return
+    try:
+        routine_id = int(job_id)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Overlap-skipped fire for a job id that is not a routine id: %r",
+            job_id,
+        )
+        return
+    # The iteration is inside the ``try``, not only the recorder call. A
+    # ``scheduled_run_times`` that is not iterable would otherwise raise a
+    # ``TypeError`` out of the listener and past the one promise this function
+    # makes. APScheduler 3.11.2 -- the pinned version, and the only producer
+    # of this event -- always passes a list, so this is hardening rather than
+    # a reachable bug; the promise is worth more than the branch costs.
+    try:
+        for due in run_times:
+            try:
+                recorder(routine_id, due)
+            except Exception:
+                logger.exception(
+                    "Failed to record an overlap-skipped fire: routine_id=%d "
+                    "due=%s", routine_id, due,
+                )
+    except Exception:
+        logger.exception(
+            "Overlap-skipped fire event for routine_id=%d carried run times "
+            "this listener could not read: %r", routine_id, run_times,
+        )
 
 
 def _parse_cron(cron_expr: str) -> dict:
@@ -268,6 +356,10 @@ class ResmonScheduler:
         self._jobstore = SQLAlchemyJobStore(url=url)
         jobstores = {"default": self._jobstore}
         self._scheduler = BackgroundScheduler(jobstores=jobstores)
+        # Registered before ``start()`` so a fire refused on the scheduler's
+        # first wakeup is already being listened for. This is resmon's only
+        # APScheduler event subscription.
+        self._scheduler.add_listener(_on_max_instances, EVENT_JOB_MAX_INSTANCES)
         self._running = False
         logger.info("ResmonScheduler initialized (job store: %s)", url)
 
@@ -326,6 +418,13 @@ class ResmonScheduler:
             # than a second in the past, which manifested as routines
             # appearing to never fire after the app closed.
             misfire_grace_time=3600,
+            # One run per routine. This is APScheduler's default and has
+            # always been in force; it is written out because it is a
+            # deliberate product invariant -- the manual path answers 409 for
+            # the same reason -- and a default that is never stated is a
+            # default that gets changed by accident. ``_on_max_instances``
+            # records every fire this refuses.
+            max_instances=1,
         )
         logger.info("Routine added: id=%s, name=%s, schedule=%s",
                      routine_id, routine_dict.get("name"), description)

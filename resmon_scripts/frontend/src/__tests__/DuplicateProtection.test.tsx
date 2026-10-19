@@ -110,10 +110,87 @@ describe('missed fires on the Routines page', () => {
   test('a routine that missed none says nothing at all', async () => {
     mockRoutedFetch({
       '/api/repositories/catalog': [], '/api/credentials': {},
-      '/api/routines': routine({ count: 0, last_due_at_utc: null }),
+      '/api/routines': routine({ count: 0, last_due_at_utc: null, overlap_skipped: 0 }),
     });
     await renderWithProviders(<RoutinesPage />);
     await screen.findByText('Morning arXiv sweep');
     expect(screen.queryByText(/missed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/skipped/i)).not.toBeInTheDocument();
+  });
+
+  test('a fire skipped as an overlap does not read as resmon having been closed', async () => {
+    // The whole point of counting the two causes apart. Before the overlap
+    // record existed the page had one line, and a fire refused while resmon
+    // was demonstrably running would have been reported as missed while it was
+    // closed -- a claim the app had no basis for.
+    mockRoutedFetch({
+      '/api/repositories/catalog': [], '/api/credentials': {},
+      '/api/routines': routine({
+        count: 2, last_due_at_utc: '2026-09-19T07:05:00+00:00',
+        overlap_skipped: 2,
+        last_overlap_skipped_due_at_utc: '2026-09-19T07:05:00+00:00',
+        last_closed_miss_due_at_utc: null,
+      }),
+    });
+    await renderWithProviders(<RoutinesPage />);
+    expect(await screen.findByText(
+      /skipped 2 fires because the previous run was still going; last due 2026-09-19T07:05:00\+00:00/,
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/while resmon was closed/)).not.toBeInTheDocument();
+    // No Run now beside an overlap skip: running it again is the wrong answer.
+    expect(screen.queryByTestId('run-now-1')).not.toBeInTheDocument();
+  });
+
+  test('each line carries the time of its own cause, not the other\u2019s', async () => {
+    // **The two timestamps are deliberately different, and the overlap skip is
+    // deliberately the later one**, so `last_due_at_utc` -- the maximum over
+    // every row -- is the skip's time. A fixture that gave both lines the same
+    // time could not fail when the closed-miss line rendered the all-rows
+    // maximum, which is exactly how that defect first shipped: the page read
+    // `missed 1 fire while resmon was closed; last due 2026-09-19T07:05:00`,
+    // stamping the closed sentence with the instant the line below it proves
+    // resmon was running.
+    const fixture = {
+      count: 4, last_due_at_utc: '2026-09-19T07:05:00+00:00',
+      overlap_skipped: 1,
+      last_overlap_skipped_due_at_utc: '2026-09-19T07:05:00+00:00',
+      last_closed_miss_due_at_utc: '2026-09-18T07:00:00+00:00',
+    };
+    // The ordering, asserted rather than left to the comment above it. A tidy
+    // of these two dates would otherwise disarm this case silently and leave
+    // it green.
+    expect(fixture.last_overlap_skipped_due_at_utc > fixture.last_closed_miss_due_at_utc)
+      .toBe(true);
+    expect(fixture.last_due_at_utc).toBe(fixture.last_overlap_skipped_due_at_utc);
+    mockRoutedFetch({
+      '/api/repositories/catalog': [], '/api/credentials': {},
+      '/api/routines': routine(fixture),
+    });
+    await renderWithProviders(<RoutinesPage />);
+    // Three of the four were missed while resmon was closed; one was refused
+    // as an overlap. The closed count is the difference, not the total, and
+    // the closed time is September 18, not the skip's September 19.
+    expect(await screen.findByText(
+      /missed 3 fires while resmon was closed; last due 2026-09-18T07:00:00\+00:00/,
+    )).toBeInTheDocument();
+    expect(screen.queryByText(
+      /while resmon was closed; last due 2026-09-19T07:05:00\+00:00/,
+    )).not.toBeInTheDocument();
+    expect(screen.getByTestId('overlap-skipped-1')).toHaveTextContent(
+      'last due 2026-09-19T07:05:00+00:00',
+    );
+    expect(screen.getByTestId('run-now-1')).toBeInTheDocument();
+  });
+
+  test('a backend answering neither new field keeps the old line, number and time', async () => {
+    mockRoutedFetch({
+      '/api/repositories/catalog': [], '/api/credentials': {},
+      '/api/routines': routine({ count: 3, last_due_at_utc: '2026-09-19T07:00:00+00:00' }),
+    });
+    await renderWithProviders(<RoutinesPage />);
+    expect(await screen.findByText(
+      /missed 3 fires while resmon was closed; last due 2026-09-19T07:00:00\+00:00/,
+    )).toBeInTheDocument();
+    expect(screen.queryByTestId('overlap-skipped-1')).not.toBeInTheDocument();
   });
 });
