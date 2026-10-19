@@ -157,6 +157,44 @@ _NOT_DRIVEN = {
 }
 
 
+#: The ten clients this PR repaired: the nine above plus ``pubmed``, which
+#: does not paginate and so cannot be driven by the partial-page row.
+_DEFECT_SET_SLUGS = _PARTIAL_PAGE_SLUGS + ("pubmed",)
+
+#: Bodies that **decode** as JSON and then carry no object at the root.
+#:
+#: These are not in ``test_client_outcome_conformance``'s ``_UNREADABLE_BODIES``,
+#: which holds bodies that fail to decode at all. They are a third category and
+#: they are here because the repair that fixed the second one introduced a
+#: defect in this one:
+#:
+#: * ``null`` decodes to Python ``None``, which is exactly what
+#:   ``api_base.read_json_body`` returns to mean "I could not read this". A
+#:   helper that returned the decoded value unchecked would hand every caller
+#:   its own failure sentinel, the caller would stop, and **nothing would be
+#:   recorded** -- which derives to ``answered_empty``, the one sentence this
+#:   whole area exists to delete. Before the repair these ten raised
+#:   ``AttributeError`` on this body, which is wrong but loud; silence is
+#:   worse than a traceback, so the repair had to close this or it would have
+#:   made one case worse than the bug it fixed.
+#: * an array root and a string root decode to a ``list`` and a ``str``, and
+#:   every one of the ten call sites immediately does ``data.get(...)``. All
+#:   ten raised ``AttributeError`` out of ``search()`` on both, before this
+#:   change and independently of it. ``read_json_body`` requiring a mapping
+#:   closes them for nothing extra.
+#:
+#: Why a dict and not some looser test: the ten clients read their records out
+#: of a named container, so a reply with no object at the root is one none of
+#: them can use, whatever else it is. A source whose reply is legitimately a
+#: bare array -- ``api_oapen`` and ``api_osti`` are the two -- does not use
+#: this helper and is unaffected.
+_DECODES_BUT_UNUSABLE = {
+    "json-null": b"null",
+    "json-array-root": b"[1, 2, 3]",
+    "json-string-root": b'"hello"',
+}
+
+
 @pytest.fixture(autouse=True)
 def quick_and_isolated(monkeypatch):
     """No retry ladder, no sleeping, a clean outcome channel either side.
@@ -305,6 +343,100 @@ def test_a_readable_page_survives_an_unreadable_one(slug, body_name, monkeypatch
 def _derived_reason() -> tuple[str, dict]:
     """What the sweep engine would record, read the way the engine reads it."""
     return zero_reason.derive(api_base.search_outcome().snapshot())
+
+
+@pytest.mark.parametrize("shape", sorted(_DECODES_BUT_UNUSABLE))
+@pytest.mark.parametrize("slug", _DEFECT_SET_SLUGS)
+def test_a_body_that_decodes_to_no_object_is_also_a_parse_failure(
+        slug, shape, monkeypatch):
+    """``null``, an array and a string are replies, and none of them is usable.
+
+    The ``null`` case is the one that matters, and it is the one a sentinel
+    gets wrong. ``response.json()`` on ``b"null"`` succeeds and returns
+    Python ``None`` -- indistinguishable, to a caller that only checks
+    ``if data is None``, from "the body could not be read". The caller stops
+    holding whatever it had, and no reason is recorded anywhere, so
+    ``zero_reason.derive`` falls through to ``answered_empty``: *the source
+    answered and resmon found no records in the reply*. That is the quiet
+    field, reached through the repair rather than through the bug, and it is
+    strictly worse than the ``AttributeError`` these ten used to raise here,
+    because a traceback at least reaches the error row.
+    """
+    module = _module_for(slug)
+    _prepare(monkeypatch, module)
+    body = _DECODES_BUT_UNUSABLE[shape]
+
+    def respond(_self, method, url, **_kwargs):
+        return httpx.Response(200, content=body,
+                              request=httpx.Request(method, str(url)))
+
+    async def respond_async(_self, method, url, **kwargs):
+        return respond(_self, method, url, **kwargs)
+
+    monkeypatch.setattr(httpx.Client, "request", respond)
+    monkeypatch.setattr(httpx.AsyncClient, "request", respond_async)
+
+    api_base.reset_search_outcome()
+    try:
+        results = api_registry.get_client(slug).search(
+            "machine learning", "2024-01-01", "2024-12-31", 5)
+    except Exception as exc:
+        pytest.fail(
+            f"{slug} raised out of search() on HTTP 200 carrying {shape}: "
+            f"{type(exc).__name__}: {exc}. The body decoded; what it decoded "
+            f"to has no container this client reads records out of, which is "
+            f"a reply resmon could not read, not a crash.")
+
+    assert results == [], (
+        f"{slug} returned {len(results)} records from a body with no object "
+        f"at its root")
+
+    reason, detail = _derived_reason()
+    assert reason == "parse_failure", (
+        f"{slug} was handed HTTP 200 carrying {shape} and the channel derives "
+        f"to {reason!r}. If that is 'answered_empty', a reply with no "
+        f"container at all has been rendered as the source looking and "
+        f"finding nothing: {zero_reason.sentence(slug, reason, detail)!r}")
+
+
+@pytest.mark.parametrize("shape", sorted(_DECODES_BUT_UNUSABLE))
+@pytest.mark.parametrize("slug", _PARTIAL_PAGE_SLUGS)
+def test_a_readable_page_survives_a_body_with_no_object_at_its_root(
+        slug, shape, monkeypatch):
+    """And the earlier page survives that too, with a reason on the record.
+
+    The partial-page property from the row above, driven against the three
+    shapes that decode. Separate from that row because the failure mode is
+    different: there the client never got a value, here it got one and the
+    question is whether it recognizes that it cannot use it.
+    """
+    module = _module_for(slug)
+    _prepare(monkeypatch, module)
+    server = _OneGoodPageThenGarbage(slug, _DECODES_BUT_UNUSABLE[shape])
+    _install(monkeypatch, server)
+
+    api_base.reset_search_outcome()
+    try:
+        results = api_registry.get_client(slug).search(
+            "machine learning", "2024-01-01", "2024-12-31", _MAX_RESULTS)
+    except Exception as exc:
+        pytest.fail(
+            f"{slug} raised out of search() when page {server.requests} "
+            f"carried {shape}: {type(exc).__name__}: {exc}. "
+            f"{server.delivered} records from page 1 go with the frame.")
+
+    assert server.requests >= 2, (
+        f"{slug} stopped after {server.requests} request(s); nothing was "
+        f"measured")
+    assert len(results) == server.delivered, (
+        f"{slug} returned {len(results)} of the {server.delivered} records it "
+        f"had parsed out of page 1 before page 2 came back as {shape}")
+
+    reason, detail = _derived_reason()
+    assert reason == "parse_failure", (
+        f"{slug} kept its first page but the channel derives to {reason!r}, "
+        f"so a truncated set carries no terminal reason and reads as a "
+        f"complete one: {zero_reason.sentence(slug, reason, detail)!r}")
 
 
 def test_the_partial_page_denominator_is_named():

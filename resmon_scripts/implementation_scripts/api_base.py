@@ -812,13 +812,29 @@ def read_json_body(response, source: str, *, why: str = "empty_or_invalid_json")
     its own version because it also retries once and recognizes the challenge
     page before trying to decode at all.
 
+    **It returns a mapping or ``None``, and a decoded non-mapping is
+    ``None``.** That is not tidiness; without it the ``None`` sentinel is a
+    defect of its own. ``response.json()`` on a body of ``null`` *succeeds*
+    and returns Python ``None``, which a caller checking ``if data is None``
+    cannot tell from "I could not read this" -- so it would stop, nothing
+    would be recorded, and ``zero_reason.derive`` would fall through to
+    ``answered_empty``: *the source answered and resmon found no records in
+    the reply*. A reply of ``null`` carries no records and no envelope, and
+    calling it an empty answer is the quiet field this helper exists to
+    delete. Every caller reads its records out of a named container, so an
+    array or a string root is equally unusable -- all of them raised
+    ``AttributeError`` on those before this helper existed. Requiring a
+    mapping closes all three and loses nothing legitimate. A source whose
+    reply really is a bare array, ``api_oapen`` and ``api_osti``, reads its
+    own body and does not come through here.
+
     ``source`` is the provider's display name and reaches only the log line.
     It is logged through this module's logger rather than the caller's, so
     the name is in the message and not only in the logger's path -- which is
     why it is a required argument and not read off the client.
     """
     try:
-        return response.json()
+        payload = response.json()
     except Exception as exc:
         # ``note_parse_failure_unless_transport`` and not ``note_parse_failure``:
         # ``response.json()`` on a response whose body was never read raises an
@@ -831,6 +847,18 @@ def read_json_body(response, source: str, *, why: str = "empty_or_invalid_json")
         logger.error("%s answered 200 with a body resmon could not read: %s",
                      source, exc)
         return None
+
+    if not isinstance(payload, dict):
+        # A separate reason word from the undecodable case, and the one
+        # ``api_dblp`` and ``api_eric`` already use for it: the body did
+        # decode, and saying so is more useful to whoever reads the search
+        # record than collapsing both into "could not read".
+        note_parse_failure("malformed_json_shape")
+        logger.error("%s answered 200 with a %s at the root of its reply, "
+                     "not an object", source, type(payload).__name__)
+        return None
+
+    return payload
 
 
 # ---------------------------------------------------------------------------
