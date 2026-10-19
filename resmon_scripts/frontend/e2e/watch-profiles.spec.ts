@@ -108,21 +108,22 @@ test('P10: the Profiles route is in the sweep table and the sweep grew by exactl
     const hashes = allRouteHashes().map((r) => r.hash);
     expect(hashes).toContain('/profiles');
     expect(APP_ROUTES.filter((r) => r.path === '/profiles')).toHaveLength(1);
-    // 24 through v2.0.1; Watch Profiles is the twenty-fifth, and 2.2's Reading
-    // queue is the twenty-sixth; Chats the twenty-seventh; Library the twenty-eighth; Evidence the twenty-ninth;
-    // the Source wall the thirtieth. Updated by hand:
-    // adding a page has to cost somebody a line here, or the denominator stops
-    // being a denominator. Four counters in the tree hold a route total by
-    // hand and only one of them is the API-contract guard everyone knows
-    // about: this one, `src/__tests__/routes.test.tsx`,
-    // `test_selected_evidence_boundary.py` and `test_response_models.py`.
-    // They were found one at a time, each as a red that looked like a real
-    // regression -- see F21 in the workspace plan for folding them into one.
+    // This used to assert `toHaveLength(30)`, and that 30 was the second of
+    // two hand-written page totals reading the *same* function: this spec and
+    // `src/__tests__/routes.test.tsx` both call `allRouteHashes()`, so the
+    // literal here could never catch anything the one there did not, and it
+    // could — and did — turn red on a branch that added a page and updated
+    // only the obvious counter. Adding a page still has to cost somebody a
+    // line; it costs it once, in `routes.test.tsx`, which is where the
+    // route-table unit tests live. What this spec needs from the denominator
+    // is that the sweep covers the table exactly, and that is derivable.
+    const expected = APP_ROUTES.reduce((n, r) => n + 1 + (r.children?.length ?? 0), 0);
+    expect(hashes).toHaveLength(expected);
+    expect(new Set(hashes).size).toBe(hashes.length);
     expect(hashes).toContain('/reading-queue');
     expect(hashes).toContain('/library');
     expect(hashes).toContain('/evidence');
     expect(hashes).toContain('/source-wall');
-    expect(hashes).toHaveLength(30);
   });
 
 test('P10 + P8: the page renders, and a profile with no ORCID says so in a real browser',

@@ -15,6 +15,7 @@ import zipfile
 import httpx
 from implementation_scripts import api_auth
 import pytest
+import route_census
 from test_evidence_boundary import _setup, HEADERS, ROOT, _json
 from test_selected_evidence_runtime import fake_cli
 
@@ -75,15 +76,20 @@ def test_exact_seven_additive_routes_and_prebody_origin_guards(http_selected):
                 if isinstance(d,ast.Call) and isinstance(d.func,ast.Attribute) and isinstance(d.func.value,ast.Name) and d.func.value.id=='app' and d.args and isinstance(d.args[0],ast.Constant) and isinstance(d.args[0].value,str):
                     all_routes.append((d.func.attr,d.args[0].value))
                     if '/answer' in d.args[0].value:routes.append((d.func.attr,d.args[0].value))
-    # 166 since 2.2: POST /api/auth/renderer-origin, the daemon's origin
-    # registration. 167 since schema 19 (POST /api/executions/{id}/restart);
-    # 176 since schema 21, which adds the nine delivery routes; 177 with the
-    # signed bundle download the webhook channel's envelope links to. 184 with
-    # backup and restore: /api/backup, /api/backup/verify, /api/backup/last,
-    # /api/restore, /api/restore/cancel, /api/restore/undo-copy/delete and
-    # /api/restore/acknowledge. 185 with GET /api/coverage/source-wall, the
-    # source wall's one read across executions.
-    assert len(routes)==7 and len(all_routes)==185
+    # Seven additive routes is this feature's claim and stays a literal here.
+    # The *total* never was: it was typed as 166, then 167, then 176, 177, 184
+    # and 185, moving every time an unrelated feature shipped, and it was one
+    # of four counters in the tree holding that number by hand. Each of the
+    # four was found separately, by a different person, as a red that looked
+    # like a real regression. The denominator now comes from
+    # ``route_census.py`` -- and specifically from the *committed contract*
+    # rather than from this walk, so the two stay a real cross-check: this
+    # file reads resmon.py's decorators, the contract is generated from the
+    # running app, and a route added without regenerating the contract is red
+    # here as well as in test_api_contract.py.
+    assert len(routes)==7
+    assert {(method.upper(),path) for method,path in all_routes}==set(route_census.contract_routes()), \
+        'resmon.py\'s route decorators and docs/api-contract/openapi.json disagree'
     for method,path in routes:
         path=path.replace('{project_id}',c['project_id']).replace('{answer_id}',str(uuid.uuid4()))
         for headers in ({},{'Origin':'null','X-Resmon-Library':'1'},{'Origin':'https://other.invalid','X-Resmon-Library':'1'}):
