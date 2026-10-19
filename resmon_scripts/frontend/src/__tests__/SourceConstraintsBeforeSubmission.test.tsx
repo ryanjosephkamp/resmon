@@ -44,6 +44,7 @@ const DBLP = {
           'DBLP records only a year, so resmon searches the whole calendar '
           + 'years inside your window.',
         established: 'api_dblp.py:138-152.',
+        applies_when: 'with_date_window',
       },
     ],
     established: 'api_dblp.py:138-152 and api_dblp.py:239-242.',

@@ -75,14 +75,23 @@ export type ConstraintKind =
   | 'applied_default'
   | 'record_filter';
 
+/**
+ * When a notice is worth showing.
+ *
+ * `with_date_window` only once the form has a date; `without_start_date`
+ * only while the start date is blank, because the sentence is about the
+ * default resmon substitutes there.
+ */
+export type NoticeScope = 'always' | 'with_date_window' | 'without_start_date';
+
 export interface SourceNotice {
   kind: ConstraintKind;
   /** What resmon will do, in the user's terms. Rendered verbatim. */
   effect: string;
   /** Where the sentence was read from. Carried, not rendered. */
   established: string;
-  /** Whether this sentence is about something only a date window makes happen. */
-  needs_date_window: boolean;
+  /** When this sentence is worth showing: see `NoticeScope`. */
+  applies_when: NoticeScope;
 }
 
 /**

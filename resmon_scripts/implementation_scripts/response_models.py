@@ -1167,7 +1167,7 @@ class RepositorySourceNotice(LosslessModel):
     kind: str
     effect: str
     established: str
-    needs_date_window: bool
+    applies_when: str
 
 
 class RepositoryConstraints(LosslessModel):

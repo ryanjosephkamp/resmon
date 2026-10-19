@@ -77,27 +77,27 @@ const BIORXIV = entry('biorxiv', 'bioRxiv', {
       kind: 'keyword_search',
       effect: 'bioRxiv cannot be asked for keywords.',
       established: 'fixture',
-      needs_date_window: false,
+      applies_when: 'always',
     },
     {
       kind: 'applied_default',
       effect: 'With no start date, resmon asks bioRxiv from January 1, 2020.',
       established: 'fixture',
-      needs_date_window: false,
+      applies_when: 'always',
     },
   ],
 });
 
 // arXiv honors the window exactly and still has one thing to say about it:
 // the window is its submission date. That sentence is about nothing until a
-// date is set, which is the case `needs_date_window` exists for.
+// date is set, which is the case `applies_when` exists for.
 const ARXIV_DATED = entry('arxiv', 'arXiv', {
   notices: [
     {
       kind: 'date_window',
       effect: "arXiv's date window is its submission date.",
       established: 'fixture',
-      needs_date_window: true,
+      applies_when: 'with_date_window',
     },
   ],
 });
@@ -278,6 +278,36 @@ describe('advisoriesFor', () => {
     expect(rows[0].notices).toHaveLength(2);
   });
 
+  test('a notice about the blank start date disappears once one is typed', () => {
+    // bioRxiv's January 1, 2020 floor is a fact about the empty field, not
+    // about the one you filled in. Telling somebody who set a start date
+    // what would have happened if they had not is noise about a case that
+    // is no longer theirs.
+    const BIORXIV_SCOPED = entry('biorxiv', 'bioRxiv', {
+      keyword_search: 'client_side',
+      notices: [
+        {
+          kind: 'keyword_search',
+          effect: 'bioRxiv cannot be asked for keywords.',
+          established: 'fixture',
+          applies_when: 'always',
+        },
+        {
+          kind: 'applied_default',
+          effect: 'With no start date, resmon asks bioRxiv from January 1, 2020.',
+          established: 'fixture',
+          applies_when: 'without_start_date',
+        },
+      ],
+    });
+    expect(advisoriesFor([BIORXIV_SCOPED], '', '')[0].notices).toHaveLength(2);
+    const withStart = advisoriesFor([BIORXIV_SCOPED], '2025-03-01', '2025-09-30');
+    expect(withStart[0].notices.map((n) => n.kind)).toEqual(['keyword_search']);
+    // An end date alone leaves the start date blank, so it still applies.
+    const endOnly = advisoriesFor([BIORXIV_SCOPED], '', '2025-09-30');
+    expect(endOnly[0].notices).toHaveLength(2);
+  });
+
   test('the general date notice gives way to the sentence about these dates', () => {
     // A rounding source's stored notice is the abstract form of what
     // windowSentence has just said with the user's own dates in it. Saying
@@ -290,13 +320,13 @@ describe('advisoriesFor', () => {
           kind: 'date_window',
           effect: 'DBLP records only a year.',
           established: 'fixture',
-          needs_date_window: true,
+          applies_when: 'with_date_window',
         },
         {
           kind: 'record_filter',
           effect: 'A DBLP record with no year is dropped.',
           established: 'fixture',
-          needs_date_window: true,
+          applies_when: 'with_date_window',
         },
       ],
     });

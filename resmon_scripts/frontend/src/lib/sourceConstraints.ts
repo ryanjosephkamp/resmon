@@ -165,11 +165,14 @@ export interface SourceAdvisory {
  * circumstances, and with no date range set the number that do drops to
  * three.
  *
- * **A `date_window` notice only appears once a date is set**, because that
- * is the only state in which it is about anything. arXiv's window is its
+ * **Each notice carries the state it is about**, and is hidden outside it.
+ * A `with_date_window` notice waits for a date: arXiv's window is its
  * submission date rather than a publication date, which matters a great deal
  * to somebody filtering by date and not at all to somebody who is not, and
- * arXiv is on most people's selection every time.
+ * arXiv is on most people's selection every time. A `without_start_date`
+ * notice disappears the moment a start date is typed, because it is about
+ * the default resmon would have substituted there — bioRxiv's January 1,
+ * 2020 floor is a fact about the blank field, not about the one you filled.
  *
  * **And it gives way to the concrete sentence when there is one.** For the
  * eight sources that round a window, the stored notice is the general form
@@ -195,7 +198,8 @@ export function advisoriesFor(
     if (!entry || !entry.constraints) continue;
     const window = windowSentence(entry, dateFrom, dateTo);
     const notices = entry.constraints.notices
-      .filter((n) => datesSet || !n.needs_date_window)
+      .filter((n) => (n.applies_when === 'with_date_window' ? datesSet : true))
+      .filter((n) => (n.applies_when === 'without_start_date' ? !dateFrom : true))
       .filter((n) => !(window && n.kind === 'date_window'))
       .map((n) => ({ kind: n.kind, effect: n.effect }));
     if (!window && notices.length === 0) continue;

@@ -2685,6 +2685,10 @@
         "additionalProperties": true,
         "description": "One sentence the interface shows before a search is submitted.\n\n``effect`` is the sentence itself, written as what resmon will do rather\nthan as the name of the limitation, because a user cannot act on\n\"year granularity\" and can act on \"it will search the whole of 2025\".\n``established`` is the code or the published wording the sentence was read\nfrom; it is not rendered beside the sentence, but it travels with it so\nthat anything downstream can say where the claim came from.",
         "properties": {
+          "applies_when": {
+            "title": "Applies When",
+            "type": "string"
+          },
           "effect": {
             "title": "Effect",
             "type": "string"
@@ -2696,17 +2700,13 @@
           "kind": {
             "title": "Kind",
             "type": "string"
-          },
-          "needs_date_window": {
-            "title": "Needs Date Window",
-            "type": "boolean"
           }
         },
         "required": [
           "kind",
           "effect",
           "established",
-          "needs_date_window"
+          "applies_when"
         ],
         "title": "RepositorySourceNotice",
         "type": "object"

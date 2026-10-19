@@ -215,7 +215,7 @@ def test_the_catalog_dicts_carry_the_constraints():
         assert "window_effect" in record and "notices" in record, row["slug"]
         for notice in record["notices"]:
             assert set(notice) == {
-                "kind", "effect", "established", "needs_date_window",
+                "kind", "effect", "established", "applies_when",
             }, row["slug"]
 
 
@@ -316,7 +316,7 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
     # about a date window, plus nothing else.
     with_open_window = sorted(
         e.slug for e in REPOSITORY_CATALOG
-        if any(not n.needs_date_window for n in e.constraints.notices)
+        if any(n.applies_when != "with_date_window" for n in e.constraints.notices)
     )
     assert with_open_window == ["biorxiv", "medrxiv", "ndl_search"], with_open_window
 

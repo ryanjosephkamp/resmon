@@ -198,6 +198,24 @@ WindowRounding = Literal["none", "inward", "outward"]
 # resmon's rather than the provider's.
 KeywordSearch = Literal["upstream", "client_side", "none"]
 
+# When a sentence is worth showing, which is not always.
+#
+# ``with_date_window``   only once the form has a date. arXiv's window being
+#                        its submission date matters a great deal to somebody
+#                        filtering by date and not at all to anybody else, and
+#                        arXiv is on most selections every time.
+# ``without_start_date`` only while the start date is blank, because the
+#                        sentence is about the default resmon substitutes
+#                        there. Telling somebody who typed a start date what
+#                        would have happened if they had not is noise.
+# ``always``             neither depends on the dates.
+#
+# An enum rather than two booleans, and separate from ``kind`` rather than
+# read off it: two of the window-scoped notices are record filters that only
+# bite inside a window, and relabelling them to get the display right would
+# make ``kind`` lie about what they are.
+NoticeScope = Literal["always", "with_date_window", "without_start_date"]
+
 ConstraintKind = Literal[
     "date_window",
     "keyword_search",
@@ -226,15 +244,7 @@ class SourceNotice:
     kind: ConstraintKind
     effect: str
     established: str
-    # Whether this sentence is about something only a date window makes
-    # happen. Those are hidden until the form has a date, because they are
-    # the common case and they are about nothing until then: arXiv's window
-    # being its submission date matters a great deal to somebody filtering by
-    # date and not at all to anybody else, and arXiv is on most selections
-    # every time. It is a separate flag rather than a reading of ``kind``
-    # because two of these are record filters that only bite inside a window,
-    # and relabelling them to get the display right would make ``kind`` lie.
-    needs_date_window: bool = False
+    applies_when: NoticeScope = "always"
 
 
 @dataclass(frozen=True)
@@ -283,13 +293,13 @@ def _notice(
     effect: str,
     established: str,
     *,
-    needs_date_window: bool = False,
+    applies_when: NoticeScope = "always",
 ) -> SourceNotice:
     return SourceNotice(
         kind=kind,
         effect=effect,
         established=established,
-        needs_date_window=needs_date_window,
+        applies_when=applies_when,
     )
 
 
@@ -440,7 +450,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "arXiv's date window is its submission date, not a journal "
                     "publication date.",
                     "api_arxiv.py, the submittedDate clause in search() filters on submittedDate.",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -492,6 +502,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "With no start date, resmon asks bioRxiv from January 1, "
                     "2020. Nothing posted before that is retrieved.",
                     "api_biorxiv.py, the 2020-01-01 d_from default in search().",
+                    applies_when="without_start_date",
                 ),
             ),
         ),
@@ -536,7 +547,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "date, so a work published long ago but added to CORE "
                     "recently falls inside a recent window.",
                     "api_core.py, the createdDate clause in search() sends createdDate>= and createdDate<=.",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -624,7 +635,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "touches and then drops anything outside your exact dates "
                     "once it arrives.",
                     "api_datacite.py, _publication_year_filter and api_datacite.py, the publicationYear fallback in search().",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
                 _notice(
                     "record_filter",
@@ -633,7 +644,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "_inside_requested_window at api_datacite.py, _inside_requested_window expands "
                     "a year-only record date to January 1 - December 31 and "
                     "requires the whole interval inside the window.",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -697,14 +708,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "the results arrive. A window containing no complete "
                     "calendar year is refused before any request is sent.",
                     "api_dblp.py, _whole_year_bounds and api_dblp.py, the note_unanswerable early return in search().",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
                 _notice(
                     "record_filter",
                     "A DBLP record carrying no year at all is dropped whenever "
                     "you set a date window.",
                     "api_dblp.py, the `elif date_from or date_to` branch in _parse_info.",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -752,7 +763,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "a single year widens to the whole of it and results can "
                     "fall outside the dates you set.",
                     "api_doaj.py, the bibjson.year clause in search().",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -836,7 +847,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "window containing none rather than returning records whose "
                     "position in it cannot be known.",
                     "api_eric.py, _search_year_bounds and api_eric.py, the note_unanswerable early return in search().",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -1038,6 +1049,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "With no start date, resmon asks medRxiv from January 1, "
                     "2020. Nothing posted before that is retrieved.",
                     "api_biorxiv.py, the 2020-01-01 d_from default in search().",
+                    applies_when="without_start_date",
                 ),
             ),
         ),
@@ -1082,7 +1094,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "inside a month widens to the whole of it and results can "
                     "fall outside the dates you set.",
                     "api_nasa_ads.py, the pubdate clause in search().",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -1208,7 +1220,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "back with fewer in-window records than the cap you set.",
                     "api_nist_rmm.py, the from_date-only comment and param in search() and the per-record check at "
                     "api_nist_rmm.py, the date check in the record parser.",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
                 _notice(
                     "date_window",
@@ -1217,7 +1229,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "expanded.",
                     "_request_date at api_nist_rmm.py, _request_date, applied at "
                     "api_nist_rmm.py, the _request_date validation in search().",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -1271,7 +1283,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "refuses a window containing none rather than turning an "
                     "index default into a publication-date claim.",
                     "api_oapen.py, the year bounds and fq range in search().",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -1319,7 +1331,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "publication date.",
                     "api_openaire.py, the fromDateAccepted / toDateAccepted params in search() sends fromDateAccepted and "
                     "toDateAccepted.",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -1407,7 +1419,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "than overstating what it knows about a book's date.",
                     "_publication_year_clause at api_openlibrary.py, _publication_year_clause "
                     "and api_openlibrary.py, the note_unanswerable early return in search().",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -1556,7 +1568,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "window inside a single year widens to the whole of it and "
                     "results can fall outside the dates you set.",
                     "api_semantic_scholar.py, the year param in search().",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
@@ -1604,7 +1616,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "date.",
                     "api_springer.py, the onlinedatefrom / onlinedateto terms in search() sends onlinedatefrom and "
                     "onlinedateto.",
-                    needs_date_window=True,
+                    applies_when="with_date_window",
                 ),
             ),
         ),
