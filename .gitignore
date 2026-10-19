@@ -212,3 +212,20 @@ resmon_scripts/frontend/e2e/test-results/
 # own config (`npx playwright test <file>` rather than `npm run e2e`). It holds
 # failure traces, and one of them reached a commit before this line existed.
 resmon_scripts/frontend/test-results/
+
+# The published site is committed output, never ignored.
+#
+# `docs/` holds what GitHub Pages serves, and a page there has to be
+# committable. It was not, quietly: a document's slug becomes its directory,
+# so `docs/build.md` publishes to `docs/build/index.html`, and `build/` above
+# is a directory-only rule that matches at any depth. The source would commit,
+# the page would not, and the CI job written to catch exactly that drift
+# reported byte-identical, because `git status` does not report ignored files.
+# The same holds for `dist/`, `out/`, `release/`, `logs/` and `coverage/`, all
+# of them ordinary document slugs. No collision exists today; this is here so
+# that the next one is a non-event rather than a silent one.
+#
+# The CI job also asks with `--ignored=matching` now, so it would see such a
+# file even if a later rule out-ranked this line. Two independent failures,
+# which is the point.
+!docs/**

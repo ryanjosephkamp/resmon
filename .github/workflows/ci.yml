@@ -236,6 +236,17 @@ jobs:
         # reason the Frontend job documents at length: the lockfile is
         # generated on macOS and omits other platforms' optional dependencies,
         # which `npm ci` treats as a mismatch.
+        #
+        # **If this job goes red on a pull request that touched nothing to do
+        # with the site, look here first.** This job's whole assertion is that
+        # the built bytes match the committed ones, and `npm install` resolves
+        # some of the tree rather than taking it all from the lockfile. A
+        # transitive bump in Astro's or remark's dependency graph that changes
+        # one character of rendered HTML reddens this gate on a diff that
+        # cannot explain it. The fix in that case is to rebuild and commit
+        # `docs/` — the gate is right, the output really has changed — not to
+        # relax the gate. `npm ci` would remove the possibility, and cannot be
+        # used until the lockfile problem above is solved for every platform.
         run: npm install --no-audit --no-fund
 
       - name: Design values live in tokens.css, and text clears WCAG AA
@@ -263,12 +274,30 @@ jobs:
         # should newly exist counts too, and rather than `git add -A`, which
         # is a house rule: it has twice swept a symlinked node_modules into a
         # public branch.
+        #
+        # `--ignored=matching` because plain `git status` does not report an
+        # ignored file, and `docs/` is not exempt from the root `.gitignore`.
+        # A reviewer put a file at `docs/dist/page.html` and this gate stayed
+        # green: `.gitignore:35` is `dist/`. The rule that bites is not the
+        # planted case but the ordinary one — a document's slug becomes its
+        # directory, so `docs/build.md` publishes to `docs/build/index.html`,
+        # which `build/` ignores. The source commits, the page never does, and
+        # the gate reports byte-identical. `build/`, `dist/`, `out/`,
+        # `release/`, `logs/` and `coverage/` are all directory-only rules and
+        # all of them are plausible document slugs.
+        #
+        # `.gitignore` now also un-ignores everything under `docs/`, which is
+        # the other half: this makes the drift visible, that makes it fixable.
+        # Both are here because they fail independently — a later ignore rule
+        # could out-rank the negation, and this question would still be the
+        # right one to ask.
         run: |
           npm run build
-          changed="$(git status --porcelain -- ../docs)"
+          changed="$(git status --porcelain --ignored=matching -- ../docs)"
           if [ -n "$changed" ]; then
             echo "::error::docs/ is not what site/ builds. Run 'npm run build' in site/ and commit the result."
             echo "$changed"
+            echo "A '!!' row is a built page that .gitignore is hiding; see .gitignore's docs/ note."
             git diff --stat -- ../docs
             exit 1
           fi
