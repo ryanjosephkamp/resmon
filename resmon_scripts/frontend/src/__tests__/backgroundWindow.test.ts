@@ -34,8 +34,10 @@ import * as path from 'path';
 
 import {
   BACKGROUND_WINDOW_ENV,
+  HIDDEN_WINDOW_ENV,
   WINDOW_BEHAVIOR_JOB_ENV,
   requestBackgroundWindows,
+  requestHiddenWindows,
 } from '../../e2e/background-window';
 
 const WORKFLOW = path.join(
@@ -131,5 +133,74 @@ describe('requestBackgroundWindows', () => {
       [BACKGROUND_WINDOW_ENV]: '0',
     };
     expect(() => requestBackgroundWindows(env)).toThrow();
+  });
+});
+
+/**
+ * The same guard again, for the second flag, and it matters more.
+ *
+ * `RESMON_BACKGROUND_WINDOW` leaves a window on the screen to look at.
+ * `RESMON_HIDDEN_WINDOW` does not: `electron/main.ts` never calls `show()`, and
+ * a CoreGraphics census of the launched process's own windows returns zero. So
+ * the window-behaviour job under this flag would not merely stop reporting
+ * focus — it would have no window on a screen at all, and would still go green.
+ */
+describe('the window-behaviour job never runs with hidden windows', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+
+  test('the job sets the hidden-window variable nowhere in its block', () => {
+    const offenders = jobBlock(workflow, WINDOW_JOB)
+      .filter((line) => line.includes(HIDDEN_WINDOW_ENV));
+    expect(offenders).toEqual([]);
+  });
+
+  test('no workflow-level env reaches that job with the variable', () => {
+    const offenders = outsideJobs(workflow)
+      .filter((line) => line.includes(HIDDEN_WINDOW_ENV));
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe('requestHiddenWindows', () => {
+  test('asks for hidden windows on an ordinary run', () => {
+    const env: Record<string, string | undefined> = {};
+    requestHiddenWindows(env);
+    expect(env[HIDDEN_WINDOW_ENV]).toBe('1');
+  });
+
+  test('leaves the window-behaviour job alone', () => {
+    const env: Record<string, string | undefined> = { [WINDOW_BEHAVIOR_JOB_ENV]: '1' };
+    requestHiddenWindows(env);
+    expect(env[HIDDEN_WINDOW_ENV]).toBeUndefined();
+  });
+
+  test('keeps an explicit opt-out, so a run can be watched', () => {
+    const env: Record<string, string | undefined> = { [HIDDEN_WINDOW_ENV]: '0' };
+    requestHiddenWindows(env);
+    expect(env[HIDDEN_WINDOW_ENV]).toBe('0');
+  });
+
+  test('refuses to run the window-behaviour job with the flag set', () => {
+    const env: Record<string, string | undefined> = {
+      [WINDOW_BEHAVIOR_JOB_ENV]: '1',
+      [HIDDEN_WINDOW_ENV]: '1',
+    };
+    expect(() => requestHiddenWindows(env)).toThrow(/window-behaviour job/);
+  });
+
+  test('refuses even when the flag is an explicit off, because the conflict is the bug', () => {
+    const env: Record<string, string | undefined> = {
+      [WINDOW_BEHAVIOR_JOB_ENV]: '1',
+      [HIDDEN_WINDOW_ENV]: '0',
+    };
+    expect(() => requestHiddenWindows(env)).toThrow();
+  });
+
+  test('does not disturb the background-window flag, which it composes with', () => {
+    const env: Record<string, string | undefined> = {};
+    requestBackgroundWindows(env);
+    requestHiddenWindows(env);
+    expect(env[BACKGROUND_WINDOW_ENV]).toBe('1');
+    expect(env[HIDDEN_WINDOW_ENV]).toBe('1');
   });
 });

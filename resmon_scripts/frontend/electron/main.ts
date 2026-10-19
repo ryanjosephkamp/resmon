@@ -29,6 +29,46 @@ function isBackgroundWindow(): boolean {
   return process.env.RESMON_BACKGROUND_WINDOW === '1';
 }
 
+/**
+ * True when this run must put no window on the screen at all.
+ *
+ * `RESMON_BACKGROUND_WINDOW` stops the *foreground grab*, and that is all it
+ * stops: `showInactive()` still shows the window. Measured on this Mac with
+ * `CGWindowListCopyWindowInfo` (the on-screen list, desktop elements excluded),
+ * attributing each window to the launched process's own subtree by pid:
+ *
+ *   showInactive()   1 on-screen window, bounds 144,109 1440x900
+ *   never shown      0 on-screen windows
+ *
+ * So a flagged run still covered whatever the person at the machine was
+ * looking at. This flag is the other half of the complaint: the window is
+ * created and loaded exactly as before and the renderer runs, but `show()` is
+ * never called, so the window never reaches the screen.
+ *
+ * **Positioning the window off the displays was measured and does not work.**
+ * macOS constrains a window to keep part of it reachable: `setPosition(30000,
+ * 30000)` on a 1728x1117 display left the window at 1688,1085 — a 40x32 pixel
+ * corner still in the on-screen list. That is why this flag hides rather than
+ * moves.
+ *
+ * The risk this carries is Chromium's background throttling, and it was
+ * measured rather than assumed. A never-shown window on this Electron ran 366
+ * `requestAnimationFrame` callbacks and 187 16 ms timer ticks in three
+ * seconds, against 364 and 188 for a shown one, and reported
+ * `document.visibilityState === 'visible'`. `backgroundThrottling: false`
+ * changed nothing (363 frames), so this flag does not touch `webPreferences`.
+ * That is one machine and one Electron; see the pull request.
+ *
+ * Unlike `isBackgroundWindow()`, this *is* a behaviour flag and it is named as
+ * one: a suite running under it cannot see anything that needs a window on a
+ * screen. The one CI job whose subject is the window is held off it by
+ * `e2e/background-window.ts`, which throws rather than letting that job quietly
+ * stop asserting.
+ */
+function isHiddenWindow(): boolean {
+  return process.env.RESMON_HIDDEN_WINDOW === '1';
+}
+
 // Keep the app out of the Dock, on macOS, when launched in background mode.
 //
 // **This is not the line that stops the foreground grab — `showInactive()` is.**
@@ -596,6 +636,10 @@ function createWindow(): void {
     // **This is the line that fixes the complaint** — measured, against each
     // half alone; see the table above `setActivationPolicy`. Unset, this is
     // `show()` exactly as before.
+    // And under `RESMON_HIDDEN_WINDOW` it is shown neither way: the window
+    // stays off the screen entirely for the length of the run. See
+    // `isHiddenWindow()` for what that was measured against.
+    if (isHiddenWindow()) return;
     if (isBackgroundWindow()) mainWindow?.showInactive();
     else mainWindow?.show();
   });
@@ -698,8 +742,14 @@ function openLinkWindow(url: string): void {
   });
 
   // Same rule as the main window: a link window opened during an automated run
-  // must not steal the foreground either.
-  win.once('ready-to-show', () => (isBackgroundWindow() ? win.showInactive() : win.show()));
+  // must not steal the foreground either — and under `RESMON_HIDDEN_WINDOW` it
+  // must not reach the screen at all. A spec that drives a link window still
+  // gets one: the window exists and loads, it is only never shown.
+  win.once('ready-to-show', () => {
+    if (isHiddenWindow()) return;
+    if (isBackgroundWindow()) win.showInactive();
+    else win.show();
+  });
   void win.loadURL(url);
 }
 

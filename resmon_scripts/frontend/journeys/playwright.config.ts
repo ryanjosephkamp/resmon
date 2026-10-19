@@ -1,11 +1,19 @@
 import { defineConfig } from '@playwright/test';
-import { requestBackgroundWindows } from '../e2e/background-window';
+import { requestBackgroundWindows, requestHiddenWindows } from '../e2e/background-window';
 
 // Show the app's windows without taking the foreground. A journey run launches
 // Electron dozens of times and each launch used to pull the keyboard away from
 // whoever was at the machine. See `../e2e/background-window.ts`; the journey
 // drivers inherit this through `launchEnv`, so nothing there had to change.
 requestBackgroundWindows();
+
+// And keep them off the screen entirely. The background flag above stops the
+// foreground grab; it does not stop the window appearing, which was measured
+// with the CoreGraphics on-screen window list. A journey run launches the app
+// dozens of times, so for this suite the window is never shown at all. Nothing
+// in `drivers/session.ts` reads the screen. `RESMON_HIDDEN_WINDOW=0` brings the
+// windows back for a run you want to watch.
+requestHiddenWindows();
 
 /**
  * The journey suite's own runner.
