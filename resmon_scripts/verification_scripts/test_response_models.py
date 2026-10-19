@@ -612,13 +612,18 @@ def test_every_modeled_route_is_driven_by_this_file(driven):
 def test_the_modeled_slice_is_the_watch_profiles_row_and_says_so():
     """The denominator, read from the app rather than counted by hand.
 
-    Eleven of the 184 routes are modeled and they are all of J07. The number
+    Eleven of the 185 routes are modeled and they are all of J07. The number
     on the right is ``len(api_routes())``, so this test moves when the surface
     does; the number on the left is the count of routes declaring a model, so
     it moves when somebody models one. Neither is written down twice.
+
+    185 since the source wall's ``GET /api/coverage/source-wall``, which is
+    deliberately **not** modeled: the pilot slice is J07 and the assertion
+    below is the fence around it. Widening the slice is the rollout's call,
+    not a new route's.
     """
     modeled = modeled_routes()
-    assert len(api_routes()) == 184, (
+    assert len(api_routes()) == 185, (
         f"the surface is now {len(api_routes())} routes; every count in "
         f"docs/api-contract/ and in this file's docstring needs regenerating")
     assert len(modeled) == 11

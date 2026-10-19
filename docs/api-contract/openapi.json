@@ -3828,6 +3828,47 @@
         "summary": "Update Configuration Endpoint"
       }
     },
+    "/api/coverage/source-wall": {
+      "get": {
+        "description": "Every source's recorded answer to each of the last ``limit`` runs.\n\nThe one read that crosses executions. `/api/executions` and\n`/api/executions/{id}` each carry the coverage of a single run, which\nanswers \"what did this run get\"; nobody could ask \"is my coverage still\nwhat it was\" without opening runs one at a time and comparing them by\nhand. The rows have been on disk since schema 6.\n\nThe cells arrive **classified** -- one of the six states in\n``source_wall.WALL_STATES`` -- rather than as a status and a reason for\nthe caller to interpret. That is deliberate: every place that has\nre-derived this classification has eventually derived it differently, and\nthe last time one did it put a tick on sources that had never been asked.\n\n``limit`` bounds what comes back, not what is read: there is no index on\n``executions.start_time``, so finding the newest runs scans the table and\nsorts. Measured at 0.4 ms over 12 executions and 5.7 ms over 50,000.",
+        "operationId": "source_wall_grid_api_coverage_source_wall_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Source Wall Grid"
+      }
+    },
     "/api/credentials": {
       "get": {
         "description": "Return per-credential status for every known credential name.\n\nNever returns the raw credential value.\n\nEach entry carries ``present`` (kept for compatibility) and ``status``,\nwhich is ``present``, ``absent`` or ``unreadable``. The last one matters:\nan unsigned macOS build is denied access to keychain items an earlier\nbuild stored, and reporting that as \"absent\" tells the user their keys\nare gone when they are simply unreachable. ``keyring_responsive`` is\nFalse once a read has timed out, so the interface can say so once at the\ntop rather than fifteen times over.",

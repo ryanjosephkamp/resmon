@@ -4,7 +4,7 @@
 ``docs/api-contract/`` already held the MCP contract and five per-feature
 contracts, each frozen for the duration of the work that needed both harnesses
 at once. Nothing described the *whole* HTTP surface, and nothing went red when
-one of its 184 routes changed shape. A renderer rebuild measured against a
+one of its 185 routes changed shape. A renderer rebuild measured against a
 surface nobody had written down would have had to rediscover it a screen at a
 time, and would have had no way to tell a deliberate change from a slip.
 
@@ -283,6 +283,8 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("POST", "/api/evidence/projects/{project_id}/answers/{answer_id}/cancel"): ("J36",),
     ("GET", "/api/evidence/projects/{project_id}/answers/{answer_id}/events"): ("J36",),
     ("GET", "/api/evidence/projects/{project_id}/answers/{answer_id}/export"): ("J37", "J36"),
+    # --- The source wall ---------------------------------------------------
+    ("GET", "/api/coverage/source-wall"): ("J29",),
     # --- Executions: history, reports, exports -----------------------------
     ("GET", "/api/executions"): ("J18",),
     ("POST", "/api/executions/export"): ("J18",),

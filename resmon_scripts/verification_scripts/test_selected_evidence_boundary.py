@@ -81,8 +81,9 @@ def test_exact_seven_additive_routes_and_prebody_origin_guards(http_selected):
     # signed bundle download the webhook channel's envelope links to. 184 with
     # backup and restore: /api/backup, /api/backup/verify, /api/backup/last,
     # /api/restore, /api/restore/cancel, /api/restore/undo-copy/delete and
-    # /api/restore/acknowledge.
-    assert len(routes)==7 and len(all_routes)==184
+    # /api/restore/acknowledge. 185 with GET /api/coverage/source-wall, the
+    # source wall's one read across executions.
+    assert len(routes)==7 and len(all_routes)==185
     for method,path in routes:
         path=path.replace('{project_id}',c['project_id']).replace('{answer_id}',str(uuid.uuid4()))
         for headers in ({},{'Origin':'null','X-Resmon-Library':'1'},{'Origin':'https://other.invalid','X-Resmon-Library':'1'}):

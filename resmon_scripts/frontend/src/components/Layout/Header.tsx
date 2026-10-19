@@ -14,6 +14,7 @@ const routeTitles: Record<string, string> = {
   '/library': 'Library',
   '/evidence': 'Evidence',
   '/watchdog': 'Watchdog',
+  '/source-wall': 'Source wall',
   '/configurations': 'Configurations',
   '/settings': 'Settings',
 };

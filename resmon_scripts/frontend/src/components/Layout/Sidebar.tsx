@@ -21,6 +21,7 @@ const navItems: NavItem[] = [
   { to: '/evidence', label: 'Evidence', icon: '▧' },
   { to: '/analytics', label: 'Analytics', icon: '▤' },
   { to: '/watchdog', label: 'Watchdog', icon: '◬' },
+  { to: '/source-wall', label: 'Source wall', icon: '▩' },
   { to: '/explorer', label: 'Explorer', icon: '⌕' },
   { to: '/profiles', label: 'Watch Profiles', icon: '☖' },
   { to: '/configurations', label: 'Configurations', icon: '⚙' },
