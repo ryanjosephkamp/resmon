@@ -56,6 +56,23 @@ export async function renderWithProviders(ui: React.ReactElement, initialEntries
   });
 }
 
+/**
+ * Put the default desktop bridge back on `window`.
+ *
+ * `jest.setup.js` installs one before the file's first test, and a test that
+ * replaces it to exercise a picker used to clean up with `delete`. That left
+ * every later test in the file with no bridge at all, which the renderer
+ * tolerated only because `getBaseUrl()` guessed the daemon's port when nobody
+ * told it one. It does not guess any more, so a `delete` in a cleanup hook now
+ * takes the backend away from the tests that follow. Restore it instead; a test
+ * that means to have no bridge says so in its own body.
+ */
+export function restoreDesktopBridge(): void {
+  (window as unknown as { resmonAPI: Record<string, unknown> }).resmonAPI = {
+    getBackendPort: () => '51234',
+  };
+}
+
 /** Calls the mock received for a path, across the whole test. */
 export function callsTo(mock: jest.Mock, pathPrefix: string): Array<{ url: string; init?: RequestInit }> {
   return mock.mock.calls
