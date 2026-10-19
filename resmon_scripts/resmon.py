@@ -7639,17 +7639,22 @@ def write_port_file(port: int) -> None:
     """Record the port this process is serving on, for the MCP server to find.
 
     Best-effort by design: a read-only or missing state directory must not stop
-    the backend starting. The MCP server falls back to RESMON_PORT and then the
-    default, and confirms whatever it finds with GET /api/health before using
-    it, so a stale or absent file costs a probe rather than a wrong answer.
+    the backend starting. The MCP server's other way of being told a port is
+    RESMON_PORT, and it confirms whatever it finds with GET /api/health before
+    using it, so a stale file costs a probe rather than a wrong answer. An
+    *absent* file costs more than it used to: the server no longer reaches for
+    a default when nothing names a port, so with this file missing and
+    RESMON_PORT unset a harness is refused rather than answered. That is the
+    intended trade -- the only thing a default could reach is whichever resmon
+    happens to hold it.
     """
     try:
         PORT_FILE.parent.mkdir(parents=True, exist_ok=True)
         PORT_FILE.write_text(str(int(port)), encoding="utf-8")
     except OSError:
         logging.getLogger(__name__).warning(
-            "Could not write the port file at %s; the MCP server will fall back "
-            "to RESMON_PORT or the default port.", PORT_FILE,
+            "Could not write the port file at %s; an MCP server will not find "
+            "this backend unless RESMON_PORT names it.", PORT_FILE,
         )
 
 
