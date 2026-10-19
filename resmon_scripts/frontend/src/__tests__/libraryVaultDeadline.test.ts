@@ -49,6 +49,10 @@ it('ends a vault creation that never answers in a sentence, and aborts the reque
 
   jest.advanceTimersByTime(1);
   await expect(pending).rejects.toThrow(CREATE_VAULT_TIMEOUT_MESSAGE);
+  // `toThrow` matches a substring. `LibraryPage` decides which line this
+  // sentence is rendered in by comparing it to the exported constant, so the
+  // message has to be that constant exactly rather than one built around it.
+  await expect(pending.catch((error: Error) => error.message)).resolves.toBe(CREATE_VAULT_TIMEOUT_MESSAGE);
   expect(held.signal()?.aborted).toBe(true);
 });
 

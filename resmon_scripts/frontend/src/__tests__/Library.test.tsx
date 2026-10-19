@@ -40,6 +40,31 @@ it.each(['export_success','export_error'])('still reports a late %s after switch
  if(kind==='export_error'){expect(await screen.findByRole('alert')).toHaveTextContent('inventory refused');expect(downloadInventory).not.toHaveBeenCalled();}
  else{expect(downloadInventory).toHaveBeenCalledWith({text:'export'},vid);expect(await screen.findByText(/Complete JSON inventory download requested/)).toBeInTheDocument();}
 });
+// The per-control counters are no longer bumped when the page unmounts,
+// because ``alive`` already carries that condition and every guard reads it
+// first. That was true when it was written and nothing in this file held it:
+// no case here unmounted, so removing an ``alive.current`` from a guard left
+// all of them green. These two cases are the holder. Each has an effect that
+// outlives the component - a real download, and a further HTTP call - so each
+// one fails if the ``alive`` read it depends on is deleted.
+it('fires no download from an inventory export that lands after the page is gone',async()=>{
+ let resolve:(x:unknown)=>void=()=>{};(libraryApi.inventory as jest.Mock).mockReturnValueOnce(new Promise(r=>{resolve=r;}));
+ const view=render(<LibraryPage/>);
+ fireEvent.click(await screen.findByText('Export complete JSON inventory'));
+ view.unmount();
+ await act(async()=>{resolve({text:'export'});});
+ expect(downloadInventory).not.toHaveBeenCalled();
+});
+it('stops a sequential import at the file it is on when the page goes away',async()=>{
+ let first:(x:unknown)=>void=()=>{};
+ (libraryApi.import as jest.Mock).mockReturnValueOnce(new Promise(r=>{first=r;})).mockResolvedValue({file:file(4),created:true});
+ const view=render(<LibraryPage/>);await screen.findByLabelText('Import PDF, TXT or MD');
+ fireEvent.change(screen.getByLabelText('Import PDF, TXT or MD'),{target:{files:[new File(['a'],'a.txt'),new File(['b'],'b.md')]}});
+ await screen.findByText(/Importing selected files/);
+ view.unmount();
+ await act(async()=>{first({file:file(3),created:true});});
+ expect(libraryApi.import).toHaveBeenCalledTimes(1);
+});
 it('still reports an inventory export that finished after Refresh Library was pressed',async()=>{
  // Refresh Library is not disabled by ``busy``, so it is pressable throughout an
  // export, and it runs ``load`` - which opened with ``select(null)``.
