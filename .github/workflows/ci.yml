@@ -208,3 +208,68 @@ jobs:
 
       - name: Build renderer and Electron main
         run: npm run build
+
+  site:
+    name: Site (docs/ is what site/ builds)
+    runs-on: ubuntu-latest
+    # Runs only here — see README.md in this directory.
+    if: github.repository == 'ryanjosephkamp/resmon'
+    # The site build is ~4s and the verifier ~2s; the install dominates.
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: site
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22, matching the other Node jobs in this workflow.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install dependencies
+        # `npm install` rather than `npm ci`, for the same cross-platform
+        # reason the Frontend job documents at length: the lockfile is
+        # generated on macOS and omits other platforms' optional dependencies,
+        # which `npm ci` treats as a mismatch.
+        run: npm install --no-audit --no-fund
+
+      - name: Design values live in tokens.css, and text clears WCAG AA
+        run: node scripts/check-tokens.mjs
+
+      - name: The published output verifies
+        # Bare, with no `--dir`: the documented command has to be the command
+        # that passes. It defaulted to Astro's `dist/` until recently, which is
+        # not what GitHub Pages serves, and was red.
+        run: npm run verify
+
+      - name: docs/ is what these sources build
+        # The gate this job exists for.
+        #
+        # `docs/` is the published site and it is committed output, not a
+        # build step on a runner: GitHub Pages serves the files as they are.
+        # So a pull request that edits a Markdown file under `docs/` and does
+        # not rebuild leaves the published page showing the old text, with
+        # nothing to notice it. That is not hypothetical — on 2026-10-18 the
+        # published API contract index and MCP page carried 79% of their
+        # source text for a day, because #172, #173 and #176 edited the
+        # Markdown after the site's last build.
+        #
+        # `git status --porcelain` rather than `git diff`, so a page that
+        # should newly exist counts too, and rather than `git add -A`, which
+        # is a house rule: it has twice swept a symlinked node_modules into a
+        # public branch.
+        run: |
+          npm run build
+          changed="$(git status --porcelain -- ../docs)"
+          if [ -n "$changed" ]; then
+            echo "::error::docs/ is not what site/ builds. Run 'npm run build' in site/ and commit the result."
+            echo "$changed"
+            git diff --stat -- ../docs
+            exit 1
+          fi
+          echo "docs/ is byte-identical to a fresh build of site/."

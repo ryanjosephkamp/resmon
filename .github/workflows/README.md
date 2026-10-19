@@ -1,6 +1,6 @@
 # Workflows
 
-Seven workflows, ten jobs. Two things are true of every one of them, and a new job is not finished until
+Seven workflows, eleven jobs. Two things are true of every one of them, and a new job is not finished until
 both are true of it as well.
 
 ## Every job carries a repository guard
