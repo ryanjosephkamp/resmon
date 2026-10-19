@@ -8,10 +8,12 @@
  * times — but it is wrong for exactly one job.
  *
  * `ui-smoke.yml`'s **Window behaviour (Electron on macOS)** job exists to watch
- * maximize, focus and stacking. An accessory-policy process has no Dock icon
- * and never becomes active, so those assertions stop being about the app that
- * ships. The job would stay green while changing subject, and nothing in the
- * run output would say so. That is the failure this file prevents.
+ * maximize, focus and stacking. Under the flag no window ever reports focus and
+ * the process has no Dock icon and no menu bar, so those assertions stop being
+ * about the app that ships — and `window-manager.spec.ts`'s link-window focus
+ * arm `test.skip()`s itself when no window reports focus, so the job would stay
+ * green having quietly stopped asserting. Nothing in the run output would say
+ * so. That is the failure this file prevents.
  *
  * Two halves, because either alone is avoidable:
  *

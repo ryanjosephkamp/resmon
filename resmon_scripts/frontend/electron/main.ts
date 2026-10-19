@@ -29,20 +29,30 @@ function isBackgroundWindow(): boolean {
   return process.env.RESMON_BACKGROUND_WINDOW === '1';
 }
 
-// Never become the active application, on macOS, when launched in background
-// mode.
+// Keep the app out of the Dock, on macOS, when launched in background mode.
 //
-// `showInactive()` alone is not enough on darwin. It keeps the *window* from
-// taking key status, but the process still becomes the active application when
-// it finishes launching: the Dock icon appears, the menu bar changes to
-// resmon's, and the person's own window loses focus even though resmon's window
-// never gained it. `accessory` is the policy that says "this process has no
-// Dock icon and never becomes active"; it is what menu-bar-only apps use.
+// **This is not the line that stops the foreground grab — `showInactive()` is.**
+// That is worth stating plainly, because the obvious guess is the other way
+// round and acting on it would drop the half that works. Four launches from a
+// frontmost shell, reading the frontmost application's ASN from inside the
+// process before and after the window went up, measured each half alone:
 //
-// At module scope, not inside `app.whenReady()`: the activation that has to be
-// prevented happens as part of finishing launch, so a call that waits for ready
-// is a call that happens after the thing it was meant to stop. Guarded because
-// the policy is macOS-only and the method does not exist elsewhere.
+//   show() + no policy      foreground TAKEN   window focused   Dock icon
+//   showInactive() only     foreground kept    not focused      Dock icon
+//   show() + accessory      foreground TAKEN   window focused   no Dock icon
+//   both (what ships)       foreground kept    not focused      no Dock icon
+//
+// So `accessory` on its own changes nothing about focus. It earns its place for
+// the second half of the complaint rather than the first: a suite run no longer
+// puts an icon in the Dock or takes over the menu bar, which is what made a run
+// feel like another app had opened even when it had not stolen the keyboard.
+//
+// Applied at module scope rather than inside `app.whenReady()` so the policy is
+// in effect before any window exists and the icon never appears at all, not
+// even briefly. Measured there: no throw, and the Dock icon never appeared. A
+// call from inside `whenReady()` was not tried, so this is not a claim that the
+// later placement would fail. Guarded because the policy is macOS-only and the
+// method does not exist elsewhere.
 if (isBackgroundWindow() && process.platform === 'darwin') {
   app.setActivationPolicy('accessory');
 }
@@ -583,7 +593,9 @@ function createWindow(): void {
     if (!isE2E()) mainWindow?.maximize();
     // `showInactive()` puts the window up without making it the key window, so
     // an automated run does not take the keyboard from the person at the Mac.
-    // Unset, this is `show()` exactly as before.
+    // **This is the line that fixes the complaint** — measured, against each
+    // half alone; see the table above `setActivationPolicy`. Unset, this is
+    // `show()` exactly as before.
     if (isBackgroundWindow()) mainWindow?.showInactive();
     else mainWindow?.show();
   });

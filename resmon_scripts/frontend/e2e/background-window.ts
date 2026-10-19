@@ -4,8 +4,11 @@
  * Both suites launch the real Electron app over and over. Until now every
  * launch came to the front and took the keyboard, so a journey run made the
  * machine unusable for as long as it lasted. `RESMON_BACKGROUND_WINDOW=1` tells
- * `electron/main.ts` to show its windows inactive and, on macOS, to run under
- * the `accessory` activation policy so the process never becomes active at all.
+ * `electron/main.ts` to show its windows with `showInactive()` and, on macOS,
+ * to run under the `accessory` activation policy. `showInactive()` is the half
+ * that stops the foreground grab; the policy is what keeps the Dock icon and
+ * the menu bar away. The table above `setActivationPolicy` in
+ * `electron/main.ts` has the measurement that separates them.
  *
  * The flag is set **here, in the Playwright config modules**, rather than in a
  * launch driver. A config module is evaluated in the runner and in every worker
@@ -17,12 +20,13 @@
  * ## The exception, and why it is a thrown error rather than a comment
  *
  * `ui-smoke.yml`'s **Window behaviour (Electron on macOS)** job exists to watch
- * what the window does: maximize, focus, stacking. An app under the `accessory`
- * policy is a different app for exactly those purposes — it has no Dock icon,
- * it does not activate, and a focus assertion against it is a statement about
- * something nobody ships. If that job ever inherited this flag it would keep
- * passing while testing the wrong thing, which is the failure mode that is
- * worst to find late.
+ * what the window does: maximize, focus, stacking. A run with this flag has
+ * none of that to watch — no window ever reports focus, and the app has no
+ * Dock icon and no menu bar — so a focus assertion against it is a statement
+ * about something nobody ships. Worse than failing: `window-manager.spec.ts`'s
+ * link-window focus arm `test.skip()`s when no window reports focus, so the
+ * job would go green having quietly stopped asserting. That is the failure mode
+ * that is worst to find late.
  *
  * So that job sets `RESMON_WINDOW_BEHAVIOR_JOB=1`, this module declines to set
  * the flag when it sees it, and — the part that matters — it **throws** if the
@@ -61,9 +65,10 @@ export function requestBackgroundWindows(
       `${WINDOW_BEHAVIOR_JOB_ENV}=1 and ${BACKGROUND_WINDOW_ENV}=`
       + `${JSON.stringify(env[BACKGROUND_WINDOW_ENV])} are set together. `
       + 'The window-behaviour job tests what the window does — maximize, focus, '
-      + 'stacking — and an app running under the macOS accessory activation '
-      + 'policy has none of that to test. Remove the background-window variable '
-      + 'from that job rather than from this check.',
+      + 'stacking — and a run with background windows has none of that to test: '
+      + 'no window reports focus, so the link-window focus arm skips itself and '
+      + 'the job goes green having stopped asserting. Remove the '
+      + 'background-window variable from that job rather than from this check.',
     );
   }
   if (isWindowBehaviorJob) return;
