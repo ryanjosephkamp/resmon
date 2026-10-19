@@ -1,6 +1,6 @@
 # Workflows
 
-Seven workflows, eleven jobs. Two things are true of every one of them, and a new job is not finished until
+Seven workflows, twelve jobs. Two things are true of every one of them, and a new job is not finished until
 both are true of it as well.
 
 **This page used to be the whole of the enforcement, and it had already drifted.** It said *ten* jobs
@@ -34,7 +34,7 @@ That second half matters more than the first. **A required status check that ski
 and branch protection waits for it forever with a symptom that does not look like its cause. Two
 consequences:
 
-- If this repository is ever renamed or transferred, all eleven jobs skip and merging freezes. The fix is to
+- If this repository is ever renamed or transferred, all twelve jobs skip and merging freezes. The fix is to
   update the literal in every workflow. A variable would avoid that, but a literal is the form that cannot
   be changed from inside a fork, which is the whole point.
 - A new job that is also a required check must have its guard true here before it is made required.
@@ -54,6 +54,7 @@ a hung runner turns into a long, quiet bill. The values below are set from measu
 | `ci.yml` backend | 40 | 22.5 min (Python 3.10) | 20 successful 3.10 legs of the 30 most recent CI runs |
 | `ci.yml` lint | 10 | 0.63 min (38 s; spread 23–38 s) | 16 successful legs of the 20 most recent CI runs, 2026-10-19 |
 | `ci.yml` frontend | 10 | 1.5 min (spread 0.9–1.5) | 29 successful legs of the same 30 runs |
+| `ci.yml` site | 10 | 24s | 2 runs, and see below |
 | `ui-smoke.yml` smoke | 25 | 9.8 min | 11 |
 | `ui-smoke.yml` window | 30 | 12.7 min | 13 |
 | `journeys.yml` candidate | 40 | 8.6 min | 8 |
@@ -76,7 +77,17 @@ rather than rounded away.
 The gaps this table once left blank were not hiding a problem, and recording that is worth more than a
 blank row that invites the opposite assumption.
 
-Two rows need their caveat read with them. The `classic` sample has a median of 0.1 minutes, because most
+Three rows need their caveat read with them. **`site` has a sample of two**, both from the pull request
+that added it: 52 seconds for the run that was made to fail on purpose, on a cold npm cache, and 24 for
+the green run after it, with the cache warm. The limit is 10 minutes against the only successful run's 24
+seconds, which is about 25x and the widest margin in this table — deliberately, and for a reason that is
+the opposite of the usual one. Two observations are not a distribution, both came from the same hour on
+the same branch, and neither includes a cold `actions/setup-node` cache on a runner that has never seen
+this `package-lock.json`. The row should be remeasured once the job has a few weeks behind it, and until
+then the limit is sized for what has not been observed rather than for what has. It is also the cheapest
+job here, so a wide limit costs little if it is never approached.
+
+The other two: the `classic` sample has a median of 0.1 minutes, because most
 of those runs stopped at the job's own changed-files step rather than building a second application — look
 in the `scope` step, not the `on:` block, which has no path filter — so only the 8.3 is a real build, and
 the sample is one observation and not seven. And `live-network`'s limit is far
