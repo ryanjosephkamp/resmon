@@ -92,6 +92,28 @@ def test_a_decorator_the_parser_cannot_read_lowers_the_count():
     assert len(without) == len(full) - 1
 
 
+def test_a_non_route_app_decorator_is_not_counted_as_a_route():
+    """``@app.on_event("startup")`` is a decorator on ``app`` with a string arg.
+
+    It is not a route, and the census must not count it. This is not
+    hypothetical bookkeeping: the walk in
+    ``test_selected_evidence_boundary.py`` used to collect every
+    ``@app.<anything>("...")``, so the first one of these anybody added would
+    have made that file disagree with the contract and blame a stale document
+    for it. Two walks with two filters is the same defect as two hand-written
+    totals, one layer down -- which is why there is now one walk.
+    """
+    source = route_census.RESMON_SOURCE.read_text(encoding="utf-8")
+    before = route_census.declared_in(source)
+    for decorator in ('@app.on_event("startup")', '@app.middleware("http")',
+                      '@app.websocket("/api/ws/notifications")'):
+        grafted = source + (
+            f"\n\n{decorator}\nasync def _added_for_this_test():\n    return None\n")
+        assert route_census.declared_in(grafted) == before, (
+            f"{decorator} was counted as a route"
+        )
+
+
 def test_nothing_in_the_suite_still_types_the_route_total():
     """The sweep. One derived denominator means one place holds the number.
 

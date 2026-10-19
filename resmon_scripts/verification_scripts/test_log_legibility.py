@@ -110,14 +110,41 @@ def test_the_bounds_case_keeps_ids_that_still_tell_its_four_cases_apart():
 
 def test_a_short_parameter_is_left_to_pytest():
     """The hook must not rename everything; it is a cap, not a scheme."""
-    from conftest import pytest_make_parametrize_id
+    from conftest import _MAX_PARAMETRIZE_ID, pytest_make_parametrize_id
 
     assert pytest_make_parametrize_id(None, b"a" * 10, "raw") is None
     assert pytest_make_parametrize_id(None, "short", "name") is None
     assert pytest_make_parametrize_id(None, 262144, "size") is None
     assert pytest_make_parametrize_id(None, None, "value") is None
+    assert pytest_make_parametrize_id(None, "x" * _MAX_PARAMETRIZE_ID, "text") is None
     assert pytest_make_parametrize_id(None, b"a" * 262144, "raw") == "raw-bytes262144"
-    assert pytest_make_parametrize_id(None, "x" * 300, "text") == "text-str300"
+    assert (pytest_make_parametrize_id(None, "x" * (_MAX_PARAMETRIZE_ID + 1), "text")
+            == f"text-str{_MAX_PARAMETRIZE_ID + 1}")
+
+
+def test_the_cap_is_a_safety_limit_and_not_a_formatting_rule():
+    """How tight the cap is, held as a decision rather than left to taste.
+
+    It was 64 first, and a reviewer measured the cost: 20 of 3,562 ids changed
+    with no collisions, but five lost readable content while sitting nowhere
+    near any limit -- ``[raw-bytes74]`` among them, and this module's own gate
+    rendered as ``[test_evidence_reader.py-case-str66]``. Re-measured at 512,
+    14 ids change and those five are legible again.
+
+    The floor below is what stops that happening again by accident. The
+    ceiling is the point: a cap that is a meaningful fraction of the scanner
+    limit is not a safety limit, it is a house style, and this hook should
+    only ever be the former.
+    """
+    from conftest import _MAX_PARAMETRIZE_ID
+
+    assert _MAX_PARAMETRIZE_ID >= 512, (
+        "a cap under 512 rewrites ids that no reader has any trouble with"
+    )
+    assert _MAX_PARAMETRIZE_ID <= SCANNER_LIMIT_BYTES // 16, (
+        "the cap has grown close enough to the 64 KiB scanner limit to stop "
+        "being a safety margin"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -186,9 +186,19 @@ def pytest_runtest_makereport(item, call):
 # test does. Returning ``None`` hands the value back to pytest's own
 # generation, so every short parameter is untouched.
 #
+# 512, not 64. The first version used 64 and a reviewer measured what that
+# cost: 20 of 3,562 ids changed, no collisions, but five of them lost readable
+# content while sitting nowhere near any limit -- ``[raw-bytes74]`` at 74
+# bytes, and, pointedly, this branch's own new gate rendered as
+# ``[test_evidence_reader.py-case-str66]``. A cap is meant to stop a line that
+# breaks a reader, not to shorten ids for its own sake. At 512 those five
+# stay legible at roughly 600 bytes, which is a hundredfold under the 64 KiB
+# scanner limit, and the 256 KiB parameters are still described rather than
+# printed.
+#
 # Until a run predates this, the whole log is still available through
 #   gh api --allow-escape-sequences /repos/<owner>/<repo>/actions/jobs/<id>/logs
-_MAX_PARAMETRIZE_ID = 64
+_MAX_PARAMETRIZE_ID = 512
 
 
 def pytest_make_parametrize_id(config, val, argname):
