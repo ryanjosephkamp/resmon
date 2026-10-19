@@ -40,6 +40,33 @@ it('creates only after picker selection and an explicit Create action',async()=>
  fireEvent.click(screen.getByText('Choose parent folder'));await screen.findByText('/owned/parent');expect(libraryApi.create).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'Create managed vault'}));await waitFor(()=>expect(libraryApi.create).toHaveBeenCalledWith('/owned/parent'));
 });
+it('says which of working, failed and finished a vault creation is in',async()=>{
+ // The reported defect: both creation controls disabled past thirty seconds
+ // with no completion notice, error, progress text or vault. A promise that
+ // never settles is the only shape that produces it, so that is what is held
+ // here - and the page must still say it is working, and must end in a
+ // sentence when the attempt is given up.
+ (libraryApi.status as jest.Mock).mockResolvedValue({...status,vault:null,status:'unconfigured'});window.resmonAPI!.chooseDirectory=jest.fn(async()=>'/owned/parent');
+ let fail:(e:Error)=>void=()=>{};(libraryApi.create as jest.Mock).mockReturnValueOnce(new Promise((_r,j)=>{fail=j;}));
+ render(<LibraryPage/>);await screen.findByRole('heading',{name:'Create your managed vault'});
+ fireEvent.click(screen.getByText('Choose parent folder'));await screen.findByText('/owned/parent');
+ fireEvent.click(screen.getByRole('button',{name:'Create managed vault'}));
+ expect(await screen.findByText(/Creating the managed vault/)).toBeInTheDocument();
+ expect(screen.getByRole('button',{name:'Create managed vault'})).toBeDisabled();expect(screen.getByRole('button',{name:'Choose parent folder'})).toBeDisabled();
+ await act(async()=>{fail(new Error('No answer from resmon after 30 seconds, and the request was given up.'));});
+ expect(await screen.findByRole('alert')).toHaveTextContent('No answer from resmon after 30 seconds');
+ expect(screen.queryByText(/Creating the managed vault/)).toBeNull();
+ expect(screen.getByRole('button',{name:'Choose parent folder'})).toBeEnabled();expect(screen.getByRole('button',{name:'Create managed vault'})).toBeEnabled();
+});
+it('confirms a finished vault creation in words rather than only by the section disappearing',async()=>{
+ (libraryApi.status as jest.Mock).mockResolvedValueOnce({...status,vault:null,status:'unconfigured'}).mockResolvedValue(status);
+ window.resmonAPI!.chooseDirectory=jest.fn(async()=>'/owned/parent');(libraryApi.create as jest.Mock).mockResolvedValue(status);
+ render(<LibraryPage/>);await screen.findByRole('heading',{name:'Create your managed vault'});
+ fireEvent.click(screen.getByText('Choose parent folder'));await screen.findByText('/owned/parent');
+ fireEvent.click(screen.getByRole('button',{name:'Create managed vault'}));
+ expect(await screen.findByText(/Managed vault created/)).toBeInTheDocument();
+ expect(await screen.findByLabelText('Import PDF, TXT or MD')).toBeEnabled();
+});
 it('imports selected files sequentially and preserves a visible failed receipt',async()=>{
  let active=0,max=0;(libraryApi.import as jest.Mock).mockImplementation(async()=>{active++;max=Math.max(active,max);await Promise.resolve();active--;return {file:file(3),created:true};});
  render(<LibraryPage/>);await screen.findByLabelText('Import PDF, TXT or MD');fireEvent.change(screen.getByLabelText('Import PDF, TXT or MD'),{target:{files:[new File(['a'],'a.txt'),new File(['b'],'b.md')]}});

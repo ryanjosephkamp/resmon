@@ -8,6 +8,12 @@ export default function LibraryPageComponent() {
   const [status,setStatus]=useState<LibraryStatus|null>(null);const [page,setPage]=useState<LibraryPage|null>(null);
   const [selected,setSelected]=useState<LibraryFile|null>(null);const [query,setQuery]=useState('');
   const [parent,setParent]=useState('');const [loading,setLoading]=useState(false);const [busy,setBusy]=useState(false);
+  // Vault creation has its own flag rather than sharing ``busy``. The two
+  // creation controls were gated on a boolean with no wording beside it, so a
+  // request that never settled left them disabled and silent - indistinguishable
+  // from working, failed and finished. ``busy`` still belongs to the inventory
+  // export, which never renders at the same time as this section.
+  const [creating,setCreating]=useState(false);
   const [error,setError]=useState('');const [notice,setNotice]=useState('');const [importing,setImporting]=useState(false);
   const epoch=useRef(0);const listEpoch=useRef(0);const selection=useRef<LibraryFile|null>(null);
   const list=useRef<HTMLDivElement>(null);const alive=useRef(true);
@@ -33,10 +39,17 @@ export default function LibraryPageComponent() {
     }catch(err){if(alive.current&&ticket===epoch.current)setError(String(err));}
   };
   const create=async()=>{
-    const ticket=++epoch.current;setBusy(true);setError('');
-    try{await libraryApi.create(parent);if(alive.current&&ticket===epoch.current){setParent('');await load(query);}}
+    const ticket=++epoch.current;setCreating(true);setError('');setNotice('');
+    try{
+      await libraryApi.create(parent);
+      if(!alive.current||ticket!==epoch.current)return;
+      setParent('');await load(query);
+      // ``load`` clears the notice through ``select(null)``, so finishing is
+      // said after it rather than before.
+      if(alive.current)setNotice('Managed vault created. Import is available below.');
+    }
     catch(err){if(alive.current&&ticket===epoch.current)setError(err instanceof Error?err.message:'Vault creation failed.');}
-    finally{if(alive.current)setBusy(false);}
+    finally{if(alive.current)setCreating(false);}
   };
   const importFiles=async(files:File[])=>{
     if(!status?.vault)return;
@@ -73,11 +86,13 @@ export default function LibraryPageComponent() {
       <p>TXT/MD reading is literal UTF-8 without NUL, up to 256 KiB and 5,000 logical lines. Read PDFs in Evidence using the exact-version handoff above. Larger text remains retained for verified external Open. Library itself performs no PDF extraction, AI analysis, executable Markdown, annotations or inferred publication identity.</p>
       <p>Search matches literal filenames. Paging keeps the first page’s ceiling; Refresh includes later imports. Metadata views do not freshly check file integrity. Missing or mismatched storage refuses access without adopting or repairing it.</p>
       <p>The complete JSON inventory is recorded metadata, limited to 8 MiB. It is not a file bundle, backup, relocation tool or integrity scan. Review original names before sharing. Library catalog and retained files survive existing resets and corpus erasure; paper associations disappear when their local paper is deleted. Database backup alone does not preserve managed bytes. No automatic Library cloud backup is added.</p>
+    <p>Creating a vault reports which state it is in: it says it is working while the request is out, names the refusal if one comes back, and confirms when the vault exists. If nothing comes back within 30 seconds the attempt is given up and says so; whether the vault was created is unknown from the page, so Refresh Library is what shows you what is actually there.</p>
     <p>For PDFs, Read PDF in Evidence carries this exact selected version. Choose a project and explicitly add it to open the reader; an existing membership is reused. Downloads at the bottom of the app shows completed export filenames and their saved locations.</p></PageHelp>
     {error&&<p role="alert" className="library-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
     {loading&&<p role="status">Loading Library…</p>}
     {status&&!status.vault&&<section aria-label="Create managed vault"><h2>Create your managed vault</h2><p>A new child folder will be created inside your selected parent. Existing folders are never adopted.</p>
-      <button disabled={busy} onClick={()=>void choose()}>Choose parent folder</button><p>{parent||'No parent selected.'}</p><button disabled={!parent||busy} onClick={()=>void create()}>Create managed vault</button>
+      <button disabled={creating} onClick={()=>void choose()}>Choose parent folder</button><p>{parent||'No parent selected.'}</p><button disabled={!parent||creating} onClick={()=>void create()}>Create managed vault</button>
+      {creating&&<p role="status">Creating the managed vault. Both controls stay disabled until resmon answers or the attempt is given up.</p>}
     </section>}
     {status?.vault&&<>
       <p className="library-identity">Vault {status.vault.vault_id} · {status.status} · {status.counts.items.toLocaleString()} catalog items · {status.counts.retained_bytes.toLocaleString()} recorded bytes</p>
