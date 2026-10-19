@@ -52,8 +52,18 @@ export function answered(
   return !DID_NOT_ANSWER.has(reason);
 }
 
-/** The statuses a recorded source outcome can hold — `source_coverage.outcome`. */
-const RECORDED_STATUSES: ReadonlySet<string> = new Set([
+/**
+ * The statuses a recorded source outcome can hold — `source_coverage.outcome`.
+ *
+ * Exported so `ZeroReasonTruthTable.test.ts` can hold it against the set the
+ * backend's own validity gate uses. The truth table's rows catch a status
+ * *added* to the backend on their own — it arrives classified and this module
+ * calls it unknown — but not one *removed*, because its rows simply stop
+ * being generated. This is the only set in this file still written out by
+ * hand; it is four strings that are also a schema CHECK constraint, and
+ * generating it would buy less than the comparison does.
+ */
+export const RECORDED_STATUSES: ReadonlySet<string> = new Set([
   'ok', 'error', 'skipped_missing_key', 'cancelled',
 ]);
 
@@ -80,10 +90,19 @@ export function outcomeCategory(
   // default, in the one function whose subject is that it stops doing so.
   // `source_coverage.outcome` requires a real non-negative integer before it
   // classifies anything, and so does this. A missing count is unknown.
+  // `reason == null`, not `!reason`. The backend's gate is `reason is None or
+  // reason in ZERO_REASONS`, and `!reason` is also true of the empty string —
+  // so a row recording `zero_reason = ''` passed this gate, and with an `ok`
+  // status and a positive count read all the way through to *answered* while
+  // `source_coverage.outcome` called the same row unknown. The enumerated
+  // truth table found it on its first run; no renderer test had ever been
+  // handed that input. An empty string is not "no reason recorded", it is a
+  // reason resmon cannot read, and this function's whole subject is failing
+  // towards "resmon does not know".
   const recognized = (
     typeof status === 'string' && RECORDED_STATUSES.has(status)
     && typeof resultCount === 'number' && Number.isInteger(resultCount) && resultCount >= 0
-    && (!reason || (ZERO_REASONS as readonly string[]).includes(reason))
+    && (reason == null || (ZERO_REASONS as readonly string[]).includes(reason))
   );
   if (!recognized) return 'unknown';
   if (answered(status, resultCount, reason)) return 'answered';
