@@ -1,0 +1,21 @@
+{
+  "name": "resmon-site",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Static site for resmon, published to GitHub Pages out of ../docs.",
+  "scripts": {
+    "dev": "astro dev",
+    "check": "astro check",
+    "build": "astro build && node scripts/sync-docs.mjs",
+    "verify": "node scripts/verify-output.mjs",
+    "preview": "node scripts/serve-docs.mjs"
+  },
+  "dependencies": {
+    "@astrojs/markdown-remark": "6.3.2",
+    "astro": "5.14.1"
+  },
+  "devDependencies": {
+    "@xmldom/xmldom": "^0.9.12"
+  }
+}

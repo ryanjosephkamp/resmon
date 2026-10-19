@@ -1,0 +1,87 @@
+---
+/**
+ * The guide index. These 16 pages are the sections of what used to be a
+ * 165 KB `README.md`; each page's front matter records the README line range it
+ * came from, and that range is shown here so the mapping stays visible rather
+ * than living only in a pull-request table.
+ */
+import { getCollection } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import { url } from '../../lib/urls';
+
+const guide = (await getCollection('guide')).sort((a, b) => a.data.order - b.data.order);
+---
+
+<Base
+  title="Guide"
+  description="Installing, running and configuring resmon: the long-form documentation, a page per topic."
+  path="/guide/"
+  width="wide"
+>
+  <h1>Guide</h1>
+  <p class="lede">
+    What used to be one very long readme, as {guide.length} pages. Each page notes the lines of the
+    original <code>README.md</code> it was cut from.
+  </p>
+
+  <ol class="index">
+    {
+      guide.map((entry) => (
+        <li>
+          <a href={url(`/guide/${entry.id}/`)}>{entry.data.title}</a>
+          <p>{entry.data.summary}</p>
+          <p class="provenance">README lines {entry.data.readmeLines.join(', ')}</p>
+        </li>
+      ))
+    }
+  </ol>
+</Base>
+
+<style>
+  h1 {
+    margin-top: 0;
+  }
+
+  .lede {
+    color: var(--color-text-muted);
+    max-width: var(--measure);
+  }
+
+  .index {
+    list-style: none;
+    margin: var(--space-6) 0 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .index li {
+    margin-top: 0;
+    padding: var(--space-4);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+
+  .index a {
+    font-weight: var(--weight-semibold);
+  }
+
+  .index p {
+    margin: var(--space-1) 0 0;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .provenance {
+    font-size: var(--text-xs) !important;
+    color: var(--color-text-faint) !important;
+    font-family: var(--font-mono);
+  }
+
+  @media (min-width: 52rem) {
+    .index {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+</style>

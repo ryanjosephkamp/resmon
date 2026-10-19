@@ -1,0 +1,40 @@
+---
+/**
+ * The reference documents from `docs/*.md`, at the URLs Jekyll gave them:
+ * `/resmon/backup/`, `/resmon/source-landscape/` and the rest.
+ *
+ * These 16 URLs are published and linked to from the README and from
+ * `AGENTS.md`, so they are reproduced rather than reorganised. The Markdown is
+ * read from `docs/` in place — it is not copied into this directory — because
+ * several of those files are linked by repository path from files this change
+ * does not own, and a second copy would be a second thing to keep in step.
+ */
+import { getCollection, type CollectionEntry } from 'astro:content';
+import Document from '../layouts/Document.astro';
+import { renderMarkdown } from '../lib/markdown';
+import { readDocument } from '../lib/documents';
+
+export async function getStaticPaths() {
+  const docs = await getCollection('docs');
+  return docs.map((entry) => ({ params: { doc: entry.id }, props: { entry } }));
+}
+
+interface Props {
+  entry: CollectionEntry<'docs'>;
+}
+
+const { entry } = Astro.props as Props;
+const head = readDocument(entry.body ?? '', entry.id);
+const { html, headings } = await renderMarkdown(head.body);
+---
+
+<Document
+  title={head.title}
+  description={head.description}
+  path={`/${entry.id}/`}
+  eyebrow="Reference"
+  meta={`docs/${entry.id}.md`}
+  html={html}
+  headings={headings}
+  width="wide"
+/>

@@ -1,0 +1,165 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>The backup bundle format · resmon</title><meta name="description" content="For someone restoring a resmon backup by hand, or writing a tool that reads one. The user-facing account is the Backup and Restore section of the README; this is the file layout a…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/backup/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="The backup bundle format · resmon"><meta property="og:description" content="For someone restoring a resmon backup by hand, or writing a tool that reads one. The user-facing account is the Backup and Restore section of the README; this is the file layout a…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/backup/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Reference</p> <h1 data-astro-cid-c2uqhu5p>The backup bundle format</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/backup.md</p> </header>  <div class="prose" data-astro-cid-c2uqhu5p><p>For someone restoring a resmon backup by hand, or writing a tool that reads one. The
+user-facing account is the <em>Backup and Restore</em> section of the README; this is the file
+layout and the manifest.</p>
+<p>A bundle is an ordinary directory. Nothing is compressed and nothing is encrypted, so
+every part of it can be read with the tools already on the machine — which is the point:
+a backup you cannot open without the application that wrote it is a hostage, not a backup.</p>
+<h2 id="layout">Layout</h2>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>resmon-backup-&#x3C;UTC stamp>/      e.g. resmon-backup-20260922T134501Z</span></span>
+<span class="line"><span>├── resmon.db                   the database, snapshotted</span></span>
+<span class="line"><span>├── vault/                      present only when the database has a Library vault</span></span>
+<span class="line"><span>│   ├── vault.json              {"version": 1, "vault_id": "&#x3C;uuid>"}</span></span>
+<span class="line"><span>│   └── files/&#x3C;file_id>/&#x3C;version_id>.&#x3C;ext></span></span>
+<span class="line"><span>├── reports/                    present only if the reports checkbox was on</span></span>
+<span class="line"><span>└── manifest.json</span></span></code></pre>
+<p><code>resmon.db</code> is written with <code>sqlite3.Connection.backup</code> from the live connection, not
+copied. resmon runs SQLite in WAL mode and never checkpoints, so a file copy of
+<code>resmon.db</code> alone is missing whatever is still in <code>resmon.db-wal</code>. The backup API reads
+through the WAL and produces one self-contained file; <strong>there are deliberately no
+<code>-wal</code>/<code>-shm</code> files in a bundle</strong>, and a bundle that had them would be suspect.</p>
+<p><code>vault/</code> mirrors the vault root exactly, relative path for relative path, including the
+<code>vault.json</code> marker. Every retained file is re-hashed while it is copied and compared
+with the <code>sha256</code> in <code>library_files</code>; a mismatch aborts the whole backup. The vault
+directory’s own name is not carried — it is <code>resmon-library-&#x3C;vault_id></code> by construction,
+and the restore rebuilds it from <code>library_vault.root_path</code> in the restored database.</p>
+<h2 id="manifestjson">manifest.json</h2>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="jsonc"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "manifest_version"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">1</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,          </span><span style="color:#6A737D;--shiki-dark:#6A737D">// this document describes version 1</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "app_version"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"2.2.0"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "schema_version"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">21</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,           </span><span style="color:#6A737D;--shiki-dark:#6A737D">// database schema; a restore into an OLDER app is refused</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "created_at_utc"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"2026-09-22T13:45:01.123456+00:00"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "elapsed_seconds"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">4.117</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "vault_id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"1f8a…"</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ,           </span><span style="color:#6A737D;--shiki-dark:#6A737D">// null when the database has no vault</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "includes_reports"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "table_counts"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: { </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"documents"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">18243</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"executions"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">61</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#B31D28;--shiki-light-font-style:italic;--shiki-dark:#FDAEB7;--shiki-dark-font-style:italic">…</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> },</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "table_count_denominator"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">34</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// how many application tables were counted</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "fk_violations"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: [             </span><span style="color:#6A737D;--shiki-dark:#6A737D">// orphan rows PRAGMA foreign_key_check found, capped at 100</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    { </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"table"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"library_file_documents"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"rowid"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">4</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"parent"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"documents"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"fkid"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">0</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">  ],</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "fk_violations_total"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">1</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,      </span><span style="color:#6A737D;--shiki-dark:#6A737D">// the uncapped count of unsatisfied references</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "fk_violations_rows"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">1</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,       </span><span style="color:#6A737D;--shiki-dark:#6A737D">// how many distinct rows those references come from;</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">                                 // absent on a bundle written before this field existed</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "files"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: [                      </span><span style="color:#6A737D;--shiki-dark:#6A737D">// every file in the bundle except manifest.json itself</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    { </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"path"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"resmon.db"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"size"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">214958080</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"sha256"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"…"</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    { </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"path"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"vault/vault.json"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"size"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">61</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"sha256"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"…"</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> },</span></span>
+<span class="line"><span style="color:#B31D28;--shiki-light-font-style:italic;--shiki-dark:#FDAEB7;--shiki-dark-font-style:italic">    …</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">  ],</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "excluded"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: {</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">    "credentials"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: [</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"smtp_password"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"openai_api_key"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"webhook_secret_3"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">],</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">    "process_state"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: [</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"daemon.lock"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"resmon.port"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"api-token-&#x3C;port>"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">],</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">    "state_dir"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/Users/…/Library/Application Support/resmon"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">    "note"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"…"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">  }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p><code>files[].path</code> is relative to the bundle root and is what a verifier re-hashes.
+<code>manifest.json</code> is not in its own list; the pointer a staged restore writes records the
+manifest’s own SHA-256 separately, so a manifest edited after staging is caught.</p>
+<p><code>fk_violations</code> is measured on the bundle’s own database, not on the live one. A corpus can
+carry a row whose parent is missing — <code>foreign_key_check</code> is a check, not a constraint on rows
+that already exist — and resmon opens such a database quite happily. The backup records what it
+finds and <strong>still writes the bundle</strong>: refusing here is what once left a user with a backup that
+verified and could never be restored. Verify reports the rows, and the restore is staged only
+when the request carries <code>accept_fk_violations: true</code>. The pragma answers <strong>per constraint, not
+per row</strong>, so one row with two unsatisfied foreign keys appears twice — <code>fk_violations_total</code>
+is therefore a count of unsatisfied <em>references</em>, not of rows, and resmon’s own wording says
+“references” for that reason. <code>fk_violations_rows</code> is the same references de-duplicated by
+<code>(table, rowid)</code>, so a manifest can say “2 references, from 1 row” rather than leaving a
+reader to divide by an unknown.</p>
+<p>Two caveats, both load-bearing:</p>
+<ul>
+<li><code>fk_violations_rows</code> is <strong>absent</strong> on a bundle written before it existed. <code>manifest_version</code>
+stays <code>1</code>, because the field is additive and everything that reads a manifest treats its
+absence as <em>not measured</em> — never as zero. A verify report of such a bundle carries
+<code>fk_violations_rows: null</code> and its sentence reads exactly as it did before.</li>
+<li><code>PRAGMA foreign_key_check</code> answers <code>rowid</code> <strong>NULL</strong> for a <code>WITHOUT ROWID</code> table, and two such
+references cannot be told apart — they may be one row or two. They are counted in
+<code>fk_violations_total</code> and deliberately <strong>not</strong> in <code>fk_violations_rows</code>, so the row count is a
+count of the rows SQLite identified and never a guess. Where every reference is of that kind,
+<code>fk_violations_rows</code> is <code>0</code> with a non-zero total and resmon says it cannot count the rows
+rather than printing “from 0 rows”. resmon’s own schema has no <code>WITHOUT ROWID</code> table today,
+so this is a guard rather than a case.</li>
+</ul>
+<p><strong><code>excluded.credentials</code> holds names, never values.</strong> No credential value is written into
+a bundle under any circumstance. The names are there so that a restore can tell the user
+which keyring entries they must re-enter on the machine they restored onto. Webhook
+signing secrets are named <code>webhook_secret_&#x3C;row id></code> after a <code>routine_delivery_targets</code>
+row, so a target that comes back under a different id has no secret bound to it.</p>
+<h2 id="restoring-by-hand">Restoring by hand</h2>
+<ol>
+<li>
+<p>Verify first. Recompute the SHA-256 of every file in <code>manifest.files</code> and compare.</p>
+</li>
+<li>
+<p>Stop resmon. The database must not be open by any process.</p>
+</li>
+<li>
+<p>Move your current <code>resmon.db</code>, <code>resmon.db-wal</code> and <code>resmon.db-shm</code> somewhere safe.
+Do not delete them until the restore has proved itself.</p>
+</li>
+<li>
+<p>Copy the bundle’s <code>resmon.db</code> into place.</p>
+</li>
+<li>
+<p>If the bundle has a <code>vault/</code>, read <code>library_vault.root_path</code> out of the restored
+database and copy <code>vault/</code> there, as <code>resmon-library-&#x3C;vault_id></code>, mode <code>0700</code>. Remove
+any <code>.import.lock</code>: it has no automatic stale-lock recovery, and one left behind makes
+the vault permanently busy.</p>
+<p>That path names the machine the backup came from, and on another machine it often does
+not exist. Put the directory under any parent you like — the name must stay
+<code>resmon-library-&#x3C;vault_id></code>, which <code>library.vault_row</code> checks — and then rewrite the row
+to match: <code>UPDATE library_vault SET root_path='&#x3C;parent>/resmon-library-&#x3C;vault_id>' WHERE singleton=1;</code>. Do it <strong>after</strong> step 6, so the statement runs against today’s schema. In
+the application this is the <em>Restore the vault somewhere else…</em> control on the verify
+card; the chosen parent travels in the staged pointer as <code>vault_parent</code>, and the restore
+rewrites the row itself, inside the same failure envelope as everything else.</p>
+<p>If a vault directory is already there, move it aside rather than deleting it — that is
+what the application does, into <code>restore-undo/&#x3C;stamp>/vault-replaced/</code> beside the
+database files of the same restore, so one <em>Delete undo copies</em> removes both halves and
+a restore that fails after this point puts <strong>both</strong> back. Where the destination held no
+vault at all, the application removes the tree it wrote instead, so a failed restore
+leaves the folder you chose exactly as empty as it found it. A vault on a different
+volume from the state directory is copied rather than renamed, which costs a second copy
+of every retained byte; that is the right trade against deleting the only copy there is.</p>
+<p>There is one case the undo cannot complete by itself: a move between volumes interrupted
+while it was <em>removing</em> the original leaves the original incomplete and a whole copy in
+<code>restore-undo/&#x3C;stamp>/vault-replaced/</code>. Putting that copy back automatically would be
+wrong — the other interruption, during the copy, leaves a <em>partial</em> copy beside an intact
+original — so resmon keeps it instead of deleting it with the rest of the undo directory,
+names it in <code>restore-last.json</code> as <code>vault_copy_kept</code>, and leaves it for you to put back by
+hand. <strong>A failed restore can therefore leave an undo copy that Settings → Storage offers
+to delete;</strong> check <code>restore-last.json</code> before you delete one.</p>
+</li>
+<li>
+<p>Start resmon once, or otherwise run the migrations, <strong>before</strong> the statements below. An older
+bundle does not have the tables and columns they name — a v2.2.0-era database has no
+<code>deliveries</code> table at all — and running them first is how resmon itself got this wrong.</p>
+</li>
+<li>
+<p>Reset the rows that describe a process that no longer exists. <code>awaiting_review</code> deliveries are
+deliberately left alone: they describe a decision the user has not made, not a process.</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="sql"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">UPDATE</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> executions </span><span style="color:#D73A49;--shiki-dark:#F97583">SET</span><span style="color:#D73A49;--shiki-dark:#F97583"> status=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">'interrupted'</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, interrupted_reason</span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">'unknown'</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">       owner_pid</span><span style="color:#D73A49;--shiki-dark:#F97583">=NULL</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, owner_runtime_id</span><span style="color:#D73A49;--shiki-dark:#F97583">=NULL</span><span style="color:#D73A49;--shiki-dark:#F97583"> WHERE</span><span style="color:#D73A49;--shiki-dark:#F97583"> status=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">'running'</span><span style="color:#24292E;--shiki-dark:#E1E4E8">;</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">UPDATE</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> executions </span><span style="color:#D73A49;--shiki-dark:#F97583">SET</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> owner_pid</span><span style="color:#D73A49;--shiki-dark:#F97583">=NULL</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, owner_runtime_id</span><span style="color:#D73A49;--shiki-dark:#F97583">=NULL</span><span style="color:#24292E;--shiki-dark:#E1E4E8">;</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">UPDATE</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> deliveries </span><span style="color:#D73A49;--shiki-dark:#F97583">SET</span><span style="color:#D73A49;--shiki-dark:#F97583"> state=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">'queued'</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, owner_pid</span><span style="color:#D73A49;--shiki-dark:#F97583">=NULL</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, owner_runtime_id</span><span style="color:#D73A49;--shiki-dark:#F97583">=NULL</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">       WHERE</span><span style="color:#D73A49;--shiki-dark:#F97583"> state=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">'delivering'</span><span style="color:#24292E;--shiki-dark:#E1E4E8">;</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">UPDATE</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> deliveries </span><span style="color:#D73A49;--shiki-dark:#F97583">SET</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> owner_pid</span><span style="color:#D73A49;--shiki-dark:#F97583">=NULL</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, owner_runtime_id</span><span style="color:#D73A49;--shiki-dark:#F97583">=NULL</span><span style="color:#24292E;--shiki-dark:#E1E4E8">;</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">INSERT INTO</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> documents_fts(documents_fts) </span><span style="color:#D73A49;--shiki-dark:#F97583">VALUES</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span><span style="color:#032F62;--shiki-dark:#9ECBFF">'rebuild'</span><span style="color:#24292E;--shiki-dark:#E1E4E8">);</span></span></code></pre>
+<p>The full-text index is derived and is not rebuilt for you by opening the database.</p>
+</li>
+<li>
+<p>Check <code>PRAGMA integrity_check</code>, and <code>PRAGMA foreign_key_check</code> against
+<code>manifest.fk_violations</code> — rows already listed there were orphaned before the backup and are
+not caused by the restore.</p>
+</li>
+<li>
+<p>Re-enter every credential <code>manifest.excluded.credentials</code> names.</p>
+</li>
+</ol>
+<p>The application does all of this for you, in this order, on the start after you stage a
+restore in Settings → Storage. Doing it by hand is for the case where you no longer have
+an application to ask.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

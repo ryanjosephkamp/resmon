@@ -1,0 +1,82 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Source response reliability · resmon</title><meta name="description" content="bioRxiv, medRxiv, ERIC, and DBLP can return a successful transport response whose body is empty, malformed, or an access-challenge page. Those replies are not valid empty search r…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/source-response-reliability/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Source response reliability · resmon"><meta property="og:description" content="bioRxiv, medRxiv, ERIC, and DBLP can return a successful transport response whose body is empty, malformed, or an access-challenge page. Those replies are not valid empty search r…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/source-response-reliability/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Reference</p> <h1 data-astro-cid-c2uqhu5p>Source response reliability</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/source-response-reliability.md</p> </header>  <div class="prose" data-astro-cid-c2uqhu5p><p>bioRxiv, medRxiv, ERIC, and DBLP can return a successful transport response
+whose body is empty, malformed, or an access-challenge page. Those replies are
+not valid empty search results.</p>
+<p>Each affected client now uses one cooperative 45-second search budget across
+pagination, limiter admission, response reads, and one bounded retry. A second
+unreadable reply records a parse failure and returns any results retained from
+earlier pages. A later successful retry remains a success. ERIC 504 responses
+remain upstream failures; the client-side repair is the shared deadline,
+single-retry limit, and truthful malformed-response outcome, not a claim that
+the provider is available. DBLP challenge pages are recorded without retry or
+challenge bypass. DBLP author searches deliberately use the official SPARQL
+service and <code>dblp:authoredBy</code>; this route is selected for author search and is
+never a fallback from a challenged REST request. REST keyword queries keep the
+caller’s query unchanged.</p>
+<p>DBLP REST and SPARQL requests share a 0.5 request/second limiter, so starts are
+at least two seconds apart, and use the same truthful User-Agent. A valid
+<code>Retry-After</code> is honored only when it fits in the shared 45-second budget.
+Author lookup uses an exact escaped name label, may match several people with
+that label, and can miss aliases. DBLP dates have year precision: the stored
+<code>YYYY-01-01</code> value does not claim a known month or day, and partial-year windows
+exclude boundary years that cannot be placed honestly.</p>
+<p>The bioRxiv <code>/details</code> cursor advances by the documented 30-record page size in
+the <a href="https://api.biorxiv.org/details/medrxiv/help">official bioRxiv API help</a>.
+The ERIC request preserves its documented <code>search</code>, <code>start</code>, <code>rows</code>, <code>fields</code>,
+and JSON format parameters described in ERIC’s
+<a href="https://eric.ed.gov/pdf/Using_ERIC_API_for_Research_Topics.pdf">official API example</a>.
+The bioRxiv, medRxiv, and ERIC query, author, date-window, and normalized
+identity behavior remains unchanged.
+DBLP SPARQL results keep the existing <code>conf/...</code> or <code>journals/...</code> record key as
+<code>external_id</code>; the full DBLP record IRI remains the URL.</p>
+<p>OAPEN uses the same 45-second search budget and one bounded retry. Its
+per-request timeout is 20 seconds. Ten seconds was shorter than the provider’s
+own replies. Under the 30-second default, the dated live case passed in about
+1.6 and 23.8 seconds, and OAPEN’s HTTP 500 error page takes about 11.7 seconds
+to arrive. With two 20-second timeouts plus the one-second backoff, the worst
+case is 41 seconds, inside the budget. A longer timeout does not fix an HTTP 500
+from the provider. It makes the 500 visible as a 500 instead of a timeout.</p>
+<h2 id="what-a-failed-search-records">What a failed search records</h2>
+<p>Each search’s outcome keeps an ordered history of its failed attempts, both
+retried and terminal, for example <code>http_500</code> then <code>timeout</code>. Before this, each
+new attempt cleared the previous status, and “HTTP 500, then a timeout on the
+retry” was recorded as just <code>timeout</code>. The history holds at most eight entries,
+newest kept, and counts any older entries it dropped. Its words come from a
+fixed vocabulary (<code>http_&#x3C;status></code>, <code>rate_limited</code>, <code>timeout</code>, <code>connect</code>,
+<code>request_error</code>, <code>operation_deadline</code>). No URL, query string or response-body
+text is stored in the history. Several sources carry an API key in the query,
+and a reply body is the provider’s untrusted text. The history is not written
+to the database. A search’s recorded zero reason still comes from the last
+terminal failure alone.</p>
+<h2 id="provider-outage-quarantine-in-the-weekly-live-suite">Provider-outage quarantine in the weekly live suite</h2>
+<p>A single provider’s outage cannot fix or break resmon, so it should not decide
+whether the rest of the weekly live suite counts.
+<code>resmon_scripts/verification_scripts/live_quarantine.json</code> names at most two
+live cases. Each entry has a source, a failure signature from the vocabulary
+above, a first-observed date, an expiry no more than 30 days later, and the
+excused status captured from two vantage points. A quarantined case still runs
+and still asserts. Its failure is excused only when it is an assertion and the
+case’s recorded source outcome shows the search ended on a failed call whose
+history contains the signature. A case qualifies for an entry only once it
+records exactly one source outcome, because an excuse needs exactly one in
+total and exactly one for the entry’s source: a case that records none can be
+quarantined and never excused, and a case that records two does not say whose
+outage the failure was, so neither is excused. Any other failure fails the run:
+a different status, timeouts alone, a wrong answer after a successful retry, or
+a crash. A pass is reported as a recovery, so the entry can be lifted. An
+expired entry is ignored, and the case fails as it would without one. The run
+summary always prints the denominator from the collected suite, for example
+“91 of 92 asserted; 1 quarantined (oapen, since 2026-09-18, http_500,
+expires 2026-10-18)”. The first entry is OAPEN’s dated search. From 2026-09-18
+its server intermittently answered HTTP 500 with a database connection error,
+both to GitHub runners and to a workstation.</p>
+<p>These controls bound cooperative HTTP work. They do not hard-preempt DNS
+shutdown, OS scheduling, CPU-bound work, or another non-cooperative dependency.
+Loopback tests establish local parser and timing behavior; they do not establish
+why a public provider emitted a particular response or guarantee future provider
+availability.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

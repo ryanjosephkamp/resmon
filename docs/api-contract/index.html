@@ -1,0 +1,85 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>docs/api-contract/ — the seam, written down · resmon</title><meta name="description" content="The backend and the renderer talk only over HTTP on 127.0.0.1. That boundary is the one place where work on either side can break the other, so it is the one place worth freezing.…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/api-contract/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="docs/api-contract/ — the seam, written down · resmon"><meta property="og:description" content="The backend and the renderer talk only over HTTP on 127.0.0.1. That boundary is the one place where work on either side can break the other, so it is the one place worth freezing.…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/api-contract/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Contract</p> <h1 data-astro-cid-c2uqhu5p>docs/api-contract/ — the seam, written down</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/api-contract/README.md</p> </header>  <div class="prose" data-astro-cid-c2uqhu5p><p>The backend and the renderer talk only over HTTP on <code>127.0.0.1</code>. That boundary is the one place
+where work on either side can break the other, so it is the one place worth freezing. This folder
+is what “frozen” means in practice.</p>
+<h2 id="what-is-here">What is here</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>File</th><th>What it is</th><th>How it changes</th></tr></thead><tbody><tr><td><a href="openapi.json"><code>openapi.json</code></a></td><td><code>app.openapi()</code> from <code>resmon_scripts/resmon.py</code>, keys sorted and <code>info.version</code> removed. Every route’s method, path, parameters and request body.</td><td><strong>Generated.</strong> Never edited by hand.</td></tr><tr><td><a href="http.md"><code>http.md</code></a></td><td>The index: every route against the parity-register row it serves, with its auth class, whether it streams, and a one-line purpose; then the closed vocabularies and the admission 429.</td><td><strong>Generated.</strong> Never edited by hand.</td></tr><tr><td><a href="mcp.md"><code>mcp.md</code></a></td><td>The MCP tool contract (v2, at 2.3). What an external harness may call and what it gets back.</td><td>Hand-written, frozen.</td></tr><tr><td><a href="assistant-conversations.md"><code>assistant-conversations.md</code></a> · <a href="assistant-choices.md"><code>assistant-choices.md</code></a> · <a href="library.md"><code>library.md</code></a> · <a href="evidence.md"><code>evidence.md</code></a> · <a href="selected-evidence.md"><code>selected-evidence.md</code></a></td><td>The five feature contracts, each written before both harnesses started on a slice that needed them to agree.</td><td>Hand-written, frozen.</td></tr></tbody></table>
+<p><code>openapi.json</code> and <code>http.md</code> are generated by <code>implementation_scripts/api_contract.py</code> and guarded by
+<code>verification_scripts/test_api_contract.py</code>, which regenerates both in-process and fails on any
+difference. The other six are prose, written once and left alone.</p>
+<p>The security model the auth classes come from is <a href="../local-api-security.md"><code>../local-api-security.md</code></a>:
+what a request must carry, where the token lives, and — just as plainly — what none of it defends.</p>
+<h2 id="how-to-change-it">How to change it</h2>
+<p>A change to the surface takes its own pull request. That is the whole mechanism:</p>
+<ol>
+<li>
+<p>Change the route. The guard goes red, naming the routes that were added, removed or reshaped.</p>
+</li>
+<li>
+<p>Regenerate, from <code>resmon_scripts/</code>:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">python</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> implementation_scripts.api_contract</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --write</span></span></code></pre>
+</li>
+<li>
+<p>Commit the regenerated files <strong>in that pull request</strong>, and say in the body which routes changed
+and why. A reviewer reading <code>git diff docs/api-contract/</code> should be able to see the whole of
+what moved without reading the implementation.</p>
+</li>
+</ol>
+<p>A new route also needs a line in <code>api_contract.ROUTE_JOURNEYS</code> saying which register row it serves.
+Until it has one the guard stays red: a route nobody can name a journey for is a route the renderer
+has no reason to call.</p>
+<p>Running the generator to make a red test go green, without looking at what changed, defeats the
+point of having it. The failure message is the review.</p>
+<h2 id="how-the-renderer-rebuild-uses-it">How the renderer rebuild uses it</h2>
+<p><strong>A screen may call what is in here and nothing else.</strong> The 3.0 renderer is measured against this
+file: for each of the 44 parity-register rows, <code>http.md</code> lists the routes that carry it, so a screen
+that has been rebuilt can be checked against the routes its journey actually needs rather than
+against somebody’s memory of the old page. A screen that needs something not in here is asking for
+a backend change, which is a pull request of its own and arrives before the screen does.</p>
+<p>Three things the index is careful about, because a contract that overclaims is worse than none:</p>
+<ul>
+<li><strong>No response schemas.</strong> Not one route declares a <code>response_model</code>, so <code>openapi.json</code> says every
+200 body is the empty schema <code>{}</code>. Requests are fully described; responses are described in prose
+in the root <a href="../../README.md"><code>README.md</code></a> and in the five feature contracts. Nothing here guesses.</li>
+<li><strong>Purposes are quoted, not written.</strong> A route’s one-line purpose is the first line of its
+docstring. The routes that have no docstring show FastAPI’s generated summary <em>in italics</em> — the
+function name with the underscores taken out — rather than a sentence somebody invented for them.
+<code>http.md</code> gives the count both ways.</li>
+<li><strong>Streaming is marked.</strong> Three routes answer <code>text/event-stream</code>. A client that fetches one of
+them and waits for a JSON body waits for ever.</li>
+</ul></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

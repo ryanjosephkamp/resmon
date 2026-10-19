@@ -1,0 +1,214 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Selected-evidence answers, version 1 · resmon</title><meta name="description" content="A project can send an explicit selection of retained file versions, physical PDF pages, complete canonical text pages or exact Unicode codepoint passages to an existing CLI/API co…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/api-contract/selected-evidence/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Selected-evidence answers, version 1 · resmon"><meta property="og:description" content="A project can send an explicit selection of retained file versions, physical PDF pages, complete canonical text pages or exact Unicode codepoint passages to an existing CLI/API co…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/api-contract/selected-evidence/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Contract</p> <h1 data-astro-cid-c2uqhu5p>Selected-evidence answers, version 1</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/api-contract/selected-evidence.md</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#selection-and-consent" data-astro-cid-c2uqhu5p>Selection and consent</a> </li><li data-astro-cid-c2uqhu5p> <a href="#seven-routes" data-astro-cid-c2uqhu5p>Seven routes</a> </li><li data-astro-cid-c2uqhu5p> <a href="#runtime-and-output" data-astro-cid-c2uqhu5p>Runtime and output</a> </li><li data-astro-cid-c2uqhu5p> <a href="#durable-state-and-export" data-astro-cid-c2uqhu5p>Durable state and export</a> </li><li data-astro-cid-c2uqhu5p> <a href="#portable-html-selected-answer-htmlv1" data-astro-cid-c2uqhu5p>Portable HTML, selected-answer-html/v1</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><p>A project can send an explicit selection of retained file versions, physical PDF
+pages, complete canonical text pages or exact Unicode codepoint passages to an
+existing CLI/API connection. A manual briefing is the same bounded operation with
+a different requested output mode. It is never scheduled. Opening a preview or
+saved answer does not invoke a model. Each explicit Send admits one new domain
+answer; it does not adopt or append to an ordinary Ask session.</p>
+<h2 id="selection-and-consent">Selection and consent</h2>
+<p>Select 1–5 current file/version memberships, at most 12 distinct selected or
+passage-note-anchor-checked pages and 24 distinct segments. Identical segments
+collapse; overlapping or repeated occurrences remain distinct. Page text retains
+the existing LF extraction contract. Passage offsets are global Unicode
+codepoints with an exclusive end, never UTF-16 indices or fuzzy matches.</p>
+<p>Optional owner-note bodies start unselected: at most 8 individually selected
+notes, 2,000 codepoints each and 8 KiB total. A passage selection does not include
+its note body. Note provenance means a saved local note, not authenticated
+identity or document evidence. Note references cannot substitute for citations.</p>
+<p>Source text has both a 48 KiB UTF-8 and 24,000-codepoint ceiling. The instruction
+has 1–4,000 codepoints and a 16 KiB ceiling. The complete app user payload has a
+96 KiB ceiling; the separately versioned application system payload has a 16 KiB
+ceiling. Missing, corrupt, encrypted, unsupported, image-only or over-limit
+selections refuse the entire preview. There is no silent truncation or omission.
+Digest verification reads the selected retained file bytes; reaching a PDF page
+examines its structure. Those reads do not establish whole-paper understanding.</p>
+<p>The preview displays the exact source and note text, filenames, versions, page
+coverage, public requested settings, limitations, system/user bytes and hashes.
+Canonical JSON uses sorted keys, compact separators, literal Unicode, no
+NaN/duplicate keys/lone surrogates. The request hash covers the payload without
+its own digest. The user prompt is <code>{request_sha256,payload}</code>. Source hashes omit
+only <code>source_id</code> and <code>source_sha256</code>; sources have deterministic S01–S24 IDs.</p>
+<p>The backend owns previews: one assembly at a time, 120 seconds maximum, four live
+previews, 512 KiB resident total, 600-second expiry. Send requires the exact
+vault/runtime/preview/request hash plus <code>confirmed:true</code>; it re-extracts and
+rechecks the selected SQL facts, route and rules before transactional admission.
+An identical repeated consent returns the existing answer without another call.
+An expired or restart-lost preview cannot be revived. Source strings are literal
+untrusted data; there is no automatic secret-removal guarantee.</p>
+<h2 id="seven-routes">Seven routes</h2>
+<p>Every route uses the existing Evidence origin/<code>X-Resmon-Library: 1</code> guards,
+explicit vault identity, bounded request bodies and <code>Cache-Control: no-store</code>.
+No selected-answer MCP tool is added. Paths below begin with
+<code>/api/evidence/projects/{project_id}</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method and suffix</th><th>Purpose</th></tr></thead><tbody><tr><td>POST <code>/answer-previews</code></td><td>Explicit selections/notes/instruction/mode/choices with expected project revision and runtime</td></tr><tr><td>POST <code>/answers</code></td><td>Hash-bound consent; returns the admitted or replayed saved answer</td></tr><tr><td>GET <code>/answers</code></td><td>Project-scoped ascending history, fixed ID ceiling, at most 50 rows per page</td></tr><tr><td>GET <code>/answers/{answer_id}</code></td><td>Durable answer plus immutable request, selected excerpts and public reports</td></tr><tr><td>GET <code>/answers/{answer_id}/events</code></td><td>One owned SSE subscriber; expected runtime required</td></tr><tr><td>POST <code>/answers/{answer_id}/cancel</code></td><td>Cancel the exact owner/runtime operation</td></tr><tr><td>GET <code>/answers/{answer_id}/export?format=zip</code> or <code>format=html</code></td><td>One explicit saved-answer ZIP or separate static HTML document</td></tr></tbody></table>
+<p>SSE frames carry answer/request/project/vault/runtime identities and monotonic
+sequence numbers. Initial state is a full saved snapshot, followed by bounded
+progress/partial/report/terminal events. A subscriber must attach within 30
+seconds. Disconnect/navigation, queue overflow or Stop requests cancellation.
+Queued events are bounded to 16 frames and 256 KiB; there is no reconnect/resume
+or automatic retry. Renderer responses are rejected on stale identities.</p>
+<h2 id="runtime-and-output">Runtime and output</h2>
+<p>The <code>selected_evidence_v1</code> profile is optional in the two existing runtimes;
+ordinary Ask rules and permissions retain their defaults. The CLI receives a
+fresh native UUID, empty working directory, empty tools/MCP configuration, no
+history/resume/slash commands/settings sources and the separate system asset.
+Observed startup must report that exact UUID and explicit empty tools/MCP lists.
+The three existing API families send one request with no tool declarations or
+history, using existing configured authentication. Requested model/effort and
+literal reported model observations remain separate; API effort is unsupported.
+Offline fixtures establish these wire contracts, not native/live compatibility.</p>
+<p>Operations have a 300-second publication deadline. CLI lines are limited to
+256 KiB, aggregate stdout to 1 MiB and stderr to 16 KiB. API response bodies are
+limited to 1 MiB with 10-second connect/write/pool and 60-second read-inactivity
+timeouts; redirects, compression and retries are refused. Accepted model text is
+limited to 64 KiB. Stop immediately prevents further publication; owned local
+cleanup may take up to 65 seconds and keeps admission blocked until confirmed.
+Unknown prior-owner cleanup remains a refusal. Local cancellation does not prove
+remote cancellation, provider retention, billed cost or hidden native context.</p>
+<p>Output is one strict JSON object: version, matching request hash/mode, status
+<code>answer</code> or <code>insufficient_evidence</code>, sections and limitations. At most 6 sections,
+36 items, 72 citations, 1,000 codepoints per quote, 20,000 visible codepoints and
+nesting depth 8 are allowed. Section kinds are summary/details/limitations/questions.
+Item kinds are source_statement/interpretation/note_summary/question. Source
+statements and interpretations require exact selected citations; note summaries
+require selected note IDs and cannot cite document sources. Unknown fields,
+unsupported wrappers, invalid citations or missing explicit runtime completion
+produce failed, unvalidated output without a model repair request.</p>
+<p>A citation proves its selected text identity only. It never proves that the quote
+supports a claim. The UI renders literal text and first shows the saved excerpt;
+opening the existing reader requires an exact current version/hash/extraction/
+codepoint check. Missing originals never cause a latest-version or fuzzy fallback.</p>
+<h2 id="durable-state-and-export">Durable state and export</h2>
+<p>Schema 17→18 adds exactly <code>evidence_answers</code> and
+<code>idx_evidence_answers_project_order</code> (plus SQLite’s implicit UNIQUE indexes).
+There is no historical backfill or rewrite. The immutable request and private
+owner binding are inserted at admission. Admitted/running rows have one terminal
+CAS winner: succeeded/refused/failed/cancelled/interrupted. Checkpoints and ordered
+reports are bounded; terminal updates preserve the final available prefix. A
+restarted backend preserves the last durable prefix, records interrupted and
+unknown completion/cleanup, and never automatically extracts, invokes or resumes.</p>
+<p>There is a 1,000-answer project cap; refusal does not delete any answer. History
+and export validate saved records without original-file or model access. Corrupt
+rows are explicit unreadable refusals and are not repaired. Public projections
+exclude route digests, configured paths, native session IDs and credentials.
+Usage contains only reported token counts with provenance; billing stays unknown.</p>
+<p>The ZIP contains exactly <code>answer.json</code>, <code>answer.md</code>, <code>evidence.json</code>, each at most
+1 MiB and 4 MiB total uncompressed. It is one SQL snapshot with safe constant
+paths, literal fenced Markdown and selected excerpts/notes/coverage. Partial and
+terminal failures stay explicitly unvalidated. The download checks exact identity
+headers, length and SHA256 before the browser flow; owned spools and object URLs
+are cleaned. It is not a full-paper archive, encrypted backup or restore format.</p>
+<h2 id="portable-html-selected-answer-htmlv1">Portable HTML, selected-answer-html/v1</h2>
+<p><code>format=html</code> extends that same guarded endpoint; omitted and unknown formats
+refuse. Schema remains 18, with 165 app route decorators (19 Evidence routes,
+including the same seven selected-answer routes) and unchanged 25-tool MCP
+inventory. Export reads exactly one validated <code>selected_evidence.detail</code> public
+snapshot, using its existing single read transaction. No originals, runtime,
+private binding or native-session history is consulted.</p>
+<p>The response is <code>text/html; charset=utf-8</code>, with fixed attachment filename
+<code>selected-answer.html</code>, no-store, nosniff and the restrictive document CSP. Headers:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Header</th><th>Value</th></tr></thead><tbody><tr><td><code>X-Resmon-Evidence-Contract</code></td><td><code>selected-answer-html/v1</code></td></tr><tr><td><code>X-Resmon-Vault</code> / <code>X-Resmon-Project</code></td><td>Exact selected vault/project UUIDs</td></tr><tr><td><code>X-Resmon-Bundle</code></td><td>Saved answer UUID</td></tr><tr><td><code>X-Resmon-Version</code></td><td>Saved request SHA256</td></tr><tr><td><code>Content-Length</code> / <code>X-Resmon-SHA256</code></td><td>Final UTF-8 byte count / SHA256</td></tr></tbody></table>
+<p>The final document, after escaping, is at most 4,194,304 bytes; app-authored CSS
+is at most 65,536 bytes. Oversize returns <code>export_limit</code>/413 before advertising a
+download. Cancellable render/write work uses the existing owned spool/chunks and
+cleanup; a failure does not mutate saved rows or claim a complete file.</p>
+<p>The renderer escapes every untrusted value as text, retaining CR codepoints with
+character references. It emits only index-derived IDs and fragment links, native
+details, semantic headings and wrapping system-font CSS. There are no scripts,
+active resources, forms, interpreted Markdown, auto-linked URLs or embedded PDFs.
+CSP is early in the file and also in HTTP: default/script/connect/image/media/
+object/frame/font sources are none; base-uri and form-action are none; style-src
+permits only the SHA256 of the exact authored CSS. Browser support for CSP is
+additional defense, not the basis for accepting untrusted markup.</p>
+<p>All seven saved states retain their validation, cleanup, timestamps and unknowns.
+Structured results appear only after existing validation; other available text
+is explicitly incomplete/unvalidated. Each citation targets its exact saved
+source/quote/codepoint range and has a distinct return link. Selected notes,
+source identities, coverage basis, requested settings, literal observations and
+reported usage remain separate. No source URL becomes an external link.</p>
+<p>The frontend validates exact headers/identities, bounded bytes, SHA256, UTF-8,
+document envelope and owned cancellation before creating a download object URL.
+It never inserts export HTML into the app DOM. Changing the answer/project/vault
+retires the prior export and its status. The legacy three-argument
+<code>downloadSelectedAnswer(project, answer, signal)</code> still selects ZIP. For an
+identical saved snapshot, ZIP bytes, member order/names and public JSON/Markdown
+remain unchanged; HTML is not inserted into the ZIP.</p>
+<p>Checks: <code>test_portable_briefing.py</code>, additions to the selected export/boundary
+suites and renderer download/view suites, and <code>e2e/portable-briefing.spec.ts</code>.
+The latter uses real HTTP and scripted download destinations, then a separate
+file reader after app shutdown with request observation/cancellation installed
+before loading. It does not establish physical Android, human native Save/Cancel
+or live-model acceptance. See <a href="../portable-briefing.md">the reading guide</a>.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

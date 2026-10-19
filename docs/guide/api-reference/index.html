@@ -1,0 +1,603 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HTTP API reference · resmon</title><meta name="description" content="The endpoint-by-endpoint tour of the local API. The generated, guarded contract for every route is in the reference section."><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/guide/api-reference/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="HTTP API reference · resmon"><meta property="og:description" content="The endpoint-by-endpoint tour of the local API. The generated, guarded contract for every route is in the reference section."><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/guide/api-reference/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" aria-current="page" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Guide</p> <h1 data-astro-cid-c2uqhu5p>HTTP API reference</h1> <p class="meta" data-astro-cid-c2uqhu5p>The endpoint-by-endpoint tour of the local API. The generated, guarded contract for every route is in the reference section.</p> </header>  <div class="prose" data-astro-cid-c2uqhu5p><h2 id="api-reference">API Reference</h2>
+<p><strong>The machine-readable contract is <a href="docs/api-contract/"><code>docs/api-contract/</code></a>.</strong> <code>openapi.json</code> there describes every one of the 184 routes — method, path, parameters, request body — and <code>http.md</code> indexes them against the user journeys they serve, with each route’s auth class, whether it streams, and a one-line purpose. Both are generated from the running app and a test fails when they drift, so they cannot describe a version of resmon that no longer exists. The prose below is the guided tour of the same surface; where the two differ, the contract is the one that was checked. No route declares a response model, so the contract describes what each route <em>accepts</em> and this section is where you find what it <em>answers with</em>.</p>
+<p>All REST endpoints are served by the local FastAPI daemon (<code>resmon_scripts/resmon.py</code>) bound to <code>127.0.0.1:8742</code> by default. Every request needs the backend’s local API token in <code>Authorization: Bearer &#x3C;token></code> and a loopback <code>Host</code>; refusals are <code>401 token_missing</code> / <code>401 token_invalid</code> / <code>403 host_refused</code> / <code>403 origin_refused</code> (<a href="/resmon/local-api-security/">security model</a>). Requests and responses are JSON unless noted; error responses use FastAPI’s standard <code>{"detail": "..."}</code> envelope and the shared frontend API client (<code>api/client.ts</code>) unwraps it into a single readable message. The groups below are summarized from the Backend sections of the corresponding info docs under <code>resmon_reports/info_docs/</code>.</p>
+<h3 id="apihealth"><code>/api/health</code></h3>
+<ul>
+<li><code>GET /api/health</code> — cheap readiness probe used by the Electron main process to decide when to open the renderer window. Returns process identity, the app version, and <code>embeddings: {extension, reason}</code> — whether <em>this</em> backend can load the vector extension, and why not when it cannot. The extension load is attempted per call rather than read from a cached probe, because a health endpoint answering from memory would keep reporting a capability the process had lost; measured at 0.076 ms per repeat load on one connection.</li>
+</ul>
+<h3 id="apisearch"><code>/api/search</code></h3>
+<p>Manual execution dispatch. Each endpoint registers a new execution with the admission controller, starts the <code>SweepEngine</code> pipeline on a worker thread, and returns the assigned execution id.</p>
+<ul>
+<li><code>POST /api/search/dive</code> — single-repository Deep Dive. Body carries <code>repository</code>, <code>keywords</code>, optional <code>date_range</code>, <code>max_results</code>, <code>ai_enabled</code>, per-execution <code>ai_overrides</code>, and an optional ephemeral API key.</li>
+<li><code>POST /api/search/sweep</code> — multi-repository Deep Sweep. Body carries <code>repositories</code> (array of slugs), <code>keywords</code>, optional <code>date_range</code>, <code>max_results</code> (applied <strong>per repository</strong>), <code>ai_enabled</code>, per-execution <code>ai_overrides</code>, and a map of ephemeral per-repository keys. Returns HTTP <code>429</code> with <code>Retry-After: 5</code> when the admission controller has no free slot.</li>
+<li><code>GET /api/search/repositories</code> — repository catalog surface consumed by the search pages to render the repository selector.</li>
+</ul>
+<h3 id="apiroutines"><code>/api/routines</code></h3>
+<p>CRUD, activation, and cancel control for scheduled Automated Deep Sweeps.</p>
+<ul>
+<li><code>GET /api/routines</code> — list of local routines; used by the Routines and Calendar pages.</li>
+<li><code>POST /api/routines</code> — create a local routine; the response includes the row’s <code>id</code>, which is then stored as <code>linked_routine_id</code> inside the matching <code>routine</code> configuration row.</li>
+<li><code>PUT /api/routines/{id}</code> — patch routine fields (including the inline Email / AI / Notify column toggles on the Routines page, which each patch a single flag).</li>
+<li>Both take an optional <code>intent</code> — the sentence the coverage audit compares the routine’s results against, stored in <code>routines.intent</code>. It is never defaulted from the keywords: an intent copied from a query would make every routine claim its owner stated one. A field absent from the body leaves the stored value alone; an empty string clears it.</li>
+<li><code>DELETE /api/routines/{id}</code> — delete a routine; also removes the APScheduler job.</li>
+<li><code>POST /api/routines/{id}/activate</code> / <code>POST /api/routines/{id}/deactivate</code> — register or unregister the APScheduler job without deleting the DB row. Invoked from the Routines table and from the Calendar popover’s routine toggle.</li>
+<li><code>POST /api/routines/{id}/run</code> — run once, now, outside the schedule. It also marks that routine’s <code>recorded</code> missed fires <code>ran_late</code>: a run was started after those fires came due, which is what happened, and not that each missed fire produced its own run. The <strong>Run now</strong> button beside the missed-fire line on the Routines page is this endpoint.</li>
+<li><code>GET / POST /api/routines/{id}/delivery-targets</code> and <code>PUT / DELETE .../{target_id}</code> — the routine’s delivery destinations. <code>channel</code> is one of the schema’s four: <code>email</code>, <code>folder</code>, <code>webhook</code>, <code>feed</code>. A destination resmon can already tell will not work — a webhook that is not <code>https://</code> and not on the loopback, a feed with no folder — is refused at the route with that said. A target’s channel cannot be edited, because the deliveries already recorded against it were attempted over it.</li>
+<li><code>GET /api/deliveries/{id}/bundle?exp=&#x26;sig=</code> — the bundle a webhook envelope linked to. <strong>The one route resmon serves without its local API token</strong>, because a webhook receiver is not resmon and should not hold a credential that opens every route; it carries a per-destination HMAC over the delivery id and an expiry instead, and the Host and Origin checks still apply. A missing, wrong or expired signature gets the same 403 as a delivery that was never a webhook. See <a href="/resmon/local-api-security/">docs/local-api-security.md</a> and <a href="/resmon/delivery/">docs/delivery.md</a>.</li>
+<li><code>GET /api/routines/{id}/deliveries</code> and <code>GET /api/executions/{id}/deliveries</code> — the delivery record, either way round.</li>
+<li><code>POST /api/deliveries/{id}/deliver</code> — release one that was waiting for review. The only promotion out of <code>awaiting_review</code> there is.</li>
+<li><code>POST /api/deliveries/{id}/skip</code> — decide not to send one.</li>
+<li><code>POST /api/deliveries/{id}/retry</code> — a failed or skipped delivery back into the queue with the attempt counter reset: the human overruling the backoff, which is a different decision from the backoff’s own retry and so a different route.</li>
+</ul>
+<h3 id="apiexecutions"><code>/api/executions</code></h3>
+<p>History, reporting, log and progress surfaces, export, delete, and cancel control for every execution (Deep Dive, Deep Sweep, Automated Deep Sweep).</p>
+<ul>
+<li><code>GET /api/executions/{id}</code> — execution metadata row (type, status, query, counts, timestamps, routine id, etc.).</li>
+<li><code>GET /api/executions/{id}/report</code> — rendered Markdown report.</li>
+<li><code>GET /api/executions/{id}/log</code> — raw per-execution log text (written by <code>TaskLogger</code>).</li>
+<li><code>GET /api/executions/{id}/progress/events</code> — historical progress event list. Returns the live <code>progress_store</code> events if the execution is still registered in memory and falls back to persisted events from the <code>execution_progress</code> table after cleanup.</li>
+<li><code>GET /api/executions/{id}/progress/stream</code> — SSE progress stream (used by <code>ExecutionContext</code> and the Monitor page) with <code>~300 ms</code> heartbeats, <code>last_event_id</code> resumption, and a post-terminal drain.</li>
+<li><code>GET /api/executions/active</code> — cheap <code>{active_ids: [...]}</code> payload polled every 3 seconds as a safety net that attaches background-initiated runs.</li>
+<li><code>POST /api/executions/export</code> — body <code>{ "ids": [...] }</code>; the backend assembles a zip bundle of the selected executions’ reports, logs, and artifacts and returns <code>{ "path": "&#x3C;absolute path>" }</code>. When the Storage tab’s <code>export_directory</code> is set, the zip lands there; otherwise a temp file is used.</li>
+<li><code>POST /api/executions/{id}/cancel</code> — cooperative cancel: sets the <code>ProgressStore</code> cancel flag, the pipeline’s 2-second heartbeat observes it, a partial report is flushed, and the execution finalizes as <code>cancelled</code>.</li>
+<li><code>GET /api/executions/{id}/documents?limit=&#x26;offset=&#x26;only_new=</code> — one page of the papers the run stored, newest publication first, each carrying its corpus document <code>id</code> and its <code>queue_status</code> (<code>to_read</code>, <code>read</code>, or <code>null</code> when it is not saved). <code>limit</code> defaults to 50 and is capped at 200; an unknown execution is a 404 and an out-of-range <code>limit</code> or a negative <code>offset</code> is a 400. This is what the Papers tab reads — an execution id is not a paper id, and the report is prose.</li>
+<li><code>DELETE /api/executions/{id}</code> — delete an execution row and its artifacts. Papers the run found stay in the corpus, and any reading-queue entries pointing at them stay too.</li>
+</ul>
+<h3 id="apiconfigurations"><code>/api/configurations</code></h3>
+<p>See <a href="/resmon/guide/configuration/">Configuration</a> for the full round-trip workflow.</p>
+<ul>
+<li><code>GET /api/configurations</code> — list all rows (optional <code>config_type</code> filter). <code>parameters</code> is JSON-decoded into a dict per row when possible, otherwise returned as the raw string.</li>
+<li><code>POST /api/configurations</code> — create a configuration from a <code>ConfigCreate</code> body (<code>name</code>, <code>config_type</code>, <code>parameters</code>). Response: <code>{ "id", "name", "config_type" }</code>.</li>
+<li><code>PUT /api/configurations/{id}</code> — update a configuration from a <code>ConfigUpdate</code> body (<code>name?</code>, <code>parameters?</code>); 404 if the id is unknown.</li>
+<li><code>DELETE /api/configurations/{id}</code> — delete a configuration; cascades to the linked routine when <code>config_type == 'routine'</code> and the parameters carry a valid <code>linked_routine_id</code>.</li>
+<li><code>POST /api/configurations/export</code> — body <code>{ "ids": [...] }</code>; writes a ZIP archive of per-config JSON files and returns <code>{ "path": "&#x3C;absolute path>" }</code>.</li>
+<li><code>POST /api/configurations/import</code> — accepts a multipart <code>files: list[UploadFile]</code> of <code>.json</code> files; response <code>{ "imported": &#x3C;n>, "errors": [...] }</code>.</li>
+</ul>
+<h3 id="apianalytics"><code>/api/analytics</code></h3>
+<p>Read-only analysis of the locally stored corpus. Every endpoint reads the <code>documents</code>,
+<code>execution_documents</code>, <code>executions</code>, and <code>routines</code> tables — no external requests are made,
+so these work offline and consume no repository quota.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method</th><th>Path</th><th>Returns</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/analytics/overview</code></td><td>All four sections plus the corpus summary, in one round trip. Used by the Analytics page.</td></tr><tr><td>GET</td><td><code>/api/analytics/summary</code></td><td>Corpus headline counts: papers, distinct papers after de-duplication, distinct authors, sources used, completed executions, DOI coverage.</td></tr><tr><td>GET</td><td><code>/api/analytics/source-contribution</code></td><td>Per source: total papers, papers unique to that source, and papers that also arrived elsewhere. Identity is DOI, falling back to a normalized title.</td></tr><tr><td>GET</td><td><code>/api/analytics/discovery-lag</code></td><td>Per source: median, fastest, and slowest days between <code>publication_date</code> and <code>first_seen_at</code>.</td></tr><tr><td>GET</td><td><code>/api/analytics/routine-health</code></td><td>Per routine: new results per run, consecutive runs with nothing new, and a <code>healthy</code> / <code>stale</code> / <code>insufficient_data</code> status.</td></tr><tr><td>GET</td><td><code>/api/analytics/publication-volume</code></td><td>Papers per publication month. <code>?group_by=source|category</code> (default <code>source</code>), <code>?months=N</code> (default 12).</td></tr><tr><td>GET</td><td><code>/api/analytics/keyword-contribution</code></td><td>Per keyword: papers matched, papers <strong>no other keyword</strong> matched, and papers no keyword accounts for. <code>?execution_id=N</code> scopes to one run; omitted, it pools every keyword ever searched against the whole corpus. Reads every candidate document once, so it is cached and is not part of <code>/overview</code>.</td></tr></tbody></table>
+<p><strong>Thin-corpus contract.</strong> Every payload carries <code>sample_size</code>. Any derived statistic also
+carries <code>sufficient</code>; when it is <code>false</code> the value is <code>null</code> and <code>insufficient_reason</code>
+explains why. Counts are always reported — a percentage of an empty corpus is <code>null</code>, not
+<code>0.0</code>, because a proportion of nothing is undefined rather than zero. The thresholds live
+in <code>implementation_scripts/analytics.py</code> (<code>MIN_SAMPLE_FOR_LAG</code>, <code>MIN_RUNS_FOR_HEALTH</code>,
+<code>STALE_RUN_THRESHOLD</code>) and are deliberately low: they exist to stop a single data point
+being presented as a trend, not to withhold information from a small corpus.</p>
+<h3 id="apiexecutionsidsearch-record"><code>/api/executions/{id}/search-record</code></h3>
+<p>The complete, dated account of one search. Reads only what the run already recorded.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method</th><th>Path</th><th>Returns</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/executions/{id}/search-record</code></td><td>JSON: search parameters, per-source identification counts, deduplication figures with their PRISMA mapping, and the caveats.</td></tr><tr><td>GET</td><td><code>/api/executions/{id}/search-record?format=markdown</code></td><td>The same as a <code>text/markdown</code> download, shaped for a methods section.</td></tr></tbody></table>
+<p><strong>Why each figure carries a <code>prisma</code> field.</strong></p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>resmon figure</th><th>PRISMA 2020 box</th><th>Note</th></tr></thead><tbody><tr><td>Per-source <code>records_identified</code></td><td>Records identified from databases</td><td>Maps cleanly.</td></tr><tr><td><code>cross_source_duplicates</code></td><td>Duplicate records removed before screening</td><td><strong>resmon does not remove them.</strong> It flags the overlap and keeps both rows. Reported as duplicates <em>found</em>.</td></tr><tr><td><code>discarded_unusable</code></td><td>Records marked as ineligible by automation tools</td><td>A data-quality discard (no title, no identifier) — not a relevance judgement.</td></tr><tr><td><code>records_added</code></td><td>Records screened</td><td>Records newly added to the corpus and therefore available for screening.</td></tr><tr><td><code>already_held</code></td><td><strong>none</strong></td><td>Records a repeating search re-encountered. PRISMA describes a single search; this has no box, and the record says so.</td></tr></tbody></table>
+<p><code>cross_source</code> was computed on every run since the beginning but never stored. Runs
+predating schema 8 report it as <code>null</code> — <em>not recorded</em> — rather than <code>0</code>, because “we did
+not measure this” and “there were none” are different claims and a methods section must not
+make the second on the first’s behalf. Schema 8 promotes all five deduplication figures out
+of the progress-events blob into columns and backfills the four that history can supply.</p>
+<h3 id="apidocumentsidwhy"><code>/api/documents/{id}/why</code></h3>
+<p>Match transparency for one paper. Reads only stored metadata; makes no external requests.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method</th><th>Path</th><th>Returns</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/documents/{id}/why</code></td><td>Per keyword: whether it appears, and in which of title / abstract / categories / authors. Plus a <code>verdict</code>, a <code>headline</code>, the source’s documented keyword semantics, and <code>what_resmon_cannot_see</code>. <code>?execution_id=N</code> scopes to one run’s keywords; omitted, the union across every run that returned the paper is explained.</td></tr></tbody></table>
+<p><strong>What it will not claim.</strong> resmon cannot know why an upstream source returned a paper.
+Most sources are relevance-ranked — they score documents against the whole
+query and return the best matches, so a paper can legitimately come back containing none
+of the terms literally. resmon also stores only title, abstract, authors and categories,
+never full text, so a match may exist somewhere it cannot see. Both limits ship in
+<code>what_resmon_cannot_see</code> on <strong>every</strong> response, including ones where every keyword matched:
+a title match makes a paper <em>plausible</em>, which is not the same as knowing the upstream’s
+reasoning, and the difference matters to anyone defending a search strategy.</p>
+<p>The <code>verdict</code> grades the explanation, never the paper:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Verdict</th><th>Meaning</th></tr></thead><tbody><tr><td><code>resmon_filtered</code></td><td>For bioRxiv and medRxiv, resmon filtered date-range API records locally instead of relying on an upstream result ranking.</td></tr><tr><td><code>local_evidence</code></td><td>At least one keyword is verifiably present. The paper is a plausible match.</td></tr><tr><td><code>no_local_evidence</code></td><td>Nothing matched in what resmon stores. Normal on a relevance-ranked source.</td></tr><tr><td><code>no_keywords_recorded</code></td><td>The run stored no keywords, so there is nothing to check against.</td></tr></tbody></table>
+<p>Matching is word-boundary and case-insensitive, phrase-aware for quoted keywords, and
+tolerant of terms that end in punctuation (<code>C++</code>, <code>cs.LG</code>). Keywords containing <code>AND</code> /
+<code>OR</code> / <code>NOT</code> are <strong>flagged, not parsed</strong> — several upstreams forward operators verbatim,
+and implementing a boolean engine whose semantics differed from the upstream’s would be
+another way of over-claiming.</p>
+<h3 id="apilifecycle"><code>/api/lifecycle</code></h3>
+<p>What has happened to papers since resmon found them. The <strong>only</strong> part of resmon that
+makes outbound requests without the user starting a search, which is why the check is
+explicit rather than automatic.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method</th><th>Path</th><th>Returns</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/lifecycle</code></td><td>Recorded events, severity counts, <strong>coverage</strong>, and the state of any running check.</td></tr><tr><td>POST</td><td><code>/api/lifecycle/check</code></td><td>Starts a bounded background check over the least recently checked papers. <code>{"limit": N}</code>, default 200. <code>409</code> if one is already running.</td></tr><tr><td>POST</td><td><code>/api/lifecycle/for-documents</code></td><td>Events for up to 500 document ids in one round trip — what the Explorer uses to badge a page of results.</td></tr><tr><td>GET</td><td><code>/api/documents/{id}/lifecycle</code></td><td>Events for one paper, plus whether it has ever been checked.</td></tr></tbody></table>
+<p><strong>Never assert alone.</strong> <code>record_lifecycle_finding</code> raises <code>MissingNoticeError</code> when a
+finding arrives without a resolvable <code>notice_url</code>, so a lifecycle event that a reader
+cannot open cannot be stored, let alone displayed. A false retraction flag is defamatory
+and “we inferred it from the metadata” is not a defense. The upstream <code>label</code> is kept
+verbatim — resmon does not translate “Correction” into “Retraction” or soften
+“Retraction” into “Update”, because the wording <em>is</em> the claim — and <code>provider_source</code>
+records whether Crossref got the notice from Retraction Watch or from the publisher.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Severity</th><th>Used for</th></tr></thead><tbody><tr><td><code>critical</code></td><td>retraction, withdrawal, removal, partial retraction — the paper was withdrawn from the record</td></tr><tr><td><code>caution</code></td><td>expression of concern — explicitly <strong>not</strong> a retraction</td></tr><tr><td><code>informational</code></td><td>correction, erratum, new version, preprint reaching a journal</td></tr></tbody></table>
+<p>An unrecognised Crossref update type is recorded as <code>informational</code> with its label intact,
+never promoted to a retraction.</p>
+<p><strong>Coverage is part of the answer.</strong> The payload reports how many papers were checked, how
+many carry no DOI or supported identifier and therefore <em>cannot</em> be checked, how many
+errored, and how many remain — because an empty findings list over an unchecked corpus is
+“nobody looked”, not “nothing has been retracted”, and the interface must be able to tell
+the two apart. Papers whose Crossref batch failed are left unchecked rather than stamped
+clean; a DOI Crossref simply has no record of is a real answer and <em>is</em> marked checked, so
+one unknown DOI cannot stall the walk through the corpus. Papers are re-checked after 30
+days.</p>
+<p><strong>Batching.</strong> DOIs go to Crossref forty at a time and arXiv ids fifty at a time, so a corpus
+of fifteen thousand papers is a few hundred requests rather than fifteen thousand. The first
+draft of this feature queried arXiv one paper per request with a per-run default of 200,
+which meant covering a real corpus would have taken seventy-nine presses of a button —
+bounded, but not usable. It was fixed before 1.7.0 shipped.</p>
+<h3 id="apiwatchdog"><code>/api/watchdog</code></h3>
+<p>Silent-failure detection over the same local data. Reads <code>execution_sources</code>, <code>executions</code>,
+and <code>routines</code>; makes no external requests.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method</th><th>Path</th><th>Returns</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/watchdog</code></td><td><code>findings</code>, <code>counts</code>, <code>not_enough_data</code>, <code>watching</code>, and the <code>thresholds</code> used.</td></tr><tr><td>POST</td><td><code>/api/watchdog/mute</code></td><td>Acknowledge one finding by <code>finding_key</code>. It stays listed and stops counting.</td></tr><tr><td>POST</td><td><code>/api/watchdog/unmute</code></td><td>Return a finding to the alarm total.</td></tr></tbody></table>
+<p>Each finding carries a stable <code>key</code>, a <code>severity</code> of <code>broken</code> / <code>unusual</code> / <code>advice</code>, the
+<code>scope</code> it concerns, a <code>title</code>, a <code>detail</code>, a <code>what_to_do</code>, and the <code>evidence</code> behind it.</p>
+<p><strong>The severity contract.</strong> <code>broken</code> is only ever used for conditions resmon recorded
+happening — never for an inference. <code>unusual</code> is a departure from a baseline the user’s own
+history established, and its payload always carries that baseline and its sample size.
+<code>advice</code> is not an alarm and is excluded from <code>counts.alarms</code>. Thresholds live in
+<code>implementation_scripts/watchdog.py</code> and are deliberately conservative: an alarm that is
+wrong gets muted, and a muted watchdog misses the failure it was built for.</p>
+<p><strong>Per-source execution record.</strong> The <code>execution_sources</code> table stores what each source did
+on each run — <code>ok</code>, <code>error</code>, <code>skipped_missing_key</code>, or <code>cancelled</code>, with the raw result
+count and any error text. The sweep engine writes a row as each repository finishes.
+Databases created before this table are backfilled once from the progress events already
+stored on each execution, so the watchdog is useful on an existing install immediately
+rather than after several more runs. Failing to write a health row never fails a sweep.</p>
+<p><strong>Per-lane AI record.</strong> The <code>execution_ai</code> table is the same idea for AI (schema 9). One
+row per lane per execution records what was tried — provider, model, and the <em>alias</em> of the
+credential slot used, never its value — alongside <code>docs_attempted</code> / <code>docs_succeeded</code> and,
+on failure, a classified error kind. <code>ok</code>, <code>partial</code> and <code>failed</code> are held apart on purpose:
+partial is a normal run with one awkward abstract, failed is a lane that did not work.</p>
+<p>Before this table an AI failure was a line in the task log, which meant a run whose every
+summary failed still completed and looked healthy. Failures are now classified as
+<strong>lane-fatal</strong> (a rejected key, an exhausted quota, a model that does not exist — the lane
+is finished for this run) or <strong>document-local</strong> (an abstract past the context window, content
+the provider declined — this paper failed and the lane did not). That distinction is what
+fallback chains will act on. As with the per-source record, failing to write an AI row never
+fails a sweep.</p>
+<h3 id="apiexplorer"><code>/api/explorer</code></h3>
+<p>Corpus-wide search. <code>POST</code> rather than <code>GET</code> because the filter set is a structure with
+repeated values, not a flat query string.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method</th><th>Path</th><th>Returns</th></tr></thead><tbody><tr><td>POST</td><td><code>/api/explorer/search</code></td><td>One page of matching papers plus <code>next_cursor</code>. Body: <code>query</code>, <code>sources[]</code>, <code>authors[]</code>, <code>categories[]</code>, <code>date_from</code>, <code>date_to</code>, <code>cursor</code>, <code>limit</code>, <code>sort</code> (<code>newest</code> | <code>similarity</code>). With <code>similarity</code>, <code>query</code> is the <strong>ranking phrase rather than a text filter</strong> — the structured filters still apply and are unchanged by the sort, so the two sorts can return different sets. Carries <code>distance</code> per paper, <code>ranked_count</code>, <code>unranked_count</code> and <code>model</code>; reports the <code>sort</code> it actually served, and <code>similarity_unavailable</code> when it could not rank. <code>used_full_text_index</code> is always false in this mode, because the phrase never goes through FTS.</td></tr><tr><td>GET</td><td><code>/api/documents/{id}/similar?k=</code></td><td>The nearest papers to this one, with distances and sources, self excluded. Costs one index query and nothing at any embedding provider — the vector is already stored. An empty list carries <code>reason</code>.</td></tr><tr><td>GET</td><td><code>/api/documents/{id}/links</code></td><td>Records that look like the same work as this one, each with the <code>method</code> that found it (<code>shared_doi</code> or <code>vector+title</code>) and a rendered label.</td></tr><tr><td>POST</td><td><code>/api/links/for-documents</code></td><td>Links for a page of results in one round trip — what the Explorer uses to badge them.</td></tr><tr><td>POST</td><td><code>/api/links/collapse-preview</code></td><td>Which of these ids a collapse <em>would</em> fold. Returns a grouping; folds nothing.</td></tr><tr><td>GET/POST</td><td><code>/api/links/status</code>, <code>/api/links/scan</code>, <code>/api/links/scan/cancel</code></td><td>The corpus-wide scan: how many links are stored by method, start, and stop after the document in flight. ~4 minutes on 15,000 papers.</td></tr><tr><td>GET</td><td><code>/api/routines/{id}/coverage</code></td><td>The coverage audit: the two lists, the distribution the cutoff came from, and <code>cannot_see</code>. Each list is capped at 25 and carries its total (<code>off_target_total</code>, <code>missed_in_corpus_total</code>); the missed total comes from a bounded index query, so <code>missed_in_corpus_total_is_lower_bound</code> says when it is a floor rather than a count.</td></tr><tr><td>POST</td><td><code>/api/explorer/facets</code></td><td>Available filter values with counts, for the current filters. A facet excludes its own filter so alternatives stay selectable.</td></tr><tr><td>POST</td><td><code>/api/explorer/export</code></td><td>Everything matching the filters as <code>bibtex</code>, <code>ris</code>, <code>csv</code>, or <code>json</code> — not just the current page.</td></tr></tbody></table>
+<h3 id="apiembeddings"><code>/api/embeddings</code></h3>
+<p>Configuring the embedding model and embedding the corpus. All eight endpoints are no-ops on
+an install that has not set one up, which is the state every install starts in.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method</th><th>Path</th><th>Returns</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/settings/embeddings</code></td><td>The stored settings, the resolved lane, the capability, the backfill status, and a <strong>can-embed answer for every provider resmon lists</strong> — including the ones that cannot, each with its reason and the live observation that reason rests on.</td></tr><tr><td>PUT</td><td><code>/api/settings/embeddings</code></td><td>Stores them. <strong>Refuses a provider that cannot embed with HTTP 400 and the sentence</strong>, at configuration rather than at backfill: a user who picks Anthropic learns it when they pick it, not after waiting for a run that was never going to produce anything. A model change rebuilds the index from the stored vectors.</td></tr><tr><td>POST</td><td><code>/api/embeddings/probe</code></td><td>Asks the configured — or a supplied, unsaved — lane to embed one short string, and reports the width it answered with. This is the only thing that turns a claim about a <em>provider</em> into a fact about <em>this</em> machine: a local server can list its models happily and still refuse to embed, because a chat model is not an embedding model, and the probe says exactly that.</td></tr><tr><td>GET</td><td><code>/api/embeddings/status</code></td><td><code>N of M embedded with model X</code>, the running backfill, the index state, and the extension state — read from the database rather than from run counters, so the numbers are right after a restart.</td></tr><tr><td>GET</td><td><code>/api/embeddings/estimate</code></td><td>What a backfill would cost, computed from the documents that will actually be sent. A provider with no price on record reports <code>cost_usd: null</code>, never <code>0</code> — zero reads as free.</td></tr><tr><td>POST</td><td><code>/api/embeddings/backfill</code></td><td>Embeds every document lacking a vector for the active model, on a worker thread. Refused before it starts if the lane cannot embed.</td></tr><tr><td>POST</td><td><code>/api/embeddings/backfill/cancel</code></td><td>Stops after the batch in flight. Vectors already written are kept.</td></tr><tr><td>POST</td><td><code>/api/embeddings/rebuild</code></td><td>Rebuilds the vector index from the canonical table — the one action that fixes a database copied from a machine that could not load the extension.</td></tr></tbody></table>
+<p><strong>Resume is a query, not a bookmark.</strong> The work remaining is <em>rows lacking a vector for the
+active model</em>, which is a fact about the database rather than about the last run, so it is
+correct after a cancel, a crash, a model change and a corpus that grew in between. A stored
+cursor would be wrong after any of those and would look right. The write is idempotent on
+<code>(document_id, model)</code>, so a re-run costs a wasted call and never a duplicate row.</p>
+<p><strong>Scale contract.</strong> The design target is 100,000 papers, and three choices follow from it,
+each measured rather than assumed:</p>
+<ul>
+<li><strong>Free text uses FTS5</strong>, declared external-content so abstracts are not stored twice, with
+triggers keeping it in step. <code>LIKE '%term%'</code> has no usable prefix and reads every abstract.
+Where FTS5 is unavailable the query degrades to <code>LIKE</code> and <code>used_full_text_index</code> reports it.</li>
+<li><strong>Authors and categories are read from <code>document_authors</code> and <code>document_categories</code></strong>,
+indexed copies of the comma-joined strings on <code>documents</code>, which remains the source of truth.</li>
+<li><strong>Pagination is keyset, on the generated column <code>pub_sort</code>.</strong> SQLite will not match a
+row-value comparison against an <em>expression</em> index, so the sort key is a real column. At row
+90,000 of 100,000: <code>SEARCH</code> in 0.30 ms, against 1.66 ms for <code>LIMIT/OFFSET</code> at the same depth.
+<code>pub_sort</code> is <code>COALESCE(publication_date, '')</code> — against a real <code>NULL</code> a row-value comparison
+yields <code>NULL</code>, which would silently drop every undated paper out of pagination.</li>
+</ul>
+<p>Totals are capped at <code>COUNT_CAP</code> (10,000) and reported as <code>total_is_capped</code>; counting an
+unbounded match set is the one query that cannot be bounded, and an exact five-digit number
+changes no decision.</p>
+<h3 id="apireading-queue"><code>/api/reading-queue</code></h3>
+<p>Membership over the corpus: which papers the user saved, and whether they have read them. Nothing here
+deletes a paper.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method</th><th>Path</th><th>Returns</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/reading-queue?status=&#x26;limit=&#x26;offset=</code></td><td>One page of saved papers, each with its membership row and the stored document. <code>status</code> is <code>to_read</code>, <code>read</code>, or <code>all</code> / omitted; <code>limit</code> defaults to 50 and is capped at 200. Carries <code>total</code> for the current filter and <code>counts</code> for all three. Order is <code>saved_at</code> then <code>document_id</code>, both descending, so a paper cannot appear on two pages.</td></tr><tr><td>POST</td><td><code>/api/reading-queue</code></td><td>Save <code>{"document_id": n}</code>. <strong>Idempotent</strong>: a paper already saved is returned unchanged, including its original <code>saved_at</code> and a <code>read</code> status it already had. 201 either way; 404 for a document the corpus does not hold.</td></tr><tr><td>PUT</td><td><code>/api/reading-queue/{document_id}</code></td><td><code>{"status": "to_read" | "read"}</code>. Sets <code>read_at</code> when a paper becomes read and clears it when it stops being read. A request that changes nothing writes nothing, so <code>updated_at</code> records state changes rather than requests. 404 when the paper is not in the queue; 400 for an unknown status.</td></tr><tr><td>DELETE</td><td><code>/api/reading-queue/{document_id}</code></td><td>Removes the membership row only. The document, its authors, its provenance and every run that found it are untouched. 404 when there was nothing to remove.</td></tr></tbody></table>
+<p>The queue exports through the existing <code>POST /api/export/references</code> with <code>document_ids</code>; there is no
+separate export route, and the formats and citation-key allocation are the ones documented below.</p>
+<p>Erasing the corpus from <strong>Settings → Advanced</strong> deletes queue rows along with the papers, by
+<code>ON DELETE CASCADE</code> — a saved paper that no longer exists would be an entry nobody could open.</p>
+<h3 id="apiexport"><code>/api/export</code></h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method</th><th>Path</th><th>Returns</th></tr></thead><tbody><tr><td>GET</td><td><code>/api/executions/{id}/references</code></td><td>The execution’s papers as <code>?format=bibtex|ris|csv|json</code>. JSON accepts <code>?include_ids=true</code> to add existing corpus document IDs. <code>?only_new=true</code> restricts to papers that were new at the time of the run. Responds with a <code>Content-Disposition</code> attachment header.</td></tr><tr><td>POST</td><td><code>/api/export/references</code></td><td>The same formats for <code>{"document_ids": [...], "format": "..."}</code> or <code>{"execution_ids": [...], "format": "..."}</code>. Execution selections union stored document IDs and render once; unknown executions fail with 404. Nonempty document IDs cannot be combined with execution IDs.</td></tr></tbody></table>
+<h3 id="apicalendar"><code>/api/calendar</code></h3>
+<ul>
+<li><code>GET /api/calendar/events?start=&#x3C;iso>&#x26;end=&#x3C;iso></code> — combined payload of historical executions (from <code>get_executions(conn, limit=500)</code>) and expanded upcoming routine fires. <code>start</code> / <code>end</code> are parsed with <code>datetime.fromisoformat(...)</code> (trailing <code>Z</code> replaced with <code>+00:00</code>). Defaults clamp the window to <code>[now, now + 90 days]</code>; <code>window_start</code> is forced to <code>now</code> so past fires are never synthesized from cron. Each event carries <code>id</code>, <code>title</code>, <code>start</code>, <code>end</code>, <code>color</code>, <code>execution_id</code>, <code>routine_id</code>, <code>type</code>, <code>status</code>, <code>query</code>, <code>total_results</code>, <code>new_results</code>. Scheduled expansion is capped at <code>MAX_PER_ROUTINE = 200</code> fires per routine per request.</li>
+</ul>
+<h3 id="apisettings"><code>/api/settings</code></h3>
+<p>Read/write surface for the eight Settings panels. Each slice is a keyed subset of the <code>settings</code> table, written through <code>set_setting</code>.</p>
+<ul>
+<li><code>GET /api/settings/email</code> / <code>PUT /api/settings/email</code> — <code>smtp_server</code>, <code>smtp_port</code>, <code>smtp_username</code>, <code>smtp_from</code>, <code>smtp_to</code>.</li>
+<li><code>POST /api/settings/email/test</code> — sends a test email using the saved SMTP settings and the stored <code>smtp_password</code> credential.</li>
+<li><code>GET /api/settings/ai</code> / <code>PUT /api/settings/ai</code> — <code>ai_provider</code>, <code>ai_model</code>, <code>ai_local_model</code>, <code>ai_summary_length</code>, <code>ai_tone</code>, <code>ai_temperature</code>, <code>ai_extraction_goals</code>, <code>ai_custom_base_url</code>, <code>ai_custom_header_prefix</code>.</li>
+<li><code>GET /api/settings/cloud</code> / <code>PUT /api/settings/cloud</code> — <code>cloud_auto_backup</code> and related toggles.</li>
+<li><code>GET /api/settings/storage</code> / <code>PUT /api/settings/storage</code> — <code>pdf_policy</code>, <code>txt_policy</code>, <code>archive_after_days</code>, <code>export_directory</code> (policy values are constrained to <code>save</code> / <code>archive</code> / <code>discard</code>).</li>
+<li><code>GET /api/settings/notifications</code> / <code>PUT /api/settings/notifications</code> — desktop-notification toggles.</li>
+<li><code>GET /api/settings/execution</code> / <code>PUT /api/settings/execution</code> — admission-controller tunables (<code>max_concurrent</code> clamped to <code>[1, 8]</code>, routine queue clamped to <code>[1, 64]</code>); reloaded live by the admission controller.</li>
+<li>Diagnostics: <code>GET /api/scheduler/jobs</code> (APScheduler job snapshot consumed by Settings → Advanced), <code>POST /api/service/install</code> and related <code>/api/service/*</code> routes for OS-service integration via <code>service_manager.py</code>.</li>
+</ul>
+<h3 id="apicredentials"><code>/api/credentials</code></h3>
+<p>Presence-only surface over the OS keyring through <code>credential_manager.py</code>. Secrets are never returned; <code>GET</code> responses only report whether a named credential exists.</p>
+<ul>
+<li><code>GET /api/credentials</code> — map of <code>{credential_name: present_boolean}</code>.</li>
+<li><code>PUT /api/credentials/{name}</code> — store a credential (Email panel uses <code>smtp_password</code>; AI panel derives names from the provider, e.g. <code>openai_api_key</code>, <code>anthropic_api_key</code>, <code>custom_llm_api_key</code>).</li>
+<li><code>DELETE /api/credentials/{name}</code> — remove a credential.</li>
+<li><code>POST /api/credentials/validate</code> — validate a remote LLM key (Test key button on the AI panel).</li>
+<li><code>POST /api/ai/models</code> — list the per-provider model catalog using either the freshly typed key or the stored credential (Load models button on the AI panel).</li>
+</ul>
+<h3 id="apicloud"><code>/api/cloud</code></h3>
+<p>Google Drive backup — see <a href="/resmon/guide/backup/#google-drive-backup">Google Drive Backup</a>.</p>
+<ul>
+<li><code>GET /api/cloud/status</code> — <code>{ is_linked, api_ok, api_reason }</code> describing the Google Drive link state.</li>
+<li><code>POST /api/cloud/link</code> — triggers the Google Drive OAuth installed-app flow; the resulting token is stored in the OS keyring.</li>
+<li><code>POST /api/cloud/unlink</code> — removes the stored token.</li>
+<li><code>POST /api/cloud/backup</code> — ad-hoc backup of the report tree to the linked Drive folder; returns <code>{ uploaded, total_files, folder_name, web_view_link }</code>.</li>
+</ul></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

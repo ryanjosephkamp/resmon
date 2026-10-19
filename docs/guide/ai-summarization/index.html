@@ -1,0 +1,222 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AI summarization · resmon</title><meta name="description" content="The provider whitelist, configuring a remote, custom or local provider, fallback chains, using your own subscription as a lane, and per-execution overrides."><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/guide/ai-summarization/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="AI summarization · resmon"><meta property="og:description" content="The provider whitelist, configuring a remote, custom or local provider, fallback chains, using your own subscription as a lane, and per-execution overrides."><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/guide/ai-summarization/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" aria-current="page" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Guide</p> <h1 data-astro-cid-c2uqhu5p>AI summarization</h1> <p class="meta" data-astro-cid-c2uqhu5p>The provider whitelist, configuring a remote, custom or local provider, fallback chains, using your own subscription as a lane, and per-execution overrides.</p> </header>  <div class="prose" data-astro-cid-c2uqhu5p><h2 id="ai-summarization">AI Summarization</h2>
+<p>AI summarization is optional and fully bring-your-own-key. When the provider is unset, every pipeline call is a silent no-op and the Markdown report falls back to plain abstract extraction. Settings live under <strong>Settings → AI</strong> (<code>#/settings/ai</code>) and are persisted through <code>PUT /api/settings/ai</code>; the API key for the active provider is stored separately in the OS keyring through <code>PUT /api/credentials/{name}</code>.</p>
+<h3 id="provider-whitelist">Provider Whitelist</h3>
+<p>The AI panel enforces the following provider whitelist (IMPL-AI5 / AI9 / AI10); each provider has a suggested model placeholder for the <code>ai_model</code> field:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th><code>ai_provider</code></th><th>Kind</th><th>Credential name</th><th>Suggested model placeholder</th></tr></thead><tbody><tr><td><code>openai</code></td><td>Remote (BYOK)</td><td><code>openai_api_key</code></td><td><code>gpt-4o-mini</code></td></tr><tr><td><code>anthropic</code></td><td>Remote (BYOK)</td><td><code>anthropic_api_key</code></td><td><code>claude-3-5-haiku-latest</code></td></tr><tr><td><code>google</code></td><td>Remote (BYOK)</td><td><code>google_api_key</code></td><td><code>gemini-2.5-flash</code></td></tr><tr><td><code>xai</code></td><td>Remote (BYOK)</td><td><code>xai_api_key</code></td><td><code>grok-4</code></td></tr><tr><td><code>meta</code></td><td>Remote (BYOK)</td><td><code>meta_api_key</code></td><td><code>meta-llama/Llama-3.3-70B-Instruct-Turbo</code></td></tr><tr><td><code>deepseek</code></td><td>Remote (BYOK)</td><td><code>deepseek_api_key</code></td><td><code>deepseek-chat</code></td></tr><tr><td><code>alibaba</code></td><td>Remote (BYOK)</td><td><code>alibaba_api_key</code></td><td><code>qwen-plus</code></td></tr><tr><td><code>local</code></td><td>Local (ollama)</td><td>—</td><td><code>llama3</code> (set through <code>ai_local_model</code>)</td></tr><tr><td><code>custom</code></td><td>Remote (BYOK, user-defined HTTPS endpoint)</td><td><code>custom_llm_api_key</code></td><td>user-specified</td></tr></tbody></table>
+<h3 id="configuring-a-remote-provider-openai-anthropic-and-the-rest">Configuring a Remote Provider (OpenAI, Anthropic, and the rest)</h3>
+<ol>
+<li>Open <strong>Settings → AI</strong>.</li>
+<li>Select a provider from the <strong>Provider</strong> dropdown (e.g. <code>openai</code> or <code>anthropic</code>). The <strong>Model</strong> placeholder updates to the provider’s suggested id.</li>
+<li>Enter the model id in <strong>Model</strong> (free text; the <strong>Load models</strong> button can populate a picker from the provider’s catalog via <code>POST /api/ai/models</code>).</li>
+<li>Enter the API key in the password field; press <strong>Store key</strong> to write it to the OS keyring as <code>&#x3C;provider>_api_key</code>. The key is never returned to the frontend — subsequent loads only see a presence boolean from <code>GET /api/credentials</code>.</li>
+<li>Click <strong>Test key</strong> to issue <code>POST /api/credentials/validate</code>, which performs a minimal round-trip against the provider.</li>
+<li>Tune <code>ai_summary_length</code>, <code>ai_tone</code>, <code>ai_temperature</code>, and <code>ai_extraction_goals</code> to shape the prompt scaffolding in <code>prompt_templates.py</code>.</li>
+<li>Click <strong>Save</strong> (<code>PUT /api/settings/ai</code>).</li>
+</ol>
+<h3 id="configuring-the-custom-provider">Configuring the Custom Provider</h3>
+<p>The <code>custom</code> provider targets any HTTPS endpoint that accepts an OpenAI-compatible chat-completions request shape. Two extra fields apply:</p>
+<ul>
+<li><code>ai_custom_base_url</code> — the endpoint root. The Save button is disabled unless the URL is HTTPS or the host is loopback (<code>localhost</code>, <code>127.0.0.1</code>, <code>::1</code>), enforced both by the frontend guard <code>validateCustomBaseUrl</code> and by the backend <code>llm_factory</code> as a hard check.</li>
+<li><code>ai_custom_header_prefix</code> — the auth-header prefix applied to the stored <code>custom_llm_api_key</code> credential (e.g. <code>Bearer </code>).</li>
+</ul>
+<h3 id="configuring-the-local-provider-ollama">Configuring the Local Provider (ollama)</h3>
+<p>The <code>local</code> provider bypasses the key flow entirely and dispatches through <code>implementation_scripts/llm_local.py</code> against a local <a href="https://ollama.com">ollama</a> daemon over its REST API (<code>/api/generate</code>, <code>/api/tags</code>).</p>
+<ol>
+<li>Install ollama and start it (<code>ollama serve</code>).</li>
+<li>Pull at least one model (for example <code>ollama pull llama3</code>, <code>ollama pull gemma3</code>, or <code>ollama pull qwen2</code>).</li>
+<li>In <strong>Settings → AI</strong>, set <strong>Provider</strong> to <code>local</code>.</li>
+<li>Enter the model tag (e.g. <code>llama3</code>) in the <strong>Local model</strong> field — this writes to the separate <code>ai_local_model</code> key introduced by IMPL-AI11 so the model id cannot drift into <code>ai_tone</code>. A one-shot migration heuristic (<code>looksLikeModelId</code>) moves a misplaced value from <code>ai_tone</code> into <code>ai_local_model</code> on first load.</li>
+<li>Click <strong>Load models</strong> to pull the available-models list from the running ollama instance, or enter the tag manually.</li>
+<li>Click <strong>Save</strong>.</li>
+</ol>
+<p>No API key is required for <code>local</code>; <code>Test key</code> and <code>Store key</code> are hidden for this provider.</p>
+<h3 id="fallback-chains">Fallback Chains</h3>
+<p>One provider failing no longer costs you the run. Under <strong>Settings → AI</strong>, the
+<code>If that fails, try…</code> section adds ordered fallback providers beneath the one you
+selected. Leave it empty and resmon behaves exactly as it did before chains existed —
+the stored chain is written only once you add a fallback, and a single-provider
+configuration is read as a one-lane chain.</p>
+<p>What separates a chain from a retry loop is that <strong>not every failure means the same
+thing</strong>:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Failure</th><th>Examples</th><th>What resmon does</th></tr></thead><tbody><tr><td><strong>Lane-fatal</strong></td><td>rejected key, exhausted quota, model does not exist, provider unreachable</td><td>Retires that provider <strong>for the rest of the run</strong> and moves to the next</td></tr><tr><td><strong>Document-local</strong></td><td>abstract past the context window, content declined, a one-off <code>5xx</code></td><td>Falls through <strong>for that paper only</strong>; the provider stays primary</td></tr></tbody></table>
+<p>Both mistakes are expensive in opposite directions. Re-presenting a rejected key once per
+paper burns an entire run rediscovering the same fact; abandoning a working provider
+because one abstract was too long silently downgrades every summary after it.</p>
+<p>Every attempt lands in <code>execution_ai</code> — one row per lane, with the provider, the model,
+the credential <strong>alias</strong> (never the value), how many papers it summarized, and the
+classified reason it stopped. A lane that was never reached is recorded as <code>skipped</code>
+rather than omitted, because “not needed” and “not configured” are different facts. The
+report header names the provider that <strong>actually produced</strong> the summaries, not the one
+configured first.</p>
+<h3 id="your-own-subscription-as-a-lane">Your own subscription as a lane</h3>
+<p>resmon can run the agent CLI you already installed and signed into, so AI work is billed
+to your existing <strong>Claude Max</strong> or <strong>ChatGPT</strong> plan instead of a metered API key. Add
+<code>Claude Code (your Claude plan)</code> or <code>Codex (your ChatGPT plan)</code> in the <code>If that fails, try…</code>
+chain. resmon drives the command; it never embeds provider sign-in, never sees your
+credential, and never authenticates on your behalf. If the CLI is not signed in, the lane
+reports that and stands down — it is not worked around.</p>
+<p><strong>Where resmon looks for the command</strong>, in order:</p>
+<ol>
+<li><strong>A full path you set</strong> in the lane’s command-path box. Always wins.</li>
+<li><strong>Known install locations</strong> for your platform — <code>~/.local/bin/claude</code>, and for Codex
+the copy inside <code>ChatGPT.app</code>.</li>
+<li><strong><code>PATH</code></strong>, last.</li>
+</ol>
+<p>That order is deliberate and the reason is worth stating. A macOS app launched from the
+Finder inherits <code>/usr/bin:/bin:/usr/sbin:/sbin</code>, because <code>launchctl getenv PATH</code> is unset
+— and neither CLI is there. <code>claude</code> lives under a user-local prefix and <code>codex</code> lives
+<em>inside</em> an application bundle, on no <code>PATH</code> at all. A <code>PATH</code>-first search works perfectly
+in a terminal and fails in the installed app, so <code>PATH</code> is the last resort rather than the
+first. Settings → AI shows which of the three found your command, and lists the paths it
+searched when it found nothing.</p>
+<p><strong>Two things to know before you select it.</strong></p>
+<p><strong>It is the recommended route as of 1.8.5</strong>, because batching made it affordable. Papers go
+<strong>five at a time in one call</strong> rather than one session each, and measured against the same
+abstracts one at a time, a paper costs <strong>0.33× as much and 0.23× the input-side tokens</strong> —
+the constitution and the prompt scaffold are about 5,600 tokens paid once per call instead
+of once per paper.</p>
+<p>It still spends the same usage window you use for your own work, so the lane carries a
+<strong>per-run limit of 50 papers</strong> by default, editable per lane. Reaching the limit is not an
+error: the lane stands down, the remaining papers go to the next lane, and <code>execution_ai</code>
+records the cap as the reason. A 200-paper sweep is still worth routing somewhere else.</p>
+<p>Summaries are extracted through each CLI’s structured output — <code>--output-format json</code> for
+Claude Code, <code>-o</code> for Codex — rather than by scraping console prose. A batched call adds a
+schema (<code>--json-schema</code> for Claude Code, <code>--output-schema</code> for Codex) describing one entry
+per paper. The schema deliberately does <strong>not</strong> pin the number of entries: both CLIs
+enforce an exact count by making the model <em>invent</em> the missing summary, which was
+measured rather than assumed. resmon checks the count and the numbering itself, and a
+paper the batch did not answer for is simply re-sent on its own. If the numbering is
+inconsistent — the same paper answered twice, or a number outside the batch — the whole
+batch is discarded and re-sent one paper at a time, because a summary attached to the
+wrong paper is a quieter failure than none at all.</p>
+<p>When the structured route yields nothing usable, resmon says <em>the CLI returned something
+we could not use</em> and moves on. It never stores a salvaged fragment as though it were a
+real summary.</p>
+<p>Each call runs in a fresh empty directory with tools switched off (<code>--tools ""</code>) or the
+sandbox pinned read-only (<code>-s read-only</code>). Abstracts are untrusted text fetched from the
+internet and an agent CLI can run commands, so the summarizer is given nothing to run and
+nothing to read.</p>
+<p><strong>Choosing a model and an effort level.</strong> A subscription lane offers both, and
+the two commands can honestly offer different things. <code>codex debug models</code>
+reports a real catalog — the models it lists, and per model the reasoning
+levels that model supports — so resmon shows that catalog and offers only the
+levels codex says each model takes. <code>claude</code> has no models-listing command, so
+what resmon offers is the aliases its <code>--help</code> documents (<code>fable</code>, <code>opus</code>,
+<code>sonnet</code>, <code>haiku</code>), labelled as exactly that: names the command accepts, not a
+list of models your account can reach, which resmon has not checked. Both
+dropdowns keep a saved value reachable even when the catalog does not list it,
+because either command may accept names resmon cannot enumerate.</p>
+<p><strong>Effort is offered only where effort exists.</strong> The two agent CLIs take a
+reasoning-effort level (<code>--effort</code> for Claude Code, <code>model_reasoning_effort</code>
+for Codex). None of the eight API-key providers has an equivalent, so no
+effort control is shown for them — a knob that silently did nothing for most
+providers would be worse than no knob. Where a provider does have a thinking
+control, it will be offered per provider once each has been verified. Leaving
+effort unset means the command’s own default, which for Codex is whatever your
+<code>~/.codex/config.toml</code> sets: resmon will not override a preference you set for
+yourself.</p>
+<p><strong>“Where is the command?” is behind Advanced</strong>, and opens by itself when
+detection failed — which is the only time it matters. <strong>Browse…</strong> beside it
+opens a file picker rather than asking you to type a path from memory. It shows
+hidden files and lets you open an application bundle, because that is where both
+commands live: <code>claude</code> under <code>~/.local</code>, which the Finder hides, and <code>codex</code>
+inside <code>ChatGPT.app</code>, which macOS treats as a single file.</p>
+<p>Ollama is the natural last lane: it needs no key and costs nothing. Note honestly that
+<strong>resmon has no summarizer beyond the lanes you configure.</strong> If every lane fails, those
+papers have no AI summary and the execution says why — there is no hidden extractive
+fallback underneath.</p>
+<p>A routine can carry its own chain through the <code>chain</code> key in its per-execution AI
+override, exactly like <code>provider</code> or <code>model</code>.</p>
+<h3 id="per-execution-overrides">Per-Execution Overrides</h3>
+<p>Deep Dive and Deep Sweep expose an <strong>Override AI settings for this run</strong> disclosure that accepts per-execution overrides for length, tone, and model. Empty override fields fall through to the persisted <code>ai_*</code> settings. Overrides flow through the request body of <code>POST /api/search/dive</code> / <code>POST /api/search/sweep</code> and are consumed by <code>SweepEngine</code> for that one execution only.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

@@ -1,0 +1,171 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Library: owned copies and bounded text · resmon</title><meta name="description" content="Library pairs one explicitly created child vault with one application database. The user chooses an existing parent directory and confirms Create; no existing folder is adopted. T…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/api-contract/library/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Library: owned copies and bounded text · resmon"><meta property="og:description" content="Library pairs one explicitly created child vault with one application database. The user chooses an existing parent directory and confirms Create; no existing folder is adopted. T…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/api-contract/library/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Contract</p> <h1 data-astro-cid-c2uqhu5p>Library: owned copies and bounded text</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/api-contract/library.md</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#storage-and-migration" data-astro-cid-c2uqhu5p>Storage and migration</a> </li><li data-astro-cid-c2uqhu5p> <a href="#nine-http-routes" data-astro-cid-c2uqhu5p>Nine HTTP routes</a> </li><li data-astro-cid-c2uqhu5p> <a href="#read-only-text-projection" data-astro-cid-c2uqhu5p>Read-only text projection</a> </li><li data-astro-cid-c2uqhu5p> <a href="#complete-portable-inventory" data-astro-cid-c2uqhu5p>Complete portable inventory</a> </li><li data-astro-cid-c2uqhu5p> <a href="#verification-pointers-and-limits" data-astro-cid-c2uqhu5p>Verification pointers and limits</a> </li><li data-astro-cid-c2uqhu5p> <a href="#evidence-handoff" data-astro-cid-c2uqhu5p>Evidence handoff</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><p>Library pairs one explicitly created child vault with one application database.
+The user chooses an existing parent directory and confirms Create; no existing
+folder is adopted. The server creates <code>resmon-library-&#x3C;vault UUID></code>, a <code>vault.json</code>
+marker containing exactly <code>{"version":1,"vault_id":"&#x3C;UUID>"}</code>, and <code>files/</code>.
+Each retained object has a server-generated file UUID and immutable version UUID:
+<code>files/&#x3C;file UUID>/&#x3C;version UUID>.&#x3C;pdf|txt|md></code>.</p>
+<h2 id="storage-and-migration">Storage and migration</h2>
+<p>Schema 16 adds exactly three tables (<code>library_vault</code>, <code>library_files</code>,
+<code>library_file_documents</code>) and one explicit index
+(<code>idx_library_file_documents_document</code>). SQLite also creates the implicit indexes
+required by UNIQUE and PRIMARY KEY constraints. The migration runs after schema 15,
+validates existing/new DDL inside a savepoint, then advances the schema marker.
+A conflicting table, view, index or denied statement cannot leave a partially
+marked schema 16. Initialization creates no vault directory and backfills no links.
+Existing paper, queue, provenance and assistant rows are retained.</p>
+<p>Imports stream selected raw bytes, never a server-side source path. Names are
+display basenames, 1–255 characters, without separators or Unicode controls. PDF
+requires its <code>%PDF-</code> envelope; this is not parsing, validation or malware scanning.
+TXT/MD requires strict UTF-8 without NUL. Empty and unsupported files are refused.
+The limits are 64 MiB/file, 20 sequential files/UI selection, 1 GiB retained/vault
+and 10,000 catalog items. An exact duplicate may reuse its entry at capacity.</p>
+<p>One exclusive import lock and SQLite write transaction protect quota checks and
+publication. The operation writes/fsyncs a uniquely owned staging file, publishes
+with exclusive creation, and commits the catalog only after full retained bytes
+exist. A digest match requires full byte-for-byte comparison and the same media
+interpretation; reuse preserves the first basename/file/version. A digest collision
+or media conflict refuses. Different bytes receive different UUIDs. Caught failures
+clean only this operation’s unpublished bytes; prior retained copies and originals
+are never deleted, moved or overwritten. A crash can leave a lock or orphan bytes;
+these block further import and are neither adopted nor automatically repaired.
+A retained size that differs from its catalog also blocks import, so quota checks
+cannot silently use an outdated size. Status still does not hash every retained file.</p>
+<p>All managed access walks directories through no-follow descriptors, checks the
+paired marker, and rejects symlinks, nonregular files and hard-linked retained
+objects. There is no unsafe fallback on platforms lacking the required primitives.
+macOS/Linux behavior must be tested on their actual runtimes; this implementation
+does not provide a Windows reparse-point implementation. The local OS/user is
+trusted. This is not confinement against a hostile local process or a guarantee
+against every storage/power-loss race. An external opener resolves its path after
+the backend’s verification, so later filesystem changes remain an OS boundary.</p>
+<p>Paper links name existing <code>documents.id</code> values explicitly. They mean an owner
+association in this database, not fuzzy matching or scientific identity. Deleting
+that paper cascades only its association rows. Reused IDs inherit no old links.
+Existing corpus erasure and settings/factory resets retain Library catalog/files.
+The UI provides no Library removal, replacement, relink or recovery operation.</p>
+<h2 id="nine-http-routes">Nine HTTP routes</h2>
+<p>All nine require one exact <code>Origin: http://127.0.0.1:&#x3C;port></code> with a valid explicit
+port and <code>X-Resmon-Library: 1</code>, checked before body parsing or protected effects.
+Null, foreign, missing, repeated or malformed Origins/headers refuse with 403.
+Existing OPTIONS/CORS handling is unchanged. This guards browser cross-origin
+requests; another local process can forge these headers. No global authentication,
+CORS, daemon or assistant/MCP tool change is introduced.</p>
+<p>All UUIDs use canonical lowercase spelling. Unknown/repeated query keys and extra
+JSON body fields refuse. Domain failures return <code>detail.reason</code> and a user-facing
+<code>detail.message</code>; raw filesystem paths are not leaked through OS/SQLite errors.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Method and path</th><th>Input and result</th></tr></thead><tbody><tr><td>GET <code>/api/library</code></td><td>No input. Versioned status, vault UUID/label (no absolute root), recorded counts and limits.</td></tr><tr><td>POST <code>/api/library/vault</code></td><td>JSON <code>parent_directory</code>. Explicitly create one new managed child; 201 status envelope. Existing configuration cannot switch roots.</td></tr><tr><td>GET <code>/api/library/files</code></td><td>Required <code>expected_vault_id</code>; optional <code>q</code>, <code>through_id</code>, <code>before_id</code>, <code>limit</code> (1–100, default 50). Descending keyset page and fixed ceiling.</td></tr><tr><td>POST <code>/api/library/files</code></td><td>Required query <code>expected_vault_id</code>, <code>filename</code>; optional existing <code>document_id</code>. <code>application/octet-stream</code> body. 201 new copy or 200 exact duplicate, with file/version and link receipt.</td></tr><tr><td>GET <code>/api/library/files/{file_id}</code></td><td>Required <code>expected_vault_id</code>. Recorded metadata and explicit current paper links.</td></tr><tr><td>POST <code>/api/library/files/{file_id}/paper-links</code></td><td>JSON <code>expected_vault_id</code>, positive integer <code>document_id</code>. Idempotent association receipt.</td></tr><tr><td>POST <code>/api/library/files/{file_id}/open</code></td><td>JSON <code>expected_vault_id</code>, <code>expected_version_id</code>. Verify marker, path, regular file, size and SHA256 before returning the selected absolute path for existing desktop IPC.</td></tr><tr><td>GET <code>/api/library/export</code></td><td>Required <code>expected_vault_id</code>; <code>format=json</code> only. Complete inventory envelope described below.</td></tr><tr><td>GET <code>/api/library/files/{file_id}/text</code></td><td>Required <code>expected_vault_id</code>, <code>expected_version_id</code>. Bounded literal text envelope; successes and refusals have <code>Cache-Control: no-store</code>.</td></tr></tbody></table>
+<p>Search uses literal filename substring matching with SQLite’s built-in <code>lower</code>
+semantics (ASCII case folding), not a publication search. The initial page supplies
+<code>through_id</code>; later pages retain it and use strict <code>before_id</code>. Refresh starts a
+new ceiling. Metadata/list responses declare <code>availability: not_checked</code>; they
+check the vault pairing but do not hash all files. Unavailable/mismatched vaults
+refuse access instead of falling through to another path.</p>
+<h2 id="read-only-text-projection">Read-only text projection</h2>
+<p>The same retained-file resolver serves Open, duplicate verification and text reads.
+The text route permits exact retained TXT/MD only, at most 256 KiB of original
+bytes, 5,000 logical lines, and 2 MiB of serialized JSON. It verifies vault/file/
+version/size/hash, rereads the selected descriptor with a bounded buffer and checks
+the resulting bytes again. Strict UTF-8 decoding rejects NUL and malformed input.
+CRLF and lone CR normalize to LF for display. A trailing LF counts a final empty
+logical line; stored bytes and metadata remain unchanged.</p>
+<p>The envelope contains exactly <code>version: 1</code>, <code>kind: resmon-library-text</code>, <code>vault_id</code>,
+<code>file_id</code>, <code>version_id</code>, <code>sha256</code>, <code>media_type</code>, <code>encoding: utf-8</code>,
+<code>normalization: crlf-cr-to-lf-v1</code>, original <code>byte_size</code>, <code>line_count</code> and <code>text</code>.
+No absolute path, metadata from unrelated settings, excerpt cache or write occurs.
+PDF, oversized text and invalid bytes refuse visibly with verified external Open
+available as a separate request. A refusal never claims partial reading succeeded.</p>
+<p>The renderer validates the response identity and limits, renders literal text nodes
+with line numbers, and provides case-sensitive local find/previous/next navigation.
+Matches move keyboard focus to their line; closing returns focus to Read.
+Success and error callbacks are gated on current selection/request lifetime.
+Switching or closing cannot display an older read, initiate its delayed Open, or
+download its delayed inventory. There is no Markdown/HTML execution, remote embed,
+PDF parser/OCR, RAG, live AI, persistent excerpt, annotation or citation system.</p>
+<h2 id="complete-portable-inventory">Complete portable inventory</h2>
+<p>Export uses a single recorded-metadata snapshot and deterministic catalog order.
+The response fields are <code>version</code>, <code>vault_id</code>, <code>format</code>, <code>filename</code>, <code>content_type</code>
+and JSON <code>text</code>. The inner document has <code>version: 1</code>,
+<code>kind: resmon-library-inventory</code>, <code>vault_id</code>, <code>generated_at_utc</code>, all <code>files</code> and
+explicit <code>limits</code>. Each file contains UUIDs, original basename, format, byte size,
+SHA256, portable relative path, import time, explicit local paper IDs/basis and
+<code>availability: not_checked</code>. Absolute root/source paths, paper titles, credentials,
+provider settings and retained bytes are excluded. Both backend and renderer refuse
+an inventory exceeding 8 MiB without truncation.</p>
+<p>The actual renderer Blob download validates both envelopes and expected vault.
+An inventory is not a file bundle, backup, relocation tool or fresh integrity scan.
+Original basenames can be private: review before sharing. A database backup alone
+does not restore the managed files; no automatic Library cloud backup is added.</p>
+<h2 id="verification-pointers-and-limits">Verification pointers and limits</h2>
+<p><code>test_library.py</code> covers filesystem/SQL publication, preservation, quota, duplicate
+comparison, keyset paging and explicit associations. <code>test_library_upgrade.py</code>
+uses the populated schema-15 SQL fixture and distinct migration blockers.
+<code>test_library_boundary.py</code> drives all nine routes over real isolated HTTP, including
+chunked-body limit enforcement. <code>test_library_text.py</code> covers retained byte/line/
+response limits and identity refusals. Renderer tests cover literal content and
+delayed success/error/current-selection behavior; <code>e2e/library.spec.ts</code> drives the
+real disposable Electron/HTTP/import/read/Open-request/restart/inventory/reset
+journey and checks original/retained hashes.</p>
+<p>The Electron picker, OS-open return value and download destination are scripted;
+the backend, IPC request and download bytes are real. This does not prove native
+dialog behavior, an external viewer, a human/Android interaction, hostile-file
+safety or independent audit. The separately authored briefing prototype is not
+part of this app, its reader API, or this public source tree.</p>
+<h2 id="evidence-handoff">Evidence handoff</h2>
+<p>A selected Library item can hand its exact vault/file/version identity to
+<a href="evidence.md">Evidence</a> for explicit project membership, bounded PDF/TXT/MD
+reading, literal saved notes and selected ZIP export. Existing Library import,
+reader, external Open, inventory and nine-route contracts remain unchanged.
+Evidence does not infer the latest imported file or publication identity.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

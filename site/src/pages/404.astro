@@ -1,0 +1,33 @@
+---
+/**
+ * GitHub Pages serves `404.html` for anything it cannot find. Jekyll's minima
+ * theme did not ship one here, so this is new: a reader who follows a stale
+ * link now lands somewhere with a way back rather than on GitHub's own page.
+ */
+import Base from '../layouts/Base.astro';
+import { url } from '../lib/urls';
+---
+
+<Base
+  title="Page not found"
+  description="That page is not on this site."
+  path="/404.html"
+>
+  <h1>Page not found</h1>
+  <p>
+    There is nothing at that address. If you followed a link from inside the resmon app or from
+    an older version of this site, the pages below are the places most things moved to.
+  </p>
+  <ul>
+    <li><a href={url('/')}>Home, and every update</a></li>
+    <li><a href={url('/guide/')}>Guide</a></li>
+    <li><a href={url('/reference/')}>Reference documents</a></li>
+    <li><a href={url('/updates/')}>Update archive</a></li>
+  </ul>
+</Base>
+
+<style>
+  h1 {
+    margin-top: 0;
+  }
+</style>

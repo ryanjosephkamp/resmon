@@ -1,0 +1,104 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Update 22 — Bring your own key · resmon</title><meta name="description" content="Update 21 shipped the ✦ Ask panel and said, at the bottom, &#34;No API-key assistant yet. If you have an Anthropic or OpenAI key but no CLI, the panel cannot use it. That is the next…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/2026/09/07/resmon-update-22/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Update 22 — Bring your own key · resmon"><meta property="og:description" content="Update 21 shipped the ✦ Ask panel and said, at the bottom, &#34;No API-key assistant yet. If you have an Anthropic or OpenAI key but no CLI, the panel cannot use it. That is the next…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/2026/09/07/resmon-update-22/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+.pager[data-astro-cid-g6jwv4qx]{display:grid;gap:var(--space-4);margin-top:var(--space-7);font-size:var(--text-sm)}.pager[data-astro-cid-g6jwv4qx] a[data-astro-cid-g6jwv4qx]{display:block;padding:var(--space-3) var(--space-4);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md);text-decoration:none;color:var(--color-text);background:var(--color-surface)}.pager[data-astro-cid-g6jwv4qx] a[data-astro-cid-g6jwv4qx]:hover{border-color:var(--color-border-strong)}.pager-label[data-astro-cid-g6jwv4qx]{display:block;font-size:var(--text-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}@media(min-width:40rem){.pager[data-astro-cid-g6jwv4qx]{grid-template-columns:1fr 1fr}.pager-next[data-astro-cid-g6jwv4qx]{text-align:end}}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Update</p> <h1 data-astro-cid-c2uqhu5p>Update 22 — Bring your own key</h1> <p class="meta" data-astro-cid-c2uqhu5p>September 7, 2026</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#metadata" data-astro-cid-c2uqhu5p>Metadata</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-short-version" data-astro-cid-c2uqhu5p>The short version</a> </li><li data-astro-cid-c2uqhu5p> <a href="#three-things-are-different-and-resmon-says-all-three" data-astro-cid-c2uqhu5p>Three things are different, and resmon says all three</a> </li><li data-astro-cid-c2uqhu5p> <a href="#which-providers-can-do-this-at-all" data-astro-cid-c2uqhu5p>Which providers can do this at all</a> </li><li data-astro-cid-c2uqhu5p> <a href="#a-first-screen-that-asks-for-nothing" data-astro-cid-c2uqhu5p>A first screen that asks for nothing</a> </li><li data-astro-cid-c2uqhu5p> <a href="#when-the-cli-has-lost-your-conversation" data-astro-cid-c2uqhu5p>When the CLI has lost your conversation</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-part-nobody-was-watching" data-astro-cid-c2uqhu5p>The part nobody was watching</a> </li><li data-astro-cid-c2uqhu5p> <a href="#also-in-this-release" data-astro-cid-c2uqhu5p>Also in this release</a> </li><li data-astro-cid-c2uqhu5p> <a href="#what-is-still-not-here" data-astro-cid-c2uqhu5p>What is still not here</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 22</li>
+<li><strong>Version:</strong> 2.0.0 → 2.0.1</li>
+<li><strong>Theme:</strong> the assistant for people who do not have a subscription CLI, and three things that were quietly not being watched</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p>Update 21 shipped the <strong>✦ Ask</strong> panel and said, at the bottom, <em>“No API-key assistant yet. If
+you have an Anthropic or OpenAI key but no CLI, the panel cannot use it. That is the next
+release.”</em></p>
+<p>This is that release. Under <strong>Settings → AI → Assistant</strong>, <em>Run it with</em> now offers <strong>an API
+key of your own</strong> alongside the <code>claude</code> command. Anthropic, OpenAI, Google, xAI, Together,
+DeepSeek, Alibaba, or a custom OpenAI-compatible endpoint.</p>
+<p>It is the same panel, the same tools, the same confirmation card, and the same rules on the
+same system channel. What changed is who runs the loop: resmon does it itself instead of
+handing it to a command.</p>
+<h2 id="three-things-are-different-and-resmon-says-all-three">Three things are different, and resmon says all three</h2>
+<p><strong>It reports tokens, not money.</strong> A provider API tells you how many tokens a call used. It
+does not tell you what they cost, and resmon does not maintain anyone’s price list. So a turn
+on this route shows a token count and says <em>cost not reported</em>, rather than a dollar figure
+computed from a table this app would have to keep correct for eight providers. The <code>claude</code>
+route still shows a real cost, because the command reports one.</p>
+<p><strong>A turn stops after eight tool steps or 100,000 tokens.</strong> The command enforces a spending
+ceiling on itself; here the ceiling has to be on something resmon can count. Both numbers are
+twice the largest of the ten requests measured for 2.0.0 — four tool steps and about 53,000
+tokens at the top end — so an ordinary answer is nowhere near them and a loop is stopped.</p>
+<p><strong>It remembers what was said, not what the tools returned.</strong> A provider API keeps no session,
+so resmon replays the conversation itself: your messages and its replies. The raw output of an
+earlier tool call is <em>not</em> re-sent. That means a long conversation does not pay to re-send a
+page of papers on every turn, and text lifted from a paper’s abstract does not follow you from
+turn to turn. The assistant can see what it told you; it cannot see the evidence it told you
+from.</p>
+<h2 id="which-providers-can-do-this-at-all">Which providers can do this at all</h2>
+<p>The same three-state answer the embedding lane uses, with the evidence that established each
+one:</p>
+<ul>
+<li><strong>OpenAI</strong> and <strong>Anthropic</strong> — established from the SDKs resmon ships, which is better
+evidence than a probe and is checked by a test rather than quoted in a comment.</li>
+<li><strong>xAI</strong> and <strong>Google</strong> — established by a probe. Sending a deliberately malformed <code>tools</code>
+field gets a complaint naming <code>tools</code>; sending a made-up field gets <em>“cannot find field”</em>.
+The difference is the answer.</li>
+<li><strong>Together, DeepSeek, Alibaba</strong> — <strong>unknown</strong>, and it says so. Those APIs check your key
+before they look at the body, so an invalid key gets the same 401 whatever you send and
+there is nothing to observe from outside. resmon will send the tools and show you exactly
+what comes back, rather than recording a guess with a citation attached.</li>
+<li>A <strong>custom endpoint</strong> is unknowable in advance, by definition.</li>
+</ul>
+<h2 id="a-first-screen-that-asks-for-nothing">A first screen that asks for nothing</h2>
+<p>A brand-new install now opens on a <strong>Getting started</strong> card: three optional things — a command
+you already subscribe to, a provider key, a key for one of the five sources that take one —
+each with a link to where it is set and a mark for what resmon can already see.</p>
+<p>None of it is required. resmon searches all 25 sources with no AI and no keys at all, and the
+card says so in its first line. It reports <strong>found</strong> and <strong>configured</strong> and never <strong>working</strong>,
+because resmon cannot tell whether a command is signed in or a key accepted until the first
+paper goes through it. <strong>Skip</strong> puts it away permanently, and it retires itself the moment you
+have run anything.</p>
+<h2 id="when-the-cli-has-lost-your-conversation">When the CLI has lost your conversation</h2>
+<p><code>claude</code> keeps its conversations in its own storage. If you clear its history, or restore
+resmon’s database onto a machine whose command has never seen that conversation, resmon used
+to answer <em>“exit code 1”</em> and lose your message.</p>
+<p>Now it recognises what the command actually said, answers your message in a fresh session, and
+tells you in place: your earlier messages are still on screen, and the assistant can no longer
+see them.</p>
+<h2 id="the-part-nobody-was-watching">The part nobody was watching</h2>
+<p>resmon has a suite of tests that talk to the real internet — every source client, the whole
+tool surface, the search extension loading inside a running backend. They are excluded from
+the ordinary test run because they are slow and because a provider having an outage is not a
+bug in resmon. <strong>Nothing ran them on a schedule.</strong></p>
+<p>In 1.9 one of them started asserting the opposite of what the search contract says, and it sat
+red for two releases with nobody hearing about it. That was found in 2.0.0 by someone happening
+to type the command.</p>
+<p>There is now a weekly job. It runs every live test that needs only a network — 56 of the 72 —
+and its summary names, by test, every one it could not run and why. The sixteen it skips need
+an agent command installed and signed in, which no build machine has.</p>
+<p><strong>It found something on its first run.</strong> 2.0.0 added an assistant settings group to the app
+after the tool surface’s allowlist was frozen earlier in the same release, so the assistant
+could not change its own model — and nobody had decided that. It can now, behind the same
+confirmation card as everything else. Contract v2.1.</p>
+<h2 id="also-in-this-release">Also in this release</h2>
+<ul>
+<li>The assistant’s settings section hides the effort control on the API-key route, because none
+of the provider APIs takes one. A control that silently did nothing would be worse than no
+control — the same rule the summary lanes follow.</li>
+<li>Both routes now go through <strong>one</strong> permission function. The command reaches it as a tool in
+another process and the API-key loop reaches it as a function call, so <em>“the same card”</em> is a
+fact about the code rather than two things that resemble each other.</li>
+</ul>
+<h2 id="what-is-still-not-here">What is still not here</h2>
+<p><strong>No voice.</strong> The packaging spike came back with numbers: bundling local transcription adds
+80–90 MB to every installer, the redistribution questions for its dependencies are unanswered,
+and there is no signing story for microphone access on macOS. It returns as its own piece of
+work when the model can be downloaded on first use instead of shipped, not before.</p>
+<p><strong>No Ollama assistant.</strong> Ollama does support tool calling — resmon checked, and got a real tool
+call back from a local model — but driving it as an assistant is its own piece of work and is
+recorded rather than rushed.</p></div> </article>  <nav class="pager" aria-label="Other updates" data-astro-cid-g6jwv4qx> <div data-astro-cid-g6jwv4qx> <a href="/resmon/2026/09/06/resmon-update-21/" data-astro-cid-g6jwv4qx> <span class="pager-label" data-astro-cid-g6jwv4qx>Previous</span> <span data-astro-cid-g6jwv4qx>resmon Update 21 — September 6, 2026</span> </a> </div> <div class="pager-next" data-astro-cid-g6jwv4qx> <a href="/resmon/2026/09/07/resmon-update-23/" data-astro-cid-g6jwv4qx> <span class="pager-label" data-astro-cid-g6jwv4qx>Next</span> <span data-astro-cid-g6jwv4qx>resmon Update 23 — September 7, 2026</span> </a> </div> </nav>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html>  

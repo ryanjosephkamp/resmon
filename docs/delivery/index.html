@@ -1,0 +1,116 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>The webhook receiver contract · resmon</title><meta name="description" content="resmon can deliver a routine's report to an HTTPS endpoint you own. This page is what you need to write the thing on the other end. It documents behaviour that shipped with schema…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/delivery/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="The webhook receiver contract · resmon"><meta property="og:description" content="resmon can deliver a routine's report to an HTTPS endpoint you own. This page is what you need to write the thing on the other end. It documents behaviour that shipped with schema…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/delivery/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Reference</p> <h1 data-astro-cid-c2uqhu5p>The webhook receiver contract</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/delivery.md</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#what-arrives" data-astro-cid-c2uqhu5p>What arrives</a> </li><li data-astro-cid-c2uqhu5p> <a href="#checking-the-signature" data-astro-cid-c2uqhu5p>Checking the signature</a> </li><li data-astro-cid-c2uqhu5p> <a href="#fetching-the-bundle" data-astro-cid-c2uqhu5p>Fetching the bundle</a> </li><li data-astro-cid-c2uqhu5p> <a href="#answering" data-astro-cid-c2uqhu5p>Answering</a> </li><li data-astro-cid-c2uqhu5p> <a href="#what-resmon-records-and-what-it-does-not" data-astro-cid-c2uqhu5p>What resmon records, and what it does not</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><p>resmon can deliver a routine’s report to an HTTPS endpoint you own. This page is
+what you need to write the thing on the other end. It documents behaviour that
+shipped with schema 21’s second delivery PR; the channel itself, and the record
+behind it, are described in the README’s <em>Delivery: where a report goes, and
+whether it got there</em>.</p>
+<p>resmon is a desktop application on your machine. It makes an outbound POST and
+opens nothing to the network; a receiver on the same machine is the ordinary
+case, and a receiver elsewhere works only because something you run — a tunnel,
+a reverse proxy — is already reachable from it.</p>
+<h2 id="what-arrives">What arrives</h2>
+<p>One <code>POST</code> per delivered run, with <code>Content-Type: application/json</code>, a
+<code>User-Agent</code> of <code>resmon</code>, and two headers of ours:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Header</th><th>Value</th></tr></thead><tbody><tr><td><code>X-Resmon-Delivery</code></td><td>the delivery’s id in this corpus, stable across retries</td></tr><tr><td><code>X-Resmon-Signature</code></td><td><code>sha256=&#x3C;hex></code> — HMAC-SHA256 of the <strong>exact request body</strong>, keyed with this destination’s shared secret</td></tr></tbody></table>
+<p>The body:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "envelope_version"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">1</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "delivery_id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">41</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "routine"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: {</span><span style="color:#005CC5;--shiki-dark:#79B8FF">"id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">3</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">"name"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Diffusion watch"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "execution_id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">128</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "status"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"completed"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "started_at"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"2026-09-21T08:00:03"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "completed_at"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"2026-09-21T08:04:11"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "result_count"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">22</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "new_result_count"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">4</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "coverage_summary"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"3 selected sources: 3 answered, 0 recorded non-answer (could not answer), 0 unknown."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "report_sha256"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"…"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "search_record_url"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"https://your-resmon.example/api/executions/128/search-record?format=json"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "bundle_url"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"https://your-resmon.example/api/deliveries/41/bundle?exp=1758556800&#x26;sig=…"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "bundle_expires_at"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"2026-09-22T08:04:12+00:00"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p><code>coverage_summary</code> is resmon’s read-time account of which of the run’s sources
+answered, drawn from saved facts — the same sentence the app shows. It is <code>null</code>
+when resmon could not build one.</p>
+<p><code>search_record_url</code> and <code>bundle_url</code> are built from the <code>delivery_base_url</code>
+setting when you have set one, and from <code>http://127.0.0.1:&#x3C;the port resmon is serving on></code> when you have not. <code>search_record_url</code> needs resmon’s local API
+token; <code>bundle_url</code> does not, and is the only route in resmon that does not.</p>
+<p>When the destination has <em>Send the bundle inside the envelope</em> ticked, the
+envelope carries <code>bundle_base64</code>, <code>bundle_sha256</code> and <code>bundle_bytes</code> instead of
+<code>bundle_url</code> and <code>bundle_expires_at</code>, both of which are then <code>null</code>.</p>
+<h2 id="checking-the-signature">Checking the signature</h2>
+<p>Three lines, in any language with an HMAC:</p>
+<ol>
+<li>read the <strong>raw request body as bytes</strong>, before any JSON parsing;</li>
+<li>compute <code>HMAC-SHA256(secret, body)</code> and hex-encode it;</li>
+<li>compare it to <code>X-Resmon-Signature</code> minus its <code>sha256=</code> prefix, with a
+constant-time comparison, and refuse the request if it does not match.</li>
+</ol>
+<p>Python, whole:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="python"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">import</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> hashlib, hmac</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">expected </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "sha256="</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> hmac.new(</span><span style="color:#005CC5;--shiki-dark:#79B8FF">SECRET</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.encode(), raw_body, hashlib.sha256).hexdigest()</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#D73A49;--shiki-dark:#F97583"> not</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> hmac.compare_digest(expected, request.headers.get(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"X-Resmon-Signature"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">""</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)):</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    return</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 401</span></span></code></pre>
+<p>The secret is yours and resmon’s. You set it on the destination in the routine’s
+Delivery list; resmon puts it in the operating system’s keyring under
+<code>webhook_secret_&#x3C;destination id></code> and never writes it to a database, a settings
+file or a log. A destination with no secret saved is never sent to: resmon signs
+every envelope and has no unsigned fallback.</p>
+<h2 id="fetching-the-bundle">Fetching the bundle</h2>
+<p><code>GET</code> the <code>bundle_url</code> exactly as given. It answers <code>application/zip</code> — the same
+export bundle the app’s Results screen produces, with the report, the log, the
+metadata, the LaTeX/PDF bundle and the search-record companions.</p>
+<p>The link is signed for one delivery and expires 24 hours after the envelope was
+sent. A wrong signature, an expired one and a delivery that was not a webhook
+all get the same <code>403</code> with <code>{"detail": {"reason": "signature_invalid", …}}</code>, so
+a caller guessing learns only that it did not work.</p>
+<p>The bundle is <strong>rebuilt when you fetch it</strong>, which is why the linked form carries
+no <code>bundle_sha256</code>: a zip carries its own timestamps and is not byte-identical
+from one build to the next. What identifies the contents is <code>report_sha256</code>,
+which is the hash of the report file itself and is stable. Hash the report inside
+the zip and compare it to that.</p>
+<h2 id="answering">Answering</h2>
+<p>Answer <code>2xx</code> once you have taken responsibility for the envelope. Anything else,
+and any answer that takes longer than <strong>20 seconds</strong>, is a failure: resmon
+records it, waits 1 minute, then 5, then 25, and stops after three attempts with
+the reason on the row, where the user sees it under <em>Where did this go?</em>. Press
+Retry there and the attempt counter starts again.</p>
+<p>Work implied by the envelope — fetching the bundle, rendering something, sending
+it on — belongs after your <code>2xx</code>, not before it. resmon retries a slow receiver
+and a receiver that does not answer identically, so a receiver that does its work
+inside the request can be sent the same run twice.</p>
+<p><code>X-Resmon-Delivery</code> is the idempotency key. It is the same across all three
+attempts at one delivery and unique per (run, destination), so a receiver that
+records it can recognise a repeat.</p>
+<h2 id="what-resmon-records-and-what-it-does-not">What resmon records, and what it does not</h2>
+<p>A failure is recorded with the HTTP status code, or with the class of the
+transport error and the timeout resmon waited. <strong>The URL is never written to the
+record</strong>, because <code>deliveries.last_error</code> is read back through resmon’s MCP tool
+surface and where a person sends their research is theirs. The destination is
+identified by its row id, which the app resolves locally.</p>
+<p>What resmon claims is what it did: that your receiver answered <code>2xx</code>. What you
+do with the envelope afterwards it cannot see, and it does not say.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

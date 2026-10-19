@@ -1,0 +1,322 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>sqlite-vec packaging feasibility · resmon</title><meta name="description" content="Evidence collected 2026-09-03 UTC."><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/sqlite-vec-feasibility/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="sqlite-vec packaging feasibility · resmon"><meta property="og:description" content="Evidence collected 2026-09-03 UTC."><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/sqlite-vec-feasibility/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Reference</p> <h1 data-astro-cid-c2uqhu5p>sqlite-vec packaging feasibility</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/sqlite-vec-feasibility.md</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#verdict-and-scope" data-astro-cid-c2uqhu5p>Verdict and scope</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-three-independent-questions" data-astro-cid-c2uqhu5p>The three independent questions</a> </li><li data-astro-cid-c2uqhu5p> <a href="#version-licence-and-size" data-astro-cid-c2uqhu5p>Version, licence, and size</a> </li><li data-astro-cid-c2uqhu5p> <a href="#what-remains-unestablished" data-astro-cid-c2uqhu5p>What remains unestablished</a> </li><li data-astro-cid-c2uqhu5p> <a href="#fallback-cost-if-a-target-cannot-load-the-extension" data-astro-cid-c2uqhu5p>Fallback cost if a target cannot load the extension</a> </li><li data-astro-cid-c2uqhu5p> <a href="#source-interpretation" data-astro-cid-c2uqhu5p>Source interpretation</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><h2 id="verdict-and-scope">Verdict and scope</h2>
+<p><strong>Viable with caveats on all four actual release targets:</strong> macOS ARM64, macOS
+x64, Windows x64, and Linux x64. All four native CI jobs loaded sqlite-vec and
+ran the expected query from packaged resources and their installer contents.
+The caveats below include untested macOS signing and Finder quarantine/translocation.
+This is a packaging finding, not a decision about phase 1.9. No application code,
+schema, runtime requirements, or existing workflow changes.</p>
+<p>Evidence collected <strong>2026-09-03 UTC</strong>.</p>
+<p>The freshly fetched <code>upstream/main</code> was
+<strong><code>3c7298adbef92c7282ca29bd0d397a740676753d</code></strong>, the v1.8.3 release, matching the
+brief’s <code>3c7298a</code> baseline. The branch starts at that commit.</p>
+<h3 id="corrections-to-the-brief">Corrections to the brief</h3>
+<ol>
+<li><strong>Four release targets, not seven.</strong> The baseline
+<a href="https://github.com/ryanjosephkamp/resmon/blob/3c7298adbef92c7282ca29bd0d397a740676753d/.github/workflows/release.yml#L36-L84">release matrix</a>
+names macOS ARM64, macOS x64, Windows x64, and Linux x64. The brief gives no
+identities for three additional targets. Their support is <strong>unknown and
+untested</strong>; this spike does not invent platforms or expand the release matrix.</li>
+<li><strong>The shipped Python is not setup-python’s interpreter or a venv.</strong> The
+<a href="https://github.com/ryanjosephkamp/resmon/blob/3c7298adbef92c7282ca29bd0d397a740676753d/resmon_scripts/frontend/scripts/prepare-backend.js">staging script</a>
+pins Astral python-build-standalone <strong>CPython 3.11.16, release 20260814</strong>.
+Several older comments still describe a venv. The new workflow uses the
+staged/packaged interpreter paths, not setup-python, for every probe.</li>
+<li><strong>Configure output alone is insufficient evidence.</strong> On the measured ARM64
+runtime, <code>CONFIG_ARGS</code> lacks <code>--enable-loadable-sqlite-extensions</code> and
+<code>pyconfig.h</code> says <code>/* #undef PY_SQLITE_ENABLE_LOAD_EXTENSION */</code>, yet loading
+succeeds. The pinned builder supplies <code>PY_SQLITE_ENABLE_LOAD_EXTENSION=1</code>
+separately in its
+<a href="https://github.com/astral-sh/python-build-standalone/blob/20260814/cpython-unix/extension-modules.yml#L525-L555">_sqlite3 module definition</a>.
+<code>_sqlite3</code> is built into this interpreter and has no <code>__file__</code>. The probe
+checks the callable behavior and records built-in versus file-backed modules.
+CPython’s pinned
+<a href="https://github.com/python/cpython/blob/v3.11.16/PCbuild/_sqlite3.vcxproj#L94-L99">Windows project</a>
+also defines <code>PY_SQLITE_ENABLE_LOAD_EXTENSION</code>; Windows native CI confirms
+loading in its bundled runtime, whose <code>_sqlite3</code> is a file-backed module.</li>
+<li>The brief’s <code>danger-full-access</code> / approval-policy description does not match
+this session’s workspace sandbox. Fetching, branch creation, network downloads,
+and packaging checks used the available approval mechanism; no other checkout
+was inspected or changed.</li>
+</ol>
+<h2 id="the-three-independent-questions">The three independent questions</h2>
+<p>“Packaged” below means direct invocation of Python in electron-builder’s output
+or the stated installer container. It does not mean an Electron/Finder launch.
+An available wheel is not proof of ABI compatibility; the successful load and
+query supply that narrower evidence for the tested runtime and host.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Release target</th><th>Bundled interpreter permits extension loading</th><th>Matching binary / ABI evidence</th><th>Loads inside packaged app</th></tr></thead><tbody><tr><td>macOS ARM64 (<code>macos-14</code>)</td><td>Yes: native CI and local enable/disable checks passed</td><td>0.1.9 ARM64 wheel; actual load and vector query passed</td><td>Yes: unsigned <code>.app</code> and read-only DMG, locally and in <a href="https://github.com/ryanjosephkamp/resmon/actions/runs/33701953896/job/100482938735">CI</a></td></tr><tr><td>macOS x64 (<code>macos-15-intel</code>)</td><td>Yes: native CI enable/disable checks passed</td><td>0.1.9 x64 wheel; actual load and vector query passed</td><td>Yes: unsigned <code>.app</code> and read-only DMG in <a href="https://github.com/ryanjosephkamp/resmon/actions/runs/33701953896/job/100482939023">CI</a></td></tr><tr><td>Windows x64 (<code>windows-latest</code>)</td><td>Yes: native CI enable/disable checks passed</td><td>0.1.9 <code>win_amd64</code> wheel; actual load and vector query passed</td><td>Yes: <code>win-unpacked</code> and silently installed NSIS app in <a href="https://github.com/ryanjosephkamp/resmon/actions/runs/33701953896/job/100482938822">CI</a></td></tr><tr><td>Linux x64 (<code>ubuntu-latest</code>)</td><td>Yes: native CI enable/disable checks passed</td><td>0.1.9 manylinux x64 wheel; actual load and vector query passed</td><td>Yes: <code>linux-unpacked</code> and extracted AppImage in <a href="https://github.com/ryanjosephkamp/resmon/actions/runs/33701953896/job/100482938994">CI</a></td></tr></tbody></table>
+<h3 id="local-evidence">Local evidence</h3>
+<p>Host: macOS 26.3.1 ARM64. Pinned runtime: CPython 3.11.16, SQLite 3.53.1,
+<code>.resmon-runtime = 3.11.16+20260814-aarch64-apple-darwin</code>.</p>
+<p>From the repository root (the installation touches only the ignored build runtime):</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/frontend</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> prepare:backend</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ../..</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">mkdir</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -p</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> build/sqlite-vec-probe</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">printf</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> '%s\n'</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> 'sqlite-vec==0.1.9 --hash=sha256:1d52e30513bae4cc9778ddbf6145610434081be4c3afe57cd877893bad9f6b6c'</span><span style="color:#D73A49;--shiki-dark:#F97583"> ></span><span style="color:#032F62;--shiki-dark:#9ECBFF"> build/sqlite-vec-probe/probe-requirement.txt</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">resmon_scripts/frontend/build-resources/backend/python/bin/python3</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -I</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pip</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --only-binary=:all:</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --no-deps</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --require-hashes</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -r</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> build/sqlite-vec-probe/probe-requirement.txt</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/frontend</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">RESMON_REUSE_VENV</span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">1</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> CSC_IDENTITY_AUTO_DISCOVERY</span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">false</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> dist</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ../..</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">resmon_scripts/frontend/release/mac-arm64/resmon.app/Contents/Resources/backend/python/bin/python3</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -I</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/verification_scripts/probe_sqlite_vec.py</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --resources-dir</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/frontend/release/mac-arm64/resmon.app/Contents/Resources</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --expected-version</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 0.1.9</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --expected-runtime-pin</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> 3.11.16+20260814-aarch64-apple-darwin</span></span></code></pre>
+<p>Observed packaged output: <code>extension_loading.status=pass</code>,
+<code>binary.load_status=pass</code>, <code>packaged_app.status=pass</code>,
+<code>vector_query.status=pass</code>, <code>vec_version()=v0.1.9</code>, exit <strong>0</strong>.
+The <code>vec0</code> nearest-neighbor query returned
+<code>[[1, 0.0], [2, 2.8284270763397217]]</code>, the expected IDs and L2 distances.
+The workflow’s <code>hdiutil attach -readonly -nobrowse</code> procedure was also executed
+locally against <code>resmon-1.8.3-arm64.dmg</code>: the same four statuses passed and the
+same rows were returned from the mounted image, which was then detached.
+The packaged ARM64 binary was 161,896 bytes, SHA-256
+<code>193e480c50b59a55977d166f4aaf0e1bc8832d6963516e5950f39e4d2ce0b793</code>, identical
+to the wheel’s binary. Local JSON and build logs are generated under
+<code>build/sqlite-vec-probe/</code>; they are not source files or shipped dependencies.</p>
+<h3 id="ci-method-and-evidence">CI method and evidence</h3>
+<p><a href="../.github/workflows/sqlite-vec-probe.yml">sqlite-vec-probe.yml</a> uses the exact
+four baseline release runner labels. Each native job:</p>
+<ol>
+<li>Runs the existing <code>prepare:backend</code> script and installs only its hash-pinned
+sqlite-vec wheel into that standalone runtime, with no dependencies or source
+build fallback. The wheel and runtime versions are explicit pins.</li>
+<li>Runs the staged probe, then <code>npm run dist</code> with the existing packaging
+configuration. <code>RESMON_REUSE_VENV=1</code> retains the probe-only installation;
+the existing hook still checks its runtime marker and refreshes app sources.</li>
+<li>Invokes Python from the packaged resources with <code>-I</code>, requires <code>app.asar</code>,
+and checks that the interpreter, file-backed SQLite module (if any), wrapper,
+and native binary all resolve inside that runtime. A staging directory alone
+cannot pass the packaging check.</li>
+<li>Loads the extension, checks its version, creates an in-memory <code>vec0</code> table,
+inserts three vectors, and verifies a two-neighbor query’s IDs and distances.</li>
+<li>Gives that packaged interpreter a deliberately invalid native binary and
+requires both exit <strong>1</strong> and the specific <code>binary.load_status=fail</code> result.</li>
+<li>Repeats the positive probe from a read-only mounted DMG on macOS, extracted
+AppImage on Linux, or a silent NSIS installation on Windows.</li>
+</ol>
+<p>Unix and probe steps use explicit bash <code>-e -o pipefail</code>; Windows staging/build
+use PowerShell, matching release.yml. No positive step has <code>continue-on-error</code>.
+Evidence is uploaded even on failure. Installers are
+neither published nor attached to a release. The workflow runs in the public
+upstream repository, avoiding duplicate packaging on the working mirror.</p>
+<p><strong><a href="https://github.com/ryanjosephkamp/resmon/actions/runs/33701953896">Corrected run 33701953896</a>:
+4 of 4 jobs passed</strong>, at source commit
+<code>18ae96d4abe7b22c53e04961bf7e0f12d3c3ec19</code>. Downloaded JSON receipts were inspected,
+including <code>source-commit.txt</code>, pip’s selected wheel hash, <code>packaged.json</code>, the
+installer-specific result, and <code>broken-binary.json</code>. Probe/build behavior in the
+final workflow is unchanged from this run; its concurrency key additionally
+coalesces push and PR runs for the same branch.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>CI target</th><th>Host reported by Python</th><th>Installer receipt</th><th>Positive output</th><th>Invalid-binary output</th></tr></thead><tbody><tr><td>macOS ARM64</td><td>macOS 14.8.7 / arm64</td><td><code>dmg.json</code></td><td>All four statuses <code>pass</code>, exit 0</td><td>Load <code>fail</code>, exit 1</td></tr><tr><td>macOS x64</td><td>macOS 15.7.9 / x86_64</td><td><code>dmg.json</code></td><td>All four statuses <code>pass</code>, exit 0</td><td>Load <code>fail</code>, exit 1</td></tr><tr><td>Windows x64</td><td>Windows build 10.0.26100 / AMD64</td><td><code>installed.json</code></td><td>All four statuses <code>pass</code>, exit 0</td><td>Load <code>fail</code>, exit 1</td></tr><tr><td>Linux x64</td><td>Kernel 6.17.0-1022-azure / x86_64 / glibc 2.39</td><td><code>appimage.json</code></td><td>All four statuses <code>pass</code>, exit 0</td><td>Load <code>fail</code>, exit 1</td></tr></tbody></table>
+<p>All four used CPython 3.11.16 / SQLite 3.53.1, reported <code>vec_version()=v0.1.9</code>,
+and returned <code>[[1, 0.0], [2, 2.8284270763397217]]</code>. Each packaged and
+installer-contained native binary had the same byte count and SHA-256 as its
+inspected wheel member:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="text"><code><span class="line"><span>macOS ARM64  193e480c50b59a55977d166f4aaf0e1bc8832d6963516e5950f39e4d2ce0b793</span></span>
+<span class="line"><span>macOS x64    d39d33d16d302d57440d9a9cdbe3cc095e8324aa96b979b5171f545a6346996d</span></span>
+<span class="line"><span>Windows x64  fcf98662a7ad9dce394b96a88f91032047823831b951c76636787c312a6476e6</span></span>
+<span class="line"><span>Linux x64    5923730861b86c707cca5602b5f91092f9e52a46706dbc6e269fd4bb9c4498e8</span></span></code></pre>
+<p>Receipts are attached to that run as <code>sqlite-vec-&#x3C;target>-18ae96d...</code> artifacts
+with 14-day retention. The outputs above preserve the essential results after
+artifact expiry; a later run is needed to reestablish them on changed hosts.</p>
+<p>The <a href="https://github.com/ryanjosephkamp/resmon/actions/runs/33701670277">first run</a>
+at <code>0ce6f48a50a42378cc68e199bef7cf0d09487e18</code> passed both macOS targets and Linux.
+Its <a href="https://github.com/ryanjosephkamp/resmon/actions/runs/33701670277/job/100482086036">Windows staging step</a>
+failed <strong>before running Python</strong>, with <code>tar (child): Cannot connect to D: resolve failed</code>.
+Git Bash selected GNU tar, which interpreted Node’s Windows archive path as a
+remote host. The new workflow’s Windows staging/build steps now use native
+PowerShell, as the release workflow does. This was a probe-workflow defect and
+provides no negative evidence about sqlite-vec compatibility.</p>
+<h3 id="failure-path-and-regression-checks">Failure-path and regression checks</h3>
+<ul>
+<li>The standalone probe under <code>.venv/bin/python -I</code> with sqlite-vec absent returned
+<strong>1</strong>, <code>binary.status=not_found</code>, and <code>packaged_app.status=not_tested</code>.</li>
+<li>A present text file named <code>invalid-vec0.dylib</code> reached <code>load_extension</code>, returned
+<strong>1</strong>, and recorded <code>binary.load_status=fail</code>. The interpreter-support check
+still passed, distinguishing binary failure from missing support.</li>
+<li>Passing the staging directory as <code>--resources-dir</code> returned <strong>1</strong> because
+<code>app.asar</code> was absent. It did not claim a packaged-app success.</li>
+<li><code>build/sqlite-vec-probe/actionlint -shellcheck= .github/workflows/sqlite-vec-probe.yml</code>
+passed (actionlint 1.7.12; its downloaded archive checksum was verified).
+YAML parsing and comparison confirmed the four runner labels match release.yml.</li>
+<li><code>.venv/bin/python -m pytest -q</code>: <strong>882 passed, 41 deselected</strong>.</li>
+<li>In <code>resmon_scripts/frontend</code>, <code>npm run typecheck &#x26;&#x26; npm test -- --runInBand &#x26;&#x26; npm run build</code>:
+<strong>typecheck passed; 139 tests in 20 suites passed; build passed</strong>.</li>
+<li><a href="https://github.com/ryanjosephkamp/resmon/actions/runs/33701953897">Regression CI at the same commit</a>:
+<code>pytest -v</code> on Python <strong>3.10, 3.11, and 3.12</strong> each returned <strong>880 passed,
+2 skipped, 41 deselected</strong>. The two skips are existing macOS-only osascript
+notification tests on Ubuntu, not missing probe coverage. Frontend typecheck,
+<strong>139 tests / 20 suites</strong>, and build passed. The brief’s 882-pass count is the
+observed local macOS count, not the Linux CI count.</li>
+<li>The existing test files and <code>requirements.txt</code> are unchanged. The 41 live-network
+tests were not run: this spike changes no source client and the brief requests
+the hermetic suite. sqlite-vec remains absent from the development venv.</li>
+</ul>
+<h2 id="version-licence-and-size">Version, licence, and size</h2>
+<p>Pinned <strong>sqlite-vec 0.1.9</strong>, the
+<a href="https://github.com/asg017/sqlite-vec/releases/tag/v0.1.9">latest non-prerelease GitHub release checked</a>.
+Its tagged sources provide
+<a href="https://github.com/asg017/sqlite-vec/blob/v0.1.9/LICENSE-MIT">MIT</a> and
+<a href="https://github.com/asg017/sqlite-vec/blob/v0.1.9/LICENSE-APACHE">Apache-2.0</a>
+licences. The <a href="https://pypi.org/pypi/sqlite-vec/0.1.9/json">0.1.9 PyPI metadata</a>
+lists both. All four downloaded wheels were hash-checked against that metadata
+and inspected as ZIP archives; none contained a licence text file. A future
+distribution would need to include the applicable notices deliberately.</p>
+<p>Exact byte counts, not estimates of compressed installer growth:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Platform wheel suffix (<code>sqlite_vec-0.1.9-py3-none-…whl</code>)</th><th align="right">Wheel download bytes</th><th align="right">Uncompressed wheel members</th><th align="right">Native binary bytes</th></tr></thead><tbody><tr><td><code>macosx_11_0_arm64</code></td><td align="right">165,434</td><td align="right">164,590</td><td align="right">161,896 (<code>vec0.dylib</code>)</td></tr><tr><td><code>macosx_10_6_x86_64</code></td><td align="right">131,171</td><td align="right">130,327</td><td align="right">127,632 (<code>vec0.dylib</code>)</td></tr><tr><td><code>win_amd64</code></td><td align="right">292,804</td><td align="right">291,964</td><td align="right">289,280 (<code>vec0.dll</code>)</td></tr><tr><td><code>manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux1_x86_64</code></td><td align="right">163,388</td><td align="right">162,550</td><td align="right">159,816 (<code>vec0.so</code>)</td></tr></tbody></table>
+<p>Thus the native addition is under 0.3 MiB per tested platform. This excludes pip’s
+generated metadata/bytecode, filesystem allocation, signing changes, and installer
+compression effects. No before/after installer-size experiment was performed.
+The four wheel SHA-256 pins are in the workflow; <code>pip-install.json</code> records the
+selected URL and hash, and each probe records the actual native binary size/hash.</p>
+<h2 id="what-remains-unestablished">What remains unestablished</h2>
+<ul>
+<li>Finder’s handling of a downloaded, quarantined/translocated macOS app. Direct
+Python execution from a read-only DMG is narrower evidence and does not activate
+that path. No Gatekeeper attributes were stripped or system policy disabled.</li>
+<li>Developer ID signing, hardened-runtime signing behavior, and notarization.
+These probes intentionally use unsigned builds and no signing secrets. Existing
+<a href="https://github.com/ryanjosephkamp/resmon/blob/3c7298adbef92c7282ca29bd0d397a740676753d/resmon_scripts/frontend/build-resources/entitlements.mac.plist">entitlements</a>
+do not by themselves establish that a signed deployment works.</li>
+<li>Minimum-supported-OS coverage or clean consumer machines without runner tooling.
+A native hosted runner establishes its own OS/runtime combination only.</li>
+<li>Electron launching a backend that uses sqlite-vec: application code never imports
+it in this spike. This task does not modify or publish any existing release artifact.</li>
+<li>The identities and behavior of the brief’s three additional, unnamed targets.</li>
+</ul>
+<h2 id="fallback-cost-if-a-target-cannot-load-the-extension">Fallback cost if a target cannot load the extension</h2>
+<p>A standard-library exact scan is an available implementation shape, not an
+implemented or timed fallback. Assuming <strong>one vector per paper</strong>, a 15,000-paper
+corpus with dimension <code>d</code> requires <code>15,000 × d</code> component visits per query;
+maintaining a size-<code>k</code> heap adds <code>O(15,000 log k)</code> selection work. Compact float32
+storage costs <code>15,000 × d × 4</code> bytes: about <strong>22.0 / 43.9 / 87.9 MiB</strong> for
+dimensions <strong>384 / 768 / 1536</strong>. Dimension and vectors per paper were not specified
+by the brief, so these are illustrations, not a chosen embedding format.</p>
+<p>Using SQLite BLOBs plus <code>array('f')</code>/<code>struct</code> can avoid materializing the entire
+corpus as Python float objects. A Python loop still performs every distance
+calculation in the interpreter, holds the GIL in this CPython build, and needs
+explicit UI/background scheduling and cancellation design. Latency, acceptable
+query rate, and implementation effort have not been measured or estimated in
+days. No fallback or phase-1.9 architecture is selected here.</p>
+<h2 id="source-interpretation">Source interpretation</h2>
+<p>CPython documents
+<a href="https://docs.python.org/3.11/library/sqlite3.html#sqlite3.Connection.enable_load_extension"><code>enable_load_extension</code> and its configure option</a>.
+sqlite-vec documents the
+<a href="https://alexgarcia.xyz/sqlite-vec/python.html">Python loading sequence</a>.
+Those explain the checks; measured JSON output, exact release pins, and native CI
+results establish this report’s platform findings. Wheel tags and comments alone
+do not establish a successful packaged load.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

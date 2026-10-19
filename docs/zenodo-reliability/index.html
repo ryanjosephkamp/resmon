@@ -1,0 +1,44 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Zenodo search timing and outcomes · resmon</title><meta name="description" content="Zenodo uses one 45-second cooperative search budget, shared by every page, rate-limiter wait, request and retry. Each HTTP request uses 10-second phase timeouts and permits one re…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/zenodo-reliability/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Zenodo search timing and outcomes · resmon"><meta property="og:description" content="Zenodo uses one 45-second cooperative search budget, shared by every page, rate-limiter wait, request and retry. Each HTTP request uses 10-second phase timeouts and permits one re…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/zenodo-reliability/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Reference</p> <h1 data-astro-cid-c2uqhu5p>Zenodo search timing and outcomes</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/zenodo-reliability.md</p> </header>  <div class="prose" data-astro-cid-c2uqhu5p><p>Zenodo uses one <strong>45-second cooperative search budget</strong>, shared by every page,
+rate-limiter wait, request and retry. Each HTTP request uses <strong>10-second phase
+timeouts</strong> and permits <strong>one retry</strong>. These values opt into the existing shared
+request helper; other clients and shared defaults are unchanged. A phase timeout
+alone does not stop a response that keeps sending small amounts of data.</p>
+<p>The helper cancels the async HTTP operation, closes its client and joins its
+request thread before returning a deadline failure. This is cooperative I/O
+cancellation, not a hard real-time guarantee: DNS executor shutdown, OS scheduling,
+CPU-bound parsing and other non-cooperative work can delay return. There is no
+claim that every search returns within exactly 45 seconds on every platform.</p>
+<p>A transport failure remains a transport failure in the existing search-outcome
+channel. A successful HTTP response with invalid JSON or a missing/wrong-shaped
+hits envelope is a parse failure, not an answered-empty search. An actual empty
+hits list remains an empty answer. Successfully parsed records from earlier pages
+are retained if a later page fails, alongside the later failure outcome. The list
+alone is not a completeness guarantee. Existing individual malformed-record
+skipping and normalization remain unchanged.</p>
+<p>Queries and requested publication-date bounds retain their existing API syntax.
+Pagination keeps the anonymous page size fixed at at most 25, uses the existing
+total/short-page termination rules and returns at most the requested number of
+normalized records. The deadline is created once per search, never per page.</p>
+<h2 id="verification-boundary">Verification boundary</h2>
+<p><code>test_zenodo_reliability.py</code> covers request options and shared deadlines, field
+queries/date bounds, normalization, zero/negative maximums, pagination, valid empty
+responses, malformed envelopes/JSON, partial results, retry exhaustion/recovery,
+limiter/backoff expiry, and owned-loopback success, failure, stalls and trickles.
+The loopback tests use real HTTPX sockets with scaled timing, observe the server
+end of transport closure and verify fixture/thread cleanup. Transport doubles
+establish deterministic options/outcomes; they do not reproduce DNS or TLS stalls.</p>
+<p>The existing live test still requires nonempty normalized records within its date
+window and additionally requires an actual request attempt and a successful final
+outcome. Hermetic tests do not establish that this live test passes, that Zenodo is
+currently available, or what caused the historical hosted timeout. Live execution
+remains a separate verification step. The 120-second test watchdog, workflows,
+test selection, rate limit, dependencies and record-retention rules are unchanged.</p>
+<p>These tests do not exhaust every record field/HTML input, every pagination total
+shape, simultaneous caller contention, real DNS/TLS behavior or every OS/runtime.
+No HAL live success follows from this Zenodo repair.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

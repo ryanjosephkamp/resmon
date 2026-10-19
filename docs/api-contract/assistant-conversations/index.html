@@ -1,0 +1,76 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Saved conversations: browse, snapshot, export (v1) · resmon</title><meta name="description" content="The Chats page reads the original assistant tables and schema-15 subordinate choice metadata. It adds no runtime, permission or filesystem endpoint. List/read/export fields remain…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/api-contract/assistant-conversations/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Saved conversations: browse, snapshot, export (v1) · resmon"><meta property="og:description" content="The Chats page reads the original assistant tables and schema-15 subordinate choice metadata. It adds no runtime, permission or filesystem endpoint. List/read/export fields remain…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/api-contract/assistant-conversations/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main main-wide" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Contract</p> <h1 data-astro-cid-c2uqhu5p>Saved conversations: browse, snapshot, export (v1)</h1> <p class="meta" data-astro-cid-c2uqhu5p>docs/api-contract/assistant-conversations.md</p> </header>  <div class="prose" data-astro-cid-c2uqhu5p><p>The Chats page reads the original assistant tables and schema-15 subordinate choice
+metadata. It adds no runtime, permission or filesystem endpoint. List/read/export
+fields remain compatible; prospective creation and historical continuation follow the
+<a href="assistant-choices.md">version-1 choices contract</a>. The legacy list defaults to 50, ordered by updated timestamp
+then ID descending.</p>
+<p><code>GET /api/assistant/sessions/browse</code> accepts <code>limit</code> (default 50, 1–100),
+<code>before_id</code> (positive SQLite 64-bit integer), <code>through_id</code> (nonnegative SQLite 64-bit integer) and <code>q</code> (up to
+200 characters). Absent <code>through_id</code> chooses the current maximum session ID, or 0.
+Rows sort by ID descending, with <code>id &#x3C;= through_id</code> and optional <code>id &#x3C; before_id</code>.
+The response contains <code>sessions</code>, <code>through_id</code>, <code>next_before_id</code> (nullable) and
+<code>has_more</code>, derived by requesting one extra row. Each row includes ID, displayed
+title, stored runtime/model/timestamps and message count. <code>q</code> is a parameterized,
+literal substring over the displayed title (<code>New conversation</code> for absent/empty
+stored titles); <code>%</code>, <code>_</code> and the escape character are escaped. SQLite folds ASCII
+case; non-ASCII characters match literally. This freezes an ID ceiling, not row
+contents, title membership or a historical total. Refresh includes newly created IDs.</p>
+<p><code>GET /api/assistant/sessions/{id}</code> preserves <code>session</code>, <code>messages</code>, <code>totals</code> and
+<code>running</code>. The SQLite fields now share one read transaction, rolled back on exit.
+A connection with pending writes is refused rather than committed or called persisted.
+Additive <code>snapshot</code> fields: <code>captured_at_utc</code>, <code>basis=persisted_messages_only</code>,
+<code>message_count</code>, <code>last_message_id</code> (null for no messages). Additive
+<code>activity_observation</code> fields: <code>observed_at_utc</code>, <code>turn_claimed</code>, <code>cli_running</code>,
+<code>basis=in_memory_observation_not_atomic_with_sqlite</code>. <code>running</code> still means the
+registered CLI-process observation. None establishes historical completion.</p>
+<p>Session/list/browse rows add <code>choices</code> (null for unknown historical settings or
+<code>{unreadable:true}</code> for malformed metadata). Detail adds <code>choices_version=1</code> and
+<code>turn_choices</code>, read in the same SQLite transaction as messages and totals. Each turn
+identifies its user message, optional persisted assistant message, immutable requested
+choices and ordered literal runtime model reports. Absence of reports is not a model,
+effort or completion claim. A corrupt cross-session reply link is marked unreadable.</p>
+<p><code>GET /api/assistant/sessions/{id}/export?format=json|markdown</code> returns a JSON envelope:
+<code>session_id</code>, <code>format</code>, <code>filename</code>, <code>content_type</code>, <code>text</code>, and <code>snapshot</code>. Filenames
+are <code>resmon-chat-&#x3C;id>.json</code> or <code>.md</code>; MIME types are <code>application/json</code> and
+<code>text/markdown</code>. Generated UTF-8 text may be at most 8 MiB per format. Larger output
+returns 413 with an explicit refusal and no truncation. Missing sessions return 404;
+invalid query parameters/format return 422. These reads do not require an available CLI.</p>
+<p>Both serializers use the same snapshot helper. JSON version 1 contains an explicit
+session allowlist (ID, stored title, runtime/model, created/updated strings), ordered
+messages (ID, role, exact content, timestamp, nullable recorded tokens/cost), snapshot,
+separately observed current activity, <code>completion_status=unknown</code> and limitations.
+Each tool field is <code>{data, unreadable}</code>; absent storage has null data. Unparseable JSON
+also carries <code>raw</code>, preserving the original stored text. No CLI coordination IDs,
+settings, environment, config paths or unrelated chats are added as metadata. Saved
+message/tool text is preserved even if it contains sensitive information. Review it
+before sharing. Recorded cost is not a billing claim; null is not zero.</p>
+<p>Markdown places every variable value inside a literal code fence longer than any
+backtick run in that value. This preserves text while preventing it from becoming
+active Markdown links or HTML. Framing is formatting, not file byte equality.
+Neither format includes live-only fragments, pending cards, inferred approval/effect
+history, current effort or a promise of final completion.</p>
+<p>JSON remains version 1 with additive <code>choices_version=1</code>, <code>choices</code> and <code>turn_choices</code>.
+Markdown adds these same public fields in a literal fenced section. The private route
+comparison digest, configured locator and native session coordination ID are excluded
+from generated choice metadata. All metadata counts toward the existing 8 MiB limit.</p>
+<p>The renderer validates session/format/filename/type and JSON content identity before
+requesting a Blob download. Changing selection invalidates a pending export. A download
+request is not confirmation of a native save. Scripted Electron <code>setSavePath</code> checks
+prove saved bytes separately from any human chooser observation.</p>
+<p>Continue opens the same local session in the existing Ask provider without sending.
+Its first historical send requires explicit same-runtime-kind confirmation. API
+confirmation discloses sending saved user/assistant text to the chosen future provider;
+Claude confirmation discloses a fresh native session without earlier local messages.
+Previously bound choices stay fixed; a choice change starts a new empty conversation.
+One active turn owns its session synchronously in this renderer. Other chats remain
+browsable/readable/exportable; target changes/new chat/active-session deletion wait.
+Opening the active session preserves its stream and cards. Stop sends the existing
+cancel request and retains ownership until both that request and the stream reader
+settle. History refresh follows settlement. Late selection, creation, permission and
+stream callbacks cannot retarget a later selection. Another renderer’s active claim is
+an observation, not a reattachment feature; backend 409 remains visible.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 

@@ -1,0 +1,111 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Update 17 — A Transport Failure Is Not an Answer · resmon</title><meta name="description" content="Update 16 was about a source that returns nothing saying why. This release fixes a hole in that: three kinds of network failure were recorded as nothing at all, and a zero with no…"><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/2026/09/05/resmon-update-17/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Update 17 — A Transport Failure Is Not an Answer · resmon"><meta property="og:description" content="Update 16 was about a source that returns nothing saying why. This release fixes a hole in that: three kinds of network failure were recorded as nothing at all, and a zero with no…"><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/2026/09/05/resmon-update-17/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+.pager[data-astro-cid-g6jwv4qx]{display:grid;gap:var(--space-4);margin-top:var(--space-7);font-size:var(--text-sm)}.pager[data-astro-cid-g6jwv4qx] a[data-astro-cid-g6jwv4qx]{display:block;padding:var(--space-3) var(--space-4);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md);text-decoration:none;color:var(--color-text);background:var(--color-surface)}.pager[data-astro-cid-g6jwv4qx] a[data-astro-cid-g6jwv4qx]:hover{border-color:var(--color-border-strong)}.pager-label[data-astro-cid-g6jwv4qx]{display:block;font-size:var(--text-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}@media(min-width:40rem){.pager[data-astro-cid-g6jwv4qx]{grid-template-columns:1fr 1fr}.pager-next[data-astro-cid-g6jwv4qx]{text-align:end}}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Update</p> <h1 data-astro-cid-c2uqhu5p>Update 17 — A Transport Failure Is Not an Answer</h1> <p class="meta" data-astro-cid-c2uqhu5p>September 5, 2026</p> </header> <nav class="contents" aria-labelledby="contents-heading" data-astro-cid-c2uqhu5p> <h2 id="contents-heading" class="contents-heading" data-astro-cid-c2uqhu5p>
+On this page
+</h2> <ul data-astro-cid-c2uqhu5p> <li data-astro-cid-c2uqhu5p> <a href="#metadata" data-astro-cid-c2uqhu5p>Metadata</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-short-version" data-astro-cid-c2uqhu5p>The short version</a> </li><li data-astro-cid-c2uqhu5p> <a href="#what-was-actually-wrong" data-astro-cid-c2uqhu5p>What was actually wrong</a> </li><li data-astro-cid-c2uqhu5p> <a href="#why-this-was-not-caught" data-astro-cid-c2uqhu5p>Why this was not caught</a> </li><li data-astro-cid-c2uqhu5p> <a href="#the-app-is-now-tested-in-a-real-browser" data-astro-cid-c2uqhu5p>The app is now tested in a real browser</a> </li><li data-astro-cid-c2uqhu5p> <a href="#also-in-this-release" data-astro-cid-c2uqhu5p>Also in this release</a> </li><li data-astro-cid-c2uqhu5p> <a href="#upgrading" data-astro-cid-c2uqhu5p>Upgrading</a> </li> </ul> </nav> <div class="prose" data-astro-cid-c2uqhu5p><h2 id="metadata">Metadata</h2>
+<ul>
+<li><strong>Update number:</strong> 17</li>
+<li><strong>Version:</strong> 1.8.6 → 1.8.7</li>
+<li><strong>Theme:</strong> a correctness fix on the honesty surface v1.8.6 shipped, and the app is now tested in a real browser</li>
+</ul>
+<h2 id="the-short-version">The short version</h2>
+<p><strong>v1.8.6 could tell you a source answered when it never did. If you are on 1.8.6, update.</strong></p>
+<p>Update 16 was about a source that returns nothing saying why. This release fixes a hole in
+that: three kinds of network failure were recorded as <em>nothing at all</em>, and a zero with no
+recorded failure reads as “the source answered and had nothing”. So the search record could
+print</p>
+<blockquote>
+<p>arXiv answered (HTTP 200) and resmon found no records in the reply.</p>
+</blockquote>
+<p>about a source resmon never got a reply from. That is exactly the overclaim v1.8.6 was built
+to remove, on the surface v1.8.6 built, and it shipped inside it.</p>
+<h2 id="what-was-actually-wrong">What was actually wrong</h2>
+<p>resmon records a failure when a query to a source fails. It was recording only the two
+failures it retries:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>What happened</th><th>Recorded in 1.8.6</th></tr></thead><tbody><tr><td>Connection refused</td><td>✅ the source did not answer</td></tr><tr><td>Request timed out</td><td>✅ the source did not answer</td></tr><tr><td><strong>Connection reset part-way through the reply</strong></td><td>❌ nothing</td></tr><tr><td><strong>Server hung up without replying</strong></td><td>❌ nothing</td></tr><tr><td><strong>A proxy refused the connection</strong></td><td>❌ nothing</td></tr></tbody></table>
+<p>For the bottom three the run had one attempt on record and no failures, which resmon reads as
+<em>“it was asked, and it answered”</em>. Every surface downstream then repeated that: the monitor,
+the results row, the report, and the reproducible search record.</p>
+<p><strong>Every network failure is now recorded.</strong> Nothing about retry behaviour changed — the same
+requests are retried the same number of times. What changed is only what the run writes down,
+which was the whole of the fault.</p>
+<p>If you sit behind a corporate proxy or a VPN, you are the person most likely to have seen the
+wrong sentence, because a proxy refusing a tunnel is one of the three.</p>
+<h3 id="runs-from-before-187-are-not-corrected">Runs from before 1.8.7 are not corrected</h3>
+<p>resmon does not rewrite history it did not observe. A run recorded under 1.8.6 that hit one of
+these three keeps its <code>answered (HTTP 200)</code> sentence, and there is no way to tell from the
+record which runs those were. <strong>A search record from 1.8.6 or earlier should not be cited as
+evidence that a source answered.</strong> New runs are recorded correctly from the moment you update.</p>
+<h2 id="why-this-was-not-caught">Why this was not caught</h2>
+<p>Every test of that code path used a stand-in that raised only the two exceptions the code
+already handled. <strong>A test double cannot fail the way the real dependency fails</strong> — the same
+root cause as three earlier defects in this project. The replacement test drives a real
+socket: a listener that refuses, one that hangs up, one that answers garbage, and one that
+answers normally, with the last as a control so that widening what counts as a failure has not
+swallowed the honest “the source answered and had nothing” case.</p>
+<h2 id="the-app-is-now-tested-in-a-real-browser">The app is now tested in a real browser</h2>
+<p>The rest of this release is the verification layer behind that kind of fix.</p>
+<p>Until now resmon’s interface was checked by 190 tests that ran against a simulated browser,
+and <strong>nothing had ever started the actual app</strong>. The window code — 700 lines carrying every
+interface fix from the last few releases — had no test of any kind.</p>
+<p>Now, on every change, the real application launches and:</p>
+<ul>
+<li><strong>all 24 pages</strong> are opened and checked for errors, including the ten Settings and About
+tabs that were never being swept before. The page list is a single table the app itself
+renders from, so a page that exists is a page with a test.</li>
+<li><strong>the window itself</strong> is checked — the background colour that fixes the white flash on open,
+external links opening in resmon’s own window rather than throwing you out to a browser, and
+the Back/Forward menu items.</li>
+<li><strong>the seventeen tutorial videos and the in-app blog</strong> are checked to have actually <em>loaded</em>.
+A video that has been removed still returns a normal response and renders “Video
+unavailable”; each embed is now asked directly whether its player is really there.</li>
+<li><strong>the packaged app</strong> — the thing you actually install — is launched and walked, and it
+refuses to report success if it is checking a stale build.</li>
+</ul>
+<p>It runs on two machines in CI, because a Linux test runner has no window manager and cannot
+see window behaviour at all. Each run publishes a list of <strong>what it did not verify</strong>, rather
+than a green tick that implies everything.</p>
+<h2 id="also-in-this-release">Also in this release</h2>
+<ul>
+<li><strong>A Browse… button</strong> beside <em>“Where is the <code>claude</code> command?”</em> in Settings → AI. Both agent
+CLIs install somewhere a file dialog hides by default — <code>claude</code> under a hidden folder,
+<code>codex</code> inside the ChatGPT app bundle — so the picker is set up to show both. Typing the
+path by hand still works.</li>
+</ul>
+<h2 id="upgrading">Upgrading</h2>
+<p>Nothing to do, and no settings change. Windows and Linux update themselves. macOS builds are
+unsigned, so replace the app manually — right-click → Open on first launch.</p></div> </article>  <nav class="pager" aria-label="Other updates" data-astro-cid-g6jwv4qx> <div data-astro-cid-g6jwv4qx> <a href="/resmon/2026/09/04/resmon-update-16/" data-astro-cid-g6jwv4qx> <span class="pager-label" data-astro-cid-g6jwv4qx>Previous</span> <span data-astro-cid-g6jwv4qx>resmon Update 16 — September 4, 2026</span> </a> </div> <div class="pager-next" data-astro-cid-g6jwv4qx> <a href="/resmon/2026/09/06/resmon-update-18/" data-astro-cid-g6jwv4qx> <span class="pager-label" data-astro-cid-g6jwv4qx>Next</span> <span data-astro-cid-g6jwv4qx>resmon Update 18 — September 5, 2026</span> </a> </div> </nav>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html>  

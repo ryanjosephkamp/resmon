@@ -1,0 +1,266 @@
+---
+/**
+ * The home page, at `/resmon/`.
+ *
+ * Two audiences at once. A visitor wants to know what resmon is and how to get
+ * it; the app's Blog tab loads this exact URL into its embedded reader on first
+ * open and its reader wants the update list. Both are here, in that order, and
+ * the update list is complete rather than truncated so the in-app view loses
+ * nothing it had under Jekyll.
+ */
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import PostList from '../components/PostList.astro';
+import { byDateDescending } from '../lib/posts';
+import { url, GITHUB_REPO, GITHUB_RELEASES } from '../lib/urls';
+
+const posts = (await getCollection('posts')).sort(byDateDescending);
+const guide = (await getCollection('guide')).sort((a, b) => a.data.order - b.data.order);
+
+const description =
+  'resmon is a local-first desktop application that watches scholarly literature for a ' +
+  'researcher and says when the monitoring itself has broken.';
+
+/** Deliberately a short list, not the whole guide: the guide index has that. */
+const starting = ['overview', 'install', 'quick-start', 'sources'];
+const starters = starting
+  .map((slug) => guide.find((entry) => entry.id === slug))
+  .filter((entry): entry is (typeof guide)[number] => Boolean(entry));
+---
+
+<Base title="resmon" description={description} path="/" width="wide">
+  <section class="hero">
+    <h1>Literature surveillance that admits what it does not know</h1>
+    <p class="lede">
+      resmon watches 27 open-access scholarly repositories for the papers that match a
+      researcher's criteria, compiles them into chronological reading reports, and tells the
+      researcher when the watching itself has broken. It runs on the researcher's own machine:
+      the corpus, the credentials and the reports never leave it.
+    </p>
+    <p class="actions">
+      <a class="button" href={GITHUB_RELEASES}>Download a release</a>
+      <a class="button button-quiet" href={url('/guide/install/')}>Install from source</a>
+      <a class="button button-quiet" href={GITHUB_REPO}>Read the source</a>
+    </p>
+  </section>
+
+  <figure class="shot">
+    <img
+      src={url('/screenshots/dashboard.png')}
+      alt="The resmon dashboard: a left-hand navigation list, a panel explaining the three run types, a watchdog line reading that nothing looks wrong, and a recent-activity table with one completed Deep Dive against arXiv."
+      width="1440"
+      height="868"
+      loading="lazy"
+      decoding="async"
+    />
+    <figcaption>
+      The dashboard, from the end-to-end suite's own run against a disposable corpus.
+    </figcaption>
+  </figure>
+
+  <section class="band">
+    <h2>What it does</h2>
+    <div class="cards">
+      <article>
+        <h3>Watches, on a schedule</h3>
+        <p>
+          Deep Dive and Deep Sweep runs on demand, and Automated Deep Sweeps on a schedule, over
+          a catalog of sources each with its own rate limit and its own terms. A source that goes
+          down degrades a sweep; it does not fail it.
+        </p>
+      </article>
+      <article>
+        <h3>Says which kind of fact it has</h3>
+        <p>
+          A field extracted from a document, a field matched against the corpus and a field
+          guessed by a model are three different things, and resmon labels which is which.
+          Where it cannot know something, it says so instead of rendering a plausible number.
+        </p>
+      </article>
+      <article>
+        <h3>Notices when it has stopped working</h3>
+        <p>
+          A watchdog reports on the monitoring rather than the literature: which sources
+          answered, which returned nothing, and which have quietly stopped answering at all.
+        </p>
+      </article>
+      <article>
+        <h3>Keeps everything local</h3>
+        <p>
+          A SQLite corpus on the researcher's own disk, credentials in the operating system's
+          keyring, and an optional backup to their own Google Drive. No account, no server.
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>Start here</h2>
+    <ul class="link-list">
+      {
+        starters.map((entry) => (
+          <li>
+            <a href={url(`/guide/${entry.id}/`)}>{entry.data.title}</a>
+            <span>{entry.data.summary}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <p>
+      <a href={url('/guide/')}>All {guide.length} guide pages</a> ·{' '}
+      <a href={url('/reference/')}>Reference documents</a>
+    </p>
+  </section>
+
+  <section class="band">
+    <h2 id="updates">Updates</h2>
+    <p class="band-note">
+      Every release update, newest first. The in-app <strong>About resmon → Blog</strong> tab reads
+      the same posts from <a href={url('/feed.xml')}>this site's Atom feed</a>.
+    </p>
+    <PostList posts={posts} withSummary />
+  </section>
+</Base>
+
+<style>
+  .hero {
+    max-width: var(--measure);
+    padding-bottom: var(--space-6);
+  }
+
+  .hero h1 {
+    margin-top: 0;
+    font-size: var(--text-2xl);
+  }
+
+  .lede {
+    font-size: var(--text-lg);
+    color: var(--color-text-muted);
+    line-height: var(--leading-snug);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-5);
+  }
+
+  .button {
+    display: inline-block;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-md);
+    border: var(--border-width) solid var(--color-link);
+    background: var(--color-link);
+    color: var(--color-text-inverse);
+    text-decoration: none;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+  }
+
+  .button:hover {
+    background: var(--color-link-hover);
+    border-color: var(--color-link-hover);
+    color: var(--color-text-inverse);
+  }
+
+  .button-quiet {
+    background: transparent;
+    color: var(--color-link);
+    border-color: var(--color-border-strong);
+  }
+
+  .button-quiet:hover {
+    background: var(--color-accent-surface);
+    color: var(--color-link);
+    border-color: var(--color-link);
+  }
+
+  .shot {
+    margin: 0 0 var(--space-6);
+  }
+
+  .shot img {
+    display: block;
+    width: 100%;
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+
+  .shot figcaption {
+    margin-top: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--color-text-faint);
+  }
+
+  .band {
+    padding-block: var(--space-6);
+    border-top: var(--border-width) solid var(--color-border);
+  }
+
+  .band h2 {
+    margin-top: 0;
+  }
+
+  .band-note {
+    max-width: var(--measure);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .cards {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .cards article {
+    padding: var(--space-4);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+
+  .cards h3 {
+    margin-top: 0;
+    font-size: var(--text-base);
+  }
+
+  .cards p {
+    margin-bottom: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .link-list {
+    list-style: none;
+    margin: 0 0 var(--space-4);
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
+    max-width: var(--measure);
+  }
+
+  .link-list li {
+    margin-top: 0;
+  }
+
+  .link-list a {
+    font-weight: var(--weight-semibold);
+  }
+
+  .link-list span {
+    display: block;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  @media (min-width: 46rem) {
+    .hero h1 {
+      font-size: var(--text-3xl);
+    }
+
+    .cards {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+</style>

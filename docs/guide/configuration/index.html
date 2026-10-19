@@ -1,0 +1,59 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-5hce7sga> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Configuration · resmon</title><meta name="description" content="Configuration types, the JSON shape they are stored in, and the export and import workflow."><link rel="canonical" href="https://ryanjosephkamp.github.io/resmon/guide/configuration/"><meta property="og:type" content="website"><meta property="og:site_name" content="resmon"><meta property="og:title" content="Configuration · resmon"><meta property="og:description" content="Configuration types, the JSON shape they are stored in, and the export and import workflow."><meta property="og:url" content="https://ryanjosephkamp.github.io/resmon/guide/configuration/"><meta name="twitter:card" content="summary"><link rel="alternate" type="application/atom+xml" title="resmon updates" href="/resmon/feed.xml"><link rel="stylesheet" href="/resmon/static/_permalink_.BO_mAna1.css">
+<style>.doc-head[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-5);padding-bottom:var(--space-4);border-bottom:var(--border-width) solid var(--color-border)}.doc-head[data-astro-cid-c2uqhu5p] h1[data-astro-cid-c2uqhu5p]{margin:0}.eyebrow[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.meta[data-astro-cid-c2uqhu5p]{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p]{margin-bottom:var(--space-6);padding:var(--space-4);background:var(--color-surface);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-md)}.contents-heading[data-astro-cid-c2uqhu5p]{margin:0 0 var(--space-2);font-size:var(--text-xs);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-faint)}.contents[data-astro-cid-c2uqhu5p] ul[data-astro-cid-c2uqhu5p]{margin:0;padding-inline-start:var(--space-5);font-size:var(--text-sm)}.contents[data-astro-cid-c2uqhu5p] li[data-astro-cid-c2uqhu5p]+li[data-astro-cid-c2uqhu5p]{margin-top:var(--space-1)}
+</style></head> <body data-astro-cid-5hce7sga> <a class="skip-link" href="#main" data-astro-cid-5hce7sga>Skip to content</a> <header class="masthead" data-astro-cid-5hce7sga> <div class="shell masthead-inner" data-astro-cid-5hce7sga> <a class="wordmark" href="/resmon/" data-astro-cid-5hce7sga>
+resmon<span class="wordmark-dot" data-astro-cid-5hce7sga>.</span> </a> <nav aria-label="Primary" data-astro-cid-5hce7sga> <ul class="nav" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga> <a href="/resmon/" data-astro-cid-5hce7sga> Overview </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/guide/" aria-current="page" data-astro-cid-5hce7sga> Guide </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/reference/" data-astro-cid-5hce7sga> Reference </a> </li><li data-astro-cid-5hce7sga> <a href="/resmon/updates/" data-astro-cid-5hce7sga> Updates </a> </li> <li data-astro-cid-5hce7sga> <a href="https://github.com/ryanjosephkamp/resmon" rel="noopener" data-astro-cid-5hce7sga>GitHub</a> </li> </ul> </nav> </div> </header> <main id="main" class="shell main" data-astro-cid-5hce7sga>  <article data-astro-cid-c2uqhu5p> <header class="doc-head" data-astro-cid-c2uqhu5p> <p class="eyebrow" data-astro-cid-c2uqhu5p>Guide</p> <h1 data-astro-cid-c2uqhu5p>Configuration</h1> <p class="meta" data-astro-cid-c2uqhu5p>Configuration types, the JSON shape they are stored in, and the export and import workflow.</p> </header>  <div class="prose" data-astro-cid-c2uqhu5p><h2 id="configuration">Configuration</h2>
+<p>resmon persists reusable search parameters as named rows in the <code>configurations</code> table and treats them as the primary unit of reproducibility for Deep Dive, Deep Sweep, and Routine runs. A configuration is a saved bundle of parameters — repository (or repository set), keywords, per-repository result cap, AI toggle and AI settings, email toggles, storage settings, and (for routines) schedule and execution-location fields. Date ranges are deliberately <strong>not</strong> persisted; they are chosen fresh per run or per routine fire so a saved configuration always produces a time-current window.</p>
+<h3 id="configuration-types">Configuration Types</h3>
+<p>Every row carries a <code>config_type</code> constrained by a CHECK constraint to one of three values:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th><code>config_type</code></th><th>Produced by</th><th>Consumed by</th><th>Purpose</th></tr></thead><tbody><tr><td><code>manual_dive</code></td><td>Deep Dive page’s <strong>Save Configuration</strong> action</td><td>Deep Dive page’s <strong>ConfigLoader</strong></td><td>Reusable single-repository query preset.</td></tr><tr><td><code>manual_sweep</code></td><td>Deep Sweep page’s <strong>Save Configuration</strong> action</td><td>Deep Sweep page’s <strong>ConfigLoader</strong></td><td>Reusable multi-repository query preset.</td></tr><tr><td><code>routine</code></td><td>Routines page’s create/edit modal</td><td>Routines page (restores everything except the date range) and the Calendar popover</td><td>Scheduled Automated Deep Sweep bound to a cron expression.</td></tr></tbody></table>
+<p>Rows are keyed by an auto-increment integer <code>id</code>; names are not uniquely constrained, so multiple configurations with the same name are permitted. The Configurations page at <code>#/configurations</code> opens on the <strong>Routine Configs</strong> tab by default and exposes a <strong>Manual Configs</strong> tab that shows <code>manual_dive</code> and <code>manual_sweep</code> entries together.</p>
+<h3 id="json-shape">JSON Shape</h3>
+<p>The <code>parameters</code> column stores a JSON document whose shape matches the search page that produced it. Representative (non-exhaustive) field sets:</p>
+<ul>
+<li><strong><code>manual_dive</code></strong> — <code>repository</code> (single slug), <code>keywords</code>, <code>max_results</code>, <code>ai_enabled</code>, optional <code>ai_overrides</code> (<code>length</code>, <code>tone</code>, <code>model</code>).</li>
+<li><strong><code>manual_sweep</code></strong> — <code>repositories</code> (array of slugs), <code>keywords</code>, <code>max_results_per_repo</code>, <code>ai_enabled</code>, optional <code>ai_overrides</code>.</li>
+<li><strong><code>routine</code></strong> — every <code>manual_sweep</code> field plus <code>cron_expression</code>, <code>email_enabled</code>, <code>results_in_email</code>, <code>notify_on_completion</code>, and a <code>linked_routine_id</code> pointing at the row in the <code>routines</code> table that APScheduler registers a job under.</li>
+</ul>
+<p>Deleting a configuration whose <code>config_type</code> is <code>routine</code> cascades to the linked routine row when the stored parameters contain a valid <code>linked_routine_id</code> pointing at an existing routine; the delete-confirmation dialog surfaces the cascade count before the user confirms.</p>
+<h3 id="export-and-import-workflow">Export and Import Workflow</h3>
+<p>The Configurations page supports a round-trip JSON workflow for moving presets between machines:</p>
+<ol>
+<li>Select one or more rows via the per-row checkboxes or the select-all header checkbox.</li>
+<li>Click <strong>Export Selected</strong> — the frontend sends <code>POST /api/configurations/export</code> with <code>{ ids: [...] }</code>; the backend writes a ZIP archive of individual JSON files through <code>config_manager.export_configs</code> and returns <code>{ "path": "&#x3C;absolute path>" }</code>.</li>
+<li>The success banner shows the archive path for 10 seconds; on desktop a <strong>Reveal in Finder</strong> (macOS) / <strong>Reveal in File Explorer</strong> button is rendered when the Electron preload has exposed <code>window.resmonAPI.revealPath</code>.</li>
+<li>On the receiving machine, click <strong>Import</strong> and pick one or more <code>.json</code> files through the native file picker. Each file is validated — any file whose name does not end in <code>.json</code> short-circuits the entire batch with an inline error — and surviving files are POSTed as <code>multipart/form-data</code> to <code>/api/configurations/import</code>. The backend writes each upload to a temporary <code>.json</code> file and hands it to <code>config_manager.import_configs</code>, which validates the payload and inserts a new configuration row. The response carries <code>{ "imported": &#x3C;n>, "errors": [] }</code>.</li>
+<li>Click <strong>Delete Selected</strong> to open the confirmation dialog (which counts how many of the selected rows are routines so the cascade impact is visible). Confirming issues one <code>DELETE /api/configurations/{id}</code> per selected row; per-row failures are swallowed so the batch proceeds.</li>
+</ol>
+<p>Imports are always additive: a new row is inserted with a fresh integer id. Nothing is overwritten, so round-tripping is safe to repeat.</p></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell" data-astro-cid-5hce7sga> <p data-astro-cid-5hce7sga>
+resmon is a local-first literature-surveillance desktop application. Everything it
+          retrieves stays on the machine that retrieved it.
+</p> <ul class="footer-links" data-astro-cid-5hce7sga> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon" data-astro-cid-5hce7sga>Source</a></li> <li data-astro-cid-5hce7sga><a href="https://github.com/ryanjosephkamp/resmon/releases" data-astro-cid-5hce7sga>Releases</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/guide/license/" data-astro-cid-5hce7sga>License</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/third-party-notices/" data-astro-cid-5hce7sga>Third-party notices</a></li> <li data-astro-cid-5hce7sga><a href="/resmon/feed.xml" data-astro-cid-5hce7sga>Atom feed</a></li> </ul> </div> </footer> </body></html> 
