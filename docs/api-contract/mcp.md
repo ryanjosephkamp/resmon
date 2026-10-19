@@ -48,13 +48,13 @@ papers as the user's own.
 
 **And when neither names a port, that is a refusal too.** Until this amendment the server
 fell through to the default port in that case, justified here and in the code as the way
-to reach "a backend old enough not to write a port file". That justification could not be
-acted on: such a backend predates 2.2, so it publishes no token file either, and discovery
-skips any port whose token file is absent before it probes. The only backend the default
-could ever have reached is a current one — which, on the default port, is the background
-service. So the default was not a bridge to an old installation; it was a second route to
-the wrong corpus, and it opened whenever a harness was pointed at one instance's state
-directory without also being pointed at its port file.
+to reach "a backend old enough not to write a port file". By 2.2 that justification could
+no longer be acted on: such a backend predates 2.2, so it publishes no token file either,
+and discovery skips any port whose token file is absent before it probes. The only backend
+the default could still reach is a current one — which, on the default port, is the
+background service. So the default had stopped being a bridge to an old installation and
+become a second route to the wrong corpus, open whenever a harness was pointed at one
+instance's state directory without also being pointed at its port file.
 
 ### When the backend is not named, or not running
 
@@ -72,7 +72,7 @@ Nothing named a port, so nothing was tried:
 
 ```json
 {"error": "backend_unavailable",
- "message": "No resmon was named, so this server did not look for one and did not guess. Two things name one: the RESMON_PORT environment variable, and the port file a running resmon writes at <path>. Neither named a port. Guessing one would attach this harness to whichever resmon happens to be listening there — possibly another installation, over another database — and answering about the wrong corpus is worse than not answering. Start resmon and try again; if it is already running, set RESMON_PORT to its port, or point RESMON_PORT_FILE at the port file that instance writes.",
+ "message": "No resmon was named, so this server did not look for one and did not guess. Two things name one: the RESMON_PORT environment variable, and the port file a running resmon writes at <path>. Neither named a port. Guessing one would attach this harness to whichever resmon happens to be listening there -- possibly another installation, over another database -- and answering about the wrong corpus is worse than not answering. Start resmon and try again; if it is already running, set RESMON_PORT to its port, or point RESMON_PORT_FILE at the port file that instance writes.",
  "tried": [], "no_port_named": true}
 ```
 
@@ -783,7 +783,7 @@ is set out below so a reader is not left to infer it.
 | Was | Now | Why |
 |---|---|---|
 | Discovery had three steps: `RESMON_PORT`, the port file, then resmon's default port when neither named one. | Two steps. With neither naming a port, the answer is `backend_unavailable` carrying `no_port_named` and an empty `tried`. | The parity register's external-harness row has always required it: *a wrong or absent app is a refusal, never a silent fallback to the daemon's port*. The third step was that fallback. |
-| The default was documented as reaching "a backend old enough not to write a port file". | There is no such path, and this document no longer claims one. | A backend that writes no port file predates 2.2 and writes no token file either; discovery skips a port with no token file before probing it. The default could only ever have reached a *current* backend on that port — the background service. |
+| The default was documented as reaching "a backend old enough not to write a port file". | There is no such path any more, and this document no longer claims one. | True when written: the port file arrived in 1.8d with this server, and a backend from before it was reachable on the default port. 2.2 ended it — discovery began reading a token file before probing, and a backend that writes no port file writes no token file either. From 2.2 the only backend the default could reach was a *current* one on that port: the background service. |
 | "resmon is not running" was the error for every unreachable case. | It is the error for a **named** port that did not answer. An unnamed backend gets its own message. | The server cannot know whether resmon is running on a port nobody named. Saying so would be an assertion it has not earned. |
 
 **What a caller has to do differently.** A harness that named a port, by either mechanism,
