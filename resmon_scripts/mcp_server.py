@@ -353,14 +353,24 @@ def _candidate_ports() -> list[int]:
     survived underneath it, justified as serving "an older backend that
     predates the port file".
 
-    **That justification was unreachable, which is the part worth recording.**
-    A backend old enough not to write a port file is older than 2.2, so it
-    writes no token file either, and :meth:`Backend.base_url` skips any port
-    whose token file is absent before it probes anything. The default could
-    therefore never have reached the old backend it was kept for. What it
-    *could* reach is a backend new enough to publish a token -- and on the
-    default port, on a machine where resmon's background service is installed,
-    that is the service.
+    **That justification had become unreachable, which is the part worth
+    recording.** A backend old enough not to write a port file is older than
+    2.2, so it writes no token file either, and :meth:`Backend.base_url` skips
+    any port whose token file is absent before it probes anything. The default
+    could therefore not reach the old backend it was kept for. What it *could*
+    reach is a backend new enough to publish a token -- and on the default
+    port, on a machine where resmon's background service is installed, that is
+    the service.
+
+    It is worth being exact about this, because the lesson is not that someone
+    wrote a bad reason. The reason was true when it was written: the port file
+    arrived in 1.8d alongside this server, and a backend from before it really
+    was out there and really was reachable on the default port. It stopped
+    being true three weeks later, when the 2.2 local API lock-down made
+    ``base_url`` read a token file before probing -- a change about
+    authentication, in which nobody had cause to re-read discovery. A
+    justification can expire somewhere else in the codebase without anyone
+    touching the line it justifies.
 
     So the default was never a bridge to an old installation; it was a second
     route to the wrong corpus, and it opened whenever the two state locations
