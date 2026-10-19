@@ -112,10 +112,12 @@ test('P10: the Profiles route is in the sweep table and the sweep grew by exactl
     // queue is the twenty-sixth; Chats the twenty-seventh; Library the twenty-eighth; Evidence the twenty-ninth;
     // the Source wall the thirtieth. Updated by hand:
     // adding a page has to cost somebody a line here, or the denominator stops
-    // being a denominator. It is the third hand-kept route counter in the
-    // tree -- the others are `src/__tests__/routes.test.tsx` and
-    // `test_selected_evidence_boundary.py` -- and only one of the three is
-    // covered by the API-contract guard.
+    // being a denominator. Four counters in the tree hold a route total by
+    // hand and only one of them is the API-contract guard everyone knows
+    // about: this one, `src/__tests__/routes.test.tsx`,
+    // `test_selected_evidence_boundary.py` and `test_response_models.py`.
+    // They were found one at a time, each as a red that looked like a real
+    // regression -- see F21 in the workspace plan for folding them into one.
     expect(hashes).toContain('/reading-queue');
     expect(hashes).toContain('/library');
     expect(hashes).toContain('/evidence');
