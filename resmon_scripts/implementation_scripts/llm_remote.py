@@ -138,10 +138,25 @@ def _google_request(
     user_text: str,
     params: dict[str, Any],
 ) -> str:
+    # **The key rides in a header, not in the query string.** Google accepts
+    # `?key=<secret>` and this module sent it that way, which puts the
+    # credential in the one part of a request that every proxy in between
+    # writes to its access log -- and that anything quoting the URL repeats.
+    # This module's *logging* was never the problem: `_as_ai_error` and
+    # `_sanitize_error` strip the key by exact value before any record is
+    # emitted, which is exactly why the line survived here after the same line
+    # was fixed in `assistant_api_runtime._call_google`. A sanitizer cannot
+    # reach a request that has already left the process.
+    # `x-goog-api-key` is the slot the Generative Language API documents for
+    # this endpoint.
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:generateContent?key={api_key}"
+        f"{model}:generateContent"
     )
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,
+    }
     payload = {
         "system_instruction": {"parts": [{"text": system_instruction}]},
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
@@ -151,7 +166,7 @@ def _google_request(
         },
     }
     with httpx.Client(timeout=120) as client:
-        resp = client.post(url, json=payload)
+        resp = client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
         data = resp.json()
     return data["candidates"][0]["content"]["parts"][0]["text"]
