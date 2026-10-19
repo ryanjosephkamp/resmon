@@ -1,4 +1,4 @@
-# The webhook receiver contract (gate demonstration — reverted in the next commit)
+# The webhook receiver contract
 
 resmon can deliver a routine's report to an HTTPS endpoint you own. This page is
 what you need to write the thing on the other end. It documents behaviour that
