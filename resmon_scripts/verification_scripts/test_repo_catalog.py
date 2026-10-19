@@ -92,6 +92,7 @@ def test_catalog_as_dicts_shape():
         "attribution", "attribution_requirement", "attribution_source",
         "date_granularity",
         "entity_search",
+        "constraints",
     }
     for d in dicts:
         assert set(d.keys()) == expected_keys
