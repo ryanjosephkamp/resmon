@@ -63,12 +63,23 @@ import { absoluteUrl } from '../lib/urls';
  *
  * The cost is size. The app fetches this file on every open of **About resmon
  * -> Blog**, and each entry carries the post's full rendered HTML in
- * `<content>`. Measured on the 27 posts as they stand, that is roughly a
- * quarter of a megabyte against the 10-entry feed's 91 KB — one uncompressed
- * fetch of a static file from GitHub Pages, which serves it gzipped. It is
- * worth re-reading if the post count grows by an order of magnitude; the lever
- * to reach for then is dropping `<content>` from older entries, not a limit,
- * because `<summary>` is what the app's list actually displays.
+ * `<content>`. Measured on the 27 posts as they stand, that is 286,596 bytes
+ * against the 10-entry feed's 91,016, and 88,076 against 30,964 gzipped,
+ * which is how GitHub Pages serves it.
+ *
+ * **That 88 KB is paid on every tab open, not once.** `BlogTab.tsx` fetches
+ * with `cache: 'no-store'`, which bypasses the ten-minute cache GitHub Pages
+ * sets on this file, so opening the tab twice fetches it twice, and so does
+ * every press of **Refresh**. Nothing retained grows with the post count —
+ * `parseAtomFeed` keeps five fields per entry and cuts the summary at 240
+ * characters, discarding the `<content>` that is almost all of the bytes —
+ * so the cost is the transfer, not the memory.
+ *
+ * It is worth re-reading if the post count grows by an order of magnitude.
+ * The lever to reach for then is dropping `<content>` from older entries, not
+ * a limit, because `<summary>` is what the app's list actually displays. A
+ * cheaper one, if the transfer ever matters, is for the component to stop
+ * passing `no-store`.
  */
 const FEED_LIMIT = Number.POSITIVE_INFINITY;
 

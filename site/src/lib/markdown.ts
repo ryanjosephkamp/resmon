@@ -130,6 +130,53 @@ function siteTargetFor(repoPath: string): string | null {
 }
 
 /**
+ * The same question for an image, which has a different right answer.
+ *
+ * `![alt](src)` is the same five characters of Markdown as a link and was
+ * going through the same function, which meant an image in a document would
+ * have been rewritten to `${REPO_BLOB}/…`. A `blob` URL is GitHub's HTML page
+ * *about* a file; an `<img>` pointed at one renders as a broken image. The
+ * `raw.githubusercontent.com` host is the file itself, which is why REPO_RAW
+ * exists, and before this it was reachable only from the README banner's raw
+ * `src=` attribute.
+ *
+ * There are no relative images in the content today, so nothing was rendering
+ * wrong — a reviewer found it by adding one. It is the same defect this pass
+ * exists to remove, one element over.
+ *
+ * `site/public/**` is copied verbatim into the output, so an image that lives
+ * there is served by the site and that is the better target.
+ */
+function imageTargetFor(repoPath: string): string | null {
+  const published = /^site\/public\/(.+)$/.exec(repoPath);
+  if (published && existsSync(join(REPO_ROOT, repoPath))) return `${BASE}/${published[1]}`;
+
+  if (existsSync(join(REPO_ROOT, repoPath))) return `${REPO_RAW}/${repoPath}`;
+
+  return null;
+}
+
+/**
+ * Is the `]` at `closeAt` the end of an image's label rather than a link's?
+ *
+ * Walks left from the closing bracket to the `[` that opens it, counting
+ * depth so a label containing its own brackets does not fool it, and reports
+ * whether a `!` sits immediately before that `[`.
+ */
+function isImage(markdown: string, closeAt: number): boolean {
+  let depth = 1;
+  for (let at = closeAt - 1; at >= 0; at -= 1) {
+    const character = markdown[at];
+    if (character === ']') depth += 1;
+    else if (character === '[') {
+      depth -= 1;
+      if (depth === 0) return markdown[at - 1] === '!';
+    }
+  }
+  return false;
+}
+
+/**
  * Rewrite the repository-relative links that appear in this content so they
  * resolve on the published site.
  *
@@ -150,15 +197,20 @@ export function rewriteLinks(markdown: string, options: RewriteOptions = {}): st
   const from = options.from ?? '.';
 
   // `](target)` and `](target "title")`, with no spaces or parentheses in the
-  // target — the forms these documents actually use. A link whose target is
-  // already a URL, a fragment or a site-absolute path is left alone.
+  // target — the forms these documents actually use. A target that is already
+  // a URL, a fragment or a site-absolute path is left alone.
+  //
+  // Whether this `](` closes an image rather than a link is decided by walking
+  // back to the `[` that opened it and looking for a `!`, not by widening the
+  // pattern to `!?\[([^\]]*)\]`: a label can contain a `]`, as in
+  // ``[`list[0]`](x)``, and the narrow pattern is what keeps those working.
   const out = markdown.replace(
     /\]\((?!<)([^()\s#]+)(#[^()\s]*)?((?:\s+"[^"]*")?)\)/g,
-    (whole, target: string, fragment = '', title = '') => {
+    (whole, target: string, fragment = '', title = '', offset: number) => {
       if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|\/)/i.test(target)) return whole;
       const repoPath = normalizeRepoPath(from, target);
       if (repoPath === null) return whole;
-      const site = siteTargetFor(repoPath);
+      const site = isImage(markdown, offset) ? imageTargetFor(repoPath) : siteTargetFor(repoPath);
       return site === null ? whole : `](${site}${fragment}${title})`;
     },
   );

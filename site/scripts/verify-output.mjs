@@ -24,7 +24,17 @@
  * Differences that are intended are listed in EXPECTED_FEED_DIFFERENCES and are
  * reported but not fatal; anything not in that list is fatal.
  *
- * Usage, from `site/`:   node scripts/verify-output.mjs [--dir ../docs]
+ * Usage, from `site/`:   node scripts/verify-output.mjs [--dir <tree>]
+ *
+ * The default tree is `../docs`, the published one, and it has to be: `dist/`
+ * is the Astro build and by construction is *not* what GitHub Pages serves.
+ * `sync-docs.mjs` is what adds the preserved sources — the Markdown documents
+ * and `api-contract/openapi.json` — and only `docs/` has them. Run against
+ * `dist/` this script fails three checks on `openapi.json` alone and says
+ * nothing true about the site. It defaulted to `dist/` until now, which meant
+ * the documented command, bare `npm run verify`, was red while the command
+ * anyone actually ran carried an explicit `--dir ../docs`. A staleness gate in
+ * CI running the documented name would have shipped red on arrival.
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
@@ -37,7 +47,7 @@ const SITE = join(HERE, '..');
 const CAPTURE = join(SITE, 'capture');
 
 const dirArgIndex = process.argv.indexOf('--dir');
-const OUT = resolve(SITE, dirArgIndex === -1 ? 'dist' : process.argv[dirArgIndex + 1]);
+const OUT = resolve(SITE, dirArgIndex === -1 ? '../docs' : process.argv[dirArgIndex + 1]);
 
 const BLOG_ORIGIN = 'https://ryanjosephkamp.github.io';
 const BASE_PATH = '/resmon';
@@ -443,12 +453,20 @@ if (broken.size) {
  *
  *   - **off-base**: resolves outside `/resmon/`. Another site's problem, or
  *     nobody's.
- *   - **raw source**: resolves to a `.md`, `.py`, `.yml` or `LICENSE` path.
- *     Some of those paths really are served, because `sync-docs.mjs` preserves
- *     the Markdown sources in `docs/` — so the reader gets plain source text
- *     with no navigation and no way back, rather than the rendered page that
- *     exists one directory over. A 200 is not the same as a working link.
  *   - **404**: resolves under `/resmon/` to nothing at all.
+ *   - **raw source served**: resolves to a file that *is* served — because
+ *     `sync-docs.mjs` preserves the Markdown sources in `docs/` — but is
+ *     source text, not a page. The reader gets `text/markdown` with no
+ *     navigation and no way back, next door to the rendered page. A 200 is
+ *     not the same as a working link.
+ *
+ * **Existence is decided before extension, and that ordering is the point.**
+ * Keying the buckets off the extension alone, which is what this did first,
+ * put every `.md` link in "raw source" whether or not anything served it. On
+ * the published site that read as 25 raw-source links and 7 404s when the
+ * truth was 9 and 21: it understated the worst category threefold and
+ * overstated the mildest. The bucket a link lands in now is the answer a
+ * browser would get.
  *
  * `src/lib/markdown.ts` rewrites these at render time. This is what says it
  * worked.
@@ -458,7 +476,22 @@ const RAW_SOURCE = /(?:\.(?:md|markdown|py|ya?ml|txt|toml|cfg|ini)|\/LICENSE[A-Z
 /** `api-contract/index.html` -> the published URL path a browser would be at. */
 const publishedUrlOf = (page) => `${BASE_PATH}/${page.replace(/index\.html$/, '')}`;
 
-const documentLinks = { offBase: [], rawSource: [], notFound: [] };
+/**
+ * What GitHub Pages serves for a path under the base, or null.
+ *
+ * A path ending in `/` is the directory's `index.html`. An extensionless path
+ * that names a directory is redirected to it, which is a working link, so it
+ * is not counted against anything.
+ */
+function servedFileFor(resolved) {
+  const direct = fileFor(resolved);
+  if (existsSync(direct) && statSync(direct).isFile()) return direct;
+  if (/\.[a-z0-9]+$/i.test(resolved)) return null;
+  const asDirectory = fileFor(`${resolved}/`);
+  return existsSync(asDirectory) ? asDirectory : null;
+}
+
+const documentLinks = { offBase: [], notFound: [], rawServed: [] };
 let documentLinkCount = 0;
 for (const page of pages) {
   const html = readFileSync(join(OUT, page), 'utf8');
@@ -470,15 +503,15 @@ for (const page of pages) {
     const resolved = new URL(href, pageUrl).pathname;
     const row = `${page}  "${href}"  ->  ${resolved}`;
     if (!resolved.startsWith(`${BASE_PATH}/`)) documentLinks.offBase.push(row);
-    else if (RAW_SOURCE.test(resolved)) documentLinks.rawSource.push(row);
-    else if (!existsSync(fileFor(resolved))) documentLinks.notFound.push(row);
+    else if (servedFileFor(resolved) === null) documentLinks.notFound.push(row);
+    else if (RAW_SOURCE.test(resolved)) documentLinks.rawServed.push(row);
   }
 }
 
 const KINDS = [
   ['offBase', 'resolve outside /resmon/ altogether'],
-  ['rawSource', 'resolve to raw source text instead of the page that renders it'],
-  ['notFound', 'resolve under /resmon/ to nothing'],
+  ['notFound', 'resolve under /resmon/ to nothing (404)'],
+  ['rawServed', 'are served, but as raw source text rather than the page that renders it'],
 ];
 
 /**
@@ -507,12 +540,67 @@ for (const [kind, description] of KINDS) {
   }
 }
 if (documentLinkProblems === 0) {
-  const tolerated = [...documentLinks.offBase, ...documentLinks.rawSource, ...documentLinks.notFound];
+  const tolerated = [...documentLinks.offBase, ...documentLinks.notFound, ...documentLinks.rawServed];
   pass(
     `all ${documentLinkCount - tolerated.length} of ${documentLinkCount} document links resolve ` +
       `to a rendered page or off-site; the other ${tolerated.length} are the named files that ` +
       'left the repository before it was public',
   );
+}
+
+/*
+ * Images, which the check above cannot see.
+ *
+ * It matches `<a … href>`, and an `<img src>` is neither. That gap was not
+ * theoretical: `rewriteLinks` resolves `![alt](src)` through the same five
+ * characters of Markdown as a link, so a relative image in a document source
+ * rendered as `<img src="https://github.com/…/blob/main/…png">`. A `blob` URL
+ * is GitHub's HTML page *about* a file, so the image renders broken — and
+ * every check in this script still reported PASS. A reviewer found that by
+ * adding one image, which is the only reason it is known.
+ *
+ * Two properties, because either alone leaves the same hole open one element
+ * over. Every internal `src` resolves to a file the site serves; and no `src`
+ * anywhere is a `blob` URL, whatever host wrote it.
+ */
+process.stdout.write('\nImages — every <img> points at something that is an image\n');
+
+const BLOB_URL = /^https?:\/\/(?:www\.)?github\.com\/[^/]+\/[^/]+\/blob\//i;
+const unservedImages = [];
+const blobImages = [];
+let imageCount = 0;
+for (const page of pages) {
+  const html = readFileSync(join(OUT, page), 'utf8');
+  const pageUrl = new URL(publishedUrlOf(page), BLOG_ORIGIN);
+  for (const match of html.matchAll(/<img\b[^>]*?\ssrc="([^"]+)"/g)) {
+    const src = match[1];
+    imageCount += 1;
+    const row = `${page}  "${src}"`;
+    if (BLOB_URL.test(src)) {
+      blobImages.push(row);
+      continue;
+    }
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src)) continue; // off-site, and not a blob page
+    const resolved = new URL(src, pageUrl).pathname;
+    if (!resolved.startsWith(`${BASE_PATH}/`) || servedFileFor(resolved) === null) {
+      unservedImages.push(`${row}  ->  ${resolved}`);
+    }
+  }
+}
+
+if (blobImages.length) {
+  fail(
+    `${blobImages.length} of ${imageCount} <img> element(s) point at a github.com /blob/ URL, ` +
+      'which is an HTML page and not an image:',
+  );
+  for (const row of blobImages.slice(0, 10)) process.stdout.write(`        ${row}\n`);
+}
+if (unservedImages.length) {
+  fail(`${unservedImages.length} of ${imageCount} <img> element(s) point at nothing this site serves:`);
+  for (const row of unservedImages.slice(0, 10)) process.stdout.write(`        ${row}\n`);
+}
+if (!blobImages.length && !unservedImages.length) {
+  pass(`all ${imageCount} <img> src values are served by this site or are off-site, and none is a /blob/ page`);
 }
 
 // ---------------------------------------------------------------------------
