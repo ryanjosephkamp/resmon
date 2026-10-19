@@ -10,6 +10,7 @@ import ConfigLoader from '../components/Forms/ConfigLoader';
 import { notifyConfigurationsChanged } from '../lib/configurationsBus';
 import RepoKeyStatus from '../components/Repositories/RepoKeyStatus';
 import KeywordCombinationBanner from '../components/Forms/KeywordCombinationBanner';
+import SourceConstraintNotice from '../components/Forms/SourceConstraintNotice';
 import { useRepoCatalog } from '../hooks/useRepoCatalog';
 import PageHelp from '../components/Help/PageHelp';
 import InfoTooltip from '../components/Help/InfoTooltip';
@@ -195,7 +196,7 @@ const DeepDivePage: React.FC = () => {
             body: (
               <ol>
                 <li>Pick a repository. If it requires an API key, the key-status panel will tell you whether a key is already stored or needs to be provided for this run.</li>
-                <li>Optionally restrict the date range.</li>
+                <li>Optionally restrict the date range. If the repository cannot honor the window you set — DBLP, ERIC, OAPEN and Open Library search whole calendar years, NASA ADS whole months — a <strong>Before you run this</strong> panel appears under the dates and says what will actually be searched.</li>
                 <li>Enter one or more keywords (press Enter after each).</li>
                 <li>Adjust the results cap and, if desired, enable AI summarization.</li>
                 <li>Click <strong>Run Deep Dive</strong>. Progress streams to the Monitor page and the floating widget.</li>
@@ -241,6 +242,11 @@ const DeepDivePage: React.FC = () => {
           />
         )}
         <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} onDateFromChange={setDateFrom} onDateToChange={setDateTo} />
+        <SourceConstraintNotice
+          entries={[bySlug[repository]]}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+        />
         <KeywordInput keywords={keywords} onChange={setKeywords} />
 
         <div className="form-field">

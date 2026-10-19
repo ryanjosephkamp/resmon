@@ -39,6 +39,65 @@ export interface RepoCatalogEntry {
    * whether a window can be answered at all.
    */
   date_granularity: 'day' | 'month' | 'year';
+  /**
+   * What this source will do to a query before it is sent — the record the
+   * search forms read so a user learns about a reshaped window while they can
+   * still change it, rather than from a zero after waiting for a sweep.
+   */
+  constraints: SourceConstraints;
+}
+
+/**
+ * How faithfully the user's date window reaches the source.
+ *
+ * `whole_years` / `whole_months` say the request is coarser than the dates
+ * typed into the form; `window_rounding` says which way, and the two together
+ * are the only pair that tells a user whether to expect extra records or none.
+ */
+export type WindowEffect = 'as_asked' | 'whole_years' | 'whole_months';
+
+/**
+ * `inward`: only whole periods contained by the window are searched, so a
+ * window containing none returns nothing at all. `outward`: the whole periods
+ * the window touches are searched, so records outside the typed dates can
+ * come back.
+ */
+export type WindowRounding = 'none' | 'inward' | 'outward';
+
+/** `client_side` means the upstream has no query parameter and resmon matches the terms itself. */
+export type KeywordSearchMode = 'upstream' | 'client_side' | 'none';
+
+export type ConstraintKind =
+  | 'date_window'
+  | 'keyword_search'
+  | 'credential'
+  | 'result_cap'
+  | 'applied_default'
+  | 'record_filter';
+
+export interface SourceNotice {
+  kind: ConstraintKind;
+  /** What resmon will do, in the user's terms. Rendered verbatim. */
+  effect: string;
+  /** Where the sentence was read from. Carried, not rendered. */
+  established: string;
+}
+
+/**
+ * What resmon knows about a source before a search is submitted.
+ *
+ * Whether the source needs a credential is **not** here: that lives on
+ * `api_key_requirement` and `credential_name` of the same entry, and a second
+ * copy is the drift this record exists to prevent.
+ */
+export interface SourceConstraints {
+  window_effect: WindowEffect;
+  window_rounding: WindowRounding;
+  /** Whether records outside the typed dates are dropped again once they arrive. */
+  window_refiltered_locally: boolean;
+  keyword_search: KeywordSearchMode;
+  notices: SourceNotice[];
+  established: string;
 }
 
 /** present = stored; absent = not set; unreadable = the keyring would not answer. */

@@ -8,6 +8,7 @@ import ScheduleConfigurator, { StructuredSchedule } from '../Forms/ScheduleConfi
 import ConfigLoader from '../Forms/ConfigLoader';
 import RepoKeyStatus from '../Repositories/RepoKeyStatus';
 import KeywordCombinationBanner from '../Forms/KeywordCombinationBanner';
+import SourceConstraintNotice from '../Forms/SourceConstraintNotice';
 import { useRepoCatalog } from '../../hooks/useRepoCatalog';
 import DeliveryTargets from './DeliveryTargets';
 import InfoTooltip from '../Help/InfoTooltip';
@@ -388,6 +389,12 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
           </div>
         )}
         <DateRangePicker dateFrom={formDateFrom} dateTo={formDateTo} onDateFromChange={setFormDateFrom} onDateToChange={setFormDateTo} />
+        <SourceConstraintNotice
+          entries={formRepos.map((slug) => bySlug[slug])}
+          dateFrom={formDateFrom}
+          dateTo={formDateTo}
+          keywordsApply={formWatchMode === ''}
+        />
         {formWatchMode === '' ? (
           <KeywordInput keywords={formKeywords} onChange={setFormKeywords} />
         ) : (

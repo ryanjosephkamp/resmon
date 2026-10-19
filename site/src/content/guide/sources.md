@@ -100,11 +100,32 @@ Every catalog entry carries a **Date Filtering** row on the Repositories page sa
 date precision resmon's own query to that source can express. Most take exact dates. NASA ADS
 takes whole months. DataCite, DBLP, ERIC, Open Library and Semantic Scholar take whole years.
 
-Two of those **refuse** rather than widen. ERIC and Open Library expose only a publication year,
-so a window shorter than one whole calendar year cannot be answered at all — a record returned
-for a two-week window would have unknowable in-window status, and resmon does not widen a window
-you did not ask it to widen. Those searches come back empty by construction, and since 1.8.6 the
-run says exactly that instead of leaving you to guess.
+Four sources **refuse** rather than widen. DBLP, ERIC, OAPEN and Open Library record only a
+publication year, so a window containing no whole calendar year cannot be answered at all — a
+record returned for a two-week window would have unknowable in-window status, and resmon does
+not widen a window you did not ask it to widen. Those searches come back empty by construction,
+and since 1.8.6 the run says exactly that instead of leaving you to guess.
+
+### The forms say what will happen before you run
+
+Deep Dive, Deep Sweep, the routine editor and the saved-configuration editor each carry a
+**Before you run this** panel under the date range. It appears as soon as you select a source
+that will change something about your query, and it names the change in the terms of the dates
+you actually typed — "DBLP will search all of 2025 and 2026 — only the complete calendar years
+inside your dates", or "DBLP will not be searched at all: your dates contain no complete
+calendar year". Change the dates and the sentence changes with them.
+
+Most sources change nothing, so most of the time the panel is not there at all. That is the
+point of it: when it appears, it is worth reading. It also carries the standing facts that are
+not about dates — that bioRxiv and medRxiv have no keyword search of their own and resmon
+matches your terms against each title and abstract itself, that a bioRxiv search with no start
+date begins at January 1, 2020, that NDL Search returns at most 500 records per request and
+keeps only openly licensed metadata. Whether an API key is missing is not repeated there; the
+Key Status panel on the same form already says so and offers a field to fix it.
+
+Every sentence in that panel is derived from the source's own client code and is recorded
+beside the catalog entry it belongs to, so it cannot drift away from what the client actually
+does without a test failing.
 
 ### Source attributions
 
