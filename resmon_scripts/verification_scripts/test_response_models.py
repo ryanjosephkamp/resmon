@@ -626,6 +626,26 @@ def _drive_watchdog_and_first_run(drive: Drive) -> None:
     # where the call at the top of the scenario had it true.
     second_look = drive("GET", "/api/onboarding")
     assert second_look["show"] is False
+
+    # And once more with the keyring refusing to answer, because a step's
+    # ``done`` is three-valued and ``None`` is the state a model is most likely
+    # to get wrong. ``done: bool`` was in fact what this file declared first,
+    # and it turned this body into a 500 rather than mis-describing it — so the
+    # case is driven here and not only in ``test_onboarding.py``.
+    #
+    # Patched by hand rather than with ``monkeypatch``: this is a module-scoped
+    # fixture and the function-scoped one is not available in it.
+    original = resmon_mod.keyring_is_responsive
+    resmon_mod.keyring_is_responsive = lambda: False
+    try:
+        unreadable = drive("GET", "/api/onboarding")
+    finally:
+        resmon_mod.keyring_is_responsive = original
+    undecided = [s["id"] for s in unreadable["steps"] if s["done"] is None]
+    assert undecided == ["ai_key", "repository_key"], (
+        "an unreadable keyring must leave both credential steps undecided; "
+        f"this read left {undecided}")
+
     drive("POST", "/api/onboarding/dismiss")
 
 

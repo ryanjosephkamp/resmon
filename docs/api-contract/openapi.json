@@ -2036,15 +2036,22 @@
       },
       "OnboardingStep": {
         "additionalProperties": true,
-        "description": "One first-run step, as a fact rather than as prose.\n\n``done`` for the agent-CLI step is detection and not a login check, and\n``detail`` says which machine it looked on. The card renders ``detail``\nverbatim; it is not a key a client may synthesize.",
+        "description": "One first-run step, as a fact rather than as prose.\n\n``done`` is **three-valued**, and declaring it ``bool`` is a real mistake\nthat this file made and ``test_onboarding.py`` caught: the two credential\nsteps call ``_credential_present``, which answers ``None`` when the keyring\nwill not say. An unsigned macOS build is denied the items an earlier build\nstored, and \"no key\" there would tell somebody to add a key they already\nhave — so the backend declines to answer, and the model has to be able to\ncarry that. ``done: bool`` did not merely mis-describe it; it turned a 200\ninto a ``ResponseValidationError``, which is a 500.\n\n``detail`` says which machine it looked on, and for the agent-CLI step it\nis detection and not a login check. The card renders it verbatim; it is not\na key a client may synthesize.",
         "properties": {
           "detail": {
             "title": "Detail",
             "type": "string"
           },
           "done": {
-            "title": "Done",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Done"
           },
           "id": {
             "title": "Id",

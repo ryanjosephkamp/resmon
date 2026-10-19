@@ -1019,13 +1019,22 @@ class OnboardingCounts(LosslessModel):
 class OnboardingStep(LosslessModel):
     """One first-run step, as a fact rather than as prose.
 
-    ``done`` for the agent-CLI step is detection and not a login check, and
-    ``detail`` says which machine it looked on. The card renders ``detail``
-    verbatim; it is not a key a client may synthesize.
+    ``done`` is **three-valued**, and declaring it ``bool`` is a real mistake
+    that this file made and ``test_onboarding.py`` caught: the two credential
+    steps call ``_credential_present``, which answers ``None`` when the keyring
+    will not say. An unsigned macOS build is denied the items an earlier build
+    stored, and "no key" there would tell somebody to add a key they already
+    have — so the backend declines to answer, and the model has to be able to
+    carry that. ``done: bool`` did not merely mis-describe it; it turned a 200
+    into a ``ResponseValidationError``, which is a 500.
+
+    ``detail`` says which machine it looked on, and for the agent-CLI step it
+    is detection and not a login check. The card renders it verbatim; it is not
+    a key a client may synthesize.
     """
 
     id: str
-    done: bool
+    done: Optional[bool]
     detail: str
 
 
