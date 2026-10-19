@@ -37,8 +37,15 @@ scheme reached only by the entity path -- `api_dblp`'s SPARQL is the one -- is
 recorded but never exercised. It checks the
 shape of the request sequence, not the records: a client that re-issues the
 same request and then drops the reply on the floor passes this and is still
-broken. It is one row of the conformance harness the 2026-10-18 audit asked
-for, not the harness.
+broken.
+
+It is one row of the conformance harness the 2026-10-18 audit asked for, not
+the harness. Its siblings, built to the same shape:
+``test_client_outcome_conformance.py`` (a 5xx, and an unreadable 200, each
+leave a zero reason that does not read as an answer) and
+``test_client_pagination_conformance.py`` (``max_results`` fetches each record
+once and asks for the tail -- the row that catches the OpenAlex and DOAJ
+page-window defect).
 """
 
 from __future__ import annotations
