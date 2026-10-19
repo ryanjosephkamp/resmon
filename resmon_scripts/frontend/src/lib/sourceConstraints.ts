@@ -164,6 +164,14 @@ export interface SourceAdvisory {
  * to somebody filtering by date and not at all to somebody who is not, and
  * arXiv is on most people's selection every time.
  *
+ * **And it gives way to the concrete sentence when there is one.** For the
+ * eight sources that round a window, the stored notice is the general form
+ * of exactly what `windowSentence` has just said with the user's own dates
+ * in it. Printing both is saying it twice, and the abstract one is the half
+ * worth losing. The five sources whose notice says only that their window
+ * means a date other than the publication date get no computed sentence, so
+ * theirs survives — which is the whole reason they have one.
+ *
  * Whether a key is missing is **not** here. Every form that mounts this also
  * mounts `RepoKeyStatus`, which says so in colour and offers a field to fix
  * it, and saying it twice on one screen is the same noise as saying it about
@@ -181,6 +189,7 @@ export function advisoriesFor(
     const window = windowSentence(entry, dateFrom, dateTo);
     const notices = entry.constraints.notices
       .filter((n) => datesSet || !n.needs_date_window)
+      .filter((n) => !(window && n.kind === 'date_window'))
       .map((n) => ({ kind: n.kind, effect: n.effect }));
     if (!window && notices.length === 0) continue;
     out.push({ slug: entry.slug, name: entry.name, window, notices });

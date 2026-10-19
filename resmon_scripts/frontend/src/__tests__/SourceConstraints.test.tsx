@@ -259,4 +259,39 @@ describe('advisoriesFor', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].notices).toHaveLength(2);
   });
+
+  test('the general date notice gives way to the sentence about these dates', () => {
+    // A rounding source's stored notice is the abstract form of what
+    // windowSentence has just said with the user's own dates in it. Saying
+    // both is saying it twice.
+    const DBLP_WITH_NOTICE = entry('dblp', 'DBLP', {
+      window_effect: 'whole_years',
+      window_rounding: 'inward',
+      notices: [
+        {
+          kind: 'date_window',
+          effect: 'DBLP records only a year.',
+          established: 'fixture',
+          needs_date_window: true,
+        },
+        {
+          kind: 'record_filter',
+          effect: 'A DBLP record with no year is dropped.',
+          established: 'fixture',
+          needs_date_window: true,
+        },
+      ],
+    });
+    const [row] = advisoriesFor([DBLP_WITH_NOTICE], '2025-01-01', '2026-12-31');
+    expect(row.window).toContain('DBLP will search all of 2025 and 2026');
+    expect(row.notices.map((n) => n.kind)).toEqual(['record_filter']);
+  });
+
+  test('a source with no computed sentence keeps its date notice', () => {
+    // arXiv honours the window exactly, so there is nothing concrete to say
+    // and the general sentence is the only one there is.
+    const [row] = advisoriesFor([ARXIV_DATED], '2025-01-01', '2025-06-30');
+    expect(row.window).toBeNull();
+    expect(row.notices).toHaveLength(1);
+  });
 });
