@@ -238,7 +238,16 @@ def test_the_real_cli_session_sees_exactly_our_tools(backend):
     assert tools == expected, (
         f"missing: {sorted(expected - tools)}; unexpected: {sorted(tools - expected)}"
     )
-    assert len(tools) == 21
+    # Derived, not written down. This line read ``== 21`` from v1.3 until the
+    # audit of 18 October 2026: the surface has been 25 since contract v2.2
+    # added the four watch-profile tools, so the test failed on a *correct*
+    # session — and because the module is live_network + needs_agent_cli it
+    # failed where the merge gate cannot see it, while
+    # ``assistant_runtime``'s own module docstring went on citing it as the
+    # proof that the locked-down session gets only resmon's tools. The set
+    # comparison above is the real assertion; this one is here to catch a
+    # duplicate name in ``TOOLS`` collapsing the set.
+    assert len(tools) == len(mcp_server.TOOLS)
 
     # No built-in tool, and no MCP server the user configured elsewhere.
     assert not [t for t in tools if not t.startswith("mcp__resmon__")]
@@ -324,6 +333,15 @@ def test_no_tool_returns_the_canary_when_called_directly(backend):
         mcp_server.backend._base = None
 
 
+# One entry per read tool, looked up with ``[]`` so a tool with no entry is a
+# KeyError in the sweep above rather than a tool the sweep quietly skips.
+#
+# It listed 15 of 18 from contract v2.2 until the audit of 18 October 2026, so
+# the canary sweep had never called the three watch-profile reads -- the three
+# tools that return author-identity data, which is the material the canary is
+# most about. The equality test below is what should have caught that, and it
+# did: it was failing, unseen, because this module is live_network +
+# needs_agent_cli and neither marker runs in the merge gate.
 _READ_ARGS = {
     "health": {}, "search_corpus": {"query": "x"}, "find_similar": {"doc_id": 1},
     "list_sources": {}, "list_routines": {}, "get_routine": {"routine_id": 1},
@@ -332,11 +350,26 @@ _READ_ARGS = {
     "explain_match": {"doc_id": 1}, "get_paper_lifecycle": {"doc_id": 1},
     "get_analytics": {"view": "overview"}, "get_watchdog_findings": {},
     "export_references": {"exec_id": 1, "format": "bibtex"},
+    # v2.2, and the reason this table is checked rather than trusted.
+    "list_watch_profiles": {}, "get_watch_profile": {"profile_id": 1},
+    "get_profile_matches": {"profile_id": 1},
 }
 
 
 def test_the_read_argument_table_covers_every_read_tool():
-    assert set(_READ_ARGS) == set(mcp_server.READ_TOOLS)
+    """Denominator: ``mcp_server.READ_TOOLS``, which is derived from ``TOOLS``.
+
+    Needs neither the network nor a signed-in CLI, and carries both markers
+    only because they are set on the module. That is the whole reason it went
+    unseen; the fix for *that* is the weekly live job reporting what it could
+    not run, which it now does.
+    """
+    missing = sorted(set(mcp_server.READ_TOOLS) - set(_READ_ARGS))
+    extra = sorted(set(_READ_ARGS) - set(mcp_server.READ_TOOLS))
+    assert (missing, extra) == ([], []), (
+        f"{len(_READ_ARGS)} of {len(mcp_server.READ_TOOLS)} read tools have "
+        f"arguments; missing: {missing}; no longer a read tool: {extra}"
+    )
 
 
 # ---------------------------------------------------------------------------

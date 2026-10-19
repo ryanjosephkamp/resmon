@@ -340,7 +340,19 @@ class ApiKeyRuntime:
             # Nothing escapes into a half-written SSE response: a truncated
             # stream is, in a panel, indistinguishable from a model that stopped
             # mid-sentence. 1.9a shipped that bug twice.
-            logger.exception("API-key assistant turn failed")
+            #
+            # **No ``logger.exception`` here.** It used to sit above this line
+            # and it wrote the raw traceback, whose last line is the exception's
+            # own message -- and an ``httpx.HTTPStatusError``'s message embeds
+            # the request URL, which carried the Google key in its query string.
+            # The backend calls ``setup_app_logger`` nowhere and uvicorn
+            # installs no root handler, so the record went out through
+            # ``logging.lastResort`` to stderr, which Electron pipes into the
+            # main process console. The sanitized sentence was always correct;
+            # only the log was not. ``_sentence_for`` now writes the log line
+            # itself, for the reason ``llm_remote._as_ai_error`` gives: one
+            # place, so every raise path reports identically and no future
+            # branch can forget.
             event = {
                 "type": "error",
                 "message": _sentence_for(exc, self.provider, self._key()),
@@ -724,10 +736,18 @@ class ApiKeyRuntime:
 
     def _call_google(self, key: str, constitution: str, tools: list[dict],
                      conversation: dict, usage: _Usage) -> dict:
-        url = (f"{self.base_url()}/v1beta/models/{self.model}:generateContent"
-               f"?key={key}")
+        # **The key rides in a header, not in the query string.** Google
+        # accepts ``?key=<secret>`` and this runtime used to send it that way,
+        # which puts the credential in the one part of a request that every
+        # proxy in between writes to its access log -- and that anything
+        # quoting the URL repeats, including ``httpx``'s own
+        # ``HTTPStatusError``. ``x-goog-api-key`` is the slot the Generative
+        # Language API documents for the same endpoint, and a header is not
+        # logged by default anywhere on that path.
+        url = f"{self.base_url()}/v1beta/models/{self.model}:generateContent"
         body = self._post(
-            url, headers={"Content-Type": "application/json"},
+            url, headers={"Content-Type": "application/json",
+                          "x-goog-api-key": key},
             payload={
                 "system_instruction": {"parts": [{"text": constitution}]},
                 "contents": conversation["messages"],
@@ -875,20 +895,44 @@ def _emit_done(emit: Callable[[dict], None], usage: _Usage, subtype: str,
 
 
 def _sentence_for(exc: Exception, provider: str, secret: Optional[str]) -> str:
-    """One sentence a person can act on, with the key stripped out.
+    """One sentence a person can act on, with the key stripped out — and the
+    log line, written here rather than by the caller.
 
-    Built from what the provider said, never from a guess — and sanitised twice,
+    Built from what the provider said, never from a guess — and sanitized twice,
     once against this runtime's own key and once against the shapes, because an
     upstream can echo back a key this process never sent.
+
+    **The logging is deliberately inside this function.** It is the same
+    decision ``llm_remote._as_ai_error`` wrote down for the summary lane:
+    *"Logging happens here so every raise path reports identically and no
+    future branch can forget."* This runtime did not inherit it, and the caller
+    that should have had it called ``logger.exception`` instead — which writes
+    the traceback, and the traceback's last line is the exception's own
+    message, URL and all. So the record a handler receives is the classified,
+    sanitized sentence, and no path reaches a handler any other way.
+
+    What is lost with the traceback is the stack, which is why the record names
+    the provider, the classified kind and the exception's type: enough to
+    answer a support question without the frames.
     """
     from .ai_errors import classify_exception  # noqa: PLC0415
 
     try:
         error = classify_exception(exc, provider=provider, model="",
                                    credential_alias=None, secret=secret or "")
-        return str(error.message)
+        message = str(error.message)
+        logger.error(
+            "API-key assistant turn failed (provider=%s, kind=%s, exception=%s): %s",
+            provider, error.kind.value, type(exc).__name__, message,
+        )
+        return message
     except Exception:                                # pragma: no cover - defensive
-        text = str(exc)
-        if secret and secret in text:
-            text = text.replace(secret, "[REDACTED]")
-        return f"The {provider} API could not answer that turn: {text[:300]}"
+        from .ai_errors import sanitize  # noqa: PLC0415
+
+        text = sanitize(exc, secret)
+        message = f"The {provider} API could not answer that turn: {text[:300]}"
+        logger.error(
+            "API-key assistant turn failed (provider=%s, kind=unclassified, "
+            "exception=%s): %s", provider, type(exc).__name__, message,
+        )
+        return message

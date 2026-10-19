@@ -37,6 +37,10 @@ import resmon as resmon_mod  # noqa: E402,F401
 
 BASE = "http://127.0.0.1:8742"
 
+# Derived rather than written down, so narrowing the allowlist cannot quietly
+# take the two settings routes out of this file's denominator.
+_WRITABLE_PROBE = sorted(mcp.SETTINGS_KEYS_WRITABLE)[0]
+
 # Arguments chosen to reach *every* path each tool can reach, not just one.
 # A tool with several endpoints behind it gets several entries: that is why
 # ``export_references`` and ``get_analytics`` are lists of six and two.
@@ -76,7 +80,12 @@ TOOL_ARGS: dict[str, list[dict]] = {
     "run_routine": [{"routine_id": 1}],
     "activate_routine": [{"routine_id": 1}],
     "deactivate_routine": [{"routine_id": 1}],
-    "update_settings": [{"group": g, "settings": {"anything": "x"}}
+    # Any key on the writable allowlist; which group it really belongs to is
+    # irrelevant here, because the double below answers for all of them and
+    # what this file measures is which *routes* a tool reaches. A key that is
+    # not writable is refused before the GET, and both settings routes would
+    # silently drop out of the denominator.
+    "update_settings": [{"group": g, "settings": {_WRITABLE_PROBE: "x"}}
                         for g in mcp.SETTINGS_GROUPS],
 }
 
@@ -92,11 +101,17 @@ def _calls() -> list[tuple[str, str]]:
         # matters is that the *next* request also gets recorded -- update_settings
         # sends three, and a double that 404'd would hide two of them.
         body = {"anything": "x", "id": 1}
-        if path == "/api/settings/embeddings" and method == "GET":
-            # The real GET wraps writable settings alongside capability data.
-            # A flat double makes the corrected tool refuse before its PUT and
-            # silently drops a real route from this discovery denominator.
-            body = {"settings": {"anything": "x"}, "capability": {}}
+        if path.startswith("/api/settings/") and method == "GET":
+            # Every writable key, so the probe above is in whichever group it
+            # was aimed at: the tool refuses a key the group does not hold,
+            # which would drop the PUT out of this discovery denominator.
+            body = {key: "x" for key in mcp.SETTINGS_KEYS_WRITABLE}
+            if path == "/api/settings/embeddings":
+                # The real GET wraps writable settings alongside capability
+                # data. A flat double makes the corrected tool refuse before
+                # its PUT and silently drops a real route from this
+                # discovery denominator.
+                body = {"settings": body, "capability": {}}
         return httpx.Response(200, json=body,
                               request=httpx.Request(method, url))
 
