@@ -2475,6 +2475,9 @@
             "title": "Client Module",
             "type": "string"
           },
+          "constraints": {
+            "$ref": "#/components/schemas/RepositoryConstraints"
+          },
           "credential_name": {
             "anyOf": [
               {
@@ -2584,9 +2587,53 @@
           "attribution_requirement",
           "attribution_source",
           "date_granularity",
-          "entity_search"
+          "entity_search",
+          "constraints"
         ],
         "title": "RepositoryCatalogEntry",
+        "type": "object"
+      },
+      "RepositoryConstraints": {
+        "additionalProperties": true,
+        "description": "What resmon knows about a source *before* anybody presses the button.\n\nDeliberately not here: whether the source requires a credential. That is\non ``api_key_requirement`` and ``credential_name`` of the entry carrying\nthis object, and a second copy is the exact drift this record exists to\nprevent — the sweep engine's own list of keyed sources disagreed with the\ncatalog's for three releases and a source fell through the gap.\n\nAlso deliberately not here: whether the source is up. An outage is not\nsomething a user can act on while composing a query, it belongs to\n``zero_reason`` and the source wall, and a page that warned about every\nprovider's bad day would be warning about nothing.",
+        "properties": {
+          "established": {
+            "title": "Established",
+            "type": "string"
+          },
+          "keyword_search": {
+            "title": "Keyword Search",
+            "type": "string"
+          },
+          "notices": {
+            "items": {
+              "$ref": "#/components/schemas/RepositorySourceNotice"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "window_effect": {
+            "title": "Window Effect",
+            "type": "string"
+          },
+          "window_refiltered_locally": {
+            "title": "Window Refiltered Locally",
+            "type": "boolean"
+          },
+          "window_rounding": {
+            "title": "Window Rounding",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_effect",
+          "window_rounding",
+          "window_refiltered_locally",
+          "keyword_search",
+          "notices",
+          "established"
+        ],
+        "title": "RepositoryConstraints",
         "type": "object"
       },
       "RepositoryEntitySearch": {
@@ -2632,6 +2679,31 @@
           "established"
         ],
         "title": "RepositoryEntitySearch",
+        "type": "object"
+      },
+      "RepositorySourceNotice": {
+        "additionalProperties": true,
+        "description": "One sentence the interface shows before a search is submitted.\n\n``effect`` is the sentence itself, written as what resmon will do rather\nthan as the name of the limitation, because a user cannot act on\n\"year granularity\" and can act on \"it will search the whole of 2025\".\n``established`` is the code or the published wording the sentence was read\nfrom; it is not rendered beside the sentence, but it travels with it so\nthat anything downstream can say where the claim came from.",
+        "properties": {
+          "effect": {
+            "title": "Effect",
+            "type": "string"
+          },
+          "established": {
+            "title": "Established",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "effect",
+          "established"
+        ],
+        "title": "RepositorySourceNotice",
         "type": "object"
       },
       "RestartRequest": {

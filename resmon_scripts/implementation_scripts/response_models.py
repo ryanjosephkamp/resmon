@@ -1153,6 +1153,45 @@ class RepositoryEntitySearch(LosslessModel):
     established: str
 
 
+class RepositorySourceNotice(LosslessModel):
+    """One sentence the interface shows before a search is submitted.
+
+    ``effect`` is the sentence itself, written as what resmon will do rather
+    than as the name of the limitation, because a user cannot act on
+    "year granularity" and can act on "it will search the whole of 2025".
+    ``established`` is the code or the published wording the sentence was read
+    from; it is not rendered beside the sentence, but it travels with it so
+    that anything downstream can say where the claim came from.
+    """
+
+    kind: str
+    effect: str
+    established: str
+
+
+class RepositoryConstraints(LosslessModel):
+    """What resmon knows about a source *before* anybody presses the button.
+
+    Deliberately not here: whether the source requires a credential. That is
+    on ``api_key_requirement`` and ``credential_name`` of the entry carrying
+    this object, and a second copy is the exact drift this record exists to
+    prevent — the sweep engine's own list of keyed sources disagreed with the
+    catalog's for three releases and a source fell through the gap.
+
+    Also deliberately not here: whether the source is up. An outage is not
+    something a user can act on while composing a query, it belongs to
+    ``zero_reason`` and the source wall, and a page that warned about every
+    provider's bad day would be warning about nothing.
+    """
+
+    window_effect: str
+    window_rounding: str
+    window_refiltered_locally: bool
+    keyword_search: str
+    notices: list[RepositorySourceNotice]
+    established: str
+
+
 class RepositoryCatalogEntry(LosslessModel):
     """One source, as the Repositories page renders it.
 
@@ -1189,6 +1228,7 @@ class RepositoryCatalogEntry(LosslessModel):
     attribution_source: Optional[str]
     date_granularity: str
     entity_search: RepositoryEntitySearch
+    constraints: RepositoryConstraints
 
 
 class CredentialPresence(LosslessModel):
