@@ -56,6 +56,32 @@ are not what you meant, stop there.
 | `RESMON_JOURNEY_LAG` | Delays the app's own HTTP calls, e.g. `/api/routines=2500,/api/watchdog=1500`. This is how a read-after-write race is shown to be fixed rather than merely unobserved — widen the gap a read has to survive, and a read that was only passing because the machine was quiet fails. Unset, nothing is intercepted. |
 | `RESMON_JOURNEY_SCREENSHOT_DIR` | Where pictures land. Defaults to `journeys/screenshots/`, which is gitignored. |
 | `RESMON_PYTHON` | The interpreter the backend runs under. It is *not* part of the build under test; it only has to have `requirements.txt` installed. |
+| `RESMON_HIDDEN_WINDOW` | Set to `1` by `playwright.config.ts` for every run of this suite: the app's windows are created and loaded but never shown, so a run puts nothing on the screen. `RESMON_HIDDEN_WINDOW=0 npm run journeys` brings them back when you want to watch one. |
+
+### Why this suite runs with nothing on the screen
+
+A journey run launches the real app dozens of times, and it is the suite most
+likely to be running while somebody is working at the same Mac.
+`RESMON_BACKGROUND_WINDOW` (set here too) stops the launch taking the keyboard;
+it does not stop the window appearing, and `showInactive()` is measurably a
+window on the screen — a CoreGraphics census of one flagged launch's own
+process subtree returned one on-screen window, 1440x900 at 144,109. With
+`RESMON_HIDDEN_WINDOW=1` the same census returns none.
+
+Two consequences worth knowing before you debug a red row here:
+
+- **You cannot watch the run.** Re-run the row with `RESMON_HIDDEN_WINDOW=0`
+  and the app behaves exactly as it did before this existed.
+- **Screenshots still work** — Playwright captures from the renderer, not from
+  the screen — but a screenshot cannot tell you anything about where the window
+  was or whether it was in front.
+
+Chromium's background throttling is the risk this carries, and it was measured
+rather than assumed: a never-shown window on this Electron ran 366
+`requestAnimationFrame` callbacks and 187 16 ms timer ticks in three seconds
+against a shown window's 364 and 188, and reported
+`document.visibilityState === 'visible'`. The suite's own wall-clock is the
+other half of that check and it is in the pull request.
 
 ## What is here
 
