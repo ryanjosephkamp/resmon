@@ -262,6 +262,16 @@ Contract for the client itself:
 - `external_id` is stable across runs: dedup and the lifecycle checks key on it.
 - A malformed record is skipped and logged, never allowed to abort the batch.
 
+**"Degrades the sweep" is a rule about the client, not about the run's status.** The two
+were once read as one. The bullet above binds `search()`: one source's failure must not
+propagate as an exception that aborts the run. It does not follow that a run in which
+*nothing* answered is a success. Where every source that was asked came back with a
+recorded non-answer there is nothing left to degrade to, and the execution is `failed` —
+a run reporting `completed` with `result_count = 0` over a dead source states an empty
+field where a failure happened, which is the one thing this app exists to refuse. Sources
+resmon never asked — no key, withdrawn, no author query, a window the source filters too
+coarsely — are not failures and never make a run one.
+
 **The catalog is not decoration.** `rate_limit`, `upstream_policy` and
 `keyword_combination` are rendered to the user on the Repositories page and are read as
 statements of fact. `keyword_combination` in particular describes how the *upstream*

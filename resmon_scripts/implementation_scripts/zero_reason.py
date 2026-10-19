@@ -219,6 +219,40 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
     result is partial only when the client observed a terminal parse failure,
     its last request invocation failed, or a retained server cooldown stopped
     it before another transport.
+
+    **It does not fire on ``failures`` alone, and a branch that did was
+    written and then removed on 2026-10-18.** The reasoning is worth keeping,
+    because the gap it aimed at is real and the next reader will find it.
+
+    ``note_attempt()`` clears ``last_call_failed``, so a search making several
+    invocations can finish with a failed one behind it and the flag false --
+    which is how PubMed's ``_efetch`` lost a 503 batch, finished the rest, and
+    recorded ``ok`` over 300 of the 500 records the source held. Reading
+    ``failures`` instead looked like the general repair.
+
+    It is not, because of who actually produces that snapshot. Every client
+    was driven through a transport that fails once and then succeeds, and the
+    sequence of ``safe_request`` invocations recorded: 23 of 27 slugs make one
+    invocation and stop. The five that make a second -- ``eric``, ``dblp``,
+    ``biorxiv``, ``medrxiv`` and ``inspire_hep``, which run their documented
+    "retry once" ladder *outside* ``safe_request`` with ``max_retries=0`` --
+    re-issue the **same URL and the same params**. (``inspire_hep`` was missed
+    on the first count, which asked for a module constant rather than for the
+    behavior; ``test_client_failure_conformance.py`` now derives the set by
+    running the probe, so the next one cannot be missed the same way.) That is a request that recovered, so
+    nothing is missing, and calling it partial told the user *"ERIC returned 1
+    usable record before a later HTTP 503 request failed"* about a source that
+    answered. Meanwhile ``_efetch``'s ``break`` means no client abandons a
+    failed request and goes on to a different one, so the case the branch was
+    for cannot occur.
+
+    A client that someday skips a failed page and keeps going would need this
+    back. It would also be a defect in that client, and the fix belongs there:
+    a search that silently drops records is not something this module can
+    infer its way out of. Should it ever be reinstated, it must distinguish a
+    failure followed by a success *for the same logical request* from one
+    followed by a different request, and the guard has to reach the
+    re-invocation ladder rather than only the retry inside one invocation.
     """
     if not snapshot:
         return None

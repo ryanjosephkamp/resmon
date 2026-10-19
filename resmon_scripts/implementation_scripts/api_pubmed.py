@@ -83,6 +83,20 @@ class PubmedClient(BaseAPIClient):
         return data.get("esearchresult", {}).get("idlist", [])
 
     def _efetch(self, pmids: list[str]) -> list[NormalizedResult]:
+        """Fetch the PMIDs esearch named, stopping at the first batch that fails.
+
+        This loop used to ``continue`` past a failed batch. Every sibling
+        client breaks, and the difference is not stylistic: ``note_attempt()``
+        on the next batch clears ``last_call_failed``, so a later success
+        erased the failure from ``zero_reason.terminal_issue`` and the sweep
+        recorded ``status=ok`` with a result count silently short by the whole
+        lost batch. Measured on 500 PMIDs with the first of three batches
+        answering 503: 300 records returned, no partial note anywhere a user
+        could see it. ``zero_reason`` no longer lets a later success erase an
+        earlier failure either, but a client that skips records it was told to
+        fetch is a defect on its own, and breaking is what makes the retained
+        set end where the truncation actually happened.
+        """
         results: list[NormalizedResult] = []
         api_key = get_credential_for(self._exec_id, "pubmed_api_key")
         # Fetch in batches of 200
@@ -106,10 +120,10 @@ class PubmedClient(BaseAPIClient):
                 )
                 if response.status_code != 200:
                     logger.error("PubMed efetch returned %d", response.status_code)
-                    continue
+                    break
             except Exception:
                 logger.exception("PubMed efetch request failed")
-                continue
+                break
 
             results.extend(self._parse_xml(response.text))
 

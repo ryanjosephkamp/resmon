@@ -33,9 +33,11 @@ from .database import (
     link_execution_document,
     get_document_by_source,
     get_execution_by_id,
+    get_execution_sources,
     get_setting,
     record_execution_source,
 )
+from . import source_coverage
 from .logger import TaskLogger
 from .embedding_job import embed_documents, pending_ids
 from .near_duplicates import links_map
@@ -68,6 +70,21 @@ _REQUIRED_CREDENTIALS: dict[str, str] = {
     "nasa_ads": "nasa_ads_api_key",
     "springer": "springer_api_key",
 }
+
+# The recorded zero reasons that mean **resmon asked and the source did not
+# answer**, as opposed to resmon never having asked it.
+#
+# ``zero_reason.DID_NOT_ANSWER`` is the wider set and is the right one for
+# coverage, where the question is "can this source be counted as searched?".
+# Deciding that a whole *run* failed is a stronger claim and needs the
+# narrower one. ``missing_key`` is the settled case -- an execution must never
+# be ``failed`` solely because a key was not configured
+# (``test_missing_required_key_report.py``, 1.8.6) -- and ``retired``,
+# ``entity_unsupported`` and ``window_unanswerable`` are the same fact in
+# different clothes: resmon declined to ask, for a reason it can state, and
+# nothing broke. A run made entirely of those completed; it simply had nowhere
+# to look.
+_ASKED_AND_DID_NOT_ANSWER = frozenset({"upstream_failure", "parse_failure"})
 
 
 class SweepEngine:
@@ -943,23 +960,42 @@ class SweepEngine:
             end_time = now_iso()
             elapsed = time.monotonic() - wall_start
 
-            # If *every* requested repository failed to produce results due
-            # to an upstream or client error, surface the execution as
-            # ``failed`` rather than ``completed`` so the Monitor/Results
-            # pages and cancel/cleanup paths treat it as an error. When
-            # only a subset of repos errored, the execution still
-            # ``completed`` but the per-repo error messages remain visible
-            # in the task log and as ``repo_error`` progress events.
+            # Two routes to ``failed``, and they overlap on purpose.
+            #
+            # The first is the original: every requested repository raised.
+            # Surfacing that as ``failed`` rather than ``completed`` is what
+            # makes the Monitor/Results pages and the cancel/cleanup paths
+            # treat it as an error. When only a subset errored the execution
+            # still ``completed``, with the per-repo messages in the task log
+            # and as ``repo_error`` progress events.
             all_repos_errored = (
                 len(repo_errors) > 0
                 and len(repo_errors) == len(repositories)
             )
-            final_status = "failed" if all_repos_errored else "completed"
+
+            # The second exists because almost no client raises. A source that
+            # answers 4xx or 5xx is logged and broken out of, so it never
+            # reaches ``repo_errors`` at all: a sweep in which *every* source
+            # answered 503 had ``repo_errors == []`` and finished ``completed``
+            # with ``result_count = 0``, which is the exact shape this app
+            # exists to refuse. Whether any source answered is
+            # ``source_coverage``'s question and is asked there rather than
+            # recounted from exceptions here.
+            unanswered_summary = self._nothing_answered(exec_id)
+
+            failed = all_repos_errored or unanswered_summary is not None
+            final_status = "failed" if failed else "completed"
             error_summary: Optional[str] = None
             if all_repos_errored:
+                # Both routes can hold at once, and when they do the exception
+                # text is kept: it names what went wrong for each source,
+                # where the coverage summary only counts them. The verdict is
+                # the same either way.
                 error_summary = "; ".join(
                     f"{e['repository']}: {e['error']}" for e in repo_errors
                 )
+            elif unanswered_summary is not None:
+                error_summary = unanswered_summary
 
             update_execution_status(
                 self.db, exec_id, final_status,
@@ -971,7 +1007,7 @@ class SweepEngine:
                 error_message=error_summary,
             )
             task_log.finalize(
-                status="FAILED" if all_repos_errored else "COMPLETED",
+                status="FAILED" if failed else "COMPLETED",
                 stats={
                     "total": dedup_stats["total"],
                     "new": dedup_stats["new"],
@@ -1221,6 +1257,76 @@ class SweepEngine:
             logger.warning(
                 "Failed to record dedup figures for exec_id=%s: %s", exec_id, exc,
             )
+
+    def _nothing_answered(self, exec_id: int) -> Optional[str]:
+        """Did every source this run asked fail to answer it?
+
+        Returns ``source_coverage``'s own summary sentence when so, and
+        ``None`` when not. The sentence is returned rather than composed here
+        so there is one place that renders this vocabulary, the same rule the
+        zero-reason sentences follow.
+
+        The question is put to ``source_coverage.build`` rather than answered
+        from ``repo_errors``, because an exception count is the wrong
+        instrument: almost no client raises, and the audit's worst example is
+        a run where every source answered 503 and nothing raised at all. What
+        this function adds on top of ``build`` is only the narrowing the
+        verdict needs:
+
+        * **Every** selected source must have failed. One source answering
+          makes this a graded question -- how much of the field was actually
+          searched -- and grading it needs a status this schema cannot hold
+          yet. 26 of 27 failing is still ``completed`` here.
+        * A source whose outcome was never recorded is ``unknown``, and
+          ``unknown`` is not evidence. ``zero_reason`` refuses to call an
+          unexplained zero an answer and this refuses to call it a failure;
+          turning "resmon did not observe this" into "your monitor is broken"
+          is the same fabrication pointing the other way.
+        * A source resmon never asked did not fail. See
+          ``_ASKED_AND_DID_NOT_ANSWER``.
+        * A run that selected no sources asked nothing and so failed at
+          nothing. That is reachable and ordinary: a ``retractions`` watch
+          routine reads the corpus and deliberately carries an empty
+          repository list, so that the Monitor does not announce sources it
+          never touches.
+
+        Like ``_record_source``, a failure in here is logged and swallowed. A
+        run that found papers must not be turned into a failed one by a
+        bookkeeping read; the worst case is that this route stays quiet and
+        the original one decides, which is the behavior that shipped before.
+        """
+        try:
+            execution = get_execution_by_id(self.db, exec_id)
+            if execution is None:
+                return None
+            coverage = source_coverage.build(
+                execution, get_execution_sources(self.db, exec_id))
+            if coverage["total"] == 0 or coverage["counts"]["answered"]:
+                return None
+            # A raised query counts: resmon asked and the call did not come
+            # back. A *retired* source also lands on ``status == 'error'`` --
+            # the engine catches the registry's ValueError and records the
+            # withdrawal reason there (see the except branch in ``_run``) --
+            # and that one is not a failure, it is a source resmon declined to
+            # ask. Without this exclusion a dive on a retired source plus one
+            # that answered 503 recorded ``failed``; the single-retired case
+            # was hidden because ``all_repos_errored`` already fires on it.
+            asked_and_failed = sum(
+                source["category"] == "non_answer"
+                and source["zero_reason"] != "retired"
+                and (source["status"] == "error"
+                     or source["zero_reason"] in _ASKED_AND_DID_NOT_ANSWER)
+                for source in coverage["sources"]
+            )
+            if asked_and_failed != coverage["total"]:
+                return None
+            return str(coverage["summary"])
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "Could not read coverage to decide the status of exec_id=%s: %s",
+                exec_id, exc,
+            )
+            return None
 
     def _record_source(
         self,
