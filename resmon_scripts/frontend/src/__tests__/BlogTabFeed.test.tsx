@@ -22,7 +22,7 @@
  * added and goes red if the component ever starts dropping entries.
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -32,7 +32,69 @@ import BlogTab from '../components/AboutResmon/BlogTab';
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..');
 const PUBLISHED_FEED = join(REPO_ROOT, 'docs', 'feed.xml');
 
+/** The origin BlogTab.tsx locks its reader to. */
+const BLOG_ORIGIN = 'https://ryanjosephkamp.github.io';
+
 const publishedFeed = (): string => readFileSync(PUBLISHED_FEED, 'utf8');
+
+/**
+ * Everything from the first `<entry>` on.
+ *
+ * The feed carries a `<title>` and a `rel="alternate"` `<link>` of its own
+ * before the first entry, and both look exactly like an entry's. Reading from
+ * the whole document picks the feed-level ones up as if they were a post's,
+ * which is how the origin-lock case below first passed while rewriting
+ * nothing a reader would ever click.
+ */
+const entriesSection = (xml: string): string => xml.slice(xml.indexOf('<entry>'));
+
+/** Undo the five escapes the feed writes, so a title compares as it renders. */
+const unescapeXml = (value: string): string =>
+  value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+
+/** Each entry's title, in document order, read out of the feed. */
+const entryTitles = (xml: string): string[] =>
+  Array.from(entriesSection(xml).matchAll(/<title type="html">([^<]*)<\/title>/g)).map((match) =>
+    unescapeXml(match[1]),
+  );
+
+/**
+ * Each entry's preview text, as the component will render it.
+ *
+ * `parseAtomFeed` takes `<summary>`'s text, strips tags, collapses whitespace,
+ * trims and cuts at 240 characters. Reproduced here from the feed's bytes so
+ * that the length of the cut is asserted rather than assumed: a component that
+ * cut at 24 instead renders a plausible-looking list of shortened previews and
+ * is otherwise indistinguishable from a correct one.
+ *
+ * `cdata()` in `site/src/pages/feed.xml.ts` splits a literal `]]>` across two
+ * sections, so the markers are removed rather than matched as a single pair.
+ */
+const entrySummaries = (xml: string): string[] =>
+  Array.from(entriesSection(xml).matchAll(/<summary type="html">([\s\S]*?)<\/summary>/g)).map(
+    (match) =>
+      unescapeXml(match[1].split('<![CDATA[').join('').split(']]>').join(''))
+        .replace(/<[^>]+>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 240),
+  );
+
+/**
+ * Each entry's `rel="alternate"` href, in document order, read out of the feed.
+ *
+ * This is the field that becomes the `<webview>` src, which is the whole
+ * reason the origin lock exists.
+ */
+const entryHrefs = (xml: string): string[] =>
+  Array.from(
+    entriesSection(xml).matchAll(/<link href="([^"]+)" rel="alternate"/g),
+  ).map((match) => unescapeXml(match[1]));
 
 /** Serve `xml` to the component's one `fetch`, as GitHub Pages would. */
 function serveFeed(xml: string): jest.Mock {
@@ -53,23 +115,68 @@ async function renderedRows(): Promise<HTMLLIElement[]> {
   return Array.from(list.querySelectorAll('li'));
 }
 
+/** What the embedded reader is currently pointed at. */
+const readerSrc = (): string =>
+  document.querySelector('webview')?.getAttribute('src') ?? '';
+
 describe('BlogTab, against the published feed', () => {
   afterEach(() => {
     delete (global as unknown as { fetch?: unknown }).fetch;
   });
 
-  it('renders one row per entry in docs/feed.xml, however many there are', async () => {
+  it('renders one row per entry in docs/feed.xml, carrying the entry title', async () => {
     const xml = publishedFeed();
+
+    /*
+     * Counted with a regex over the bytes while the component counts with
+     * `getElementsByTagName` over a parsed DOM. Two different routes to the
+     * same number is the point: a regex cannot share a parsing mistake with a
+     * DOM traversal, so agreement means something.
+     *
+     * The greater-than-zero line is load-bearing. The two routes can only go
+     * blind together by both finding nothing — a feed that namespaced its
+     * elements as `<atom:entry>` would be missed by this regex and by the
+     * component's `getElementsByTagName('entry')` alike, and without this line
+     * the case would pass vacuously at 0 === 0.
+     *
+     * The regex can also be wrong in the other direction, and that is the
+     * direction to be wrong in: a post whose prose contains the literal
+     * `<entry ` would be counted here and not by the DOM, failing red on a
+     * feed that is fine. The feed has 11 CDATA sections and this blog does
+     * write about its own feed machinery, so that is a real possibility
+     * rather than a theoretical one. A confusing red is recoverable; a green
+     * that means nothing is not.
+     */
     const entriesInFile = (xml.match(/<entry[\s>]/g) ?? []).length;
     expect(entriesInFile).toBeGreaterThan(0);
 
     serveFeed(xml);
     const rows = await renderedRows();
 
-    // Counted out of the file, not written down here: the published feed has
-    // carried 10 entries and is about to carry 27, and neither number is the
-    // property. "None of them is dropped" is.
+    // The published feed has carried 10 entries and is about to carry 27, and
+    // neither number is the property. "None of them is dropped" is.
     expect(rows).toHaveLength(entriesInFile);
+
+    /*
+     * And one assertion about what is *in* a row, because the count and the
+     * order together still pass for a component that renders every post as
+     * "(untitled)" — `parseAtomFeed`'s fallback when a title is missing, and
+     * what the whole list would read if the title lookup ever broke.
+     */
+    const titles = entryTitles(xml);
+    expect(titles).toHaveLength(entriesInFile);
+    expect(rows[0].textContent).toContain(titles[0]);
+
+    /*
+     * And the preview, at its full length. `.slice(0, 240)` is the one number
+     * in `parseAtomFeed` that can be wrong by a lot and still look right: a
+     * list of previews cut at 24 reads as a list of previews. The expected
+     * text comes out of the feed through the same four steps the component
+     * applies, so this asserts the cut rather than restating it.
+     */
+    const summaries = entrySummaries(xml);
+    expect(summaries[0].length).toBeGreaterThan(24);
+    expect(rows[0].textContent).toContain(summaries[0]);
   });
 
   it('puts the newest post first', async () => {
@@ -94,7 +201,51 @@ describe('BlogTab, against the published feed', () => {
     await renderedRows();
 
     expect(stub).toHaveBeenCalledTimes(1);
-    expect(stub.mock.calls[0][0]).toBe('https://ryanjosephkamp.github.io/resmon/feed.xml');
+    expect(stub.mock.calls[0][0]).toBe(`${BLOG_ORIGIN}/resmon/feed.xml`);
+  });
+
+  it('opens each row at its own post, on the locked origin', async () => {
+    /*
+     * The field every other case here takes on trust.
+     *
+     * A row is a `<button>`, not an anchor: the link reaches the DOM only as
+     * the `<webview>`'s `src`, after `handleSelect` has checked it against the
+     * origin. So nothing about the rendered list says where a row goes, and a
+     * component that parsed every entry with `link: ''` would render the right
+     * number of rows, in the right order, with the right titles, and send a
+     * reader nowhere when they clicked one. The count, the order and the title
+     * cases all pass against exactly that.
+     *
+     * Asserting "every src is on the locked origin" would not catch it either,
+     * and that is worth spelling out: `handleSelect` *refuses* a link off the
+     * origin, so an empty link leaves the reader wherever it was — the blog
+     * index, which is on the locked origin. The assertion has to be that each
+     * click moves the reader to that row's own post.
+     */
+    const xml = publishedFeed();
+    const hrefs = entryHrefs(xml);
+    expect(hrefs.length).toBeGreaterThan(0);
+
+    serveFeed(xml);
+    const rows = await renderedRows();
+    expect(rows).toHaveLength(hrefs.length);
+
+    const indexUrl = `${BLOG_ORIGIN}/resmon/`;
+    expect(readerSrc()).toBe(indexUrl);
+
+    const opened: string[] = [];
+    for (const row of rows) {
+      const button = row.querySelector('button');
+      expect(button).not.toBeNull();
+      fireEvent.click(button as HTMLButtonElement);
+      opened.push(readerSrc());
+    }
+
+    // Every post reachable, each at its own URL, and none of them the index
+    // the reader started on — which is what an empty or refused link leaves.
+    expect(new Set(opened)).toEqual(new Set(hrefs));
+    expect(opened).not.toContain(indexUrl);
+    for (const src of opened) expect(src.startsWith(BLOG_ORIGIN)).toBe(true);
   });
 
   it('drops an entry whose link leaves the locked origin', async () => {
