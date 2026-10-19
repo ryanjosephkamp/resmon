@@ -126,10 +126,15 @@ describe('the renderer reproduces the backend classification, input for input', 
 
   test('the axes the renderer still names itself are the backend’s axes', () => {
     // `RECORDED_STATUSES` is the one set in `zeroReason.ts` that is still
-    // written out by hand rather than generated. The table's rows would catch
-    // a status *added* to the backend — it would arrive classified and this
-    // module would call it unknown — but not one *removed*, because the rows
-    // for it simply disappear. This closes that direction.
+    // written out by hand rather than generated.
+    //
+    // This does not claim the rows catch a status *added* to the backend on
+    // their own — a reviewer disproved that, by adding one with an `or status
+    // == "interrupted"` arm that the generator's parser skipped, so no row was
+    // ever generated for it. That is fixed where it belongs, in the parser,
+    // which now refuses a gate shape it cannot read. What this assertion adds
+    // is the other direction: a status *removed* from the backend takes its
+    // rows with it, and only holding the two sets side by side notices.
     expect([...RECORDED_STATUSES].sort()).toEqual([...table.axes.recorded_statuses].sort());
     expect([...ZERO_REASONS]).toEqual(table.axes.zero_reasons);
     // The generated vocabulary and the enumerated rule have to be describing

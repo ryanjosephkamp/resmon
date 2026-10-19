@@ -108,10 +108,34 @@ def recorded_statuses(path: Path = SOURCE_COVERAGE_PATH) -> tuple[str, ...]:
     exists to tie down. So the function is parsed instead.
 
     Strict on purpose, in the shape ``scripts/generate-zero-reason.js`` settled
-    on after review: exactly one ``status in {...}`` comparison against a set
-    of plain string literals, or this raises and names what it found. A guard
-    that shrugs at a shape it does not recognize is a guard that agrees with
-    whatever is there.
+    on after review: the gate is the one expression assigned to ``valid``, the
+    name ``status`` appears in it exactly once, and that occurrence is the left
+    side of an ``in`` against a set of plain string literals. Anything else
+    raises and names what it found. A guard that shrugs at a shape it does not
+    recognize is a guard that agrees with whatever is there.
+
+    **Why the gate expression and not the whole function.** An earlier draft
+    walked every ``Compare`` in ``outcome`` and skipped the ones that were not
+    ``ast.In``. A reviewer broke it in one line, which is the failure this
+    whole module exists to prevent -- not a crash, a *wrong table, silently*::
+
+        valid = (valid_count and (status in {"ok", ...} or status == "interrupted")
+                 and ...)
+
+    The ``status ==`` arm was skipped rather than counted, so the "exactly one"
+    check never fired, the axis came back as the four it already knew, and both
+    guards stayed green while ``source_coverage.outcome`` genuinely changed: an
+    ``interrupted`` row moved from ``unknown`` to ``non_answer`` and the
+    renderer went on saying ``unknown``. ``interrupted`` is a real
+    ``executions.status`` as of schema 19, so that is a plausible edit rather
+    than shape-golf.
+
+    Scoping to the ``valid`` assignment is what makes the strictness possible.
+    ``outcome`` compares ``status`` with ``==`` half a dozen times further down
+    -- choosing a note, picking a label -- and those are legitimate; refusing
+    every ``status ==`` in the function would refuse the real file. Inside the
+    gate expression there is no such thing as a legitimate second mention, so
+    the rule there can be absolute.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
@@ -123,40 +147,67 @@ def recorded_statuses(path: Path = SOURCE_COVERAGE_PATH) -> tuple[str, ...]:
     if function is None:
         raise ValueError(f"no top-level `outcome` function in {path}")
 
-    found: list[tuple[str, ...]] = []
-    for node in ast.walk(function):
-        if not isinstance(node, ast.Compare):
-            continue
-        if not (isinstance(node.left, ast.Name) and node.left.id == "status"):
-            continue
-        if len(node.ops) != 1 or not isinstance(node.ops[0], ast.In):
-            continue
-        comparator = node.comparators[0]
-        if not isinstance(comparator, ast.Set):
-            raise ValueError(
-                f"`status in ...` in {path.name} compares against "
-                f"{type(comparator).__name__}, which this reader does not "
-                "understand. Teach it the new shape rather than letting the "
-                "status axis silently shrink."
-            )
-        values = []
-        for element in comparator.elts:
-            if not (isinstance(element, ast.Constant) and isinstance(element.value, str)):
-                raise ValueError(
-                    f"the recorded-status set in {path.name} holds an entry "
-                    f"this reader does not understand: {ast.dump(element)}."
-                )
-            values.append(element.value)
-        found.append(tuple(values))
-
-    if len(found) != 1:
+    gates = [node for node in ast.walk(function)
+             if isinstance(node, ast.Assign)
+             and any(isinstance(t, ast.Name) and t.id == "valid" for t in node.targets)]
+    if len(gates) != 1:
         raise ValueError(
-            f"expected exactly one `status in {{...}}` comparison in "
-            f"{path.name}:outcome, found {len(found)}. The validity gate has "
-            "moved or been duplicated; this reader has to be taught where it "
-            "went before the table can be trusted."
+            f"expected exactly one assignment to `valid` in {path.name}:outcome, "
+            f"found {len(gates)}. The validity gate has moved, been renamed or "
+            "been duplicated; this reader has to be taught where it went before "
+            "the table can be trusted."
         )
-    return found[0]
+    gate = gates[0].value
+
+    # Every mention of the name, not every comparison. A second mention is how
+    # an `or status == "interrupted"` arm hides from a comparison-shaped scan,
+    # and it is also how `status.lower() in {...}` would -- there the name is
+    # inside a Call and is nobody's `left`, so a scan keyed on `left` skips it.
+    mentions = [node for node in ast.walk(gate)
+                if isinstance(node, ast.Name) and node.id == "status"]
+    if len(mentions) != 1:
+        raise ValueError(
+            f"the validity gate in {path.name}:outcome mentions `status` "
+            f"{len(mentions)} times; this reader understands exactly one "
+            "mention, as the left side of an `in` against a set of literals. "
+            "Teach it the new shape rather than letting it report an axis that "
+            "is no longer the whole gate."
+        )
+
+    compare = next(
+        (node for node in ast.walk(gate)
+         if isinstance(node, ast.Compare) and node.left is mentions[0]),
+        None,
+    )
+    if compare is None or len(compare.ops) != 1 or not isinstance(compare.ops[0], ast.In):
+        shape = "not a comparison at all" if compare is None else type(compare.ops[0]).__name__
+        raise ValueError(
+            f"`status` in the validity gate in {path.name}:outcome is {shape}, "
+            "not an `in` against a set of literals, which this reader does not "
+            "understand. Teach it the new shape rather than letting the status "
+            "axis silently shrink."
+        )
+
+    comparator = compare.comparators[0]
+    if not isinstance(comparator, ast.Set):
+        raise ValueError(
+            f"`status in ...` in {path.name} compares against "
+            f"{type(comparator).__name__}, which this reader does not "
+            "understand. Teach it the new shape rather than letting the "
+            "status axis silently shrink."
+        )
+
+    values = []
+    for element in comparator.elts:
+        if not (isinstance(element, ast.Constant) and isinstance(element.value, str)):
+            raise ValueError(
+                f"the recorded-status set in {path.name} holds an entry "
+                f"this reader does not understand: {ast.dump(element)}."
+            )
+        values.append(element.value)
+    if not values:
+        raise ValueError(f"the recorded-status set in {path.name} parsed as empty")
+    return tuple(values)
 
 
 def reason_axis() -> tuple[object, ...]:
@@ -207,10 +258,20 @@ def _answered(status: object, count: object, reason: object) -> bool:
 def _category(status: object, count: object, reason: object) -> str:
     """``source_coverage.outcome``'s category for one recorded row.
 
-    ``zero_detail`` is left empty throughout. The table's subject is the
-    classification of ``status`` / ``result_count`` / ``zero_reason``; the
-    detail dictionary feeds the *sentences* and the partial-answer flag, which
-    are served to the renderer rather than computed by it.
+    ``zero_detail`` is left empty throughout, and that is a boundary rather
+    than a fact about the data. The table's subject is the classification of
+    ``status`` / ``result_count`` / ``zero_reason``; the detail dictionary
+    feeds the *sentences*, which the backend renders and the renderer only
+    displays, and the *partial* flag, which it does not.
+
+    An earlier version of this docstring said the partial flag was "served to
+    the renderer rather than computed by it". That is wrong on the one path
+    that matters: ``api/zeroReason.ts`` has its own ``isPartialAnswer``, and
+    ``sweep_engine`` puts ``zero_detail`` on the ``repo_done`` event, so the
+    renderer both computes the flag and has the material to compute it
+    exactly. It currently computes a deliberately weaker predicate. Extending
+    this table with a ``zero_detail`` axis would cover that too; it is not
+    covered today and the PR says so.
     """
     row = {
         "source": "demo",

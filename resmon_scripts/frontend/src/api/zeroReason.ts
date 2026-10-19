@@ -56,12 +56,26 @@ export function answered(
  * The statuses a recorded source outcome can hold — `source_coverage.outcome`.
  *
  * Exported so `ZeroReasonTruthTable.test.ts` can hold it against the set the
- * backend's own validity gate uses. The truth table's rows catch a status
- * *added* to the backend on their own — it arrives classified and this module
- * calls it unknown — but not one *removed*, because its rows simply stop
- * being generated. This is the only set in this file still written out by
- * hand; it is four strings that are also a schema CHECK constraint, and
- * generating it would buy less than the comparison does.
+ * backend's own validity gate uses.
+ *
+ * An earlier version of this comment claimed the truth table's rows catch a
+ * status *added* to the backend "on their own". That is not true, and a
+ * reviewer showed why: the rows only catch an added status if the generator's
+ * status axis learned about it, and the axis is read out of
+ * `source_coverage.outcome` by a parser. Add the status with an `or status ==
+ * "interrupted"` arm rather than an entry in the set literal and the first
+ * parser skipped it in silence, so no row for it was ever generated and there
+ * was nothing to disagree about. The parser now refuses any gate shape it
+ * cannot read, which is what makes the rows trustworthy — the guarantee comes
+ * from the generator raising, not from the rows existing.
+ *
+ * What this comparison adds on top is the other direction: a status
+ * *removed* from the backend takes its rows with it, so only holding the two
+ * sets side by side catches it.
+ *
+ * This is the only set in this file still written out by hand; it is four
+ * strings that are also a schema CHECK constraint, and generating it would
+ * buy less than the comparison does.
  */
 export const RECORDED_STATUSES: ReadonlySet<string> = new Set([
   'ok', 'error', 'skipped_missing_key', 'cancelled',

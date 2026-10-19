@@ -131,7 +131,7 @@ def test_the_status_axis_is_read_from_the_categorizer_not_copied():
     ("""
      def outcome(row):
          return {"category": "unknown"}
-     """, "exactly one"),
+     """, "assignment to `valid`"),
     # Someone replaced the inline set with a module constant. That is a fine
     # refactor and this reader cannot follow it, so it must say so rather than
     # quietly producing an empty axis.
@@ -147,13 +147,59 @@ def test_the_status_axis_is_read_from_the_categorizer_not_copied():
          valid = status in {"ok", EXTRA}
          return {"category": "unknown"}
      """, "does not understand"),
-    # The gate was duplicated, so which one is the gate is no longer decidable.
+    # The gate was lifted into its own name, so the `valid` expression no
+    # longer mentions `status` at all and the axis this reader could report
+    # would not be the gate.
     ("""
      def outcome(row):
-         valid = status in {"ok"}
-         other = status in {"error"}
+         gate = status in {"ok"}
+         valid = valid_count and gate
          return {"category": "unknown"}
-     """, "exactly one"),
+     """, "mentions `status`"),
+    # **The reviewer's break, and the reason this function was rewritten.** A
+    # fifth status added with an `or` arm instead of an entry in the set. The
+    # first reader filtered on `ast.In`, so this arm was skipped rather than
+    # counted, the "exactly one" check never fired, and both guards stayed
+    # green while `outcome` genuinely reclassified an `interrupted` row.
+    ("""
+     def outcome(row):
+         valid = (valid_count
+                  and (status in {"ok", "error", "skipped_missing_key", "cancelled"}
+                       or status == "interrupted")
+                  and not malformed)
+         return {"category": "unknown"}
+     """, "mentions `status`"),
+    # The same family, one mention each, so the comparison shape is what has
+    # to refuse them: `==`, `!=` and `not in` are all readable Python and none
+    # of them is the gate this reader knows how to report.
+    ("""
+     def outcome(row):
+         valid = status == "ok"
+         return {"category": "unknown"}
+     """, "does not understand"),
+    ("""
+     def outcome(row):
+         valid = valid_count and status != "running"
+         return {"category": "unknown"}
+     """, "does not understand"),
+    ("""
+     def outcome(row):
+         valid = status not in {"running", "interrupted"}
+         return {"category": "unknown"}
+     """, "does not understand"),
+    # The name is there once, but inside a call rather than as the left of the
+    # comparison. A scan keyed on `left` skips it; this one must not.
+    ("""
+     def outcome(row):
+         valid = status.lower() in {"ok"}
+         return {"category": "unknown"}
+     """, "does not understand"),
+    # Two gates in one expression: which set is the axis is not decidable.
+    ("""
+     def outcome(row):
+         valid = status in {"ok"} and status in {"error"}
+         return {"category": "unknown"}
+     """, "mentions `status`"),
 ])
 def test_an_unreadable_validity_gate_stops_the_run(tmp_path, body, expected):
     path = tmp_path / "source_coverage.py"
