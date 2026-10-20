@@ -1,22 +1,40 @@
 import React,{useEffect,useId,useRef,useState} from 'react';
 import {Anchor,evidenceApi,EvidenceFile,Page,Project,SavedNote} from '../../api/evidence';
+import {useRuns} from '../../hooks/useRuns';
 export default function NotePanel({project,file,anchor,notes,member,onSaved,onClear,onReopen,onNext}:{project:Project;file:EvidenceFile|null;anchor:Anchor|null;notes:Page<SavedNote>|null;member:boolean;onSaved:(p:Project,n:SavedNote)=>Promise<void>;onClear:()=>void;onReopen:(n:SavedNote)=>void;onNext:()=>void}){
-  const [body,setBody]=useState('');const [editing,setEditing]=useState<SavedNote|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');const epoch=useRef(0);const input=useRef<HTMLTextAreaElement>(null);
+  const [body,setBody]=useState('');const [editing,setEditing]=useState<SavedNote|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');const input=useRef<HTMLTextAreaElement>(null);
+  // There is only ever one save in flight - ``saving`` sees to that - so the
+  // counter here was never cancelling a competing save. What it was cancelling
+  // was its own: the effect below bumped it whenever the selected file
+  // changed, and selecting another collection file is not gated on this panel,
+  // so a save that had already been accepted by the backend returned to a
+  // panel that dropped it. The record existed, the list was never refreshed to
+  // show it, and nothing was written anywhere - the user had no reason to
+  // believe a note had been saved at all.
+  //
+  // The selected file is a subject, not an operation. ``save`` watches it with
+  // ``token`` and still reports its outcome either way; what the subject
+  // changing decides is only the wording and whether the editor is cleared.
+  const runs=useRuns();
   const saving=useRef(false);const draft=useRef(0);const bodyId=useId();const currentEditing=notes?.items.find(n=>n.note_id===editing?.note_id);const newerEditing=currentEditing&&editing&&currentEditing.revision!==editing.revision?currentEditing:null;
-  useEffect(()=>()=>{++epoch.current;},[]);
-  useEffect(()=>{setEditing(null);setBody('');setError('');setNotice('');++epoch.current;setBusy(false);},[file?.file_id,file?.version_id]);
+  useEffect(()=>{setEditing(null);setBody('');setError('');setNotice('');runs.begin('file');setBusy(false);},[file?.file_id,file?.version_id]);
   useEffect(()=>{if(editing)input.current?.focus();},[editing?.note_id]);
   useEffect(()=>{++draft.current;if(anchor){setEditing(null);input.current?.focus();}},[anchor]);
   const save=async()=>{
-    if(saving.current||(!file&&!editing))return;saving.current=true;const ticket=++epoch.current;const submittedDraft=draft.current;setBusy(true);setError('');setNotice('');
-    try{const result=editing?await evidenceApi.edit(project,editing,body):await evidenceApi.save(project,file!,body,anchor??undefined);if(ticket!==epoch.current)return;
-      await onSaved(result.project,result.note);if(ticket!==epoch.current)return;
+    if(saving.current||(!file&&!editing))return;saving.current=true;const ticket=runs.begin('save');const submittedDraft=draft.current;
+    const submittedFile=runs.token('file');const submittedName=(editing?editing.file:file!).original_name;setBusy(true);setError('');setNotice('');
+    try{const result=editing?await evidenceApi.edit(project,editing,body):await evidenceApi.save(project,file!,body,anchor??undefined);if(!runs.current('save',ticket))return;
+      await onSaved(result.project,result.note);if(!runs.current('save',ticket))return;
+      // The record exists, so the project refresh above runs whatever the
+      // editor has moved on to and this says which record was made. Only the
+      // wording and whether the editor is cleared depend on what moved.
+      if(!runs.current('file',submittedFile)){setNotice(`Saved this exact evidence record against ${submittedName}. The editor has since moved to another file.`);return;}
       // The request saved its submitted snapshot. A later body or passage choice
       // belongs to the user, including changes during the project refresh.
       if(draft.current!==submittedDraft){setNotice('Saved the submitted record. Newer unsaved changes remain in the editor.');return;}
       setBody('');setEditing(null);onClear();setNotice('Saved this exact evidence record.');
-    }catch(reason){if(ticket===epoch.current)setError(`${reason instanceof Error?reason.message:'Save refused.'} Your unsaved text remains here. Use Refresh project to load its current revision before explicitly retrying. For a changed saved body, review its current record and choose Keep draft against current revision first.`);}
-    finally{saving.current=false;if(ticket===epoch.current)setBusy(false);}
+    }catch(reason){if(runs.current('save',ticket))setError(`${reason instanceof Error?reason.message:'Save refused.'} ${runs.current('file',submittedFile)?'Your unsaved text remains here.':`Nothing was saved against ${submittedName}, and the editor has since moved to another file.`} Use Refresh project to load its current revision before explicitly retrying. For a changed saved body, review its current record and choose Keep draft against current revision first.`);}
+    finally{saving.current=false;if(runs.current('save',ticket))setBusy(false);}
   };
   return <section className="evidence-notes" aria-label="Saved evidence notes"><h2>Notes and passages</h2>
     <p>Plain text only. Removing a file from a collection keeps its saved records. Editing changes the body; passage anchors remain fixed.</p>

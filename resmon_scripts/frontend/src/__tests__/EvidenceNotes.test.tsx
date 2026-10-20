@@ -21,11 +21,19 @@ it('keeps removed saved passages literal and allows body editing without creatin
  fireEvent.click(screen.getByRole('button',{name:'Edit saved body'}));fireEvent.change(screen.getByLabelText('Note body'),{target:{value:'updated'}});fireEvent.click(screen.getByRole('button',{name:'Save body'}));
  await waitFor(()=>expect(saved).toHaveBeenCalled());expect(edit).toHaveBeenCalledWith(project,note,'updated');
 });
-it('does not apply a held saved-note result to a later file selection',async()=>{
- let release!:(value:{project:Project;note:SavedNote})=>void;const held=new Promise<{project:Project;note:SavedNote}>(resolve=>{release=resolve;});jest.spyOn(evidenceApi,'save').mockReturnValue(held);const saved=jest.fn();
+it('does not apply a held saved-note result to a later file selection, and still reports the record it made',async()=>{
+ // Selecting another collection file is not gated on this panel, so this is
+ // one ordinary click. The editor has moved on and must not be disturbed --
+ // but the record was accepted by the backend, so the project is refreshed to
+ // bring it into the list and the panel names what was saved. Before this was
+ // split, ``onSaved`` was skipped and nothing was written anywhere: the note
+ // existed and the user had no reason to think so.
+ let release!:(value:{project:Project;note:SavedNote})=>void;const held=new Promise<{project:Project;note:SavedNote}>(resolve=>{release=resolve;});jest.spyOn(evidenceApi,'save').mockReturnValue(held);const saved=jest.fn().mockResolvedValue(undefined);
  const props={project,file,anchor:null,notes:null,member:true,onSaved:saved,onClear:jest.fn(),onNext:jest.fn(),onReopen:jest.fn()};const view=render(<NotePanel {...props}/>);
  fireEvent.change(screen.getByLabelText('Note body'),{target:{value:'A body'}});fireEvent.click(screen.getByRole('button',{name:'Save note'}));view.rerender(<NotePanel {...props} file={{...file,file_id:'22222222-2222-4222-8222-222222222222'}}/>);
- fireEvent.change(screen.getByLabelText('Note body'),{target:{value:'B unsaved'}});await act(async()=>release({project,note}));expect(saved).not.toHaveBeenCalled();expect(screen.getByLabelText('Note body')).toHaveValue('B unsaved');
+ fireEvent.change(screen.getByLabelText('Note body'),{target:{value:'B unsaved'}});await act(async()=>release({project,note}));
+ expect(saved).toHaveBeenCalledWith(project,note);expect(screen.getByLabelText('Note body')).toHaveValue('B unsaved');
+ expect(screen.getByRole('status')).toHaveTextContent('Saved this exact evidence record against Selected.txt. The editor has since moved to another file.');
 });
 
 it('explicitly adopts a refreshed note revision without replacing the unsaved draft',async()=>{
