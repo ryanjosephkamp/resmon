@@ -66,11 +66,19 @@ origin. The daemon keeps the eight most recent. A daemon that has published no t
 example one from before 2.2) is never attached to; the app starts its own backend and leaves the
 daemon alone, exactly as it does for a daemon of a different version.</p>
 <h2 id="the-mcp-server-and-the-assistant">The MCP server and the assistant</h2>
-<p><code>mcp_server.py</code> finds the port as before (<code>RESMON_PORT</code>, then the port file, then the default
-only when nothing named a port), then reads that port’s token file. A named port whose token
-cannot be found is reported as unavailable, naming the instance — it never falls through to
-another port. If your harness runs resmon’s MCP server against an instance with a non-default
-state directory, set <code>RESMON_STATE_DIR</code> in the server’s environment.</p>
+<p><code>mcp_server.py</code> finds the port from <code>RESMON_PORT</code>, then the port file, and from nothing else,
+then reads that port’s token file. A named port whose token cannot be found is reported as
+unavailable, naming the instance — it never falls through to another port. If your harness
+runs resmon’s MCP server against an instance with a non-default state directory, set
+<code>RESMON_STATE_DIR</code> in the server’s environment.</p>
+<p><strong>Naming the state directory does not name the instance, so name the port as well.</strong> The
+token file follows <code>RESMON_STATE_DIR</code> and the port file follows <code>RESMON_DB_PATH</code> (or
+<code>RESMON_PORT_FILE</code>), so the two can point at different installations. The server used to
+fall back to resmon’s default port when neither named one, which on a machine running
+resmon’s background service meant attaching to that service and answering truthfully about
+its corpus. It no longer does: with no port named it refuses, names both mechanisms and says
+it did not guess. Set <code>RESMON_PORT</code> to the instance’s port, or point <code>RESMON_PORT_FILE</code> at
+the port file that instance writes.</p>
 <p>When the assistant starts the MCP servers through an agent CLI, the configuration it writes
 names the port and the state directory — never the token. Tool results and relayed errors are
 scrubbed of the token as a second layer.</p>

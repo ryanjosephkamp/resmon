@@ -70,17 +70,17 @@ CONTRACT_VERSION = "2.4"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
 
-DEFAULT_PORT = 8742
 _TIMEOUT = httpx.Timeout(30.0, connect=3.0)
 
 # The oldest backend whose API this server was built against.
 #
-# Not defensive tidiness. resmon writes a port file, but only while it is
-# running -- so with the app closed, nothing names a port and the default
-# applies, and on a machine where an older resmon holds that port, it answers.
-# That happened: a v1.2.1 launchd daemon from April answered every tool
-# truthfully about a completely different corpus. Checking the version closes
-# the one path the "a named port is never widened" rule does not cover.
+# Not defensive tidiness, and it still matters now that nothing is guessed. A
+# port this server was *given* can be held by the wrong resmon: a port file a
+# crash left behind, a ``RESMON_PORT`` exported in an earlier session, or a
+# port another installation took over. That happened -- a v1.2.1 launchd
+# daemon from April answered every tool truthfully about a completely
+# different corpus. Checking the version is what turns "something answered"
+# into "a resmon this server can speak for".
 MIN_BACKEND_VERSION = "1.8.0"
 
 # Every list tool defaults small. Token efficiency is a contract term rather
@@ -332,23 +332,53 @@ class ToolError(Exception):
 # ---------------------------------------------------------------------------
 
 def _candidate_ports() -> list[int]:
-    """Ports to try, in the contract's order: env, port file, default.
+    """The ports a caller named, in the contract's order: env, then port file.
 
-    **The default is a last resort, not a fallback.** If ``RESMON_PORT`` or the
-    port file names a port, that is the backend the caller means, and the
-    default is not tried at all.
+    **This server names no port of its own.** Two mechanisms name a backend --
+    ``RESMON_PORT`` in the environment, and the port file a running resmon
+    writes beside its database -- and when neither names one, the empty list
+    returned here is how :meth:`Backend.base_url` knows to refuse and say so.
+    There is no third candidate.
 
     This is not defensive tidiness. Driving the real server during development
-    found that when a named port had stopped answering, falling through to 8742
-    connected the MCP server to the *launchd daemon* -- a different process,
-    running a different version, over a different database. Every tool then
-    answered truthfully about the wrong corpus, which is worse than failing: a
-    harness asking "what did my routine find this week" would report another
-    installation's papers as the user's own.
+    found that when a named port had stopped answering, falling through to the
+    default port connected the MCP server to the *launchd daemon* -- a
+    different process, running a different version, over a different database.
+    Every tool then answered truthfully about the wrong corpus, which is worse
+    than failing: a harness asking "what did my routine find this week" would
+    report another installation's papers as the user's own.
 
-    So a named port that does not answer means the backend is unavailable. The
-    default only applies when nothing named a port, which is the case for an
-    older backend that predates the port file.
+    That incident produced one rule -- a named port is never widened to the
+    default -- and left the other half of the hazard standing. The default
+    survived underneath it, justified as serving "an older backend that
+    predates the port file".
+
+    **That justification had become unreachable, which is the part worth
+    recording.** A backend old enough not to write a port file is older than
+    2.2, so it writes no token file either, and :meth:`Backend.base_url` skips
+    any port whose token file is absent before it probes anything. The default
+    could therefore not reach the old backend it was kept for. What it *could*
+    reach is a backend new enough to publish a token -- and on the default
+    port, on a machine where resmon's background service is installed, that is
+    the service.
+
+    It is worth being exact about this, because the lesson is not that someone
+    wrote a bad reason. The reason was true when it was written: the port file
+    arrived in 1.8d alongside this server, and a backend from before it really
+    was out there and really was reachable on the default port. It stopped
+    being true three weeks later, when the 2.2 local API lock-down made
+    ``base_url`` read a token file before probing -- a change about
+    authentication, in which nobody had cause to re-read discovery. A
+    justification can expire somewhere else in the codebase without anyone
+    touching the line it justifies.
+
+    So the default was never a bridge to an old installation; it was a second
+    route to the wrong corpus, and it opened whenever the two state locations
+    disagreed about which instance was meant. ``api_auth.state_dir`` follows
+    ``RESMON_STATE_DIR``; ``config.PORT_FILE`` follows ``RESMON_DB_PATH``. A
+    harness pointed at one instance's state directory, but not at its port
+    file, therefore named no port at all -- and the default then applied, with
+    a token sitting in that state directory to authenticate the mistake.
     """
     named: list[int] = []
 
@@ -368,15 +398,27 @@ def _candidate_ports() -> list[int]:
     except (OSError, ValueError, ImportError):
         pass
 
-    candidates = named or [DEFAULT_PORT]
-
     seen: set[int] = set()
     ordered: list[int] = []
-    for port in candidates:
+    for port in named:
         if port not in seen:
             seen.add(port)
             ordered.append(port)
     return ordered
+
+
+def _port_file_location() -> Optional[str]:
+    """Where a running resmon would have written its port, for an error message.
+
+    Resolved rather than named as a constant because it moves with
+    ``RESMON_PORT_FILE`` and ``RESMON_DB_PATH``, and an operator reading the
+    refusal below needs the path this process actually looked at.
+    """
+    try:
+        from implementation_scripts.config import PORT_FILE
+    except ImportError:
+        return None
+    return str(PORT_FILE)
 
 
 class Backend:
@@ -415,10 +457,37 @@ class Backend:
             return self._base
 
         self._tried = []
+        candidates = _candidate_ports()
+        if not candidates:
+            # Nothing named a backend, so nothing is probed. This is the one
+            # case the old default-port fallback covered, and covering it was
+            # the defect: see ``_candidate_ports``. A refusal that explains
+            # itself is the whole of the replacement -- a quiet failure and a
+            # wrong answer must not look the same to the operator, and the
+            # message has to leave them knowing which two things name an
+            # instance and that this server did not pick one for them.
+            where = _port_file_location()
+            raise ToolError(
+                "backend_unavailable",
+                "No resmon was named, so this server did not look for one and did "
+                "not guess. Two things name one: the RESMON_PORT environment "
+                "variable, and the port file a running resmon writes"
+                + (f" at {where}" if where else " beside its database")
+                + ". Neither named a port. Guessing one would attach this harness "
+                "to whichever resmon happens to be listening there -- possibly "
+                "another installation, over another database -- and answering "
+                "about the wrong corpus is worse than not answering. Start resmon "
+                "and try again; if it is already running, set RESMON_PORT to its "
+                "port, or point RESMON_PORT_FILE at the port file that instance "
+                "writes.",
+                {"tried": [], "no_port_named": True, "port_file": where,
+                 "state_dir": str(api_auth.state_dir())},
+            )
+
         rejected: list[str] = []
         tokenless: list[str] = []
         refused: list[str] = []
-        for port in _candidate_ports():
+        for port in candidates:
             base = f"http://127.0.0.1:{port}"
             self._tried.append(base)
             token = api_auth.read_token_file(port)

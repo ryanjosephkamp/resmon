@@ -154,16 +154,20 @@ request is even built, because resmon's keys live in your system keychain and ar
 settings.
 
 Finding the right resmon matters more than it sounds: the server checks `RESMON_PORT`, then
-the port file the backend writes beside its database, and only falls back to the default port
-when neither names one. A port that was named and is not answering is reported as
-unavailable rather than widened to the default — otherwise a harness can silently attach to a
-different resmon installation and answer truthfully about the wrong corpus.
+the port file the backend writes beside its database, and nothing else. A port that was named
+and is not answering is reported as unavailable rather than widened — otherwise a harness can
+silently attach to a different resmon installation and answer truthfully about the wrong
+corpus. When neither names a port the server refuses in the same way, saying which two things
+name one and that it did not guess; it used to fall back to resmon's default port, which on a
+machine running resmon's background service meant answering about that service's corpus.
 
 **The backend asks every caller for its local API token** (2.2), and the MCP server reads it
 from the owner-only file the backend writes beside its daemon lock, `api-token-<port>` in
 resmon's state directory. Nothing needs configuring for the installed app. For a development
-instance with its own state directory, set `RESMON_STATE_DIR` for the MCP server too; a named
-port whose token cannot be found is reported as unavailable, naming that instance. See
+instance with its own state directory, set `RESMON_STATE_DIR` for the MCP server too — and
+`RESMON_PORT` or `RESMON_PORT_FILE` as well, because the port file follows the database
+rather than the state directory, so naming one does not name the other. A named port whose
+token cannot be found is reported as unavailable, naming that instance. See
 [`docs/local-api-security.md`](docs/local-api-security.md).
 
 **If you run the MCP server from a separate checkout, update it in the same sitting as the

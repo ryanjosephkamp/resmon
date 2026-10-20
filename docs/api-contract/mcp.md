@@ -30,33 +30,55 @@ application, so in practice it is — but see *When the backend is not running*.
 
 ### Port discovery
 
-The same way the renderer does it, in order:
+Two things name a backend, and the server names none of its own:
 
 1. `RESMON_PORT` in the environment.
-2. The port file the backend writes into its state directory on startup.
-3. `8742`, the default — **only when neither of the above named a port.**
+2. The port file the backend writes beside its database on startup.
 
 Every candidate is confirmed with `GET /api/health` before use. This matters because a
 user can run the packaged app and a dev build at once, on different ports.
 
-**A named port is never widened to the default.** If step 1 or step 2 supplies a port and
-that port does not answer, the answer is `backend_unavailable`. Implementing this found
-why: when a named port had stopped answering, falling through to `8742` connected the
-server to the **launchd daemon** — a different process, a different version, a different
+**A named port is never widened.** If step 1 or step 2 supplies a port and that port does
+not answer, the answer is `backend_unavailable`. Implementing this found why: when a named
+port had stopped answering, falling through to resmon's default port connected the server
+to the **background service** — a different process, a different version, a different
 database — and every tool then answered truthfully about the wrong corpus. A harness
 asking "what did my routine find this week" would have reported another installation's
-papers as the user's own. Failing is the correct outcome; the default exists only for a
-backend old enough not to write a port file.
+papers as the user's own.
 
-### When the backend is not running
+**And when neither names a port, that is a refusal too.** Until this amendment the server
+fell through to the default port in that case, justified here and in the code as the way
+to reach "a backend old enough not to write a port file". By 2.2 that justification could
+no longer be acted on: such a backend predates 2.2, so it publishes no token file either,
+and discovery skips any port whose token file is absent before it probes. The only backend
+the default could still reach is a current one — which, on the default port, is the
+background service. So the default had stopped being a bridge to an old installation and
+become a second route to the wrong corpus, open whenever a harness was pointed at one
+instance's state directory without also being pointed at its port file.
 
-Every tool returns a single structured error:
+### When the backend is not named, or not running
+
+Every tool returns a single structured error. The two cases are different and say so.
+
+A port was named and did not answer:
 
 ```json
 {"error": "backend_unavailable",
  "message": "resmon is not running. Start the resmon app and try again.",
- "tried": ["http://127.0.0.1:8742"]}
+ "tried": ["http://127.0.0.1:51734"]}
 ```
+
+Nothing named a port, so nothing was tried:
+
+```json
+{"error": "backend_unavailable",
+ "message": "No resmon was named, so this server did not look for one and did not guess. Two things name one: the RESMON_PORT environment variable, and the port file a running resmon writes at <path>. Neither named a port. Guessing one would attach this harness to whichever resmon happens to be listening there -- possibly another installation, over another database -- and answering about the wrong corpus is worse than not answering. Start resmon and try again; if it is already running, set RESMON_PORT to its port, or point RESMON_PORT_FILE at the port file that instance writes.",
+ "tried": [], "no_port_named": true}
+```
+
+The second message does not say resmon is not running, because this server does not know
+that: a backend may be listening on a port it was never told about. What it knows, and
+says, is that it was not told.
 
 Never a stack trace, never a hang, never a silent empty result. A harness that gets an
 empty paper list because the app is closed would report "you have no papers", which is a
@@ -572,15 +594,20 @@ backend's own port, and — when it sends an `Origin` — send the app's own ren
 model, including what it deliberately does not defend, is
 [`docs/local-api-security.md`](../local-api-security.md).
 
-The server finds the token the same way it finds the port, and in the same order. It
-resolves the port from `RESMON_PORT`, then the port file, then the default only when
-nothing named a port; it then reads that port's token from `api-token-<port>` in resmon's
-state directory, beside `daemon.lock` and the port file. The file is written owner-only by
-the backend that minted the token and removed on clean shutdown. A stale file admits
-nothing: every backend start mints a fresh token and accepts only the one it holds, so a
-reader of a stale file is answered `401 token_invalid`.
+The server resolves the port first — from `RESMON_PORT`, then the port file, and from
+nothing else — and then reads that port's token from `api-token-<port>` in resmon's state
+directory, beside `daemon.lock`. The file is written owner-only by the backend that minted
+the token and removed on clean shutdown. A stale file admits nothing: every backend start
+mints a fresh token and accepts only the one it holds, so a reader of a stale file is
+answered `401 token_invalid`.
 
-A harness has two things to get right:
+**The two are not in the same directory, and that is the thing to get right.** The token
+file follows `RESMON_STATE_DIR`; the port file follows `RESMON_DB_PATH` (or
+`RESMON_PORT_FILE`, which names it outright). Pointing a harness at an instance therefore
+means naming both, and naming only the state directory used to leave nothing naming a port
+— which is the hole the default port filled, with the wrong instance.
+
+A harness has three things to get right:
 
 - **A named port whose token cannot be found is reported as unavailable, naming that
   instance.** It never falls through to another port, because attaching to a different
@@ -590,6 +617,9 @@ A harness has two things to get right:
   default one. The CLI runtime's MCP configuration names the port and the state directory
   only; the token is never written into it, and tool results and relayed errors are
   scrubbed of it.
+- **Naming the state directory is not naming the instance.** Set `RESMON_PORT`, or point
+  `RESMON_PORT_FILE` at that instance's port file. With neither set the server refuses and
+  says so, rather than reaching for a default.
 
 **A pre-2.2 MCP server gets `401 token_missing` from a 2.2 backend on every call**, because
 it sends no `Authorization` header and no route is exempt. Symmetrically, a 2.2 server does
@@ -738,3 +768,38 @@ what stands behind them.
 The credential denylist is unchanged and is still checked first, because it answers a
 credential-shaped name with a better sentence than the allowlist would: resmon's keys are
 not settings, they live in the system keychain, and they are changed in the app.
+
+---
+
+## v2.4 amendment: port discovery names no port of its own
+
+**The contract number does not move.** No tool was added, removed or reshaped; no input
+schema and no return shape changed; `mcp_server.CONTRACT_VERSION` stays at 2.4.
+
+The precedent is the **v2.3 runtime-identity amendment**, which added an `identity` object
+to two tools' successful returns and did not move the number, on the ground that the tool
+surface and the discovery order were untouched. The same ground holds here from the other
+side: this changes neither the surface nor any return shape, and it corrects the discovery
+order to what the register already required.
+
+It is *not* the v1.1 amendment, although that one also corrected this section. v1.1 rests
+on its own stated ground — "no return shape a caller depended on changed, because there
+were no callers yet" — and that ground has since expired: this contract now names the 2.0
+assistant as a second consumer, so "there are no callers" is no longer a thing this
+document may say about itself. Citing it would be the same mistake this amendment exists
+to record, made one layer up.
+
+One observable behavior does change, in one case, and it is set out below so a reader is
+not left to infer it.
+
+| Was | Now | Why |
+|---|---|---|
+| Discovery had three steps: `RESMON_PORT`, the port file, then resmon's default port when neither named one. | Two steps. With neither naming a port, the answer is `backend_unavailable` carrying `no_port_named` and an empty `tried`. | The parity register's external-harness row has always required it: *a wrong or absent app is a refusal, never a silent fallback to the daemon's port*. The third step was that fallback. |
+| The default was documented as reaching "a backend old enough not to write a port file". | There is no such path any more, and this document no longer claims one. | True when written: the port file arrived in 1.8d with this server, and a backend from before it was reachable on the default port. 2.2 ended it — discovery began reading a token file before probing, and a backend that writes no port file writes no token file either. From 2.2 the only backend the default could reach was a *current* one on that port: the background service. |
+| "resmon is not running" was the error for every unreachable case. | It is the error for a **named** port that did not answer. An unnamed backend gets its own message. | The server cannot know whether resmon is running on a port nobody named. Saying so would be an assertion it has not earned. |
+
+**What a caller has to do differently.** A harness that named a port, by either mechanism,
+is unaffected. A harness that named none was previously answered by whatever held the
+default port and is now refused; the refusal names both mechanisms and what to set. The
+case that changes is the case the register already forbade, and a caller relying on it was
+relying on reaching an instance nobody had chosen.

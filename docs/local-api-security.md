@@ -73,11 +73,20 @@ daemon alone, exactly as it does for a daemon of a different version.
 
 ## The MCP server and the assistant
 
-`mcp_server.py` finds the port as before (`RESMON_PORT`, then the port file, then the default
-only when nothing named a port), then reads that port's token file. A named port whose token
-cannot be found is reported as unavailable, naming the instance — it never falls through to
-another port. If your harness runs resmon's MCP server against an instance with a non-default
-state directory, set `RESMON_STATE_DIR` in the server's environment.
+`mcp_server.py` finds the port from `RESMON_PORT`, then the port file, and from nothing else,
+then reads that port's token file. A named port whose token cannot be found is reported as
+unavailable, naming the instance — it never falls through to another port. If your harness
+runs resmon's MCP server against an instance with a non-default state directory, set
+`RESMON_STATE_DIR` in the server's environment.
+
+**Naming the state directory does not name the instance, so name the port as well.** The
+token file follows `RESMON_STATE_DIR` and the port file follows `RESMON_DB_PATH` (or
+`RESMON_PORT_FILE`), so the two can point at different installations. The server used to
+fall back to resmon's default port when neither named one, which on a machine running
+resmon's background service meant attaching to that service and answering truthfully about
+its corpus. It no longer does: with no port named it refuses, names both mechanisms and says
+it did not guess. Set `RESMON_PORT` to the instance's port, or point `RESMON_PORT_FILE` at
+the port file that instance writes.
 
 When the assistant starts the MCP servers through an agent CLI, the configuration it writes
 names the port and the state directory — never the token. Tool results and relayed errors are
