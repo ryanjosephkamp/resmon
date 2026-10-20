@@ -15,7 +15,7 @@
 import React from 'react';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import BackupRestore from '../components/Settings/BackupRestore';
-import { callsTo, mockRoutedFetch, renderWithProviders } from './testUtils';
+import { callsTo, mockRoutedFetch, renderWithProviders, restoreDesktopBridge } from './testUtils';
 
 const EMPTY = {
   last_backup: null, pending_restore: null, last_restore: null, undo_copies: [],
@@ -49,9 +49,9 @@ const REPORT = {
   },
 };
 
-afterEach(() => {
-  delete (window as { resmonAPI?: unknown }).resmonAPI;
-});
+// The directory-picker cases replace the bridge; put the default one back
+// rather than removing it, so the tests after them still have a backend.
+afterEach(restoreDesktopBridge);
 
 test('backing up sends the literal CONFIRM and the reports choice', async () => {
   const fetchMock = mockRoutedFetch({

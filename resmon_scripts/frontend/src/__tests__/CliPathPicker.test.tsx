@@ -12,12 +12,20 @@
  * is developed and how every jsdom test sees it. A button that quietly does
  * nothing there is the worst of the three outcomes, because the field it serves
  * is the one a user reaches for when something is already not working.
+ *
+ * The no-bridge case below hands over a bridge carrying a port and no
+ * `chooseFile`, which is the condition the button actually branches on. It used
+ * to remove `window.resmonAPI` altogether, and that no longer reaches this
+ * button: with no bridge there is no backend port either, so the panel cannot
+ * load the settings that put the button on screen. What a bundle with no bridge
+ * does now — refuse to name a backend rather than guess one — is in
+ * `backendPort.test.ts`.
  */
 
 import React from 'react';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import AISettings from '../components/Settings/AISettings';
-import { mockRoutedFetch, renderWithProviders } from './testUtils';
+import { mockRoutedFetch, renderWithProviders, restoreDesktopBridge } from './testUtils';
 
 const NOT_FOUND = {
   provider: 'claude_code', path: null, how: 'not-found',
@@ -46,9 +54,7 @@ async function renderPanel() {
 }
 
 describe('the command-path picker', () => {
-  afterEach(() => {
-    delete (window as { resmonAPI?: unknown }).resmonAPI;
-  });
+  afterEach(restoreDesktopBridge);
 
   test('fills the field with what the picker returned', async () => {
     (window as unknown as { resmonAPI: Record<string, unknown> }).resmonAPI = {
@@ -78,9 +84,12 @@ describe('the command-path picker', () => {
     expect(screen.queryByTestId('cli-path-notice')).not.toBeInTheDocument();
   });
 
-  test('says why when there is no desktop bridge, rather than doing nothing', async () => {
-    // No `window.resmonAPI` at all — the browser build. The typed path still
-    // works, and the message says that.
+  test('says why when the bridge has no file picker, rather than doing nothing', async () => {
+    // A bridge with no `chooseFile` — the branch the browser build takes. The
+    // typed path still works, and the message says that.
+    (window as unknown as { resmonAPI: Record<string, unknown> }).resmonAPI = {
+      getBackendPort: () => '1234',
+    };
     await renderPanel();
     fireEvent.click(screen.getByLabelText('Browse for the command'));
     await waitFor(() => {

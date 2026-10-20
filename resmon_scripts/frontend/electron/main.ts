@@ -99,7 +99,13 @@ if (isBackgroundWindow() && process.platform === 'darwin') {
 
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
-let backendPort: number = 8742;
+// Null until attach-or-spawn has settled which backend this app is using. It
+// was initialised to the daemon's port, which meant any read before that point
+// — the backend-connection IPC is the one that matters — handed the renderer a
+// port nothing had chosen. The window is only created after this is set, so the
+// null is unreachable in a normal start; it is here so that a start which goes
+// wrong cannot answer with a guess.
+let backendPort: number | null = null;
 let rendererServer: http.Server | null = null;
 let rendererPort: number | null = null;
 /** True when we attached to an already-running daemon and must not kill it on quit. */
@@ -938,7 +944,7 @@ app.whenReady().then(async () => {
           && event.sender === mainWindow.webContents
           && frame !== null && frame === mainWindow.webContents.mainFrame
           && (frame.url === '' || frame.url.startsWith(`${rendererOrigin}/`));
-        if (fromRenderer) answer = { port: String(backendPort), token: backendToken };
+        if (fromRenderer && backendPort !== null) answer = { port: String(backendPort), token: backendToken };
       } finally {
         event.returnValue = answer;
       }
