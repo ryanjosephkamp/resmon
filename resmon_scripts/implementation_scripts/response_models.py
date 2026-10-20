@@ -1189,6 +1189,7 @@ class RepositoryConstraints(LosslessModel):
     window_rounding: str
     window_refiltered_locally: bool
     keyword_search: str
+    records_per_request: Optional[int]
     notices: list[RepositorySourceNotice]
     established: str
 

@@ -76,13 +76,20 @@ export type ConstraintKind =
   | 'record_filter';
 
 /**
- * When a notice is worth showing.
+ * The state a notice is true in. It is shown there and nowhere else.
  *
- * `with_date_window` only once the form has a date; `without_start_date`
- * only while the start date is blank, because the sentence is about the
- * default resmon substitutes there.
+ * `with_date_window` waits for a date; `with_both_dates` for both, because a
+ * sentence about what resmon does with your end date is not true of a run
+ * with no end date; `without_start_date` disappears once a start date is
+ * typed; `above_record_cap` waits until the run asks for more records than
+ * `records_per_request`.
  */
-export type NoticeScope = 'always' | 'with_date_window' | 'without_start_date';
+export type NoticeScope =
+  | 'always'
+  | 'with_date_window'
+  | 'with_both_dates'
+  | 'without_start_date'
+  | 'above_record_cap';
 
 export interface SourceNotice {
   kind: ConstraintKind;
@@ -107,6 +114,8 @@ export interface SourceConstraints {
   /** Whether records outside the typed dates are dropped again once they arrive. */
   window_refiltered_locally: boolean;
   keyword_search: KeywordSearchMode;
+  /** The most records this source returns in one request, where that has a consequence for the caller. */
+  records_per_request: number | null;
   notices: SourceNotice[];
   established: string;
 }

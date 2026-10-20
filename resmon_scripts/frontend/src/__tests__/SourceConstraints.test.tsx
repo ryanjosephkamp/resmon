@@ -15,6 +15,7 @@ import SourceConstraintNotice from '../components/Forms/SourceConstraintNotice';
 import { RepoCatalogEntry, SourceConstraints } from '../api/repositories';
 import {
   advisoriesFor,
+  willNotBeSearched,
   windowSentence,
   wholeYearsInside,
   wholeYearsTouched,
@@ -26,6 +27,7 @@ function constraints(over: Partial<SourceConstraints> = {}): SourceConstraints {
     window_rounding: 'none',
     window_refiltered_locally: false,
     keyword_search: 'upstream',
+    records_per_request: null,
     notices: [],
     established: 'fixture',
     ...over,
@@ -253,6 +255,99 @@ describe('SourceConstraintNotice', () => {
       <SourceConstraintNotice entries={[undefined]} dateFrom="2025-01-01" dateTo="2025-12-31" />,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('a source that will not be searched says only that', () => {
+  // Shipped wrong for one review round: DBLP rendered "DBLP will not be
+  // searched at all" and then, on the next line, "A DBLP record carrying no
+  // year at all is dropped whenever you set a date window" — a filter on
+  // records that are never fetched, because search() returns before any
+  // request when the bounds are null. A panel that contradicts itself in the
+  // headline case is worse than no panel, because this one gets trusted.
+  const DBLP_FULL = entry('dblp', 'DBLP', {
+    window_effect: 'whole_years',
+    window_rounding: 'inward',
+    notices: [
+      {
+        kind: 'date_window',
+        effect: 'DBLP records only a year.',
+        established: 'fixture',
+        applies_when: 'with_date_window',
+      },
+      {
+        kind: 'record_filter',
+        effect: 'A DBLP record carrying no year at all is dropped.',
+        established: 'fixture',
+        applies_when: 'with_date_window',
+      },
+    ],
+  });
+
+  test('every other sentence is suppressed when no request will be sent', () => {
+    const [row] = advisoriesFor([DBLP_FULL], '2025-03-01', '2025-09-30');
+    expect(row.window).toContain('will not be searched at all');
+    expect(row.notices).toEqual([]);
+  });
+
+  test('the same source keeps its notices when it will be searched', () => {
+    const [row] = advisoriesFor([DBLP_FULL], '2025-01-01', '2026-12-31');
+    expect(row.window).toContain('DBLP will search all of 2025 and 2026');
+    expect(row.notices.map((n) => n.kind)).toEqual(['record_filter']);
+  });
+
+  test('willNotBeSearched is false for everything that is not an inward refusal', () => {
+    // An outward source widens and always sends something; an unreadable
+    // date is not a refusal; an open window is not a refusal.
+    expect(willNotBeSearched(DBLP_FULL, '2025-03-01', '2025-09-30')).toBe(true);
+    expect(willNotBeSearched(DBLP_FULL, '', '')).toBe(false);
+    expect(willNotBeSearched(DBLP_FULL, '2025', '2026')).toBe(false);
+    expect(willNotBeSearched(SEMANTIC, '2025-03-01', '2025-09-30')).toBe(false);
+    expect(willNotBeSearched(ARXIV, '2025-03-01', '2025-09-30')).toBe(false);
+  });
+});
+
+describe('the other two states the sweep found', () => {
+  const NIST = entry('nist_rmm', 'NIST RMM', {
+    notices: [
+      {
+        kind: 'date_window',
+        effect: 'resmon sends your start date and applies your end date locally.',
+        established: 'fixture',
+        applies_when: 'with_both_dates',
+      },
+    ],
+  });
+
+  test('a sentence about your end date waits for an end date', () => {
+    // With no end date there is nothing applied locally; with no start date
+    // nothing is sent. The sentence is true of neither.
+    expect(advisoriesFor([NIST], '2025-01-01', '')).toEqual([]);
+    expect(advisoriesFor([NIST], '', '2025-12-31')).toEqual([]);
+    expect(advisoriesFor([NIST], '', '')).toEqual([]);
+    expect(advisoriesFor([NIST], '2025-01-01', '2025-12-31')[0].notices).toHaveLength(1);
+  });
+
+  const NDL = entry('ndl_search', 'NDL Search', {
+    records_per_request: 500,
+    notices: [
+      {
+        kind: 'result_cap',
+        effect: 'You have asked for more records than NDL Search returns in one request.',
+        established: 'fixture',
+        applies_when: 'above_record_cap',
+      },
+    ],
+  });
+
+  test('a sentence about asking for too much waits until you do', () => {
+    // All four forms cap the slider at 500, but a saved configuration
+    // created through the API or MCP loads its stored max_results unclamped,
+    // and that is the only state in which this sentence is about anything.
+    expect(advisoriesFor([NDL], '2025-01-01', '2025-12-31', 500)).toEqual([]);
+    expect(advisoriesFor([NDL], '2025-01-01', '2025-12-31', 100)).toEqual([]);
+    expect(advisoriesFor([NDL], '2025-01-01', '2025-12-31')).toEqual([]);
+    expect(advisoriesFor([NDL], '2025-01-01', '2025-12-31', 2000)[0].notices).toHaveLength(1);
   });
 });
 

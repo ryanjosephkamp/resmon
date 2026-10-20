@@ -17,6 +17,12 @@ interface Props {
    * record-filter notices still apply and are still shown.
    */
   keywordsApply?: boolean;
+  /**
+   * The per-source result cap this run will send. A source that returns
+   * fewer records per request than that behaves differently, and the
+   * sentence saying so is only true once the number is actually above it.
+   */
+  maxResults?: number;
 }
 
 /**
@@ -50,8 +56,9 @@ const SourceConstraintNotice: React.FC<Props> = ({
   dateFrom = '',
   dateTo = '',
   keywordsApply = true,
+  maxResults,
 }) => {
-  const advisories = advisoriesFor(entries, dateFrom, dateTo)
+  const advisories = advisoriesFor(entries, dateFrom, dateTo, maxResults)
     .map((advisory) => ({
       ...advisory,
       notices: keywordsApply

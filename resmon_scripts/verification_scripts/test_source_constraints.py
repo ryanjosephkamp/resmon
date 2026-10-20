@@ -30,6 +30,7 @@ from implementation_scripts.api_registry import list_repositories  # noqa: E402
 from implementation_scripts.database import init_db  # noqa: E402
 from implementation_scripts.repo_catalog import (  # noqa: E402
     REPOSITORY_CATALOG,
+    SourceNotice,
     catalog_as_dicts,
     constraints_for,
     required_credential_for,
@@ -159,22 +160,120 @@ def test_every_notice_says_what_happens_and_where_that_was_read():
                 f"{entry.slug} shows '{notice.effect}' with no citation")
 
 
-def test_the_inventory_does_not_restate_the_credential_requirement():
+# The shapes an English sentence takes when it says a source needs a key.
+#
+# This list is the guard, so it is worth saying what it is guarding against.
+# The first version of this test checked ``kind == "credential"`` — a label —
+# and a review drove straight through it: the sentence "NASA ADS requires an
+# API key. Without one configured it returns nothing at all." was rejected
+# spelled ``kind="credential"`` and **accepted** spelled
+# ``kind="date_window"``, rendering on the form either way. A check that
+# matches prose *about* the thing rather than the thing is not a check.
+#
+# Matching text is cruder and catches the case the label missed. It can be
+# evaded by somebody determined to phrase around it, and that is fine: this
+# exists to stop the honest mistake of writing the sentence twice, not an
+# adversary.
+_CREDENTIAL_PHRASES = (
+    r"requires? (?:an? )?(?:api[- ])?key",
+    r"needs? (?:an? )?(?:api[- ])?key",
+    r"(?:api[- ])?key (?:it |that )?(?:is )?required",
+    r"without (?:a |an |one )?(?:api[- ])?key",
+    r"without one configured",
+    r"no (?:api[- ])?key (?:is )?(?:configured|stored|set)",
+    r"configure (?:an? )?(?:api[- ])?key",
+    r"register for (?:an? )?(?:api[- ])?key",
+    r"api key",
+    r"credential",
+)
+
+
+def test_no_notice_tells_a_reader_that_a_source_needs_a_key():
     """Credential facts stay on the one field that already holds them.
 
-    A second copy of "this source needs a key" is the drift this file exists
-    to prevent, so the inventory is not allowed to carry one. A notice *about*
-    a credential may describe what the key changes — a rate ceiling, a page
-    size — but it may not be the place a reader learns the key is required.
+    A second copy of "this source needs a key" is the drift this whole file
+    exists to prevent — ``sweep_engine`` kept one and GovInfo fell through
+    the gap. So the inventory is not allowed to carry one, and this looks at
+    what each sentence *says* rather than at the label somebody chose for it.
+
+    What a notice may still do is describe what a key *changes* — a rate
+    ceiling, a page size — as long as it does so without the phrases below.
+    If that becomes genuinely hard to write, the right move is to add a
+    typed field for it rather than to widen this list.
     """
+    import re  # noqa: PLC0415
+
+    pattern = re.compile("|".join(_CREDENTIAL_PHRASES), re.IGNORECASE)
+    offenders = []
     for entry in REPOSITORY_CATALOG:
         for notice in entry.constraints.notices:
-            if notice.kind != "credential":
-                continue
-            assert entry.api_key_requirement != "required", (
-                f"{entry.slug} restates a required credential in its "
-                "constraint record; the requirement lives on "
-                "api_key_requirement and nowhere else")
+            found = pattern.search(notice.effect)
+            if found:
+                offenders.append(
+                    f"{entry.slug} ({notice.kind}): {found.group(0)!r} in "
+                    f"{notice.effect[:80]!r}")
+    assert not offenders, (
+        "a constraint notice states a credential requirement. That fact lives "
+        "on api_key_requirement and credential_name, the sweep's gate reads "
+        "it there, and RepoKeyStatus already renders it on every form that "
+        "shows this panel:\n  " + "\n  ".join(offenders))
+
+
+def test_the_credential_guard_catches_the_sentence_whatever_it_is_labeled():
+    """The guard's own red, kept because the first version did not have one.
+
+    A guard with no demonstration that it fires is a guard nobody has seen
+    work. Both spellings below are rejected here; only the first was rejected
+    before.
+    """
+    import re  # noqa: PLC0415
+
+    pattern = re.compile("|".join(_CREDENTIAL_PHRASES), re.IGNORECASE)
+    sentence = (
+        "NASA ADS requires an API key. Without one configured it returns "
+        "nothing at all."
+    )
+    assert pattern.search(sentence), "the guard would not catch the real sentence"
+    # The label is irrelevant to the guard, which is the whole point.
+    for kind in ("credential", "date_window", "record_filter", "result_cap"):
+        assert pattern.search(SourceNotice(
+            kind=kind, effect=sentence, established="x").effect)
+    # And it does not fire on the sentences the inventory actually carries.
+    assert not pattern.search(
+        "DBLP records only a year, so resmon searches the whole calendar "
+        "years inside your window.")
+
+
+def test_date_granularity_and_window_effect_say_the_same_thing():
+    """Two fields, one quantity, and nothing was comparing them.
+
+    ``date_granularity`` is the finest precision the request can express.
+    ``window_effect`` is the same fact in the vocabulary the search forms
+    need. They are redundant by construction, which is exactly why they are
+    worth checking against each other: DOAJ's client clips both bounds with
+    ``[:4]`` and sends a year range, and ``date_granularity`` said ``day``
+    for three releases. The Repositories page rendered that as "Exact dates
+    — resmon can ask for any window" while the sweep widened the window to
+    the whole year, and nobody saw it because the two statements lived on
+    different screens.
+
+    Either field alone can be mistyped. Both wrong in the same direction
+    takes effort, and that is the whole value of a redundant pair.
+    """
+    agreed = {
+        "day": "as_asked",
+        "month": "whole_months",
+        "year": "whole_years",
+    }
+    wrong = [
+        (e.slug, e.date_granularity, e.constraints.window_effect)
+        for e in REPOSITORY_CATALOG
+        if agreed[e.date_granularity] != e.constraints.window_effect
+    ]
+    assert not wrong, (
+        "date_granularity and window_effect disagree, so one of the two "
+        "screens that render them is lying: "
+        + ", ".join(f"{s}: {g} vs {w}" for s, g, w in wrong))
 
 
 def test_the_four_sources_that_refuse_a_sub_year_window_are_the_ones_that_do_it():
@@ -251,49 +350,102 @@ def test_the_sources_route_returns_the_constraints():
 def test_every_citation_names_a_file_and_a_construct_that_exist():
     """A citation pointing at nothing is worse than no citation at all.
 
-    These say ``api_dblp.py, _whole_year_bounds`` rather than
+    These say ``api_dblp.py: _whole_year_bounds`` rather than
     ``api_dblp.py:138-152`` on purpose: a line number is wrong the moment
     anybody edits the file above it, and silently so. A name is checkable,
-    and this is the check — the module must exist and must still contain
-    every identifier the sentence claims to be quoting.
+    and this is the check.
+
+    **The contract is backticks.** Every code token a citation quotes is
+    written in backticks, every backticked token must appear verbatim in the
+    module, and every citation must carry at least one that is not
+    ``search()``. The middle rule is the one with teeth; the last rule is why
+    it has any.
+
+    Its first version extracted tokens by regex from free prose and counted
+    69 checks across 49 citations — of which **45 were the token `search`,
+    which every ``api_*.py`` contains by definition, and 29 citations had
+    nothing else at all.** A review renamed DOAJ's real clause from
+    ``bibjson.year`` to ``bibjson.published_year``, left the citation saying
+    ``bibjson.year`` untouched, and the suite stayed green. A guard that
+    reports a large number while checking almost nothing is worse than no
+    guard, because the number gets quoted.
     """
     import re  # noqa: PLC0415
 
     module_dir = Path(__file__).resolve().parent.parent / "implementation_scripts"
     filename = re.compile(r"api_[a-z_]+\.py")
-    # Private helpers, `search()`, and SHOUTING_CONSTANTS are the three shapes
-    # a citation names. The prose words below are not identifiers.
-    identifier = re.compile(r"(?<![\w.])(_[a-z][a-z0-9_]*|search\(\)|[A-Z][A-Z0-9_]{2,})")
-    prose = {"URL", "YYYY", "JSON", "API", "HTTP", "ISO", "REST", "SRU", "CQL",
-             "PDM", "CC0", "RMM", "NDL", "DBLP", "DOI", "OAPEN"}
+    backticked = re.compile(r"`([^`]+)`")
 
     problems: list[str] = []
     checks = 0
     for entry in REPOSITORY_CATALOG:
-        citations = [entry.constraints.established]
-        citations += [notice.established for notice in entry.constraints.notices]
-        for citation in citations:
-            named = set(filename.findall(citation))
-            if not named:
-                problems.append(f"{entry.slug}: citation names no module — {citation[:60]}")
+        citations = [("record", entry.constraints.established)]
+        citations += [(n.kind, n.established) for n in entry.constraints.notices]
+        for kind, citation in citations:
+            where = f"{entry.slug} [{kind}]"
+            tokens = backticked.findall(citation)
+            modules = [tok for tok in tokens if filename.fullmatch(tok)]
+            others = [tok for tok in tokens if not filename.fullmatch(tok)
+                      and tok != "search()"]
+            if not modules:
+                problems.append(f"{where}: names no module in backticks")
                 continue
-            for name in named:
+            if not others:
+                problems.append(
+                    f"{where}: names only its module and `search()`, which "
+                    "every client contains — nothing here is checkable")
+            sources = {}
+            for name in modules:
                 path = module_dir / name
                 if not path.exists():
-                    problems.append(f"{entry.slug}: {name} does not exist")
+                    problems.append(f"{where}: {name} does not exist")
                     continue
-                source = path.read_text(encoding="utf-8")
-                for found in set(identifier.findall(citation)):
-                    token = found[:-2] if found.endswith("()") else found
-                    if token in prose:
-                        continue
-                    checks += 1
-                    if token not in source:
-                        problems.append(f"{entry.slug}: {name} has no {token}")
+                sources[name] = path.read_text(encoding="utf-8")
+            if not sources:
+                continue
+            for token in tokens:
+                if filename.fullmatch(token):
+                    continue
+                probe = token[:-2] if token.endswith("()") else token
+                checks += 1
+                if not any(probe in src for src in sources.values()):
+                    problems.append(
+                        f"{where}: `{token}` is in none of {sorted(sources)}")
     assert not problems, "\n".join(problems)
     # A floor rather than an exact count, so adding a citation does not need
-    # this number edited; a drop to zero would mean the regex stopped matching.
-    assert checks >= 50, f"only {checks} identifiers were actually checked"
+    # this number edited; a drop would mean the contract stopped being read.
+    assert checks >= 50, f"only {checks} tokens were actually checked"
+
+
+def test_the_citation_guard_catches_a_renamed_construct():
+    """The guard's own red, because the first version did not fire on this.
+
+    Renaming the thing a citation quotes, and leaving the citation alone, is
+    the exact way these decay. The check has to notice.
+    """
+    import re  # noqa: PLC0415
+
+    backticked = re.compile(r"`([^`]+)`")
+    doaj = next(e for e in REPOSITORY_CATALOG if e.slug == "doaj")
+    quoted = backticked.findall(doaj.constraints.established)
+    assert "bibjson.year" in quoted, (
+        "this test is pinned to DOAJ's citation naming bibjson.year")
+
+    source = (
+        Path(__file__).resolve().parent.parent
+        / "implementation_scripts" / "api_doaj.py"
+    ).read_text(encoding="utf-8")
+    assert "bibjson.year" in source
+    # The rename the review performed. The guard reads the module, so the
+    # citation and a renamed clause cannot both be satisfied.
+    assert "bibjson.year" not in source.replace("bibjson.year", "bibjson.published_year")
+
+
+def _only(entry, notice):
+    """The entry as if it carried only this notice, so a state table can ask
+    about one sentence rather than about the source."""
+    from dataclasses import replace  # noqa: PLC0415
+    return replace(entry, constraints=replace(entry.constraints, notices=(notice,)))
 
 
 def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
@@ -312,13 +464,72 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
         "openalex", "osti", "plos", "pubmed", "zenodo",
     ]
 
-    # What a form shows with no date range set: every notice that is not
-    # about a date window, plus nothing else.
-    with_open_window = sorted(
-        e.slug for e in REPOSITORY_CATALOG
-        if any(n.applies_when != "with_date_window" for n in e.constraints.notices)
-    )
-    assert with_open_window == ["biorxiv", "medrxiv", "ndl_search"], with_open_window
+    # Which sources speak in which form state, evaluated the way the renderer
+    # evaluates it. This is the audit of every notice against every state it
+    # can be shown in, written down rather than done once by eye: the first
+    # round of this change did it by eye and shipped DBLP contradicting
+    # itself.
+    def speaks(entry, *, has_from, has_to, max_results):
+        cap = entry.constraints.records_per_request
+        for notice in entry.constraints.notices:
+            scope = notice.applies_when
+            if scope == "with_date_window" and not (has_from or has_to):
+                continue
+            if scope == "with_both_dates" and not (has_from and has_to):
+                continue
+            if scope == "without_start_date" and has_from:
+                continue
+            if scope == "above_record_cap" and not (
+                cap is not None and max_results is not None and max_results > cap
+            ):
+                continue
+            return True
+        return False
+
+    def speakers(**state):
+        return sorted(e.slug for e in REPOSITORY_CATALOG if speaks(e, **state))
+
+    def shown(**state):
+        return sorted(
+            (e.slug, n.kind)
+            for e in REPOSITORY_CATALOG for n in e.constraints.notices
+            if speaks(_only(e, n), **state)
+        )
+
+    # Nothing filled in: three sources, and only the sentences a bare form
+    # makes true.
+    assert speakers(has_from=False, has_to=False, max_results=100) == [
+        "biorxiv", "medrxiv", "ndl_search",
+    ]
+    assert shown(has_from=False, has_to=False, max_results=100) == [
+        ("biorxiv", "applied_default"), ("biorxiv", "keyword_search"),
+        ("medrxiv", "applied_default"), ("medrxiv", "keyword_search"),
+        ("ndl_search", "record_filter"),
+    ]
+
+    # A start date alone retires the two bioRxiv floors and admits the
+    # window-scoped sentences. NIST RMM's end-date sentence stays out.
+    assert speakers(has_from=True, has_to=False, max_results=100) == [
+        "arxiv", "biorxiv", "core", "datacite", "dblp", "doaj", "eric",
+        "medrxiv", "nasa_ads", "ndl_search", "nist_rmm", "oapen", "openaire",
+        "openlibrary", "semantic_scholar", "springer",
+    ]
+    from_only = shown(has_from=True, has_to=False, max_results=100)
+    assert ("biorxiv", "applied_default") not in from_only
+    assert len([n for n in from_only if n[0] == "nist_rmm"]) == 1
+
+    # Both dates: NIST RMM's second sentence joins, and nothing else moves.
+    both = shown(has_from=True, has_to=True, max_results=100)
+    assert len([n for n in both if n[0] == "nist_rmm"]) == 2
+    assert len(both) == len(from_only) + 1
+
+    # The cap sentence waits until the run actually exceeds the cap. All four
+    # forms stop the slider at 500; a saved configuration loads its stored
+    # max_results unclamped, which is the only way to reach this.
+    assert ("ndl_search", "result_cap") not in shown(
+        has_from=True, has_to=True, max_results=500)
+    assert ("ndl_search", "result_cap") in shown(
+        has_from=True, has_to=True, max_results=2000)
 
 
 def test_constraints_for_answers_by_slug_and_refuses_an_unknown_one():

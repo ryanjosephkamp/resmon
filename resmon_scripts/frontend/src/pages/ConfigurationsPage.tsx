@@ -583,6 +583,7 @@ const ConfigurationsPage: React.FC = () => {
                 entries={editReposForKeyStatus.map((slug) => bySlug[slug])}
                 dateFrom={editDateFrom}
                 dateTo={editDateTo}
+                maxResults={editMaxResults}
               />
               <KeywordInput keywords={editKeywords} onChange={setEditKeywords} />
               <div className="form-field">

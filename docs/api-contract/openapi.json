@@ -2612,6 +2612,17 @@
             "title": "Notices",
             "type": "array"
           },
+          "records_per_request": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Records Per Request"
+          },
           "window_effect": {
             "title": "Window Effect",
             "type": "string"
@@ -2630,6 +2641,7 @@
           "window_rounding",
           "window_refiltered_locally",
           "keyword_search",
+          "records_per_request",
           "notices",
           "established"
         ],

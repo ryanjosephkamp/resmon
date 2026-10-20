@@ -402,6 +402,7 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
             dateFrom={formDateFrom}
             dateTo={formDateTo}
             keywordsApply={formWatchMode === ''}
+            maxResults={formMaxResults}
           />
         )}
         {formWatchMode === '' ? (

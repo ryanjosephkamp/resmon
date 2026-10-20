@@ -37,6 +37,7 @@ const DBLP = {
     window_rounding: 'inward',
     window_refiltered_locally: false,
     keyword_search: 'upstream',
+    records_per_request: null,
     notices: [
       {
         kind: 'date_window',
@@ -64,6 +65,7 @@ const ARXIV = {
     window_rounding: 'none',
     window_refiltered_locally: false,
     keyword_search: 'upstream',
+    records_per_request: null,
     notices: [],
     established: 'api_arxiv.py:70-75.',
   },

@@ -95,6 +95,31 @@ function yearSpanPhrase(span: YearSpan): string | null {
 }
 
 /**
+ * Whether these dates mean resmon will not send this source a request at all.
+ *
+ * The four `inward` clients compute the whole calendar years contained by the
+ * window and return before any request when there are none. Everything else a
+ * source's record says — which records it drops, which rights it keeps, what
+ * it does with your end date — describes a search that is not going to
+ * happen, so this is what silences them.
+ *
+ * A predicate rather than a string match on the refusal sentence: the panel
+ * deciding what to print by reading what it just printed is how the two drift
+ * apart.
+ */
+export function willNotBeSearched(
+  entry: { constraints: SourceConstraints },
+  dateFrom: string,
+  dateTo: string,
+): boolean {
+  const { constraints } = entry;
+  if (constraints.window_rounding !== 'inward') return false;
+  if (!dateFrom && !dateTo) return false;
+  if ((dateFrom && !parts(dateFrom)) || (dateTo && !parts(dateTo))) return false;
+  return wholeYearsInside(dateFrom, dateTo) === null;
+}
+
+/**
  * The concrete sentence for a source whose window will be reshaped, or
  * `null` when the dates on the form do not change anything about it.
  *
@@ -165,14 +190,25 @@ export interface SourceAdvisory {
  * circumstances, and with no date range set the number that do drops to
  * three.
  *
- * **Each notice carries the state it is about**, and is hidden outside it.
- * A `with_date_window` notice waits for a date: arXiv's window is its
+ * **Each notice carries the state it is true in**, and is shown there and
+ * nowhere else. `with_date_window` waits for a date: arXiv's window is its
  * submission date rather than a publication date, which matters a great deal
  * to somebody filtering by date and not at all to somebody who is not, and
- * arXiv is on most people's selection every time. A `without_start_date`
- * notice disappears the moment a start date is typed, because it is about
- * the default resmon would have substituted there — bioRxiv's January 1,
- * 2020 floor is a fact about the blank field, not about the one you filled.
+ * arXiv is on most people's selection every time. `with_both_dates` waits
+ * for both, because a sentence about what resmon does with your end date is
+ * not true of a run that has none. `without_start_date` disappears the
+ * moment a start date is typed, because it is about the default resmon would
+ * have substituted there. `above_record_cap` waits until the run actually
+ * asks for more records than the source returns in one request.
+ *
+ * **A source that will not be searched at all says only that.** The four
+ * inward clients return before sending anything when the window contains no
+ * whole calendar year, so every other sentence in their record — which
+ * records they drop, what they do with your end date — is about a search
+ * that is not going to happen. DBLP shipped for one review round printing
+ * "a record carrying no year at all is dropped" directly underneath "DBLP
+ * will not be searched at all", which is the failure this whole panel exists
+ * to prevent, committed by the panel itself.
  *
  * **And it gives way to the concrete sentence when there is one.** For the
  * eight sources that round a window, the stored notice is the general form
@@ -191,17 +227,28 @@ export function advisoriesFor(
   entries: (RepoCatalogEntry | undefined)[],
   dateFrom: string,
   dateTo: string,
+  maxResults?: number,
 ): SourceAdvisory[] {
   const datesSet = Boolean(dateFrom || dateTo);
   const out: SourceAdvisory[] = [];
   for (const entry of entries) {
     if (!entry || !entry.constraints) continue;
     const window = windowSentence(entry, dateFrom, dateTo);
-    const notices = entry.constraints.notices
-      .filter((n) => (n.applies_when === 'with_date_window' ? datesSet : true))
-      .filter((n) => (n.applies_when === 'without_start_date' ? !dateFrom : true))
-      .filter((n) => !(window && n.kind === 'date_window'))
-      .map((n) => ({ kind: n.kind, effect: n.effect }));
+    const silenced = willNotBeSearched(entry, dateFrom, dateTo);
+    const cap = entry.constraints.records_per_request;
+    const notices = silenced
+      ? []
+      : entry.constraints.notices
+        .filter((n) => (n.applies_when === 'with_date_window' ? datesSet : true))
+        .filter((n) => (n.applies_when === 'with_both_dates' ? Boolean(dateFrom && dateTo) : true))
+        .filter((n) => (n.applies_when === 'without_start_date' ? !dateFrom : true))
+        .filter((n) => (
+          n.applies_when === 'above_record_cap'
+            ? typeof cap === 'number' && typeof maxResults === 'number' && maxResults > cap
+            : true
+        ))
+        .filter((n) => !(window && n.kind === 'date_window'))
+        .map((n) => ({ kind: n.kind, effect: n.effect }));
     if (!window && notices.length === 0) continue;
     out.push({ slug: entry.slug, name: entry.name, window, notices });
   }
