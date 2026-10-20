@@ -299,6 +299,12 @@ describe('generation counters keep the shapes that lost outcomes out of the rend
  * demonstration against a file it did not write is this guard's entire
  * argument. So each rule is pinned separately against a file written to be
  * wrong in that one way.
+ *
+ * Breaking one of these on purpose has two ways of lying to you, and both
+ * happened here: a mutation that fails to compile scores as a catch, and a
+ * mutation that fails to apply scores as a pass. The fixture directory's
+ * README has the detail; the short version is to assert the edit landed
+ * before reading what the suite says about it.
  */
 describe('each rule still fires', () => {
   const found = scanRenderer(FIXTURES).map((f) => `${f.file}|${f.rule}|${f.symbol}`).sort();
