@@ -17,10 +17,19 @@
  * to the sidebar now changes that sentence in the same commit, whether or not
  * anyone remembers it exists.
  *
- * This is navigation, not routing: `routes.ts` is the table of every route the
- * renderer can serve, which is a longer list including routes the sidebar does
- * not link. These two are checked against each other in
- * `src/__tests__/routes.test.tsx`.
+ * This is navigation and `routes.ts` is routing, and today they hold the same
+ * twenty destinations: every route the renderer serves is reached by a link
+ * here, and every link here resolves to a route. `src/__tests__/routes.test.tsx`
+ * asserts that in both directions, and asserts that the sidebar really renders
+ * one link per entry in this order.
+ *
+ * Both halves earn their place. A route no link reaches is a page a user cannot
+ * get to; a link to no route is a dead end. And since the Tutorials overview
+ * now derives its page list from this array, an entry deleted from here would
+ * disappear from the app's own documentation in the same stroke and leave the
+ * two agreeing about a sidebar that had quietly shrunk — which is the one way
+ * deriving the prose is worse than transcribing it, and the reason the check
+ * runs in the direction that catches it.
  *
  * Deliberately zero imports, for the same reason `routes.ts` has none: it
  * should be loadable by anything that wants the list, without dragging React
