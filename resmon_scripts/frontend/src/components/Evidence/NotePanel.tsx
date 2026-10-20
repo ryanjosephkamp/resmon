@@ -4,7 +4,7 @@ import {useRuns} from '../../hooks/useRuns';
 export default function NotePanel({project,file,anchor,notes,member,onSaved,onClear,onReopen,onNext}:{project:Project;file:EvidenceFile|null;anchor:Anchor|null;notes:Page<SavedNote>|null;member:boolean;onSaved:(p:Project,n:SavedNote)=>Promise<void>;onClear:()=>void;onReopen:(n:SavedNote)=>void;onNext:()=>void}){
   const [body,setBody]=useState('');const [editing,setEditing]=useState<SavedNote|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');const input=useRef<HTMLTextAreaElement>(null);
   // There is only ever one save in flight - ``saving`` sees to that - so the
-  // counter here was never cancelling a competing save. What it was cancelling
+  // counter here was never canceling a competing save. What it was canceling
   // was its own: the effect below bumped it whenever the selected file
   // changed, and selecting another collection file is not gated on this panel,
   // so a save that had already been accepted by the backend returned to a

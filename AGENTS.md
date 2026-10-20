@@ -203,13 +203,14 @@ brief's ownership list is a review failure regardless of whether the change is g
 
 ## Generation counters in the renderer
 
-Four components were written with one `epoch = useRef(0)` that several
-independent operations took a ticket from. Anything that bumped it discarded
+Four of the twelve renderer files that declare a numeric `useRef` counter
+were written with a single one that several independent operations took a
+ticket from. Anything that bumped it discarded
 the outcome of every other operation still in flight, and a discarded outcome
 is written nowhere: no result, no refusal, no sentence saying a request was
 abandoned. The user clicks, the request completes, and the page looks exactly
 as it did before — which is the one thing this application exists not to do.
-Review is a poor defence, because the code reads as a correct stale-response
+Review is a poor defense, because the code reads as a correct stale-response
 guard; and the suite stays green, because it asserts what the *surviving*
 operation does.
 

@@ -2,7 +2,7 @@
  * Two shapes of cancellation that do not cancel what they look like they do.
  *
  * Both were written more than once in this renderer, by different people, in
- * the same week. They share a property that makes review a poor defence: the
+ * the same week. They share a property that makes review a poor defense: the
  * code reads as a correct stale-response guard, and when it is wrong nothing
  * is written anywhere — no result, no refusal, no sentence saying a request
  * was abandoned. Nothing turns red either, because the suite asserts what the
