@@ -48,6 +48,20 @@ export interface Runs {
    * reported.
    */
   current(key: string, ticket: number): boolean;
+  /**
+   * Read `key`'s newest ticket without claiming one, for reason 3: an
+   * operation that must not apply its answer if the thing on screen changed
+   * underneath it. `token` before the first `await`, `current` after it.
+   *
+   * This is the one legitimate shape of the bug the rest of this file exists
+   * to prevent, and the difference is which way round it runs: `begin` says
+   * "this is mine now and anything older is stale", `token` says "I am
+   * watching something else and will stand down if it moves". Reaching for
+   * `token` where `begin` belongs is how an operation ends up cancellable by
+   * every other control on the page, so the subject being watched should be
+   * nameable in one word — a selection, a project.
+   */
+  token(key: string): number;
   /** False once the component has unmounted, or once `end` has been called. */
   readonly mounted: boolean;
   /**
@@ -82,7 +96,14 @@ export function useRuns(): Runs {
         return next;
       },
       current(key: string, ticket: number) {
-        return mounted.current && map.get(key) === ticket;
+        // An unseen key reads as 0, which is the value `token` hands back
+        // before anything has happened and a value `begin` never returns, so
+        // a watcher that started before the first change is still current and
+        // a ticket is only ever compared against its own key's history.
+        return mounted.current && (map.get(key) ?? 0) === ticket;
+      },
+      token(key: string) {
+        return map.get(key) ?? 0;
       },
       get mounted() { return mounted.current; },
       end() { mounted.current = false; },

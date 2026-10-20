@@ -115,6 +115,31 @@ describe('Evidence paging outcomes survive another control starting', () => {
     expect(await screen.findByText('Saved body 2')).toBeInTheDocument();
   });
 
+  it('does not lose a saved note because another file was selected while it saved', async () => {
+    jest.mocked(evidenceApi.files).mockResolvedValue({ ...firstMembers(),
+      items: [memberFixture(fileFixture(3), 1), memberFixture(fileFixture(4), 2)] });
+    await openProject();
+    fireEvent.click(screen.getByRole('button', { name: /^File 3\.txt text\/plain/ }));
+    fireEvent.change(screen.getByLabelText('Note body'), { target: { value: 'kept text' } });
+
+    const held = deferred<{ project: Project; note: SavedNote }>();
+    jest.spyOn(evidenceApi, 'save').mockReturnValue(held.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'Save note' }));
+
+    // Choosing another collection file is not gated on the note save: the page
+    // level busy flag belongs to the project load, not to this panel.
+    const other = screen.getByRole('button', { name: /^File 4\.txt text\/plain/ });
+    expect(other).toBeEnabled();
+    await act(async () => { fireEvent.click(other); });
+
+    const saved = noteFixture(fileFixture(3), 9);
+    await act(async () => { held.resolve({ project: { ...project(1), revision: 2, note_count: 2 }, note: saved }); });
+    // The record exists. The panel has to say so, and the project has to be
+    // reloaded, or a saved note is invisible until something else refreshes.
+    expect(await screen.findByText(/Saved this exact evidence record against File 3\.txt/)).toBeInTheDocument();
+    expect(evidenceApi.detail).toHaveBeenCalledTimes(2);
+  });
+
   it('does not paste a page of one project into another', async () => {
     jest.mocked(evidenceApi.projects).mockResolvedValue(projects([project(1), project(2)]));
     await openProject();
@@ -206,10 +231,25 @@ describe('useRuns', () => {
     expect(b.runs.mounted).toBe(false);
   });
 
-  it('a ticket that was never begun is never current', () => {
+  it('a ticket begin never hands out is never current', () => {
     const { runs } = mount();
-    expect(runs.current('files', 0)).toBe(false);
     expect(runs.current('files', 1)).toBe(false);
+    expect(runs.begin('files')).toBe(1);
+  });
+
+  it('token watches another key without claiming it', () => {
+    const { runs } = mount();
+    // Nothing has happened to the selection yet, and a watcher that started
+    // before the first change is still looking at the same thing.
+    const watching = runs.token('selection');
+    expect(watching).toBe(0);
+    expect(runs.current('selection', watching)).toBe(true);
+    runs.begin('selection');
+    expect(runs.current('selection', watching)).toBe(false);
+    // Watching does not supersede: the selection's own ticket still holds.
+    const held = runs.begin('selection');
+    expect(runs.token('selection')).toBe(held);
+    expect(runs.current('selection', held)).toBe(true);
   });
 });
 

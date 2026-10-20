@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import { apiClient, backendFetch } from '../api/client';
+import { useRuns } from '../hooks/useRuns';
 import type { ChoiceRequest, SavedChoices, UnreadableChoices, ChoicesDescriptor, TurnChoices, ModelReport } from '../components/Assistant/ComposerChoices';
 
 /**
@@ -157,12 +158,31 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [error, setError] = useState<string | null>(null);
   // Refs claim ownership synchronously, before React can paint a disabled button.
   const selected = useRef<number | null>(null);
-  const selectionEpoch = useRef(0);
   const selectionBusy = useRef(false);
   const deleting = useRef(new Set<number>());
   const active = useRef<ActiveTurn | null>(null);
   const blocked = 'Finish or stop the current answer before continuing another chat.';
-  const sessionsEpoch = useRef(0);
+  // Generation counters, one key per operation.
+  //
+  // `selection` is deliberately one key shared by four callers. Opening a
+  // conversation, starting a new one, changing choices and sending the first
+  // message of a turn all decide the same single-valued thing — which
+  // conversation this panel is on — so the pick the person made last has to
+  // win and the earlier pick must not write when it lands. Neither open nor
+  // new checks `selectionBusy`, and the session rows and the New conversation
+  // control are disabled by `isAnswering` only, so two of them really do
+  // overlap; discarding the earlier one is the whole point, and
+  // `AssistantPanel.test.tsx` pins it.
+  //
+  // Deleting is not part of that decision, and it used to be caught up in it:
+  // it read the selection counter as a ticket without ever bumping it, so a
+  // delete could never be the newest run of anything. Opening another
+  // conversation — one click away, nothing disabled — meant a *refused* delete
+  // reported nothing: the row stayed, the panel stayed silent, and the list is
+  // only refreshed on the success path. Each delete now carries its own id in
+  // its key, because a second delete of a different row is not a later run of
+  // the first and must not erase its refusal either.
+  const runs = useRuns();
 
   const setDraftChoices = useCallback((choice: ChoiceRequest) => {
     if (active.current || selectionBusy.current || bindingRef.current) return;
@@ -194,12 +214,12 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const refreshSessions = useCallback(async () => {
-    const epoch = ++sessionsEpoch.current;
+    const ticket = runs.begin('sessions');
     try {
       const body = await apiClient.get<{ sessions: AssistantSessionSummary[] }>(
         '/api/assistant/sessions',
       );
-      if (epoch === sessionsEpoch.current) setSessions(body.sessions || []);
+      if (runs.current('sessions', ticket)) setSessions(body.sessions || []);
     } catch {
       /* the list is a convenience; a failure here must not break the panel */
     }
@@ -231,7 +251,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const changeChoices = useCallback(() => {
     if (active.current || selectionBusy.current) { setError(blocked); return; }
-    ++selectionEpoch.current;
+    runs.begin('selection');
     selected.current = null;
     setSessionId(null);
     acceptSession();
@@ -242,14 +262,14 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const newSession = useCallback(async () => {
     if (active.current) { setError(blocked); return; }
-    const epoch = ++selectionEpoch.current;
+    const ticket = runs.begin('selection');
     selectionBusy.current = true;
     setSelecting(true);
     setError(null);
     const chosen = draftChoicesRef.current ? { ...draftChoicesRef.current } : null;
     try {
       const session = await apiClient.post<{ id: number; runtime?: string; choices?: SavedChoices | UnreadableChoices }>('/api/assistant/sessions', chosen ? { choices: chosen } : {});
-      if (epoch !== selectionEpoch.current || active.current) return;
+      if (!runs.current('selection', ticket) || active.current) return;
       selected.current = session.id;
       setSessionId(session.id);
       acceptSession(session);
@@ -257,9 +277,9 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setPending([]);
       void refreshSessions();
     } catch (err) {
-      if (epoch === selectionEpoch.current) setError(err instanceof Error ? err.message : String(err));
+      if (runs.current('selection', ticket)) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      if (epoch === selectionEpoch.current) { selectionBusy.current = false; setSelecting(false); }
+      if (runs.current('selection', ticket)) { selectionBusy.current = false; setSelecting(false); }
     }
   }, [refreshSessions]);
 
@@ -270,14 +290,14 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return;
     }
     if (deleting.current.has(id)) return;
-    const epoch = ++selectionEpoch.current;
+    const ticket = runs.begin('selection');
     selectionBusy.current = true;
     setSelecting(true);
     setError(null);
     try {
       const body = await apiClient.get<{ session?: { id: number; runtime?: string; choices?: SavedChoices | UnreadableChoices | null }; messages: AssistantMessage[]; turn_choices?: TurnChoices[];
         activity_observation?: { turn_claimed: boolean } }>(`/api/assistant/sessions/${id}`);
-      if (epoch !== selectionEpoch.current || active.current) return;
+      if (!runs.current('selection', ticket) || active.current) return;
       if (body.session && body.session.id !== id) throw new Error('The conversation response did not match.');
       selected.current = id;
       setSessionId(id);
@@ -289,7 +309,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setError('This conversation is already answering in another renderer. Its live stream cannot be reopened here.');
       }
     } catch (err) {
-      if (epoch === selectionEpoch.current) {
+      if (runs.current('selection', ticket)) {
         selected.current = null;
         setSessionId(null);
         acceptSession();
@@ -298,7 +318,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setError(err instanceof Error ? err.message : String(err));
       }
     } finally {
-      if (epoch === selectionEpoch.current) { selectionBusy.current = false; setSelecting(false); }
+      if (runs.current('selection', ticket)) { selectionBusy.current = false; setSelecting(false); }
     }
   }, []);
 
@@ -306,11 +326,16 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (active.current?.id === id || selectionBusy.current) { setError(blocked); return; }
     if (deleting.current.has(id)) return;
     deleting.current.add(id);
-    const epoch = selectionEpoch.current;
+    const ticket = runs.begin(`delete:${id}`);
     try {
       await apiClient.delete(`/api/assistant/sessions/${id}`);
-      if (selected.current === id && epoch === selectionEpoch.current) {
-        ++selectionEpoch.current;
+      // `selected.current === id` is what decides whether this deletion took
+      // the open conversation away, and it is enough on its own: a newer
+      // `openSession` or `newSession` has already moved `selected.current` by
+      // the time it lands, and `send` refuses to start a turn on a session
+      // that is being deleted, so there is no turn here to interrupt.
+      if (runs.current(`delete:${id}`, ticket) && selected.current === id) {
+        runs.begin('selection');
         selected.current = null;
         setSessionId(null);
         acceptSession();
@@ -318,7 +343,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
       void refreshSessions();
     } catch (err) {
-      if (epoch === selectionEpoch.current) setError(err instanceof Error ? err.message : String(err));
+      if (runs.current(`delete:${id}`, ticket)) setError(err instanceof Error ? err.message : String(err));
     } finally { deleting.current.delete(id); }
   }, [refreshSessions]);
 
@@ -473,7 +498,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const adopting = selected.current !== null && !bindingRef.current && confirmLegacy;
     const turn: ActiveTurn = { id: selected.current, stopping: false, permissions: new Set<string>() };
     active.current = turn;
-    ++selectionEpoch.current;
+    runs.begin('selection');
     setError(null);
     setAnswering(true);
     try {
