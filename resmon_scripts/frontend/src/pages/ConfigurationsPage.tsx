@@ -155,6 +155,16 @@ const ConfigurationsPage: React.FC = () => {
     ? 'Reveal in Finder'
     : 'Reveal in File Explorer';
 
+  // Export Selected writes a ZIP holding one JSON file per chosen
+  // configuration, so the archive is the file a user actually has in hand.
+  // This gate used to take only ``.json``, which refused the single artifact
+  // the page itself produces; the round trip the help text promises stopped
+  // there. Loose ``.json`` files stay accepted — somebody who unpacked an
+  // export by hand, or who kept the members, should not lose that.
+  const IMPORT_EXTENSIONS = ['.zip', '.json'];
+  const importAccepts =
+    'Import takes the .zip that Export Selected writes, or the .json files inside one.';
+
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -164,8 +174,9 @@ const ConfigurationsPage: React.FC = () => {
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      if (!file.name.endsWith('.json')) {
-        setError(`Invalid file type: ${file.name}. Only .json files accepted.`);
+      const lower = file.name.toLowerCase();
+      if (!IMPORT_EXTENSIONS.some((ext) => lower.endsWith(ext))) {
+        setError(`Invalid file type: ${file.name}. ${importAccepts}`);
         if (fileRef.current) fileRef.current.value = '';
         return;
       }
@@ -183,6 +194,13 @@ const ConfigurationsPage: React.FC = () => {
       }
       const data = await resp.json();
       setStatus(`Imported ${data.imported} configuration(s).`);
+      // A file the backend could not use reports itself by name. Without
+      // this the page answered "Imported 0 configuration(s)." and left the
+      // user to guess which file was wrong and what was wanted instead.
+      const rejected: string[] = Array.isArray(data.errors) ? data.errors : [];
+      if (rejected.length > 0) {
+        setError(`Not imported: ${rejected.join('; ')}`);
+      }
       fetchConfigs();
       // Tell every mounted ConfigLoader (Deep Dive, Deep Sweep, Routines)
       // to refetch so newly imported rows appear immediately.
@@ -397,7 +415,7 @@ const ConfigurationsPage: React.FC = () => {
             Export Selected ({selected.size})
           </button>
           <button className="btn btn-secondary" onClick={() => fileRef.current?.click()}>Import</button>
-          <input ref={fileRef} type="file" accept=".json" multiple hidden onChange={handleImport} />
+          <input ref={fileRef} type="file" accept=".zip,.json" multiple hidden onChange={handleImport} />
           <button className="btn btn-danger" onClick={() => setConfirmDelete(true)} disabled={selected.size === 0}>
             Delete Selected ({selected.size})
           </button>
@@ -433,13 +451,21 @@ const ConfigurationsPage: React.FC = () => {
           {
             heading: 'Import / export',
             body: (
+              <>
               <p>
-                Configurations round-trip as JSON. Use <strong>Export Selected</strong>
-                to save the chosen rows to a file; use <strong>Import</strong> to
-                load one or more JSON files back in. Re-importing a file with
-                an existing name appends a numeric suffix instead of
-                overwriting.
+                <strong>Export Selected</strong> writes one <code>.zip</code>
+                holding a <code>.json</code> file per chosen row.
+                <strong> Import</strong> takes that <code>.zip</code> back, or
+                the <code>.json</code> files from inside one, and accepts
+                several at a time. A file it cannot use is named in the
+                message and the rest of the batch still imports.
               </p>
+              <p>
+                Importing a configuration whose name is already in use adds a
+                second row under that name; it does not replace the first or
+                rename either. Delete the one you do not want.
+              </p>
+              </>
             ),
           },
           {

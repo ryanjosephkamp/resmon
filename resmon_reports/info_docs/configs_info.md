@@ -11,12 +11,12 @@ The Configurations page is the management surface for named, reusable parameter 
 1. Open the page and land on the **Routine Configs** tab by default; switch to **Manual Configs** to view manual dive and manual sweep presets together.
 2. Select one or more rows via per-row checkboxes or the select-all checkbox in the header.
 3. Click **Export Selected** to write the chosen rows to a ZIP archive of JSON files on disk; a success banner shows the path and (on desktop) a Reveal button that opens the containing folder.
-4. Click **Import** to pick one or more `.json` files through the native file picker; each file is validated and inserted as a new configuration.
+4. Click **Import** to pick the exported `.zip` back through the native file picker — or the `.json` files from inside one; several can be chosen at once, each configuration found is validated and inserted as a new row, and any file that could not be used is named in the banner while the rest of the batch still imports.
 5. Click **Delete Selected** to open a confirmation dialog; confirming deletes every selected configuration, and for rows whose `config_type` is `routine` the linked scheduled routine is also deleted in the same operation.
 
 ### Inputs and Outputs
 
-- **Inputs**: selection state in the table, JSON files chosen through the import file picker, and the IDs of selected rows sent in the export request body.
+- **Inputs**: selection state in the table, the exported `.zip` or loose `.json` files chosen through the import file picker, and the IDs of selected rows sent in the export request body.
 - **Outputs**: the exported ZIP archive on disk (path returned to the UI), success and error banners, and refreshed table state after mutations.
 
 ### Known Constraints
@@ -81,7 +81,7 @@ Derived values:
 - Empty tab: when `filtered` is empty the table body shows a muted placeholder row.
 - Fetch failure: the thrown error's message is placed in the `error` banner above the tab bar.
 - Import failure: failed `fetch` or non-OK responses surface a prefixed "Import failed: …" error; both `status` and `error` are auto-cleared after 5 s at the end of the handler.
-- Invalid file type during import: a specific "Invalid file type: <name>. Only .json files accepted." error is shown and the batch is aborted before any upload.
+- Invalid file type during import: a file whose name ends in neither `.zip` nor `.json` produces `Invalid file type: <name>. Import takes the .zip that Export Selected writes, or the .json files inside one.` and the batch is aborted before any upload. A file that clears that check but cannot be used is reported by the backend instead, in a "Not imported: …" banner naming it, and does not stop the rest of the batch.
 
 ## Backend
 
@@ -94,7 +94,7 @@ Defined in `resmon_scripts/resmon.py` under the "Configurations" section:
 - `PUT /api/configurations/{config_id}` — update a configuration from a `ConfigUpdate` body (`name?`, `parameters?`); 404s if the ID is unknown; `parameters` is re-serialized to JSON before the write.
 - `DELETE /api/configurations/{config_id}` — delete a configuration; 404s if the ID is unknown; cascades to `delete_routine(conn, rid)` when the row's `config_type` is `routine` and its parameters contain an integer `linked_routine_id` resolving to an existing routine.
 - `POST /api/configurations/export` — body is `ConfigExport` (`ids: list[int]`); writes a ZIP archive via `config_manager.export_configs` and returns `{"path": str}`.
-- `POST /api/configurations/import` — accepts a multipart `files: list[UploadFile]`; each upload is written to a temp `.json` file and passed to `config_manager.import_configs`. The handler then post-processes the imported rows: for every config whose `config_type == 'routine'` it parses the inner `parameters` JSON, builds a routine insert payload, **forces `is_active=0`** so imported routines are deactivated by default and bulk imports never auto-fire, calls `insert_routine`, captures the new routine id, and rewrites the just-imported config row's `parameters` JSON so `linked_routine_id` points at the new routine. This restores the bidirectional Routines ↔ routine-configs invariant — every routine config has a real routine row and vice-versa — that the rest of the app already enforces in both other directions (`_sync_routine_config` on routine create/update, and the `delete_routine` cascade on `DELETE /api/configurations/{id}`). Returns `{"imported": n, "routines_created": m, "errors": []}`; per-file JSON-decode failures and `validate_config` failures are still logged server-side and skipped silently, so `imported` may be less than the number of uploaded files, and per-row routine-creation failures (logged and skipped) may make `routines_created` less than the number of imported routine configs.
+- `POST /api/configurations/import` — accepts a multipart `files: list[UploadFile]`; each upload is written to a temp file with a neutral `.upload` suffix and passed to `config_manager.import_configs` together with the filename the user chose. What each upload *is* is decided from its content, not its name: `zipfile.is_zipfile` sends it down the archive path, where every `.json` member is read (bounded by a member count, a per-member size and a total), and anything else is parsed as a single configuration. The handler then post-processes the imported rows: for every config whose `config_type == 'routine'` it parses the inner `parameters` JSON, builds a routine insert payload, **forces `is_active=0`** so imported routines are deactivated by default and bulk imports never auto-fire, calls `insert_routine`, captures the new routine id, and rewrites the just-imported config row's `parameters` JSON so `linked_routine_id` points at the new routine. This restores the bidirectional Routines ↔ routine-configs invariant — every routine config has a real routine row and vice-versa — that the rest of the app already enforces in both other directions (`_sync_routine_config` on routine create/update, and the `delete_routine` cascade on `DELETE /api/configurations/{id}`). Returns `{"imported": n, "routines_created": m, "errors": [...]}`; per-file JSON-decode failures, `validate_config` failures and archives refused on their size or member count are logged server-side **and** named in `errors`, each line quoting the filename the user chose (and the member, inside an archive), so `imported` may be less than the number of uploaded files with the reason visible rather than silent. Per-row routine-creation failures are still only logged, so `routines_created` may be less than the number of imported routine configs without that showing in `errors`.
 
 ### Request/Response Patterns
 
@@ -103,7 +103,7 @@ Defined in `resmon_scripts/resmon.py` under the "Configurations" section:
 - Update response: `{id, ...updates}` echoing only the fields actually touched.
 - Delete response: `{success: True}`.
 - Export response: `{path}` pointing either at `<export_directory>/resmon_configs_<YYYYMMDDTHHMMSS>.zip` when the `export_directory` setting is populated, or at a `tempfile.NamedTemporaryFile(suffix=".zip")` path when it is not.
-- Import response: `{imported: int, errors: []}`. The current implementation always returns an empty `errors` array; per-file JSON-decode failures and `validate_config` failures are logged server-side and those files are skipped silently, so `imported` may be less than the number of uploaded files.
+- Import response: `{imported: int, routines_created: int, errors: list[str]}`. `errors` carries one line per file or archive member that could not be used, naming it; a bad entry reports itself rather than failing the batch, so `imported` may be less than the number of uploaded files with `errors` saying which and why.
 
 ### Persistence Touchpoints
 

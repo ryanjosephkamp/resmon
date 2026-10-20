@@ -220,32 +220,178 @@ def export_configs(
     return output_path
 
 
+# What the import side will take, said once so the refusals and the page help
+# can agree with each other.
+IMPORT_ACCEPTS = (
+    "the .zip that Export Selected writes, or the .json configuration files "
+    "inside one"
+)
+
+# An exported configuration is a few hundred bytes of JSON. These caps exist
+# so that a ZIP chosen by mistake -- or built to be unpleasant -- is refused by
+# size rather than decompressed into memory. All three are far above anything
+# the export side can produce: the largest configuration shape is a routine
+# wrapper, and a user with five hundred saved presets has other problems.
+#
+# Each cap bounds one thing, and saying which matters, because the first two
+# alone do not bound the total. ``_archive_members`` holds every member it
+# read until the caller has parsed them, so a per-member limit and a member
+# count *multiply*: 512 members of 1 MiB each is 512 MiB resident, which is
+# not what a reader of "refused by size rather than decompressed into memory"
+# would expect. The third cap is the one that makes that sentence true.
+#
+#   _MAX_ARCHIVE_MEMBERS  how many entries are looked at at all
+#   _MAX_MEMBER_BYTES     the largest single configuration file read
+#   _MAX_ARCHIVE_BYTES    the total held in memory at once
+_MAX_ARCHIVE_MEMBERS = 512
+_MAX_MEMBER_BYTES = 1 * 1024 * 1024
+_MAX_ARCHIVE_BYTES = 8 * 1024 * 1024
+
+
+def _archive_members(fp: Path, display: str) -> tuple[list[tuple[str, bytes]], list[str]]:
+    """Read the JSON members of an exported archive, with their own names.
+
+    Returns the members and the problems worth telling the user about.
+    Directory entries and the ``__MACOSX``/``._`` bookkeeping that macOS's
+    Archive Utility adds when someone unzips and rezips an export are skipped
+    silently -- they are not files the user chose and naming them would read
+    as a fault.
+
+    Two kinds of refusal, and the line between them is deliberate: something
+    wrong with a single member skips that member and keeps the rest, the way
+    the batch treats a bad file; something wrong with the archive as a whole
+    -- too many entries, too much in total -- refuses the archive, because
+    importing an arbitrary prefix of it is not a result anyone asked for.
+    """
+    members: list[tuple[str, bytes]] = []
+    errors: list[str] = []
+    with zipfile.ZipFile(fp) as zf:
+        entries = [
+            info for info in zf.infolist()
+            if not info.is_dir()
+            and not info.filename.startswith("__MACOSX/")
+            and not Path(info.filename).name.startswith("._")
+        ]
+        if len(entries) > _MAX_ARCHIVE_MEMBERS:
+            errors.append(
+                f"{display}: {len(entries)} files inside, more than the "
+                f"{_MAX_ARCHIVE_MEMBERS} an export is expected to hold")
+            return [], errors
+        # Spent against the declared size *before* the member is read, so the
+        # budget bounds what is decompressed rather than reporting on it
+        # afterwards. zipfile stops a read at the declared uncompressed size
+        # and fails the CRC if the real stream disagrees, so the declaration
+        # is a bound and not merely a hint.
+        remaining = _MAX_ARCHIVE_BYTES
+        for info in entries:
+            if not info.filename.lower().endswith(".json"):
+                continue
+            if info.file_size > _MAX_MEMBER_BYTES:
+                errors.append(
+                    f"{display} ({info.filename}): larger than a saved "
+                    "configuration can be, so it was not read")
+                continue
+            if info.file_size > remaining:
+                errors.append(
+                    f"{display}: the configuration files inside add up to "
+                    f"more than {_MAX_ARCHIVE_BYTES // (1024 * 1024)} MB, so "
+                    "none of them were read")
+                return [], errors
+            raw = zf.read(info)
+            remaining -= len(raw)
+            members.append((info.filename, raw))
+    return members, errors
+
+
 def import_configs(
     conn: sqlite3.Connection,
     file_paths: list[Path],
-) -> list[int]:
-    """Validate and import JSON configuration files. Returns list of new config IDs."""
+    display_names: list[str] | None = None,
+) -> tuple[list[int], list[str]]:
+    """Import saved configurations from the files a user chose.
+
+    Takes either shape the app can put in a user's hands: the ZIP that
+    ``export_configs`` writes, holding one JSON file per configuration, or a
+    loose ``.json`` file out of one. This used to take only the second, which
+    meant the Configurations page would not read back the single file its own
+    Export Selected button produced -- the import refused the archive and the
+    journey stopped at the format boundary.
+
+    What a file *is* is decided from its content, never its name. The caller
+    writes each upload to a temporary file of its own choosing, so by the time
+    a path reaches here its suffix says nothing about what the user picked.
+    ``display_names`` carries the names the user does recognise, aligned with
+    ``file_paths``; without it the temporary names are used, which is right for
+    a caller reading real files off disk.
+
+    Returns the new configuration IDs and, separately, a line per file that
+    could not be used. A bad entry reports itself rather than failing the
+    batch, because a user who selected six files and mistyped one should get
+    the five.
+    """
     imported_ids: list[int] = []
+    errors: list[str] = []
+    names = display_names or []
 
-    for fp in file_paths:
+    for index, fp in enumerate(file_paths):
         fp = Path(fp)
-        try:
-            with open(fp, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.error("Failed to read config file %s: %s", fp, exc)
-            continue
+        display = names[index] if index < len(names) else fp.name
 
-        try:
-            validate_config(data)
-        except ValueError as exc:
-            logger.error("Invalid config file %s: %s", fp, exc)
-            continue
+        # One JSON document per (source, name) pair, so that a validation
+        # failure inside an archive can say which member it was.
+        documents: list[tuple[str, bytes]] = []
+        if zipfile.is_zipfile(fp):
+            try:
+                documents, archive_errors = _archive_members(fp, display)
+            except (zipfile.BadZipFile, OSError) as exc:
+                logger.error("Failed to read export archive %s: %s", display, exc)
+                errors.append(f"{display}: could not be read ({exc})")
+                continue
+            errors.extend(archive_errors)
+            if not documents and not archive_errors:
+                errors.append(
+                    f"{display}: no configuration files inside — expected "
+                    f"{IMPORT_ACCEPTS}")
+                continue
+            documents = [(f"{display} ({member})", raw) for member, raw in documents]
+        else:
+            try:
+                documents = [(display, fp.read_bytes())]
+            except OSError as exc:
+                logger.error("Failed to read config file %s: %s", display, exc)
+                errors.append(f"{display}: could not be read ({exc})")
+                continue
 
-        name = data.pop("name")
-        config_type = data.pop("config_type")
-        config_id = save_config(conn, name, config_type, data)
-        imported_ids.append(config_id)
-        logger.info("Imported config '%s' (ID %d) from %s", name, config_id, fp)
+        for label, raw in documents:
+            # ``json.loads`` on bytes, not an opened text handle: a file that
+            # is not UTF-8 raises UnicodeDecodeError from the decoder, which is
+            # not a JSONDecodeError and used to escape this handler as a 500.
+            try:
+                data = json.loads(raw)
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                logger.error("Failed to parse config file %s: %s", label, exc)
+                errors.append(
+                    f"{label}: not a configuration file — expected "
+                    f"{IMPORT_ACCEPTS}")
+                continue
 
-    return imported_ids
+            if not isinstance(data, dict):
+                errors.append(
+                    f"{label}: not a configuration file — expected "
+                    f"{IMPORT_ACCEPTS}")
+                continue
+
+            try:
+                validate_config(data)
+            except ValueError as exc:
+                logger.error("Invalid config file %s: %s", label, exc)
+                errors.append(f"{label}: {exc}")
+                continue
+
+            name = data.pop("name")
+            config_type = data.pop("config_type")
+            config_id = save_config(conn, name, config_type, data)
+            imported_ids.append(config_id)
+            logger.info("Imported config '%s' (ID %d) from %s", name, config_id, label)
+
+    return imported_ids, errors

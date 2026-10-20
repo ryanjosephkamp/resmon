@@ -2771,13 +2771,22 @@ def export_configurations(body: ConfigExport):
 async def import_configurations(files: list[UploadFile] = File(...)):
     conn = _get_db()
     try:
+        # The temporary file's suffix is deliberately neutral. It used to be
+        # ``.json``, which was a claim about content the upload had not made:
+        # the Configurations page's Export Selected writes a ZIP, and an
+        # import that decided what it had from this suffix read the archive as
+        # text and raised. ``import_configs`` sniffs the content instead, and
+        # is handed the names the user recognises so a refusal can quote them
+        # rather than a path inside the temporary directory.
         tmp_paths = []
+        upload_names = []
         for f in files:
-            tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+            tmp = tempfile.NamedTemporaryFile(suffix=".upload", delete=False)
             tmp.write(await f.read())
             tmp.close()
             tmp_paths.append(Path(tmp.name))
-        ids = import_configs(conn, tmp_paths)
+            upload_names.append(Path(f.filename or tmp.name).name)
+        ids, import_errors = import_configs(conn, tmp_paths, upload_names)
 
         # Update 2 — Configurations/Routines lockstep:
         # Every imported routine-config must be mirrored as a real routine
@@ -2837,7 +2846,8 @@ async def import_configurations(files: list[UploadFile] = File(...)):
             update_configuration(conn, cid, {"parameters": json.dumps(payload)})
             routines_created += 1
 
-        return {"imported": len(ids), "routines_created": routines_created, "errors": []}
+        return {"imported": len(ids), "routines_created": routines_created,
+                "errors": import_errors}
     finally:
         _close_db(conn)
 
