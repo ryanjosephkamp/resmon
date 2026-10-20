@@ -196,7 +196,7 @@ const DeepDivePage: React.FC = () => {
             body: (
               <ol>
                 <li>Pick a repository. If it requires an API key, the key-status panel will tell you whether a key is already stored or needs to be provided for this run.</li>
-                <li>Optionally restrict the date range. If the repository cannot honor the window you set — DBLP, ERIC, OAPEN and Open Library search whole calendar years, NASA ADS whole months — a <strong>Before you run this</strong> panel appears under the dates and says what will actually be searched.</li>
+                <li>Optionally restrict the date range. If the repository cannot honor the window you set, a <strong>Before you run this</strong> panel appears under the dates and names the dates that will actually be searched. Each repository&rsquo;s precision is on the Repositories &amp; API Keys page, under Date Filtering.</li>
                 <li>Enter one or more keywords (press Enter after each).</li>
                 <li>Adjust the results cap and, if desired, enable AI summarization.</li>
                 <li>Click <strong>Run Deep Dive</strong>. Progress streams to the Monitor page and the floating widget.</li>
@@ -246,6 +246,7 @@ const DeepDivePage: React.FC = () => {
           entries={[bySlug[repository]]}
           dateFrom={dateFrom}
           dateTo={dateTo}
+          maxResults={maxResults}
         />
         <KeywordInput keywords={keywords} onChange={setKeywords} />
 
