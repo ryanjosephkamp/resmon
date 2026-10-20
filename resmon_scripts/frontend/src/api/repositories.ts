@@ -78,7 +78,7 @@ export type ConstraintKind =
 /**
  * The state a notice is true in. It is shown there and nowhere else.
  *
- * `with_date_window` waits for a date; `with_both_dates` for both, because a
+ * `with_date_window` waits for either bound; `with_end_date` for an end date, because a
  * sentence about what resmon does with your end date is not true of a run
  * with no end date; `without_start_date` disappears once a start date is
  * typed; `above_record_cap` waits until the run asks for more records than
@@ -87,7 +87,7 @@ export type ConstraintKind =
 export type NoticeScope =
   | 'always'
   | 'with_date_window'
-  | 'with_both_dates'
+  | 'with_end_date'
   | 'without_start_date'
   | 'above_record_cap';
 

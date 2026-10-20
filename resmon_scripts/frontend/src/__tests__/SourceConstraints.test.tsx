@@ -314,18 +314,22 @@ describe('the other two states the sweep found', () => {
         kind: 'date_window',
         effect: 'resmon sends your start date and applies your end date locally.',
         established: 'fixture',
-        applies_when: 'with_both_dates',
+        applies_when: 'with_end_date',
       },
     ],
   });
 
-  test('a sentence about your end date waits for an end date', () => {
-    // With no end date there is nothing applied locally; with no start date
-    // nothing is sent. The sentence is true of neither.
+  test('a sentence about your end date waits for an end date, and only that', () => {
+    // With no end date there is nothing applied locally, so it stays hidden.
     expect(advisoriesFor([NIST], '2025-01-01', '')).toEqual([]);
-    expect(advisoriesFor([NIST], '', '2025-12-31')).toEqual([]);
     expect(advisoriesFor([NIST], '', '')).toEqual([]);
+    // With both, it shows.
     expect(advisoriesFor([NIST], '2025-01-01', '2025-12-31')[0].notices).toHaveLength(1);
+    // **And with an end date alone.** This was scoped `with_both_dates` for
+    // a review round and hidden here — the state where the client sends no
+    // upstream date bound at all and filters every record locally, which is
+    // where "fewer in-window records than the cap you set" is most true.
+    expect(advisoriesFor([NIST], '', '2025-12-31')[0].notices).toHaveLength(1);
   });
 
   const NDL = entry('ndl_search', 'NDL Search', {

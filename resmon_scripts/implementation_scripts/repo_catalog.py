@@ -219,9 +219,11 @@ KeywordSearch = Literal["upstream", "client_side", "none"]
 #                        its submission date matters a great deal to somebody
 #                        filtering by date and not at all to anybody else, and
 #                        arXiv is on most selections every time.
-# ``with_both_dates``    only when both bounds are set. A sentence about what
-#                        resmon does with your *end* date is not true of a
-#                        run that has no end date.
+# ``with_end_date``      only once an end date is set. The state a sentence
+#                        about what resmon does with your *end* date is true
+#                        in -- which is not the same as "both bounds are
+#                        set", and standing one in for the other hid NIST
+#                        RMM's sentence in the state where it mattered most.
 # ``without_start_date`` only while the start date is blank, because the
 #                        sentence is about the default resmon substitutes
 #                        there. Telling somebody who typed a start date what
@@ -238,14 +240,25 @@ KeywordSearch = Literal["upstream", "client_side", "none"]
 # be searched at all". A notice whose state cannot be expressed here does not
 # get shown with an approximation -- the state gets added.
 #
+# ``with_end_date`` is that rule being broken and then obeyed. NIST RMM's
+# sentence was scoped ``with_both_dates`` because that state already existed
+# and was *close*. It is not the same state: with an end date and no start
+# date the client sends no upstream date bound at all and filters every
+# record locally, which is the case where "a run can come back with fewer
+# in-window records than the cap you set" is most true -- and the
+# approximation hid it there. The near-enough state is the trap, not the
+# missing one.
+#
 # An enum rather than a pile of booleans, and separate from ``kind`` rather
-# than read off it: three of the window-scoped notices are record filters or
-# caps that only bite inside a window, and relabelling them to get the
-# display right would make ``kind`` lie about what they are.
+# than read off it: two of the fifteen window-scoped notices are record
+# filters rather than date-window notices, and relabelling them to get the
+# display right would make ``kind`` lie about what they are. Both counts are
+# asserted in ``test_source_constraints.py``, because a number written into
+# a comment is a number nobody re-measures.
 NoticeScope = Literal[
     "always",
     "with_date_window",
-    "with_both_dates",
+    "with_end_date",
     "without_start_date",
     "above_record_cap",
 ]
@@ -1272,16 +1285,22 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             notices=(
                 _notice(
                     "date_window",
-                    "The documented NIST RMM API has a start date and no end "
-                    "date. resmon sends your start date and applies your end "
-                    "date to the records after they arrive, so a run can come "
-                    "back with fewer in-window records than the cap you set.",
-                    # Needs both bounds: with no end date there is nothing
-                    # applied locally, and with no start date nothing is sent.
-                    "`api_nist_rmm.py`: `search()` sends `from_date`, and "
-                    "`_inside_window` applies the end date to each record "
-                    "after it arrives.",
-                    applies_when="with_both_dates",
+                    "The NIST RMM API documents a start date and no end date, "
+                    "so resmon applies your end date to the records after "
+                    "they arrive rather than asking for it. A run can come "
+                    "back with fewer in-window records than the cap you set, "
+                    "and with no start date either, nothing bounds the "
+                    "request upstream at all.",
+                    # with_end_date, not with_both_dates: `search()` sets
+                    # from_date only `if lower_bound`, while `_inside_window`
+                    # applies the upper bound whenever it is set. So the
+                    # end-date half is what makes this true, and an end date
+                    # on its own is the strongest case rather than an
+                    # excluded one.
+                    "`api_nist_rmm.py`: `search()` sets `from_date` only when "
+                    "there is a lower bound, and `_inside_window` applies the "
+                    "upper bound to each record after it arrives.",
+                    applies_when="with_end_date",
                 ),
                 _notice(
                     "date_window",

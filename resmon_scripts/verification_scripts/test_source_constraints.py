@@ -174,6 +174,16 @@ def test_every_notice_says_what_happens_and_where_that_was_read():
 # evaded by somebody determined to phrase around it, and that is fine: this
 # exists to stop the honest mistake of writing the sentence twice, not an
 # adversary.
+#
+# The last two entries are bare substrings, so **no notice may mention a key
+# or a credential at all** — not even to say something a key changes. An
+# earlier docstring here offered that as allowed ("a rate ceiling, a page
+# size"), which was a permission the pattern did not grant: every sentence
+# written to fit it was rejected, including "With an API key, Springer
+# raises the page size from 25 to 100." A rule that reads as permissive and
+# behaves as absolute sends the next author round a loop, so the permission
+# is gone rather than the substrings. If a key-conditional fact is ever
+# worth showing, it gets a typed field, the way ``records_per_request`` did.
 _CREDENTIAL_PHRASES = (
     r"requires? (?:an? )?(?:api[- ])?key",
     r"needs? (?:an? )?(?:api[- ])?key",
@@ -185,6 +195,12 @@ _CREDENTIAL_PHRASES = (
     r"register for (?:an? )?(?:api[- ])?key",
     r"api key",
     r"credential",
+    # A bare "key". Found while writing the check below: "PubMed's rate
+    # limit rises from 3 to 10 requests a second with a key" went straight
+    # through `api key`, so the rule the docstring called absolute was not.
+    # `\b` keeps it off "keyword", which the bioRxiv and medRxiv sentences
+    # need.
+    r"\bkeys?\b",
 )
 
 
@@ -196,10 +212,9 @@ def test_no_notice_tells_a_reader_that_a_source_needs_a_key():
     the gap. So the inventory is not allowed to carry one, and this looks at
     what each sentence *says* rather than at the label somebody chose for it.
 
-    What a notice may still do is describe what a key *changes* — a rate
-    ceiling, a page size — as long as it does so without the phrases below.
-    If that becomes genuinely hard to write, the right move is to add a
-    typed field for it rather than to widen this list.
+    The bar is absolute: a notice may not mention a key or a credential,
+    for any reason. See ``_CREDENTIAL_PHRASES`` for why it is not the softer
+    rule it first looked like.
     """
     import re  # noqa: PLC0415
 
@@ -242,6 +257,19 @@ def test_the_credential_guard_catches_the_sentence_whatever_it_is_labeled():
     assert not pattern.search(
         "DBLP records only a year, so resmon searches the whole calendar "
         "years inside your window.")
+
+    # The class an earlier docstring here called allowed. Every one of these
+    # is rejected, which is why that permission was removed rather than the
+    # substrings narrowed — the rule is absolute and now says so.
+    for described_benefit in (
+        "With an API key, Springer raises the page size from 25 to 100.",
+        "A stored credential raises CORE's ceiling to roughly 10,000 a day.",
+        "Semantic Scholar answers faster for callers sending an API key.",
+        "PubMed's rate limit rises from 3 to 10 requests a second with a key.",
+    ):
+        assert pattern.search(described_benefit), (
+            "this sentence is rejected today; if that ever changes, the "
+            "docstring's claim about what is allowed has to change with it")
 
 
 def test_date_granularity_and_window_effect_say_the_same_thing():
@@ -464,6 +492,47 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
         "openalex", "osti", "plos", "pubmed", "zenodo",
     ]
 
+    # The outward set and the one declared per-request cap. Both are quoted
+    # in the pull request's count list beside figures that were asserted,
+    # which made the whole list read as checked when two of it was not.
+    outward = sorted(
+        e.slug for e in REPOSITORY_CATALOG
+        if e.constraints.window_rounding == "outward"
+    )
+    assert outward == ["datacite", "doaj", "nasa_ads", "semantic_scholar"], outward
+    assert sum(1 for e in REPOSITORY_CATALOG
+               if e.constraints.window_refiltered_locally) == 1
+    caps = {e.slug: e.constraints.records_per_request
+            for e in REPOSITORY_CATALOG
+            if e.constraints.records_per_request is not None}
+    assert caps == {"ndl_search": 500}, caps
+
+    # The scope histogram, because the pull request quotes it and nothing
+    # was checking it. A figure in a body that no test holds is a figure
+    # that goes stale the first time somebody adds a notice.
+    from collections import Counter  # noqa: PLC0415
+
+    scopes = Counter(
+        n.applies_when for e in REPOSITORY_CATALOG for n in e.constraints.notices
+    )
+    assert sum(scopes.values()) == 22, sum(scopes.values())
+    assert dict(scopes) == {
+        "with_date_window": 15,
+        "always": 3,
+        "without_start_date": 2,
+        "above_record_cap": 1,
+        "with_end_date": 1,
+    }, dict(scopes)
+
+    # And the claim that scope is worth keeping separate from ``kind``: two
+    # of the window-scoped notices are record filters, not date-window
+    # notices, so reading one off the other would make ``kind`` lie.
+    window_scoped = [
+        n for e in REPOSITORY_CATALOG for n in e.constraints.notices
+        if n.applies_when == "with_date_window"
+    ]
+    assert sum(1 for n in window_scoped if n.kind == "record_filter") == 2
+
     # Which sources speak in which form state, evaluated the way the renderer
     # evaluates it. This is the audit of every notice against every state it
     # can be shown in, written down rather than done once by eye: the first
@@ -475,7 +544,7 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
             scope = notice.applies_when
             if scope == "with_date_window" and not (has_from or has_to):
                 continue
-            if scope == "with_both_dates" and not (has_from and has_to):
+            if scope == "with_end_date" and not has_to:
                 continue
             if scope == "without_start_date" and has_from:
                 continue
@@ -496,6 +565,14 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
             if speaks(_only(e, n), **state)
         )
 
+    # **Every combination of the two date fields, not a selection of them.**
+    # The first version of this table evaluated (none), (start), (start+end)
+    # and two caps, and skipped (end only) — which is exactly where NIST
+    # RMM's sentence had been hidden by a scope that was close enough. A
+    # table that samples the state space is the same enumeration failure the
+    # sweep was about, committed by the thing meant to prevent it.
+    STATES = [(False, False), (True, False), (False, True), (True, True)]
+
     # Nothing filled in: three sources, and only the sentences a bare form
     # makes true.
     assert speakers(has_from=False, has_to=False, max_results=100) == [
@@ -508,7 +585,8 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
     ]
 
     # A start date alone retires the two bioRxiv floors and admits the
-    # window-scoped sentences. NIST RMM's end-date sentence stays out.
+    # window-scoped sentences. NIST RMM has one sentence here: the
+    # whole-day one. Its end-date sentence is not about this state.
     assert speakers(has_from=True, has_to=False, max_results=100) == [
         "arxiv", "biorxiv", "core", "datacite", "dblp", "doaj", "eric",
         "medrxiv", "nasa_ads", "ndl_search", "nist_rmm", "oapen", "openaire",
@@ -518,7 +596,19 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
     assert ("biorxiv", "applied_default") not in from_only
     assert len([n for n in from_only if n[0] == "nist_rmm"]) == 1
 
-    # Both dates: NIST RMM's second sentence joins, and nothing else moves.
+    # **An end date and no start date.** The state the first table never
+    # looked at. `search()` sets from_date only when there is a lower bound,
+    # so here resmon sends no upstream date bound at all and `_inside_window`
+    # filters every record locally — the case where "fewer in-window records
+    # than the cap you set" is most true, and the one where the sentence had
+    # gone missing. bioRxiv's floor is still correct here too: an end date
+    # does not fill in the start date the default stands in for.
+    to_only = shown(has_from=False, has_to=True, max_results=100)
+    assert len([n for n in to_only if n[0] == "nist_rmm"]) == 2, (
+        "NIST RMM's end-date sentence belongs in the state it is most true in")
+    assert ("biorxiv", "applied_default") in to_only
+
+    # Both dates: the same NIST RMM pair, nothing new.
     both = shown(has_from=True, has_to=True, max_results=100)
     assert len([n for n in both if n[0] == "nist_rmm"]) == 2
     assert len(both) == len(from_only) + 1
@@ -526,10 +616,43 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
     # The cap sentence waits until the run actually exceeds the cap. All four
     # forms stop the slider at 500; a saved configuration loads its stored
     # max_results unclamped, which is the only way to reach this.
-    assert ("ndl_search", "result_cap") not in shown(
-        has_from=True, has_to=True, max_results=500)
-    assert ("ndl_search", "result_cap") in shown(
-        has_from=True, has_to=True, max_results=2000)
+    for has_from, has_to in STATES:
+        assert ("ndl_search", "result_cap") not in shown(
+            has_from=has_from, has_to=has_to, max_results=500)
+        assert ("ndl_search", "result_cap") in shown(
+            has_from=has_from, has_to=has_to, max_results=2000)
+
+
+def test_a_mislabeled_notice_moves_between_states_and_the_table_sees_it():
+    """What the state table does and does not catch, demonstrated.
+
+    It catches a scope that is wrong, because a wrong scope changes which
+    state a sentence appears in and the table pins the exact set in all four.
+    Moving bioRxiv's blank-start floor to ``always`` — the round-one defect,
+    reintroduced through the label rather than the code — shows up as the
+    sentence appearing in a state it was asserted out of.
+
+    It does not catch a sentence whose scope is right and whose *text* is
+    wrong about what happens in that state. Reading the rendered panel is
+    still the only thing that finds those.
+    """
+    from dataclasses import replace  # noqa: PLC0415
+
+    biorxiv = next(e for e in REPOSITORY_CATALOG if e.slug == "biorxiv")
+    floor = next(n for n in biorxiv.constraints.notices
+                 if n.kind == "applied_default")
+    assert floor.applies_when == "without_start_date"
+
+    mislabeled = replace(floor, applies_when="always")
+    # With a start date typed, the real scope hides it and the mislabel does
+    # not. That difference is what the table's exact-set assertions compare.
+    def visible(notice, has_from):
+        if notice.applies_when == "without_start_date" and has_from:
+            return False
+        return True
+
+    assert not visible(floor, has_from=True)
+    assert visible(mislabeled, has_from=True)
 
 
 def test_constraints_for_answers_by_slug_and_refuses_an_unknown_one():

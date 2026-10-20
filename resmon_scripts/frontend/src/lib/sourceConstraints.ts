@@ -194,9 +194,10 @@ export interface SourceAdvisory {
  * nowhere else. `with_date_window` waits for a date: arXiv's window is its
  * submission date rather than a publication date, which matters a great deal
  * to somebody filtering by date and not at all to somebody who is not, and
- * arXiv is on most people's selection every time. `with_both_dates` waits
- * for both, because a sentence about what resmon does with your end date is
- * not true of a run that has none. `without_start_date` disappears the
+ * arXiv is on most people's selection every time. `with_end_date` waits
+ * for an end date, because a sentence about what resmon does with your end
+ * date is not true of a run that has none — and is *most* true of a run
+ * that has only one, which is why it is not "both dates". `without_start_date` disappears the
  * moment a start date is typed, because it is about the default resmon would
  * have substituted there. `above_record_cap` waits until the run actually
  * asks for more records than the source returns in one request.
@@ -240,7 +241,7 @@ export function advisoriesFor(
       ? []
       : entry.constraints.notices
         .filter((n) => (n.applies_when === 'with_date_window' ? datesSet : true))
-        .filter((n) => (n.applies_when === 'with_both_dates' ? Boolean(dateFrom && dateTo) : true))
+        .filter((n) => (n.applies_when === 'with_end_date' ? Boolean(dateTo) : true))
         .filter((n) => (n.applies_when === 'without_start_date' ? !dateFrom : true))
         .filter((n) => (
           n.applies_when === 'above_record_cap'
