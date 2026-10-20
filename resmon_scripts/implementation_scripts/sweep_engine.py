@@ -23,7 +23,7 @@ from .api_registry import (
     list_repositories,
 )
 from . import entity_matching
-from .repo_catalog import REPOSITORY_CATALOG
+from .repo_catalog import REPOSITORY_CATALOG, required_credential_for
 from .config import REPORTS_DIR
 from .credential_manager import get_credential_for
 from .database import (
@@ -62,14 +62,22 @@ class _ExecutionCancelled(Exception):
     """Raised internally when cooperative cancellation is detected mid-query."""
 
 
-# Repositories that require an API key in order to return any results.
-# Keyed by the repository name as registered in ``api_registry`` and mapped
-# to the credential name used by ``credential_manager``.
-_REQUIRED_CREDENTIALS: dict[str, str] = {
-    "core": "core_api_key",
-    "nasa_ads": "nasa_ads_api_key",
-    "springer": "springer_api_key",
-}
+def required_credential_for_sweep(repo_name: str) -> str | None:
+    """Return the credential a repository needs before it is worth asking.
+
+    This used to be a dict of three slugs written out here. The catalog
+    already declared which sources require a key — four of them — and the two
+    lists drifted: GovInfo's client returns an empty list the moment it finds
+    no credential, and its own comment says "the sweep's existing catalog gate
+    records missing_key", but the gate had never heard of it. The user was
+    told resmon had not recorded whether GovInfo answered, when resmon knew
+    perfectly well that it had never been asked.
+
+    So the gate reads the catalog instead, and there is one list again. A new
+    keyed source is covered the moment its catalog row says ``required``.
+    ``test_source_constraints.py`` fails if the two ever separate.
+    """
+    return required_credential_for(repo_name)
 
 # The recorded zero reasons that mean **resmon asked and the source did not
 # answer**, as opposed to resmon never having asked it.
@@ -313,7 +321,7 @@ class SweepEngine:
 
                 task_log.log(f"Querying repository: {repo_name}")
                 # Detect missing API keys for repositories that require one.
-                cred_name = _REQUIRED_CREDENTIALS.get(repo_name)
+                cred_name = required_credential_for_sweep(repo_name)
                 if cred_name and not get_credential_for(exec_id, cred_name):
                     missing_key_repos.append(repo_name)
                     task_log.log(
@@ -400,7 +408,7 @@ class SweepEngine:
                             zero_reason_value = "missing_key"
                             zero_detail_value = {
                                 "credential_name":
-                                    _REQUIRED_CREDENTIALS.get(repo_name),
+                                    required_credential_for_sweep(repo_name),
                             }
                         else:
                             zero_reason_value, zero_detail_value = (
@@ -469,7 +477,7 @@ class SweepEngine:
                         exec_id, repo_name,
                         "skipped_missing_key" if repo_name in missing_key_repos else "ok",
                         result_count=len(results),
-                        credential_name=_REQUIRED_CREDENTIALS.get(repo_name),
+                        credential_name=required_credential_for_sweep(repo_name),
                         zero_reason=zero_reason_value,
                         zero_detail=zero_detail_value,
                     )
@@ -514,7 +522,7 @@ class SweepEngine:
                         exec_id, repo_name,
                         "skipped_missing_key" if repo_name in missing_key_repos else "error",
                         error_message=str(exc),
-                        credential_name=_REQUIRED_CREDENTIALS.get(repo_name),
+                        credential_name=required_credential_for_sweep(repo_name),
                         zero_reason="retired" if retired_reason else None,
                         zero_detail=(
                             {"detail": retired_reason} if retired_reason else None
@@ -716,7 +724,7 @@ class SweepEngine:
                     # batch size.
                     #
                     # It used to be strictly one document per call, on purpose:
-                    # cancellation could then be honoured between documents and
+                    # cancellation could then be honored between documents and
                     # the live log could show per-article progress. Both still
                     # hold. Cancellation is checked between slices *and*
                     # reaches inside one -- ``_summarize_with_heartbeat`` runs
@@ -1382,7 +1390,7 @@ class SweepEngine:
 
         Same shape as :meth:`_search_with_heartbeat` and for the same reason,
         plus one that is specific to batching: a batched call is a **single
-        CLI process holding ten documents**, so a cancel honoured only between
+        CLI process holding ten documents**, so a cancel honored only between
         calls would leave the user waiting out the whole batch after pressing
         the button. ``chain.cancel()`` reaches into the lane and terminates the
         process that is actually running.

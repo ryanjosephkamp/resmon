@@ -76,7 +76,14 @@ def test_importing_a_retired_client_module_registers_nothing(module):
 
 
 def test_ieee_no_longer_has_a_required_credential():
-    """The sweep engine's key gate must not name a source it can never reach."""
-    from implementation_scripts.sweep_engine import _REQUIRED_CREDENTIALS
+    """The sweep engine's key gate must not name a source it can never reach.
 
-    assert "ieee" not in _REQUIRED_CREDENTIALS
+    The gate reads the catalog now rather than a list of its own, so this is
+    a question about the catalog: a retired source has no entry, and a slug
+    with no entry has no required credential.
+    """
+    from implementation_scripts.sweep_engine import (  # noqa: PLC0415
+        required_credential_for_sweep,
+    )
+
+    assert required_credential_for_sweep("ieee") is None

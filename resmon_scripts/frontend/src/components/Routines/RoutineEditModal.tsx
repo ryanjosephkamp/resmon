@@ -8,6 +8,7 @@ import ScheduleConfigurator, { StructuredSchedule } from '../Forms/ScheduleConfi
 import ConfigLoader from '../Forms/ConfigLoader';
 import RepoKeyStatus from '../Repositories/RepoKeyStatus';
 import KeywordCombinationBanner from '../Forms/KeywordCombinationBanner';
+import SourceConstraintNotice from '../Forms/SourceConstraintNotice';
 import { useRepoCatalog } from '../../hooks/useRepoCatalog';
 import DeliveryTargets from './DeliveryTargets';
 import InfoTooltip from '../Help/InfoTooltip';
@@ -388,6 +389,22 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
           </div>
         )}
         <DateRangePicker dateFrom={formDateFrom} dateTo={formDateTo} onDateFromChange={setFormDateFrom} onDateToChange={setFormDateTo} />
+        {/*
+          A retractions routine queries no source at all — the hint above says
+          so — and "DBLP will search all of 2025" would be a sentence about
+          something that is not going to happen. A new-papers watch routine
+          does query them but sends no keywords, so it keeps the window
+          notices and loses the keyword ones.
+        */}
+        {formWatchMode !== 'retractions' && (
+          <SourceConstraintNotice
+            entries={formRepos.map((slug) => bySlug[slug])}
+            dateFrom={formDateFrom}
+            dateTo={formDateTo}
+            keywordsApply={formWatchMode === ''}
+            maxResults={formMaxResults}
+          />
+        )}
         {formWatchMode === '' ? (
           <KeywordInput keywords={formKeywords} onChange={setFormKeywords} />
         ) : (

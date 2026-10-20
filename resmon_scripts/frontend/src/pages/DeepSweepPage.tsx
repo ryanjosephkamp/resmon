@@ -10,6 +10,7 @@ import ConfigLoader from '../components/Forms/ConfigLoader';
 import { notifyConfigurationsChanged } from '../lib/configurationsBus';
 import RepoKeyStatus from '../components/Repositories/RepoKeyStatus';
 import KeywordCombinationBanner from '../components/Forms/KeywordCombinationBanner';
+import SourceConstraintNotice from '../components/Forms/SourceConstraintNotice';
 import { useRepoCatalog } from '../hooks/useRepoCatalog';
 import PageHelp from '../components/Help/PageHelp';
 import InfoTooltip from '../components/Help/InfoTooltip';
@@ -188,7 +189,7 @@ const DeepSweepPage: React.FC = () => {
             body: (
               <ol>
                 <li>Select the repositories to query. Each row in the Key Status panel tells you whether a key is stored, needed, or absent for this run.</li>
-                <li>Optionally restrict the date range.</li>
+                <li>Optionally restrict the date range. If a selected source cannot honor the window you set, a <strong>Before you run this</strong> panel appears under the dates and names the dates that will actually be searched. Which sources those are is on the Repositories &amp; API Keys page, under Date Filtering.</li>
                 <li>Enter one or more keywords (press Enter after each).</li>
                 <li>Adjust the <strong>per-repository</strong> results cap and, if desired, enable AI summarization.</li>
                 <li>Click <strong>Run Deep Sweep</strong>. Repositories are queried concurrently (subject to the Concurrent Executions limit in Settings → Advanced).</li>
@@ -256,6 +257,12 @@ const DeepSweepPage: React.FC = () => {
           </div>
         )}
         <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} onDateFromChange={setDateFrom} onDateToChange={setDateTo} />
+        <SourceConstraintNotice
+          entries={repositories.map((slug) => bySlug[slug])}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          maxResults={maxResults}
+        />
         <KeywordInput keywords={keywords} onChange={setKeywords} />
 
         <div className="form-field">

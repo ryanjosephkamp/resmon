@@ -8,6 +8,7 @@ import DateRangePicker from '../components/Forms/DateRangePicker';
 import KeywordInput from '../components/Forms/KeywordInput';
 import ScheduleConfigurator from '../components/Forms/ScheduleConfigurator';
 import KeywordCombinationBanner from '../components/Forms/KeywordCombinationBanner';
+import SourceConstraintNotice from '../components/Forms/SourceConstraintNotice';
 import RepoKeyStatus from '../components/Repositories/RepoKeyStatus';
 import { useRepoCatalog } from '../hooks/useRepoCatalog';
 import InfoTooltip from '../components/Help/InfoTooltip';
@@ -577,6 +578,12 @@ const ConfigurationsPage: React.FC = () => {
                 dateTo={editDateTo}
                 onDateFromChange={setEditDateFrom}
                 onDateToChange={setEditDateTo}
+              />
+              <SourceConstraintNotice
+                entries={editReposForKeyStatus.map((slug) => bySlug[slug])}
+                dateFrom={editDateFrom}
+                dateTo={editDateTo}
+                maxResults={editMaxResults}
               />
               <KeywordInput keywords={editKeywords} onChange={setEditKeywords} />
               <div className="form-field">
