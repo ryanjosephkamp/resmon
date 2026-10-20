@@ -1,4 +1,8 @@
 /**
+ * @jest-environment ./jest.easternZoneEnvironment.js
+ */
+
+/**
  * Properties of the one place a stored timestamp becomes text.
  *
  * These are **new coverage, not a regression witness**: `src/lib/datetime.ts`
@@ -7,9 +11,13 @@
  * asserts what a reader sees. This file exists for the branches that one
  * cannot reach — chiefly the bare, zone-less string, which is the shape most
  * likely to be read wrongly and least likely to be noticed.
+ *
+ * The zone is pinned by the environment named in the docblock above, not by a
+ * `process.env.TZ` line here: Jest fixes the zone when it builds the
+ * environment, before this module is required, so such a line does nothing
+ * except pass on a machine that already agreed with it. The first test below
+ * checks the environment took.
  */
-
-process.env.TZ = 'America/New_York';
 
 import { formatInstant, parseStoredInstant } from '../lib/datetime';
 

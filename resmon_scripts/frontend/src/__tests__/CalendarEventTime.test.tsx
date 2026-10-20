@@ -1,6 +1,5 @@
 /**
- * @jest-environment jsdom
- * @jest-environment-options {"customExportConditions": ["node"]}
+ * @jest-environment ./jest.easternZoneEnvironment.js
  */
 
 /**
@@ -24,12 +23,15 @@
  * readings. Asserting that the two call the same helper would prove nothing
  * about what the user reads; asserting the text fails the moment the
  * formatting is reverted, which is the only property worth having here.
+ *
+ * The zone comes from the custom environment named in the docblock above, and
+ * not from a ``process.env.TZ`` line in this file. That line was the first
+ * attempt and it is a no-op: Jest fixes the zone when it builds the
+ * environment, before this module is required, so the assignment passed on a
+ * laptop already in Eastern time and reported ``UTC`` on CI. The first test
+ * below checks the environment actually took, because every other assertion
+ * here is meaningless if it did not.
  */
-
-// Pinned before any Date is constructed. Node re-reads ``process.env.TZ`` on
-// each date operation, and the first test below fails loudly if this did not
-// take effect, because every assertion in the file is meaningless under UTC.
-process.env.TZ = 'America/New_York';
 
 import React from 'react';
 import { act, fireEvent, screen } from '@testing-library/react';
