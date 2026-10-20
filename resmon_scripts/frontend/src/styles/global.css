@@ -4986,7 +4986,10 @@ li.basis-name-affiliation .basis-chip {
 .library-line > span:last-child { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 .library-line-number { text-align: right; opacity: .65; user-select: none; }
 .library-line mark { color: #19130a; background: #f4d487; }
-.library-error { white-space: pre-wrap; }
+/* Two lines, one rule: this page distinguishes a refusal from an outcome it
+   could not determine by role and class, not by color, so .library-unknown
+   invents no visual treatment the rest of the page does not use. */
+.library-error, .library-unknown { white-space: pre-wrap; }
 @media (max-width: 900px) { .library-workspace { grid-template-columns: minmax(0, 1fr); } .library-page { padding: 1rem; } }
 
 /* Evidence uses the existing palette; every selector is scoped to its page. */

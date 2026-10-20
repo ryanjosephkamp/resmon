@@ -61,17 +61,61 @@ export function validateText(value: unknown, file: LibraryFile): TextEnvelope {
     throw new Error('Text response does not match the selected bounded version.');
   return x as unknown as TextEnvelope;
 }
-async function request(path: string, method = 'GET', body?: BodyInit, raw = false): Promise<unknown> {
-  const response = await fetch(`${getBaseUrl()}/api/library${path}`, {
-    method, body, cache: 'no-store', headers: {...authHeaders(), 'X-Resmon-Library':'1', ...(body !== undefined ? {'Content-Type':raw ? 'application/octet-stream' : 'application/json'} : {})},
+/**
+ * How long a vault creation may stay silent before the page says so.
+ *
+ * Creating a vault is one `mkdir`, two directory `fsync`s and one `INSERT`.
+ * Measured against a real backend in a disposable state directory it answered
+ * in 12-37 ms, and the slowest *answer* the backend can give is its own SQLite
+ * busy timeout: a deliberately held write lock produced a refusal in 5.4 s,
+ * not silence. Anything still outstanding after this long is not slow, it is
+ * unaccounted for.
+ *
+ * An operator walking the app hit exactly that - both creation controls
+ * disabled past thirty seconds with no error, no progress text and no vault -
+ * and the root cause was not established. This deadline is deliberately not a
+ * diagnosis: it fires whether the request blocked in the handler, never left
+ * the renderer, or returned a body the client never finished reading, because
+ * a control that is disabled with no explanation is wrong in all three cases.
+ */
+export const CREATE_VAULT_DEADLINE_MS = 30_000;
+export const CREATE_VAULT_TIMEOUT_MESSAGE =
+  'No answer from resmon after 30 seconds, and the request was given up. '
+  + 'Whether the vault was created is unknown from here - press Refresh Library to see what is actually there.';
+
+interface Deadline { ms: number; message: string }
+
+async function request(path: string, method = 'GET', body?: BodyInit, raw = false, deadline?: Deadline): Promise<unknown> {
+  // The controller exists on every call so a deadline can release the socket,
+  // not only the promise. Without a deadline nothing ever aborts it.
+  const controller = new AbortController();
+  const send = (async () => {
+    const response = await fetch(`${getBaseUrl()}/api/library${path}`, {
+      method, body, cache: 'no-store', signal: controller.signal, headers: {...authHeaders(), 'X-Resmon-Library':'1', ...(body !== undefined ? {'Content-Type':raw ? 'application/octet-stream' : 'application/json'} : {})},
+    });
+    const value: unknown = await response.json();
+    if (!response.ok) {
+      const detail = object(value).detail;
+      const message = typeof detail === 'string' ? detail : (detail && typeof detail === 'object' ? object(detail).message : null);
+      throw new Error(typeof message === 'string' ? message : `Library request refused (${response.status}).`);
+    }
+    return value;
+  })();
+  if (!deadline) return send;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // The rejection comes from this timer rather than from the aborted fetch, so
+  // the sentence the user reads does not depend on the request having reached
+  // a layer that honours the signal.
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => { controller.abort(); reject(new Error(deadline.message)); }, deadline.ms);
   });
-  const value: unknown = await response.json();
-  if (!response.ok) {
-    const detail = object(value).detail;
-    const message = typeof detail === 'string' ? detail : (detail && typeof detail === 'object' ? object(detail).message : null);
-    throw new Error(typeof message === 'string' ? message : `Library request refused (${response.status}).`);
+  try {
+    return await Promise.race([send, expiry]);
+  } finally {
+    clearTimeout(timer);
+    // The abandoned request still settles later; nobody is listening by then.
+    void send.catch(() => undefined);
   }
-  return value;
 }
 const query = (values: Record<string, string | number | undefined>): string => '?' + new URLSearchParams(
   Object.entries(values).filter(([,v]) => v !== undefined).map(([k,v])=>[k,String(v)]),
@@ -90,7 +134,8 @@ function status(value: unknown): LibraryStatus {
 }
 export const libraryApi = {
   status: async () => status(await request('')),
-  create: async (parent: string) => status(await request('/vault','POST',JSON.stringify({parent_directory:parent}))),
+  create: async (parent: string) => status(await request('/vault','POST',JSON.stringify({parent_directory:parent}),false,
+    {ms:CREATE_VAULT_DEADLINE_MS,message:CREATE_VAULT_TIMEOUT_MESSAGE})),
   list: async (vault: string, q = '', through?: number, before?: number): Promise<LibraryPage> => {
     const x = envelope(await request('/files'+query({expected_vault_id:vault,q,through_id:through,before_id:before})),vault);
     if (!Array.isArray(x.files) || x.files.length > 50 || !integer(x.through_id) || (through !== undefined && x.through_id !== through)

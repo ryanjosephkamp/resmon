@@ -101,17 +101,50 @@ c.commit();c.close()`,env.RESMON_DB_PATH);
    if(outcome==='success')await held!.fulfill({response:await held!.fetch()});else await held!.fulfill({status:409,contentType:'application/json',body:JSON.stringify({detail:{message:'closed reader old error'}})});
    await finished;await settle();expect(await win.getByRole('region',{name:'Retained text reader'}).count()).toBe(0);expect(await win.getByText('closed reader old error',{exact:false}).count()).toBe(0);await expect(win.getByText('Read text',{exact:true})).toBeFocused();await win.unroute(pattern);
   }
-  // Neither an old Open nor inventory result may act after selection changes.
+  // An old Open may not act after the selection changes. Open belongs to the
+  // item that was selected when it was asked for, and the detail panel it is
+  // asked from is remounted when the selection changes, so a late answer has
+  // nowhere to land and must not reach the operating system.
   await app!.evaluate(({BrowserWindow})=>{const g=globalThis as unknown as {libraryDownloads:string[]};g.libraryDownloads=[];BrowserWindow.getAllWindows()[0].webContents.session.on('will-download',(_event,item)=>g.libraryDownloads.push(item.getFilename()));});
-  for(const kind of ['open','export'] as const)for(const outcome of ['success','error'] as const){
-   await select(txt.original_name);let held:Route|undefined;const pattern=kind==='open'?`**/api/library/files/${txt.file_id}/open`:'**/api/library/export*';
-   await win.route(pattern,route=>{held=route;});await win.getByText(kind==='open'?'Open externally':'Export complete JSON inventory',{exact:true}).click();await expect.poll(()=>!!held).toBe(true);await select(pdf.original_name);
+  for(const outcome of ['success','error'] as const){
+   await select(txt.original_name);let held:Route|undefined;const pattern=`**/api/library/files/${txt.file_id}/open`;
+   await win.route(pattern,route=>{held=route;});await win.getByText('Open externally',{exact:true}).click();await expect.poll(()=>!!held).toBe(true);await select(pdf.original_name);
    const finished=win.waitForEvent('requestfinished',r=>r.url()===held!.request().url());
    if(outcome==='success')await held!.fulfill({response:await held!.fetch()});else await held!.fulfill({status:409,contentType:'application/json',body:JSON.stringify({detail:{message:'authored stale action error'}})});
    await finished;await settle();await win.unroute(pattern);
    expect(await app!.evaluate(()=>(globalThis as unknown as {libraryOpenPaths:string[]}).libraryOpenPaths)).toEqual([]);
    expect(await app!.evaluate(()=>(globalThis as unknown as {libraryDownloads:string[]}).libraryDownloads)).toEqual([]);
    expect(await win.getByText('authored stale action error',{exact:false}).count()).toBe(0);
+  }
+  // An inventory export must still act, and these two cases assert the reverse
+  // of what they used to. The distinction is what the request belongs to. Open,
+  // detail and read belong to the selected item, so changing the selection is
+  // the user saying they are no longer wanted. An inventory export belongs to
+  // the vault - it covers every catalog item, not the one in the panel - and a
+  // user who asked for it and then looked at another file has not withdrawn the
+  // request. Discarding it left a control that had done nothing at all: no
+  // download, no refusal and no sentence, which is the silence the creation
+  // deadline on this page exists to stop producing. The same two cases in the
+  // renderer suite are in src/__tests__/Library.test.tsx.
+  for(const outcome of ['success','error'] as const){
+   await select(txt.original_name);let held:Route|undefined;const pattern='**/api/library/export*';const late=path.join(exports,'late-export.json');
+   // Without a scripted save path a real download opens the native Save sheet
+   // and the run stops on it, the same way the intended export below is scripted.
+   if(outcome==='success')await app!.evaluate(({BrowserWindow},target)=>{BrowserWindow.getAllWindows()[0].webContents.session.once('will-download',(_e,item)=>item.setSavePath(target));},late);
+   await win.route(pattern,route=>{held=route;});await win.getByText('Export complete JSON inventory',{exact:true}).click();await expect.poll(()=>!!held).toBe(true);await select(pdf.original_name);
+   const finished=win.waitForEvent('requestfinished',r=>r.url()===held!.request().url());
+   if(outcome==='success')await held!.fulfill({response:await held!.fetch()});else await held!.fulfill({status:409,contentType:'application/json',body:JSON.stringify({detail:{message:'authored late export error'}})});
+   await finished;await settle();await win.unroute(pattern);
+   if(outcome==='success'){
+    await expect(win.getByText(/Complete JSON inventory download requested/)).toBeVisible();
+    await expect.poll(()=>fs.existsSync(late)).toBe(true);
+    expect(await app!.evaluate(()=>(globalThis as unknown as {libraryDownloads:string[]}).libraryDownloads)).toEqual([`resmon-library-${vid}.json`]);
+    fs.rmSync(late);
+   }else{
+    await expect(win.getByText('authored late export error',{exact:false})).toBeVisible();
+    expect(await app!.evaluate(()=>(globalThis as unknown as {libraryDownloads:string[]}).libraryDownloads)).toEqual([]);
+   }
+   await app!.evaluate(()=>{(globalThis as unknown as {libraryDownloads:string[]}).libraryDownloads=[];});
   }
   // PDFs now hand off to Evidence; Library's literal text endpoint still refuses them.
   const pdfRead=win.getByRole('link',{name:'Read PDF in Evidence',exact:true});
