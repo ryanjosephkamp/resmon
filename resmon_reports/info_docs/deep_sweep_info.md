@@ -65,9 +65,9 @@ Outputs:
   The error message references **Settings → Advanced** where the cap is
   configurable.
 - **Required keys.** Key-less repositories (e.g. arXiv, CrossRef, OpenAlex,
-  bioRxiv, medRxiv) always work; the four repositories listed in
-  `_REQUIRED_CREDENTIALS` (`core`, `nasa_ads`, `springer`) require a
-  stored or ephemeral key. A missing key does not fail the sweep — the
+  bioRxiv, medRxiv) always work; the four repositories whose catalog entry
+  carries `api_key_requirement="required"` — `core`, `govinfo`, `nasa_ads`
+  and `springer` — require a stored or ephemeral key. A missing key does not fail the sweep — the
   engine emits a `repo_skipped_missing_key` event, the task log records a
   warning, and that repository's query returns zero results.
 - **At least one repository and one keyword** are required; client-side
@@ -309,8 +309,8 @@ HTTP request returns immediately. The thread:
 
 1. **`execution_start` event** with the repositories list and `total_repos`.
 2. **`stage = "querying"`** — iterate `repositories`:
-   - Emit `repo_start`; consult `_REQUIRED_CREDENTIALS` and, if the
-     repository needs a key that is not available, emit
+   - Emit `repo_start`; call `required_credential_for_sweep`, which reads
+     the catalog, and if the repository needs a key that is not available, emit
      `repo_skipped_missing_key` and append to `missing_key_repos` (the
      query still runs, but the upstream client typically returns zero
      results).
