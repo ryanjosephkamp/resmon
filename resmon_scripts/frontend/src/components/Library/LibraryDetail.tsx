@@ -20,26 +20,33 @@ export default function LibraryDetail({selected,onClose,evidenceProject}: {selec
   // app exists to avoid.
   //
   // A run is superseded only by a later run of the same control. The panel
-  // going away is a separate condition and ``alive`` carries it. That split
-  // matters here because Library keys this component on vault/file/version, so
-  // choosing another item unmounts this panel instead of re-running the effect
-  // inside it - the cleanup is where an abandoned item's refresh is cancelled,
-  // and the counters never had to carry that. They are not decoration even so:
-  // under StrictMode the effect runs twice in one mount, and ``detail`` is what
-  // stops the first run's response being applied after the second's.
+  // ceasing to be the panel for that item - unmounted, or pointed at another
+  // one - is a separate condition, and the effect's cleanup carries it for
+  // every control at once; the note there says why it retires the counters and
+  // does not only drop ``alive``. Every guard below reads both.
   const runs=useRef({detail:0,open:0,link:0});const alive=useRef(true);
   const title=useRef<HTMLHeadingElement>(null);const readButton=useRef<HTMLButtonElement>(null);
   useEffect(()=>{
     alive.current=true;
     const ticket=++runs.current.detail;title.current?.focus();
-    void libraryApi.detail(selected.vault_id,selected.file_id).then(value=>{if(alive.current&&ticket===runs.current.detail){if(value.version_id!==selected.version_id){setError('Selected version changed. Reselect this item.');return;}setFile(value);}},err=>{if(alive.current&&ticket===runs.current.detail)setError(String(err));});
-    return ()=>{alive.current=false;};
+    void libraryApi.detail(selected.vault_id,selected.file_id).then(value=>{if(alive.current&&ticket===runs.current.detail){if(value.version_id!==selected.version_id){setError('Selected version changed. Reselect this item.');return;}setFile(value);}},err=>{if(alive.current&&ticket===runs.current.detail)setError(err instanceof Error?err.message:String(err));});
+    // The cleanup retires every counter as well as dropping ``alive``, and the
+    // rule is that plain: when this stops being the panel for that item,
+    // nothing still out may act. ``alive`` alone is not enough, because an
+    // effect re-run re-arms it on the line above - an action that was already
+    // out would then finish against an item the panel has moved off. Today the
+    // effect cannot re-run without a remount, since Library keys this component
+    // on the same three values the dependency list names. That is a property of
+    // a different file, and the next person to edit it has no reason to know
+    // this one is leaning on it, so this cleanup does not lean on it.
+    return ()=>{alive.current=false;++runs.current.detail;++runs.current.open;++runs.current.link;};
   },[selected.file_id,selected.version_id,selected.vault_id]);
   const act=async(kind:'open'|'link')=>{
     // ``busy`` is what actually keeps a second action from starting while this
     // one is out, and it is set before the first await. The ticket is here so
     // that gate is not the only thing standing between two runs of the same
-    // control, and so this reads the same way as the rest of Library.
+    // control, and because it is what the effect cleanup retires to cancel a
+    // run that is already out.
     const ticket=++runs.current[kind];setError('');setNotice('');setBusy(true);
     try{
       if(kind==='open'){
