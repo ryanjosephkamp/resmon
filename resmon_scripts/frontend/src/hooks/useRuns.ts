@@ -3,8 +3,10 @@ import { useEffect, useRef } from 'react';
 /**
  * Generation counters for asynchronous work, one per operation.
  *
- * Three components were written with a single `epoch = useRef(0)` that several
- * independent operations took a ticket from. Anything that bumped the counter
+ * Four of the twelve renderer files that declare a numeric `useRef` counter
+ * were written with a single one that several independent operations took a
+ * ticket from -- found three times in one day, by three routes, which is why
+ * this exists at all. Anything that bumped such a counter
  * discarded the outcome of every other operation still in flight, and a
  * discarded outcome is written nowhere: no result, no refusal, no sentence
  * saying the request was abandoned. The user clicks, the request completes, and
@@ -31,9 +33,9 @@ import { useEffect, useRef } from 'react';
  * is written to the page.
  *
  * Keys are free-form strings so a per-subject operation can carry its subject
- * in the key — `begin(`delete:${id}`)` supersedes only a second delete of the
- * same id, where `begin('delete')` would let deleting one row erase the refusal
- * of another. Sharing one key between two operations is still possible and is
+ * in the key: `delete:7` supersedes only a second delete of conversation 7,
+ * where a bare `delete` key would let deleting one row erase the refusal of
+ * another. Sharing one key between two operations is still possible and is
  * occasionally right, but it now has to be spelled out and read as a decision.
  */
 export interface Runs {
