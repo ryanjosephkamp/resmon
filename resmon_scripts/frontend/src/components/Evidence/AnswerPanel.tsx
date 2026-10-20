@@ -9,6 +9,14 @@ export default function AnswerPanel({project,files,notes,file,anchor,onNextFiles
   const [setup,setSetup]=useState<{runtimeId:string;descriptor:ChoicesDescriptor}|null>(null),[dialog,setDialog]=useState(false),[answer,setAnswer]=useState<Answer|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[active,setActive]=useState(false),[refresh,setRefresh]=useState(0);
   const trigger=useRef<HTMLButtonElement>(null);
   const generation=useRef(0),alive=useRef(true),events=useRef<AbortController|null>(null),owned=useRef<{answer:Answer;runtime:string}|null>(null);
+  // The cleanup claims a new generation as well as clearing ``alive``,
+  // because on a re-run ``alive.current=true`` above undoes the clear on the
+  // next line and the clear would cancel only a true unmount. Today the parent
+  // gives this component a key containing the project, so it remounts instead
+  // of re-running - but that is a correctness property living in a different
+  // file, invisible to anyone editing that file, and this cleanup also asks
+  // the backend to cancel an owned run. A re-run must not leave this component
+  // applying results from a job it just cancelled.
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;++generation.current;events.current?.abort();const job=owned.current;if(job)void selectedApi.cancel(project,job.answer.answer_id,job.runtime).catch(()=>{});};},[project.project_id,project.vault_id]);
   const openSelection=async()=>{const ticket=++generation.current;setBusy(true);setError('');try{const result=await selectedApi.setup();if(alive.current&&ticket===generation.current){setSetup(result);setDialog(true);}}catch(e){if(alive.current&&ticket===generation.current)setError(e instanceof Error?e.message:'Selected connection unavailable.');}finally{if(alive.current&&ticket===generation.current)setBusy(false);}};
   const openAnswer=async(id:string)=>{const ticket=++generation.current;setError('');setBusy(true);try{const result=await selectedApi.detail(project,id);if(alive.current&&ticket===generation.current)setAnswer(result);}catch(e){if(alive.current&&ticket===generation.current)setError(e instanceof Error?e.message:'Saved answer unavailable.');}finally{if(alive.current&&ticket===generation.current)setBusy(false);}};

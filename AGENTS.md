@@ -201,6 +201,74 @@ brief's ownership list is a review failure regardless of whether the change is g
 
 ---
 
+## Generation counters in the renderer
+
+Four of the twelve renderer files that declare a numeric `useRef` counter
+were written with a single one that several independent operations took a
+ticket from. Anything that bumped it discarded
+the outcome of every other operation still in flight, and a discarded outcome
+is written nowhere: no result, no refusal, no sentence saying a request was
+abandoned. The user clicks, the request completes, and the page looks exactly
+as it did before — which is the one thing this application exists not to do.
+Review is a poor defense, because the code reads as a correct stale-response
+guard; and the suite stays green, because it asserts what the *surviving*
+operation does.
+
+There are three reasons to drop an answer, and the bug is one counter made to
+carry all three. `src/hooks/useRuns.ts` separates them and is the easy path:
+
+- **A later run of the same control.** `begin(key)` claims a ticket and
+  supersedes only that key. A key may carry its subject — ``delete:${id}`` —
+  so deleting one row cannot erase another row's refusal.
+- **The component is gone.** `mounted` carries it, `current` reads it, and no
+  counter is involved. `end()` says it at a Close click rather than waiting
+  for the commit.
+- **The subject changed** — another project, another file. That is an identity
+  checked when the answer arrives, or `token(key)` to watch a counter without
+  claiming it. A counter used for this is what makes operations cancel one
+  another.
+
+Anything that is none of those three is an outcome the user is owed.
+
+`src/__tests__/generationCounterShape.test.ts` reads the renderer's syntax
+tree for three shapes that are nearly always wrong, and an occurrence that
+is deliberate goes in `generationCounters.allow.json` with its reason and the
+number of occurrences examined:
+
+- **A ticket with no claim** — reading a counter as a ticket without bumping
+  it. That operation can never be the newest run of anything, so every other
+  control erases it.
+- **A cleanup that cancels nothing** — an effect with dependencies whose body
+  sets a flag `true` and whose cleanup sets the same flag `false`. On a re-run
+  the body undoes the clear on the next line, so it cancels only a true
+  unmount, and whether that is safe then depends on a `key` in a *different*
+  file that nobody editing that file would know to preserve. A cleanup that
+  also claims a new generation is not this shape. **Decide explicitly whether
+  your effect can re-run without remounting, and make the cleanup work either
+  way rather than relying on a property of another file.**
+- **A late claim on another key** — `begin(key)` reached after the function has
+  already suspended, in a function that holds no ticket on `key`. By then
+  another run may own that key, and claiming it invalidates that run. This one
+  is here because the change that added the first two rules shipped an instance
+  of it: a delete claimed the selection key after its await, invalidating an
+  open that was in flight, whose `finally` releases the panel's busy flag only
+  while its own ticket is current. The flag stranded and the panel said
+  nothing. **Claim a key before your first await, or do not claim it.**
+
+The guard is syntax and its reach is narrow on purpose. `LIMITS` in that file
+is the full list and is the part to read; the ones worth knowing before you
+write anything are that **nothing here models what a ticket gates**, so a
+release guarded by a ticket another operation can invalidate is invisible to
+all three rules; that a counter bumped by something which is not an operation
+is not caught (an effect resetting an editor when its subject changes — that
+one cost a saved evidence note); that two operations which each *do* claim
+from one shared counter are not caught, and neither is one control paged under
+two keys that should have been one; and that a counter built out of state or a
+closure is not visible to syntax at all. Those are found by asking, for each
+outstanding request, which controls are still enabled and what each of them
+would do to it — and then deleting the guard you just wrote to see whether
+anything turns red.
+
 ## Conventions
 
 - **Docs move in step.** A user-visible change updates, in the same PR: the README
