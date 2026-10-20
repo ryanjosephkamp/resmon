@@ -360,8 +360,11 @@ def test_the_caps_bound_a_total_rather_than_multiplying(client, tmp_path):
     """
     from implementation_scripts import config_manager
 
+    # Built from the two caps that already existed, deliberately: a version
+    # of this module with no total cap must fail here on what it *did*, not
+    # on a constant it does not define yet.
     member_bytes = config_manager._MAX_MEMBER_BYTES
-    count = (config_manager._MAX_ARCHIVE_BYTES // member_bytes) + 2
+    count = 32
     assert count <= config_manager._MAX_ARCHIVE_MEMBERS, (
         "this archive has to pass the member-count cap to test the other one")
 
@@ -380,10 +383,19 @@ def test_the_caps_bound_a_total_rather_than_multiplying(client, tmp_path):
     resp = _post_artifact(client, heavy)
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["imported"] == 0, "an over-budget archive imports no prefix of itself"
+    assert body["imported"] == 0, (
+        f"{count} members of {member_bytes} bytes each were all read and "
+        f"imported, so the caps bound each piece and not the total: "
+        f"{body}")
     assert len(body["errors"]) == 1, body
     assert "heavy.zip" in body["errors"][0], body
     assert client.get("/api/configurations").json() == []
+
+    # And the total is genuinely below the product of the other two, which is
+    # the whole claim. A "total" at or above 512 MiB would bound nothing.
+    assert (config_manager._MAX_ARCHIVE_BYTES
+            < config_manager._MAX_ARCHIVE_MEMBERS * member_bytes), (
+        "a total cap at or above members x per-member bounds nothing")
 
 
 def test_an_archive_of_too_many_files_is_refused_before_any_are_read(client, tmp_path):
