@@ -140,6 +140,49 @@ describe('Evidence paging outcomes survive another control starting', () => {
     expect(evidenceApi.detail).toHaveBeenCalledTimes(2);
   });
 
+  // From the review of this branch: the two paging controls having separate
+  // keys was asserted by nothing, and collapsing them onto one left the whole
+  // suite green. Both Next buttons render at once and neither sets the
+  // page-level busy flag, so this is two ordinary clicks.
+  it('keeps a collection page when the notes page is asked for next', async () => {
+    await openProject();
+    const heldFiles = deferred<Page<Member>>();
+    jest.mocked(evidenceApi.files).mockReturnValueOnce(heldFiles.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'Next collection files' }));
+
+    const nextNotes = screen.getByRole('button', { name: 'Next saved notes' });
+    expect(nextNotes).toBeEnabled();
+    jest.mocked(evidenceApi.notes).mockResolvedValueOnce({ ...firstNotes(),
+      items: [noteFixture(fileFixture(3), 2)], has_more: false, next_after_id: null });
+    await act(async () => { fireEvent.click(nextNotes); });
+    expect(await screen.findByText('Saved body 2')).toBeInTheDocument();
+
+    await act(async () => { heldFiles.resolve({ ...firstMembers(),
+      items: [memberFixture(fileFixture(4), 2)], has_more: false, next_after_id: null }); });
+    expect(screen.queryAllByText(/File 4\.txt/).length).toBeGreaterThan(0);
+  });
+
+  // Also from the review: the project list's own Next took no ticket at all,
+  // so two quick presses could apply an older page over a newer one.
+  it('does not let an older page of projects land on top of a newer one', async () => {
+    const more = (items: Project[]): Page<Project> =>
+      ({ items, through_id: 9, next_after_id: items[items.length - 1].id, has_more: true, total: 9, count_basis: 'fixture' });
+    jest.mocked(evidenceApi.projects).mockResolvedValue(more([project(1)]));
+    render(<EvidencePage />);
+    const next = await screen.findByRole('button', { name: 'Next projects' });
+
+    const held = deferred<Page<Project>>();
+    jest.mocked(evidenceApi.projects).mockReturnValueOnce(held.promise)
+      .mockResolvedValueOnce(more([project(3)]));
+    fireEvent.click(next);
+    await act(async () => { fireEvent.click(next); });
+    await screen.findByRole('button', { name: /Project 3 / });
+
+    await act(async () => { held.resolve(more([project(2)])); });
+    expect(screen.queryByRole('button', { name: /Project 2 / })).toBeNull();
+    expect(screen.getByRole('button', { name: /Project 3 / })).toBeInTheDocument();
+  });
+
   it('does not paste a page of one project into another', async () => {
     jest.mocked(evidenceApi.projects).mockResolvedValue(projects([project(1), project(2)]));
     await openProject();
@@ -202,6 +245,38 @@ describe('a refused conversation delete is reported', () => {
 
     await act(async () => { first.reject(new Error('Delete refused: the conversation is in use.')); });
     expect(owner.error).toBe('Delete refused: the conversation is in use.');
+  });
+
+  // From the review of this branch. Deleting the open conversation and then
+  // clicking another row is two ordinary clicks: the row buttons are gated on
+  // `isAnswering` only. If the delete lands first and claims the selection
+  // key, it invalidates the open that is already in flight -- and that open's
+  // `finally` releases `isSelecting` only while its own ticket is current, so
+  // the flag is stranded. The panel then sits on no conversation with the
+  // composer disabled and nothing written anywhere.
+  it('a delete of the open conversation landing first does not strand a later open', async () => {
+    const removal = deferred<Response>();
+    const seven = deferred<Response>();
+    (global as unknown as { fetch: unknown }).fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).replace(/^https?:\/\/[^/]+/, '');
+      if (path === '/api/assistant/sessions/5' && init?.method === 'DELETE') return removal.promise;
+      if (path === '/api/assistant/sessions/7') return seven.promise;
+      if (path === '/api/assistant/sessions/5') return json({ session: { id: 5 }, messages: [] });
+      if (path === '/api/assistant/status') return json({ available: true, reason: 'fixture' });
+      if (path === '/api/assistant/sessions') return json({ sessions: [] });
+      return json({ ok: true });
+    });
+    await act(async () => { render(<AssistantProvider><Harness /></AssistantProvider>); });
+    await act(async () => { await owner.openSession(5); });
+    expect(owner.sessionId).toBe(5);
+
+    act(() => { void owner.deleteSession(5); });
+    act(() => { void owner.openSession(7); });
+    await act(async () => { removal.resolve(json({ ok: true })); });
+    await act(async () => { seven.resolve(json({ session: { id: 7 }, messages: [] })); });
+
+    expect({ sessionId: owner.sessionId, isSelecting: owner.isSelecting, error: owner.error })
+      .toEqual({ sessionId: 7, isSelecting: false, error: null });
   });
 });
 

@@ -32,6 +32,16 @@ import { useEffect, useRef } from 'react';
  * Anything that is none of those three is an outcome the user is owed, and it
  * is written to the page.
  *
+ * **Claim a key before your first `await`, or do not claim it at all.** A
+ * `begin` reached after an operation has suspended may be claiming a key some
+ * other run now owns, and invalidating that run is not free: whatever its
+ * ticket gates stops happening, including the `finally` that releases a busy
+ * flag. That is not hypothetical. The change that introduced this helper
+ * shipped exactly it — a conversation delete claimed the selection key after
+ * its await, an open that was in flight lost its ticket, and the panel sat
+ * disabled on no conversation with nothing written anywhere. The guard in
+ * `src/__tests__/generationCounterShape.test.ts` now rejects that shape.
+ *
  * Keys are free-form strings so a per-subject operation can carry its subject
  * in the key: `delete:7` supersedes only a second delete of conversation 7,
  * where a bare `delete` key would let deleting one row erase the refusal of

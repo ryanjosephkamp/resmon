@@ -231,7 +231,7 @@ carry all three. `src/hooks/useRuns.ts` separates them and is the easy path:
 Anything that is none of those three is an outcome the user is owed.
 
 `src/__tests__/generationCounterShape.test.ts` reads the renderer's syntax
-tree for the two shapes that are nearly always wrong, and an occurrence that
+tree for three shapes that are nearly always wrong, and an occurrence that
 is deliberate goes in `generationCounters.allow.json` with its reason and the
 number of occurrences examined:
 
@@ -246,16 +246,28 @@ number of occurrences examined:
   also claims a new generation is not this shape. **Decide explicitly whether
   your effect can re-run without remounting, and make the cleanup work either
   way rather than relying on a property of another file.**
+- **A late claim on another key** — `begin(key)` reached after the function has
+  already suspended, in a function that holds no ticket on `key`. By then
+  another run may own that key, and claiming it invalidates that run. This one
+  is here because the change that added the first two rules shipped an instance
+  of it: a delete claimed the selection key after its await, invalidating an
+  open that was in flight, whose `finally` releases the panel's busy flag only
+  while its own ticket is current. The flag stranded and the panel said
+  nothing. **Claim a key before your first await, or do not claim it.**
 
-The guard is syntax and its reach is narrow on purpose. It does **not** catch
-a counter bumped by something that is not an operation (an effect resetting an
-editor when its subject changes — that one cost a saved evidence note), it
-does not catch several operations that each *do* claim a ticket from one
-shared counter (sometimes right, and syntax cannot tell which), it does not
-analyze a counter reached through a computed key, and it cannot see a counter
-built out of state or a closure. Those are found by asking, for each
+The guard is syntax and its reach is narrow on purpose. `LIMITS` in that file
+is the full list and is the part to read; the ones worth knowing before you
+write anything are that **nothing here models what a ticket gates**, so a
+release guarded by a ticket another operation can invalidate is invisible to
+all three rules; that a counter bumped by something which is not an operation
+is not caught (an effect resetting an editor when its subject changes — that
+one cost a saved evidence note); that two operations which each *do* claim
+from one shared counter are not caught, and neither is one control paged under
+two keys that should have been one; and that a counter built out of state or a
+closure is not visible to syntax at all. Those are found by asking, for each
 outstanding request, which controls are still enabled and what each of them
-would do to it.
+would do to it — and then deleting the guard you just wrote to see whether
+anything turns red.
 
 ## Conventions
 

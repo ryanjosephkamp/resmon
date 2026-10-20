@@ -31,13 +31,19 @@ const ALLOW = path.join(__dirname, 'generationCounters.allow.json');
 const SKIP = [path.join('__tests__'), path.join('__mocks__'), path.join('hooks', 'useRuns.ts')];
 
 export const LIMITS = [
-  'A counter bumped by something that is not an operation at all — an effect that resets an editor when its subject changes — is not caught. That is a third shape, and it cost a saved evidence note.',
-  'Several operations that each do claim a ticket from one shared counter are not caught. Sharing is sometimes exactly right, syntax cannot tell which, and the right pressure there is a named key rather than a failing test.',
-  'A counter reached through a computed key — runs.current[kind] — is not attributed to any one operation, so nothing about it is asserted.',
-  'This is syntax. A generation counter built out of state, a module-level variable or a closure is invisible to it.',
+  'Nothing here models what a ticket *gates*. A release -- a busy flag cleared in a `finally` -- guarded by a ticket another operation can invalidate is invisible to every rule below, and that is what let rule three be written in the first place: the harm was a stranded flag, not a dropped answer.',
+  'A counter bumped by something that is not an operation at all -- an effect that resets an editor when its subject changes -- is not caught. That is a further shape, and it cost a saved evidence note.',
+  'Several operations that each claim a ticket from one shared counter are not caught, and neither is one control paged under two keys that should have been one. Sharing is sometimes exactly right, syntax cannot tell which, and the pressure there is a named key and a test, not this file.',
+  'Rule three only sees a claim whose key is a plain string. A key built from a template with a substitution is skipped, both as the late claim and as the ticket a function already holds.',
+  'A counter reached through a computed key -- runs.current[kind] -- is not attributed to any one operation, so nothing about it is asserted.',
+  'Rule one sees a ticket captured into a binding: a declaration, an assignment to a local, a destructure, or a property of an object literal. A capture reached any other way -- through a function call, an array element, a class field -- is not seen.',
+  'suspends() recognizes await, .then, .catch and .finally. An operation that resumes in a plain callback -- an event handler, a subscription, a timer -- is not recognized as suspending, so no rule applies to it.',
+  'A cleanup hoisted into a variable before being returned is not matched by rule two, which looks for the function in the return statement itself.',
+  'This is syntax. A generation counter built out of state, a module-level variable or a closure is invisible to it, as is anything written through a custom hook other than useRuns.',
 ];
 
-interface Finding { file: string; rule: 'ticket-without-a-claim' | 'cleanup-that-cancels-nothing'; symbol: string; line: number }
+type Rule = 'ticket-without-a-claim' | 'cleanup-that-cancels-nothing' | 'late-claim-on-another-key';
+interface Finding { file: string; rule: Rule; symbol: string; line: number }
 interface Allowed { file: string; rule: string; symbol: string; count: number; reason: string }
 
 function sources(dir: string, out: string[] = []): string[] {
@@ -50,8 +56,8 @@ function sources(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** `useRef(0)` or `useRef({a:0,b:0})` — a number this component counts upward. */
-function isCounterInit(init: ts.Expression): boolean {
+/** `useRef(0)`, `useRef({a:0,b:0})`, or `useRef(START)` for a file-local numeric const. */
+function isCounterInit(init: ts.Expression, numericConsts: Set<string>): boolean {
   if (!ts.isCallExpression(init)) return false;
   const callee = init.expression;
   const name = ts.isIdentifier(callee) ? callee.text
@@ -60,8 +66,20 @@ function isCounterInit(init: ts.Expression): boolean {
   const arg = init.arguments[0];
   if (!arg) return false;
   if (ts.isNumericLiteral(arg)) return true;
+  if (ts.isIdentifier(arg) && numericConsts.has(arg.text)) return true;
   return ts.isObjectLiteralExpression(arg) && arg.properties.length > 0
     && arg.properties.every((p) => ts.isPropertyAssignment(p) && ts.isNumericLiteral(p.initializer));
+}
+
+/** The key of a `.begin(...)` call when it is a plain string, else null. */
+function staticKey(arg: ts.Expression | undefined): string | null {
+  if (!arg) return null;
+  return (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) ? arg.text : null;
+}
+
+/** `<anything>.begin(...)` — the helper's claim, whatever the receiver is called. */
+function isClaim(n: ts.Node): n is ts.CallExpression {
+  return ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'begin';
 }
 
 /** `x.current` or `x.current.k` → `x`; anything else → null. */
@@ -81,17 +99,18 @@ function enclosingFunction(node: ts.Node): ts.Node | null {
 }
 
 /** Does this function hand control back before it finishes? */
-function suspends(fn: ts.Node): boolean {
-  let found = false;
+function suspensionPoints(fn: ts.Node): number[] {
+  const at: number[] = [];
   const walk = (n: ts.Node) => {
-    if (found) return;
-    if (ts.isAwaitExpression(n)) { found = true; return; }
-    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'then') { found = true; return; }
+    if (ts.isAwaitExpression(n)) at.push(n.getStart());
+    else if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)
+             && ['then', 'catch', 'finally'].includes(n.expression.name.text)) at.push(n.getStart());
     ts.forEachChild(n, walk);
   };
   ts.forEachChild(fn, walk);
-  return found;
+  return at;
 }
+const suspends = (fn: ts.Node) => suspensionPoints(fn).length > 0;
 
 /** Does this cleanup claim a new generation, so a re-run really does cancel? */
 function claimsGeneration(scope: ts.Node, counters: Set<string>): boolean {
@@ -130,9 +149,16 @@ function scan(file: string): Finding[] {
   const at = (n: ts.Node) => src.getLineAndCharacterOfPosition(n.getStart()).line + 1;
   const findings: Finding[] = [];
 
+  const numericConsts = new Set<string>();
+  const constants = (n: ts.Node) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && ts.isNumericLiteral(n.initializer)) numericConsts.add(n.name.text);
+    ts.forEachChild(n, constants);
+  };
+  constants(src);
+
   const counters = new Set<string>();
   const collect = (n: ts.Node) => {
-    if (ts.isVariableDeclaration(n) && n.initializer && ts.isIdentifier(n.name) && isCounterInit(n.initializer)) counters.add(n.name.text);
+    if (ts.isVariableDeclaration(n) && n.initializer && ts.isIdentifier(n.name) && isCounterInit(n.initializer, numericConsts)) counters.add(n.name.text);
     ts.forEachChild(n, collect);
   };
   collect(src);
@@ -141,18 +167,59 @@ function scan(file: string): Finding[] {
     // Rule A. A ticket read out of a counter that this operation never
     // claimed. It can never be the newest run of anything, so every other
     // control on the page erases its outcome, including its refusal.
+    // A capture is the value being put somewhere to compare against later: a
+    // declaration, an assignment to a local, a destructure, or a property of an
+    // object literal. A comparison is not a capture, which is what keeps every
+    // correct guard in the renderer out of this.
+    let captured: string | null = null;
     if (ts.isVariableDeclaration(n) && n.initializer) {
-      const base = counterBase(n.initializer);
-      if (base && counters.has(base)) {
-        const fn = enclosingFunction(n);
-        if (fn && suspends(fn)) findings.push({ file: rel, rule: 'ticket-without-a-claim', symbol: base, line: at(n) });
+      captured = counterBase(n.initializer);
+      if (!captured && ts.isObjectBindingPattern(n.name) && ts.isIdentifier(n.initializer)
+          && counters.has(n.initializer.text)
+          && n.name.elements.some((e) => ts.isIdentifier(e.propertyName ?? e.name) && (e.propertyName ?? e.name).getText() === 'current')) {
+        captured = n.initializer.text;
+      }
+    } else if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(n.left)) {
+      captured = counterBase(n.right);
+    } else if (ts.isPropertyAssignment(n)) {
+      captured = counterBase(n.initializer);
+    }
+    if (captured && counters.has(captured)) {
+      const fn = enclosingFunction(n);
+      if (fn && suspends(fn)) findings.push({ file: rel, rule: 'ticket-without-a-claim', symbol: captured, line: at(n) });
+    }
+    // Rule three. A claim on a key this operation does not hold, reached after
+    // it has already suspended. By then another run may own that key, and
+    // claiming it invalidates that run -- including, as this branch's own
+    // review found, the guard on the `finally` that releases its busy flag.
+    // Claiming before the first await is a different thing and is how every
+    // operation starts; this is about reaching over, late, for someone else's.
+    if (isClaim(n)) {
+      const key = staticKey(n.arguments[0]);
+      const fn = key === null ? null : enclosingFunction(n);
+      if (fn && key !== null) {
+        const late = suspensionPoints(fn).some((position) => position < n.getStart());
+        let holds = false;
+        const held = (x: ts.Node) => {
+          if (ts.isVariableDeclaration(x) && x.initializer && isClaim(x.initializer) && staticKey(x.initializer.arguments[0]) === key) holds = true;
+          ts.forEachChild(x, held);
+        };
+        ts.forEachChild(fn, held);
+        if (late && !holds) findings.push({ file: rel, rule: 'late-claim-on-another-key', symbol: key, line: at(n) });
       }
     }
     // Rule B. A cleanup that clears a flag the effect body sets straight back.
     // On a re-run it cancels nothing; it cancels only on a true unmount, and
     // whether that is safe depends on a `key` in some other file that nobody
     // editing that other file would know to preserve.
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'useEffect') {
+    // `useEffect`, `React.useEffect`, `useLayoutEffect` and `React.useLayoutEffect`
+    // are all effect sites; matching only the bare identifier left 15 of the
+    // renderer's 115 call sites invisible to this rule.
+    const effectName = ts.isCallExpression(n)
+      ? (ts.isIdentifier(n.expression) ? n.expression.text
+        : ts.isPropertyAccessExpression(n.expression) ? n.expression.name.text : '')
+      : '';
+    if (ts.isCallExpression(n) && (effectName === 'useEffect' || effectName === 'useLayoutEffect')) {
       const [body, deps] = n.arguments;
       if (body && deps && ts.isArrayLiteralExpression(deps) && deps.elements.length > 0
           && (ts.isArrowFunction(body) || ts.isFunctionExpression(body))) {

@@ -329,13 +329,23 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const ticket = runs.begin(`delete:${id}`);
     try {
       await apiClient.delete(`/api/assistant/sessions/${id}`);
-      // `selected.current === id` is what decides whether this deletion took
-      // the open conversation away, and it is enough on its own: a newer
-      // `openSession` or `newSession` has already moved `selected.current` by
-      // the time it lands, and `send` refuses to start a turn on a session
-      // that is being deleted, so there is no turn here to interrupt.
+      // This clears the selection but does not claim the `selection` key, and
+      // that distinction is the whole of a regression this had in review.
+      //
+      // Claiming a key an operation does not own, after its await, invalidates
+      // whatever run does own it -- and `openSession` releases
+      // `selectionBusy`/`isSelecting` only while its own ticket is current. So
+      // deleting the open conversation and then clicking another row, two
+      // ordinary clicks, left the panel on no conversation with the composer
+      // disabled and nothing written anywhere. That is the outcome this whole
+      // change exists to prevent, introduced by the change itself.
+      //
+      // Nothing needs claiming here. A delete cannot start while a selection
+      // run is in flight (`selectionBusy` above), and `send` refuses to start
+      // a turn on a session being deleted, so when this branch runs there is
+      // no live selection run to supersede. A later `openSession` keeps its
+      // ticket and lands on top, which is what the person asked for.
       if (runs.current(`delete:${id}`, ticket) && selected.current === id) {
-        runs.begin('selection');
         selected.current = null;
         setSessionId(null);
         acceptSession();

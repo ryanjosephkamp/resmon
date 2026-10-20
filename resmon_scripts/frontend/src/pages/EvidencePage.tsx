@@ -19,12 +19,13 @@ export default function EvidencePage(){
   // ``epoch`` without ever bumping it, so a collection or notes page could
   // never be the newest run of anything: loading a project, the mount handoff
   // and every mutation through ``act`` all bumped ``epoch``, and each of them
-  // threw away whatever paging had in flight. Paging is also the one control
-  // here that never sets ``busy``, so pressing Next leaves every
-  // ``disabled={busy}`` control live - Refresh project and Remove among them -
-  // and the overlap is one ordinary click apart. What was discarded was not
-  // only the page: a page that came back *refused* reported nothing at all.
-  // The user pressed Next, the request completed, and the page said nothing.
+  // threw away whatever paging had in flight. Paging also never sets ``busy``
+  // - nor does the Library chooser, nor the project list's own Next - so
+  // pressing Next leaves every ``disabled={busy}`` control live, Refresh
+  // project and Remove among them, and the overlap is one ordinary click
+  // apart. What was discarded was not only the page: a page that came back
+  // *refused* reported nothing at all. The user pressed Next, the request
+  // completed, and the page said nothing.
   //
   // ``project`` is deliberately one key for three callers. Loading a project,
   // the mount-time handoff and a mutation's reload all replace the project
@@ -131,7 +132,7 @@ export default function EvidencePage(){
     </PageHelp>
     {busy&&<p role="status">Loading or saving selected project…</p>}{error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
     {!vault&&!busy&&<p>Configure a managed vault and import a file in <a href="#/library">Library</a> to begin.</p>}
-    {vault&&<><p className="evidence-identity">Vault {vault}</p><ProjectList page={projects} selected={project} busy={busy} selectDisabled={writing} onSelect={p=>void loadProject(p)} onCreate={create} onRename={name=>project?act(()=>evidenceApi.rename(project,name),'Project renamed.'):Promise.resolve()} onNext={()=>{if(projects?.has_more)void evidenceApi.projects(vault,projects.through_id,projects.next_after_id??undefined).then(p=>{if(runs.mounted)setProjects(p);}).catch(showError);}}/>
+    {vault&&<><p className="evidence-identity">Vault {vault}</p><ProjectList page={projects} selected={project} busy={busy} selectDisabled={writing} onSelect={p=>void loadProject(p)} onCreate={create} onRename={name=>project?act(()=>evidenceApi.rename(project,name),'Project renamed.'):Promise.resolve()} onNext={()=>{if(!projects?.has_more)return;const ticket=runs.begin('projects');void evidenceApi.projects(vault,projects.through_id,projects.next_after_id??undefined).then(p=>{if(runs.current('projects',ticket))setProjects(p);},reason=>{if(runs.current('projects',ticket))showError(reason);});}}/>
       {handoff&&<section aria-label="Selected Library handoff"><h2>Selected from Library: {handoff.original_name}</h2><p className="evidence-identity">Exact version {handoff.version_id}</p><p>Choose or create the intended project, then add this exact version to open its reader. If already added, the same membership is reused. No note is saved by this action.</p><button disabled={!project||busy} onClick={()=>add(handoff)}>Add selected Library file to project</button></section>}
       {project&&<><div className="evidence-toolbar"><h2>{project.name}</h2><button disabled={busy} onClick={()=>void chooseLibrary()}>Choose from Library</button><a href={`#/library?evidence_project=${project.project_id}`}>Import files in Library, then choose a file for this project</a><button disabled={busy||!project.file_count} onClick={()=>setBundle(true)}>Export selected evidence</button></div><p className="evidence-identity">Project {project.project_id} · revision {project.revision} · {project.file_count} current members · {project.note_count} saved records</p>
         {choosing&&<section className="evidence-catalog" aria-label="Choose retained Library files"><div className="evidence-toolbar"><h3>Choose retained files</h3><button onClick={()=>{runs.begin('catalog');setChoosing(false);}}>Close Library chooser</button></div><form onSubmit={e=>{e.preventDefault();void chooseLibrary();}}><label>Find Library filename<input value={search} maxLength={200} onChange={e=>setSearch(e.target.value)}/></label><button>Search retained files</button></form>{catalog?.files.map(f=><div className="evidence-toolbar" key={f.file_id}><span>{f.original_name} · {f.byte_size.toLocaleString()} bytes</span><button disabled={busy} onClick={()=>add(f)}>Add {f.original_name}</button></div>)}{catalog?.has_more&&<button onClick={()=>void chooseLibrary(catalog.through_id,catalog.next_before_id??undefined)}>Next Library files</button>}</section>}
