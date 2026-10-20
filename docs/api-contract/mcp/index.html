@@ -973,11 +973,20 @@ not settings, they live in the system keychain, and they are changed in the app.
 <hr>
 <h2 id="v24-amendment-port-discovery-names-no-port-of-its-own">v2.4 amendment: port discovery names no port of its own</h2>
 <p><strong>The contract number does not move.</strong> No tool was added, removed or reshaped; no input
-schema and no return shape changed; <code>mcp_server.CONTRACT_VERSION</code> stays at 2.4. This
-follows the precedent of the v1.1 amendment, which corrected the same section on the same
-grounds: a discovery rule brought into line with the intent the document already stated,
-rather than a change of intent. One observable behavior does change, in one case, and it
-is set out below so a reader is not left to infer it.</p>
+schema and no return shape changed; <code>mcp_server.CONTRACT_VERSION</code> stays at 2.4.</p>
+<p>The precedent is the <strong>v2.3 runtime-identity amendment</strong>, which added an <code>identity</code> object
+to two tools’ successful returns and did not move the number, on the ground that the tool
+surface and the discovery order were untouched. The same ground holds here from the other
+side: this changes neither the surface nor any return shape, and it corrects the discovery
+order to what the register already required.</p>
+<p>It is <em>not</em> the v1.1 amendment, although that one also corrected this section. v1.1 rests
+on its own stated ground — “no return shape a caller depended on changed, because there
+were no callers yet” — and that ground has since expired: this contract now names the 2.0
+assistant as a second consumer, so “there are no callers” is no longer a thing this
+document may say about itself. Citing it would be the same mistake this amendment exists
+to record, made one layer up.</p>
+<p>One observable behavior does change, in one case, and it is set out below so a reader is
+not left to infer it.</p>
 
 
 

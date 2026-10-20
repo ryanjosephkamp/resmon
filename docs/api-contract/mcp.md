@@ -774,11 +774,23 @@ not settings, they live in the system keychain, and they are changed in the app.
 ## v2.4 amendment: port discovery names no port of its own
 
 **The contract number does not move.** No tool was added, removed or reshaped; no input
-schema and no return shape changed; `mcp_server.CONTRACT_VERSION` stays at 2.4. This
-follows the precedent of the v1.1 amendment, which corrected the same section on the same
-grounds: a discovery rule brought into line with the intent the document already stated,
-rather than a change of intent. One observable behavior does change, in one case, and it
-is set out below so a reader is not left to infer it.
+schema and no return shape changed; `mcp_server.CONTRACT_VERSION` stays at 2.4.
+
+The precedent is the **v2.3 runtime-identity amendment**, which added an `identity` object
+to two tools' successful returns and did not move the number, on the ground that the tool
+surface and the discovery order were untouched. The same ground holds here from the other
+side: this changes neither the surface nor any return shape, and it corrects the discovery
+order to what the register already required.
+
+It is *not* the v1.1 amendment, although that one also corrected this section. v1.1 rests
+on its own stated ground — "no return shape a caller depended on changed, because there
+were no callers yet" — and that ground has since expired: this contract now names the 2.0
+assistant as a second consumer, so "there are no callers" is no longer a thing this
+document may say about itself. Citing it would be the same mistake this amendment exists
+to record, made one layer up.
+
+One observable behavior does change, in one case, and it is set out below so a reader is
+not left to infer it.
 
 | Was | Now | Why |
 |---|---|---|
