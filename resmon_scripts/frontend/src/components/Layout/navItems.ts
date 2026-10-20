@@ -18,10 +18,16 @@
  * anyone remembers it exists.
  *
  * This is navigation and `routes.ts` is routing, and today they hold the same
- * twenty destinations: every route the renderer serves is reached by a link
- * here, and every link here resolves to a route. `src/__tests__/routes.test.tsx`
+ * twenty destinations: every row of the route table is reached by a link here,
+ * and every link here resolves to a row. `src/__tests__/routes.test.tsx`
  * asserts that in both directions, and asserts that the sidebar really renders
  * one link per entry in this order.
+ *
+ * A row is not the whole surface, and the sentence above is deliberately about
+ * rows. `allRouteHashes()` expands the two splat rows into their tabs and comes
+ * to thirty hashes; ten of those — six under Settings, four under About resmon
+ * — are reached from inside their own page and never from the sidebar. They are
+ * outside this comparison on purpose, which is why the test compares rows.
  *
  * Both halves earn their place. A route no link reaches is a page a user cannot
  * get to; a link to no route is a dead end. And since the Tutorials overview

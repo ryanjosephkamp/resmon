@@ -136,6 +136,12 @@ describe('the route table is the single source of truth', () => {
 
 describe('the sidebar and the route table are one set', () => {
   it('every destination has a route, and every route has a destination', () => {
+    // "Route" here means a *row* of the table, not one of the thirty hashes
+    // `allRouteHashes()` expands those rows into: the six Settings tabs and
+    // the four About tabs are reached from inside their own page and have no
+    // sidebar link, by design. Rows are the right comparison and the only
+    // one that holds.
+    //
     // A bijection, asserted in both directions on purpose. Checking only that
     // each sidebar link resolves to a route would miss the direction that
     // actually went wrong here: a destination *removed* from `NAV_ITEMS`
