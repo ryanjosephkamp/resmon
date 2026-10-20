@@ -201,6 +201,61 @@ brief's ownership list is a review failure regardless of whether the change is g
 
 ---
 
+## Generation counters in the renderer
+
+Four components were written with one `epoch = useRef(0)` that several
+independent operations took a ticket from. Anything that bumped it discarded
+the outcome of every other operation still in flight, and a discarded outcome
+is written nowhere: no result, no refusal, no sentence saying a request was
+abandoned. The user clicks, the request completes, and the page looks exactly
+as it did before — which is the one thing this application exists not to do.
+Review is a poor defence, because the code reads as a correct stale-response
+guard; and the suite stays green, because it asserts what the *surviving*
+operation does.
+
+There are three reasons to drop an answer, and the bug is one counter made to
+carry all three. `src/hooks/useRuns.ts` separates them and is the easy path:
+
+- **A later run of the same control.** `begin(key)` claims a ticket and
+  supersedes only that key. A key may carry its subject — ``delete:${id}`` —
+  so deleting one row cannot erase another row's refusal.
+- **The component is gone.** `mounted` carries it, `current` reads it, and no
+  counter is involved. `end()` says it at a Close click rather than waiting
+  for the commit.
+- **The subject changed** — another project, another file. That is an identity
+  checked when the answer arrives, or `token(key)` to watch a counter without
+  claiming it. A counter used for this is what makes operations cancel one
+  another.
+
+Anything that is none of those three is an outcome the user is owed.
+
+`src/__tests__/generationCounterShape.test.ts` reads the renderer's syntax
+tree for the two shapes that are nearly always wrong, and an occurrence that
+is deliberate goes in `generationCounters.allow.json` with its reason and the
+number of occurrences examined:
+
+- **A ticket with no claim** — reading a counter as a ticket without bumping
+  it. That operation can never be the newest run of anything, so every other
+  control erases it.
+- **A cleanup that cancels nothing** — an effect with dependencies whose body
+  sets a flag `true` and whose cleanup sets the same flag `false`. On a re-run
+  the body undoes the clear on the next line, so it cancels only a true
+  unmount, and whether that is safe then depends on a `key` in a *different*
+  file that nobody editing that file would know to preserve. A cleanup that
+  also claims a new generation is not this shape. **Decide explicitly whether
+  your effect can re-run without remounting, and make the cleanup work either
+  way rather than relying on a property of another file.**
+
+The guard is syntax and its reach is narrow on purpose. It does **not** catch
+a counter bumped by something that is not an operation (an effect resetting an
+editor when its subject changes — that one cost a saved evidence note), it
+does not catch several operations that each *do* claim a ticket from one
+shared counter (sometimes right, and syntax cannot tell which), it does not
+analyze a counter reached through a computed key, and it cannot see a counter
+built out of state or a closure. Those are found by asking, for each
+outstanding request, which controls are still enabled and what each of them
+would do to it.
+
 ## Conventions
 
 - **Docs move in step.** A user-visible change updates, in the same PR: the README
