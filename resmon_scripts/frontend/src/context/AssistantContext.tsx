@@ -258,7 +258,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setMessages([]);
     setPending([]);
     setError(null);
-  }, []);
+  }, [runs]);
 
   const newSession = useCallback(async () => {
     if (active.current) { setError(blocked); return; }
@@ -281,7 +281,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } finally {
       if (runs.current('selection', ticket)) { selectionBusy.current = false; setSelecting(false); }
     }
-  }, [refreshSessions]);
+  }, [refreshSessions, runs]);
 
   const openSession = useCallback(async (id: number) => {
     if (active.current) {
@@ -320,7 +320,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } finally {
       if (runs.current('selection', ticket)) { selectionBusy.current = false; setSelecting(false); }
     }
-  }, []);
+  }, [runs]);
 
   const deleteSession = useCallback(async (id: number) => {
     if (active.current?.id === id || selectionBusy.current) { setError(blocked); return; }
@@ -345,7 +345,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (err) {
       if (runs.current(`delete:${id}`, ticket)) setError(err instanceof Error ? err.message : String(err));
     } finally { deleting.current.delete(id); }
-  }, [refreshSessions]);
+  }, [refreshSessions, runs]);
 
   const answerPermission = useCallback(async (requestId: string, allow: boolean) => {
     const turn = active.current;
@@ -484,7 +484,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         // cannot render raw JSON into a chat window.
         break;
     }
-  }, []);
+  }, [runs]);
 
   const send = useCallback(async (text: string, confirmLegacy = false) => {
     const trimmed = text.trim();

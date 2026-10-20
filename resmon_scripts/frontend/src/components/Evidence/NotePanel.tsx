@@ -17,9 +17,9 @@ export default function NotePanel({project,file,anchor,notes,member,onSaved,onCl
   // changing decides is only the wording and whether the editor is cleared.
   const runs=useRuns();
   const saving=useRef(false);const bodyId=useId();const currentEditing=notes?.items.find(n=>n.note_id===editing?.note_id);const newerEditing=currentEditing&&editing&&currentEditing.revision!==editing.revision?currentEditing:null;
-  useEffect(()=>{setEditing(null);setBody('');setError('');setNotice('');runs.begin('file');setBusy(false);},[file?.file_id,file?.version_id]);
+  useEffect(()=>{setEditing(null);setBody('');setError('');setNotice('');runs.begin('file');setBusy(false);},[runs,file?.file_id,file?.version_id]);
   useEffect(()=>{if(editing)input.current?.focus();},[editing?.note_id]);
-  useEffect(()=>{runs.begin('draft');if(anchor){setEditing(null);input.current?.focus();}},[anchor]);
+  useEffect(()=>{runs.begin('draft');if(anchor){setEditing(null);input.current?.focus();}},[runs,anchor]);
   const save=async()=>{
     if(saving.current||(!file&&!editing))return;saving.current=true;const ticket=runs.begin('save');const submittedDraft=runs.token('draft');
     const submittedFile=runs.token('file');const submittedName=(editing?editing.file:file!).original_name;setBusy(true);setError('');setNotice('');
