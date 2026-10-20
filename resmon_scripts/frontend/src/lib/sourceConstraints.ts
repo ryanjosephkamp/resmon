@@ -197,9 +197,9 @@ export interface SourceAdvisory {
  * arXiv is on most people's selection every time. `with_end_date` waits
  * for an end date, because a sentence about what resmon does with your end
  * date is not true of a run that has none — and is *most* true of a run
- * that has only one, which is why it is not "both dates". `without_start_date` disappears the
- * moment a start date is typed, because it is about the default resmon would
- * have substituted there. `above_record_cap` waits until the run actually
+ * that has only one, which is why it is not "both dates".
+ * `without_start_date` disappears the moment a start date is typed, because
+ * it is about the default resmon would have substituted there. `above_record_cap` waits until the run actually
  * asks for more records than the source returns in one request.
  *
  * **A source that will not be searched at all says only that.** The four
