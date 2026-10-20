@@ -26,6 +26,7 @@ import * as ts from 'typescript';
 
 const SRC = path.join(__dirname, '..');
 const ALLOW = path.join(__dirname, 'generationCounters.allow.json');
+const FIXTURES = path.join(__dirname, 'fixtures', 'generation-counters');
 
 /** Not analyzed: tests, mocks, and the helper that exists to replace all this. */
 const SKIP = [path.join('__tests__'), path.join('__mocks__'), path.join('hooks', 'useRuns.ts')];
@@ -282,10 +283,39 @@ describe('generation counters keep the shapes that lost outcomes out of the rend
 
   // The denominator, so a later reader can tell a guard that found nothing
   // from a guard that looked at nothing.
-  it('looked at the whole renderer', () => {
+  it('looked at the whole renderer, and not at its own fixtures', () => {
     const files = sources(SRC);
     expect(files.length).toBeGreaterThan(80);
     expect(files.some((f) => f.endsWith(path.join('pages', 'EvidencePage.tsx')))).toBe(true);
     expect(files.some((f) => f.endsWith(path.join('hooks', 'useRuns.ts')))).toBe(false);
+    expect(files.some((f) => f.includes(path.join('fixtures', 'generation-counters')))).toBe(false);
+  });
+});
+
+/**
+ * Every case above asserts the renderer is clean, which is exactly what a
+ * guard that has stopped working also reports. Two of the three rules could
+ * be blinded with the whole suite staying green — including rule two, whose
+ * demonstration against a file it did not write is this guard's entire
+ * argument. So each rule is pinned separately against a file written to be
+ * wrong in that one way.
+ */
+describe('each rule still fires', () => {
+  const found = scanRenderer(FIXTURES).map((f) => `${f.file}|${f.rule}|${f.symbol}`).sort();
+  const at = (file: string) => `__tests__/fixtures/generation-counters/${file}`;
+  const expected = [
+    `${at('cleanup-that-cancels-nothing.tsx')}|cleanup-that-cancels-nothing|alive`,
+    `${at('late-claim-on-another-key.tsx')}|late-claim-on-another-key|selection`,
+    `${at('ticket-without-a-claim.tsx')}|ticket-without-a-claim|epoch`,
+  ];
+
+  it.each(expected)('reports %s', (one) => {
+    expect(found).toContain(one);
+  });
+
+  // And nothing else: a rule that fired on another rule's fixture, or twice
+  // on its own, would be over-reaching rather than working.
+  it('reports those three and nothing besides', () => {
+    expect(found).toEqual(expected);
   });
 });
