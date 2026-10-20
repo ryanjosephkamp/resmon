@@ -211,3 +211,15 @@ def test_the_refusal_tells_the_operator_what_to_do(two_backends, shared_state, t
     # whether resmon is running.
     assert "127.0.0.1" not in message
     assert "not running" not in message
+    # And it does not name the default port in prose either. "127.0.0.1" above
+    # guards the dotted quad and not the number, so a refusal ending "if in
+    # doubt, try 8742, resmon's usual one" passes every assertion above while
+    # handing the operator the defect by hand.
+    #
+    # This does not pin every way the message could go wrong, and the one
+    # worth naming is the near miss it misses: a message that said to set
+    # RESMON_STATE_DIR and let the server work the port out would pass here,
+    # and that is the misconception this change's three documents exist to
+    # correct. What catches *that* is not a string assertion but the behavior
+    # tests -- the server would still have to find a port, and it cannot.
+    assert "8742" not in message

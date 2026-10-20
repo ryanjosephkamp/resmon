@@ -520,9 +520,22 @@ def test_backend_down_is_a_named_error_not_an_empty_list():
     assert body["detail"]["tried"]
 
 
-def test_port_discovery_prefers_the_environment(monkeypatch):
+def test_port_discovery_prefers_the_environment(monkeypatch, tmp_path):
+    """Both mechanisms name a port, and the environment's comes first.
+
+    Both are set, to different ports, because with only one of them set this
+    case tests nothing about order: reversing the two reads in
+    ``_candidate_ports`` would leave it green. The autouse fixture points
+    ``PORT_FILE`` at a path that does not exist, so a test that wants the port
+    file in play has to put it there itself -- which is what makes this the
+    only case guarding the order the three published documents state as an
+    ordered list.
+    """
     monkeypatch.setenv("RESMON_PORT", "9999")
-    assert mcp._candidate_ports()[0] == 9999
+    named = tmp_path / "named.port"
+    named.write_text("9002\n", encoding="utf-8")
+    monkeypatch.setattr("implementation_scripts.config.PORT_FILE", named)
+    assert mcp._candidate_ports() == [9999, 9002]
 
 
 def test_port_discovery_reads_the_port_file_when_the_environment_is_silent(
@@ -597,8 +610,14 @@ def test_an_unnamed_backend_is_a_refusal_that_tells_the_operator_what_to_do(
     assert "port file" in message, "the port-file mechanism is not named"
     assert "did not guess" in message, "it does not say it declined to guess"
     assert "Start resmon" in message, "it does not say what to do"
-    # It names no address, because it chose none.
+    # It names no address, because it chose none. Both halves, and the port is
+    # written out rather than read from a constant on purpose: the constant it
+    # would have come from is the one this change deleted, and the number is
+    # the thing that must not appear, not a value the code gets to redefine.
+    # A message that ended "if in doubt, try 8742, resmon's usual one" passes
+    # every other assertion here and hands back the whole defect in prose.
     assert "127.0.0.1" not in message
+    assert "8742" not in message, "the refusal names the port it exists to stop"
     assert body["detail"]["tried"] == []
     assert body["detail"]["no_port_named"] is True
     assert body["detail"]["port_file"] == str(tmp_path / "absent.port")
