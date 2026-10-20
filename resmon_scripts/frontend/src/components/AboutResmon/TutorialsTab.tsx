@@ -217,6 +217,7 @@ export const sections: TutorialSection[] = [
       'Switch between Month, Week, and Day views via FullCalendar\'s header toolbar; use prev / next / today to navigate time.',
       'Narrow the displayed events with the Type filter (Deep Dive / Deep Sweep / Routine), Status filter, and per-routine visibility dropdown (with Select all / Select none).',
       'Click any event to open a popover showing type, status, query, result counts, and a link to the report.',
+      'Times on this page are your local times and carry their zone, so the day an event sits on in the grid and the `Start` line in its popover are the same moment. resmon records every timestamp in UTC; the conversion happens where it is shown to you.',
     ],
     features: [
       'The popover\'s `Edit Routine` button opens the shared `RoutineEditModal`; saves broadcast on both the routines and configurations buses so the Routines and Configurations pages refetch automatically.',

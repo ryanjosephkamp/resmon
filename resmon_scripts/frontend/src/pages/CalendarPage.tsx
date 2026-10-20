@@ -10,6 +10,7 @@ import RoutineEditModal from '../components/Routines/RoutineEditModal';
 import SaveConfigButton from '../components/SaveConfig/SaveConfigButton';
 import { useRoutinesVersion } from '../lib/routinesBus';
 import { useConfigurationsVersion } from '../lib/configurationsBus';
+import { formatInstant } from '../lib/datetime';
 
 interface CalendarEvent {
   id: string | number;
@@ -272,6 +273,7 @@ const CalendarPage: React.FC = () => {
                 <li><strong>Past executions</strong> appear on the day they completed, colored by type (Deep Dive, Deep Sweep, Routine).</li>
                 <li><strong>Upcoming routine fires</strong> appear in the scheduled-orange palette, projected up to <strong>12 months</strong> ahead. If you navigate the calendar past that horizon, an inline notice appears explaining that scheduled fires beyond 12 months are not projected.</li>
                 <li>Scheduled fire times are computed in your local timezone and match the times APScheduler will actually fire each routine (Update 3 fix).</li>
+                <li><strong>Every time on this page is your local time, and says which zone it is in</strong> — the grid cell an event sits in and the <strong>Start</strong> line of its popover are the same instant, read the same way. resmon stores timestamps in UTC; nothing here shows you one unlabeled.</li>
               </ul>
             ),
           },
@@ -471,7 +473,16 @@ const CalendarPage: React.FC = () => {
           </div>
 
           <div className="event-popover-meta">
-            <div><span className="text-muted">Start:</span> {popover.event.start?.replace('T', ' ').slice(0, 16)}</div>
+            {/* The grid places this event by the instant its timestamp
+                denotes; this line has to say the same instant, in the same
+                zone, or the two readings of one run disagree on screen.
+                ``start`` reaches here in whichever spelling the event took —
+                FullCalendar's local re-serialization when the popover opens,
+                and the backend's own ``...Z`` after the next refetch merges
+                the raw row back over it — so it is read as an instant rather
+                than sliced as a string, and the zone is named because a bare
+                wall clock is a number the reader cannot check. */}
+            <div><span className="text-muted">Start:</span> {formatInstant(popover.event.start)}</div>
             {popover.event.status && (
               <div>
                 <span className="text-muted">Status:</span>{' '}
