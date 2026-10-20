@@ -12,9 +12,19 @@ import type { DownloadRecord } from './downloads';
  */
 interface BackendConnection { port: string; token: string | null }
 
+/**
+ * The empty port is deliberate, and it used to be the daemon's default port.
+ *
+ * The main process does not answer this IPC to any frame but the renderer's
+ * own, and it has no answer to give before the backend is up. Naming that
+ * default in either case pointed the whole renderer at whatever process
+ * happened to hold it — another resmon, over another corpus. An empty port is
+ * the honest answer to "which backend?" when nobody said, and `getBaseUrl()` in
+ * the renderer refuses it rather than inventing one.
+ */
 function askBackendConnection(): BackendConnection {
   const answer = ipcRenderer.sendSync('resmon:backend-connection') as BackendConnection | null;
-  return answer && typeof answer.port === 'string' ? answer : { port: '8742', token: null };
+  return answer && typeof answer.port === 'string' ? answer : { port: '', token: null };
 }
 
 const connection = askBackendConnection();
