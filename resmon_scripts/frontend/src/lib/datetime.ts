@@ -68,7 +68,21 @@ export function parseStoredInstant(value: string | null | undefined): Date | nul
  * holds a value it does not understand, and that is the kind of silence this
  * codebase treats as a defect rather than a tidy-up.
  *
- * @param value     the stored timestamp
+ * **Do not call this on a date-only value.** ``formatInstant('2026-10-20')``
+ * returns ``'2026-10-19 20:00 EDT'`` — the previous evening. That is correct
+ * and it is not a bug: a bare date is UTC midnight, and UTC midnight is the
+ * evening before in every zone west of Greenwich. It is the wrong answer to a
+ * different question. A stored *date* carries no instant to convert and must
+ * be rendered as the date it is.
+ *
+ * This matters because several surfaces still render dates by slicing the
+ * stored string — ``AnalyticsPage`` and ``ReadingQueuePage`` take
+ * ``.slice(0, 10)`` — and the obvious way to clean them up is to reach for
+ * the function you are reading. Doing that would introduce the exact
+ * off-by-a-day that converting them is meant to remove. They need a
+ * date-rendering companion, not this.
+ *
+ * @param value     the stored timestamp — an instant, not a date
  * @param timeZone  an IANA zone to render in; omit for the viewer's own
  */
 export function formatInstant(

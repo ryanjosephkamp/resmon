@@ -101,6 +101,20 @@ describe('formatInstant', () => {
     }
   });
 
+  test('a date-only value comes back as the previous evening — the documented trap', () => {
+    // Pins the worked example in `formatInstant`'s docstring, so the warning
+    // cannot quietly stop being true. This is not a bug being enshrined: a
+    // bare date is UTC midnight, and UTC midnight is the evening before
+    // everywhere west of Greenwich. It is the right answer to the wrong
+    // question, which is the dangerous kind.
+    //
+    // It is here because the obvious way to clean up the surfaces that still
+    // render dates with `.slice(0, 10)` is to reach for `formatInstant`, and
+    // that would ship the exact off-by-a-day the cleanup exists to remove.
+    expect(formatInstant('2026-10-20')).toBe('2026-10-19 20:00 EDT');
+    expect(formatInstant('2026-01-20')).toBe('2026-01-19 19:00 EST');
+  });
+
   test('hands back a value it cannot read, rather than hiding it', () => {
     // An empty cell would say "there is no time here", which is a different
     // and untrue statement. Showing the stored characters says "resmon holds
