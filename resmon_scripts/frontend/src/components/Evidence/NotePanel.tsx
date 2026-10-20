@@ -16,12 +16,12 @@ export default function NotePanel({project,file,anchor,notes,member,onSaved,onCl
   // ``token`` and still reports its outcome either way; what the subject
   // changing decides is only the wording and whether the editor is cleared.
   const runs=useRuns();
-  const saving=useRef(false);const draft=useRef(0);const bodyId=useId();const currentEditing=notes?.items.find(n=>n.note_id===editing?.note_id);const newerEditing=currentEditing&&editing&&currentEditing.revision!==editing.revision?currentEditing:null;
+  const saving=useRef(false);const bodyId=useId();const currentEditing=notes?.items.find(n=>n.note_id===editing?.note_id);const newerEditing=currentEditing&&editing&&currentEditing.revision!==editing.revision?currentEditing:null;
   useEffect(()=>{setEditing(null);setBody('');setError('');setNotice('');runs.begin('file');setBusy(false);},[file?.file_id,file?.version_id]);
   useEffect(()=>{if(editing)input.current?.focus();},[editing?.note_id]);
-  useEffect(()=>{++draft.current;if(anchor){setEditing(null);input.current?.focus();}},[anchor]);
+  useEffect(()=>{runs.begin('draft');if(anchor){setEditing(null);input.current?.focus();}},[anchor]);
   const save=async()=>{
-    if(saving.current||(!file&&!editing))return;saving.current=true;const ticket=runs.begin('save');const submittedDraft=draft.current;
+    if(saving.current||(!file&&!editing))return;saving.current=true;const ticket=runs.begin('save');const submittedDraft=runs.token('draft');
     const submittedFile=runs.token('file');const submittedName=(editing?editing.file:file!).original_name;setBusy(true);setError('');setNotice('');
     try{const result=editing?await evidenceApi.edit(project,editing,body):await evidenceApi.save(project,file!,body,anchor??undefined);if(!runs.current('save',ticket))return;
       await onSaved(result.project,result.note);if(!runs.current('save',ticket))return;
@@ -31,7 +31,7 @@ export default function NotePanel({project,file,anchor,notes,member,onSaved,onCl
       if(!runs.current('file',submittedFile)){setNotice(`Saved this exact evidence record against ${submittedName}. The editor has since moved to another file.`);return;}
       // The request saved its submitted snapshot. A later body or passage choice
       // belongs to the user, including changes during the project refresh.
-      if(draft.current!==submittedDraft){setNotice('Saved the submitted record. Newer unsaved changes remain in the editor.');return;}
+      if(!runs.current('draft',submittedDraft)){setNotice('Saved the submitted record. Newer unsaved changes remain in the editor.');return;}
       setBody('');setEditing(null);onClear();setNotice('Saved this exact evidence record.');
     }catch(reason){if(runs.current('save',ticket))setError(`${reason instanceof Error?reason.message:'Save refused.'} ${runs.current('file',submittedFile)?'Your unsaved text remains here.':`Nothing was saved against ${submittedName}, and the editor has since moved to another file.`} Use Refresh project to load its current revision before explicitly retrying. For a changed saved body, review its current record and choose Keep draft against current revision first.`);}
     finally{saving.current=false;if(runs.current('save',ticket))setBusy(false);}
@@ -44,7 +44,7 @@ export default function NotePanel({project,file,anchor,notes,member,onSaved,onCl
       {editing?.quote&&<blockquote className="evidence-literal">{editing.quote}</blockquote>}
       {anchor&&!editing&&<p className="evidence-identity">{file?.original_name} · version {file?.version_id} · page {anchor.page_number}</p>}
       {anchor&&!editing&&<blockquote className="evidence-literal">{anchor.quote}</blockquote>}
-      <label htmlFor={bodyId}>Note body</label><textarea id={bodyId} ref={input} value={body} rows={5} onChange={e=>{++draft.current;setBody(e.target.value);}} maxLength={40000}/>
+      <label htmlFor={bodyId}>Note body</label><textarea id={bodyId} ref={input} value={body} rows={5} onChange={e=>{runs.begin('draft');setBody(e.target.value);}} maxLength={40000}/>
       {newerEditing&&<div role="status"><p>The saved body changed. Review the current record below. Your next save will replace that body with this draft.</p><button type="button" disabled={busy} onClick={()=>{setEditing(newerEditing);setError('');input.current?.focus();}}>Keep draft against current revision</button></div>}
       <p>{Array.from(body).length} of 20,000 codepoints</p>
       <div className="evidence-toolbar"><button disabled={busy||(!editing&&!member)||Array.from(body).length>20000||(!(anchor||editing?.kind==='passage')&&!body.length)}>Save {editing?'body':anchor?'passage':'note'}</button><button type="button" disabled={busy} onClick={()=>{setEditing(null);onClear();setError('');input.current?.focus();}}>Use plain note</button></div>

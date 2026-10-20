@@ -183,6 +183,26 @@ describe('a refused conversation delete is reported', () => {
     await act(async () => { removal.reject(new Error('Delete refused: the conversation is in use.')); });
     expect(owner.error).toBe('Delete refused: the conversation is in use.');
   });
+
+  it('even though a second row was deleted while the first was outstanding', async () => {
+    const first = deferred<Response>();
+    (global as unknown as { fetch: unknown }).fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).replace(/^https?:\/\/[^/]+/, '');
+      if (path === '/api/assistant/sessions/3' && init?.method === 'DELETE') return first.promise;
+      if (path === '/api/assistant/status') return json({ available: true, reason: 'fixture' });
+      if (path === '/api/assistant/sessions') return json({ sessions: [] });
+      return json({ ok: true });
+    });
+    await act(async () => { render(<AssistantProvider><Harness /></AssistantProvider>); });
+
+    // Deleting one row is not a later run of deleting another, so it must not
+    // erase the first one's refusal. `deleting` is a Set, so both are live.
+    act(() => { void owner.deleteSession(3); });
+    await act(async () => { await owner.deleteSession(5); });
+
+    await act(async () => { first.reject(new Error('Delete refused: the conversation is in use.')); });
+    expect(owner.error).toBe('Delete refused: the conversation is in use.');
+  });
 });
 
 describe('useRuns', () => {
