@@ -223,7 +223,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch {
       /* the list is a convenience; a failure here must not break the panel */
     }
-  }, []);
+  }, [runs]);
 
   useEffect(() => {
     void refreshStatus();
@@ -484,7 +484,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         // cannot render raw JSON into a chat window.
         break;
     }
-  }, [runs]);
+  }, []);
 
   const send = useCallback(async (text: string, confirmLegacy = false) => {
     const trimmed = text.trim();
@@ -571,7 +571,7 @@ export const AssistantProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         void refreshSessions();
       }
     }
-  }, [applyEvent, refreshSessions, status]);
+  }, [applyEvent, refreshSessions, runs, status]);
 
   const value = useMemo<AssistantContextValue>(() => ({
     draftChoices, setDraftChoices, sessionChoices, sessionRuntime, turnChoices,
