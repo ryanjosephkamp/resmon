@@ -560,7 +560,7 @@ export const sections: TutorialSection[] = [
     instructions: [
       'The page opens on the Routine Configs tab; switch to Manual Configs to view manual_dive and manual_sweep presets together.',
       'Use per-row checkboxes (or the header select-all) to choose rows; click `Export Selected` to write a ZIP archive of JSON files.',
-      'Click `Import` to pick one or more `.json` files via the native file picker; each file is validated and inserted as a new configuration.',
+      'Click `Import` to pick the exported `.zip` back — or the `.json` files from inside one — via the native file picker; what each file is is decided from its content, and every configuration found is validated and inserted as a new row.',
       'Click `Delete Selected` to open a confirmation; routine configs cascade-delete the linked routine row when the parameters carry a valid `linked_routine_id`.',
     ],
     features: [
@@ -569,7 +569,7 @@ export const sections: TutorialSection[] = [
     ],
     tips: [
       'Date ranges are intentionally never persisted into configurations — they are picked fresh per run or per routine fire.',
-      'Imports require the filename to end in `.json`; any non-JSON file short-circuits the entire batch.',
+      'Imports require the filename to end in `.zip` or `.json`; a file ending in neither short-circuits the batch before anything is uploaded. A file that passes that check but cannot be read is named in the response and the rest of the batch still imports.',
     ],
     destination: { path: '/configurations', label: 'Go to Page' },
   },

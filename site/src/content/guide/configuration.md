@@ -33,12 +33,12 @@ Deleting a configuration whose `config_type` is `routine` cascades to the linked
 
 ### Export and Import Workflow
 
-The Configurations page supports a round-trip JSON workflow for moving presets between machines:
+The Configurations page moves presets between machines as a single archive:
 
 1. Select one or more rows via the per-row checkboxes or the select-all header checkbox.
 2. Click **Export Selected** — the frontend sends `POST /api/configurations/export` with `{ ids: [...] }`; the backend writes a ZIP archive of individual JSON files through `config_manager.export_configs` and returns `{ "path": "<absolute path>" }`.
 3. The success banner shows the archive path for 10 seconds; on desktop a **Reveal in Finder** (macOS) / **Reveal in File Explorer** button is rendered when the Electron preload has exposed `window.resmonAPI.revealPath`.
-4. On the receiving machine, click **Import** and pick one or more `.json` files through the native file picker. Each file is validated — any file whose name does not end in `.json` short-circuits the entire batch with an inline error — and surviving files are POSTed as `multipart/form-data` to `/api/configurations/import`. The backend writes each upload to a temporary `.json` file and hands it to `config_manager.import_configs`, which validates the payload and inserts a new configuration row. The response carries `{ "imported": <n>, "errors": [] }`.
+4. On the receiving machine, click **Import** and pick the exported `.zip` through the native file picker — or the `.json` files from inside one, if you unpacked it. Several files can be chosen at once, and the picker accepts both shapes. A file whose name ends in neither extension is refused before anything is sent, with a message naming what Import does take. The chosen files are POSTed as `multipart/form-data` to `/api/configurations/import`, and `config_manager.import_configs` decides what each one is from its content rather than its name: a ZIP is read for its `.json` members, and anything else is parsed as a single configuration. Each configuration is validated and inserted as a new row. The response carries `{ "imported": <n>, "routines_created": <n>, "errors": [...] }`, where `errors` names any file or archive member that could not be used — a bad entry reports itself and the rest of the batch still imports.
 5. Click **Delete Selected** to open the confirmation dialog (which counts how many of the selected rows are routines so the cascade impact is visible). Confirming issues one `DELETE /api/configurations/{id}` per selected row; per-row failures are swallowed so the batch proceeds.
 
-Imports are always additive: a new row is inserted with a fresh integer id. Nothing is overwritten, so round-tripping is safe to repeat.
+Imports are always additive: a new row is inserted with a fresh integer id. Nothing is overwritten, so round-tripping is safe to repeat — but a configuration whose name is already in use lands as a second row under that name, rather than being renamed or replacing the first.
