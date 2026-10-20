@@ -298,6 +298,76 @@ def test_a_file_the_import_cannot_read_reports_itself_and_does_not_fail_the_batc
     assert "notes.txt" in body["errors"][0], body
 
 
+def test_an_archive_rezipped_by_the_finder_still_imports(client, tmp_path):
+    """macOS adds ``__MACOSX`` bookkeeping when an export is unzipped and rezipped.
+
+    Those entries are not files the user chose and are not JSON. Naming them
+    in the errors list would read as a fault in the user's archive.
+    """
+    cid = _save_dive(client, "rezipped")
+    archive = _export(client, [cid])
+    with zipfile.ZipFile(archive) as zf:
+        members = [(n, zf.read(n)) for n in zf.namelist()]
+    client.delete(f"/api/configurations/{cid}")
+
+    rezipped = tmp_path / "Archive.zip"
+    with zipfile.ZipFile(rezipped, "w") as zf:
+        for name, raw in members:
+            zf.writestr(name, raw)
+            zf.writestr(f"__MACOSX/._{name}", b"\x00\x05\x16\x07")
+
+    resp = _post_artifact(client, rezipped)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["imported"] == 1, body
+    assert body["errors"] == [], body
+
+    archive.unlink(missing_ok=True)
+
+
+def test_an_oversized_member_is_refused_by_name_and_never_read(client, tmp_path):
+    """The per-member cap is real, not a comment.
+
+    A saved configuration is a few hundred bytes. A member far above that is
+    not one, and decompressing it to find out is the mistake the cap exists to
+    avoid.
+    """
+    from implementation_scripts import config_manager
+
+    big = tmp_path / "big.zip"
+    with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Compresses to almost nothing; its declared uncompressed size is what
+        # the cap reads, before any of it is decompressed.
+        zf.writestr("config_manual_dive_x_1.json",
+                    b" " * (config_manager._MAX_MEMBER_BYTES + 1))
+
+    resp = _post_artifact(client, big)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["imported"] == 0
+    assert len(body["errors"]) == 1, body
+    assert "big.zip" in body["errors"][0], body
+
+
+def test_an_archive_of_too_many_files_is_refused_before_any_are_read(client, tmp_path):
+    from implementation_scripts import config_manager
+
+    crowded = tmp_path / "crowded.zip"
+    with zipfile.ZipFile(crowded, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i in range(config_manager._MAX_ARCHIVE_MEMBERS + 1):
+            zf.writestr(f"config_manual_dive_x_{i}.json", json.dumps({
+                "config_type": "manual_dive", "name": f"x{i}",
+                "keywords": ["k"], "repository": "arxiv"}))
+
+    resp = _post_artifact(client, crowded)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["imported"] == 0, "nothing is read once the count is refused"
+    assert len(body["errors"]) == 1, body
+    assert "crowded.zip" in body["errors"][0], body
+    assert client.get("/api/configurations").json() == []
+
+
 def test_an_archive_with_nothing_importable_in_it_says_so(client, tmp_path):
     """A ZIP that is not a resmon export is refused by name, not in silence."""
     stranger = tmp_path / "holiday-photos.zip"
