@@ -81,7 +81,7 @@ Derived values:
 - Empty tab: when `filtered` is empty the table body shows a muted placeholder row.
 - Fetch failure: the thrown error's message is placed in the `error` banner above the tab bar.
 - Import failure: failed `fetch` or non-OK responses surface a prefixed "Import failed: …" error; both `status` and `error` are auto-cleared after 5 s at the end of the handler.
-- Invalid file type during import: a file whose name ends in neither `.zip` nor `.json` produces "Invalid file type: &lt;name&gt;. Import takes the .zip that Export Selected writes, or the .json files inside one." and the batch is aborted before any upload. A file that clears that check but cannot be used is reported by the backend instead, in a "Not imported: …" banner naming it, and does not stop the rest of the batch.
+- Invalid file type during import: a file whose name ends in neither `.zip` nor `.json` produces `Invalid file type: <name>. Import takes the .zip that Export Selected writes, or the .json files inside one.` and the batch is aborted before any upload. A file that clears that check but cannot be used is reported by the backend instead, in a "Not imported: …" banner naming it, and does not stop the rest of the batch.
 
 ## Backend
 
