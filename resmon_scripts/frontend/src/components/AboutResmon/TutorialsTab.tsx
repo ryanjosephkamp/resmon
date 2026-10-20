@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import TutorialsPlaylistThumbnail from './TutorialsPlaylistThumbnail';
+import { NAV_ITEMS, navItemNames } from '../Layout/navItems';
 
 // Tutorial demo videos are hosted on YouTube and **linked**, never
 // embedded. This tab renders no third-party frame of any kind.
@@ -63,8 +64,15 @@ interface TutorialSection {
  * Section list — order matters for the prev/next nav buttons and for
  * the playlist URL, which is built by walking this array in order. The
  * first entry is the full-app overview; the remaining entries cover
- * every existing top-level page (10) and every Settings sub-tab (7),
- * each with its own anchor.
+ * every top-level page the sidebar lists except About resmon, which is
+ * the page this tab is on, and every Settings sub-tab, each with its
+ * own anchor.
+ *
+ * The counts that used to stand here — "(10)" pages and "(7)" sub-tabs —
+ * were both wrong by the time anyone read them, for the same reason the
+ * overview's own first instruction was. Numbers written into prose beside
+ * a list in the code drift away from it silently, so they are gone; the
+ * lists are `NAV_ITEMS` and `routes.ts`, and the tests count those.
  *
  * Exported because it is the denominator. The renderer suite asks this
  * array how many sections have a video and checks the rendered links
@@ -84,7 +92,12 @@ export const sections: TutorialSection[] = [
     mediaCaption: 'Full app walk-through.',
     youtubeId: 'vOSICNFJW7I',
     instructions: [
-      'Use the left sidebar to switch between the ten top-level pages: Dashboard, Deep Dive, Deep Sweep, Routines, Calendar, Results & Logs, Configurations, Monitor, Repositories & API Keys, and Settings.',
+      // Built from the sidebar's own list rather than transcribed from it.
+      // The transcription said "the ten top-level pages" and named ten; the
+      // sidebar had grown to nineteen by 2.3.0, so the first line of the
+      // app's own walk-through described an application the reader did not
+      // have. Derived, it cannot say the wrong number again.
+      `Use the left sidebar to switch between the ${NAV_ITEMS.length} top-level pages: ${navItemNames()}.`,
       'Configure your AI provider and API keys under Settings → AI, and add per-repository keys on the Repositories & API Keys page before running searches that require them.',
       'Run a one-off query with Deep Dive (single repository) or Deep Sweep (multiple repositories), or schedule recurring sweeps under Routines using a 5-field cron expression.',
       'Watch live progress on the Monitor page and review past runs on the Results & Logs page.',

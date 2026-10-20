@@ -1,35 +1,10 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useExecution } from '../../context/ExecutionContext';
-
-interface NavItem {
-  to: string;
-  label: string;
-  icon: string;
-}
-
-const navItems: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: '⊞' },
-  { to: '/dive', label: 'Deep Dive', icon: '⎈' },
-  { to: '/sweep', label: 'Deep Sweep', icon: '⟐' },
-  { to: '/routines', label: 'Routines', icon: '⟳' },
-  { to: '/calendar', label: 'Calendar', icon: '▦' },
-  { to: '/results', label: 'Results & Logs', icon: '◉' },
-  { to: '/chats', label: 'Chats', icon: '☏' },
-  { to: '/reading-queue', label: 'Reading queue', icon: '⚑' },
-  { to: '/library', label: 'Library', icon: '▤' },
-  { to: '/evidence', label: 'Evidence', icon: '▧' },
-  { to: '/analytics', label: 'Analytics', icon: '▤' },
-  { to: '/watchdog', label: 'Watchdog', icon: '◬' },
-  { to: '/source-wall', label: 'Source wall', icon: '▩' },
-  { to: '/explorer', label: 'Explorer', icon: '⌕' },
-  { to: '/profiles', label: 'Watch Profiles', icon: '☖' },
-  { to: '/configurations', label: 'Configurations', icon: '⚙' },
-  { to: '/monitor', label: 'Monitor', icon: '◎' },
-  { to: '/repositories', label: 'Repositories & API Keys', icon: '◈' },
-  { to: '/settings', label: 'Settings', icon: '☰' },
-  { to: '/about-resmon', label: 'About resmon', icon: 'ℹ' },
-];
+// The destinations themselves live in `navItems.ts`, because the Tutorials
+// tab's overview enumerates them and a second hand-written copy of this list
+// is exactly what went stale. See that file's header.
+import { NAV_ITEMS } from './navItems';
 
 const Sidebar: React.FC = () => {
   const { activeExecution } = useExecution();
@@ -39,7 +14,7 @@ const Sidebar: React.FC = () => {
     <aside className="sidebar">
       <div className="sidebar-brand">■ resmon</div>
       <nav className="sidebar-nav">
-        {navItems.map((item) => (
+        {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
