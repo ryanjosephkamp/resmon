@@ -349,6 +349,43 @@ def test_an_oversized_member_is_refused_by_name_and_never_read(client, tmp_path)
     assert "big.zip" in body["errors"][0], body
 
 
+def test_the_caps_bound_a_total_rather_than_multiplying(client, tmp_path):
+    """Every member passes its own cap, and together they are still refused.
+
+    A per-member limit and a member count do not bound anything on their own:
+    ``_archive_members`` holds what it read until the caller has parsed it, so
+    512 members of 1 MiB each would be 512 MiB resident while each one is
+    individually legal. This archive is built entirely out of members that
+    pass both of the other caps.
+    """
+    from implementation_scripts import config_manager
+
+    member_bytes = config_manager._MAX_MEMBER_BYTES
+    count = (config_manager._MAX_ARCHIVE_BYTES // member_bytes) + 2
+    assert count <= config_manager._MAX_ARCHIVE_MEMBERS, (
+        "this archive has to pass the member-count cap to test the other one")
+
+    heavy = tmp_path / "heavy.zip"
+    with zipfile.ZipFile(heavy, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i in range(count):
+            # Valid JSON, legal on its own, and padded to just under the
+            # per-member cap so nothing but the total can refuse it.
+            payload = {"config_type": "manual_dive", "name": f"heavy{i}",
+                       "keywords": ["k"], "repository": "arxiv",
+                       "note": "x" * (member_bytes - 200)}
+            raw = json.dumps(payload).encode("utf-8")
+            assert len(raw) <= member_bytes
+            zf.writestr(f"config_manual_dive_heavy_{i}.json", raw)
+
+    resp = _post_artifact(client, heavy)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["imported"] == 0, "an over-budget archive imports no prefix of itself"
+    assert len(body["errors"]) == 1, body
+    assert "heavy.zip" in body["errors"][0], body
+    assert client.get("/api/configurations").json() == []
+
+
 def test_an_archive_of_too_many_files_is_refused_before_any_are_read(client, tmp_path):
     from implementation_scripts import config_manager
 

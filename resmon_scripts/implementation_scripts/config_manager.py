@@ -229,11 +229,23 @@ IMPORT_ACCEPTS = (
 
 # An exported configuration is a few hundred bytes of JSON. These caps exist
 # so that a ZIP chosen by mistake -- or built to be unpleasant -- is refused by
-# size rather than decompressed into memory. Both are far above anything the
-# export side can produce: the largest configuration shape is a routine
+# size rather than decompressed into memory. All three are far above anything
+# the export side can produce: the largest configuration shape is a routine
 # wrapper, and a user with five hundred saved presets has other problems.
+#
+# Each cap bounds one thing, and saying which matters, because the first two
+# alone do not bound the total. ``_archive_members`` holds every member it
+# read until the caller has parsed them, so a per-member limit and a member
+# count *multiply*: 512 members of 1 MiB each is 512 MiB resident, which is
+# not what a reader of "refused by size rather than decompressed into memory"
+# would expect. The third cap is the one that makes that sentence true.
+#
+#   _MAX_ARCHIVE_MEMBERS  how many entries are looked at at all
+#   _MAX_MEMBER_BYTES     the largest single configuration file read
+#   _MAX_ARCHIVE_BYTES    the total held in memory at once
 _MAX_ARCHIVE_MEMBERS = 512
 _MAX_MEMBER_BYTES = 1 * 1024 * 1024
+_MAX_ARCHIVE_BYTES = 8 * 1024 * 1024
 
 
 def _archive_members(fp: Path, display: str) -> tuple[list[tuple[str, bytes]], list[str]]:
@@ -244,6 +256,12 @@ def _archive_members(fp: Path, display: str) -> tuple[list[tuple[str, bytes]], l
     Archive Utility adds when someone unzips and rezips an export are skipped
     silently -- they are not files the user chose and naming them would read
     as a fault.
+
+    Two kinds of refusal, and the line between them is deliberate: something
+    wrong with a single member skips that member and keeps the rest, the way
+    the batch treats a bad file; something wrong with the archive as a whole
+    -- too many entries, too much in total -- refuses the archive, because
+    importing an arbitrary prefix of it is not a result anyone asked for.
     """
     members: list[tuple[str, bytes]] = []
     errors: list[str] = []
@@ -259,6 +277,12 @@ def _archive_members(fp: Path, display: str) -> tuple[list[tuple[str, bytes]], l
                 f"{display}: {len(entries)} files inside, more than the "
                 f"{_MAX_ARCHIVE_MEMBERS} an export is expected to hold")
             return [], errors
+        # Spent against the declared size *before* the member is read, so the
+        # budget bounds what is decompressed rather than reporting on it
+        # afterwards. zipfile stops a read at the declared uncompressed size
+        # and fails the CRC if the real stream disagrees, so the declaration
+        # is a bound and not merely a hint.
+        remaining = _MAX_ARCHIVE_BYTES
         for info in entries:
             if not info.filename.lower().endswith(".json"):
                 continue
@@ -267,7 +291,15 @@ def _archive_members(fp: Path, display: str) -> tuple[list[tuple[str, bytes]], l
                     f"{display} ({info.filename}): larger than a saved "
                     "configuration can be, so it was not read")
                 continue
-            members.append((info.filename, zf.read(info)))
+            if info.file_size > remaining:
+                errors.append(
+                    f"{display}: the configuration files inside add up to "
+                    f"more than {_MAX_ARCHIVE_BYTES // (1024 * 1024)} MB, so "
+                    "none of them were read")
+                return [], errors
+            raw = zf.read(info)
+            remaining -= len(raw)
+            members.append((info.filename, raw))
     return members, errors
 
 
