@@ -6,6 +6,7 @@ import {
   READING_PAGE_SIZE, ReadingFilter, ReadingQueueEntry, ReadingQueuePage as QueuePage,
   readingQueueApi,
 } from '../api/readingQueue';
+import { formatInstantDate } from '../lib/datetime';
 import { downloadReferences, ReferenceFormat } from '../lib/referenceDownload';
 
 /**
@@ -55,11 +56,6 @@ const FILTERS: { key: ReadingFilter; label: string }[] = [
   { key: 'read', label: 'Read' },
   { key: 'all', label: 'All' },
 ];
-
-function dateOnly(stamp: string | null): string {
-  if (!stamp) return '';
-  return stamp.slice(0, 10);
-}
 
 const ReadingQueuePage: React.FC = () => {
   const [filter, setFilter] = useState<ReadingFilter>('to_read');
@@ -485,8 +481,9 @@ const ReadingQueuePage: React.FC = () => {
                     >
                       {entry.status === 'read' ? 'Read' : 'To read'}
                     </span>
-                    <span>Saved {dateOnly(entry.saved_at)}</span>
-                    {entry.read_at && <span>Read {dateOnly(entry.read_at)}</span>}
+                    {/* Both are ``datetime('now')`` in UTC: instants, shown as the reader's day. */}
+                    <span>Saved {formatInstantDate(entry.saved_at)}</span>
+                    {entry.read_at && <span>Read {formatInstantDate(entry.read_at)}</span>}
                   </>
                 )}
                 actions={(

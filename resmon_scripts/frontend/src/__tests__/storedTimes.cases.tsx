@@ -57,6 +57,7 @@ import DashboardPage from '../pages/DashboardPage';
 import ReadingQueuePage from '../pages/ReadingQueuePage';
 import ResultsList from '../components/Results/ResultsList';
 import DateRangePicker from '../components/Forms/DateRangePicker';
+import { calendarDateOf, formatInstantDate } from '../lib/datetime';
 import { mockRoutedFetch, renderWithProviders } from './testUtils';
 
 export type PinnedZone = 'America/New_York' | 'UTC';
@@ -252,6 +253,15 @@ export function describeStoredTimes(zone: PinnedZone): void {
       expect(screen.getByText(/^Saved /).textContent).toBe(`Saved ${want.day}`);
       expect(screen.getByText(/^Read \d/).textContent).toBe(`Read ${want.day}`);
       expect(screen.getByText('2026-10-20')).toBeInTheDocument();
+    });
+
+    test('the shared date functions answer in this zone when none is named', () => {
+      // What every surface above calls. The explicit-zone cases are in
+      // ``datetime.test.ts``; this is the default path, in the pinned zone.
+      expect(formatInstantDate(EVENING.sqliteNow)).toBe(want.day);
+      expect(calendarDateOf(new Date(EVENING.nowIso))).toBe(want.day);
+      // And a calendar date stays the date it names, here as everywhere.
+      expect(formatInstantDate('2026-10-20')).toBe('2026-10-20');
     });
 
     describe('the date-range presets', () => {

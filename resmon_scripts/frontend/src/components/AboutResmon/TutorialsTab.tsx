@@ -237,7 +237,7 @@ export const sections: TutorialSection[] = [
       'Activate / Deactivate the originating routine directly from the popover, or jump to the Routines page.',
     ],
     tips: [
-      'Scheduled-fire expansion is capped at 200 fires per routine per request and clamped to a 12-month forward window; a horizon notice appears when upcoming fires would be clipped.',
+      'Scheduled-fire expansion is capped at 2,000 fires per routine per request and clamped to a 12-month forward window. A notice appears once you navigate past those 12 months; a routine frequent enough to reach the 2,000-fire cap sooner is cut short without one.',
       'Inactive routines and routines with blank or invalid cron expressions contribute no scheduled events.',
     ],
     destination: { path: '/calendar', label: 'Go to Page' },
