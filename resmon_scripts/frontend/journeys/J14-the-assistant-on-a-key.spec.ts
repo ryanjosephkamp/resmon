@@ -78,7 +78,7 @@ journey.describe('J14 The assistant on a key', () => {
     expect(chats.length, 'the conversation was not saved at all').toBeGreaterThan(0);
     const saved = await resmon.openTheSavedChat(chats[0]);
     expect(saved.text, 'the key is in the saved conversation').not.toContain(KEY);
-    const exported = await resmon.exportTheOpenChat('json');
+    const { text: exported } = await resmon.exportTheOpenChat('json');
     expect(exported, 'the key is in the exported conversation').not.toContain(KEY);
     console.log(`[J14] the saved conversation and its ${exported.length}-byte export carry no key`);
 

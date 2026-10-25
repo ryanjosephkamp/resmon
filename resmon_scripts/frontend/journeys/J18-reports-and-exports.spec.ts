@@ -37,7 +37,7 @@ journey.describe('J18 Reports and exports', () => {
     ).toBe(true);
     console.log(`[J18] report tabs: ${tabs.join(' | ')}`);
 
-    const bibtex = await resmon.exportReferences([first, second], 'bibtex');
+    const { text: bibtex } = await resmon.exportReferences([first, second], 'bibtex');
     const keys = [...bibtex.matchAll(/^@\w+\{([^,]+),/gm)].map((m) => m[1]);
     expect(
       keys.length,

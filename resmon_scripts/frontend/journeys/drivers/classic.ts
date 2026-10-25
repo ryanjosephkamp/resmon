@@ -55,6 +55,8 @@ import type {
 } from '../driver';
 // Slice 4's, in its own import for the same reason.
 import type { ComposerChoice, LibraryItem, TurnChoiceFacts, VaultOnDisk } from '../driver';
+// The saved-configuration round trip's own shapes, in their own import for the same reason.
+import type { ImportOutcome } from '../driver';
 import { startProviderEndpoint } from '../fixtures/provider-endpoint';
 import type { ProviderEndpoint } from '../fixtures/provider-endpoint';
 import type { Session } from './session';
@@ -400,6 +402,28 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     await expect(widget).toHaveCount(0, { timeout: 15_000 });
   };
 
+  /**
+   * Fill in Deep Sweep's form: tick these sources, add the query as a keyword,
+   * and set the cap where one is given.
+   *
+   * Shared by `runSweep` and `saveConfiguration`, which press different buttons
+   * under the same form — and a configuration saved from a form filled some
+   * other way would not be the one a person's sweep would have used.
+   */
+  const fillTheSweepForm = async (request: { sources: string[]; query: string; cap?: number }): Promise<void> => {
+    for (const source of request.sources) {
+      await win().locator('.repo-checkbox-grid label.checkbox-label')
+        .filter({ hasText: new RegExp(`^${source}$`) })
+        .locator('input[type="checkbox"]')
+        .check();
+    }
+    await win().locator('.keyword-input-row input').fill(request.query);
+    await win().locator('.keyword-input-row button', { hasText: 'Add' }).click();
+    if (request.cap !== undefined) {
+      await win().locator('.range-row input[type="range"]').fill(String(request.cap));
+    }
+  };
+
   /* ---------------------------------------------------------------------- *
    *  Slice 2b's helpers. The reading queue's route is not in `PLACES` because
    *  nothing above it takes a `Place` for it, and widening that union is an
@@ -738,6 +762,16 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     aiSettings: () => session.api('GET', '/api/settings/ai'),
     linkStatus: () => session.api('GET', '/api/links/status'),
     eraseCorpus: (word: string) => session.api('POST', '/api/admin/erase-corpus', { confirm: word }),
+    configurations: async () => {
+      const rows = await session.api<Record<string, any>[]>('GET', '/api/configurations');
+      // The route parses `parameters` before it answers. A build that did not
+      // would hand back a string, and a string compared with an object differs
+      // for a reason that has nothing to do with the round trip being measured.
+      return rows.map((row) => {
+        if (typeof row.parameters !== 'string') return row;
+        try { return { ...row, parameters: JSON.parse(row.parameters) }; } catch { return row; }
+      });
+    },
   };
 
   return {
@@ -818,17 +852,7 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     runSweep: async (request: SweepRequest): Promise<RunHandle> => {
       await goto(PLACES['Deep Sweep']);
       await standDownTheCompletionWidget();
-      for (const source of request.sources) {
-        await win().locator('.repo-checkbox-grid label.checkbox-label')
-          .filter({ hasText: new RegExp(`^${source}$`) })
-          .locator('input[type="checkbox"]')
-          .check();
-      }
-      await win().locator('.keyword-input-row input').fill(request.query);
-      await win().locator('.keyword-input-row button', { hasText: 'Add' }).click();
-      if (request.cap !== undefined) {
-        await win().locator('.range-row input[type="range"]').fill(String(request.cap));
-      }
+      await fillTheSweepForm(request);
       const started = win().waitForResponse(
         (r) => r.url().endsWith('/api/search/sweep') && r.request().method() === 'POST',
       );
@@ -973,7 +997,7 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       await win().getByRole('button', { name: label, exact: true }).click();
       await expect.poll(() => fs.existsSync(destination), { timeout: 30_000 }).toBe(true);
       await expect.poll(() => fs.statSync(destination).size, { timeout: 30_000 }).toBeGreaterThan(0);
-      return fs.readFileSync(destination, 'utf8');
+      return { path: destination, text: fs.readFileSync(destination, 'utf8') };
     },
 
     // — routines --------------------------------------------------------------
@@ -1185,72 +1209,144 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     // — saved configurations --------------------------------------------------
 
     saveConfiguration: async (name, from) => {
-      const created = await session.api<{ id: number }>('POST', '/api/configurations', {
-        name,
-        config_type: 'manual_sweep',
-        parameters: {
-          repositories: from.sources,
-          keywords: [from.query],
-          query: from.query,
-          max_results: 10,
-        },
+      // Deep Sweep's own Save Configuration button, and the dialog it opens:
+      // the form `runSweep` fills, saved instead of run. This method used to
+      // POST `/api/configurations` itself, so on the row called *Saved
+      // configurations* the saving was not a path a person takes, and nor was
+      // anything after it. Deep Dive has the same button; Deep Sweep is the one
+      // that takes several sources, which is what lets J21 put a key-required
+      // source into the file it then exports.
+      await goto(PLACES['Deep Sweep']);
+      await standDownTheCompletionWidget();
+      await fillTheSweepForm(from);
+      const known = new Set((await backend.configurations()).map((c) => Number(c.id)));
+      await win().getByRole('button', { name: 'Save Configuration', exact: true }).click();
+      const dialog = win().locator('.modal-content')
+        .filter({ has: win().getByRole('heading', { name: 'Save Configuration', exact: true }) });
+      await expect(dialog, 'Save Configuration opened no dialog').toBeVisible({ timeout: 30_000 });
+      await dialog.locator('input.form-input').fill(name);
+      await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+      // The record first. A configuration with this name that did not exist
+      // before the click is the only thing that can satisfy it.
+      let id = 0;
+      await stored(`a configuration saved as ${name}`, () => backend.configurations(), (all) => {
+        const made = all.filter((c) => c.name === name && !known.has(Number(c.id)));
+        if (made.length === 1) id = Number(made[0].id);
+        return made.length === 1;
       });
-      return created.id;
+      // Then the screen. The dialog closes only on a save the app accepted — a
+      // refused save leaves it open with the name still typed in — so its
+      // absence is false before the click and true only after the write.
+      await expect(dialog, 'the app stored the configuration and its dialog stayed open')
+        .toHaveCount(0, { timeout: 30_000 });
+      return id;
     },
 
-    exportConfigurations: async () => {
+    exportConfigurations: async (kind) => {
       await goto(PLACES['Saved configurations']);
-      // The table is split across two tabs and the selection is one set across
-      // both, so "export every saved configuration" means visiting both. The
-      // page opens on Routine Configs and a saved sweep is on the other one.
-      for (const tab of ['Routine Configs', 'Manual Configs']) {
-        const button = win().locator('.tab-bar .tab-btn', { hasText: tab });
-        await button.click();
-        // The page marks the tab it is showing, so wait for that rather than
-        // for a duration before counting the rows underneath it. A count taken
-        // mid-switch is a count of the other tab.
-        await expect(button, `the ${tab} tab never became the one on screen`)
-          .toHaveClass(/tab-active/, { timeout: 30_000 });
-        const rows = win().locator('.simple-table tbody tr');
-        for (let i = 0; i < await rows.count(); i += 1) {
-          const box = rows.nth(i).getByRole('checkbox');
-          if (await box.count()) await box.check();
-        }
-      }
-      const exportButton = win().locator('button', { hasText: /^Export Selected/ });
-      await expect(exportButton, 'nothing was selectable to export').toBeEnabled({ timeout: 15_000 });
+      // One tab per archive, because that is all the page will export at once:
+      // both tab buttons clear the selection when they are pressed. This method
+      // used to tick the Routine Configs rows, press Manual Configs — which
+      // cleared them — tick those, and export, on the strength of a comment
+      // saying the selection was one set across both tabs. It never was, and
+      // nothing noticed, because nothing compared what was in the archive with
+      // what was meant to be.
+      const label = kind === 'routine' ? 'Routine Configs' : 'Manual Configs';
+      const tab = win().locator('.tab-bar .tab-btn', { hasText: label });
+      await tab.click();
+      // The page marks the tab it is showing, so wait for that rather than for
+      // a duration before reading the rows underneath it. A read taken
+      // mid-switch is a read of the other tab.
+      await expect(tab, `the ${label} tab never became the one on screen`)
+        .toHaveClass(/tab-active/, { timeout: 30_000 });
+      // "Every configuration of this kind" has a denominator, and it is the
+      // app's own list rather than whatever the table happened to have drawn.
+      const ofThisKind = (await backend.configurations())
+        .filter((c) => (c.config_type === 'routine') === (kind === 'routine'));
+      expect(ofThisKind.length, `the app holds no ${kind} configuration to export`).toBeGreaterThan(0);
+      const rows = win().locator('.simple-table tbody tr').filter({ has: win().getByRole('checkbox') });
+      await expect(rows, `the ${label} tab never drew the ${ofThisKind.length} configuration(s) the app holds`)
+        .toHaveCount(ofThisKind.length, { timeout: 30_000 });
+      for (let i = 0; i < ofThisKind.length; i += 1) await rows.nth(i).getByRole('checkbox').check();
+      // Named with its count, so the click waits for the page to agree that
+      // every one of them is selected rather than for the button merely to be
+      // enabled by the first.
+      const exportButton = win().getByRole('button', {
+        name: `Export Selected (${ofThisKind.length})`, exact: true,
+      });
+      await expect(exportButton, 'the page did not select what was ticked').toBeEnabled({ timeout: 15_000 });
+      const answered = win().waitForResponse(
+        (r) => r.url().endsWith('/api/configurations/export') && r.request().method() === 'POST',
+      );
       await exportButton.click();
-      const message = win().locator('.form-success');
-      await expect(message).toContainText('Export saved to:', { timeout: 30_000 });
-      // The banner carries a "Reveal in Finder" button beside the sentence, so
-      // its innerText is two lines and only the first is a path.
-      const written = (await message.innerText())
-        .split('\n')[0].replace('Export saved to:', '').trim();
+      const response = await answered;
+      expect(response.ok(), 'Export Selected was refused').toBe(true);
+      const written = String((await response.json()).path ?? '');
+      // The path is taken from the answer rather than read back off the
+      // banner: the banner clears itself after ten seconds, and so does an
+      // earlier Import's, which can land in the middle of this read. The
+      // banner is then held to naming that same path, because the path a
+      // person reads is the one they would hand back.
+      await expect(win().locator('.page-content > .form-success'), 'the page never said where the export went')
+        .toContainText(`Export saved to: ${written}`, { timeout: 30_000 });
       expect(fs.existsSync(written), `the export names ${written}, which is not there`).toBe(true);
       session.alsoRemoveOnClose(written);
       // The export is a zip of one JSON member per configuration, so the bytes
       // on disk are compressed and searching them for a secret would be a
       // check that passes for the wrong reason. The members are read out with
-      // the interpreter the backend is already running under.
+      // the interpreter the backend is already running under, and the archive
+      // itself is left exactly as the app wrote it.
       const members = execFileSync(session.python, ['-c', `
 import json, sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as bundle:
     print(json.dumps({name: bundle.read(name).decode('utf-8') for name in bundle.namelist()}))
 `, written], { encoding: 'utf8' });
-      return JSON.parse(members) as Record<string, string>;
+      return { path: written, members: JSON.parse(members) as Record<string, string> };
     },
 
-    importConfigurations: async (text) => {
-      const before = await session.api<unknown[]>('GET', '/api/configurations');
-      const file = path.join(session.stateDir, 'journey-import.json');
-      fs.writeFileSync(file, text);
+    importConfigurations: async (exported): Promise<ImportOutcome> => {
       await goto(PLACES['Saved configurations']);
+      // The page's own two banners, and not the ones inside its dialogs.
+      const success = win().locator('.page-content > .form-success');
+      const refusal = win().locator('.page-content > .form-error');
+      // A refusal still on screen from an earlier step would satisfy the wait
+      // below before this import had done anything.
+      await expect(refusal, 'the page was showing an error before Import was pressed')
+        .toHaveCount(0, { timeout: 15_000 });
+      const before = await backend.configurations();
       const chooser = win().waitForEvent('filechooser');
       await win().locator('button', { hasText: /^Import$/ }).click();
-      (await chooser).setFiles(file);
-      await expect(win().locator('.form-success')).toContainText('Imported', { timeout: 30_000 });
-      const after = await session.api<unknown[]>('GET', '/api/configurations');
-      return after.length - before.length;
+      const picker = await chooser;
+      // What the page told the chooser to offer. The native dialog filters by
+      // this, and it is not opened here: nothing automated can operate one, so
+      // the chooser is answered with the file instead, and the spec's ledger
+      // records that. A list that leaves out the file's own type is a dialog in
+      // which a person could not have picked it.
+      const chooserAccepts = (await picker.element().getAttribute('accept')) ?? '';
+      // That file, at that path, unopened. Nothing here reads, copies, renames
+      // or rewrites it; the import gets the bytes the export wrote.
+      await picker.setFiles(exported.path);
+      // Either what it imported or what it refused, and never neither. Read
+      // with `allInnerTexts`, which does not wait, because the page clears both
+      // banners five seconds after an import and a read that waited for an
+      // element could outlive it.
+      let said = '';
+      let refused = '';
+      await expect.poll(async () => {
+        said = (await success.allInnerTexts()).join(' ').trim();
+        refused = (await refusal.allInnerTexts()).join(' ').trim();
+        return /^Imported \d+/.test(said) || refused.length > 0;
+      }, {
+        timeout: 30_000,
+        message: `Import said neither what it imported from ${path.basename(exported.path)} nor what it refused`,
+      }).toBe(true);
+      const after = await backend.configurations();
+      return {
+        arrived: after.length - before.length,
+        said: /^Imported \d+/.test(said) ? said : '',
+        refusal: refused,
+        chooserAccepts,
+      };
     },
 
     // — storage ---------------------------------------------------------------
@@ -1278,10 +1374,18 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     restoreIntoFreshState: async (bundle) => {
-      // A fresh state directory, then the restore staged through the real
-      // endpoint, then a real start — which is the only thing that moves a
-      // byte. `/api/restore` deliberately does not restore: it writes a pointer,
-      // and the next startup does the work.
+      // A fresh state directory, then the restore staged, then a real start —
+      // which is the only thing that moves a byte. `/api/restore` deliberately
+      // does not restore: it writes a pointer, and the next startup does the
+      // work.
+      //
+      // **The staging is not the person's, and the spec's ledger records it.**
+      // The Storage card has a real control for this — `Restore from backup…`,
+      // a folder picker, the verification report it draws, and `Restart to
+      // restore` — and this method uses none of it: it posts the pointer to
+      // `/api/restore` itself, which skips the picker, the report and the
+      // button. J41's header said the restore here was the user's end to end;
+      // the start is, and the staging is not.
       await session.relaunchOverFreshState();
       await session.api('POST', '/api/restore', { confirm: 'CONFIRM', path: bundle.directory });
       await session.relaunch();
@@ -1769,8 +1873,10 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
 
     scanForNearDuplicates: async () => {
       // No screen starts this: the scan is corpus-wide and the app has no
-      // button for it at this base. The row's journey is what a person *sees*
-      // afterwards, which is the Explorer, and that half is all on screen.
+      // button for it at this base, so it is asked for over the API. The row's
+      // journey is what a person *sees* afterwards, which is the Explorer, and
+      // that half is all on screen. The spec's ledger records that the scan
+      // itself had no screen to start it from.
       await session.api('POST', '/api/links/scan', {});
       let status: any = {};
       await expect.poll(async () => {
@@ -2183,7 +2289,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       await win().getByRole('button', { name: label, exact: true }).click();
       await expect.poll(() => fs.existsSync(destination), { timeout: 30_000 }).toBe(true);
       await expect.poll(() => fs.statSync(destination).size, { timeout: 30_000 }).toBeGreaterThan(0);
-      return fs.readFileSync(destination, 'utf8');
+      return { path: destination, text: fs.readFileSync(destination, 'utf8') };
     },
 
     readExplorerTitles: async () => {
@@ -2672,7 +2778,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         .getByRole('button', { name: label, exact: true }).click();
       await expect.poll(() => fs.existsSync(destination), { timeout: 30_000 }).toBe(true);
       await expect.poll(() => fs.statSync(destination).size, { timeout: 30_000 }).toBeGreaterThan(0);
-      return fs.readFileSync(destination, 'utf8');
+      return { path: destination, text: fs.readFileSync(destination, 'utf8') };
     },
 
     openTheAssistantWithTheKeyboard: async () => {

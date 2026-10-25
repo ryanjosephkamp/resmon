@@ -23,7 +23,7 @@
  * run against an installed app, which it one day has to.
  */
 import { test as base, expect } from '@playwright/test';
-import { createDriver, driverName } from './drivers';
+import { buildUnderTest, createDriver, driverName } from './drivers';
 import { armExitProbe } from './fixtures/exit-probe';
 import type { SourceReply } from './fixtures/source-endpoint';
 
@@ -142,6 +142,65 @@ export interface BackupResult {
   manifest: Record<string, unknown>;
 }
 
+/*
+ * **An export verb returns the file, not only what was in it.**
+ *
+ * `backUpNow` above is the shape: it returns the bundle it wrote, and
+ * `restoreIntoFreshState` takes that bundle back. Artifact in, artifact out.
+ * The export verbs below used to return only the text they read out of the file
+ * they had written, and keep the file's path to themselves — so the journey
+ * that hands an export back to an import could not be written. J21 was written
+ * anyway: it imported a JSON string the spec built, for a *different*
+ * configuration from the one it had exported, and stayed green for as long as
+ * Import refused the file Export Selected writes. The step that broke for a real
+ * person was the one the interface had no way to express.
+ *
+ * So every export returns where the app put the file as well as what is in it,
+ * and the one import that exists takes an export, not a string. A spec cannot
+ * write a file of its own — `register.spec.ts` lets it import nothing but this
+ * module — so the only path it can hand an import is one the app wrote.
+ */
+
+/** A file an export wrote, as it is on the disk. */
+export interface ExportedFile {
+  /** Where the file is — the path a person would find, and could hand back. */
+  path: string;
+  /** Its contents, read off the disk as text. */
+  text: string;
+}
+
+/** The archive Export Selected wrote, and what is inside it. */
+export interface ConfigurationExport {
+  /** Where the app says it wrote the archive. */
+  path: string;
+  /**
+   * One entry per member, keyed by the member's own name, read out of that
+   * archive. The bytes on disk are compressed, so a search of them for a secret
+   * would pass for the wrong reason; the members are what can be searched.
+   */
+  members: Record<string, string>;
+}
+
+/** What Import did with the file it was handed. */
+export interface ImportOutcome {
+  /** How many saved configurations the app holds now that it did not hold before. */
+  arrived: number;
+  /** What the page said it imported — `Imported 2 configuration(s).` — or ''. */
+  said: string;
+  /** What the page said it would not import, or ''. Either half may be set alone. */
+  refusal: string;
+  /**
+   * The file types the page told the chooser to offer: the `accept` list the
+   * native dialog filters by.
+   *
+   * Read because the dialog itself cannot be. Nothing automated can operate a
+   * native file dialog, so the chooser is answered with the file instead — and
+   * a file the dialog would have greyed out is exactly the file a person could
+   * never have picked. This is the closest the suite can come to that dialog.
+   */
+  chooserAccepts: string;
+}
+
 /** The one-time card a restored app shows about what it did not bring back. */
 export interface RestoreCard {
   text: string;
@@ -227,6 +286,14 @@ export interface BackendFacts {
   aiSettings(): Promise<Record<string, any>>;
   /** The near-duplicate link scan's state and what it has found. */
   linkStatus(): Promise<Record<string, any>>;
+  /**
+   * Every saved configuration, with its `parameters` as an object.
+   *
+   * The record a round trip is compared against: "the configuration that came
+   * back is the one that was saved" is a claim about what the app stored, and
+   * a row on screen shows only its name.
+   */
+  configurations(): Promise<Record<string, any>[]>;
   /**
    * Ask the backend to erase the corpus with this word.
    *
@@ -438,8 +505,8 @@ export interface JourneyDriver {
   readReportTabs(): Promise<string[]>;
   /** Does this run have a report at all, and does it have content? */
   reportExists(run: RunHandle): Promise<boolean>;
-  /** Select these runs in Results and export their references in this format. */
-  exportReferences(runs: RunHandle[], format: 'bibtex' | 'ris' | 'csv'): Promise<string>;
+  /** Select these runs in Results and export their references in this format: the file, and what it says. */
+  exportReferences(runs: RunHandle[], format: 'bibtex' | 'ris' | 'csv'): Promise<ExportedFile>;
 
   // — routines ---------------------------------------------------------------
   createRoutine(routine: { name: string; cron: string; sources: string[]; keywords: string[] }): Promise<number>;
@@ -463,18 +530,40 @@ export interface JourneyDriver {
   readUpcomingFires(): Promise<UpcomingFire[]>;
 
   // — saved configurations ---------------------------------------------------
+  /**
+   * Fill in Deep Sweep's form and press its Save Configuration button, naming
+   * the configuration this; return the id the app stored it under.
+   */
   saveConfiguration(name: string, from: { sources: string[]; query: string }): Promise<number>;
   /**
-   * Export every saved configuration, and return what is inside the file the
-   * app wrote: one entry per member, keyed by the member's name.
+   * Tick every saved configuration of one kind and press Export Selected.
+   *
+   * One kind per archive, because that is what the page allows: it clears the
+   * selection whenever its tab changes, so routine and manual configurations
+   * cannot be ticked together. Returns the archive the app wrote and what is in it.
    */
-  exportConfigurations(): Promise<Record<string, string>>;
-  /** Import a configuration file's text back, and return how many arrived. */
-  importConfigurations(text: string): Promise<number>;
+  exportConfigurations(kind: 'manual' | 'routine'): Promise<ConfigurationExport>;
+  /**
+   * Press Import and hand the chooser the archive an export wrote — that file,
+   * at that path, unopened and unchanged — then read what the page says.
+   *
+   * There is deliberately no form of this that takes text. That form is how J21
+   * came to import a file it had built itself and never the one it exported.
+   *
+   * The chooser is the page's own and so is everything after it; the native
+   * dialog is not. No automated suite can operate one, so the chooser is
+   * answered with the file rather than a person picking it, and the spec's
+   * ledger records that. What the dialog would have offered is reported as
+   * `chooserAccepts`.
+   */
+  importConfigurations(exported: ConfigurationExport): Promise<ImportOutcome>;
 
   // — storage ----------------------------------------------------------------
   backUpNow(options: { reports: boolean }): Promise<BackupResult>;
-  /** Restore this bundle into a fresh state directory, through the real startup path. */
+  /**
+   * Restore this bundle into a fresh state directory, and start the app over
+   * it. The start is a real one, and the start is what moves the bytes.
+   */
   restoreIntoFreshState(bundle: BackupResult): Promise<void>;
   readRestoreCard(): Promise<RestoreCard>;
 
@@ -647,7 +736,7 @@ export const journey = base.extend<JourneyOptions & JourneyFixtures, JourneyWork
   },
 });
 
-export { driverName };
+export { buildUnderTest, driverName };
 
 /* ========================================================================== *
  *  Slice 2b — the reading queue, the local API's own boundary, and the two
@@ -740,8 +829,8 @@ export interface JourneyDriver {
   markPaperRead(paper: QueuedPaper): Promise<void>;
   /** Take this paper out of the queue, from its row. */
   removeFromReadingQueue(paper: QueuedPaper): Promise<void>;
-  /** Tick these papers in the queue and export them in this format. */
-  exportReadingQueue(papers: QueuedPaper[], format: 'bibtex' | 'ris' | 'csv'): Promise<string>;
+  /** Tick these papers in the queue and export them in this format: the file, and what it says. */
+  exportReadingQueue(papers: QueuedPaper[], format: 'bibtex' | 'ris' | 'csv'): Promise<ExportedFile>;
   /** Every paper title the Explorer lists — what the corpus still holds. */
   readExplorerTitles(): Promise<string[]>;
 
@@ -906,13 +995,13 @@ export interface JourneyDriver {
   /** Open the saved chat whose title contains this, and read its transcript. */
   openTheSavedChat(titleFragment: string): Promise<SavedTranscript>;
   /**
-   * Export the open chat and return what is inside the file the app wrote.
+   * Export the open chat, and return the file the app wrote and what is in it.
    *
    * A real download with only the destination picker replaced: the request, the
    * bytes and the serializer are the app's own, the same seam
    * `exportReferences` uses.
    */
-  exportTheOpenChat(format: 'json' | 'markdown'): Promise<string>;
+  exportTheOpenChat(format: 'json' | 'markdown'): Promise<ExportedFile>;
 
   // — the Ask panel, read as a person reads it (J31) --------------------------
   /**
