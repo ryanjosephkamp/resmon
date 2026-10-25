@@ -219,7 +219,12 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
           // Sent on every save, blank included: a cleared box is a clear, and
           // the backend stores blank as NULL rather than "".
           intent: formIntent.trim(),
-          is_active: true,
+          // No ``is_active``. This used to send ``true`` on every save, so
+          // editing a routine someone had deactivated switched it back on
+          // without a word, and it fired at its next time. The editor has no
+          // Active control, so it has no opinion to send; the backend leaves a
+          // field it is not sent as it was, and Activate / Deactivate on the
+          // row stays the one place that changes it.
           email_enabled: formEmail,
           email_ai_summary_enabled: formEmailAi,
           ai_enabled: formAi,

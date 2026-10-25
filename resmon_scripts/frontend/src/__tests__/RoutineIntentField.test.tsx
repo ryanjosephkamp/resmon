@@ -174,3 +174,24 @@ test('loading a saved routine configuration brings its intent with it', async ()
       .toBe('methods for irregular time series in astronomy');
   });
 });
+
+test('saving an edit leaves the routine as active or inactive as it was', async () => {
+  /**
+   * The update used to carry ``is_active: true`` on every save, so editing a
+   * deactivated routine switched it back on and it fired at its next time.
+   * The editor is never told the routine's state — its target type has no
+   * ``is_active`` — so it cannot have known which value to send. The backend
+   * changes ``is_active`` only when it is sent, so the property is that the key
+   * is absent: not ``false`` either, which would switch an active routine off.
+   */
+  const mock = mockRoutedFetch(ROUTES);
+  await renderWithProviders(
+    <RoutineEditModal open target={TARGET} onClose={() => {}} />,
+  );
+  fireEvent.click(screen.getByText('Update'));
+
+  await waitFor(() => {
+    expect(bodyOf(mock, '/api/routines/7', 'PUT')).toBeDefined();
+  });
+  expect(bodyOf(mock, '/api/routines/7', 'PUT')).not.toHaveProperty('is_active');
+});
