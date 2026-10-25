@@ -1,5 +1,6 @@
 import React from 'react';
 import InfoTooltip from '../Help/InfoTooltip';
+import { calendarDateOf } from '../../lib/datetime';
 
 interface Props {
   dateFrom: string;
@@ -14,12 +15,26 @@ const DateRangePicker: React.FC<Props> = ({
   onDateFromChange,
   onDateToChange,
 }) => {
+  /**
+   * Fill the range with the last ``days`` days, ending today — *the user's*
+   * today.
+   *
+   * The bounds are calendar dates, and they were taken from
+   * ``toISOString()``, which is the date in UTC. West of Greenwich in the
+   * evening that is already tomorrow, so at 8:47 PM on October 19 in New York
+   * "Last 7d" filled in October 13 to October 20: a window that ended on a day
+   * that had not arrived, and missed the first day it should have held.
+   *
+   * ``setDate`` steps back in local calendar days rather than in multiples of
+   * 24 hours, which is what keeps the start on the right day across a
+   * daylight-saving change, when one of those days is 23 or 25 hours long.
+   */
   const setRelative = (days: number) => {
     const to = new Date();
-    const from = new Date();
+    const from = new Date(to);
     from.setDate(from.getDate() - days);
-    onDateFromChange(from.toISOString().slice(0, 10));
-    onDateToChange(to.toISOString().slice(0, 10));
+    onDateFromChange(calendarDateOf(from));
+    onDateToChange(calendarDateOf(to));
   };
 
   return (

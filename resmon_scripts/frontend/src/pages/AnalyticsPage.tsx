@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import PageHelp from '../components/Help/PageHelp';
 import { apiClient } from '../api/client';
+import { formatInstantDate } from '../lib/datetime';
 
 /**
  * Analytics over the corpus resmon has already swept.
@@ -568,7 +569,8 @@ const AnalyticsPage: React.FC = () => {
                       {r.status === 'stale' && ` Nothing new in the last ${r.runs_since_new} runs.`}
                       {r.status === 'insufficient_data' &&
                         ` Needs ${data!.routine_health.minimum_runs} runs before this means anything.`}
-                      {r.last_new_result_at && ` Last new paper: ${r.last_new_result_at.slice(0, 10)}.`}
+                      {/* ``start_time`` of a run: an instant, so its day is the reader's. */}
+                      {r.last_new_result_at && ` Last new paper: ${formatInstantDate(r.last_new_result_at)}.`}
                     </p>
                     {r.series.length > 1 && (
                       <div className="analytics-spark" aria-hidden="true">
@@ -579,7 +581,7 @@ const AnalyticsPage: React.FC = () => {
                               key={i}
                               className="analytics-spark-bar"
                               style={{ height: `${Math.max((run.new_results / peak) * 100, 3)}%` }}
-                              title={`${run.start_time.slice(0, 10)}: ${run.new_results} new`}
+                              title={`${formatInstantDate(run.start_time)}: ${run.new_results} new`}
                             />
                           );
                         })}
