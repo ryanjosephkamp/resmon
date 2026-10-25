@@ -332,7 +332,7 @@ Read/write surface for the eight Settings panels. Each slice is a keyed subset o
 - `GET /api/settings/storage` / `PUT /api/settings/storage` — `pdf_policy`, `txt_policy`, `archive_after_days`, `export_directory` (policy values are constrained to `save` / `archive` / `discard`).
 - `GET /api/settings/notifications` / `PUT /api/settings/notifications` — desktop-notification toggles.
 - `GET /api/settings/execution` / `PUT /api/settings/execution` — admission-controller tunables (`max_concurrent` clamped to `[1, 8]`, routine queue clamped to `[1, 64]`); reloaded live by the admission controller.
-- Diagnostics: `GET /api/scheduler/jobs` (APScheduler job snapshot consumed by Settings → Advanced), `POST /api/service/install` and related `/api/service/*` routes for OS-service integration via `service_manager.py`.
+- Diagnostics: `GET /api/scheduler/jobs` (APScheduler job snapshot consumed by Settings → Advanced), `GET /api/scheduler/status` (whether each active routine will fire — `true`, `false`, or `null` where a running service cannot be seen into — and which of seven states decides it; consumed by the Routines page), `POST /api/service/install` and related `/api/service/*` routes for OS-service integration via `service_manager.py`.
 
 ### `/api/credentials`
 

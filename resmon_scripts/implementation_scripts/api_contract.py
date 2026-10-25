@@ -364,6 +364,7 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("POST", "/api/routines/{routine_id}/run"): ("J03", "J39"),
     ("GET", "/api/routines/{routine_id}/coverage"): ("J11",),
     ("GET", "/api/scheduler/jobs"): ("J03",),
+    ("GET", "/api/scheduler/status"): ("J03", "J04"),
     # --- Manual runs -------------------------------------------------------
     ("POST", "/api/search/dive"): ("J01", "J39"),
     ("POST", "/api/search/sweep"): ("J02", "J39"),

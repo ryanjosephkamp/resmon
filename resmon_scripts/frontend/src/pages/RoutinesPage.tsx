@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import CoveragePanel from '../components/Routines/CoveragePanel';
 import DeliveryPanel from '../components/Routines/DeliveryPanel';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
@@ -11,6 +12,7 @@ import InfoTooltip from '../components/Help/InfoTooltip';
 import RoutineEditModal from '../components/Routines/RoutineEditModal';
 import { useConfigurationsVersion } from '../lib/configurationsBus';
 import { useRoutinesVersion } from '../lib/routinesBus';
+import { routineFiringNote, schedulerNotice, type SchedulerStatus } from '../lib/schedulerStatus';
 
 interface Routine {
   id: number;
@@ -103,6 +105,13 @@ const RoutinesPage: React.FC = () => {
   // Calendar page's Edit Routine button, the modal's Create New flow,
   // and any future mutation site that calls ``notifyRoutinesChanged``.
   const routinesVersion = useRoutinesVersion();
+  const navigate = useNavigate();
+  /**
+   * Whether anything will fire the active routines. ``null`` until it answers,
+   * and left ``null`` when it cannot: a backend older than the route answers
+   * 404, and on that one the page says nothing rather than guess.
+   */
+  const [scheduling, setScheduling] = useState<SchedulerStatus | null>(null);
 
   /* ---- modal state ---- */
   const [formOpen, setFormOpen] = useState(false);
@@ -114,6 +123,9 @@ const RoutinesPage: React.FC = () => {
     try {
       const data = await apiClient.get<Routine[]>('/api/routines');
       setRoutines(data);
+      apiClient.get<SchedulerStatus>('/api/scheduler/status')
+        .then(setScheduling)
+        .catch(() => setScheduling(null));
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -351,7 +363,7 @@ const RoutinesPage: React.FC = () => {
             heading: 'Tips',
             body: (
               <ul>
-                <li>Routines only fire when the resmon daemon is running (it is launched automatically on login by the background daemon installer).</li>
+                <li>Routines fire only where a scheduler runs: the background service, which <strong>Run resmon in the background</strong> in Settings &rarr; Advanced installs and starts at login. This window does not run them itself. When nothing will run an active routine, this page says so above the table and under the routine&rsquo;s status, with the reason.</li>
                 <li>The cron field accepts standard 5-field syntax: <code>m h dom mon dow</code>. Example: <code>0 8 * * 1-5</code> = 8:00 AM on weekdays.</li>
                 <li>If you want the date range to slide forward with each fire, leave it blank — routines without a fixed range default to the last 24 hours of the repository's index.</li>
               </ul>
@@ -361,6 +373,24 @@ const RoutinesPage: React.FC = () => {
       />
 
       {error && <div className="form-error">{error}</div>}
+
+      {(() => {
+        const notice = scheduling ? schedulerNotice(scheduling) : null;
+        if (!notice) return null;
+        return (
+          <div className="form-notice" role="status" data-testid="scheduler-notice">
+            {notice.text}
+            {notice.advanced && (
+              <>
+                {' '}
+                <button className="btn btn-sm" onClick={() => navigate('/settings/advanced')}>
+                  Open Settings → Advanced
+                </button>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="card">
         <table className="simple-table">
@@ -390,6 +420,15 @@ const RoutinesPage: React.FC = () => {
                   <span className={`badge ${r.is_active ? 'badge-success' : 'badge-error'}`}>
                     {r.is_active ? 'Active' : 'Inactive'}
                   </span>
+                  {(() => {
+                    const firing = scheduling?.routines.find((f) => f.id === r.id);
+                    const note = r.is_active ? routineFiringNote(firing) : null;
+                    return note ? (
+                      <div className="text-muted missed-fires-note" data-testid={`firing-note-${r.id}`}>
+                        {note}
+                      </div>
+                    ) : null;
+                  })()}
                 </td>
                 <td>
                   {r.last_execution || '—'}
