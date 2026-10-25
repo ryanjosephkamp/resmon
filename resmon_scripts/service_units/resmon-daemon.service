@@ -14,7 +14,7 @@ Environment=PATH=/usr/local/texlive/2024/bin/x86_64-linux:/usr/local/texlive/202
 # post desktop notifications when routines fire under systemd --user
 # without an active Electron renderer attached.
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus
-ExecStart={{PYTHON}} -m implementation_scripts.daemon {{PORT}}
+ExecStart={{PYTHON}} -m implementation_scripts.daemon {{PORT}}{{STATE_ARGS}}
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:{{LOG_DIR}}/resmon-daemon.out.log

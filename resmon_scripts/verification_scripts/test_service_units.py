@@ -163,3 +163,134 @@ def test_install_endpoint_default_body(unit_dir):
     assert resp.json()["installed"] is True
     # Cleanup
     client.post("/api/service/uninstall")
+
+
+# ---------------------------------------------------------------------------
+# The service serves the database of the backend that installed it
+# ---------------------------------------------------------------------------
+#
+# A packaged app's backend runs with RESMON_DB_PATH and RESMON_REPORTS_DIR set
+# by Electron. A unit it installs used to carry neither, so the daemon opened a
+# database inside the app bundle and the app attached to it.
+
+_MAC_STATE = {
+    "RESMON_DB_PATH": "/Users/someone/Library/Application Support/resmon/resmon.db",
+    "RESMON_REPORTS_DIR": "/Users/someone/Library/Application Support/resmon/resmon_reports",
+}
+
+
+def test_state_arguments_follow_the_installing_process():
+    assert service_manager.state_arguments({}) == []
+    assert service_manager.state_arguments(_MAC_STATE) == [
+        "--db-path=/Users/someone/Library/Application Support/resmon/resmon.db",
+        "--reports-dir=/Users/someone/Library/Application Support/resmon/resmon_reports",
+    ]
+
+
+def test_state_arguments_are_made_absolute(tmp_path, monkeypatch):
+    # The daemon's working directory is the unit's, not the installer's.
+    monkeypatch.chdir(tmp_path)
+    [arg] = service_manager.state_arguments({"RESMON_DB_PATH": "state/resmon.db"})
+    assert arg == f"--db-path={tmp_path / 'state' / 'resmon.db'}"
+
+
+def test_plist_passes_each_state_path_as_one_argument():
+    import plistlib
+
+    rendered = service_manager.render_template(
+        python="/Applications/resmon.app/Contents/Resources/backend/python/bin/python3",
+        port=8742,
+        workdir=Path("/Applications/resmon.app/Contents/Resources/backend/resmon_scripts"),
+        log_dir=Path("/tmp/logs"),
+        template=service_manager.TEMPLATES_DIR / "com.resmon.daemon.plist",
+        state_args=service_manager.state_arguments(_MAC_STATE),
+    )
+    unit = plistlib.loads(rendered.encode("utf-8"))
+    assert unit["ProgramArguments"] == [
+        "/Applications/resmon.app/Contents/Resources/backend/python/bin/python3",
+        "-m", "implementation_scripts.daemon", "8742",
+        "--db-path=/Users/someone/Library/Application Support/resmon/resmon.db",
+        "--reports-dir=/Users/someone/Library/Application Support/resmon/resmon_reports",
+    ]
+
+
+def test_plist_without_state_is_unchanged_from_a_checkout():
+    import plistlib
+
+    rendered = service_manager.render_template(
+        python="/usr/bin/python3", port=8742, workdir=Path("/tmp/resmon"),
+        log_dir=Path("/tmp/logs"),
+        template=service_manager.TEMPLATES_DIR / "com.resmon.daemon.plist",
+        state_args=[],
+    )
+    unit = plistlib.loads(rendered.encode("utf-8"))
+    assert unit["ProgramArguments"] == [
+        "/usr/bin/python3", "-m", "implementation_scripts.daemon", "8742",
+    ]
+
+
+def test_systemd_unit_quotes_state_paths():
+    import shlex
+
+    rendered = service_manager.render_template(
+        python="/usr/bin/python3", port=8742, workdir=Path("/tmp/resmon"),
+        log_dir=Path("/tmp/logs"),
+        template=service_manager.TEMPLATES_DIR / "resmon-daemon.service",
+        state_args=["--db-path=/home/a b/100%/$HOME/resmon.db"],
+    )
+    [line] = [l for l in rendered.splitlines() if l.startswith("ExecStart=")]
+    # % and $ are systemd specifiers and variables; doubled, they are literal.
+    assert line.endswith(' "--db-path=/home/a b/100%%/$$HOME/resmon.db"')
+    words = shlex.split(line[len("ExecStart="):])
+    assert words[-1] == "--db-path=/home/a b/100%%/$$HOME/resmon.db"
+    assert words[:4] == ["/usr/bin/python3", "-m", "implementation_scripts.daemon", "8742"]
+
+
+def test_task_xml_quotes_state_paths():
+    import xml.etree.ElementTree as ET
+
+    rendered = service_manager.render_template(
+        python=r"C:\Program Files\resmon\python.exe", port=8742,
+        workdir=Path(r"C:\resmon"), log_dir=Path(r"C:\logs"),
+        template=service_manager.TEMPLATES_DIR / "resmon-daemon.task.xml",
+        state_args=[r"--db-path=C:\Users\a & b\AppData\Local\resmon\resmon.db"],
+    )
+    root = ET.fromstring(rendered)
+    [arguments] = [e.text for e in root.iter() if e.tag.endswith("Arguments")]
+    assert arguments == (
+        r'-m implementation_scripts.daemon 8742 "--db-path=C:\Users\a & b\AppData\Local\resmon\resmon.db"'
+    )
+
+
+def test_install_writes_the_installing_backends_state(unit_dir, monkeypatch):
+    for variable, value in _MAC_STATE.items():
+        monkeypatch.setenv(variable, value)
+    text = service_manager.install(port=8742, register=False).read_text(encoding="utf-8")
+    assert "--db-path=/Users/someone/Library/Application Support/resmon/resmon.db" in text
+    assert "--reports-dir=/Users/someone/Library/Application Support/resmon/resmon_reports" in text
+
+
+def test_daemon_flags_set_the_database_config_opens(tmp_path):
+    """The flags reach ``config.DEFAULT_DB_PATH`` in a fresh process.
+
+    A subprocess, because ``config`` reads the variables at import and this
+    test process imported it long ago.
+    """
+    import subprocess
+
+    db = tmp_path / "with space" / "resmon.db"
+    reports = tmp_path / "with space" / "resmon_reports"
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("RESMON_DB_PATH", "RESMON_REPORTS_DIR")}
+    code = (
+        "import sys; from implementation_scripts import daemon; "
+        "daemon._apply_state_args(sys.argv); "
+        "from implementation_scripts import config; "
+        "print(config.DEFAULT_DB_PATH); print(config.REPORTS_DIR)"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code, "8742", f"--db-path={db}", f"--reports-dir={reports}"],
+        cwd=PROJECT_ROOT / "resmon_scripts", env=env, capture_output=True, text=True,
+        timeout=60, check=True,
+    ).stdout.splitlines()
+    assert out == [str(db), str(reports)]

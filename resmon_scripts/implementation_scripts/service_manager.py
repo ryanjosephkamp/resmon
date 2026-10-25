@@ -22,6 +22,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
+from xml.sax.saxutils import escape as xml_escape
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -96,7 +97,68 @@ def template_path() -> Path:
 # Rendering
 # ---------------------------------------------------------------------------
 
-REQUIRED_PLACEHOLDERS = ("{{PYTHON}}", "{{PORT}}", "{{WORKDIR}}", "{{LOG_DIR}}")
+REQUIRED_PLACEHOLDERS = (
+    "{{PYTHON}}", "{{PORT}}", "{{WORKDIR}}", "{{LOG_DIR}}", "{{STATE_ARGS}}",
+)
+
+# The variables that say where a backend keeps its state, and the daemon flag
+# that carries each one into a service.
+#
+# A packaged app's Electron main process sets both on the backend it spawns,
+# pointing them at the per-user state directory, because the bundle is replaced
+# on every update. A service unit is started by the OS, not by Electron, so it
+# inherits neither. Before this, a service installed from the packaged app ran
+# the bundled daemon with config.py's checkout-relative defaults: a database
+# and a reports folder *inside the app bundle*, empty, and wiped by the next
+# update. The app then attached to it, because it was the same version, and
+# showed that empty database in place of the user's own. Measured on 2.3.0:
+# the rendered plist named no database, and the bundled interpreter resolved
+# DEFAULT_DB_PATH to ``resmon.app/Contents/Resources/backend/resmon.db``.
+#
+# Flags rather than environment entries because Task Scheduler's Exec action
+# has no environment, and one mechanism on all three platforms is one thing to
+# test. A dev checkout's backend sets neither variable, so its unit carries no
+# flags and its daemon keeps the checkout database, as before.
+STATE_ARGUMENTS = (
+    ("RESMON_DB_PATH", "--db-path"),
+    ("RESMON_REPORTS_DIR", "--reports-dir"),
+)
+
+
+def state_arguments(environ: Optional[dict[str, str]] = None) -> list[str]:
+    """``--flag=path`` for each state variable set in ``environ``.
+
+    Paths are made absolute here, because the daemon's working directory is the
+    unit's ``WorkingDirectory``, not the installing process's.
+    """
+    env = os.environ if environ is None else environ
+    args = []
+    for variable, flag in STATE_ARGUMENTS:
+        value = env.get(variable)
+        if value:
+            args.append(f"{flag}={os.path.abspath(value)}")
+    return args
+
+
+def _format_state_args(args: list[str], template: Path) -> str:
+    """Render daemon arguments in the syntax of the template they go into.
+
+    A packaged app's state directory has a space in it on macOS
+    (``Application Support``), so each format has to keep a path one argument.
+    """
+    if template.name.endswith(".plist"):
+        # One <string> per argument; launchd passes each one whole.
+        return "".join(f"\n        <string>{xml_escape(a)}</string>" for a in args)
+    if template.name.endswith(".service"):
+        # systemd splits ExecStart on spaces unless quoted, expands % specifiers
+        # and $VARIABLES, and reads backslash escapes inside quotes.
+        def quote(a: str) -> str:
+            a = a.replace("\\", "\\\\").replace('"', '\\"')
+            return '"' + a.replace("%", "%%").replace("$", "$$") + '"'
+        return "".join(" " + quote(a) for a in args)
+    # Task Scheduler: one command-line string, split by the usual Windows rules.
+    # A Windows path cannot contain a double quote, so quoting is enough.
+    return "".join(" " + xml_escape(f'"{a}"') for a in args)
 
 
 def render_template(
@@ -106,12 +168,14 @@ def render_template(
     workdir: Optional[Path] = None,
     log_dir: Optional[Path] = None,
     template: Optional[Path] = None,
+    state_args: Optional[list[str]] = None,
 ) -> str:
     """Render the platform-appropriate unit template to a string.
 
     Every ``{{NAME}}`` placeholder in the template is substituted. It is a
     programming error to leave any placeholder unresolved, so the function
-    asserts that none remain.
+    asserts that none remain. ``state_args`` defaults to the installing
+    process's own state, from ``state_arguments()``.
     """
     src = template or template_path()
     raw = src.read_text(encoding="utf-8")
@@ -120,6 +184,9 @@ def render_template(
         "{{PORT}}": str(port if port is not None else default_port()),
         "{{WORKDIR}}": str(workdir or _resmon_scripts_dir()),
         "{{LOG_DIR}}": str(log_dir or _log_dir()),
+        "{{STATE_ARGS}}": _format_state_args(
+            state_arguments() if state_args is None else state_args, src,
+        ),
     }
     out = raw
     for placeholder, value in mapping.items():

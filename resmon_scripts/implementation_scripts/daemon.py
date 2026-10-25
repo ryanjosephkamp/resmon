@@ -305,10 +305,32 @@ def _parse_port(argv: list[str], default: int = 8742) -> int:
     return default
 
 
+# ``service_manager.STATE_ARGUMENTS``, read from this side: each flag sets the
+# variable ``config.py`` reads at import, so it has to run before anything
+# imports ``config``.
+_STATE_FLAGS = {"--db-path": "RESMON_DB_PATH", "--reports-dir": "RESMON_REPORTS_DIR"}
+
+
+def _apply_state_args(argv: list[str]) -> None:
+    """Point this process's state where the service unit says it lives.
+
+    A unit installed from a packaged app names the app's own database and
+    reports folder; without these the daemon would open ones inside the app
+    bundle (see ``service_manager.STATE_ARGUMENTS``). A flag on the command
+    line wins over an inherited variable, because the unit is the explicit
+    statement of which database this service serves.
+    """
+    for arg in argv[1:]:
+        flag, sep, value = arg.partition("=")
+        if sep and value and flag in _STATE_FLAGS:
+            os.environ[_STATE_FLAGS[flag]] = value
+
+
 def run(argv: Optional[list[str]] = None) -> int:
     """Run the daemon. Blocks until uvicorn exits. Returns an exit code."""
     argv = list(argv) if argv is not None else list(sys.argv)
     port = _parse_port(argv)
+    _apply_state_args(argv)
 
     # Ensure ``resmon_scripts`` is on sys.path so ``import resmon`` works when
     # daemon.py is invoked as ``python -m implementation_scripts.daemon`` from

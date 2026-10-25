@@ -9,7 +9,7 @@
         <string>{{PYTHON}}</string>
         <string>-m</string>
         <string>implementation_scripts.daemon</string>
-        <string>{{PORT}}</string>
+        <string>{{PORT}}</string>{{STATE_ARGS}}
     </array>
     <key>WorkingDirectory</key>
     <string>{{WORKDIR}}</string>

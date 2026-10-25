@@ -337,8 +337,11 @@ const AdvancedSettings: React.FC = () => {
                 Installs a per-user service (launchd on macOS,
                 <code>systemd --user</code> on Linux, Task Scheduler on
                 Windows) so scheduled routines keep firing even when the
-                resmon window is closed. The Electron app attaches to the
-                already-running daemon on launch.
+                resmon window is closed. The service uses the same database
+                and reports folder as this app, and the app attaches to it on
+                launch when it runs the same version. A service turned on from
+                the 2.3.0 app or earlier ran over an empty database inside the
+                app; turn it off and on again to replace it.
               </p>
             ),
           },
