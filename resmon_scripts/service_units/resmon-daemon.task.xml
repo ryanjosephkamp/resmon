@@ -37,7 +37,7 @@
   <Actions Context="Author">
     <Exec>
       <Command>{{PYTHON}}</Command>
-      <Arguments>-m implementation_scripts.daemon {{PORT}}</Arguments>
+      <Arguments>-m implementation_scripts.daemon {{PORT}}{{STATE_ARGS}}</Arguments>
       <WorkingDirectory>{{WORKDIR}}</WorkingDirectory>
     </Exec>
   </Actions>

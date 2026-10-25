@@ -808,7 +808,7 @@ export const sections: TutorialSection[] = [
     mediaCaption: 'Advanced settings demo.',
     youtubeId: 'A1KCwF4nHEo',
     instructions: [
-      'Background daemon section: click `Install service` to install the platform-specific service unit (launchd / systemd / Task Scheduler), or `Uninstall service` to remove it.',
+      'Background daemon section: tick `Run resmon in the background` to install the platform-specific service unit (launchd / systemd / Task Scheduler), or untick it to remove the service.',
       'Concurrent executions section: edit `max_concurrent_executions` and `routine_fire_queue_limit` and click Save to persist via `PUT /api/settings/execution`.',
       'Scheduler diagnostics section: review APScheduler jobs (id, name, next-run time, trigger); click `Refresh` to re-fetch.',
       'Danger Zone section (bottom of the tab): eight destructive actions, each affecting data on this device.',
@@ -828,6 +828,7 @@ export const sections: TutorialSection[] = [
     tips: [
       'Lower `max_concurrent_executions` to throttle resource bursts when many routines fire at once; the routine-fire queue limit guards APScheduler against backlog runaway.',
       'Installing the OS service unit is what lets routines fire while the Electron UI is closed.',
+      'The service uses the same database and reports folder as the app. If you turned it on from the 2.3.0 app or earlier, untick and tick it again: those versions installed a service over an empty database inside the app.',
       'Danger Zone actions are irreversible. Export anything you want to keep first: configurations from the Configurations page, and reports / logs from Results & Logs.',
       'The typed-`CONFIRM` gate is case-sensitive and must be all caps — `confirm`, `Confirm`, and trailing whitespace are rejected. The red `Confirm` button stays disabled until the input matches exactly.',
       'Every action affects only this device.',
