@@ -8,6 +8,7 @@ import { useExecution } from '../context/ExecutionContext';
 import PageHelp from '../components/Help/PageHelp';
 import FirstRunCard from '../components/Onboarding/FirstRunCard';
 import { useConfigurationsVersion } from '../lib/configurationsBus';
+import { formatInstant } from '../lib/datetime';
 
 interface WatchdogSummary {
   counts: { broken: number; unusual: number; alarms: number };
@@ -289,7 +290,7 @@ const DashboardPage: React.FC = () => {
                   <td>{r.name}</td>
                   <td><span className="badge badge-success">Active</span></td>
                   <td>{r.schedule_cron}</td>
-                  <td>{r.last_executed_at || '—'}</td>
+                  <td>{formatInstant(r.last_executed_at) || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -346,7 +347,7 @@ const DashboardPage: React.FC = () => {
                 const isActive = isRunning || isCancelling;
                 return (
                   <tr key={e.id}>
-                    <td>{e.start_time?.slice(0, 16)?.replace('T', ' ') || '—'}</td>
+                    <td>{formatInstant(e.start_time) || '—'}</td>
                     <td>Execution #{e.id}</td>
                     <td>
                       <span className={`badge ${typeBadgeClass(e.execution_type)}`}>

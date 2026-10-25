@@ -3,6 +3,7 @@ import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient, backendFetch } from '../api/client';
 import PageHelp from '../components/Help/PageHelp';
 import { notifyConfigurationsChanged } from '../lib/configurationsBus';
+import { formatInstant } from '../lib/datetime';
 import RepositorySelector from '../components/Forms/RepositorySelector';
 import DateRangePicker from '../components/Forms/DateRangePicker';
 import KeywordInput from '../components/Forms/KeywordInput';
@@ -520,7 +521,7 @@ const ConfigurationsPage: React.FC = () => {
                 <td><input type="checkbox" checked={selected.has(c.id)} onChange={() => handleToggle(c.id)} /></td>
                 <td>{c.name}</td>
                 <td><span className={`badge ${configTypeBadgeClass(c.config_type)}`}>{c.config_type}</span></td>
-                <td>{c.created_at?.slice(0, 16)?.replace('T', ' ') || '—'}</td>
+                <td>{formatInstant(c.created_at) || '—'}</td>
                 <td>
                   <div className="action-btns">
                     <button className="btn btn-sm" onClick={() => openEdit(c)}>Edit</button>

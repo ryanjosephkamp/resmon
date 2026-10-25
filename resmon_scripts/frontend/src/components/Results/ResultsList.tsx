@@ -4,6 +4,7 @@ import {
   EXECUTION_STATUS_FILTER_OPTIONS,
   RESTARTABLE_STATUSES,
 } from '../../context/executionStatus';
+import { formatInstant } from '../../lib/datetime';
 
 /**
  * How many of an execution's sources actually answered.
@@ -272,7 +273,7 @@ const ResultsList: React.FC<Props> = ({
                 <td onClick={(ev) => ev.stopPropagation()}>
                   <input type="checkbox" checked={selected.has(e.id)} onChange={() => onToggle(e.id)} />
                 </td>
-                <td>{e.start_time?.slice(0, 16)?.replace('T', ' ') || '—'}</td>
+                <td>{formatInstant(e.start_time) || '—'}</td>
                 <td>Execution #{e.id}</td>
                 <td><span className={`badge ${typeBadgeClass(e.execution_type)}`}>{e.execution_type}</span></td>
                 <td className="ellipsis-cell" title={formatRepos(e)}>{formatRepos(e)}</td>
