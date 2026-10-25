@@ -27,8 +27,8 @@ AttributionRequirement = Literal["none", "requested", "required"]
 # read from the client's date-filter code rather than from a description of
 # the upstream. That is the quantity that decides whether a window can be
 # answered at all, and it is the one a user is entitled to before they read a
-# zero: NASA ADS is asked for whole months; DataCite, DBLP, DOAJ, ERIC, OAPEN,
-# Open Library and Semantic Scholar for whole years; everything else for exact
+# zero: NASA ADS is asked for whole months; DataCite, DBLP, DOAJ, ERIC, Open
+# Library and Semantic Scholar for whole years; everything else for exact
 # days.
 #
 # **DOAJ was in that list for three releases without being in this field.**
@@ -45,8 +45,8 @@ AttributionRequirement = Literal["none", "requested", "required"]
 #
 # The field says what the query can express, not what each source does about a
 # window it cannot express -- those are two different facts and conflating
-# them was the temptation here. DBLP, ERIC, OAPEN and Open Library **refuse**
-# a window shorter than a calendar year, because a record they returned would
+# them was the temptation here. DBLP, ERIC and Open Library **refuse** a
+# window shorter than a calendar year, because a record they returned would
 # have unknowable in-window status. DataCite, DOAJ, NASA ADS and Semantic
 # Scholar answer the coarser window instead. Both behaviours are honest; only
 # the first produces a ``window_unanswerable`` zero, and ``window_rounding``
@@ -80,7 +80,9 @@ DateGranularity = Literal["day", "month", "year"]
 #   their first record — and is plainly a parsed field under D, where
 #   ``dc.title:"Suber"`` returns nothing for a word ``dc.contributor.author``
 #   finds twice. The field result is a *subset* of the keyword result, which is
-#   what a working field looks like.
+#   what a working field looks like. OAPEN was withdrawn in October 2026
+#   (``api_registry.RETIRED_REPOSITORIES``) and has no entry below; the
+#   finding stays here because it is why control D exists.
 # * **arXiv, NDL and PubMed are XML**, and the first version of the comparison
 #   read JSON keys only — so for those three the controls ran and were compared
 #   to nothing. Their verdicts came from A and B alone until the comparison
@@ -457,8 +459,8 @@ def _entry(
         # omitted default has an empty citation, so a source added without an
         # answer fails the guard instead of quietly claiming it constrains
         # nothing. "This source constrains nothing" is a real answer and 11 of
-        # the 27 rows below give it — but it is written down, not defaulted.
-        # Of the other 16, five say only that the window means a date other
+        # the 26 rows below give it — but it is written down, not defaulted.
+        # Of the other 15, five say only that the window means a date other
         # than the publication date, which is a sentence worth one line to
         # somebody filtering by date and worth none to anybody else.
         constraints=constraints or _constraints(),
@@ -1320,63 +1322,6 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                 "`{{\"message\":\"Certificate file not found\",\"httpStatus\":\"500\"}}`, "
                 "which is the same outage its catalog note has recorded since the source "
                 "was added."),
-        ),
-    ),
-    _entry(
-        slug="oapen", name="OAPEN Library",
-        description="Open-access book and chapter metadata",
-        subject_coverage="Books / Chapters / Humanities / Social sciences",
-        endpoint="https://library.oapen.org/rest/search",
-        query_method="GET Solr query; whole issued years; expand=metadata; limit/offset pagination",
-        rate_limit="0.5 req/s (conservative; no published numeric API limit)",
-        client_module="api_oapen.py", requirement="none", credential_name=None,
-        website="https://library.oapen.org", registration_url=None,
-        upstream_policy="No numeric limit in the REST guide; resmon spaces calls by two seconds. https://www.oapen.org/article/8185269-search-using-a-rest-api",
-        parallel_safe="Yes; one shared limiter", date_granularity="year",
-        keyword_combination="Undocumented",
-        keyword_combination_notes="The provider documents Solr queries and explicit AND examples, but not the default combination of bare space-separated terms. resmon forwards the query. https://www.oapen.org/article/8185269-search-using-a-rest-api",
-        notes=(
-            "Terms verdict: compatible for metadata under CC0, including indefinite local retention and private backup without re-fetching. "
-            "Book files follow their own licenses and are not retrieved. "
-            "https://www.oapen.org/oapen/posi-self-audit https://www.oapen.org/article/metadata "
-            "Pagination is documented: expand, limit, offset; dc.date.issued_dt takes Solr ranges and sort. "
-            "https://oapen.o172i.upcloudobjects.com/151b0a45669f429381cb46fe441f23b6.pdf "
-            "Live two-record pages at offsets 0 and 2 were distinct on 2026-09-06; no total ceiling is claimed. "
-            "resmon uses at most 100 records per page and scans at most max(10000, Max Results) rows, "
-            "rounded up to a page, returning the retained prefix. Indexed dates often derive from year-only dc.date.issued: "
-            "resmon retains only the year, queries years wholly within your window, and refuses a window containing no whole year."
-        ),
-        constraints=_constraints(
-            window_effect="whole_years",
-            window_rounding="inward",
-            established=(
-                "`api_oapen.py`: `_search_year_bounds`, imported from "
-                "`api_openlibrary.py`, keeps only whole years inside the "
-                "window; `search()` records `year_granularity` and returns "
-                "without a request when there are none, and builds its "
-                "`dc.date.issued_dt` range from whole years."),
-            notices=(
-                _notice(
-                    "date_window",
-                    "The OAPEN Library records only a publication year. resmon "
-                    "searches the whole calendar years inside your window, and "
-                    "refuses a window containing none rather than turning an "
-                    "index default into a publication-date claim.",
-                    "`api_oapen.py`: the year bounds and the "
-                    "`dc.date.issued_dt` range in `search()`.",
-                    applies_when="with_date_window",
-                ),
-            ),
-        ),
-        entity_search=_entity(
-            "field", author_syntax='dc.contributor.author:"{name}"',
-            established=(
-                f"{ENTITY_PROBED_ON}: `dc.contributor.author:\"Suber\"` returned 2 items where the bare "
-                "keyword returned 100 and `dc.title:\"Suber\"` returned **0**. The first "
-                "reading of this probe called the prefix decoration because A and the "
-                "keyword control share their first record; they share it because the field "
-                "result is a subset. No ORCID or affiliation in the DSpace metadata. "
-                "Delegation 08 owns this client; only this catalog line is resmon's."),
         ),
     ),
     _entry(

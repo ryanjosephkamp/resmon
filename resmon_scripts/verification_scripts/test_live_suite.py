@@ -1054,9 +1054,11 @@ def test_the_shipped_quarantine_is_valid_and_names_scheduled_live_cases(collecti
         assert entry.expires <= entry.first_observed + timedelta(days=QUARANTINE_MAX_DAYS)
         vantages = {item["vantage"] for item in entry.evidence if item["status"] == entry.signature}
         assert len(vantages) >= 2, entry.nodeid
-    assert [entry.nodeid for entry in entries][:1] == [
-        "resmon_scripts/verification_scripts/test_api_tier4.py::test_oapen_live_search",
-    ]
+    # The shipped list was emptied in October 2026. Its one entry, OAPEN's
+    # live search under an intermittent HTTP 500, expired on 2026-10-18, and
+    # OAPEN was then retired on a different failure (HTTP 403) with its live
+    # case removed. An empty list is valid; the loop above is what any future
+    # entry must pass, and the synthetic cases below prove each check goes red.
 
 
 def test_quarantine_admits_two_entries_and_rejects_a_third(tmp_path):
@@ -1401,9 +1403,11 @@ def test_source_outcome_property_keeps_categories_and_drops_text():
 # The author-query cases record what their source did
 # ---------------------------------------------------------------------------
 #
-# `test_api_tier4.py::test_oapen_live_search` records a `source_outcome`, which
-# is the only reason the shipped quarantine entry can excuse it. The *other*
-# OAPEN live case — the parametrised author query in
+# OAPEN's live search in `test_api_tier4.py` recorded a `source_outcome`, which
+# was the only reason the quarantine entry it carried until 2026-10-18 could
+# excuse it. (OAPEN has since been retired and both its live cases removed;
+# its name stays below as the outage these proofs were written against.) The
+# *other* OAPEN live case — the parametrised author query in
 # `test_entity_search_live.py` — recorded none, so an entry naming it would
 # have printed in the summary as a quarantine and excused nothing:
 # `quarantine_disposition` needs exactly one recorded outcome in total and
@@ -1478,7 +1482,7 @@ def test_a_recorded_author_query_outcome_is_what_lets_the_quarantine_excuse_it(t
     # quarantine and excused nothing. That gap is closed: the branch raises
     # `AssertionError` with the same message, and
     # `test_a_strict_source_that_answers_nothing_is_excusable_by_the_quarantine`
-    # below proves it at a real exit status for all three strict sources.
+    # below proves it at a real exit status for both strict sources.
     #
     # The gate itself was deliberately not widened to `Failed`. Only an
     # assertion says "the case asked the source a question and the answer was
@@ -1670,7 +1674,7 @@ def _strict_slugs():
 
 @pytest.mark.parametrize("slug", _strict_slugs())
 def test_a_strict_source_that_answers_nothing_is_excusable_by_the_quarantine(tmp_path, slug):
-    """P1: for each of the three strict sources, an outage becomes an excused xfail.
+    """P1: for each strict source, an outage becomes an excused xfail.
 
     Nothing here is hand-written except the policy file: the failure is the
     real case's own strict branch, the recorded outcome is the real
@@ -1706,7 +1710,7 @@ def test_a_strict_source_that_answers_nothing_is_excusable_by_the_quarantine(tmp
 
 
 def test_a_strict_source_that_answers_nothing_still_fails_an_unquarantined_run(tmp_path):
-    """P2: without an entry the failure is not softened — all three, at the exit status.
+    """P2: without an entry the failure is not softened — both, at the exit status.
 
     The policy file this run reads is real and readable and excuses nothing, so
     a silent strict source is a red run exactly as before. Converting the

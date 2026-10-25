@@ -132,7 +132,7 @@ def test_every_catalog_entry_carries_a_constraint_record_with_a_citation():
     covered = {entry.slug for entry in REPOSITORY_CATALOG}
     assert registered <= covered, (
         f"registered clients with no constraint record: {sorted(registered - covered)}")
-    assert len(covered) == 27, f"the catalog is {len(covered)} entries, not 27"
+    assert len(covered) == 26, f"the catalog is {len(covered)} entries, not 26"
 
 
 def test_a_window_that_is_honored_exactly_claims_no_rounding():
@@ -304,20 +304,21 @@ def test_date_granularity_and_window_effect_say_the_same_thing():
         + ", ".join(f"{s}: {g} vs {w}" for s, g, w in wrong))
 
 
-def test_the_four_sources_that_refuse_a_sub_year_window_are_the_ones_that_do_it():
+def test_the_three_sources_that_refuse_a_sub_year_window_are_the_ones_that_do_it():
     """``inward`` is the rounding that can return nothing, and it is checkable.
 
     Each of these clients computes whole calendar years inside the requested
-    window and declines to call the source when there are none —
-    ``note_unanswerable`` in three of them and an early ``[]`` in DBLP.
-    Listing them here is not a second inventory: it is the assertion that the
-    inventory matches the four ``note_unanswerable``/early-return sites.
+    window and, when there are none, calls ``note_unanswerable`` and declines
+    to call the source. Listing them here is not a second inventory: it is the
+    assertion that the inventory matches the three such sites in registered
+    clients. ``api_oapen`` has a fourth and is retired, so it has no catalog
+    entry to round anything.
     """
     inward = {
         entry.slug for entry in REPOSITORY_CATALOG
         if entry.constraints.window_rounding == "inward"
     }
-    assert inward == {"dblp", "eric", "oapen", "openlibrary"}, sorted(inward)
+    assert inward == {"dblp", "eric", "openlibrary"}, sorted(inward)
 
 
 def test_the_two_client_side_keyword_sources_are_the_two_with_no_query_parameter():
@@ -363,7 +364,7 @@ def test_the_sources_route_returns_the_constraints():
     response = client.get("/api/repositories/catalog")
     assert response.status_code == 200
     rows = response.json()
-    assert len(rows) == 27
+    assert len(rows) == 26
     for row in rows:
         assert "constraints" in row, row["slug"]
         assert "window_effect" in row["constraints"], row["slug"]
@@ -515,9 +516,9 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
     scopes = Counter(
         n.applies_when for e in REPOSITORY_CATALOG for n in e.constraints.notices
     )
-    assert sum(scopes.values()) == 22, sum(scopes.values())
+    assert sum(scopes.values()) == 21, sum(scopes.values())
     assert dict(scopes) == {
-        "with_date_window": 15,
+        "with_date_window": 14,
         "always": 3,
         "without_start_date": 2,
         "above_record_cap": 1,
@@ -589,7 +590,7 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
     # whole-day one. Its end-date sentence is not about this state.
     assert speakers(has_from=True, has_to=False, max_results=100) == [
         "arxiv", "biorxiv", "core", "datacite", "dblp", "doaj", "eric",
-        "medrxiv", "nasa_ads", "ndl_search", "nist_rmm", "oapen", "openaire",
+        "medrxiv", "nasa_ads", "ndl_search", "nist_rmm", "openaire",
         "openlibrary", "semantic_scholar", "springer",
     ]
     from_only = shown(has_from=True, has_to=False, max_results=100)

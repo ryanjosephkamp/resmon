@@ -3,6 +3,12 @@
 Fixtures below are minimal, synthetic projections of the live 2026-09-06
 responses. Tests patch below safe_request so zero reasons and limiter use are
 exercised, rather than replaced by a client-level request double.
+
+OAPEN was withdrawn in October 2026: its search API answers HTTP 403
+(``api_registry.RETIRED_REPOSITORIES``). Its scheduled live case went with it.
+Its fixture contracts stay, driving ``OapenClient`` directly through
+``client_for``, because the client is kept on disk for a revival and these
+are what a revival would rely on.
 """
 
 import json
@@ -12,7 +18,6 @@ import pytest
 
 from implementation_scripts import api_base, api_govinfo, api_oapen, api_registry, zero_reason
 from implementation_scripts.repo_catalog import REPOSITORY_CATALOG
-from resmon_scripts.verification_scripts.live_evidence import source_outcome_property
 
 
 def oapen_record(handle="20.500.12657/100210", year="2024"):
@@ -76,12 +81,25 @@ def reason():
     return zero_reason.derive(api_base.search_outcome().snapshot())[0]
 
 
-@pytest.mark.parametrize("slug", ["oapen", "govinfo"])
-def test_registered_client_and_complete_catalog_contract(slug):
+def client_for(slug):
+    """GovInfo through the registry; OAPEN by its class.
+
+    OAPEN is retired and its module no longer registers, so the registry
+    refuses it with the retirement reason. The class is still importable, and
+    building it directly is what keeps these contracts about the client rather
+    than about whether a sweep can reach it.
+    """
+    if slug == "oapen":
+        return api_oapen.OapenClient()
+    return api_registry.get_client(slug)
+
+
+def test_registered_client_and_complete_catalog_contract():
+    slug = "govinfo"
     client = api_registry.get_client(slug)
     assert client.get_name()
     entry = next(e for e in REPOSITORY_CATALOG if e.slug == slug)
-    assert entry.date_granularity == ("year" if slug == "oapen" else "day")
+    assert entry.date_granularity == "day"
     assert "Terms verdict: compatible" in entry.notes
     assert "https://" in entry.notes
     assert entry.attribution_requirement == "none"
@@ -169,7 +187,7 @@ def test_govinfo_missing_key_does_not_use_demo_key(wire, monkeypatch):
 @pytest.mark.parametrize("slug", ["oapen", "govinfo"])
 def test_empty_response_records_answered_empty(wire, slug):
     wire[1].append((200, page(slug, [])))
-    assert api_registry.get_client(slug).search("unlikely query", "2024", "2024") == []
+    assert client_for(slug).search("unlikely query", "2024", "2024") == []
     assert reason() == "answered_empty"
 
 
@@ -177,7 +195,7 @@ def test_empty_response_records_answered_empty(wire, slug):
 @pytest.mark.parametrize("body", [b"not-json", {}, None])
 def test_unreadable_reply_is_not_empty_answer(wire, slug, body):
     wire[1].append((200, body))
-    assert api_registry.get_client(slug).search("water") == []
+    assert client_for(slug).search("water") == []
     assert reason() == "parse_failure"
 
 
@@ -185,7 +203,7 @@ def test_unreadable_reply_is_not_empty_answer(wire, slug, body):
 @pytest.mark.parametrize("failure", [(503, {}), httpx.ConnectError("unreachable")])
 def test_transport_failure_is_not_parse_failure(wire, slug, failure):
     wire[1].extend([failure] * (2 if slug == "oapen" else 1))
-    assert api_registry.get_client(slug).search("water") == []
+    assert client_for(slug).search("water") == []
     assert reason() == "upstream_failure"
 
 
@@ -198,7 +216,7 @@ def test_second_page_outage_uses_each_source_partial_result_contract(
     record = oapen_record() if slug == "oapen" else govinfo_record()
     failures = [(503, {})] * (2 if slug == "oapen" else 1)
     wire[1].extend([(200, page(slug, [record], 2)), *failures])
-    rows = api_registry.get_client(slug).search("water", max_results=2)
+    rows = client_for(slug).search("water", max_results=2)
     if slug == "oapen":
         assert [row.external_id for row in rows] == [record["handle"]]
     else:
@@ -213,7 +231,7 @@ def test_repeated_page_fails_closed(wire, monkeypatch, slug):
     record = oapen_record() if slug == "oapen" else govinfo_record()
     wire[1].extend([(200, page(slug, [record], 3, "cursor1")),
                     (200, page(slug, [record], 3, "cursor2"))])
-    rows = api_registry.get_client(slug).search("water", max_results=3)
+    rows = client_for(slug).search("water", max_results=3)
     if slug == "oapen":
         assert [row.external_id for row in rows] == [record["handle"]]
     else:
@@ -225,7 +243,7 @@ def test_repeated_page_fails_closed(wire, monkeypatch, slug):
 @pytest.mark.parametrize("slug", ["oapen", "govinfo"])
 def test_records_missing_required_fields_get_real_zero_reason(wire, slug):
     wire[1].append((200, page(slug, [{"bad": True}])))
-    assert api_registry.get_client(slug).search("water", max_results=5) == []
+    assert client_for(slug).search("water", max_results=5) == []
     assert reason() == "records_unusable"
     detail = api_base.search_outcome().snapshot()["explicit_detail"]
     assert detail["incomplete"] == 1 and detail["rights"] == 0
@@ -235,7 +253,7 @@ def test_records_missing_required_fields_get_real_zero_reason(wire, slug):
 def test_source_date_filter_is_rechecked(wire, slug):
     record = oapen_record(year="2023") if slug == "oapen" else govinfo_record(date="2023-12-31")
     wire[1].append((200, page(slug, [record])))
-    assert api_registry.get_client(slug).search("water", "2024", "2024") == []
+    assert client_for(slug).search("water", "2024", "2024") == []
     assert reason() == "parse_failure"
 
 
@@ -256,36 +274,14 @@ def test_govinfo_missing_cursor_before_total_fails(wire):
 def test_result_cap_stops_without_an_extra_request(wire, slug):
     record = oapen_record() if slug == "oapen" else govinfo_record()
     wire[1].append((200, page(slug, [record], 100)))
-    assert len(api_registry.get_client(slug).search("water", max_results=1)) == 1
+    assert len(client_for(slug).search("water", max_results=1)) == 1
     assert len(wire[0]) == 1
 
 
 # Explicit cases are used by the completeness guard; a newly registered source
 # must add a real scheduled test, not merely update a catalog-length assertion.
-BATCH_LIVE_CASES = {"oapen": "test_oapen_live_search", "govinfo": "test_govinfo_live_search"}
-
-
-@pytest.mark.live_network
-def test_oapen_live_search(record_property):
-    api_base.reset_search_outcome()
-    rows = api_registry.get_client("oapen").search("water AND fire", "2020", "2024", 2)
-    outcome = api_base.search_outcome().snapshot()
-    # Recorded before any assertion. The provider-outage quarantine
-    # (live_quarantine.json) matches its signature against this outcome, and
-    # the durable live evidence reports the failure history from it.
-    record_property("source_outcome", source_outcome_property("oapen", outcome))
-    history = " -> ".join(outcome["failure_history"]) or "none"
-    assert len(rows) == 2, (
-        f"OAPEN returned {len(rows)} of 2 rows; failure history: {history}; {outcome}")
-    assert outcome["attempts"] > 0, outcome
-    assert outcome["last_call_failed"] is False, outcome
-    assert outcome["retained_cooldown_status"] is None, outcome
-    assert outcome["explicit_reason"] is None, outcome
-    assert all(r.source_repository == "oapen" and "2020" <= r.publication_date <= "2024" for r in rows)
-    assert all(r.title and r.external_id and r.url.startswith("https://library.oapen.org/handle/") for r in rows)
-    api_base.reset_search_outcome()
-    assert api_registry.get_client("oapen").search("water", "2024-02-01", "2024-02-02") == []
-    assert reason() == "window_unanswerable"
+# OAPEN's case left with OAPEN: a retired source has nothing to schedule.
+BATCH_LIVE_CASES = {"govinfo": "test_govinfo_live_search"}
 
 
 @pytest.mark.live_network
@@ -350,7 +346,7 @@ def test_distinct_records_missing_dates_cannot_cause_an_unbounded_scan(wire, mon
     else:
         records = [govinfo_record(granule=f"granule-{i}", date="unknown") for i in (1, 2)]
     wire[1].extend((200, page(slug, [record], 100, f"cursor-{i}")) for i, record in enumerate(records))
-    assert api_registry.get_client(slug).search("water", "2024", "2024", 1) == []
+    assert client_for(slug).search("water", "2024", "2024", 1) == []
     assert len(wire[0]) == 2
     assert reason() == "records_unusable"
     assert api_base.search_outcome().snapshot()["explicit_detail"]["incomplete"] == 2
@@ -363,6 +359,6 @@ def test_an_entire_malformed_page_does_not_abort_the_next_page(wire, monkeypatch
     record = oapen_record() if slug == "oapen" else govinfo_record()
     wire[1].extend([(200, page(slug, [{"bad": True}], 2, "next")),
                     (200, page(slug, [record], 2, "end"))])
-    rows = api_registry.get_client(slug).search("water", "2024", "2024", 1)
+    rows = client_for(slug).search("water", "2024", "2024", 1)
     assert len(rows) == 1
     assert len(wire[0]) == 2

@@ -151,7 +151,6 @@ _NOT_DRIVEN = {
     "hal": "Not in the defect set.",
     "inspire_hep": "Not in the defect set.",
     "nist_rmm": "Not in the defect set.",
-    "oapen": "Not in the defect set.",
     "openlibrary": "Not in the defect set.",
     "zenodo": "Not in the defect set.",
 }
@@ -440,7 +439,7 @@ def test_a_readable_page_survives_a_body_with_no_object_at_its_root(
 
 
 def test_the_partial_page_denominator_is_named():
-    """Nine of twenty-seven, and the other eighteen are named, not forgotten.
+    """Nine of twenty-six, and the other seventeen are named, not forgotten.
 
     The project bans "every client" without a denominator beside it. This row
     speaks for nine slugs; this test is what stops that nine from silently

@@ -309,7 +309,7 @@ export const sections: TutorialSection[] = [
       'The papers list is counted by basis before it is listed. `Forty-one papers` and `forty-one papers, thirty-eight of them name-only` are different facts, and the second is the one you need first.',
       'Retractions and other lifecycle findings on this person\u2019s papers are a **join** over notices resmon already holds, never a new claim — and each one carries the basis of the match it arrived through, because a retraction attached to a name is not a retraction attached to a person.',
       'How much of this profile\u2019s work has actually been checked is stated above the findings. `Nothing found` means nothing unless you can see how much was looked at.',
-      'Twenty of resmon\u2019s twenty-seven sources can be asked about an author at all. The seven that cannot say so on the run\u2019s own source row rather than returning a bare zero.',
+      'Nineteen of resmon\u2019s twenty-six sources can be asked about an author at all. The seven that cannot say so on the run\u2019s own source row rather than returning a bare zero.',
       'A source\u2019s author search is a candidate generator, never a verdict: every record that comes back is re-checked against the profile locally, and the ones that do not survive are counted in the run rather than dropped in silence.',
     ],
     tips: [
@@ -618,8 +618,8 @@ export const sections: TutorialSection[] = [
     mediaCaption: 'Repositories & API Keys demo.',
     youtubeId: 'QIcgil9JNU8',
     instructions: [
-      'Browse the catalog of 27 active repositories; click a name (or caret) to expand a details panel showing subject coverage, endpoint, rate limit, credential requirement, and `Date Filtering`.',
-      '`Date Filtering` is the finest date precision resmon\u2019s own query to that source can express. Most take exact dates; NASA ADS takes whole months; DataCite, DBLP, ERIC, OAPEN, Open Library and Semantic Scholar take whole years. ERIC, OAPEN and Open Library refuse a window shorter than one calendar year rather than widening it, so a short-window search of those sources comes back empty by construction \u2014 and the run\u2019s Search record says exactly that.',
+      'Browse the catalog of 26 active repositories; click a name (or caret) to expand a details panel showing subject coverage, endpoint, rate limit, credential requirement, and `Date Filtering`.',
+      '`Date Filtering` is the finest date precision resmon\u2019s own query to that source can express. Most take exact dates; NASA ADS takes whole months; DataCite, DBLP, ERIC, Open Library and Semantic Scholar take whole years. ERIC and Open Library refuse a window shorter than one calendar year rather than widening it, so a short-window search of those sources comes back empty by construction \u2014 and the run\u2019s Search record says exactly that.',
       'Use Expand All / Collapse All to reveal or hide every detail panel at once.',
       'For key-gated repositories, type a key into the inline input and press Enter to save it; click `Clear` on a row with a saved key to delete it.',
     ],

@@ -21,13 +21,13 @@ and nothing on the record -- the exact defect `_efetch` had, and the one the
 deleted branch would have caught. Nothing in the code enforces the premise, so
 it is enforced here.
 
-The denominator is the registry's own, so a twenty-eighth source is covered on
+The denominator is the registry's own, so a twenty-seventh source is covered on
 the day it is registered rather than on the day somebody remembers this file.
 
 **What this does not establish.** One transport attempt fails per case -- the
 first, then the second -- so this says nothing about a client's behavior when
 several pages fail in a row, and nothing about whether a client's retry is a
-good idea. Of the 54 behavioral cases, only the handful belonging to a client
+good idea. Of the 52 behavioral cases, only the handful belonging to a client
 with its own retry ladder compare two invocations at all; four clients
 (`core`, `govinfo`, `nasa_ads`, `springer`) return on a missing credential
 before any request is made, so their cases assert nothing. The rest make one
@@ -238,7 +238,7 @@ def test_the_denominator_is_the_registry_and_the_ladders_are_derived(monkeypatch
     that happens to correlate with it.
     """
     assert SLUGS == api_registry.list_repositories()
-    assert len(SLUGS) >= 27, "the registry shrank; a source was retired silently"
+    assert len(SLUGS) >= 26, "the registry shrank; a source was retired silently"
 
     ladders, silent = set(), set()
     for slug in SLUGS:

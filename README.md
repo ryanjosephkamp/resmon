@@ -44,7 +44,7 @@ the pull request that moved them and on [the guide index](https://ryanjosephkamp
 | [What resmon is](https://ryanjosephkamp.github.io/resmon/guide/overview/) | The feature list, and the connected-app header |
 | [Install and launch](https://ryanjosephkamp.github.io/resmon/guide/install/) | Prerequisites, setup, published builds, starting the app |
 | [Quick start](https://ryanjosephkamp.github.io/resmon/guide/quick-start/) | A first Deep Dive, Deep Sweep and routine |
-| [Sources and their terms](https://ryanjosephkamp.github.io/resmon/guide/sources/) | The 27 shipped repositories and what each one's terms permit |
+| [Sources and their terms](https://ryanjosephkamp.github.io/resmon/guide/sources/) | The 26 shipped repositories and what each one's terms permit |
 | [Your local library](https://ryanjosephkamp.github.io/resmon/guide/library/) | Managed vaults and imported documents |
 | [Projects and selected evidence](https://ryanjosephkamp.github.io/resmon/guide/projects/) | Scoping what an answer may rest on |
 | [The assistant and MCP](https://ryanjosephkamp.github.io/resmon/guide/assistant/) | The in-app assistant, and driving resmon from an AI harness |

@@ -1,6 +1,6 @@
 ---
 title: "Sources and their terms"
-summary: "The 27 shipped repositories, what each one is asked and how often, which fields its terms permit resmon to keep, and why IEEE Xplore was withdrawn."
+summary: "The 26 shipped repositories, what each one is asked and how often, which fields its terms permit resmon to keep, and why IEEE Xplore and OAPEN Library were withdrawn."
 order: 2
 readmeLines:
   - "70-118"
@@ -8,7 +8,7 @@ readmeLines:
 ---
 ## Supported Repositories
 
-The table below lists the 27 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
+The table below lists the 26 active sources registered in the repository catalog (`/api/repositories/catalog`). "API key" indicates whether a key is required to query the source from resmon; rate limits are the client-side ceilings enforced by each API client.
 
 | Repository | API Type | API Key | Rate Limit (resmon) | Discipline Coverage |
 |---|---|---|---|---|
@@ -29,7 +29,6 @@ The table below lists the 27 active sources registered in the repository catalog
 | NASA ADS | REST (Solr JSON) | Required (Bearer) | 1.0 req/s (≈5000/day cap) | Astronomy, Astrophysics, Planetary science |
 | NDL Search | SRU (DC-NDL v3 XML) | Not required | 0.5 req/s (conservative; no published numeric API limit) | Japanese national bibliography, Books, Articles, Cultural heritage metadata |
 | NIST Resource Metadata Management | REST (JSON) | Not required | 0.5 req/s (conservative; no published API limit) | Engineering, Government technical publications |
-| OAPEN Library | REST (explicit JSON) | Not required | 0.5 req/s (conservative) | Books and chapters; whole publication years only; one 45 s search budget |
 | OpenAIRE | REST (XML-derived JSON) | Not required | 0.0167 req/s (60/hour) | Multi-disciplinary publications, Research outputs |
 | OpenAlex | REST (JSON) | Not required | 10.0 req/s (polite pool via mailto) | All disciplines |
 | Open Library | REST (JSON) | Not required | 1.0 req/s (unidentified-client ceiling) | Books, Humanities, General bibliography |
@@ -45,13 +44,6 @@ rate-limit waits. Budget exhaustion is recorded as an upstream failure; an empty
 successful response remains distinct. Already normalized records are retained.
 DNS shutdown and blocking CPU work can exceed this budget; see
 [HAL request reliability](docs/hal-reliability.md).
-
-OAPEN searches likewise negotiate JSON explicitly and share one 45-second
-cooperative I/O budget across pagination, one retry per request, rate-limit waits,
-and response reads. If a later page fails, already normalized records remain
-available while the source outcome records the failure; a first-page failure
-remains empty. As with HAL, DNS shutdown, blocking CPU work, or an operating-system
-call that does not yield can exceed this cooperative budget.
 
 Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in `.ai:/prep/repos.md` and are not queried at runtime.
 
@@ -132,3 +124,9 @@ Existing routines that name `ieee` keep running; that source is reported as unav
 INSPIRE-HEP was affected differently and was fixed rather than withdrawn: its terms permit reuse of an abstract only where INSPIRE reports that abstract's own source as arXiv or CERN, so resmon now stores an abstract only in that case. Records carrying only a publisher-supplied abstract are still indexed, without one — about a fifth of them in a 100-record sample.
 
 The full terms review behind both changes, covering every shipped source, is in [`docs/source-landscape.md`](docs/source-landscape.md).
+
+### OAPEN Library was withdrawn in October 2026
+
+OAPEN Library was an active source from September 2026 and is no longer queried. The reason is not its terms, which put the metadata under CC0, and nothing was found wrong with the client. Its search API refuses the requests: it answers HTTP 403 with a message saying the caller's address is not allowed to access the API. GitHub's hosted runners got that answer in the weekly live run on October 19, 2026, and a workstation got it on October 25, 2026, when the library's own website was still up.
+
+Existing routines that name `oapen` keep running; that source is reported as unavailable with the reason above, and the rest of the routine is unaffected. The client is retained in the source tree, so the source can return if OAPEN lifts the block.

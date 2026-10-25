@@ -379,17 +379,6 @@ def _dryad(name: str) -> tuple[int, str]:
                 {"author": name, "per_page": 5})
 
 
-def _oapen(name: str) -> tuple[int, str]:
-    # DSpace's REST search, and the field prefix **is** parsed. A first reading
-    # of this probe said the opposite, on the strength of A and the bare-keyword
-    # control sharing their first record — which they do, because the field
-    # result is a *subset* of the keyword result (2 of 100). The D control
-    # settles it: `dc.title:"Suber"` returns 0 against the same word.
-    return _get("https://library.oapen.org/rest/search",
-                {"query": f'dc.contributor.author:"{name.split()[-1]}"',
-                 "expand": "metadata"})
-
-
 def _eric(name: str) -> tuple[int, str]:
     return _get("https://api.ies.ed.gov/eric/",
                 {"search": f'author:"{name}"', "format": "json", "rows": 5})
@@ -453,11 +442,6 @@ def _doaj_bare(name: str) -> tuple[int, str]:
                 {"pageSize": 5})
 
 
-def _oapen_bare(name: str) -> tuple[int, str]:
-    return _get("https://library.oapen.org/rest/search",
-                {"query": name.split()[-1], "expand": "metadata"})
-
-
 def _eric_bare(name: str) -> tuple[int, str]:
     return _get("https://api.ies.ed.gov/eric/",
                 {"search": f'"{name}"', "format": "json", "rows": 5})
@@ -519,11 +503,6 @@ def _doaj_title(name: str) -> tuple[int, str]:
                 f"{name.replace(' ', '%20')}%22", {"pageSize": 5})
 
 
-def _oapen_title(name: str) -> tuple[int, str]:
-    return _get("https://library.oapen.org/rest/search",
-                {"query": f'dc.title:"{name.split()[-1]}"', "expand": "metadata"})
-
-
 def _eric_title(name: str) -> tuple[int, str]:
     return _get("https://api.ies.ed.gov/eric/",
                 {"search": f'title:"{name}"', "format": "json", "rows": 5})
@@ -559,7 +538,9 @@ PROBES: list[Probe] = [
     Probe("nasa_ads", "Sara Seager", run=_nasa_ads),
     Probe("ndl_search", "Haruki Murakami", run=_ndl, bare=_ndl_bare, other_field=_ndl_title),
     Probe("nist_rmm", "John Smith", run=_nist),
-    Probe("oapen", "Peter Suber", run=_oapen, bare=_oapen_bare, other_field=_oapen_title),
+    # OAPEN was probed on 2026-09-06 (the D-control finding in probe_one) and
+    # withdrawn in October 2026, when its search API began answering HTTP 403.
+    # A retired source is not probed: see api_registry.RETIRED_REPOSITORIES.
     Probe("openaire", "Yoshua Bengio", run=_openaire),
     Probe("openalex", "Yoshua Bengio", orcid="0000-0002-9322-3515", run=_openalex),
     Probe("openlibrary", "Ursula K. Le Guin", run=_openlibrary),

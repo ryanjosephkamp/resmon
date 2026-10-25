@@ -27,12 +27,12 @@ and grading their precision is the field test.
 A source that needs a key this machine does not hold, and a source that is simply
 down, are different facts. Keyed sources skip with the credential they need.
 Most keyless sources report an empty answer by name and remain in the aggregate
-denominator; DBLP, ERIC, and OAPEN are strict response gates and fail on an empty
-or authorless result. The aggregate consumes those same current-run records in
+denominator; DBLP and ERIC are strict response gates and fail on an empty or
+authorless result. The aggregate consumes those same current-run records in
 catalog order and never performs a second provider sweep.
 
 Weekly rather than per-commit, through the scheduled half of the live suite —
-these are twenty real requests to other people's servers and a routine that runs
+these are nineteen real requests to other people's servers and a routine that runs
 them on every push would be rude.
 """
 
@@ -70,7 +70,7 @@ pytestmark = pytest.mark.live_network
 # the catalog, which had declared four all along.
 _KEYED = {"core": "core_api_key", "govinfo": "govinfo_api_key",
           "nasa_ads": "nasa_ads_api_key", "springer": "springer_api_key"}
-_STRICT_AUTHOR = {"dblp", "eric", "oapen"}
+_STRICT_AUTHOR = {"dblp", "eric"}
 
 # The person each source is asked about, and why.
 #
@@ -105,11 +105,6 @@ _ASK_ABOUT: dict[str, str] = {
     # with a reason rather than asserting on somebody else's licensing.
     "ndl_search": "夏目漱石",
     "nist_rmm": "Smith",
-    # A surname, and the reason is a finding: OAPEN stores "Suber, Peter"
-    # and its exact-phrase author query does not match "Peter Suber". So
-    # resmon's OAPEN author query only matches that source's own name
-    # ordering — an open item, not something this test papers over.
-    "oapen": "Suber",
     "openaire": "Ludo Waltman",
     "openalex": "Jennifer Doudna",
     "openlibrary": "Ursula Le Guin",
@@ -251,11 +246,11 @@ def test_a_real_source_answers_a_real_author_query(
     except Exception as exc:
         outcome = search_outcome().snapshot()
         # Recorded before the exception continues on its way, and before any
-        # assertion below, for the same reason `test_oapen_live_search` records
-        # it: the provider-outage quarantine (live_quarantine.json) can only
-        # match its signature against an outcome that reached the report, and a
-        # case that records none can be quarantined but never excused. Exactly
-        # one property per case — the quarantine fails closed on two.
+        # assertion below, because the provider-outage quarantine
+        # (live_quarantine.json) can only match its signature against an
+        # outcome that reached the report, and a case that records none can be
+        # quarantined but never excused. Exactly one property per case — the
+        # quarantine fails closed on two.
         record_property("source_outcome", source_outcome_property(slug, outcome))
         if keyless:
             source_response_ledger.finish(
@@ -386,7 +381,7 @@ def test_at_least_most_sources_answered(
 ):
     """A systematic break goes red; one endpoint having a bad day does not.
 
-    Most cases skip after recording a silent source; DBLP, ERIC, and OAPEN fail
+    Most cases skip after recording a silent source; DBLP and ERIC fail
     directly because this stage makes them strict response gates. This guard
     consumes the same calls' current-session evidence so broader breakage cannot
     hide behind individual skips, without making a duplicate provider sweep.
