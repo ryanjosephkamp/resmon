@@ -5630,6 +5630,134 @@ def get_scheduler_jobs():
     return scheduler.get_active_jobs()
 
 
+def _job_store_next_fire_times(conn: sqlite3.Connection) -> dict[str, Optional[float]]:
+    """``routine id -> next_run_time`` from the job store inside this database.
+
+    Read with plain SQL rather than through a ``SQLAlchemyJobStore``, because
+    starting a job store creates its table, and this is a read. The table is
+    absent from a database no scheduler has ever run over -- which is every
+    packaged corpus whose backend has only ever been the app's own -- and that
+    is an answer, not an error: no jobs.
+    """
+    present = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'apscheduler_jobs'"
+    ).fetchone()
+    if present is None:
+        return {}
+    return {
+        str(row[0]): row[1]
+        for row in conn.execute("SELECT id, next_run_time FROM apscheduler_jobs")
+    }
+
+
+def _who_fires_without_a_scheduler_here(installed: bool) -> tuple[str, Optional[str]]:
+    """``(state, service version)`` for a backend that holds no scheduler.
+
+    The evidence is the daemon-status probe's, taken through the same function
+    so the Advanced tab and the Routines page cannot disagree about one lock
+    file. The version compared is the one Electron's attach rule compares --
+    the live service's own, falling back to its lock's -- because "this app
+    does not use that service" is only true if it is the same rule.
+    """
+    status, found = _probe_daemon()
+    if found == "answered":
+        version = status.get("version") or status.get("lock_version")
+        if status.get("is_self"):
+            return "scheduler_off", version
+        if version != APP_VERSION:
+            return "service_other_version", version
+        return "service_elsewhere", version
+    if found in ("no_lock", "nothing_listening"):
+        return ("service_stopped" if installed else "no_service"), None
+    return "service_unreachable", None
+
+
+@app.get("/api/scheduler/status", response_model=response_models.SchedulerStatus,
+         response_model_exclude_unset=True)
+def scheduler_status():
+    """Whether this database's active routines will fire, and what decides it.
+
+    The Routines page showed **Active** for a routine nothing would ever fire,
+    and it looked exactly like one that would. The packaged app starts its own
+    backend with ``RESMON_DISABLE_SCHEDULER=1`` (Update 4 / Fix D) and attaches
+    to the background service only when that service is live, has a token file
+    and runs the same version. When it does not attach, nothing fires -- and
+    ``_record_missed_fires`` never runs, because it runs only where a scheduler
+    starts, so the missed-fire count stays empty however many fires were
+    missed. A routine that does not run and a routine that runs and finds
+    nothing must not look the same; this is what lets the page tell them apart.
+
+    **What decides a routine's verdict.** Every released resmon keeps
+    APScheduler's job store inside the corpus file itself
+    (``scheduler._DEFAULT_DB_URL`` is built from the same ``DEFAULT_DB_PATH``
+    the corpus opens), and a scheduler fires only what is in its store. So a
+    routine with no job in *this* database's store will not fire, whichever
+    process runs and whichever database it serves -- and activating a routine
+    in a backend with no scheduler writes no job, because the CRUD sync helpers
+    return early when ``scheduler is None``. That is the case measured on the
+    owner's corpus, and it is answered with certainty.
+
+    A routine that does have a job here fires only if some live scheduler
+    serves this file. This backend's own scheduler is known. Another process's
+    is not: ``/api/health`` reports ``identity.corpus_id``, and it is ``null``
+    on every version so far, so no running service can be shown to serve this
+    database. Where one is running, or may be, the verdict is ``None`` --
+    unconfirmed -- rather than a guess either way. Where no service answers and
+    none is listening, nothing is running a schedule at all, and the verdict is
+    ``False``.
+
+    The states, for a backend with no scheduler of its own, come from the
+    daemon-status probe: ``no_service`` / ``service_stopped`` (nothing
+    answers; unit file absent / present), ``service_other_version`` (a service
+    answered as a version this app does not attach to),
+    ``service_elsewhere`` (one of this version answered, and it is another
+    process), ``service_unreachable`` (the lock names a service that did not
+    answer cleanly), and ``scheduler_off`` (the lock names this very process,
+    started with its scheduler turned off). Nothing here starts, stops or
+    changes a schedule.
+    """
+    sched = scheduler
+    conn = _get_db()
+    try:
+        active = [r for r in get_routines(conn) if r.get("is_active")]
+        store = {} if sched is not None else _job_store_next_fire_times(conn)
+    finally:
+        _close_db(conn)
+    installed = _service_manager.is_installed()
+
+    if sched is not None:
+        state, service_version = "fires_here", None
+        held = {
+            str(job["id"]) for job in sched.get_active_jobs()
+            if job.get("next_run_time") is not None
+        }
+    else:
+        state, service_version = _who_fires_without_a_scheduler_here(installed)
+        held = set()
+
+    routines = []
+    for r in active:
+        rid = str(r["id"])
+        if sched is not None:
+            verdict = (True, "scheduled") if rid in held else (False, "not_scheduled")
+        elif store.get(rid) is None:
+            # No row, or a row with no next fire -- APScheduler's paused job.
+            verdict = (False, "not_scheduled")
+        elif state in ("no_service", "service_stopped", "scheduler_off"):
+            verdict = (False, "no_scheduler_running")
+        else:
+            verdict = (None, "unconfirmed")
+        routines.append({"id": int(r["id"]), "will_fire": verdict[0], "reason": verdict[1]})
+
+    return {
+        "state": state,
+        "app_version": APP_VERSION,
+        "service_installed": installed,
+        "service_version": service_version,
+        "routines": routines,
+    }
+
+
 @app.get("/api/settings/execution", response_model=response_models.ExecutionSettings,
          response_model_exclude_unset=True)
 def get_execution_settings():
@@ -5844,6 +5972,108 @@ def service_status():
     }
 
 
+def _probe_daemon() -> tuple[dict, str]:
+    """Read ``daemon.lock`` and probe the service it names, once.
+
+    Returns the body ``/api/service/daemon-status`` answers with, unchanged,
+    and a word for what the probe found. The word exists because
+    ``/api/scheduler/status`` has to tell apart two failures this body reports
+    with the same ``running: false``: a port **nothing listens on** -- the
+    service is not running, and a stale lock is what a dead service leaves
+    behind -- and a port where something is listening but did not answer
+    health with a 200, which says nothing about whether the service runs. The
+    distinction is drawn from the exception's type rather than by reading the
+    ``error`` string, so rewording the diagnostic cannot move a service from
+    one state to the other. It is not added to the body: the Advanced tab's
+    shape is not this route's to change.
+
+    ``found`` is one of:
+
+    * ``no_lock`` -- no readable lock file.
+    * ``no_port`` -- a lock that names no port, so there is nothing to probe.
+    * ``nothing_listening`` -- the connection was refused.
+    * ``no_answer`` -- a timeout, a non-200 (a 401 from a service whose token
+      file this process cannot read is the realistic one), or any other
+      failure after a connection was possible.
+    * ``answered`` -- health answered 200; ``running`` is true.
+    """
+    from implementation_scripts import daemon as _daemon
+
+    payload = _daemon.read_lock()
+    if not payload:
+        return {
+            "lock_present": False,
+            "running": False,
+            "pid": None,
+            "port": None,
+            "version": None,
+            "started_at": None,
+            "lock_pid": None,
+            "lock_port": None,
+            "lock_version": None,
+            "error": None,
+        }, "no_lock"
+
+    lock_pid = payload.get("pid") if isinstance(payload.get("pid"), int) else None
+    lock_port = payload.get("port") if isinstance(payload.get("port"), int) else None
+    lock_version = payload.get("version") if isinstance(payload.get("version"), str) else None
+
+    base = {
+        "lock_present": True,
+        "running": False,
+        "pid": None,
+        "port": None,
+        "version": None,
+        "started_at": None,
+        "lock_pid": lock_pid,
+        "lock_port": lock_port,
+        "lock_version": lock_version,
+        "error": None,
+    }
+
+    if lock_port is None:
+        base["error"] = "lock file missing port"
+        return base, "no_port"
+
+    # Probe the daemon's actual port. Short timeout — this endpoint is
+    # polled from the Advanced tab on a 5 s cadence.
+    # The daemon is a separate backend with its own token, published in its
+    # token file. A daemon from before the lock-down has no file and no guard,
+    # so it is probed bare, as it always was; a current daemon without a
+    # readable file answers 401 and is reported as such.
+    daemon_token = api_auth.read_token_file(lock_port, _daemon.lock_path().parent)
+    try:
+        with httpx.Client(timeout=1.5) as client:
+            resp = client.get(f"http://127.0.0.1:{lock_port}/api/health",
+                              headers=api_auth.bearer(daemon_token) if daemon_token else None)
+        if resp.status_code != 200:
+            base["error"] = f"health probe HTTP {resp.status_code}"
+            return base, "no_answer"
+        data = resp.json()
+    except httpx.ConnectError as exc:
+        base["error"] = f"health probe failed: {exc.__class__.__name__}"
+        return base, "nothing_listening"
+    except Exception as exc:
+        base["error"] = f"health probe failed: {exc.__class__.__name__}"
+        return base, "no_answer"
+
+    # If the probe came back from *this* process, the lock points at the
+    # current backend rather than a separate daemon — flag it so the UI
+    # can render the distinction honestly.
+    probed_pid = data.get("pid") if isinstance(data.get("pid"), int) else None
+    base.update(
+        {
+            "running": True,
+            "pid": probed_pid,
+            "port": lock_port,
+            "version": data.get("version") if isinstance(data.get("version"), str) else None,
+            "started_at": data.get("started_at") if isinstance(data.get("started_at"), str) else None,
+            "is_self": probed_pid == os.getpid(),
+        }
+    )
+    return base, "answered"
+
+
 @app.get("/api/service/daemon-status")
 def service_daemon_status():
     """Return ground-truth daemon status read from ``daemon.lock``.
@@ -5868,78 +6098,7 @@ def service_daemon_status():
           "error": str | None,            # populated when lock_present but probe failed
         }
     """
-    from implementation_scripts import daemon as _daemon
-
-    payload = _daemon.read_lock()
-    if not payload:
-        return {
-            "lock_present": False,
-            "running": False,
-            "pid": None,
-            "port": None,
-            "version": None,
-            "started_at": None,
-            "lock_pid": None,
-            "lock_port": None,
-            "lock_version": None,
-            "error": None,
-        }
-
-    lock_pid = payload.get("pid") if isinstance(payload.get("pid"), int) else None
-    lock_port = payload.get("port") if isinstance(payload.get("port"), int) else None
-    lock_version = payload.get("version") if isinstance(payload.get("version"), str) else None
-
-    base = {
-        "lock_present": True,
-        "running": False,
-        "pid": None,
-        "port": None,
-        "version": None,
-        "started_at": None,
-        "lock_pid": lock_pid,
-        "lock_port": lock_port,
-        "lock_version": lock_version,
-        "error": None,
-    }
-
-    if lock_port is None:
-        base["error"] = "lock file missing port"
-        return base
-
-    # Probe the daemon's actual port. Short timeout — this endpoint is
-    # polled from the Advanced tab on a 5 s cadence.
-    # The daemon is a separate backend with its own token, published in its
-    # token file. A daemon from before the lock-down has no file and no guard,
-    # so it is probed bare, as it always was; a current daemon without a
-    # readable file answers 401 and is reported as such.
-    daemon_token = api_auth.read_token_file(lock_port, _daemon.lock_path().parent)
-    try:
-        with httpx.Client(timeout=1.5) as client:
-            resp = client.get(f"http://127.0.0.1:{lock_port}/api/health",
-                              headers=api_auth.bearer(daemon_token) if daemon_token else None)
-        if resp.status_code != 200:
-            base["error"] = f"health probe HTTP {resp.status_code}"
-            return base
-        data = resp.json()
-    except Exception as exc:
-        base["error"] = f"health probe failed: {exc.__class__.__name__}"
-        return base
-
-    # If the probe came back from *this* process, the lock points at the
-    # current backend rather than a separate daemon — flag it so the UI
-    # can render the distinction honestly.
-    probed_pid = data.get("pid") if isinstance(data.get("pid"), int) else None
-    base.update(
-        {
-            "running": True,
-            "pid": probed_pid,
-            "port": lock_port,
-            "version": data.get("version") if isinstance(data.get("version"), str) else None,
-            "started_at": data.get("started_at") if isinstance(data.get("started_at"), str) else None,
-            "is_self": probed_pid == os.getpid(),
-        }
-    )
-    return base
+    return _probe_daemon()[0]
 
 
 @app.post("/api/service/install")

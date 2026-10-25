@@ -31,6 +31,51 @@ const CATALOG_ROUTES = {
 };
 
 describe('RoutinesPage', () => {
+  test('an Active routine nothing will fire says so, above the table and on its row', async () => {
+    mockRoutedFetch({
+      ...CATALOG_ROUTES,
+      '/api/routines': ROUTINES,
+      '/api/scheduler/status': {
+        state: 'service_other_version', app_version: '2.3.0', service_installed: true,
+        service_version: '1.2.1',
+        routines: [{ id: 1, will_fire: false, reason: 'not_scheduled' }],
+      },
+    });
+    await renderWithProviders(<RoutinesPage />);
+
+    const notice = await screen.findByTestId('scheduler-notice');
+    expect(notice).toHaveTextContent('Nothing will run this routine.');
+    expect(notice).toHaveTextContent('resmon 1.2.1');
+    expect(screen.getByRole('button', { name: 'Open Settings → Advanced' })).toBeInTheDocument();
+    expect(screen.getByTestId('firing-note-1')).toHaveTextContent('Will not run');
+    // The inactive routine is not expected to fire and gets no verdict.
+    expect(screen.queryByTestId('firing-note-2')).not.toBeInTheDocument();
+  });
+
+  test('routines that will fire get no notice', async () => {
+    mockRoutedFetch({
+      ...CATALOG_ROUTES,
+      '/api/routines': ROUTINES,
+      '/api/scheduler/status': {
+        state: 'fires_here', app_version: '2.3.0', service_installed: true,
+        service_version: null, routines: [{ id: 1, will_fire: true, reason: 'scheduled' }],
+      },
+    });
+    await renderWithProviders(<RoutinesPage />);
+    await screen.findByText('Morning arXiv sweep');
+    expect(screen.queryByTestId('scheduler-notice')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('firing-note-1')).not.toBeInTheDocument();
+  });
+
+  test('a backend that cannot answer the question gets no guess', async () => {
+    // No /api/scheduler/status route: the fetch fails, as on a backend older
+    // than the route.
+    mockRoutedFetch({ ...CATALOG_ROUTES, '/api/routines': ROUTINES });
+    await renderWithProviders(<RoutinesPage />);
+    await screen.findByText('Morning arXiv sweep');
+    expect(screen.queryByTestId('scheduler-notice')).not.toBeInTheDocument();
+  });
+
   test('renders one row per routine with schedule and status', async () => {
     mockRoutedFetch({ ...CATALOG_ROUTES, '/api/routines': ROUTINES });
     await renderWithProviders(<RoutinesPage />);

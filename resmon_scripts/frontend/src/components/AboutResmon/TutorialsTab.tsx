@@ -211,7 +211,8 @@ export const sections: TutorialSection[] = [
     tips: [
       'Write an intent for each routine — the optional box in the editor, one sentence describing what you actually want. It costs nothing and turns the coverage audit from a rough guide into a real check.',
       'The off-target cutoff comes from the routine\u2019s own spread of distances, not a fixed number, and below a dozen embedded results resmon declines to draw one at all.',
-      'Routines fire via APScheduler in the local daemon.',
+      'Routines fire via APScheduler in the background service, which `Run resmon in the background` in Settings → Advanced installs. The app window does not fire them itself, and it uses only a service of its own version.',
+      'When nothing will run an active routine, the page says so above the table and under that routine\u2019s status \u2014 `Will not run`, or `Not confirmed to run` where a service is running that resmon cannot see into \u2014 with the reason and the setting that changes it.',
       'A folder destination is the cheapest way to get reports onto another device: point it at a folder your cloud drive already syncs and resmon writes the bundle there, with nothing of ours on the wire.',
       'What resmon can say about a delivery is that it handed the report to your mail server or wrote it into the folder. Whether it reached an inbox, or finished syncing, it cannot see.',
       'Deleting a routine preserves its historical execution rows on Results & Logs.',

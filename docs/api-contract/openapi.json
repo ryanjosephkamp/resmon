@@ -2851,6 +2851,44 @@
         "title": "RoutineCreate",
         "type": "object"
       },
+      "RoutineFiring": {
+        "additionalProperties": true,
+        "description": "One active routine, and whether anything will fire it.\n\n``will_fire`` is three-valued on purpose. ``True`` only where this\nbackend's own scheduler holds the job; ``False`` where nothing can fire it\nas things stand; ``None`` where the answer depends on which database a\nrunning service serves, which no resmon so far reports. A two-valued field\nwould have had to guess the third case one way or the other.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "reason": {
+            "enum": [
+              "scheduled",
+              "not_scheduled",
+              "no_scheduler_running",
+              "unconfirmed"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "will_fire": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Will Fire"
+          }
+        },
+        "required": [
+          "id",
+          "will_fire",
+          "reason"
+        ],
+        "title": "RoutineFiring",
+        "type": "object"
+      },
       "RoutineUpdate": {
         "properties": {
           "ai_enabled": {
@@ -3104,6 +3142,60 @@
           "updated_at"
         ],
         "title": "SavedConfiguration",
+        "type": "object"
+      },
+      "SchedulerStatus": {
+        "additionalProperties": true,
+        "description": "``GET /api/scheduler/status``.\n\n``service_version`` is the version the running background service reported\n(or its lock recorded, where it reported none), and ``None`` where no\nservice answered. ``routines`` lists the **active** routines only: an\ninactive routine is not expected to fire, and a verdict on it would invite a\nsentence about nothing.",
+        "properties": {
+          "app_version": {
+            "title": "App Version",
+            "type": "string"
+          },
+          "routines": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineFiring"
+            },
+            "title": "Routines",
+            "type": "array"
+          },
+          "service_installed": {
+            "title": "Service Installed",
+            "type": "boolean"
+          },
+          "service_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Version"
+          },
+          "state": {
+            "enum": [
+              "fires_here",
+              "no_service",
+              "service_stopped",
+              "service_other_version",
+              "service_elsewhere",
+              "service_unreachable",
+              "scheduler_off"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "app_version",
+          "service_installed",
+          "service_version",
+          "routines"
+        ],
+        "title": "SchedulerStatus",
         "type": "object"
       },
       "ServiceInstallBody": {
@@ -10284,6 +10376,25 @@
           }
         },
         "summary": "Get Scheduler Jobs"
+      }
+    },
+    "/api/scheduler/status": {
+      "get": {
+        "description": "Whether this database's active routines will fire, and what decides it.\n\nThe Routines page showed **Active** for a routine nothing would ever fire,\nand it looked exactly like one that would. The packaged app starts its own\nbackend with ``RESMON_DISABLE_SCHEDULER=1`` (Update 4 / Fix D) and attaches\nto the background service only when that service is live, has a token file\nand runs the same version. When it does not attach, nothing fires -- and\n``_record_missed_fires`` never runs, because it runs only where a scheduler\nstarts, so the missed-fire count stays empty however many fires were\nmissed. A routine that does not run and a routine that runs and finds\nnothing must not look the same; this is what lets the page tell them apart.\n\n**What decides a routine's verdict.** Every released resmon keeps\nAPScheduler's job store inside the corpus file itself\n(``scheduler._DEFAULT_DB_URL`` is built from the same ``DEFAULT_DB_PATH``\nthe corpus opens), and a scheduler fires only what is in its store. So a\nroutine with no job in *this* database's store will not fire, whichever\nprocess runs and whichever database it serves -- and activating a routine\nin a backend with no scheduler writes no job, because the CRUD sync helpers\nreturn early when ``scheduler is None``. That is the case measured on the\nowner's corpus, and it is answered with certainty.\n\nA routine that does have a job here fires only if some live scheduler\nserves this file. This backend's own scheduler is known. Another process's\nis not: ``/api/health`` reports ``identity.corpus_id``, and it is ``null``\non every version so far, so no running service can be shown to serve this\ndatabase. Where one is running, or may be, the verdict is ``None`` --\nunconfirmed -- rather than a guess either way. Where no service answers and\nnone is listening, nothing is running a schedule at all, and the verdict is\n``False``.\n\nThe states, for a backend with no scheduler of its own, come from the\ndaemon-status probe: ``no_service`` / ``service_stopped`` (nothing\nanswers; unit file absent / present), ``service_other_version`` (a service\nanswered as a version this app does not attach to),\n``service_elsewhere`` (one of this version answered, and it is another\nprocess), ``service_unreachable`` (the lock names a service that did not\nanswer cleanly), and ``scheduler_off`` (the lock names this very process,\nstarted with its scheduler turned off). Nothing here starts, stops or\nchanges a schedule.",
+        "operationId": "scheduler_status_api_scheduler_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchedulerStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Scheduler Status"
       }
     },
     "/api/search/dive": {

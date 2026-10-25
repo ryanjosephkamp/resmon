@@ -101,7 +101,7 @@ declared optional so the schema says so.
 Scope today
 -----------
 
-Six slices. The first shipped the mechanism; the other five are the rollout,
+Seven slices. The first shipped the mechanism; the other six are the rollout,
 and the authoritative list of which routes are modeled is
 ``verification_scripts/test_response_models.py``'s ``THE_MODELED_SURFACE`` —
 declared there rather than here, because the thing worth guarding is that the
@@ -125,6 +125,11 @@ say.
 * **Saved configurations**, six routes — including the body that is assembled
   from whichever fields the caller sent, which is what
   ``response_model_exclude_unset=True`` exists for.
+* **The scheduler**, one route: whether this database's active routines will
+  fire. It was born with its model rather than given one later, and its two
+  closed vocabularies are ``Literal`` types, so a state the handler invents is
+  a 500 in the equality sweep rather than a word the renderer has no sentence
+  for.
 
 Why some fields here are declared ``dict`` and not a model
 ----------------------------------------------------------
@@ -175,7 +180,7 @@ these two reasons applies.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -220,9 +225,13 @@ __all__ = [
     "RendererHeartbeat",
     "RepositoryCatalogEntry",
     "RepositoryEntitySearch",
+    "RoutineFiring",
+    "RoutineFiringReason",
     "RoutineWatchingProfile",
     "RuntimeIdentity",
     "SavedConfiguration",
+    "SchedulerState",
+    "SchedulerStatus",
     "SettingsSaved",
     "StarterWatchProfile",
     "StarterWatchProfileList",
@@ -1358,3 +1367,63 @@ class ConfigurationImportResult(LosslessModel):
     imported: int
     routines_created: int
     errors: list[str]
+
+
+# ===========================================================================
+# Whether routines will fire
+# ===========================================================================
+
+#: Who, if anyone, fires this database's routines, as far as this backend can
+#: establish. ``fires_here`` is the only state in which this backend vouches
+#: for a schedule; every other state names why it cannot, and the six differ in
+#: the reason a user is given and nothing else. ``resmon.scheduler_status``
+#: holds the rule that picks one.
+SchedulerState = Literal[
+    "fires_here",
+    "no_service",
+    "service_stopped",
+    "service_other_version",
+    "service_elsewhere",
+    "service_unreachable",
+    "scheduler_off",
+]
+
+#: Why one active routine will, will not, or may fire.
+RoutineFiringReason = Literal[
+    "scheduled",
+    "not_scheduled",
+    "no_scheduler_running",
+    "unconfirmed",
+]
+
+
+class RoutineFiring(LosslessModel):
+    """One active routine, and whether anything will fire it.
+
+    ``will_fire`` is three-valued on purpose. ``True`` only where this
+    backend's own scheduler holds the job; ``False`` where nothing can fire it
+    as things stand; ``None`` where the answer depends on which database a
+    running service serves, which no resmon so far reports. A two-valued field
+    would have had to guess the third case one way or the other.
+    """
+
+    id: int
+    will_fire: Optional[bool]
+    reason: RoutineFiringReason
+
+
+class SchedulerStatus(LosslessModel):
+    """``GET /api/scheduler/status``.
+
+    ``service_version`` is the version the running background service reported
+    (or its lock recorded, where it reported none), and ``None`` where no
+    service answered. ``routines`` lists the **active** routines only: an
+    inactive routine is not expected to fire, and a verdict on it would invite a
+    sentence about nothing.
+    """
+
+    state: SchedulerState
+    app_version: str
+    service_installed: bool
+    service_version: Optional[str]
+    routines: list[RoutineFiring]

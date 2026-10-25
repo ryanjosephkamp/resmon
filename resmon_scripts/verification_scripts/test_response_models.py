@@ -154,6 +154,9 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/configurations/export"),
         ("POST", "/api/configurations/import"),
     ),
+    "the scheduler": (
+        ("GET", "/api/scheduler/status"),
+    ),
 }
 
 #: Routes whose body is a list of **strings**, so there is no object anywhere
@@ -441,6 +444,7 @@ def driven() -> Drive:
         _drive_reading_queue(drive, doc_ids[0])
         _drive_watchdog_and_first_run(drive)
         _drive_configurations(drive)
+        _drive_scheduler(drive)
 
         yield drive
 
@@ -664,6 +668,26 @@ def _drive_watchdog_and_first_run(drive: Drive) -> None:
         f"this read left {undecided}")
 
     drive("POST", "/api/onboarding/dismiss")
+
+
+def _drive_scheduler(drive: Drive) -> None:
+    """Whether routines will fire, asked with one active routine to answer for.
+
+    This module's backend starts no scheduler, so the routine's verdict is a
+    ``False`` with a reason rather than an empty list: the model is compared
+    against a body that carries every field. The routine is made with a bare
+    request because ``POST /api/routines`` declares no model and ``drive``
+    records only routes that do.
+    """
+    made = drive.client.post("/api/routines", json={
+        "name": "Fires or not",
+        "schedule_cron": "0 8 * * *",
+        "parameters": {"query": "x", "repositories": ["arxiv"]},
+        "is_active": True,
+    })
+    assert made.status_code == 201, made.text
+    status = drive("GET", "/api/scheduler/status")
+    assert status["routines"], "the verdict list needs a routine to be evidence"
 
 
 def _drive_configurations(drive: Drive) -> None:
