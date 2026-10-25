@@ -6,10 +6,13 @@
  * ran the classic driver against a 3.0 build would report green for the wrong
  * reason.
  */
+import * as fs from 'fs';
+import * as path from 'path';
 import type { TestInfo } from '@playwright/test';
 import type { JourneyDriver } from '../driver';
 import type { SourceReply } from '../fixtures/source-endpoint';
-import { startSession } from './session';
+import { startSession, targetAppRoot } from './session';
+import { THIS_CHECKOUT } from '../../e2e/fixtures/resmon-app';
 import { createClassicDriver } from './classic';
 import { createCandidateDriver } from './candidate';
 
@@ -26,6 +29,27 @@ export function driverName(): DriverName {
     );
   }
   return configured;
+}
+
+/**
+ * The build this run launches, and whether it is the checkout this suite lives in.
+ *
+ * Both CI legs run this directory's specs, and only one of them runs them
+ * against this directory's own app: the candidate leg builds this checkout, and
+ * the classic leg points `RESMON_JOURNEY_APP` at the frozen `classic` branch. A
+ * spec needs to tell the two apart only where the frozen build is *known* to
+ * fail a journey this checkout has since fixed, and then only to report that
+ * build's failure by name rather than to excuse this one — see J21.
+ *
+ * Compared by resolved path, because the two roots are spelled by different
+ * code: one from this file's own location, one from the environment.
+ */
+export function buildUnderTest(): { frontend: string; thisCheckout: boolean } {
+  const root = targetAppRoot();
+  const real = (dir: string): string => {
+    try { return fs.realpathSync(dir); } catch { return path.resolve(dir); }
+  };
+  return { frontend: root.frontend, thisCheckout: real(root.frontend) === real(THIS_CHECKOUT.frontend) };
 }
 
 export async function createDriver(options: {

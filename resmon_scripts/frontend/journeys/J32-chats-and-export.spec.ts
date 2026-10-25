@@ -50,11 +50,11 @@ journey.describe('J32 Chats and export', () => {
       .toContain('Historical completion unknown.');
 
     // Out as a file, twice, in both formats the page offers.
-    const markdown = await resmon.exportTheOpenChat('markdown');
+    const { text: markdown } = await resmon.exportTheOpenChat('markdown');
     console.log(`[J32] the Markdown export is ${markdown.length} bytes`);
     expect(markdown, 'the exported Markdown does not carry what was said').toContain(SAID);
 
-    const json = await resmon.exportTheOpenChat('json');
+    const { text: json } = await resmon.exportTheOpenChat('json');
     console.log(`[J32] the JSON export is ${json.length} bytes`);
     const parsed = JSON.parse(json) as { messages?: unknown[] };
     expect(

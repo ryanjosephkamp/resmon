@@ -74,7 +74,7 @@ journey.describe('J28 Reading queue', () => {
     // because the register's walk names it; the count is the assertion, so a
     // serializer that emitted both papers would fail even though both are in
     // the corpus.
-    const ris = await resmon.exportReadingQueue([first], 'ris');
+    const { text: ris } = await resmon.exportReadingQueue([first], 'ris');
     expect(ris.match(/^TY {2}- /gm) ?? [], 'the RIS export is not one record').toHaveLength(1);
     expect(ris, 'the RIS export does not name the paper that is still in the queue')
       .toContain(first.title);

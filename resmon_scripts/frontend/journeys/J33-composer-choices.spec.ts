@@ -142,7 +142,7 @@ journey.describe('J33 Composer choices', () => {
         .not.toContain(LATER_DEFAULT_MODEL);
     }
 
-    const exported = await resmon.exportTheOpenChat('json');
+    const { text: exported } = await resmon.exportTheOpenChat('json');
     expect(exported, 'the export does not carry the model the conversation was pinned to')
       .toContain(CHOSEN_MODEL);
     const asJson = JSON.parse(exported) as {
