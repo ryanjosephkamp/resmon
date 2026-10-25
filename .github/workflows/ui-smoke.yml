@@ -23,8 +23,7 @@ name: UI smoke
 #           than deferring it to a local run.
 #
 # The packaged-app spec skips on both, because building an installer downloads
-# a Python runtime and takes minutes; it is exercised locally and its result is
-# recorded in docs/ui-verification-feasibility.md.
+# a Python runtime and takes minutes; it is exercised locally.
 
 on:
   push:
@@ -144,12 +143,17 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the screenshots
-        if: always()
+        # On failure only, and kept three days. Uploading on every run kept
+        # about 26 MB per push for 90 days, which is where this repository's
+        # artifact storage went. A green run's summary above says what it
+        # checked; the screenshots matter when something broke.
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: ui-smoke-screenshots
           path: resmon_scripts/frontend/e2e/screenshots/
           if-no-files-found: warn
+          retention-days: 3
 
       - name: Upload the failure context
         if: failure()
@@ -158,6 +162,7 @@ jobs:
           name: ui-smoke-failures
           path: resmon_scripts/frontend/e2e/test-results/
           if-no-files-found: ignore
+          retention-days: 3
 
   window:
     name: Window behaviour (Electron on macOS)
@@ -243,12 +248,17 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the screenshots
-        if: always()
+        # On failure only, and kept three days. Uploading on every run kept
+        # about 26 MB per push for 90 days, which is where this repository's
+        # artifact storage went. A green run's summary above says what it
+        # checked; the screenshots matter when something broke.
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: ui-window-screenshots
           path: resmon_scripts/frontend/e2e/screenshots/
           if-no-files-found: warn
+          retention-days: 3
 
       - name: Upload the failure context
         if: failure()
@@ -257,3 +267,4 @@ jobs:
           name: ui-window-failures
           path: resmon_scripts/frontend/e2e/test-results/
           if-no-files-found: ignore
+          retention-days: 3
