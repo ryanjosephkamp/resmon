@@ -14,7 +14,7 @@
  *     `verification_scripts/test_api_contract.py`, which regenerates both and
  *     fails on any difference. A build that deleted them would turn a Python
  *     test red for a reason nobody would look for in a site build.
- *   - `docs/adding-a-source.md`, `docs/release-verification.md`,
+ *   - `docs/adding-a-source.md`, `docs/source-landscape.md`,
  *     `docs/local-api-security.md` and the rest are linked by repository path
  *     from `AGENTS.md` and from the source tree.
  *   - `docs/_posts/` holds the 27 posts. `AGENTS.md` lists that path as one

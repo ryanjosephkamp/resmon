@@ -6,7 +6,7 @@ Two things live here, and knowing which is which is the whole of this file.
 path, so they stay where they are:
 
 - `*.md` — the reference documents: `source-landscape.md`, `backup.md`,
-  `local-api-security.md`, `release-verification.md`, `adding-a-source.md` and the rest.
+  `local-api-security.md`, `adding-a-source.md` and the rest.
 - `_posts/*.md` — the 27 release-update posts, named `YYYY-MM-DD-<slug>.md`.
 - `api-contract/*.md` and `api-contract/openapi.json` — **generated and guarded.**
   `implementation_scripts/api_contract.py` writes `openapi.json` and `http.md` from the running
