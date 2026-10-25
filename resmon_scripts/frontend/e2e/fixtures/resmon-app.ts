@@ -269,6 +269,14 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
     RESMON_REPORTS_DIR: path.join(stateDir, 'reports'),
     RESMON_PORT_FILE: path.join(stateDir, 'resmon.port'),
     RESMON_PYTHON: pythonPath(),
+    // The Keychain is the one piece of state no RESMON_* variable moves: every
+    // resmon on a Mac reads and writes it under the service name "resmon". A
+    // spec that walks the Danger Zone — library.spec.ts presses Reset all
+    // settings — erased the AI keys, repository keys and SMTP password of
+    // whoever ran the suite on their own machine. The null backend reads
+    // nothing and writes nothing. A spec that needs a key to persist sets its
+    // own backend after this, as composer-choices.spec.ts does.
+    PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring',
   };
   if (e2e) {
     env.RESMON_E2E = '1';
