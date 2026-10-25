@@ -359,8 +359,19 @@ if (missingPosts.length) {
  * URLs that are gone on purpose. `assets/main.css` was the `minima` theme's
  * stylesheet; the theme is gone, so the file is too. Nothing outside the old
  * site's own pages ever linked to it, and the app does not fetch it.
+ *
+ * The other four were internal verification records published as reference
+ * documents. They described how releases and spikes were checked, not how to
+ * use resmon, so their sources left `docs/` and the pages left the site. The
+ * app links to none of them.
  */
-const INTENTIONALLY_GONE = new Set([`${BASE_PATH}/assets/main.css`]);
+const INTENTIONALLY_GONE = new Set([
+  `${BASE_PATH}/assets/main.css`,
+  `${BASE_PATH}/release-verification/`,
+  `${BASE_PATH}/sqlite-vec-feasibility/`,
+  `${BASE_PATH}/ui-verification-feasibility/`,
+  `${BASE_PATH}/voice-feasibility/`,
+]);
 
 const unexpected = missing.filter((p) => !INTENTIONALLY_GONE.has(p));
 if (unexpected.length) {

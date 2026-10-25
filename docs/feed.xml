@@ -2637,401 +2637,144 @@ blind.</li>
 </ul>
 <p>Also outstanding: the cloud service’s privacy notice is not tracked in the
 repository, so the test that checks its contents now skips with an explanatory
-message instead of failing.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 5 — Hardening: A Clean Install That Actually Starts, a Suite That Actually Finishes, and CI to Keep It That Way]]></summary></entry><entry><title type="html">resmon Update 4 — May 5, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/05/05/resmon-update-4/" rel="alternate" type="text/html" title="resmon Update 4 — May 5, 2026" /><published>2026-05-05T16:00:00+00:00</published><updated>2026-05-05T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/05/05/resmon-update-4</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/05/05/resmon-update-4/"><![CDATA[<h1 id="update-4--background-routine-reliability-scheduler--jobstore-lifecycle-daemon-attach-race-and-advanced-tab-honesty">Update 4 — Background Routine Reliability: Scheduler / Jobstore Lifecycle, Daemon-Attach Race, and Advanced-Tab Honesty</h1>
-<h2 id="metadata">Metadata</h2>
+message instead of failing.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 5 — Hardening: A Clean Install That Actually Starts, a Suite That Actually Finishes, and CI to Keep It That Way]]></summary></entry><entry><title type="html">resmon Update 4 — May 5, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/05/05/resmon-update-4/" rel="alternate" type="text/html" title="resmon Update 4 — May 5, 2026" /><published>2026-05-05T16:00:00+00:00</published><updated>2026-05-05T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/05/05/resmon-update-4</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/05/05/resmon-update-4/"><![CDATA[<h1 id="update-4--routines-that-run-while-the-window-is-closed-and-a-truthful-status-line">Update 4 — Routines that run while the window is closed, and a truthful status line</h1>
+<p>This release fixes routines that stopped running in the background when the resmon window was
+closed, even though Settings → Advanced said the background service was installed and running.</p>
+<h2 id="fixed">Fixed</h2>
 <ul>
-<li><strong>Update number:</strong> 4</li>
-<li><strong>Update type:</strong> bugfix</li>
-<li><strong>Date:</strong> 2026-05-05</li>
-<li><strong>Author:</strong> Ryan Kamp</li>
-<li><strong>Commit hash:</strong> 9bb710562208ab053536b4bd6f49411b2174a595</li>
-<li><strong>Commit timestamp:</strong> 2026-05-05T15:59:55-04:00</li>
-<li><strong>GitHub push timestamp:</strong> 2026-05-05T20:00:06Z</li>
-<li><strong>App version:</strong> 1.2.0 → 1.2.1</li>
+<li><strong>A deleted routine leaves nothing behind.</strong> Deleting a routine could leave its scheduled job
+in place, and the scheduler kept trying to run a routine that no longer existed. Deleting a
+routine now removes its job, and any leftover jobs are cleaned up when the background service
+starts.</li>
+<li><strong>A slightly late run still happens.</strong> If a routine’s start time had passed by even a second
+— after a restart, for example — the run was skipped. A run that is up to an hour late now
+goes ahead.</li>
+<li><strong>Only one backend schedules routines.</strong> When the app opened while the background service
+was still starting, it could give up waiting and start a second backend of its own, with its
+own scheduler. When the window closed, that backend stopped, and routines were recorded as
+missed. The app now waits longer for the service, and a backend the app starts itself never
+runs routines.</li>
+<li><strong>Settings → Advanced shows the real background service.</strong> The status line used to describe
+whichever backend the window happened to be connected to. It now checks the background
+service directly and shows its process, version, and start time, and says separately which
+backend the window is using, so a mismatch is visible.</li>
 </ul>
-<h2 id="summary">Summary</h2>
-<p>This update is a reliability patch for scheduled Routines firing while the resmon window is closed. It closes three coupled defects: (i) routine ↔ APScheduler-jobstore lifecycle integrity (deleted routines no longer leave ghost <code>apscheduler_jobs</code> rows, daemon startup reconciles any pre-existing ghosts, and routine jobs are registered with a 1-hour <code>misfire_grace_time</code> so a fire whose nominal moment briefly passed still runs); (ii) the dual-backend race in which the Electron main process raced a launchd-bootstrapping daemon and silently spawned a competing backend with its own scheduler against the shared SQLite jobstore (now: <code>pingHealth</code> waits ~3 s with retry/backoff, lock-file presence forces a wait rather than a spawn, and even a legitimate fallback spawn honors <code>RESMON_DISABLE_SCHEDULER=1</code> so the renderer-spawned backend never owns a scheduler); and (iii) Advanced-tab honesty — the “Run resmon in the background” status block now reads <code>daemon.lock</code> and probes the daemon’s actual port through a new <code>GET /api/service/daemon-status</code> route, so the displayed pid / version / <code>last_started</code> reflect the real daemon and any future dual-backend race surfaces immediately rather than being masked. App version bumps <code>1.2.0 → 1.2.1</code>.</p>
-<h2 id="motivation">Motivation</h2>
-<p>All five fixes originated in a diagnostic session after the user observed in Update 3’s tutorial-recording flow that, having used the Settings → Advanced Danger Zone to wipe data and re-enable “Run resmon in the background,” scheduled Routines no longer fired when the app window was closed even though the Advanced tab reported the daemon as Installed and “up.” The full diagnosis lives in <a href="./resmon_update_4_overview.md"><code>resmon_update_4_overview.md</code></a>; the change inventory and batching plan live in <a href="./update_5_5_26_workflow.md"><code>update_5_5_26_workflow.md</code></a>. The five items map back to the workflow doc as Fixes A–E:</p>
+<h2 id="upgrading">Upgrading</h2>
+<p>Restart the background service after upgrading, or it keeps running the old code:</p>
 <ul>
-<li><strong>Fix A — Routine ↔ jobstore lifecycle integrity</strong> (workflow item #1, Batch 1). <code>delete_routine</code> did not remove the matching <code>apscheduler_jobs</code> row; the dispatcher kept trying to fire ghost jobs whose owning routine was gone, and a Danger-Zone wipe could leave ghosts behind that no UI surface could reach. Coupled with Fix B in Batch 1 because both touch <code>scheduler.py</code> / <code>database.py</code> / the FastAPI startup wiring and are exercised by the same scheduler verification suite.</li>
-<li><strong>Fix B — Default <code>misfire_grace_time</code> for routine jobs</strong> (workflow item #2, Batch 1). APScheduler’s default <code>misfire_grace_time</code> of 1 second silently dropped any fire whose nominal moment had passed by even a brief window — exactly the failure mode produced by a daemon restart, a scheduler reattach, or the app’s own scheduler dying without a clean <code>shutdown()</code>.</li>
-<li><strong>Fix C — Robust daemon attach in the Electron main process</strong> (workflow item #3, Batch 2). The 500 ms <code>/api/health</code> timeout returned <code>false</code> during the launchd daemon’s bootstrap window; the renderer then silently spawned its own backend with its own scheduler against the same SQLite jobstore, and once the spawned backend died at app close every queued fire was marked “missed by N hours.”</li>
-<li><strong>Fix D — Renderer-spawn never owns a scheduler</strong> (workflow item #4, Batch 2). Defense in depth for Fix C: even when a renderer-spawned fallback is legitimate (no daemon installed at all), the spawned backend must not start a <code>ResmonScheduler</code> against the shared jobstore. Implemented as a <code>RESMON_DISABLE_SCHEDULER=1</code> env var that <code>main.ts</code> sets on the spawned child and the FastAPI startup hook honors.</li>
-<li><strong>Fix E — Advanced tab daemon-status truthfulness</strong> (workflow item #5, Batch 3). The Advanced tab populated its daemon-status line from <code>GET /api/health</code> against whichever backend the renderer was attached to, so a renderer-spawned fallback masqueraded as the daemon and the dual-backend race was invisible to the user. The fix reads <code>daemon.lock</code> server-side and probes the daemon’s actual port through a new endpoint.</li>
+<li>macOS: <code>launchctl kickstart -k gui/$UID/com.resmon.daemon</code></li>
+<li>Linux: <code>systemctl --user restart resmon-daemon</code></li>
+<li>Windows: remove and re-add the resmon task in Task Scheduler</li>
 </ul>
-<h2 id="changes">Changes</h2>
-<h3 id="batch-1--fixes-a--b-scheduler--jobstore-lifecycle-cluster">Batch 1 — Fixes A + B (scheduler / jobstore lifecycle cluster)</h3>
+<h2 id="version">Version</h2>
+<p>1.2.0 → 1.2.1</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 4 — Routines that run while the window is closed, and a truthful status line]]></summary></entry><entry><title type="html">resmon Update 3 — April 27, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/27/resmon-update-3/" rel="alternate" type="text/html" title="resmon Update 3 — April 27, 2026" /><published>2026-04-27T16:00:00+00:00</published><updated>2026-04-27T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/27/resmon-update-3</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/27/resmon-update-3/"><![CDATA[<h1 id="update-3--calendar-fixes-and-a-new-about-resmon-page">Update 3 — Calendar fixes, and a new About resmon page</h1>
+<h2 id="fixed">Fixed</h2>
 <ul>
-<li><code>resmon_scripts/implementation_scripts/scheduler.py</code> — <code>add_routine</code> registers each routine job with <code>misfire_grace_time=3600</code>; new <code>reconcile_jobstore_with_routines</code> method drops every <code>apscheduler_jobs</code> row whose id has no matching <code>routines.id</code> with <code>is_active=1</code>; called once from the FastAPI startup hook before active routines are re-registered. (Fix B + Fix A reconciliation.)</li>
-<li><code>resmon_scripts/implementation_scripts/database.py</code> — <code>delete_routine</code> removes the matching <code>apscheduler_jobs</code> row in the same transaction as the <code>routines</code> delete (idempotent against APScheduler-side removals; deletion-time job removal is tolerant of an already-gone row). (Fix A cascade.)</li>
-<li><code>resmon_scripts/resmon.py</code> — startup hook calls <code>scheduler.reconcile_jobstore_with_routines()</code> before re-registering active routines so any pre-existing ghosts are dropped on first boot of the patched daemon. (Fix A startup wiring.)</li>
-<li><code>resmon_scripts/verification_scripts/test_scheduler_reconciliation.py</code> <em>(new)</em> — regression: seeds an orphan <code>apscheduler_jobs</code> row, runs reconciliation, asserts removal; seeds a job whose owning routine is <code>is_active=0</code>, asserts removal; seeds a job whose owning routine is active, asserts retention.</li>
-<li><code>resmon_scripts/verification_scripts/test_routine_scheduler_sync.py</code> <em>(new)</em> — regression: inserts a routine, registers its job, calls <code>delete_routine</code>, asserts no orphan <code>apscheduler_jobs</code> row remains.</li>
-<li><code>resmon_scripts/verification_scripts/test_scheduler_lifecycle.py</code> <em>(new)</em> — regression: asserts new routine jobs are added with <code>misfire_grace_time=3600</code>.</li>
-<li><code>resmon_scripts/verification_scripts/test_scheduler_wiring.py</code> <em>(new)</em> — verifies the FastAPI startup hook invokes <code>reconcile_jobstore_with_routines</code> before re-registration.</li>
+<li><strong>Routine times on the Calendar are right.</strong> Scheduled routines were drawn about four hours
+earlier than they actually ran, because the times were worked out in UTC instead of your
+local time. Custom cadences — every few hours, days, weeks, months, or years — now start and
+repeat on the right dates.</li>
+<li><strong>Short routines are drawn as short events.</strong> A 30-minute routine used to appear as an
+orange bar across several days.</li>
+<li><strong>The Calendar looks a year ahead.</strong> It used to project scheduled runs only 90 days out and
+dropped some fires of frequent routines without saying so. It now projects 12 months, and
+tells you when you have scrolled past that.</li>
 </ul>
-<h3 id="batch-2--fixes-c--d-dual-backend-race-cluster">Batch 2 — Fixes C + D (dual-backend race cluster)</h3>
+<h2 id="new">New</h2>
 <ul>
-<li><code>resmon_scripts/frontend/electron/main.ts</code> — <code>pingHealth</code> AbortController timeout raised from 500 ms to ~3 s; the lock-file → health-probe sequence is wrapped in a 2–3 attempt retry loop with brief backoff (hard ceiling ~4.5 s wall); when <code>read_lock()</code> returns a payload but the health probe has not yet responded, the main process waits for the daemon rather than falling through to the spawn branch; the spawn branch sets <code>RESMON_DISABLE_SCHEDULER=1</code> on the child env so a legitimate renderer-spawned fallback never owns a scheduler.</li>
-<li><code>resmon_scripts/resmon.py</code> — FastAPI startup hook gates <code>ResmonScheduler</code> instantiation and <code>set_dispatcher</code> on <code>os.environ.get("RESMON_DISABLE_SCHEDULER")</code> being unset / falsy; default behavior preserved for direct <code>python resmon.py &#x3C;port></code> invocations and for <code>create_app()</code> test calls.</li>
-<li><code>resmon_scripts/frontend/dist/electron/main.js</code> — rebuilt from <code>main.ts</code> via <code>tsc --project tsconfig.electron.json</code>.</li>
-<li><code>resmon_scripts/verification_scripts/test_scheduler_disable_env.py</code> <em>(new)</em> — regression: with <code>RESMON_DISABLE_SCHEDULER=1</code> set, <code>create_app()</code> startup must not instantiate <code>ResmonScheduler</code> and must not call <code>set_dispatcher</code>; with the env var unset / falsy, scheduler startup proceeds normally.</li>
-</ul>
-<h3 id="batch-3--fix-e-advanced-tab-daemon-status-truthfulness">Batch 3 — Fix E (Advanced tab daemon-status truthfulness)</h3>
+<li><strong>More from the Calendar.</strong> The Routines filter lists only active routines. Clicking an event
+shows the routine’s name and schedule, with an <strong>Edit Routine</strong> button; changes show up on
+the Calendar and the Routines page right away.</li>
+<li><strong>About resmon,</strong> a new page in the sidebar with four tabs:
 <ul>
-<li><code>resmon_scripts/resmon.py</code> — new <code>GET /api/service/daemon-status</code> route that calls <code>daemon.read_lock()</code>, probes <code>http://127.0.0.1:&#x3C;lock_port>/api/health</code> via <code>httpx</code> (1.5 s timeout), and returns <code>{ lock_present, running, pid, port, version, started_at, lock_pid, lock_port, lock_version, error, is_self }</code>; the <code>is_self</code> flag is set when the probed pid equals the current process pid so the renderer can render the distinction between “daemon is the current backend” and “daemon is a separate process.”</li>
-<li><code>resmon_scripts/frontend/src/components/Settings/AdvancedSettings.tsx</code> — added <code>DaemonStatusResponse</code> type; <code>refresh()</code> polls <code>/api/service/daemon-status</code> alongside the existing <code>/api/service/status</code> and <code>/api/health</code> calls; status block rewritten to render three explicit states (“daemon up” with pid/version and an <code>, this process</code> tag when <code>is_self</code>; “lock present but unreachable” with the diagnostic error; “no daemon running”); the renderer-attached backend’s identity is shown separately as <code>· this window → pid …, v…</code> so any divergence between the two is immediately visible. <code>Last started</code> is now sourced from the daemon-status response rather than <code>/api/health</code>.</li>
-<li><code>resmon_scripts/frontend/dist/bundle.js</code> — rebuilt from the renderer source via <code>webpack --mode production</code>.</li>
-<li><code>resmon_scripts/verification_scripts/test_daemon_status_endpoint.py</code> <em>(new)</em> — three regression tests: (a) no lock file → <code>lock_present=False, running=False</code>; (b) stale lock pointing at a closed port → <code>lock_present=True, running=False, error</code> populated; (c) valid lock + monkey-patched <code>httpx.Client</code> returning a healthy response → <code>running=True</code> with daemon identity surfaced.</li>
-</ul>
-<h3 id="t-upd-3-documentation-pass-this-step">T-UPD-3 documentation pass (this step)</h3>
-<ul>
-<li><code>resmon_scripts/implementation_scripts/config.py</code> — <code>APP_VERSION = "1.2.0"</code> → <code>"1.2.1"</code>.</li>
-<li><code>resmon_scripts/frontend/package.json</code> — <code>"version": "1.2.0"</code> → <code>"1.2.1"</code>.</li>
-<li><code>resmon_scripts/frontend/src/components/AboutResmon/AboutAppTab.tsx</code> — <code>backendVersion</code> initial fallback bumped <code>1.0.0</code> → <code>1.2.1</code>; “Recent Update” card rewritten to summarize Update 4 (replacing the Update 3 copy).</li>
-<li><code>resmon_reports/info_docs/settings_info.md</code> — Advanced panel description now documents the new <code>GET /api/service/daemon-status</code> endpoint and the three-state status block; endpoint table gains the new route.</li>
-<li><code>resmon_reports/info_docs/system_info.md</code> — “headless daemon split” paragraph now documents the raised <code>pingHealth</code> timeout / retry+backoff, the lock-file-aware wait, and the <code>RESMON_DISABLE_SCHEDULER</code> env gate that ensures only the daemon ever owns a scheduler.</li>
-<li><code>resmon_reports/info_docs/routines_info.md</code> — Delete-a-routine flow now documents the <code>delete_routine</code> cascade into <code>apscheduler_jobs</code>, the daemon-startup reconciliation, and the <code>misfire_grace_time=3600</code> registration default.</li>
-<li><code>.ai/updates/update_5_5_26/update_5_5_26.md</code> — this log.</li>
-<li><code>.ai/updates/updates.csv</code> — appended Update 4 row (commit_hash / commit_timestamp / github_push_timestamp = pending; T-UPD-4 will overwrite).</li>
-</ul>
-<h2 id="verification">Verification</h2>
-<p>Per-batch test command and results (verification suite at <code>resmon_scripts/verification_scripts/</code>):</p>
-<ul>
-<li><strong>Batch 1</strong> — <code>python -m pytest resmon_scripts/verification_scripts/test_scheduler_disable_env.py resmon_scripts/verification_scripts/test_scheduler_lifecycle.py resmon_scripts/verification_scripts/test_scheduler_wiring.py resmon_scripts/verification_scripts/test_scheduler_reconciliation.py resmon_scripts/verification_scripts/test_routine_scheduler_sync.py resmon_scripts/verification_scripts/test_daemon.py</code> — all passing (this superset is the same command used for the post-Batch-3 sanity run; per-batch counts were captured at the time of each batch report).</li>
-<li><strong>Batch 2</strong> — Python regression <code>test_scheduler_disable_env.py</code> covers Fix D’s <code>RESMON_DISABLE_SCHEDULER</code> env gate; Fix C’s Electron main-process retry/backoff is exercised by manual UI verification (the project does not currently host a JS-side Electron main test harness — same posture documented in Updates 2 and 3).</li>
-<li><strong>Batch 3</strong> — <code>python -m pytest resmon_scripts/verification_scripts/test_daemon_status_endpoint.py resmon_scripts/verification_scripts/test_daemon.py resmon_scripts/verification_scripts/test_service_units.py</code> → <strong>21/21 passing, 0 skipped</strong>.</li>
-<li><strong>Frontend build</strong> — <code>cd resmon_scripts/frontend &#x26;&#x26; npm run build</code> succeeded after the Batch 2 / Batch 3 edits (webpack production renderer bundle clean; <code>tsc --project tsconfig.electron.json</code> for <code>dist/electron/main.js</code> clean).</li>
-<li><strong>Manual UI smoke</strong> — daemon was restarted via <code>launchctl kickstart -k gui/$UID/com.resmon.daemon</code> to reload the patched Python; <code>resmon.app</code> launched and attached to the daemon on port 8742 (no fallback backend spawned); <code>GET /api/service/daemon-status</code> returns the documented shape with <code>is_self=true</code> when the renderer is attached to the daemon.</li>
-</ul>
-<p>Concatenated counts string (for the CSV row): <code>backend: 21/21 passing, 0 skipped on the targeted batch-3 suite (test_daemon_status_endpoint.py + test_daemon.py + test_service_units.py); batch-1 suite (test_scheduler_disable_env.py + test_scheduler_lifecycle.py + test_scheduler_wiring.py + test_scheduler_reconciliation.py + test_routine_scheduler_sync.py + test_daemon.py) all passing; platform-gated Linux systemd --user and Windows Task Scheduler tests remain skipped on macOS via their existing skipif guards (no daemon / service-unit code path on those platforms changed in this update); frontend: webpack production build clean after every batch; manual UI smoke confirmed daemon attach via launchd, no fallback backend spawn, /api/service/daemon-status three-state rendering, and that scheduled Routines now fire from the daemon's scheduler with the new misfire grace</code>.</p>
-<h2 id="follow-ups">Follow-ups</h2>
-<ul>
-<li><strong>Stale-daemon caveat for upgrading users.</strong> As with Updates 2 and 3, an existing <code>resmon-daemon</code> started before this update is still running the old <code>scheduler.py</code> / <code>database.py</code> / <code>resmon.py</code> and therefore still has the 1-second misfire grace, the <code>delete_routine</code> cascade gap, and the missing <code>/api/service/daemon-status</code> route. Users upgrading from 1.2.0 should restart the daemon (<code>launchctl kickstart -k gui/$UID/com.resmon.daemon</code> on macOS, <code>systemctl --user restart resmon-daemon</code> on Linux, or unregister/re-register the Task Scheduler entry on Windows) so the renderer attaches to a fresh backend.</li>
-<li><strong>Electron main-process test harness.</strong> Fix C’s retry/backoff / lock-file-aware wait is currently covered only by manual UI verification. A future update could introduce a focused JS-side test harness for <code>frontend/electron/main.ts</code> (mocking <code>fetch</code> and the lock-file reader) so Fix C’s branches are regression-protected the same way Fix D is.</li>
-<li><strong>Scheduler-diagnostics surface.</strong> The Advanced tab’s <code>/api/scheduler/jobs</code> panel now reflects the daemon’s jobstore truthfully (since only the daemon owns a scheduler). A small follow-up could surface <code>misfire_grace_time</code> and the most-recent reconciliation pass timestamp on each row for operator transparency.</li>
-</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 4 — Background Routine Reliability: Scheduler / Jobstore Lifecycle, Daemon-Attach Race, and Advanced-Tab Honesty]]></summary></entry><entry><title type="html">resmon Update 3 — April 27, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/27/resmon-update-3/" rel="alternate" type="text/html" title="resmon Update 3 — April 27, 2026" /><published>2026-04-27T16:00:00+00:00</published><updated>2026-04-27T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/27/resmon-update-3</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/27/resmon-update-3/"><![CDATA[<h1 id="update-3--calendar-bug-cluster-ai-key-deep-link-and-the-new-about-resmon-page-tutorials-issues-blog-about-app">Update 3 — Calendar Bug Cluster, AI-Key Deep-Link, and the New About resmon Page (Tutorials, Issues, Blog, About App)</h1>
-<h2 id="metadata">Metadata</h2>
-<ul>
-<li><strong>Update number:</strong> 3</li>
-<li><strong>Update type:</strong> mixed (bugfix + feature)</li>
-<li><strong>Date:</strong> 2026-04-27</li>
-<li><strong>Author:</strong> Ryan Kamp</li>
-<li><strong>Commit hash:</strong> 0570bc5ac416b42b774b3e1609e1602d6c8adc27</li>
-<li><strong>Commit timestamp:</strong> 2026-04-30T17:35:25-04:00</li>
-<li><strong>GitHub push timestamp:</strong> 2026-04-30T21:35:39Z</li>
-<li><strong>App version:</strong> 1.1.0 → 1.2.0</li>
-</ul>
-<h2 id="summary">Summary</h2>
-<p>This update lands two Calendar bugs, one small deep-link feature, and one large feature — a brand-new top-level <strong>About resmon</strong> page — together with eleven out-of-band additions that emerged mid-flight and were folded into the same change set per the <code>T-UPD-ADD</code> rule. The Calendar’s scheduled-routine times no longer drift by ~4 hours and Custom-cadence first-fire / interval anomalies (every-N-months, every-5-hours, every-5-days, every-3-weeks, every-1-year) all expand correctly; the 30-minute “orange-bar” cosmetic bug is fixed; and the expansion window now extends to a full 12 months with a user-facing notice when the FullCalendar viewport is navigated past the horizon. The Repositories &#x26; API Keys page gains a “Looking for AI API key settings?” deep-link button to <code>Settings → AI</code>. A new top-level <strong>About resmon</strong> page hosts four tabs — <strong>Tutorials</strong> (eighteen embedded YouTube walk-throughs covering the full app, every page, and every Settings sub-tab), <strong>Issues</strong> (a credentials-free <code>mailto:</code> + GitHub-issue-deep-link form), <strong>Blog</strong> (an in-app reader fed by the new GitHub Pages site at <code>https://ryanjosephkamp.github.io/resmon/</code>), and <strong>About App</strong> (relocated out of Settings); a shared <code>TutorialLinkButton</code> is rendered next to every page header and every Settings sub-panel header so any user can deep-link straight into the matching tutorial section. App version bumps <code>1.1.0 → 1.2.0</code>.</p>
-<h2 id="motivation">Motivation</h2>
-<p>All items in this update originated in the user’s third-after-release feedback session and map back to the change inventory in <a href="../update_4_27_26/update_4_27_26_workflow.md"><code>.ai/updates/update_4_27_26/update_4_27_26_workflow.md</code></a>.</p>
-<ul>
-<li><strong>Bug 1 — Calendar scheduled-routine times incorrect</strong> (workflow item #1, batch 1). Daily / weekday / weekly / monthly cron expansions on the Calendar page rendered 4 hours earlier than they actually fired (UTC vs. local-time mismatch), and several Custom cadences exhibited first-fire / interval anomalies. The Calendar’s 90-day expansion window also silently truncated upcoming fires for high-frequency cadences with no user-facing notice.</li>
-<li><strong>Bug 2 — Cosmetic 30-minute routines render as multi-day orange bars</strong> (workflow item #2, batch 1). Same Calendar subsystem; FullCalendar event mapping was treating short-duration routine fires as all-day events.</li>
-<li><strong>Feature 3 — “Looking for AI API key settings?” deep-link button</strong> (workflow item #3, batch 2). Users repeatedly looked for AI provider keys (OpenAI, Anthropic, etc.) on the Repositories &#x26; API Keys page even though those keys live on <code>Settings → AI</code>. A small inline button between the page intro paragraph and the scope selector now routes them directly to <code>/settings/ai</code>.</li>
-<li><strong>Feature 4 — New About resmon top-level page</strong> (workflow item #4, batch 3). Users had no in-app place to learn how each page worked, no credentials-free way to file a bug or request a feature, and no surfaced channel for per-update release notes. The About App tab was also crowding the Settings page. Update 3 introduces the new top-level page with <strong>Tutorials</strong>, <strong>Issues</strong>, <strong>Blog</strong>, and the relocated <strong>About App</strong> tab, plus a shared <code>TutorialLinkButton</code> next to every page and every Settings sub-panel header.</li>
-<li><strong>Out-of-band additions (T-UPD-ADD).</strong> Eleven user-requested additions emerged after T-UPD-1 was scaffolded and during T-UPD-2 execution; they were folded into the active batches per the workflow’s T-UPD-ADD rule. They are listed under <a href="#changes">Changes</a> below and motivated individually in <code>update_4_27_26_workflow.md</code> (OOB-1 … OOB-11).</li>
-</ul>
-<h2 id="changes">Changes</h2>
-<h3 id="batch-1--calendar-bug-cluster-bug-1--bug-2--window-extension--horizon-notice">Batch 1 — Calendar bug cluster (Bug 1 + Bug 2 + window extension + horizon notice)</h3>
-<ul>
-<li><code>resmon_scripts/resmon.py</code> — <code>/api/calendar/events</code> cron expansion now resolves trigger fire times in the local timezone rather than UTC (fixes the ~4-hour shift); Custom-cadence first-fire arithmetic is reworked to honor <code>IntervalTrigger</code> start-date semantics for every-N-hours / every-N-days / every-N-weeks / every-N-months / every-N-years schedules so first-fires and intervals are correct; the expansion window is extended from 90 days to a full 12 months and <code>MAX_PER_ROUTINE</code> is raised proportionally so high-frequency cadences (<code>every 5 hours</code>) are not truncated; the response now carries a <code>horizon_end</code> timestamp the frontend can compare against the FullCalendar viewport.</li>
-<li><code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — FullCalendar event mapping now sets <code>allDay: false</code> and a real <code>end</code> derived from the routine duration so 30-minute routines render as a tight bar rather than a full-width orange band; renders a user-facing notice when the FullCalendar viewport is navigated past the 12-month horizon explaining that the calendar only projects scheduled fires up to 12 months ahead.</li>
-</ul>
-<h3 id="batch-2--repositories--api-keys-deep-link-button">Batch 2 — Repositories &#x26; API Keys deep-link button</h3>
-<ul>
-<li><code>resmon_scripts/frontend/src/pages/RepositoriesPage.tsx</code> — adds a “Looking for AI API key settings?” inline button between the page intro paragraph and the scope selector that routes to <code>/settings/ai</code>.</li>
-</ul>
-<h3 id="batch-3--about-resmon-page--tutorial-deep-link-buttons--settings--about-app-relocation">Batch 3 — About resmon page + tutorial deep-link buttons + Settings → About App relocation</h3>
-<ul>
-<li><strong>New top-level page and routes.</strong>
-<ul>
-<li><code>resmon_scripts/frontend/src/pages/AboutResmonPage.tsx</code> <em>(new)</em> — top-level page with the tab strip and nested router; final tab order <strong>Tutorials → Issues → Blog → About App</strong> (Issues and Blog were added under OOB-5 / OOB-6).</li>
-<li><code>resmon_scripts/frontend/src/components/AboutResmon/TutorialsTab.tsx</code> <em>(new)</em> — eighteen tutorial sections (one full-app overview + ten page sections + seven Settings sub-tab sections), each with an embedded <code>youtube-nocookie.com/embed/&#x3C;id></code> iframe, a TOC, and prev / next navigation; deep-link hash drives smooth-scroll into view.</li>
-<li><code>resmon_scripts/frontend/src/components/AboutResmon/AboutAppTab.tsx</code> <em>(new — relocated content)</em> — the previous Settings → About App panel content, now mounted under <code>/about-resmon/about-app</code>.</li>
-<li><code>resmon_scripts/frontend/src/App.tsx</code> — adds the <code>/about-resmon/*</code> route and the sidebar nav entry appended after Settings.</li>
+<li><strong>Tutorials:</strong> eighteen short videos covering the whole app, each page, and each Settings
+tab. Every page header has a button that opens its tutorial. The full-app overview video
+in this release is a placeholder.</li>
+<li><strong>Issues:</strong> report a bug or ask for a feature by email or as a GitHub issue. The form fills
+in the details for you and asks for no account or password.</li>
+<li><strong>Blog:</strong> these release notes, read inside the app.</li>
+<li><strong>About App:</strong> moved here from Settings.</li>
 </ul>
 </li>
-<li><strong>Shared <code>TutorialLinkButton</code> next to every page header and every Settings sub-panel header.</strong>
-<ul>
-<li><code>resmon_scripts/frontend/src/components/AboutResmon/TutorialLinkButton.tsx</code> <em>(new)</em> — single shared component navigating to <code>/about-resmon/tutorials#&#x3C;anchor></code>.</li>
-<li>All ten page components (<code>DashboardPage</code>, <code>DeepDivePage</code>, <code>DeepSweepPage</code>, <code>RoutinesPage</code>, <code>CalendarPage</code>, <code>ResultsPage</code>, <code>ConfigurationsPage</code>, <code>MonitorPage</code>, <code>RepositoriesPage</code>, <code>SettingsPage</code>) plus all seven Settings sub-panels (<code>EmailSettings</code>, <code>CloudAccountSettings</code>, <code>CloudSettings</code>, <code>AISettings</code>, <code>StorageSettings</code>, <code>NotificationSettings</code>, <code>AdvancedSettings</code>) render <code>TutorialLinkButton</code> next to their <code>&#x3C;h1></code> / <code>&#x3C;h2></code> headers.</li>
+<li><strong>AI keys are one click away from Repositories &#x26; API Keys.</strong> AI provider keys live in
+Settings → AI, and a button on the Repositories page now takes you there.</li>
+<li><strong>Runs remember the saved configuration they came from.</strong> The Dashboard, Results &#x26; Logs, and
+the Calendar show a <strong>Name</strong> column and a <strong>Saved as</strong> badge.</li>
+<li><strong>View JSON</strong> on each row of the Configurations page shows the saved configuration as text,
+with a copy button.</li>
+<li><strong>Danger Zone</strong> in Settings → Advanced: eight actions that clear stored data, settings, or
+API keys. Each asks for confirmation, and the six that delete data or settings require you
+to type <code>CONFIRM</code>. A column of cloud actions is shown switched off; it was not available in
+this release.</li>
 </ul>
-</li>
-<li><strong>Settings → About App removal.</strong>
+<h2 id="upgrading">Upgrading</h2>
+<p>If resmon runs in the background on your computer, restart that background service after
+upgrading so it picks up the new features.</p>
+<h2 id="version">Version</h2>
+<p>1.1.0 → 1.2.0</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 3 — Calendar fixes, and a new About resmon page]]></summary></entry><entry><title type="html">resmon Update 2 — April 25, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/25/resmon-update-2/" rel="alternate" type="text/html" title="resmon Update 2 — April 25, 2026" /><published>2026-04-25T16:00:00+00:00</published><updated>2026-04-25T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/25/resmon-update-2</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/25/resmon-update-2/"><![CDATA[<h1 id="update-2--readable-calendar-views-desktop-notifications-and-one-ai-key-per-provider">Update 2 — Readable calendar views, desktop notifications, and one AI key per provider</h1>
+<h2 id="fixed">Fixed</h2>
 <ul>
-<li><code>resmon_scripts/frontend/src/pages/SettingsPage.tsx</code> — removes the <code>About App</code> <code>NavLink</code> and nested <code>&#x3C;Route></code>; removes the <code>AboutAppSettings</code> import; tab count goes 8 → 7. The <code>Settings</code> index redirect to <code>/settings/email</code> is unchanged.</li>
-<li><code>resmon_scripts/frontend/src/components/Settings/AboutAppSettings.tsx</code> — deleted (content relocated to <code>AboutResmon/AboutAppTab.tsx</code>).</li>
+<li><strong>Calendar week and day views are readable.</strong> Events in those views were drawn as a colored
+block with differently colored text on top, and the two clashed. They now use the same
+status dot and colored label as the month view.</li>
+<li><strong>Desktop notifications fire.</strong> With notifications turned on in Settings → Notifications,
+nothing appeared for finished runs. They now appear for manual runs and for routines,
+including routines that run in the background while the resmon window is closed. This was
+tested by hand on macOS; on Linux and Windows it is covered by unit tests only.</li>
 </ul>
-</li>
+<h2 id="new">New</h2>
+<ul>
+<li><strong>Store an AI key for each provider.</strong> resmon used to keep one AI key at a time, so trying a
+second provider meant deleting the first key. Each provider now has its own slot. A key you
+had already saved moves to the slot for the provider you had selected, the first time this
+version starts.</li>
+<li><strong>Settings → AI has a Stored API Keys table</strong> with each provider’s status, its default model,
+and buttons to clear either. Click a provider’s name to make it the default. Length, Tone,
+Temperature, and Extraction Goals each have a short explanation on hover.</li>
+<li><strong>The same AI settings on every run.</strong> Deep Dive, Deep Sweep, and the routine editor share
+one AI panel: provider, model, length, tone, temperature, and extraction goals. Fill in only
+the fields you want to change for that run; blank fields use your defaults, and nothing you
+set for one run changes your saved settings. The model list loads from the provider, you can
+enter a missing key from the panel, and <strong>Save as default model</strong> keeps a choice for later.</li>
+<li><strong>Edit a saved configuration</strong> from its row on the Configurations page. Routine, sweep, and
+dive configurations each open the matching editor.</li>
+<li><strong>Importing a routine configuration creates its routine,</strong> switched off, so an import never
+starts anything on a schedule by itself. The Routines page shows it without a reload.</li>
 </ul>
-<h3 id="out-of-band-additions-t-upd-add">Out-of-band additions (T-UPD-ADD)</h3>
+<h2 id="upgrading">Upgrading</h2>
+<p>If resmon runs in the background on your computer, restart that background service after
+upgrading. An older service keeps running the old code and quietly ignores the new
+default-model setting.</p>
+<h2 id="version">Version</h2>
+<p>1.0.0 → 1.1.0</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 2 — Readable calendar views, desktop notifications, and one AI key per provider]]></summary></entry><entry><title type="html">resmon Update 1 — April 24, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/24/resmon-update-1/" rel="alternate" type="text/html" title="resmon Update 1 — April 24, 2026" /><published>2026-04-24T16:00:00+00:00</published><updated>2026-04-24T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/24/resmon-update-1</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/24/resmon-update-1/"><![CDATA[<h1 id="update-1--deleted-configurations-stay-deleted-and-each-repository-says-how-it-combines-keywords">Update 1 — Deleted configurations stay deleted, and each repository says how it combines keywords</h1>
+<h2 id="fixed">Fixed</h2>
 <ul>
-<li><strong>OOB-1 — Calendar <code>Routines: x of y</code> dropdown filters to active-only.</strong> <code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — <code>fetchData</code> seeds <code>visibleRoutines</code> from the active subset and a derived <code>activeRoutines</code> constant drives the <code>Select all</code> action and the rendered checkbox list.</li>
-<li><strong>OOB-2 — Calendar event popover shows <code>Name:</code> and <code>Cron Schedule:</code> info lines.</strong> <code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — popover renders two new <code>event-popover-meta</code> lines for the matching active routine.</li>
-<li><strong>OOB-3 — <code>Edit Routine</code> button on Calendar popover + shared <code>RoutineEditModal</code> + cross-page sync.</strong>
-<ul>
-<li><code>resmon_scripts/frontend/src/lib/routinesBus.ts</code> <em>(new)</em> — pub/sub bus mirroring <code>configurationsBus.ts</code> with <code>notifyRoutinesChanged()</code> + <code>useRoutinesVersion()</code>.</li>
-<li><code>resmon_scripts/frontend/src/components/Routines/RoutineEditModal.tsx</code> <em>(new)</em> — extracted reusable create/edit modal that broadcasts on both <code>routinesBus</code> and <code>configurationsBus</code> on save.</li>
-<li><code>resmon_scripts/frontend/src/pages/RoutinesPage.tsx</code> — refactored to consume the shared modal; subscribes to <code>useRoutinesVersion()</code>.</li>
-<li><code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — adds the <code>Edit Routine</code> popover button; subscribes to <code>useRoutinesVersion()</code> and re-runs <code>fetchData()</code> on save without closing the popover.</li>
+<li><strong>A deleted configuration no longer lingers.</strong> After you deleted a Deep Dive or Deep Sweep
+configuration on the Configurations page, it could still be picked from the <strong>Load
+Configuration</strong> dropdown on Deep Dive or Deep Sweep, and loading it filled in the form. The
+dropdowns now refresh whenever a configuration is deleted, saved, or imported anywhere in the
+app. Routines were not affected.</li>
 </ul>
-</li>
-<li><strong>OOB-4 — <code>.modal-overlay</code> z-index above the Calendar event popover.</strong> <code>resmon_scripts/frontend/src/styles/global.css</code> — bumps <code>.modal-overlay</code> from <code>z-index: 1000</code> → <code>1100</code>.</li>
-<li><strong>OOB-5 — <code>About resmon → Issues</code> tab + GitHub issue templates.</strong>
+<h2 id="new">New</h2>
 <ul>
-<li><code>resmon_scripts/frontend/src/components/AboutResmon/IssuesTab.tsx</code> <em>(new)</em> — credentials-free form with two read-only submit paths (<code>mailto:</code> link + GitHub-issue deep link); both routed through <code>window.resmonAPI.openPath</code> (falls back to <code>window.location.href</code> / <code>window.open</code> when the preload bridge is unavailable).</li>
-<li><code>.github/ISSUE_TEMPLATE/bug.yml</code>, <code>feature.yml</code>, <code>question.yml</code>, <code>config.yml</code> <em>(new)</em> — typed GitHub issue forms whose IDs match the slugs the Issues tab generates.</li>
-<li><code>resmon_scripts/frontend/src/pages/AboutResmonPage.tsx</code> — mounts the new tab between Tutorials and About App.</li>
+<li><strong>How each repository combines your keywords.</strong> Repositories differ in what they do with
+several space-separated keywords: some require all of them (implicit AND), some accept any of
+them (OR), and several rank results by relevance instead. Deep Dive, Deep Sweep, and the
+routine editor now show a short note under the repository selector for each repository you
+pick.</li>
+<li><strong>A glossary on the Repositories &#x26; API Keys page</strong> explains each term — Implicit AND,
+Explicit AND, Implicit OR, Explicit OR, Relevance-ranked, Lucene, and Solr — and each
+repository’s details panel shows its keyword behavior with notes.</li>
+<li>Where resmon has not confirmed a repository’s behavior against its own documentation, the
+label says <strong>“upstream-default, unverified”</strong> rather than guessing. In this release that
+applies to DBLP, IEEE Xplore, and PLOS.</li>
 </ul>
-</li>
-<li><strong>OOB-6 — <code>About resmon → Blog</code> tab + GitHub Pages publishing infrastructure.</strong>
-<ul>
-<li><code>resmon_scripts/frontend/src/components/AboutResmon/BlogTab.tsx</code> <em>(new)</em> — fetches the Atom feed at <code>https://ryanjosephkamp.github.io/resmon/feed.xml</code>, parses client-side via <code>DOMParser</code>, renders a two-pane layout with an origin-locked Electron <code>&#x3C;webview></code>; off-origin links open in the user’s default browser.</li>
-<li><code>resmon_scripts/frontend/electron/main.ts</code> — enables <code>webPreferences.webviewTag: true</code> and adds a <code>will-attach-webview</code> hardening hook that scrubs <code>nodeIntegration</code>, <code>preload</code>, and any non-https <code>src</code>.</li>
-<li><code>resmon_scripts/frontend/src/index.html</code> — widens the CSP <code>&#x3C;meta></code> to permit <code>https://ryanjosephkamp.github.io</code> for <code>frame-src</code> / <code>child-src</code> / <code>connect-src</code>, plus <code>https://www.youtube-nocookie.com</code> and <code>https://www.youtube.com</code> for the Tutorials embeds.</li>
-<li><code>docs/_config.yml</code>, <code>docs/Gemfile</code>, <code>docs/index.md</code>, <code>docs/README.md</code>, <code>docs/_posts/2026-04-23-welcome-to-the-resmon-blog.md</code> <em>(new — Jekyll site scaffolding)</em>. The two republished update posts (<code>docs/_posts/2026-04-24-resmon-update-1.md</code>, <code>docs/_posts/2026-04-25-resmon-update-2.md</code>) shipped in a separate <code>7f1ea24</code> commit on 2026-04-29 ahead of T-UPD-4 and are noted here for the record; they are not staged as part of the Update 3 commit.</li>
-<li><code>resmon_scripts/frontend/src/pages/AboutResmonPage.tsx</code> — mounts the new tab between Issues and About App.</li>
-</ul>
-</li>
-<li><strong>OOB-7 — New T-UPD-5 prompt template in <code>update_prompts.md</code>.</strong> <code>.ai/updates/update_prompts.md</code> — adds a <strong>T-UPD-5 — Publish Update as Blog Post</strong> prompt template formalizing the seven-step per-post procedure, bumps the document to version 1.3, extends the usage / TOC / hard rules to reflect the new five-prompt sequence, and adds a “Push before publish” hard rule.</li>
-<li><strong>OOB-8 — <code>saved_configuration_id</code> linkage on the <code>executions</code> table.</strong>
-<ul>
-<li><code>resmon_scripts/implementation_scripts/database.py</code> — adds a nullable <code>saved_configuration_id INTEGER REFERENCES saved_configurations(id) ON DELETE SET NULL</code> column to the <code>executions</code> table via an idempotent <code>ALTER TABLE … ADD COLUMN</code> migration.</li>
-<li><code>resmon_scripts/resmon.py</code> — <code>_enrich_execution_row</code> <code>LEFT JOIN</code>s <code>saved_configurations</code> and projects <code>saved_configuration_id</code> + <code>saved_configuration_name</code> onto every execution-returning endpoint; extends <code>DiveRequest</code> and <code>SweepRequest</code> with an optional <code>saved_configuration_id</code>; adds <code>PATCH /api/executions/{id}</code> accepting <code>{ saved_configuration_id: int }</code>.</li>
-<li><code>resmon_scripts/frontend/src/pages/DeepDivePage.tsx</code>, <code>resmon_scripts/frontend/src/pages/DeepSweepPage.tsx</code> — track the loaded id in a <code>loadedConfigIdRef</code> populated by <code>ConfigLoader.applyConfig</code>; user edits clear the ref via a <code>dirtyRef</code> guard.</li>
-<li><code>resmon_scripts/frontend/src/components/Save/SaveConfigButton.tsx</code>, <code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — <code>PATCH</code> the originating execution row with the new id after a successful Save Config.</li>
-</ul>
-</li>
-<li><strong>OOB-9 — <code>Saved as &#x3C;name></code> badge + <code>Name</code> column wiring.</strong> <code>resmon_scripts/frontend/src/pages/DashboardPage.tsx</code>, <code>resmon_scripts/frontend/src/components/Results/ResultsList.tsx</code>, <code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code>, <code>resmon_scripts/frontend/src/components/Save/SaveConfigButton.tsx</code> — adds a <code>Name</code> column (with <code>saved_configuration_name → routine_name → Execution #{id}</code> fallback chain) and a <code>Saved as &#x3C;name></code> badge that reconciles in place after a save broadcast.</li>
-<li><strong>OOB-10 — Configurations page <code>View JSON</code> per-row read-only modal.</strong> <code>resmon_scripts/frontend/src/pages/ConfigurationsPage.tsx</code> — adds a per-row <code>View JSON</code> button next to <code>Edit</code> that opens a read-only modal with a Copy-to-clipboard button.</li>
-<li><strong>OOB-11 — Settings → Advanced <strong>Danger Zone</strong> (16 destructive actions, two-tier confirmation).</strong>
-<ul>
-<li><code>resmon_scripts/frontend/src/components/Settings/ConfirmDangerModal.tsx</code> <em>(new)</em> — typed-<code>CONFIRM</code> confirmation gate for the six destructive data/settings actions.</li>
-<li><code>resmon_scripts/frontend/src/components/Settings/AdvancedSettings.tsx</code> — appends a Danger Zone section with two columns (Local / Cloud) of 8 buttons each; broadcasts on <code>configurationsBus</code>, <code>routinesBus</code>, and the <code>resmon:execution-completed</code> window event on success; the cloud column is rendered disabled with a <code>Coming soon</code> muted note.</li>
-<li><code>resmon_scripts/resmon.py</code> — adds 8 admin route handlers under <code>POST /api/admin/...</code>; the two API-key wipes accept an empty body, the six data/settings destructions require <code>{ "confirm": "CONFIRM" }</code>.</li>
-<li><code>resmon_scripts/implementation_scripts/database.py</code> — helpers for whole-table truncates with FK cascade.</li>
-<li><code>resmon_scripts/implementation_scripts/credential_manager.py</code> — bulk-wipe helpers for the API-key categories.</li>
-</ul>
-</li>
-</ul>
-<h3 id="documentation-version-and-about-app-tab">Documentation, version, and About App tab</h3>
-<ul>
-<li><code>resmon_reports/info_docs/about_resmon_info.md</code>, <code>settings_info.md</code>, <code>calendar_info.md</code>, <code>configs_info.md</code>, <code>dashboard_info.md</code>, <code>results_and_logs_info.md</code>, <code>repos_and_api_keys_info.md</code>, <code>system_info.md</code>, <code>deep_dive_info.md</code>, <code>deep_sweep_info.md</code> — refreshed in T-UPD-3 sub-tranche 1 to reflect Update 3 changes (<code>routines_info.md</code> and <code>monitor_info.md</code> were verified up-to-date and left as-is).</li>
-<li><code>resmon_scripts/implementation_scripts/config.py</code> — bumps <code>APP_VERSION</code> from <code>1.1.0</code> to <code>1.2.0</code>.</li>
-<li><code>resmon_scripts/frontend/package.json</code> — bumps <code>version</code> from <code>1.1.0</code> to <code>1.2.0</code>.</li>
-<li><code>resmon_scripts/frontend/src/components/AboutResmon/AboutAppTab.tsx</code> — version banner now reads <code>1.2.0</code> and the Recent Update card is rewritten with this update’s number, name, and summary.</li>
-<li><code>README.md</code> — adds an <code>#/about-resmon/*</code> row to the routes table, an <strong>About resmon</strong> bullet under Key Features describing all four tabs, a short <strong>Blog</strong> subsection linking the GitHub Pages site, a note in the existing <strong>Reporting Issues</strong> subsection that issues can be filed via the in-app form, and a brief <strong>Maintenance / Danger Zone</strong> subsection pointing readers at Settings → Advanced.</li>
-</ul>
-<h2 id="verification">Verification</h2>
-<p>Test results from each batch and from the OOB additions, run from the project root with the <code>.venv</code> virtualenv active and the frontend tooling under <code>resmon_scripts/frontend/</code>.</p>
-<ul>
-<li><strong>Batch 1 (Calendar bug cluster):</strong>
-<ul>
-<li><code>pytest resmon_scripts/verification_scripts/ -q</code> → all green; the Calendar timezone-shift and IntervalTrigger first-fire fixes are exercised by the existing scheduler / cron expansion suites.</li>
-<li>Frontend: <code>webpack 5.106.2 compiled successfully</code>; manual UI verification of every cron expression enumerated in the bug report (8 AM daily, midnight daily, Mon 9 AM, weekday 8 AM, first-of-month, every-2-months, every-5-hours, every-5-days, every-3-weeks, every-1-year, plus a 30-minute routine) on month / week / day views.</li>
-</ul>
-</li>
-<li><strong>Batch 2 (AI-key deep-link button):</strong> <code>webpack 5.106.2 compiled successfully</code>; manual click-through on the Repositories &#x26; API Keys page → lands on <code>#/settings/ai</code>.</li>
-<li><strong>Batch 3 (About resmon page + tutorial deep-link buttons + Settings relocation):</strong>
-<ul>
-<li><code>cd resmon_scripts/frontend &#x26;&#x26; npm run typecheck</code> → clean.</li>
-<li><code>webpack 5.106.2 compiled successfully</code>; renderer <code>bundle.js</code> ~1.06 MiB after the YouTube embed pivot.</li>
-<li>Manual nav to <code>/about-resmon</code> confirmed all four tabs; manual click-through on every <code>TutorialLinkButton</code> instance (10 page headers + 7 Settings sub-panel headers) confirmed correct deep-link behavior; Settings tab count is 7 with no stranded <code>/settings/about</code> references.</li>
-</ul>
-</li>
-<li><strong>OOB-1 / OOB-2 / OOB-3 / OOB-4 (Calendar polish + RoutineEditModal + z-index fix):</strong> webpack build clean; manual UI smoke confirmed the Routines dropdown now shows active-only routines, the popover surfaces the <code>Name:</code> and <code>Cron Schedule:</code> lines, the <code>Edit Routine</code> button opens the modal above the popover and updates both Calendar and Routines without a manual reload.</li>
-<li><strong>OOB-5 (Issues tab + GitHub issue templates):</strong> webpack build clean; manual click-through on <strong>Open in Email</strong> opened the default mail client with the correct subject / body / diagnostic block, and <strong>File on GitHub</strong> opened the GitHub new-issue page with the correct template auto-selected and the form fields pre-populated.</li>
-<li><strong>OOB-6 (Blog tab + GitHub Pages):</strong> webpack build clean; the GitHub Pages site is live at <code>https://ryanjosephkamp.github.io/resmon/</code>; the in-app Blog tab successfully fetches <code>feed.xml</code>, lists the three published posts, and renders each post in the embedded <code>&#x3C;webview></code>. Off-origin links route to the user’s default browser.</li>
-<li><strong>OOB-7 (T-UPD-5 prompt template):</strong> documentation-only change; no test suite applies. Verified by re-reading the document end-to-end after the edit.</li>
-<li><strong>OOB-8 (<code>saved_configuration_id</code> linkage):</strong> <code>pytest resmon_scripts/verification_scripts/ -q</code> → green (idempotent migration covered by the existing schema-migration suite); manual UI verification of the round-trip on Deep Dive → Save Config → Dashboard / Results &#x26; Logs / Calendar popover.</li>
-<li><strong>OOB-9 (<code>Saved as &#x3C;name></code> badge + <code>Name</code> column):</strong> webpack build clean; manual UI verification of the fallback chain (<code>saved_configuration_name → routine_name → Execution #{id}</code>) and of the in-place reconciliation when a save originates on a different page.</li>
-<li><strong>OOB-10 (View JSON modal):</strong> webpack build clean; manual UI verification of the read-only modal across all three config types (<code>manual_dive</code>, <code>manual_sweep</code>, <code>routine</code>); Copy-to-clipboard succeeded under both <code>navigator.clipboard.writeText</code> and the <code>document.execCommand('copy')</code> fallback path.</li>
-<li><strong>OOB-11 (Danger Zone):</strong> <code>pytest resmon_scripts/verification_scripts/ -q</code> → green for the new admin-route tests (typed-<code>CONFIRM</code> gate enforced server-side, FK cascades verified). Manual UI verification of all 8 local actions (the two API-key wipes through the simple modal, the six data/settings destructions through the typed-<code>CONFIRM</code> modal); cloud column rendered disabled with the <code>Coming soon</code> note as designed.</li>
-</ul>
-<p>Skipped tests: platform-gated Linux <code>systemd --user</code> and Windows Task Scheduler tests remain skipped on macOS via their existing <code>skipif</code> guards (these were exercised under Update 2’s manual verification matrix and are not re-exercised here because no notification-dispatch code changed in this update). No new dependencies; the <code>executions.saved_configuration_id</code> ALTER is idempotent and forward-compatible with installs that already migrated.</p>
-<p>Commands:</p>
-<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Backend</span></span>
-<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">source</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> .venv/bin/activate</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">pytest</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/verification_scripts/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span></span>
-<span class="line"></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Frontend</span></span>
-<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/frontend</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> typecheck</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> build</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> start</span><span style="color:#6A737D;--shiki-dark:#6A737D">  # full Electron + backend smoke</span></span></code></pre>
-<h2 id="follow-ups">Follow-ups</h2>
-<ul>
-<li><strong>Tutorials full-app overview video</strong> — the full-app overview entry currently embeds a placeholder video; the user has reserved the final replacement recording for <strong>Update 4</strong> so the rest of the app can be bug-tested first. The placeholder is functional and replaceable by a single <code>youtubeId</code> change.</li>
-<li><strong>Cloud-side Danger Zone column</strong> — the eight cloud-mirror buttons in the Settings → Advanced Danger Zone are intentionally rendered disabled (<code>Coming soon</code>). They will activate when the <code>Cloud Account</code> feature lands and the matching <code>/api/admin/cloud/...</code> routes are added.</li>
-<li><strong>Stale-daemon caveat (carried forward from Update 2’s settings-allowlist)</strong> — users upgrading should kill any running <code>resmon-daemon</code> process so the renderer attaches to a fresh backend that has loaded the new admin endpoints and the <code>executions.saved_configuration_id</code> migration.</li>
-</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 3 — Calendar Bug Cluster, AI-Key Deep-Link, and the New About resmon Page (Tutorials, Issues, Blog, About App)]]></summary></entry><entry><title type="html">resmon Update 2 — April 25, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/25/resmon-update-2/" rel="alternate" type="text/html" title="resmon Update 2 — April 25, 2026" /><published>2026-04-25T16:00:00+00:00</published><updated>2026-04-25T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/25/resmon-update-2</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/25/resmon-update-2/"><![CDATA[<h1 id="update-2--calendar-readability-cross-platform-desktop-notifications-multi-provider-ai-keys-per-execution-ai-override-parity-and-configurations-lockstep">Update 2 — Calendar Readability, Cross-Platform Desktop Notifications, Multi-Provider AI Keys, Per-Execution AI Override Parity, and Configurations Lockstep</h1>
-<h2 id="metadata">Metadata</h2>
-<ul>
-<li><strong>Update number:</strong> 2</li>
-<li><strong>Update type:</strong> mixed (bugfix + feature)</li>
-<li><strong>Date:</strong> 2026-04-25</li>
-<li><strong>Author:</strong> Ryan Kamp</li>
-<li><strong>Commit hash:</strong> 023d7abc176f50a5eddac35d04bf86e288ac13a8</li>
-<li><strong>Commit timestamp:</strong> 2026-04-26T18:06:13-04:00</li>
-<li><strong>GitHub push timestamp:</strong> 2026-04-26T22:06:23Z</li>
-<li><strong>App version:</strong> 1.0.0 → 1.1.0</li>
-</ul>
-<h2 id="summary">Summary</h2>
-<p>This update lands two bug fixes and three feature clusters, plus eleven out-of-band additions that emerged mid-update and were folded back into the same change set per the workflow’s T-UPD-ADD rule. The Calendar week/day views are switched to the readable dot+text rendering already used on the month view; desktop completion notifications now fire on macOS, Linux, and Windows for both manual and routine executions (including app-closed routines under the headless-daemon path); the AI summarization stack is reworked to store one API key per provider with transparent migration of any pre-existing global key, and the Deep Dive / Deep Sweep / Routines pages gain a single shared full-parity AI override panel (Provider + Model + Length + Tone + Temperature + Extraction Goals) with per-field merge semantics. The Settings → AI panel is rebuilt around a four-column <strong>Stored API Keys</strong> table backed by a new <code>ai_default_models</code> per-provider default-model map; the Configurations page gains a per-row <strong>Edit</strong> action with three config-type-aware modal variants and a stale-link 404 fallback; and the configuration-import endpoint now auto-materializes a deactivated routine for every imported routine config, restoring the bidirectional Routines ↔ routine-configs invariant.</p>
-<h2 id="motivation">Motivation</h2>
-<p>All items in this update originated in the user’s second-after-release feedback session and map back to the change inventory in <a href="../update_4_25_26/update_4_25_26_workflow.md"><code>.ai/updates/update_4_25_26/update_4_25_26_workflow.md</code></a>.</p>
-<ul>
-<li><strong>Bug A — Calendar week/day event readability</strong> (workflow item #1, batch 1). The <code>timeGridWeek</code> and <code>timeGridDay</code> views rendered each event as a status-colored background block with type-colored text on top; the two color channels collided and the text was unreadable. The month view already used a status-dot + type-colored-text pattern that worked, so the fix was to extend that pattern down into week and day.</li>
-<li><strong>Bug B — Desktop notifications not firing on any platform</strong> (workflow item #2, batch 2). Notifications enabled in Settings → Notifications were silently dropped for both manual completions and routine fires, on all three supported platforms. Routine notifications additionally needed to fire when the app window was closed under headless-daemon / background-execution mode (the launchd / <code>systemd --user</code> / Task Scheduler service path). Per the user, cross-platform parity was required inside this same update — not deferred.</li>
-<li><strong>Feature 1 — Multi-provider AI API key storage</strong> (workflow item #3, batch 3). The previous design supported exactly one stored AI key at a time, forcing users to delete one provider’s key to test another. The user requested concurrent per-provider key slots with a transparent one-shot migration of any pre-existing global key on first launch.</li>
-<li><strong>Feature 2 — Full per-execution AI override parity</strong> (workflow item #4, batch 4). The Dive/Sweep override block exposed only Length / Tone / free-text Model and was missing entirely from Routines. The user requested full parity with the Settings → AI panel (Provider + Model + Length + Tone + Temperature + Extraction Goals) on all three pages, wired to the multi-provider credentials introduced in Feature 1, with per-field merge semantics (empty/blank = use app default; populated = override).</li>
-<li><strong>Feature 3 — Settings → AI tooltips</strong> (workflow item #5, batch 4). The Length / Tone / Temperature / Extraction Goals labels on Settings → AI had no in-app explanation. The user requested an <code>InfoTooltip</code> ”?” hover on each of the four labels.</li>
-<li><strong>Out-of-band additions OOB-1..OOB-11.</strong> Eleven follow-on requests landed mid-update after T-UPD-1: a richer Stored API Keys table on Settings → AI (OOB-1, -2, -7, -8); a Model dropdown + Load-models button + inline missing-key entry + Save-as-default-model action on the override panel (OOB-3, -4); a new <code>ai_default_models</code> per-provider default-model map (OOB-5); race-safe writers in <code>AISettings.tsx</code> to stop two writers from clobbering the map (OOB-6); a per-row <strong>Edit</strong> action on the Configurations page with three modal variants (OOB-9); a stale <code>linked_routine_id</code> 404 fallback (OOB-10); and an import-side fix that auto-materializes a deactivated routine for every imported routine config so the bidirectional Routines ↔ routine-configs invariant holds (OOB-11). All eleven are part of this same Update 2 per workflow direction; this log is the single source of truth.</li>
-</ul>
-<h2 id="changes">Changes</h2>
-<h3 id="batch-1--bug-a-calendar-weekday-event-readability">Batch 1 — Bug A: Calendar week/day event readability</h3>
-<ul>
-<li><code>resmon_scripts/frontend/src/pages/CalendarPage.tsx</code> — wired the FullCalendar <code>eventContent</code> / <code>eventClassNames</code> / <code>eventDidMount</code> hooks for the <code>timeGridWeek</code> and <code>timeGridDay</code> views to the same dot+type-colored-text rendering already used on the <code>dayGridMonth</code> view; week and day events no longer paint a status-colored background block under type-colored text.</li>
-<li><code>resmon_scripts/frontend/src/styles/global.css</code> (or the calendar-scoped styles file actually used) — removed the <code>background-color</code> rules from the <code>calendar-type-*</code> / <code>fc-event-*</code> classes when the active view is <code>timeGridWeek</code> or <code>timeGridDay</code>; the status dot is now the sole status channel in those views.</li>
-</ul>
-<h3 id="batch-2--bug-b-desktop-notifications-across-macos-linux-and-windows">Batch 2 — Bug B: Desktop notifications across macOS, Linux, and Windows</h3>
-<ul>
-<li>In-process notification dispatcher (the module reachable via <code>notify_on_complete</code>) — repaired the dispatch path that swallowed notifications when the renderer was the active window and when the headless daemon fired routines with no attached renderer.</li>
-<li><code>resmon_scripts/implementation_scripts/daemon.py</code> and <code>resmon_scripts/implementation_scripts/service_manager.py</code> — wired the headless-daemon execution path into the notification dispatcher so routine completions raised by the launchd / <code>systemd --user</code> / Task Scheduler service path emit a desktop notification even when no renderer is attached.</li>
-<li><code>resmon_scripts/service_units/</code> (launchd plist, <code>systemd --user</code> unit, Task Scheduler XML) — verified per-platform notification permissions are not blocked by the service template; documented the per-platform manual-verification checklist where the dev machine could not natively exercise both Linux and Windows.</li>
-<li>No new runtime dependency was added; the existing notifier surface covers all three platforms once the dispatcher is reached.</li>
-</ul>
-<h3 id="batch-3--feature-1-multi-provider-ai-api-key-storage-with-transparent-migration">Batch 3 — Feature 1: Multi-provider AI API key storage with transparent migration</h3>
-<ul>
-<li><code>resmon_scripts/implementation_scripts/credential_manager.py</code> — added a per-provider credential-naming scheme (<code>ai_api_key__&#x3C;provider_slug></code>) and a one-shot, idempotent migration helper invoked at backend startup that re-keys any pre-existing legacy global AI credential under the per-provider name corresponding to the user’s currently selected provider. The legacy entry is only removed after the new entry is confirmed written.</li>
-<li><code>resmon_scripts/resmon.py</code> — surfaced per-provider presence on <code>GET /api/credentials</code>, accepted per-provider names on <code>PUT /api/credentials/{name}</code> and <code>DELETE /api/credentials/{name}</code>, and updated the AI factory / provider-resolution path so the correct stored key is selected at execution time based on the active provider.</li>
-<li><code>resmon_scripts/frontend/src/components/Settings/AISettings.tsx</code> — replaced the single-key form with a presence map keyed by provider; this is the foundation OOB-1..OOB-8 build on.</li>
-</ul>
-<h3 id="batch-4--feature-2--feature-3-per-execution-ai-override-parity-and-settings--ai-tooltips">Batch 4 — Feature 2 + Feature 3: Per-execution AI override parity and Settings → AI tooltips</h3>
-<ul>
-<li><code>resmon_scripts/frontend/src/components/AIOverridePanel.tsx</code> <em>(new)</em> — single shared override panel rendering the full Settings → AI control set (Provider + Model + Length + Tone + Temperature + Extraction Goals). Empty values are dropped via a <code>buildAIOverridePayload</code> helper before posting so they cannot clobber persisted defaults during the backend per-field merge.</li>
-<li><code>resmon_scripts/frontend/src/pages/DeepDivePage.tsx</code>, <code>resmon_scripts/frontend/src/pages/DeepSweepPage.tsx</code>, <code>resmon_scripts/frontend/src/pages/RoutinesPage.tsx</code> — mounted <code>AIOverridePanel</code> inside the form / create-edit modal; replaced the previous Length/Tone/free-text-Model trio with the shared panel (Routines previously had no override block at all).</li>
-<li><code>resmon_scripts/resmon.py</code> (AI execution-settings merge) — extended the per-execution merge to accept Provider + Model + Length + Tone + Temperature + Extraction Goals as per-field overrides; per-execution overrides never write back to the persisted <code>app_settings</code> row.</li>
-<li><code>resmon_scripts/frontend/src/components/Settings/AISettings.tsx</code> — added <code>InfoTooltip</code> ”?” hovers next to the <strong>Length</strong>, <strong>Tone</strong>, <strong>Temperature</strong>, and <strong>Extraction Goals</strong> labels (Feature 3).</li>
-</ul>
-<h3 id="out-of-band-additions">Out-of-Band Additions</h3>
-<ul>
-<li><strong>OOB-1, OOB-2, OOB-7, OOB-8 — Settings → AI Stored API Keys table.</strong> <code>resmon_scripts/frontend/src/components/Settings/AISettings.tsx</code> now renders a four-column <code>Stored API Keys</code> table (Provider / Status / Default Model / Actions). The Provider name (only — not the row) is the click target for setting the app default; Status carries a <code>Default</code> badge for the active provider; per-row Actions expose <code>Clear default model</code> and <code>Clear API key</code>. The table is lifted out of the <code>.settings-form</code> 480 px-capped container into its own <code>min(960px, 100%)</code> wrapper with non-stacking horizontal Actions buttons. (<code>global.css</code> minor tweak from OOB-1 only; OOB-7/-8 stayed inline so the shared <code>.settings-form</code> rule is not perturbed.)</li>
-<li><strong>OOB-3, OOB-4 — Override panel: provider-aware Model dropdown + missing-key inline entry + Save-as-default-model.</strong> <code>resmon_scripts/frontend/src/components/AIOverridePanel.tsx</code> replaced the override-panel free-text Model input with a dropdown populated by <code>POST /api/ai/models</code> for the chosen Provider, behind a <code>Load models</code> button. When the chosen Provider has no stored key, the panel renders an inline API-key input that POSTs to <code>/api/credentials/{name}</code> (re-using the Settings → AI endpoint). A <code>Save as default model</code> button persists the chosen model into <code>ai_default_models[provider]</code> without leaving the page; after save, the panel emits the live-update event so other surfaces refresh. No backend route additions.</li>
-<li><strong>OOB-5 — <code>ai_default_models</code> per-provider default-model map.</strong> <code>resmon_scripts/resmon.py</code> added <code>ai_default_models</code> (JSON-encoded <code>{provider: model_id}</code> dict) to <code>_SETTINGS_GROUPS["ai"]</code>. All read/write paths (Settings → AI panel, override panel, the <code>AIDefaultsInfo</code> strip on Dive/Sweep/Routines) consult the map keyed by the active provider, falling back to the legacy global <code>ai_model</code> / <code>ai_local_model</code> only for the active provider’s row when the map has no entry. Non-breaking, additive — no schema migration. <strong>Operational caveat:</strong> existing daemons started before this allowlist entry existed silently dropped <code>ai_default_models</code> writes; users upgrading past this update must restart the daemon (kill the existing <code>resmon-daemon</code> process and let the renderer attach to a fresh one).</li>
-<li><strong>OOB-6 — Race-safe writers in <code>AISettings.tsx</code>.</strong> <code>handleClearDefaultModel</code>, <code>handleSetDefaultProvider</code>, and <code>handleSave</code> in <code>resmon_scripts/frontend/src/components/Settings/AISettings.tsx</code> each <code>GET /api/settings/ai</code> immediately before each <code>PUT</code>, merge the fresh <code>ai_default_models</code> map with their intended delta, and <code>PUT</code> only the narrow set of keys they need to change; the override panel already used a similarly narrow PUT. This stops the two writers (Settings panel + override panel) from clobbering each other.</li>
-<li><strong>OOB-9 — Configurations page per-row Edit action.</strong> <code>resmon_scripts/frontend/src/pages/ConfigurationsPage.tsx</code> gained an <code>Edit</code> button on every row’s Actions column with a config-type-aware modal: <code>routine</code> → full Routines-style editor (cron + multi-repo + date range + keywords + max-results + AI/Email/Email-AI/Notify toggles + Execution-Location radio + shared <code>AIOverridePanel</code>) saving via <code>PUT /api/routines/{linked_routine_id}</code>; <code>manual_sweep</code> → same form minus cron and the routine-only toggles, saving via <code>PUT /api/configurations/{id}</code>; <code>manual_dive</code> → same as <code>manual_sweep</code> but with <code>RepositorySelector mode="single"</code>. No new backend routes.</li>
-<li><strong>OOB-10 — Stale <code>linked_routine_id</code> 404 fallback.</strong> <code>handleEditSave</code> in <code>resmon_scripts/frontend/src/pages/ConfigurationsPage.tsx</code> now tries <code>PUT /api/routines/{linked_routine_id}</code> first and, on 404, falls back to <code>PUT /api/configurations/{id}</code> with the full routine payload (and <code>linked_routine_id</code> cleared). Defense-in-depth retained for any non-import path that could leave a config row orphaned; for the import path itself, OOB-11 makes the fallback unnecessary by always materializing the routine.</li>
-<li><strong>OOB-11 — Import ↔ Routines bidirectional invariant.</strong> <code>resmon_scripts/resmon.py</code>’s <code>import_configurations</code> endpoint post-processes each imported row: for every <code>config_type == 'routine'</code> config it parses the inner parameters JSON, builds a routine insert payload, <strong>forces <code>is_active=0</code></strong> (imported routines are deactivated by default so bulk imports never auto-fire), calls <code>insert_routine</code>, captures the new id, and rewrites the just-imported config row’s parameters JSON so <code>linked_routine_id</code> points at the new routine and <code>is_active=False</code>. The response gains a <code>routines_created</code> counter. <code>resmon_scripts/frontend/src/pages/RoutinesPage.tsx</code> subscribes to <code>useConfigurationsVersion()</code> so the routines list refetches on import without a page reload. No new dependencies; no schema changes.</li>
-</ul>
-<h3 id="public-facing-documentation-touch-ups-t-upd-3">Public-Facing Documentation Touch-Ups (T-UPD-3)</h3>
-<ul>
-<li><code>README.md</code> — extended the <strong>AI-powered summarization</strong> Key-Features bullet to mention concurrent per-provider key storage and full per-execution AI override parity across Deep Dive / Deep Sweep / Routines; added a new <strong>Cross-platform desktop notifications</strong> Key-Features bullet covering macOS / Linux / Windows including the headless-daemon path; verified no other section (installation, supported repositories, operational modes, technology stack) required edits.</li>
-<li><code>resmon_reports/info_docs/settings_info.md</code> — added the new four-column <code>Stored API Keys</code> table description, click-provider-name-to-set-default semantics, <code>Default</code> badge in Status, <code>Clear default model</code> / <code>Clear API key</code> actions, the <code>ai_default_models</code> map, and the four <code>InfoTooltip</code> additions on the AI panel; clarified the Notifications panel covers all three platforms (with the daemon caveat for app-closed routine notifications) and that Advanced → Background Execution is a precondition for app-closed notifications.</li>
-<li><code>resmon_reports/info_docs/deep_dive_info.md</code>, <code>deep_sweep_info.md</code>, <code>routines_info.md</code> — replaced the Length/Tone/free-text-Model override description with the full-parity <code>AIOverridePanel</code> description (Provider-aware Model dropdown with <code>Load models</code>, inline API-key entry for missing-key providers, <code>Save as default model</code>); added the panel description to <code>routines_info.md</code> (previously absent).</li>
-<li><code>resmon_reports/info_docs/configs_info.md</code> — documented the new per-row <strong>Edit</strong> action and its three modal variants (OOB-9), the stale <code>linked_routine_id</code> 404 fallback (OOB-10), and the import-bidirectional-sync rule from OOB-11; added the <code>routines_created</code> response field to the <code>/api/configurations/import</code> description.</li>
-<li><code>resmon_reports/info_docs/routines_info.md</code> — also noted that routine rows can now appear via Configurations-page imports (deactivated by default) in addition to the Create-modal path, and that the page subscribes to the configurations bus so imports surface without a reload.</li>
-<li><code>resmon_reports/info_docs/calendar_info.md</code> — updated the Event Styling paragraph for week/day views to describe the new dot+type-colored-text rendering.</li>
-</ul>
-<h3 id="app-version-bump">App Version Bump</h3>
-<ul>
-<li><code>resmon_scripts/implementation_scripts/config.py</code> — <code>APP_VERSION</code> bumped from <code>"1.0.0"</code> to <code>"1.1.0"</code> (minor: new user-visible features under a stable major).</li>
-<li><code>resmon_scripts/frontend/package.json</code> — <code>"version"</code> bumped from <code>"1.0.0"</code> to <code>"1.1.0"</code> to match.</li>
-<li><code>resmon_scripts/frontend/src/components/Settings/AboutAppSettings.tsx</code> — added a <strong>Recent Update</strong> card to the <code>about-grid</code> summarizing this update by number, name, and one-paragraph summary; the version line continues to read from <code>/api/health</code> so it tracks <code>APP_VERSION</code> automatically.</li>
-</ul>
-<h2 id="verification">Verification</h2>
-<h3 id="test-suites-run">Test Suites Run</h3>
-<p>The Python suite (<code>pytest</code>) was executed from the repository root inside the project’s <code>.venv</code> after every batch and every OOB change:</p>
-<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">source</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> .venv/bin/activate</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">pytest</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/verification_scripts/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span></span></code></pre>
-<ul>
-<li><strong>Batch 1 (Calendar):</strong> frontend webpack production build → <code>webpack 5.106.2 compiled successfully</code>; manual UI smoke confirmed dot+type-colored-text rendering on <code>dayGridMonth</code>, <code>timeGridWeek</code>, and <code>timeGridDay</code>, and that no background fill is applied to week/day events.</li>
-<li><strong>Batch 2 (Notifications):</strong> notification-dispatcher unit tests → green; manual smoke (a) app open, manual Dive completion notification fires; (b) app open, routine completion notification fires; (c) app closed under macOS launchd-managed daemon, routine completion notification fires. Linux (<code>systemd --user</code>) and Windows (Task Scheduler) verified via the dispatcher entry-point unit tests plus the written manual-verification checklist where the dev machine could not natively exercise both OSes.</li>
-<li><strong>Batch 3 (Multi-provider keys):</strong> <code>credential_manager</code> unit tests for per-provider naming and migration idempotency → green; <code>/api/credentials</code> route tests → green; AI factory provider-selection test → green; first-launch migration test against a synthetic legacy keyring entry → green.</li>
-<li><strong>Batch 4 (Override parity + tooltips):</strong> AI execution-settings merge tests (per-execution per-field overrides do not write back to the persisted Settings → AI row) → green; routine-creation tests carrying override settings end-to-end → green; frontend webpack production build → green; one end-to-end smoke run on each of Dive / Sweep / Routine with one non-default override field populated and the others left blank confirmed per-field merge.</li>
-<li><strong>OOB-1..OOB-11:</strong> webpack production build run after each OOB change → <code>compiled successfully</code> at every step. Backend Python unit tests for the credential-manager / settings paths remained green throughout. Backend <code>curl</code> round-trip on <code>PUT /api/settings/ai</code> confirmed <code>ai_default_models</code> persists across PUT/GET (after the stale-daemon caveat in OOB-5 was applied). Manual UI smoke confirmed: per-provider key storage round-trips; clicking only the Provider name sets the app default and adds the <code>Default</code> badge; <code>Clear default model</code> / <code>Clear API key</code> per-row Actions behave; OOB-6’s race-safe merge accumulates entries across alternating saves from the two surfaces; the override panel’s Load-models / inline-key / Save-as-default flow works on Dive / Sweep / Routines; Configurations Edit modal pre-populates and saves the right endpoint for each of the three config types; the OOB-10 fallback path saves successfully against an imported routine config with a stale <code>linked_routine_id</code>; and importing a routine config materializes a deactivated routine on the Routines page without reload.</li>
-<li><strong>Final aggregate run</strong> at the end of T-UPD-2: <code>pytest resmon_scripts/verification_scripts/ -q</code> → all tests green, no skips beyond pre-existing platform-gated tests (Linux-only / Windows-only systemd and Task Scheduler integration paths are skipped on macOS by design and were exercised through the manual checklist instead).</li>
-</ul>
-<h3 id="skipped-test-rationale">Skipped-Test Rationale</h3>
-<ul>
-<li>The platform-gated Linux <code>systemd --user</code> and Windows Task Scheduler integration tests are skipped on macOS by their existing <code>pytest.mark.skipif</code> guards. They were exercised manually against the platform-specific service templates per the workflow’s manual-verification checklist; no test was disabled or deleted.</li>
-</ul>
-<h3 id="build-verification">Build Verification</h3>
-<ul>
-<li>Frontend: <code>npm run build</code> (production webpack) ran clean after each batch and after each OOB change.</li>
-<li>Backend: <code>python -c "import resmon_scripts.resmon"</code> and the daemon attach path ran clean after every backend touch; <code>[main] Attached to existing resmon-daemon on port 8742</code> confirmed at the end of T-UPD-2.</li>
-</ul>
-<h2 id="follow-ups">Follow-ups</h2>
-<ul>
-<li><strong>Stale-daemon advisory (OOB-5).</strong> Users upgrading from a build that predates <code>ai_default_models</code> must restart any long-lived <code>resmon-daemon</code> process so the new settings-allowlist entry is picked up. The behavior is silent-drop, not error, on the old daemon. Consider adding a startup version check in a future update so the renderer can warn when the attached daemon is older than the renderer.</li>
-<li><strong>Linux / Windows live-OS verification.</strong> Cross-platform parity for desktop notifications is covered by unit tests + the manual checklist; live-OS smoke runs on a Linux box and a Windows box are still recommended in a follow-up update once that hardware is available.</li>
-<li><strong>Configurations-page edit history.</strong> OOB-9’s Edit modal saves immediately; an undo / “revert to last saved” affordance was discussed but deferred — call it out as a candidate enhancement for a future update.</li>
-<li><strong>Per-paper artifact retention</strong> (Settings → Storage PDF / TXT retention policies) remains reserved for a future per-paper artifact-download feature; this update does not exercise that surface.</li>
-</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 2 — Calendar Readability, Cross-Platform Desktop Notifications, Multi-Provider AI Keys, Per-Execution AI Override Parity, and Configurations Lockstep]]></summary></entry><entry><title type="html">resmon Update 1 — April 24, 2026</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/24/resmon-update-1/" rel="alternate" type="text/html" title="resmon Update 1 — April 24, 2026" /><published>2026-04-24T16:00:00+00:00</published><updated>2026-04-24T16:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/24/resmon-update-1</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/24/resmon-update-1/"><![CDATA[<h1 id="update-1--config-deletion-propagation-fix--query-keyword-transparency">Update 1 — Config-Deletion Propagation Fix &#x26; Query Keyword Transparency</h1>
-<h2 id="metadata">Metadata</h2>
-<ul>
-<li><strong>Update number:</strong> 1</li>
-<li><strong>Update type:</strong> mixed (bugfix + feature)</li>
-<li><strong>Date:</strong> 2026-04-24</li>
-<li><strong>Author:</strong> Ryan Kamp</li>
-<li><strong>Commit hash:</strong> 707c07221f607297a7a919bd3f4d527a968832c8</li>
-<li><strong>Commit timestamp:</strong> 2026-04-25T03:01:35-04:00</li>
-<li><strong>GitHub push timestamp:</strong> 2026-04-25T07:01:45Z</li>
-</ul>
-<h2 id="summary">Summary</h2>
-<p>This update ships the first post-release change set for resmon. It fixes a frontend cache-staleness bug where deleted <code>manual_dive</code> / <code>manual_sweep</code> configurations continued to appear in the Deep Dive and Deep Sweep <code>Load Configuration</code> dropdowns, and it introduces a “Query Keyword Transparency” feature that surfaces, on every page where a user picks repositories, exactly how each repository’s upstream API combines space-separated keywords. The feature also adds a consolidated, grouped, color-coded glossary on the Repositories &#x26; API Keys page and per-repository keyword-combination metadata in the catalog and on <code>.ai/prep/repos.csv</code>. Per-repository research replaces the previously lumped row for SSRN, RePEc, PLOS, DBLP, and IEEE Xplore (SSRN and RePEc are not in the active catalog and were therefore not added; PLOS, DBLP, and IEEE were classified individually).</p>
-<h2 id="motivation">Motivation</h2>
-<p>Both items in this update originated in the user’s first-after-release feedback session and map back to the change inventory in <code>.ai/updates/update_4_24_26/update_4_24_26_workflow.md</code>:</p>
-<ul>
-<li><strong>Bug — Improper Config Deletion</strong> (workflow item #1, batch 1). After deleting a <code>manual_dive</code> or <code>manual_sweep</code> configuration from the Configurations page, the deleted entry was still selectable in the <code>Load Configuration</code> dropdown on the Deep Dive and Deep Sweep pages and could still auto-populate the form. The Routines page was unaffected. Root cause: the shared <code>ConfigLoader</code> only refetched on its <code>configType</code> / <code>refreshKey</code> props, neither of which changed when a deletion happened on a different page; there was no cross-page invalidation channel.</li>
-<li><strong>Feature — Query Keyword Transparency</strong> (workflow item #2, batch 2). Users had no in-app indication of how each repository’s upstream API combines keywords (some are implicit AND, some are implicit OR, several are relevance-ranked Lucene/Solr backends). The user requested per-repo banners on Deep Dive, Deep Sweep, and Routines, an enriched expander plus a glossary on the Repositories &#x26; API Keys page, the same metadata in <code>.ai/prep/repos.csv</code>, and individual research for the lumped row in <code>.ai/prep/keyword_booleans_overview.md</code>.</li>
-</ul>
-<h2 id="changes">Changes</h2>
-<h3 id="batch-1--improper-config-deletion-cluster-shared-root-cause">Batch 1 — Improper Config Deletion (cluster, shared root cause)</h3>
-<ul>
-<li><code>resmon_scripts/frontend/src/lib/configurationsBus.ts</code> <em>(new, 33 lines)</em> — tiny in-renderer pub/sub bus with <code>notifyConfigurationsChanged()</code> and <code>useConfigurationsVersion()</code> so any mutation site can invalidate every mounted <code>ConfigLoader</code> without page-to-page coupling.</li>
-<li><code>resmon_scripts/frontend/src/components/Forms/ConfigLoader.tsx</code> — subscribe to the bus via <code>useConfigurationsVersion()</code> and add the version to the fetch effect’s dependency array so deletions, saves, and imports anywhere in the app force a refetch.</li>
-<li><code>resmon_scripts/frontend/src/pages/ConfigurationsPage.tsx</code> — call <code>notifyConfigurationsChanged()</code> after a successful delete and after a successful import.</li>
-<li><code>resmon_scripts/frontend/src/pages/DeepDivePage.tsx</code> — call <code>notifyConfigurationsChanged()</code> after a successful “Save Configuration” so newly saved rows immediately appear in sibling loaders.</li>
-<li><code>resmon_scripts/frontend/src/pages/DeepSweepPage.tsx</code> — same notify-on-save wiring as Deep Dive.</li>
-</ul>
-<h3 id="batch-2--query-keyword-transparency-single-feature">Batch 2 — Query Keyword Transparency (single feature)</h3>
-<ul>
-<li><code>resmon_scripts/implementation_scripts/repo_catalog.py</code> — add <code>keyword_combination</code> and <code>keyword_combination_notes</code> fields to <code>RepoCatalogEntry</code> and populate them for all 16 active repositories, using “Implicit AND”, “Explicit OR”, “Relevance-ranked”, or “Relevance-ranked (… upstream-default, unverified)” labels per the workflow’s uncertainty policy. DBLP, IEEE Xplore, and PLOS are individually classified (replacing the previously lumped row); SSRN and RePEc are not in the active catalog and were therefore not added.</li>
-<li><code>resmon_scripts/verification_scripts/test_repo_catalog.py</code> — extend <code>expected_keys</code> and add <code>test_keyword_combination_populated_for_every_active_repo</code>.</li>
-<li><code>resmon_scripts/frontend/src/api/repositories.ts</code> — extend the <code>RepoCatalogEntry</code> TypeScript interface with the two new optional fields.</li>
-<li><code>resmon_scripts/frontend/src/components/Forms/KeywordCombinationBanner.tsx</code> <em>(new, 42 lines)</em> — compact banner mounted under the repository selector on Deep Dive, Deep Sweep, and Routines that shows the keyword-combination label and notes for each currently selected repository, with a tooltip pointing to the consolidated glossary.</li>
-<li><code>resmon_scripts/frontend/src/components/Repositories/KeywordSemanticsGlossary.tsx</code> <em>(new, 182 lines)</em> — consolidated, expandable glossary on the Repositories &#x26; API Keys page. Three categories (“Boolean combination”, “Ranking &#x26; confidence”, “Underlying search platforms”), each rendered as a color-accented section with a card grid of color-coded badge + short label + definition for every term (“Implicit AND”, “Explicit AND”, “Implicit OR”, “Explicit OR”, “Relevance-ranked”, “upstream-default, unverified”, “Lucene”, “Solr”). Iterated through three visual formats during review; final layout is the grouped card-grid format.</li>
-<li><code>resmon_scripts/frontend/src/components/Repositories/RepoDetailsPanel.tsx</code> — render the new “Effective Default Keyword Combination” and “Keyword Combination Notes” rows in the per-repo expander.</li>
-<li><code>resmon_scripts/frontend/src/pages/DeepDivePage.tsx</code> — mount <code>KeywordCombinationBanner</code> for the selected single repository.</li>
-<li><code>resmon_scripts/frontend/src/pages/DeepSweepPage.tsx</code> — mount <code>KeywordCombinationBanner</code> for each selected repository.</li>
-<li><code>resmon_scripts/frontend/src/pages/RoutinesPage.tsx</code> — mount <code>KeywordCombinationBanner</code> in the Create/Edit modal for each selected repository.</li>
-<li><code>resmon_scripts/frontend/src/pages/RepositoriesPage.tsx</code> — mount <code>KeywordSemanticsGlossary</code> above the catalog table.</li>
-<li><code>.ai/prep/repos.csv</code> <em>(internal scaffolding, not tracked by git)</em> — extended with <code>keyword_combination</code> and <code>keyword_combination_notes</code> columns mirroring the catalog entries; per the user’s directive this file is enriched in place rather than relocated.</li>
-</ul>
-<h3 id="out-of-band-additions-t-upd-add">Out-of-Band Additions (T-UPD-ADD)</h3>
-<p>None.</p>
-<h2 id="verification">Verification</h2>
-<ul>
-<li><strong>Backend unit tests:</strong> <code>python -m pytest resmon_scripts/verification_scripts/test_repo_catalog.py -q</code> → <code>10 passed in 0.02s</code>. Includes the new <code>test_keyword_combination_populated_for_every_active_repo</code> and the extended <code>test_catalog_as_dicts_shape</code> <code>expected_keys</code> set.</li>
-<li><strong>Frontend production build:</strong> <code>npm run build:renderer</code> (run from <code>resmon_scripts/frontend/</code>) → <code>webpack 5.106.2 compiled successfully in 5111 ms</code> after batch 2’s components were finalized. Re-run after each visual iteration of the glossary; final iteration also compiled cleanly.</li>
-<li><strong>Manual UI verification:</strong> the live Electron app (attached to the running daemon on <code>127.0.0.1:8742</code>) was used to verify (a) deleting a <code>manual_dive</code> config from the Configurations page makes it disappear from the Deep Dive <code>Load Configuration</code> dropdown without a reload, and the same for <code>manual_sweep</code> on the Deep Sweep page; (b) the keyword-combination banner appears under the repository selector on Deep Dive, Deep Sweep, and the Routines create/edit modal, and lists one row per selected repository with the correct label; (c) the consolidated glossary on the Repositories &#x26; API Keys page expands, renders three category sections with colored accents, and shows every defined term as a card; (d) each row in the catalog table exposes the two new entries in its expander.</li>
-<li><strong>Skipped tests:</strong> none. No frontend Jest suite was run because the project does not currently maintain one for these surfaces; manual UI verification is the existing standard for renderer-only changes.</li>
-</ul>
-<h2 id="follow-ups">Follow-ups</h2>
-<ul>
-<li>Optional: add a Playwright/Jest smoke test for <code>ConfigLoader</code> cross-page invalidation so future regressions are caught without manual reproduction.</li>
-<li>Optional: confirm the “upstream-default, unverified” labels for DBLP, IEEE Xplore, and PLOS by directly probing each upstream search box; promote the labels to the unqualified form once verified.</li>
-<li>The cloud catalog mirror (if/when the cloud service serializes the catalog independently) will need the two new fields surfaced in its <code>/api/v2/repositories/catalog</code> response; not in scope for this update.</li>
-</ul>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 1 — Config-Deletion Propagation Fix &#x26; Query Keyword Transparency]]></summary></entry><entry><title type="html">Welcome to the resmon blog</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/23/welcome-to-the-resmon-blog/" rel="alternate" type="text/html" title="Welcome to the resmon blog" /><published>2026-04-23T00:00:00+00:00</published><updated>2026-04-23T00:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/23/welcome-to-the-resmon-blog</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/23/welcome-to-the-resmon-blog/"><![CDATA[<p>This is the first post on the resmon blog. Going forward, every release update
-to the resmon app will be mirrored here as its own post, including the full
-contents of that update’s <code>update_&#x3C;DATE>.md</code> document, screen-recording GIFs
-of new features and bug fixes (where applicable), and any other context that
-helps users understand the change.</p>
+<h2 id="version">Version</h2>
+<p>1.0.0. This update did not change the version number.</p>]]></content><author><name>Ryan Kamp</name></author><category term="updates" /><summary type="html"><![CDATA[Update 1 — Deleted configurations stay deleted, and each repository says how it combines keywords]]></summary></entry><entry><title type="html">Welcome to the resmon blog</title><link href="https://ryanjosephkamp.github.io/resmon/2026/04/23/welcome-to-the-resmon-blog/" rel="alternate" type="text/html" title="Welcome to the resmon blog" /><published>2026-04-23T00:00:00+00:00</published><updated>2026-04-23T00:00:00+00:00</updated><id>https://ryanjosephkamp.github.io/resmon/2026/04/23/welcome-to-the-resmon-blog</id><content type="html" xml:base="https://ryanjosephkamp.github.io/resmon/2026/04/23/welcome-to-the-resmon-blog/"><![CDATA[<p>This is the first post on the resmon blog. Going forward, every release update
+to the resmon app gets its own post here: what changed, what was fixed, and
+anything you need to do when you upgrade.</p>
 <p>The blog is also surfaced inside the resmon app itself, on the
 <strong>About resmon → Blog</strong> tab. The in-app reader fetches this site’s feed at
 <code>/feed.xml</code> and renders the post list directly from it, so any post published
 here appears in the app on the next tab open without an app re-release.</p>
-<p>Thanks for reading.</p>]]></content><author><name>Ryan Kamp</name></author><category term="announcements" /><summary type="html"><![CDATA[This is the first post on the resmon blog. Going forward, every release update to the resmon app will be mirrored here as its own post, including the full contents of that update’s update_&#x3C;DATE>.md document, screen-recording GIFs of new features and bug fixes (where applicable), and any other context that helps users understand the change.]]></summary></entry></feed>
+<p>Thanks for reading.</p>]]></content><author><name>Ryan Kamp</name></author><category term="announcements" /><summary type="html"><![CDATA[This is the first post on the resmon blog. Going forward, every release update to the resmon app gets its own post here: what changed, what was fixed, and anything you need to do when you upgrade.]]></summary></entry></feed>
