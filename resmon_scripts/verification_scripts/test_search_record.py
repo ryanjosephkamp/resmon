@@ -441,3 +441,33 @@ def test_an_unknown_execution_404s():
     client, _ = _client()
     assert client.get(
         "/api/executions/424242/search-record").status_code == 404
+
+
+def test_a_cancelled_run_explains_its_absences_by_the_cancellation(conn):
+    """A run cancelled while querying has no deduplication figures and no zero
+    reason for the source it was querying, and both absences have one cause.
+    The record used to call this fresh run older than the version that stored
+    the figure, and to say resmon "did not record why" the cancelled source
+    returned nothing, beside that source's own note saying it was cancelled.
+    Found in a walk of the app on October 26, 2026."""
+    exec_id = _run(conn, sources={"biorxiv": {"status": "cancelled"}})
+    update_execution_status(conn, exec_id, "cancelled", end_time="2026-07-01T09:00:08Z")
+    record = search_record.build(conn, exec_id)
+
+    cross = record["deduplication"]["cross_source_duplicates"]
+    assert cross["recorded"] is False
+    assert cross["not_recorded_reason"] == (
+        "The run was cancelled before deduplication, so this figure was never "
+        "computed. Not recorded is not zero.")
+    assert not any("did not record why" in c for c in record["caveats"])
+    assert not any("before resmon 1.8.6" in c for c in record["caveats"])
+    markdown = search_record.to_markdown(record)
+    assert "cancelled while this source was being queried" in markdown
+    assert "predates the version" not in markdown
+
+
+def test_an_answered_source_with_no_recorded_reason_is_still_called_unexplained(conn):
+    """The narrowing must not hide the case the caveat exists for."""
+    exec_id = _run(conn, sources={"arxiv": {"status": "ok", "result_count": 0}})
+    record = search_record.build(conn, exec_id)
+    assert any("did not record why 1 of the 1 sources" in c for c in record["caveats"])

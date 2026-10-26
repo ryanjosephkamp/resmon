@@ -1586,6 +1586,18 @@ html, body, #root {
   opacity: 0.4;
 }
 
+/* Where a cancelled, failed or interrupted run stopped, and what it never reached. */
+.mon-stage--stopped .mon-stage-icon {
+  border-color: #f85149;
+  color: #f85149;
+  background: #f8514910;
+}
+
+.mon-stage--not-run .mon-stage-icon {
+  opacity: 0.25;
+  border-style: dashed;
+}
+
 .mon-stage-label {
   font-size: 11px;
   color: var(--text-secondary);
