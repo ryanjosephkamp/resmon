@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { formatInstant } from '../../lib/datetime';
 import TutorialLinkButton from '../AboutResmon/TutorialLinkButton';
 import { apiClient } from '../../api/client';
 import PageHelp from '../Help/PageHelp';
@@ -429,7 +430,7 @@ const AdvancedSettings: React.FC = () => {
           </div>
           {daemon && daemon.running && daemon.started_at && (
             <div>
-              Last started: <code>{daemon.started_at}</code>
+              Last started: <code>{formatInstant(daemon.started_at)}</code>
             </div>
           )}
           <div style={{ color: '#888' }}>
