@@ -326,11 +326,36 @@ def _apply_state_args(argv: list[str]) -> None:
             os.environ[_STATE_FLAGS[flag]] = value
 
 
+def _raise_open_file_limit(target: int = 4096) -> None:
+    """Lift this process's soft limit on open files toward ``target``.
+
+    launchd starts a user agent with a soft limit of 256, where an app opened
+    from the Finder gets far more, so the service was the one copy of resmon
+    that could run out. A leak of SQLite connections did exactly that (see
+    ``resmon._release_finished_threads_connections_locked``), and the service
+    then refused every connection. That leak is fixed; this keeps the margin
+    the service needs for a sweep's reports and sockets, never above the hard
+    limit. Windows has no such limit to raise.
+    """
+    try:
+        import resource
+    except ImportError:
+        return
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        wanted = target if hard == resource.RLIM_INFINITY else min(target, hard)
+        if soft != resource.RLIM_INFINITY and soft < wanted:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (wanted, hard))
+    except (OSError, ValueError) as exc:
+        logger.warning("could not raise the open-file limit: %s", exc)
+
+
 def run(argv: Optional[list[str]] = None) -> int:
     """Run the daemon. Blocks until uvicorn exits. Returns an exit code."""
     argv = list(argv) if argv is not None else list(sys.argv)
     port = _parse_port(argv)
     _apply_state_args(argv)
+    _raise_open_file_limit()
 
     # Ensure ``resmon_scripts`` is on sys.path so ``import resmon`` works when
     # daemon.py is invoked as ``python -m implementation_scripts.daemon`` from

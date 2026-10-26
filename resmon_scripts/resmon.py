@@ -272,8 +272,42 @@ def _open_connection():
     conn.execute("PRAGMA foreign_keys=ON;")
     conn.execute("PRAGMA busy_timeout=5000;")
     with _db_lock:
+        _release_finished_threads_connections_locked()
         _db_conns.append((conn, threading.current_thread()))
     return conn
+
+
+def _release_finished_threads_connections_locked() -> None:
+    """Close the connections of threads that have ended. Hold ``_db_lock``.
+
+    ``_db_conns`` keeps a reference to every connection so ``close_db`` can
+    find them, and nothing else ever removed one. A thread's own reference
+    dies with its thread-local storage, but this list's does not, so every
+    thread that ever touched the database left a connection open for the life
+    of the process: two file handles each, the database and its WAL. Request
+    threads come and go constantly -- anyio retires a worker after ten idle
+    seconds -- and every run has a thread of its own. The background service
+    runs under launchd's default limit of 256 open files, so about twenty
+    minutes of someone using the app was enough: the service then refused
+    every connection, routine fires included, with ``[Errno 24] Too many open
+    files``. Measured on the wedged service on October 26, 2026: 124 handles
+    on ``resmon.db`` and 120 on ``resmon.db-wal``.
+
+    Closing here is safe for the reason ``close_db`` gives: a thread that has
+    finished cannot be inside a statement on its connection. The anchor is
+    kept whoever opened it, because an in-memory database lives only while a
+    connection to it is open.
+    """
+    kept: list[tuple[sqlite3.Connection, threading.Thread]] = []
+    for owned, owner in _db_conns:
+        if owner.is_alive() or owned is _shared_conn:
+            kept.append((owned, owner))
+            continue
+        try:
+            owned.close()
+        except Exception:
+            pass
+    _db_conns[:] = kept
 
 
 def _get_db():
