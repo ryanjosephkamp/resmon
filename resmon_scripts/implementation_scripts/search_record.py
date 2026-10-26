@@ -252,9 +252,20 @@ def _source_note(source: dict) -> str | None:
     return None
 
 
+# Why a run's deduplication figure can be absent besides its age: it stopped
+# before that step. A record that called a cancelled 2.3.0 run "older than the
+# version that stored this figure" was found in a walk on October 26, 2026.
+_STOPPED_BEFORE_DEDUP = {
+    "cancelled": "The run was cancelled before deduplication, so this figure was never computed.",
+    "failed": "The run failed before deduplication, so this figure was never computed.",
+    "interrupted": "The run was interrupted before deduplication, so this figure was never computed.",
+}
+
+
 def _dedup_block(execution: dict) -> dict:
     """The deduplication figures, each labeled with the box it belongs in."""
     cross_source = execution.get("dedup_cross_source")
+    stopped = _STOPPED_BEFORE_DEDUP.get(execution.get("status") or "")
     return {
         "records_processed": execution.get("dedup_total"),
         "cross_source_duplicates": {
@@ -268,8 +279,9 @@ def _dedup_block(execution: dict) -> dict:
                 "found, not of duplicates deleted."
             ),
             "not_recorded_reason": (
-                None if cross_source is not None else
-                "This run predates the version that stored this figure. It was "
+                None if cross_source is not None
+                else f"{stopped} Not recorded is not zero." if stopped
+                else "This run predates the version that stored this figure. It was "
                 "computed at the time but not kept. Not recorded is not zero."
             ),
         },
@@ -359,7 +371,14 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
             f"records but may be incomplete ({names}). Their notes below say why."
         )
 
-    unrecorded = [s for s in sources if s["zero_reason"] == "not_recorded"]
+    # Only a source that answered is unexplained by its status. A cancelled,
+    # failed or key-less source carries no zero reason because its status is the
+    # reason, and its own note says so; counting it here put "resmon did not
+    # record why" beside "the run was cancelled while this source was being
+    # queried" for the same source.
+    unrecorded = [
+        s for s in sources if s["zero_reason"] == "not_recorded" and s["status"] == "ok"
+    ]
     if unrecorded:
         names = ", ".join(s["source"] for s in unrecorded)
         caveats.append(
