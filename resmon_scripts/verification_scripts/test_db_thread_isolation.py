@@ -324,3 +324,125 @@ def test_close_db_still_closes_the_calling_threads_own_connection():
     resmon_mod.close_db()
     with pytest.raises(sqlite3.ProgrammingError):
         conn.execute("SELECT 1")
+
+
+# ---------------------------------------------------------------------------
+# A finished thread's connection does not outlive it
+# ---------------------------------------------------------------------------
+#
+# ``_db_conns`` kept every connection ever opened, so a long-running process
+# leaked two file handles per thread that had touched the database. The
+# background service hit launchd's 256-file limit after about twenty minutes of
+# use and refused every connection. These run threads one after another, the
+# way a service sees request and execution threads over a day.
+
+
+def _run_in_a_thread(fn) -> None:
+    t = threading.Thread(target=fn)
+    t.start()
+    t.join()
+
+
+def test_a_finished_threads_connection_is_closed_when_another_opens():
+    handed_out: list[sqlite3.Connection] = []
+
+    def worker() -> None:
+        handed_out.append(resmon_mod._get_db())
+
+    for _ in range(50):
+        _run_in_a_thread(worker)
+
+    # Every worker but the last finished before the next one opened, so each
+    # of those connections is closed; the last waits for the next open.
+    for conn in handed_out[:-1]:
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
+    # Counted by owner rather than in total: threads other tests left running
+    # own connections too, and those are rightly kept. What must not survive
+    # is a finished thread's connection -- the last worker's waits for the next
+    # open, and the anchor is kept whoever opened it.
+    with resmon_mod._db_lock:
+        orphaned = [
+            conn for conn, owner in resmon_mod._db_conns
+            if not owner.is_alive() and conn is not resmon_mod._shared_conn
+        ]
+    assert len(orphaned) <= 1, f"{len(orphaned)} finished threads still hold a connection"
+
+
+def test_a_live_threads_connection_is_left_open():
+    """Closing another thread's connection mid-statement segfaults, so a live
+    owner keeps its connection however many others come and go."""
+    holding = threading.Event()
+    release = threading.Event()
+    result: dict[str, object] = {}
+
+    def holder() -> None:
+        conn = resmon_mod._get_db()
+        holding.set()
+        release.wait(timeout=30)
+        result["value"] = conn.execute("SELECT 1").fetchone()[0]
+
+    t = threading.Thread(target=holder)
+    t.start()
+    assert holding.wait(timeout=10)
+    for _ in range(20):
+        _run_in_a_thread(resmon_mod._get_db)
+    release.set()
+    t.join(timeout=30)
+    assert result.get("value") == 1
+
+
+def test_the_anchor_survives_its_opener_finishing():
+    """An in-memory database lives only while a connection to it is open."""
+    resmon_mod.close_db()
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+
+    def first_use() -> None:
+        resmon_mod._get_db().execute(
+            "INSERT INTO app_settings (key, value) VALUES ('anchor_probe', 'kept')")
+        resmon_mod._get_db().commit()
+
+    _run_in_a_thread(first_use)  # this thread opened the anchor, and has ended
+    for _ in range(10):
+        _run_in_a_thread(resmon_mod._get_db)
+    row = resmon_mod._get_db().execute(
+        "SELECT value FROM app_settings WHERE key = 'anchor_probe'").fetchone()
+    assert row is not None and row[0] == "kept"
+
+
+@pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="no /dev/fd to count")
+def test_open_file_handles_stay_flat_across_many_threads(tmp_path):
+    """The defect, measured as the service met it: file handles, not objects."""
+    resmon_mod.close_db()
+    resmon_mod._db_path = str(tmp_path / "resmon.db")
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+    resmon_mod._get_db()
+
+    def worker() -> None:
+        resmon_mod._get_db().execute("SELECT 1").fetchone()
+
+    for _ in range(10):
+        _run_in_a_thread(worker)
+    before = len(list(Path("/dev/fd").iterdir()))
+    for _ in range(200):
+        _run_in_a_thread(worker)
+    after = len(list(Path("/dev/fd").iterdir()))
+    # 200 leaked connections would be 400 more handles.
+    assert after - before <= 4, f"{after - before} file handles gained over 200 threads"
+
+
+def test_the_service_raises_its_open_file_limit():
+    resource = pytest.importorskip("resource")
+    from implementation_scripts import daemon
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    try:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (256, hard))
+        daemon._raise_open_file_limit(1024)
+        raised, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+        expected = 1024 if hard == resource.RLIM_INFINITY else min(1024, hard)
+        assert raised == expected
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))

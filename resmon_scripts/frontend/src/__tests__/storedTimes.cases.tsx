@@ -55,6 +55,7 @@ import AnalyticsPage from '../pages/AnalyticsPage';
 import ConfigurationsPage from '../pages/ConfigurationsPage';
 import DashboardPage from '../pages/DashboardPage';
 import ReadingQueuePage from '../pages/ReadingQueuePage';
+import RoutinesPage from '../pages/RoutinesPage';
 import ResultsList from '../components/Results/ResultsList';
 import DateRangePicker from '../components/Forms/DateRangePicker';
 import { calendarDateOf, formatInstantDate } from '../lib/datetime';
@@ -158,6 +159,25 @@ export function describeStoredTimes(zone: PinnedZone): void {
       await renderWithProviders(<DashboardPage />);
 
       const row = screen.getByText('Nightly codex').closest('tr');
+      expect(row?.querySelectorAll('td')[3]?.textContent).toBe(want.clock);
+    });
+
+    test('Routines: a routine’s last run is the reader’s clock, with its zone', async () => {
+      // Missed by the first pass and found by a walk of the app: the Last
+      // Execution cell printed the stored instant as it came, so the Routines
+      // page and the Dashboard showed one moment as two clocks.
+      mockRoutedFetch({
+        '/api/repositories/catalog': [],
+        '/api/credentials': {},
+        '/api/routines': [{
+          id: 9, name: 'Evening sweep', schedule_cron: '47 20 * * *', is_active: 1,
+          email_enabled: 0, email_ai_summary_enabled: 0, ai_enabled: 0,
+          parameters: '{}', last_execution: EVENING.nowIso,
+        }],
+      });
+      await renderWithProviders(<RoutinesPage />);
+
+      const row = (await screen.findByText('Evening sweep')).closest('tr');
       expect(row?.querySelectorAll('td')[3]?.textContent).toBe(want.clock);
     });
 

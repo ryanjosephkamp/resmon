@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatInstant } from '../../lib/datetime';
 import { DedupBlock, SearchRecordData, SearchRecordState, useSearchRecord } from '../../api/searchRecord';
 import CoverageSummary from './CoverageSummary';
 type SourceRow = SearchRecordData['sources'][number];
@@ -129,7 +130,7 @@ const SearchRecord: React.FC<{ executionId: number; recordState?: SearchRecordSt
       <div className="search-record-head">
         <p className="text-muted">
           The complete, dated account of this search, in the shape a PRISMA flow
-          diagram needs. Generated from saved facts; missing history remains unknown. Execution #{executionId}. Generated {data.generated_at}.
+          diagram needs. Generated from saved facts; missing history remains unknown. Execution #{executionId}. Generated {formatInstant(data.generated_at)}.
         </p>
         <button
           type="button"
@@ -151,7 +152,7 @@ const SearchRecord: React.FC<{ executionId: number; recordState?: SearchRecordSt
       <div className="meta-grid">
         <div className="meta-row">
           <span className="meta-key">Run at</span>
-          <span className="meta-value">{search.run_at}</span>
+          <span className="meta-value">{formatInstant(search.run_at)}</span>
         </div>
         <div className="meta-row">
           <span className="meta-key">Search terms</span>

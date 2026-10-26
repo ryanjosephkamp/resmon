@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { formatInstant } from '../lib/datetime';
 import { useNavigate } from 'react-router-dom';
 import CoveragePanel from '../components/Routines/CoveragePanel';
 import DeliveryPanel from '../components/Routines/DeliveryPanel';
@@ -431,12 +432,12 @@ const RoutinesPage: React.FC = () => {
                   })()}
                 </td>
                 <td>
-                  {r.last_execution || '—'}
+                  {formatInstant(r.last_execution) || '—'}
                   {r.missed_fires && closedMissCount(r.missed_fires) > 0 && (
                     <div className="text-muted missed-fires-note">
                       {`missed ${closedMissCount(r.missed_fires)} ${closedMissCount(r.missed_fires) === 1 ? 'fire' : 'fires'} while resmon was closed`}
                       {closedMissLastDue(r.missed_fires)
-                        ? `; last due ${closedMissLastDue(r.missed_fires)}`
+                        ? `; last due ${formatInstant(closedMissLastDue(r.missed_fires))}`
                         : ''}
                       {' '}
                       <button
@@ -452,7 +453,7 @@ const RoutinesPage: React.FC = () => {
                     <div className="text-muted missed-fires-note" data-testid={`overlap-skipped-${r.id}`}>
                       {`skipped ${r.missed_fires.overlap_skipped} ${r.missed_fires.overlap_skipped === 1 ? 'fire' : 'fires'} because the previous run was still going`}
                       {r.missed_fires.last_overlap_skipped_due_at_utc
-                        ? `; last due ${r.missed_fires.last_overlap_skipped_due_at_utc}`
+                        ? `; last due ${formatInstant(r.missed_fires.last_overlap_skipped_due_at_utc)}`
                         : ''}
                       {' \u2014 this routine takes longer than its schedule allows.'}
                     </div>
