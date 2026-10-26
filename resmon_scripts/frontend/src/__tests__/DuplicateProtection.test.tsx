@@ -13,7 +13,7 @@ import React from 'react';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import DeepSweepPage from '../pages/DeepSweepPage';
 import RoutinesPage from '../pages/RoutinesPage';
-import { newRequestId } from '../api/requestId';
+import { DOUBLE_SUBMIT_WINDOW_MS, newRequestId } from '../api/requestId';
 import { formatInstant } from '../lib/datetime';
 import { callsTo, mockRoutedFetch, renderWithProviders } from './testUtils';
 
@@ -65,6 +65,23 @@ describe('request ids', () => {
     expect(callsTo(fetchMock, '/api/search/sweep').length).toBe(1);
   });
 
+  test('a double click is one run even when the first click is answered at once', async () => {
+    // The in-flight guard alone loses this race: a source resmon can answer for
+    // without asking replies within milliseconds, before the second click of a
+    // double click lands. A walk got two runs from one double click this way.
+    const fetchMock = mockRoutedFetch(BASE_ROUTES);
+    await renderWithProviders(<DeepSweepPage />);
+    await fillSweepForm();
+
+    const run = screen.getByRole('button', { name: /Run Deep Sweep/i });
+    fireEvent.click(run);
+    await waitFor(() => expect(bodiesOf(fetchMock, '/api/search/sweep').length).toBe(1));
+    await waitFor(() => expect(run).not.toBeDisabled());
+    fireEvent.click(run);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(bodiesOf(fetchMock, '/api/search/sweep').length).toBe(1);
+  });
+
   test('each Deep Sweep submission carries its own id', async () => {
     const fetchMock = mockRoutedFetch(BASE_ROUTES);
     await renderWithProviders(<DeepSweepPage />);
@@ -75,10 +92,17 @@ describe('request ids', () => {
     fireEvent.click(run);
     await waitFor(() => expect(bodiesOf(fetchMock, '/api/search/sweep').length).toBe(1));
     // A user's genuine second search: the control comes back once the first
-    // request has settled, and the run it starts is a new submission.
+    // request has settled, and a click a moment later -- past the double-click
+    // window -- starts a new submission.
     await waitFor(() => expect(run).not.toBeDisabled());
-    fireEvent.click(run);
-    await waitFor(() => expect(bodiesOf(fetchMock, '/api/search/sweep').length).toBe(2));
+    const now = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(now + DOUBLE_SUBMIT_WINDOW_MS + 1);
+    try {
+      fireEvent.click(run);
+      await waitFor(() => expect(bodiesOf(fetchMock, '/api/search/sweep').length).toBe(2));
+    } finally {
+      clock.mockRestore();
+    }
 
     const ids = bodiesOf(fetchMock, '/api/search/sweep').map((b) => b.request_id);
     expect(ids[0]).toBeTruthy();

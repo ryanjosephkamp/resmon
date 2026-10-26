@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { apiClient } from '../api/client';
-import { newRequestId } from '../api/requestId';
+import { DOUBLE_SUBMIT_WINDOW_MS, newRequestId } from '../api/requestId';
 import { useExecution } from '../context/ExecutionContext';
 import RepositorySelector from '../components/Forms/RepositorySelector';
 import DateRangePicker from '../components/Forms/DateRangePicker';
@@ -91,9 +91,12 @@ const DeepSweepPage: React.FC = () => {
    */
   const [submitting, setSubmitting] = useState(false);
   const inFlightRequestId = useRef<string | null>(null);
+  /** When this page last started a run; see ``DOUBLE_SUBMIT_WINDOW_MS``. */
+  const lastStartedAt = useRef(0);
 
   const handleRun = async () => {
     if (inFlightRequestId.current !== null) return;
+    if (Date.now() - lastStartedAt.current < DOUBLE_SUBMIT_WINDOW_MS) return;
 
     if (repositories.length === 0) { setError('Please select at least one repository.'); return; }
     if (keywords.length === 0) { setError('Please enter at least one keyword.'); return; }
@@ -125,6 +128,7 @@ const DeepSweepPage: React.FC = () => {
         '/api/search/sweep', body);
       pageExecIdRef.current = resp.execution_id;
       startExecution(resp.execution_id, 'deep_sweep', repositories);
+      lastStartedAt.current = Date.now();
     } catch (err: any) {
       setError(err.message || 'Failed to start sweep.');
     } finally {
