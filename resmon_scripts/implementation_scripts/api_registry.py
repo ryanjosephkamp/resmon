@@ -21,6 +21,13 @@ RETIRED_REPOSITORIES: dict[str, str] = {
         "without putting the account holder in breach of the terms they "
         "accepted at registration."
     ),
+    "oapen": (
+        "OAPEN Library was withdrawn in October 2026. Its search API answers "
+        "resmon's requests with HTTP 403 and a message saying the caller's "
+        "address is not allowed to access the API. It did so from both places "
+        "tried, a workstation and GitHub's hosted runners. The source can "
+        "return if OAPEN lifts the block."
+    ),
     "repec": (
         "RePEc/IDEAS was never activated: its htsearch CGI is no longer "
         "publicly reachable."
@@ -100,7 +107,6 @@ def _ensure_loaded():
         "api_nasa_ads",
         "api_ndl_search",
         "api_nist_rmm",
-        "api_oapen",
         "api_openaire",
         "api_openalex",
         "api_openlibrary",
@@ -110,8 +116,8 @@ def _ensure_loaded():
         "api_semantic_scholar",
         "api_springer",
         "api_zenodo",
-        # NOTE: api_ieee, api_repec and api_ssrn are intentionally excluded from
-        # the active registry, for two different reasons.
+        # NOTE: api_ieee, api_oapen, api_repec and api_ssrn are intentionally
+        # excluded from the active registry, for three different reasons.
         #
         # RePEc and SSRN block programmatic access (SSRN via Cloudflare
         # bot-challenge 403s; RePEc/IDEAS htsearch CGI is no longer publicly
@@ -123,7 +129,14 @@ def _ensure_loaded():
         # integration compliant. See RETIRED_REPOSITORIES above for the wording
         # the user is shown, and docs/source-landscape.md for the full reading.
         #
-        # All three client modules are retained on disk for reference but are
+        # OAPEN answered when it shipped in September 2026, and was withdrawn
+        # in October 2026 once its search API answered HTTP 403 from both
+        # places resmon's requests were sent: GitHub's hosted runners in the
+        # weekly live run of October 19 and a workstation on October 25. Unlike
+        # RePEc and SSRN it did work, and unlike IEEE Xplore its terms are not
+        # the problem. The client itself is unchanged.
+        #
+        # All four client modules are retained on disk for reference but are
         # not loaded. See .ai/prep/repos.md → "Excluded Repositories".
     ]
     for mod_name in _CLIENT_MODULES:

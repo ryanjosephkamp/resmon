@@ -29,7 +29,6 @@ The scholarly sources registered in the repository catalog, whose public APIs ma
 - **NASA ADS** — Smithsonian Astrophysical Observatory / NASA Astrophysics Data System, for the Solr-backed astronomy, astrophysics, and planetary-science API.
 - **NDL Search** — National Diet Library, Japan, for the SRU open-metadata API. Powered by NDL Search API. Metadata provided by the National Diet Library and its contributing databases and institutions.
 - **NIST Resource Metadata Management** — National Institute of Standards and Technology, for the RMM paper-search API. Data created by NIST (National Institute of Standards and Technology).
-- **OAPEN Library** — OAPEN Foundation, for the DSpace REST search API over open-access books and chapters, under OAPEN's CC0 metadata dedication.
 - **OpenAIRE** — the OpenAIRE partnership, for the multi-disciplinary scholarly-graph Search API.
 - **OpenAlex** — OurResearch, for the free, comprehensive scholarly-works REST API and the mailto-based polite-pool rate tier.
 - **Open Library** — Internet Archive, for the public work-metadata search API.

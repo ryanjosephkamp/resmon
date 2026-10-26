@@ -14,7 +14,7 @@ The other two never got the fix until a live run found them, one at a time, on
 2026-10-18. Nine of the twenty-six client modules paginate by page number;
 two were broken; nobody had checked the other seven. This row checks all of
 them on every run, with its denominator read from
-``api_registry.list_repositories()`` so a twenty-eighth source is covered on
+``api_registry.list_repositories()`` so a twenty-seventh source is covered on
 the day it is registered.
 
 **How a page is served.** Each client is driven against a transport that
@@ -287,14 +287,6 @@ _PAGE_SHAPES = {
                            "url": "https://data.nist.gov/x"}
                           for i in range(n)],
         {"ResultCount": _TOTAL})).encode(),
-    # OAPEN's parser drops any record without a handle matching its pattern,
-    # ``type == "item"`` and an explicit non-withdrawn flag. The reply is a
-    # bare JSON array, not an object.
-    "oapen": lambda s, n: json.dumps(
-        [{"handle": f"20.500.12657/{s + i}", "name": _marker(s + i),
-          "type": "item", "withdrawn": False,
-          "metadata": [{"key": "dc.date.issued", "value": "2024"}]}
-         for i in range(n)]).encode(),
     "openalex": lambda s, n: json.dumps(_wrap(
         ("results",), [{"id": f"https://openalex.org/W{s + i}",
                         "display_name": _marker(s + i),
@@ -519,7 +511,7 @@ def test_every_registered_slug_is_either_served_or_excluded():
 
     This is the assertion that keeps the row honest. ``_PAGE_SHAPES`` is a
     hand-written table and a hand-written table goes stale: without this, a
-    twenty-eighth source would join the registry, have no page shape, be
+    twenty-seventh source would join the registry, have no page shape, be
     driven by nothing, and this file would still report every test passing.
 
     **What this row does not establish, in full.**
@@ -546,7 +538,7 @@ def test_every_registered_slug_is_either_served_or_excluded():
       that request the same way; that is what the weekly live suite is for.
     """
     assert SLUGS == api_registry.list_repositories()
-    assert len(SLUGS) >= 27, "the registry shrank; a source was retired silently"
+    assert len(SLUGS) >= 26, "the registry shrank; a source was retired silently"
 
     unaccounted = set(SLUGS) - set(_PAGE_SHAPES) - set(_NOT_SERVED)
     assert not unaccounted, (
@@ -561,7 +553,7 @@ def test_every_registered_slug_is_either_served_or_excluded():
 
     # Said out loud, with the denominator, because "every client paginates
     # correctly" is exactly the claim this project bans without one.
-    assert len(_SERVED) == 24
+    assert len(_SERVED) == 23
     assert len(_NOT_SERVED) == 3
     assert len(_SERVED) + len(_NOT_SERVED) == len(SLUGS)
 

@@ -1,4 +1,18 @@
-"""OAPEN book/chapter metadata, under its CC0 metadata dedication.
+"""OAPEN book/chapter metadata, under its CC0 metadata dedication — RETIRED.
+
+**This module is not loaded.** It was removed from
+``api_registry._CLIENT_MODULES`` and from the repository catalog in October
+2026, and importing it registers nothing that a sweep can reach.
+
+The reason is an access block on OAPEN's side, not its terms and not any
+defect here. Its search API answered HTTP 403, with a body saying the caller's
+address is not allowed to access the API, to GitHub's hosted runners in the
+weekly live run of October 19, 2026 and to a workstation on October 25, 2026,
+when the library's website root answered 200.
+``api_registry.RETIRED_REPOSITORIES`` holds the sentence a user is shown.
+
+Kept on disk because nothing here was found wrong: if OAPEN lifts the block,
+the source can return with ``OapenClient`` unchanged.
 
 Contract: https://www.oapen.org/article/8185269-search-using-a-rest-api
 Pagination/date syntax: https://oapen.o172i.upcloudobjects.com/151b0a45669f429381cb46fe441f23b6.pdf
@@ -176,9 +190,22 @@ class OapenClient(BaseAPIClient):
         )
 
 
-def _register() -> None:
-    from .api_registry import register_client
-    register_client("oapen", OapenClient)
-
-
-_register()
+# ---------------------------------------------------------------------------
+# Registry auto-registration
+# ---------------------------------------------------------------------------
+# Deliberately does not self-register. This source is retired
+# (api_registry.RETIRED_REPOSITORIES says why), and every other api_*.py calls
+# register_client() at import time. Leaving that call here would mean any
+# import of this module — a test, a debug session — silently put the source
+# back into the process-wide registry where a sweep could reach it. The
+# registry refuses a retired slug as well; this is the other half of that.
+#
+# To revive the source: drop its entry from RETIRED_REPOSITORIES, restore the
+# module to _CLIENT_MODULES and its entry to repo_catalog.REPOSITORY_CATALOG,
+# and restore the call below.
+#
+#     def _register() -> None:
+#         from .api_registry import register_client
+#         register_client("oapen", OapenClient)
+#
+#     _register()

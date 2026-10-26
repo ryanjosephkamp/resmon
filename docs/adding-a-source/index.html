@@ -287,8 +287,8 @@ dated. The probe runs four queries because the first two are not enough:</p>
 <p>Most of these endpoints tolerate an unknown field prefix and keyword-search the whole
 string, so A looks identical for a source with an author field and a source without one
 — and B is empty either way, because a keyword search for an invented name also finds
-nothing. <strong>D is the control that decides it</strong>, and it caught OAPEN, whose author prefix
-looked ignored under A-versus-C and is plainly parsed under D.</p>
+nothing. <strong>D is the control that decides it</strong>, and it caught OAPEN (since withdrawn),
+whose author prefix looked ignored under A-versus-C and is plainly parsed under D.</p>
 <p><strong><code>returns_orcid</code> and <code>returns_affiliation</code> are about what the record carried, not which
 keys it has.</strong> Count them. Crossref puts an <code>affiliation</code> key on every author object and
 leaves it empty on most; DataCite and Zenodo carry an <code>orcid</code> key populated on <strong>none</strong>

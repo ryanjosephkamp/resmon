@@ -6,6 +6,9 @@ are load-bearing: the module is not imported, and the registry refuses the slug
 even if something imports it anyway. The second half exists because the first
 one silently failed — the tier-2/3 tests imported ``api_ieee`` directly, its
 module-scope ``_register()`` put the source back, and the suite went on passing.
+
+OAPEN was withdrawn in October 2026 for neither its terms nor its client: its
+search API answers HTTP 403. The same two halves apply to it.
 """
 
 import importlib
@@ -26,6 +29,17 @@ RETIRED = sorted(RETIRED_REPOSITORIES)
 
 def test_ieee_is_retired():
     assert "ieee" in RETIRED_REPOSITORIES
+
+
+def test_oapen_is_retired():
+    """Withdrawn in October 2026 because its search API answers HTTP 403.
+
+    The parametrized cases below read their slugs from RETIRED_REPOSITORIES,
+    so dropping the entry would quietly stop them covering OAPEN; this one
+    would fail instead.
+    """
+    assert "oapen" in RETIRED_REPOSITORIES
+    assert "HTTP 403" in RETIRED_REPOSITORIES["oapen"]
 
 
 @pytest.mark.parametrize("slug", RETIRED)
@@ -67,7 +81,7 @@ def test_registry_refuses_to_register_a_retired_slug(slug):
     assert slug not in list_repositories()
 
 
-@pytest.mark.parametrize("module", ["api_ieee", "api_repec", "api_ssrn"])
+@pytest.mark.parametrize("module", ["api_ieee", "api_oapen", "api_repec", "api_ssrn"])
 def test_importing_a_retired_client_module_registers_nothing(module):
     """The modules are kept on disk for reference; importing must be inert."""
     importlib.import_module(f"implementation_scripts.{module}")

@@ -235,8 +235,8 @@ dated. The probe runs four queries because the first two are not enough:
 Most of these endpoints tolerate an unknown field prefix and keyword-search the whole
 string, so A looks identical for a source with an author field and a source without one
 — and B is empty either way, because a keyword search for an invented name also finds
-nothing. **D is the control that decides it**, and it caught OAPEN, whose author prefix
-looked ignored under A-versus-C and is plainly parsed under D.
+nothing. **D is the control that decides it**, and it caught OAPEN (since withdrawn),
+whose author prefix looked ignored under A-versus-C and is plainly parsed under D.
 
 **`returns_orcid` and `returns_affiliation` are about what the record carried, not which
 keys it has.** Count them. Crossref puts an `affiliation` key on every author object and

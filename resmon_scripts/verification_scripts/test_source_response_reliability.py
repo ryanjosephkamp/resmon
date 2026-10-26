@@ -901,6 +901,13 @@ def test_oapen_progressing_body_cannot_outlive_shared_deadline(monkeypatch):
 # timeout was shorter than the provider's replies. Second, "HTTP 500, then a
 # timeout on the retry" was recorded as just ``timeout``. These cases put both
 # behind a real loopback socket and the production ``safe_request`` path.
+#
+# OAPEN was withdrawn in October 2026, when its search API began answering
+# HTTP 403 (``api_registry.RETIRED_REPOSITORIES``). These cases stay. They
+# build ``OapenClient`` directly rather than through the registry, the client
+# is kept on disk for a revival, and the failure-history and deadline
+# properties they pin belong to ``safe_request`` and the sweep engine as much
+# as to OAPEN.
 
 
 def _oapen_page_server(plan):
