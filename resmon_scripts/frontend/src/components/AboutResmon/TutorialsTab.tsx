@@ -766,7 +766,7 @@ export const sections: TutorialSection[] = [
       'Pick a `pdf_policy` and `txt_policy` (each constrained to `save`, `archive`, or `discard`) and an `archive_after_days` window.',
       'Click `Save` to persist via `PUT /api/settings/storage`.',
       'Under **Backup and restore**, click `Back up now` to write a bundle into the export directory: your database as a consistent snapshot, every byte in your Library vault, optionally the reports tree, and a manifest that hashes all of it.',
-      'Click `Restore from backup…` and pick a bundle folder. resmon re-hashes every file and shows you the report before anything is committed; `Restart to restore` only schedules the work for the next start.',
+      'Click `Restore from backup…` and pick a bundle folder. resmon re-hashes every file and shows you the report before anything is committed; `Restore on next start` only schedules the work: the page then says what will apply it. Quitting and reopening resmon does, unless the background service holds your database; then the service has to restart, and the page says how.',
       'The report says where your Library vault would go — the folder the backup itself recorded. On another machine that folder usually does not exist, so `Restore the vault somewhere else…` lets you pick one here instead; resmon keeps the vault’s `resmon-library-<id>` name and updates the database to match.',
     ],
     features: [

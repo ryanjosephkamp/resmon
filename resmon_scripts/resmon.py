@@ -6725,6 +6725,67 @@ def backup_verify(body: BundleBody):
         raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message})
 
 
+def _restart_instructions() -> tuple[str, str]:
+    """``(restart, stop)``: how to restart, and how to stop, the background service here."""
+    if sys.platform == "darwin":
+        return (
+            "log out of your Mac and back in, or run "
+            "`launchctl kickstart -k gui/$(id -u)/com.resmon.daemon` in Terminal",
+            "turn off Run resmon in the background in Settings → Advanced",
+        )
+    if sys.platform == "win32":
+        return (
+            "end the resmon-daemon task in Task Scheduler and run it again",
+            "turn off Run resmon in the background in Settings → Advanced",
+        )
+    return (
+        "run `systemctl --user restart resmon-daemon`",
+        "turn off Run resmon in the background in Settings → Advanced",
+    )
+
+
+def _when_a_staged_restore_runs() -> str:
+    """What will apply a staged restore, and what to do to make it happen now.
+
+    A restore runs in ``_lifespan``, when a backend starts, so which backend
+    that is decides what the user has to do. The page used to say "Restart to
+    restore" on a button that restarted nothing, then "Restart resmon". A window
+    that started its own backend does apply the restore when it is reopened. A
+    window attached to the background service does not: the service keeps
+    running when the window closes, so for anyone with the service the restore
+    stayed staged however often they reopened resmon. And where some *other*
+    service holds the lock, a window's own backend refuses the restore at start
+    (``database_in_use``), which the user learned only afterwards. Found in a
+    walk of the app on October 26, 2026.
+    """
+    from implementation_scripts import daemon as _daemon
+
+    restart, stop = _restart_instructions()
+    lock = _daemon.read_lock() or {}
+    pid = lock.get("pid") if isinstance(lock.get("pid"), int) else None
+    if pid == os.getpid():
+        return (
+            "The background service holds your database, so this restore runs when "
+            "the service next starts, not when you reopen this window. To restore "
+            f"now, restart the service: {restart}. Then open resmon again. Nothing "
+            "has changed yet."
+        )
+    if pid is not None:
+        try:
+            os.kill(pid, 0)
+            alive = True
+        except (OSError, ProcessLookupError):
+            alive = False
+        if alive:
+            return (
+                f"Another resmon background service is running (pid {pid}), and a "
+                "restore will not replace the database while it holds it. To "
+                f"restore, {stop}, then quit resmon and open it again. Nothing has "
+                "changed yet."
+            )
+    return "Quit resmon and open it again to restore. Nothing has changed yet."
+
+
 @app.post("/api/restore")
 def restore_stage(body: RestoreRequest):
     """Verify a bundle and stage it. The restore itself happens on the next start."""
@@ -6767,7 +6828,7 @@ def restore_stage(body: RestoreRequest):
         "success": True,
         "staged": pointer,
         "report": report,
-        "next_step": "Restart resmon to restore. Nothing has changed yet.",
+        "next_step": _when_a_staged_restore_runs(),
     }
 
 
@@ -6799,10 +6860,14 @@ def backup_last():
             }
         except backup_module.BackupError:
             summary = None
+    pending = backup_module.pending_restore(state)
     return {
         "last_backup": summary,
         "last_backup_path_recorded": last_path or None,
-        "pending_restore": backup_module.pending_restore(state),
+        "pending_restore": pending,
+        # The sentence the pending notice shows, so it says what will apply the
+        # restore here rather than "the next time resmon starts".
+        "pending_restore_runs_when": _when_a_staged_restore_runs() if pending else None,
         "last_restore": backup_module.last_restore(state),
         "undo_copies": backup_module.undo_copies(state),
     }

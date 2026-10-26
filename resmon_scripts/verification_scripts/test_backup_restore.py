@@ -707,7 +707,9 @@ def test_the_routes_refuse_without_confirm_and_produce_a_bundle(tmp_path, monkey
 
         staged = client.post("/api/restore", json={"confirm": "CONFIRM", "path": bundle})
         assert staged.status_code == 200, staged.text
-        assert "Restart resmon" in staged.json()["next_step"]
+        # No service holds this test database, so reopening resmon is the start
+        # that applies the restore (test_restore_next_step.py has the other cases).
+        assert "open it again to restore" in staged.json()["next_step"]
 
         last = client.get("/api/backup/last").json()
         assert last["last_backup"]["path"] == bundle

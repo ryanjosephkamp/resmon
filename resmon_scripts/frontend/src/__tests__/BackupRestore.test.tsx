@@ -87,7 +87,7 @@ test('choosing a backup verifies it and restores nothing until a second click', 
   // Nothing has been staged yet.
   expect(callsTo(fetchMock, '/api/restore')).toHaveLength(0);
 
-  fireEvent.click(screen.getByRole('button', { name: /Restart to restore/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Restore on next start/i }));
   await waitFor(() => expect(callsTo(fetchMock, '/api/restore').length).toBe(1));
   expect(JSON.parse(String(callsTo(fetchMock, '/api/restore')[0].init?.body))).toEqual({
     confirm: 'CONFIRM', path: REPORT.path, accept_fk_violations: false,
@@ -115,12 +115,12 @@ test('orphaned rows must be accepted before the restore can be staged', async ()
   const card = await screen.findByTestId('fk-violations');
   expect(card).toHaveTextContent('library_file_documents');
   // The bundle verifies fine; it is the orphans that hold the button.
-  expect(screen.getByRole('button', { name: /Restart to restore/i })).toBeDisabled();
+  expect(screen.getByRole('button', { name: /Restore on next start/i })).toBeDisabled();
 
   fireEvent.click(screen.getByLabelText(/Restore anyway/i));
-  expect(screen.getByRole('button', { name: /Restart to restore/i })).toBeEnabled();
+  expect(screen.getByRole('button', { name: /Restore on next start/i })).toBeEnabled();
 
-  fireEvent.click(screen.getByRole('button', { name: /Restart to restore/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Restore on next start/i }));
   await waitFor(() => expect(callsTo(fetchMock, '/api/restore').length).toBe(1));
   expect(JSON.parse(String(callsTo(fetchMock, '/api/restore')[0].init?.body))).toEqual({
     confirm: 'CONFIRM', path: REPORT.path, accept_fk_violations: true,
@@ -143,7 +143,7 @@ test('a tampered backup shows its problems and cannot be staged', async () => {
 
   await screen.findByTestId('verify-report');
   expect(screen.getByText(/does not match the hash/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /Restart to restore/i })).toBeDisabled();
+  expect(screen.getByRole('button', { name: /Restore on next start/i })).toBeDisabled();
 });
 
 test('after a restore the card names the credentials that did not come back', async () => {
@@ -279,7 +279,7 @@ test('the verify card says where the vault would go and can be pointed elsewhere
     .toHaveTextContent('/Volumes/Archive/vaults'));
   expect(screen.getByTestId('vault-destination')).toHaveTextContent('resmon-library-v1');
 
-  fireEvent.click(screen.getByRole('button', { name: /Restart to restore/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Restore on next start/i }));
   await waitFor(() => expect(callsTo(fetchMock, '/api/restore').length).toBe(1));
   expect(JSON.parse(String(callsTo(fetchMock, '/api/restore')[0].init?.body))).toEqual({
     confirm: 'CONFIRM',
@@ -323,4 +323,30 @@ test('a backup with no vault shows no destination and no picker', async () => {
   expect(screen.queryByTestId('vault-destination')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Restore the vault somewhere else/i }))
     .not.toBeInTheDocument();
+});
+
+test('a staged restore says what will apply it, in the backend’s words', async () => {
+  // "Restart to restore" restarted nothing, and with the background service
+  // reopening the window is not a start, so the old sentence -- "the next time
+  // resmon starts" -- was untrue for anyone using the service.
+  mockRoutedFetch({
+    '/api/backup/last': {
+      ...EMPTY,
+      pending_restore: { bundle: '/backups/b1' },
+      pending_restore_runs_when: 'The background service holds your database, so this restore '
+        + 'runs when the service next starts, not when you reopen this window.',
+    },
+  });
+  await renderWithProviders(<BackupRestore />);
+  const notice = await screen.findByTestId('pending-restore');
+  expect(notice).toHaveTextContent('/backups/b1');
+  expect(notice).toHaveTextContent('runs when the service next starts');
+  expect(notice).not.toHaveTextContent('the next time resmon starts');
+});
+
+test('a backend older than the field keeps the old sentence', async () => {
+  mockRoutedFetch({ '/api/backup/last': { ...EMPTY, pending_restore: { bundle: '/backups/b1' } } });
+  await renderWithProviders(<BackupRestore />);
+  expect(await screen.findByTestId('pending-restore'))
+    .toHaveTextContent('It will run the next time resmon starts.');
 });

@@ -60,6 +60,8 @@ interface VerifyReport {
 interface LastState {
   last_backup: { path: string; created_at_utc?: string; files?: number } | null;
   pending_restore: { bundle?: string } | null;
+  /** What will apply the staged restore here; absent on a backend older than the field. */
+  pending_restore_runs_when?: string | null;
   last_restore: {
     ok: boolean;
     reason?: string;
@@ -381,15 +383,23 @@ const BackupRestore: React.FC = () => {
             onClick={stageRestore}
             disabled={!report.ok || busy !== '' || (report.needs_fk_acceptance && !acceptFk)}
           >
-            Restart to restore
+            Restore on next start
           </button>
         </div>
       )}
 
       {last?.pending_restore?.bundle && (
         <div className="form-warning" data-testid="pending-restore">
-          A restore of <code>{last.pending_restore.bundle}</code> is staged and will run the
-          next time resmon starts. Nothing has changed yet.
+          A restore of <code>{last.pending_restore.bundle}</code> is staged.{' '}
+          {/*
+            The button used to say "Restart to restore" and restarted nothing,
+            and this line said the restore runs "the next time resmon starts".
+            With the background service, reopening the window is not a start:
+            the service keeps running, so the restore never ran. The backend
+            says which start applies it here, and how to make it happen.
+          */}
+          {last.pending_restore_runs_when
+            ?? 'It will run the next time resmon starts. Nothing has changed yet.'}
           <button type="button" className="btn btn-sm" onClick={cancelStaged}>Cancel it</button>
         </div>
       )}
