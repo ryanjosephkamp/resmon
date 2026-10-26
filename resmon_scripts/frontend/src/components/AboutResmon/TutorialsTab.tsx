@@ -241,6 +241,7 @@ export const sections: TutorialSection[] = [
       'Activate / Deactivate the originating routine directly from the popover, or jump to the Routines page.',
     ],
     tips: [
+      'An upcoming fire whose routine nothing will run says `Will not run` beside `scheduled` (or `Not confirmed to run`), the same verdict the Routines page gives, which says why.',
       'Scheduled-fire expansion is capped at 2,000 fires per routine per request and clamped to a 12-month forward window. A notice appears once you navigate past those 12 months; a routine frequent enough to reach the 2,000-fire cap sooner is cut short without one.',
       'Inactive routines and routines with blank or invalid cron expressions contribute no scheduled events.',
     ],

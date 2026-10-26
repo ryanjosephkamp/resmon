@@ -11,6 +11,7 @@ import SaveConfigButton from '../components/SaveConfig/SaveConfigButton';
 import { useRoutinesVersion } from '../lib/routinesBus';
 import { useConfigurationsVersion } from '../lib/configurationsBus';
 import { formatInstant } from '../lib/datetime';
+import { routineFiringNote, type SchedulerStatus } from '../lib/schedulerStatus';
 
 interface CalendarEvent {
   id: string | number;
@@ -85,7 +86,20 @@ const CalendarPage: React.FC = () => {
   // positioned, so the user can't scroll to reach it).
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
+  /**
+   * Whether anything will fire each active routine: the verdict the Routines
+   * page shows. An upcoming fire said "Status: scheduled" whether or not any
+   * scheduler would run it, so the Calendar contradicted the Routines page's
+   * "Will not run" for the same routine. Found in a walk of the app on October
+   * 26, 2026. Left ``null`` when the backend cannot answer, and the popover
+   * then says only what it said before.
+   */
+  const [scheduling, setScheduling] = useState<SchedulerStatus | null>(null);
+
   const fetchData = useCallback(async () => {
+    apiClient.get<SchedulerStatus>('/api/scheduler/status')
+      .then(setScheduling)
+      .catch(() => setScheduling(null));
     try {
       const [evts, rts] = await Promise.all([
         apiClient.get<CalendarEvent[]>('/api/calendar/events'),
@@ -493,6 +507,16 @@ const CalendarPage: React.FC = () => {
                   popover.event.status === 'scheduled' ? 'badge-scheduled' :
                   popover.event.status === 'running' ? 'badge-info' : 'badge-info'
                 }`}>{popover.event.status}</span>
+                {(() => {
+                  if (popover.event.status !== 'scheduled' || !popover.event.routine_id) return null;
+                  const note = routineFiringNote(
+                    scheduling?.routines.find((f) => f.id === popover.event.routine_id));
+                  return note ? (
+                    <span className="text-muted" data-testid="calendar-firing-note">
+                      {' '}· {note}. The Routines page says why.
+                    </span>
+                  ) : null;
+                })()}
               </div>
             )}
             {/* Update 3 / 4_27_26 follow-up: surface the execution's name
