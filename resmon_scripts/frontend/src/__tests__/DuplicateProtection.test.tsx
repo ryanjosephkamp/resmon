@@ -14,6 +14,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import DeepSweepPage from '../pages/DeepSweepPage';
 import RoutinesPage from '../pages/RoutinesPage';
 import { newRequestId } from '../api/requestId';
+import { formatInstant } from '../lib/datetime';
 import { callsTo, mockRoutedFetch, renderWithProviders } from './testUtils';
 
 const BASE_ROUTES = {
@@ -86,6 +87,13 @@ describe('request ids', () => {
   });
 });
 
+/**
+ * A missed-fire line as the page renders it: the instant in the viewer's own
+ * zone, through the same ``formatInstant`` every stored time goes through.
+ */
+const lineWith = (prefix: string, instant: string): RegExp =>
+  new RegExp(`${prefix}; last due ${formatInstant(instant).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+
 describe('missed fires on the Routines page', () => {
   const routine = (missed: any) => ([{
     id: 1, name: 'Morning arXiv sweep', schedule_cron: '0 8 * * *',
@@ -103,7 +111,7 @@ describe('missed fires on the Routines page', () => {
     });
     await renderWithProviders(<RoutinesPage />);
     expect(await screen.findByText(
-      /missed 3 fires while resmon was closed; last due 2026-09-19T07:00:00\+00:00/,
+      lineWith('missed 3 fires while resmon was closed', '2026-09-19T07:00:00+00:00'),
     )).toBeInTheDocument();
   });
 
@@ -134,7 +142,7 @@ describe('missed fires on the Routines page', () => {
     });
     await renderWithProviders(<RoutinesPage />);
     expect(await screen.findByText(
-      /skipped 2 fires because the previous run was still going; last due 2026-09-19T07:05:00\+00:00/,
+      lineWith('skipped 2 fires because the previous run was still going', '2026-09-19T07:05:00+00:00'),
     )).toBeInTheDocument();
     expect(screen.queryByText(/while resmon was closed/)).not.toBeInTheDocument();
     // No Run now beside an overlap skip: running it again is the wrong answer.
@@ -171,13 +179,13 @@ describe('missed fires on the Routines page', () => {
     // as an overlap. The closed count is the difference, not the total, and
     // the closed time is September 18, not the skip's September 19.
     expect(await screen.findByText(
-      /missed 3 fires while resmon was closed; last due 2026-09-18T07:00:00\+00:00/,
+      lineWith('missed 3 fires while resmon was closed', '2026-09-18T07:00:00+00:00'),
     )).toBeInTheDocument();
     expect(screen.queryByText(
-      /while resmon was closed; last due 2026-09-19T07:05:00\+00:00/,
+      lineWith('while resmon was closed', '2026-09-19T07:05:00+00:00'),
     )).not.toBeInTheDocument();
     expect(screen.getByTestId('overlap-skipped-1')).toHaveTextContent(
-      'last due 2026-09-19T07:05:00+00:00',
+      `last due ${formatInstant('2026-09-19T07:05:00+00:00')}`,
     );
     expect(screen.getByTestId('run-now-1')).toBeInTheDocument();
   });
@@ -189,7 +197,7 @@ describe('missed fires on the Routines page', () => {
     });
     await renderWithProviders(<RoutinesPage />);
     expect(await screen.findByText(
-      /missed 3 fires while resmon was closed; last due 2026-09-19T07:00:00\+00:00/,
+      lineWith('missed 3 fires while resmon was closed', '2026-09-19T07:00:00+00:00'),
     )).toBeInTheDocument();
     expect(screen.queryByTestId('overlap-skipped-1')).not.toBeInTheDocument();
   });

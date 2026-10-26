@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { formatInstant } from '../lib/datetime';
 import PageHelp from '../components/Help/PageHelp';
 import { ChoiceSummary } from '../components/Assistant/ComposerChoices';
 import { TranscriptMessages } from '../components/Assistant/TranscriptMessages';
@@ -91,7 +92,7 @@ const ChatsPage: React.FC = () => {
           <p>Page {pageNumber} · {page.sessions.length} chats on this page</p>
           <ul>{page.sessions.map(chat => <li key={chat.id}>
             <button type="button" aria-pressed={chat.id === selected} onClick={() => void select(chat.id)}>
-              <strong>{chat.title}</strong><span>Created {chat.created_at}</span><span>Updated {chat.updated_at}</span>
+              <strong>{chat.title}</strong><span>Created {formatInstant(chat.created_at)}</span><span>Updated {formatInstant(chat.updated_at)}</span>
               <span>{chat.message_count} saved messages</span>
             </button>
           </li>)}</ul>
