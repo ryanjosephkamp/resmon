@@ -64,6 +64,29 @@ describe('DashboardPage', () => {
     expect(screen.getByText(/No active routines/)).toBeInTheDocument();
   });
 
+  test('a read that fails is said to have failed, not shown as an empty list', async () => {
+    // Neither route answers: the fetch rejects, as it does when the backend has
+    // stopped accepting connections. The page must not say "No active routines"
+    // or "No recent activity" about data it could not read.
+    mockRoutedFetch({ '/api/watchdog': WATCHDOG_QUIET });
+    await renderWithProviders(<DashboardPage />);
+
+    expect(await screen.findByTestId('routines-read-error'))
+      .toHaveTextContent('resmon could not read your routines');
+    expect(screen.getByTestId('executions-read-error'))
+      .toHaveTextContent('resmon could not read recent activity');
+    expect(screen.queryByText(/No active routines/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No recent activity/)).not.toBeInTheDocument();
+  });
+
+  test('an empty list that was read still says it is empty, with no error', async () => {
+    mockRoutedFetch({ '/api/routines': [], '/api/executions': [] });
+    await renderWithProviders(<DashboardPage />);
+    expect(screen.getByText(/No recent activity/)).toBeInTheDocument();
+    expect(screen.queryByTestId('routines-read-error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('executions-read-error')).not.toBeInTheDocument();
+  });
+
   // --- The watchdog strip -------------------------------------------------
   //
   // The Dashboard says whether to look; the Watchdog page says what at. What

@@ -129,6 +129,7 @@ export const sections: TutorialSection[] = [
       'The Active Routines table lists only routines whose `is_active` flag is truthy.',
     ],
     tips: [
+      'If resmon cannot read your routines or recent runs, the Dashboard says so in place of the list. An empty list is shown only when resmon read it and it was empty.',
       'The Recent Activity table shows the 10 most recent executions; older runs live on the Results & Logs page.',
       'The Dashboard never launches new executions — start them from Deep Dive, Deep Sweep, or Routines.',
       'The Getting started card reports only what resmon can see: a command found on your machine, a key slot with something in it. It never says a lane works — resmon cannot tell whether a CLI is signed in, or a key accepted, until the first paper goes through it.',
