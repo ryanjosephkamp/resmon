@@ -93,12 +93,27 @@ const formatRepos = (exec: Execution): string => {
   return '—';
 };
 
+/** What a failed read says, in the error's own words where it has some. */
+function readFailure(err: unknown): string {
+  return err instanceof Error && err.message ? err.message : 'the request failed';
+}
+
 const DashboardPage: React.FC = () => {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [watchdog, setWatchdog] = useState<WatchdogSummary | null>(null);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [exportPath, setExportPath] = useState('');
   const [exportError, setExportError] = useState('');
+  /**
+   * A list that could not be read is not an empty list. These two reads used
+   * to swallow their errors, so with the backend unreachable the page said "No
+   * active routines" and "No recent activity" -- the sentences a quiet monitor
+   * shows -- about data it had never seen. Found in a walk on October 26, 2026,
+   * against a service that had run out of file handles. A failed read now says
+   * so, and a list from an earlier read stays on screen beneath it.
+   */
+  const [routinesError, setRoutinesError] = useState<string | null>(null);
+  const [executionsError, setExecutionsError] = useState<string | null>(null);
   const { activeExecution, cancelExecution, completionCounter } = useExecution();
   // Update 3 / 4_27_26 follow-up: refetch executions when any
   // SaveConfigButton broadcasts on the configurations bus, so the
@@ -108,11 +123,11 @@ const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     apiClient.get<Routine[]>('/api/routines')
-      .then(setRoutines)
-      .catch(() => {});
+      .then((data) => { setRoutines(data); setRoutinesError(null); })
+      .catch((err: unknown) => setRoutinesError(readFailure(err)));
     apiClient.get<Execution[]>('/api/executions?limit=10')
-      .then(setExecutions)
-      .catch(() => {});
+      .then((data) => { setExecutions(data); setExecutionsError(null); })
+      .catch((err: unknown) => setExecutionsError(readFailure(err)));
     // Silent on failure: the watchdog strip is a bonus on this page, and an
     // error banner about the health checker would itself be noise.
     apiClient.get<WatchdogSummary>('/api/watchdog')
@@ -270,11 +285,17 @@ const DashboardPage: React.FC = () => {
 
       <div className="card">
         <h2>Active Routines</h2>
-        {activeRoutines.length === 0 ? (
+        {routinesError && (
+          <p className="form-error" role="alert" data-testid="routines-read-error">
+            resmon could not read your routines ({routinesError}), so this page cannot say
+            whether any are active.
+          </p>
+        )}
+        {activeRoutines.length === 0 ? (routinesError ? null : (
           <p style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>
             No active routines. Create one from the Routines page.
           </p>
-        ) : (
+        )) : (
           <table className="simple-table">
             <thead>
               <tr>
@@ -318,11 +339,17 @@ const DashboardPage: React.FC = () => {
             )}
           </div>
         )}
-        {executions.length === 0 ? (
+        {executionsError && (
+          <p className="form-error" role="alert" data-testid="executions-read-error">
+            resmon could not read recent activity ({executionsError}), so this page cannot say
+            whether anything ran.
+          </p>
+        )}
+        {executions.length === 0 ? (executionsError ? null : (
           <p style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>
             No recent activity.
           </p>
-        ) : (
+        )) : (
           <table className="simple-table">
             <thead>
               <tr>
