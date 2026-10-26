@@ -661,21 +661,29 @@ const AdvancedSettings: React.FC = () => {
           <div
             className="modal-content"
             onClick={(e) => e.stopPropagation()}
+            /*
+              The dark surface comes from ``.modal-content``. An inline white
+              background overrode it while the buttons kept the dark theme's
+              light text, so on Factory reset -- the most destructive dialog in
+              the app -- Cancel, the safe way out, was near-white on white. Found
+              in a walk of the app on October 26, 2026. Every color here is the
+              theme's.
+            */
             style={{
-              background: 'white', maxWidth: 560, width: '90%',
+              maxWidth: 560, width: '90%',
               padding: '1.25rem', borderRadius: 8,
               boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
             }}
           >
-            <h3 style={{ marginTop: 0, color: '#c33' }}>
+            <h3 style={{ marginTop: 0, color: 'var(--color-error)' }}>
               {dangerAction.label}
             </h3>
-            <p style={{ fontSize: '0.9rem', color: '#444' }}>
+            <p style={{ fontSize: '0.9rem', color: 'var(--color-text)' }}>
               {dangerAction.longWarning}
             </p>
             {dangerAction.needsTyping ? (
               <>
-                <p style={{ fontSize: '0.85rem', color: '#666' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
                   Type <code>CONFIRM</code> (case-sensitive, all caps) to
                   enable the confirm button.
                 </p>
@@ -692,14 +700,16 @@ const AdvancedSettings: React.FC = () => {
                     padding: '0.5rem',
                     fontFamily: 'monospace',
                     fontSize: '0.95rem',
-                    border: '1px solid #ccc',
+                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-bg)',
+                    color: 'var(--color-text)',
                     borderRadius: 4,
                     marginBottom: '0.75rem',
                   }}
                 />
               </>
             ) : (
-              <p style={{ fontSize: '0.85rem', color: '#666' }}>
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
                 Click <strong>Confirm</strong> to proceed, or
                 <strong> Cancel </strong>to back out.
               </p>
