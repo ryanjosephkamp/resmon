@@ -152,6 +152,7 @@ export const sections: TutorialSection[] = [
       'After completion, an inline Execution result card shows status, result count, new count, elapsed seconds, and a `View Report` link.',
     ],
     tips: [
+      'A second click within a second of starting a run is taken as the other half of a double click and ignored; click again a moment later to start another run.',
       'Per-execution AI overrides leave your app-wide Settings → AI defaults untouched; empty fields are dropped before posting so they never clobber persisted defaults.',
       'If a repository requires an API key, the inline `RepoKeyStatus` indicator surfaces presence so you can fix it before launching.',
       'A `Before you run this` panel appears under the date range as soon as a selected source will change something about the query \u2014 a window it can only answer by whole calendar years, a keyword search resmon has to do itself, a cap on how much comes back. It names the change in terms of the dates you typed, and it is absent when nothing applies.',
@@ -174,6 +175,7 @@ export const sections: TutorialSection[] = [
       '`ConfigLoader` and `Save Configuration` use the `manual_sweep` config type and skip the date range, mirroring Deep Dive.',
     ],
     tips: [
+      'A second click within a second of starting a run is taken as the other half of a double click and ignored; click again a moment later to start another run.',
       'The Max Results slider is per repository, not aggregate — a 100-cap across 5 repositories can yield up to 500 raw rows before deduplication.',
       'Combine Deep Sweep with AI summarization for a fast cross-repository literature scan; per-document summaries are embedded in the report.',
       'A `Before you run this` panel appears under the date range as soon as a selected source will change something about the query \u2014 a window it can only answer by whole calendar years, a keyword search resmon has to do itself, a cap on how much comes back. It names the change in terms of the dates you typed, and it is absent when nothing applies.',

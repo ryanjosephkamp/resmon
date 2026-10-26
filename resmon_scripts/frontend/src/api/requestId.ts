@@ -22,6 +22,20 @@
  * the app is built for; the fallback exists for the jsdom environments in the
  * test suite, which do not all provide it.
  */
+/**
+ * How long after a run starts a second submission of the same form is taken
+ * for the second half of a double click rather than a new search.
+ *
+ * The disabled control and the in-flight ref cover only the time the request
+ * is in flight, and a source that resmon can answer for without asking -- Open
+ * Library given no complete calendar year -- answers within milliseconds, well
+ * inside the gap between the two clicks of a double click. A walk of the app on
+ * October 26, 2026 double-clicked Run Deep Dive once and got two runs, #143 and
+ * #144, started in the same second. Someone who means a second run clicks again
+ * a moment later.
+ */
+export const DOUBLE_SUBMIT_WINDOW_MS = 1000;
+
 export function newRequestId(): string {
   const c = globalThis.crypto as Crypto | undefined;
   if (c && typeof c.randomUUID === 'function') return c.randomUUID();
