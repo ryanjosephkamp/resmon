@@ -12,6 +12,7 @@
 import { getCollection } from 'astro:content';
 import Base from '../../layouts/Base.astro';
 import { readDocument } from '../../lib/documents';
+import IndexList from '../../components/IndexList.astro';
 import { url } from '../../lib/urls';
 
 const docs = (await getCollection('docs')).sort((a, b) => a.id.localeCompare(b.id));
@@ -38,24 +39,16 @@ const contractRows = contract.map((entry) => ({
   path="/reference/"
   width="wide"
 >
-  <h1>Reference</h1>
-  <p class="lede">
-    These pages are rendered from the Markdown in the repository's <code>docs/</code> folder, not
-    copied from it, so the site and a checkout cannot disagree.
-  </p>
+  <header class="page-head">
+    <h1>Reference</h1>
+    <p class="lede">
+      These pages are rendered from the Markdown in the repository's <code>docs/</code> folder,
+      not copied from it, so the site and a checkout cannot disagree.
+    </p>
+  </header>
 
   <h2>Documents</h2>
-  <ul class="index">
-    {
-      docRows.map((row) => (
-        <li>
-          <a href={row.href}>{row.title}</a>
-          <p>{row.description}</p>
-          <p class="provenance">{row.source}</p>
-        </li>
-      ))
-    }
-  </ul>
+  <IndexList rows={docRows.map((row) => ({ href: row.href, title: row.title, description: row.description, source: row.source }))} />
 
   <h2>The API contract</h2>
   <p class="lede">
@@ -63,69 +56,38 @@ const contractRows = contract.map((entry) => ({
     and guarded by <code>verification_scripts/test_api_contract.py</code>, which regenerates both
     files and fails on any difference. Published here, never edited here.
   </p>
-  <ul class="index">
-    {
-      contractRows.map((row) => (
-        <li>
-          <a href={row.href}>{row.title}</a>
-          <p>{row.description}</p>
-          <p class="provenance">{row.source}</p>
-        </li>
-      ))
-    }
-    <li>
-      <a href={url('/api-contract/openapi.json')}>openapi.json</a>
-      <p>The OpenAPI document for every route, served as the file the generator writes.</p>
-      <p class="provenance">docs/api-contract/openapi.json</p>
-    </li>
-  </ul>
+  <IndexList
+    start={docRows.length + 1}
+    rows={[
+      ...contractRows.map((row) => ({ href: row.href, title: row.title, description: row.description, source: row.source })),
+      {
+        href: url('/api-contract/openapi.json'),
+        title: 'openapi.json',
+        description: 'The OpenAPI document for every route, served as the file the generator writes.',
+        source: 'docs/api-contract/openapi.json',
+      },
+    ]}
+  />
 </Base>
 
 <style>
+  .page-head {
+    padding-bottom: var(--space-4);
+    border-bottom: var(--border-width-heavy) solid var(--color-rule-heavy);
+  }
+
   h1 {
     margin-top: 0;
+  }
+
+  h2 {
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-heavy);
   }
 
   .lede {
     color: var(--color-text-muted);
     max-width: var(--measure);
-  }
-
-  .index {
-    list-style: none;
-    margin: var(--space-4) 0 var(--space-6);
-    padding: 0;
-    display: grid;
-    gap: var(--space-4);
-  }
-
-  .index li {
-    margin-top: 0;
-    padding: var(--space-4);
-    border: var(--border-width) solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--color-surface);
-  }
-
-  .index a {
-    font-weight: var(--weight-semibold);
-  }
-
-  .index p {
-    margin: var(--space-1) 0 0;
-    color: var(--color-text-muted);
-    font-size: var(--text-sm);
-  }
-
-  .provenance {
-    font-size: var(--text-xs) !important;
-    color: var(--color-text-faint) !important;
-    font-family: var(--font-mono);
-  }
-
-  @media (min-width: 52rem) {
-    .index {
-      grid-template-columns: repeat(2, 1fr);
-    }
+    margin: 0;
   }
 </style>

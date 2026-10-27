@@ -1,0 +1,385 @@
+{
+  "provenance": "Exported from the Source wall (GET /api/coverage/source-wall) of a fresh copy of resmon on October 27, 2026, after four searches of the public sources: the three shown first, and the CRISPR search recorded in the tour. Nothing in it is edited.",
+  "recorded_on": "2026-10-27",
+  "verdict": {
+    "level": "attention",
+    "headline": "Semantic Scholar has not answered in the 1 of the last 4 runs that recorded an outcome for it.",
+    "detail": [
+      "Zenodo and bioRxiv answered when last asked and are no longer in the most recent run's saved selection."
+    ]
+  },
+  "legend": [
+    {
+      "state": "answered",
+      "label": "answered",
+      "meaning": "The source replied and returned records."
+    },
+    {
+      "state": "answered_empty",
+      "label": "answered, zero",
+      "meaning": "The source replied and genuinely had nothing. A quiet field, not a fault."
+    },
+    {
+      "state": "could_not_be_asked",
+      "label": "could not be asked",
+      "meaning": "No key, retired, no author query, or a window the source cannot answer."
+    },
+    {
+      "state": "failed",
+      "label": "failed",
+      "meaning": "The source was asked and the exchange broke."
+    },
+    {
+      "state": "not_recorded",
+      "label": "outcome not recorded",
+      "meaning": "resmon did not observe an outcome. This is not a success and not a failure."
+    },
+    {
+      "state": "not_selected",
+      "label": "not asked on this run",
+      "meaning": "This run's saved selection did not name this source. Nothing was asked of it."
+    }
+  ],
+  "totals": {
+    "answered": 21,
+    "answered_empty": 0,
+    "could_not_be_asked": 0,
+    "failed": 1,
+    "not_recorded": 0,
+    "not_selected": 18
+  },
+  "runs": [
+    {
+      "id": 1,
+      "label": "Deep Sweep",
+      "query": "protein structure prediction",
+      "sources": 10,
+      "started_at": "2026-10-27T07:11:06Z",
+      "ended_at": "2026-10-27T07:11:33Z",
+      "returned": 360,
+      "new": 360
+    },
+    {
+      "id": 2,
+      "label": "Deep Dive",
+      "query": "graph neural networks",
+      "sources": 1,
+      "started_at": "2026-10-27T07:11:36Z",
+      "ended_at": "2026-10-27T07:11:36Z",
+      "returned": 60,
+      "new": 55
+    },
+    {
+      "id": 3,
+      "label": "Deep Sweep",
+      "query": "single-cell atlas",
+      "sources": 4,
+      "started_at": "2026-10-27T07:11:41Z",
+      "ended_at": "2026-10-27T07:12:15Z",
+      "returned": 159,
+      "new": 158
+    },
+    {
+      "id": 4,
+      "label": "Deep Sweep",
+      "query": "CRISPR base editing",
+      "sources": 7,
+      "started_at": "2026-10-27T07:12:31Z",
+      "ended_at": "2026-10-27T07:12:42Z",
+      "returned": 650,
+      "new": 619
+    }
+  ],
+  "sources": [
+    {
+      "name": "arXiv",
+      "cells": [
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 60,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 100,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        }
+      ]
+    },
+    {
+      "name": "bioRxiv",
+      "cells": [
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        }
+      ]
+    },
+    {
+      "name": "CrossRef",
+      "cells": [
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 100,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        }
+      ]
+    },
+    {
+      "name": "DOAJ",
+      "cells": [
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 100,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        }
+      ]
+    },
+    {
+      "name": "EuropePMC",
+      "cells": [
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 100,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        }
+      ]
+    },
+    {
+      "name": "OpenAlex",
+      "cells": [
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 100,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        }
+      ]
+    },
+    {
+      "name": "PLOS",
+      "cells": [
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 50,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        }
+      ]
+    },
+    {
+      "name": "PubMed",
+      "cells": [
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 39,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 100,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        }
+      ]
+    },
+    {
+      "name": "Semantic Scholar",
+      "cells": [
+        {
+          "state": "failed",
+          "label": "did not answer",
+          "count": 0,
+          "note": "semantic_scholar could not be queried: HTTP 429 after 4 attempts. This is not a zero — the source did not answer."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        }
+      ]
+    },
+    {
+      "name": "Zenodo",
+      "cells": [
+        {
+          "state": "answered",
+          "label": "answered",
+          "count": 40,
+          "note": "Recorded returned records; this is not the number newly added to the corpus."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        },
+        {
+          "state": "not_selected",
+          "label": "not asked on this run",
+          "count": null,
+          "note": "This source is not in this run's saved selection, so it was not asked. This is a choice recorded on the run, not a gap in what resmon observed."
+        }
+      ]
+    }
+  ]
+}

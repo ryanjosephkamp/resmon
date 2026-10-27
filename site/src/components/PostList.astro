@@ -9,43 +9,55 @@
  * Keeping the list on the home page keeps that first view useful.
  */
 import type { CollectionEntry } from 'astro:content';
-import { postPath, displayDate, xmlSchemaUtc } from '../lib/posts';
+import { postPath, writtenDate, xmlSchemaUtc } from '../lib/posts';
 import { url } from '../lib/urls';
 
 interface Props {
   posts: CollectionEntry<'posts'>[];
-  /** Show the first line of each post beneath its title. */
+  /** Kept for callers; the post's headline is now always the title. */
   withSummary?: boolean;
 }
 
-const { posts, withSummary = false } = Astro.props;
+const { posts } = Astro.props;
 
 /** The post's own `# Heading`, which says what the update was about. */
 function headline(body: string | undefined): string {
   const match = (body ?? '').match(/^\s*#\s+(.*\S)\s*$/m);
   return match ? match[1].replace(/[*_`]/g, '') : '';
 }
+
+/**
+ * The list said each update three times: the date, "resmon Update 26 —
+ * September 21, 2026", and "Update 26 — The run that finishes". It now says
+ * the number once, in the gutter, and the post's own headline as the title.
+ */
+function parts(title: string, body: string | undefined): { number: string; text: string } {
+  const number = title.match(/Update\s+(\d+)/i)?.[1] ?? '';
+  const head = headline(body).replace(/^Update\s+\d+\s*[—–-]\s*/i, '');
+  return { number: number ? `Update ${number}` : '', text: head || title };
+}
 ---
 
 <ol class="posts">
   {
-    posts.map((post) => (
-      <li>
-        <a href={url(postPath(post.id, post.data.date))}>
-          {/*
-            `datetime` must be a valid HTML date string, and the front matter is not one:
-            `2026-04-24 12:00:00 -0400` has a space for the separator and an offset with no
-            colon, which no parser is obliged to read. The displayed text is the UTC day, so
-            the machine-readable value is the same instant in ISO form.
-          */}
-          <time datetime={xmlSchemaUtc(post.data.date)}>{displayDate(post.data.date)}</time>
-          <span class="post-title">{post.data.title}</span>
-          {withSummary && headline(post.body) && (
-            <span class="post-summary">{headline(post.body)}</span>
-          )}
-        </a>
-      </li>
-    ))
+    posts.map((post) => {
+      const { number, text } = parts(post.data.title, post.body);
+      return (
+        <li>
+          <a href={url(postPath(post.id, post.data.date))}>
+            {/*
+              `datetime` must be a valid HTML date string, and the front matter is not one:
+              `2026-04-24 12:00:00 -0400` has a space for the separator and an offset with no
+              colon, which no parser is obliged to read. The machine-readable value is the
+              instant in ISO form; the text is the day the author wrote.
+            */}
+            <time datetime={xmlSchemaUtc(post.data.date)}>{writtenDate(post.data.date)}</time>
+            <span class="post-number">{number}</span>
+            <span class="post-title">{text}</span>
+          </a>
+        </li>
+      );
+    })
   }
 </ol>
 
@@ -56,54 +68,48 @@ function headline(body: string | undefined): string {
     padding: 0;
   }
 
-  .posts li + li {
-    margin-top: 0;
-    border-top: var(--border-width) solid var(--color-border);
+  .posts li {
+    margin: 0;
+    border-bottom: var(--border-width) solid var(--color-border);
   }
 
   .posts a {
     display: grid;
-    gap: var(--space-1);
+    grid-template-columns: auto 1fr;
+    gap: var(--space-1) var(--space-4);
     padding-block: var(--space-3);
     text-decoration: none;
     color: var(--color-text);
   }
 
   .posts a:hover .post-title {
-    color: var(--color-link-hover);
     text-decoration: underline;
+    text-decoration-thickness: var(--border-width-heavy);
+    text-underline-offset: var(--underline-offset);
   }
 
-  .posts time {
+  .posts time,
+  .post-number {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
     font-size: var(--text-xs);
-    letter-spacing: var(--tracking-wide);
-    text-transform: uppercase;
     color: var(--color-text-faint);
   }
 
   .post-title {
-    font-weight: var(--weight-semibold);
-    color: var(--color-link);
-  }
-
-  .post-summary {
-    color: var(--color-text-muted);
-    font-size: var(--text-sm);
+    grid-column: 1 / -1;
+    font-weight: var(--weight-bold);
   }
 
   @media (min-width: 46rem) {
     .posts a {
-      grid-template-columns: 11rem 1fr;
+      grid-template-columns: var(--date-column) var(--post-number) 1fr;
       align-items: baseline;
       column-gap: var(--space-5);
     }
 
-    .posts time {
-      grid-row: span 2;
-    }
-
-    .post-summary {
-      grid-column: 2;
+    .post-title {
+      grid-column: auto;
     }
   }
 </style>

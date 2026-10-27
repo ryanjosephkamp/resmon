@@ -2,14 +2,22 @@
 /**
  * The page shell: head, masthead, navigation, footer.
  *
- * Ships no client JavaScript. There is no script tag on any content page, no
- * theme toggle writing to localStorage and no font fetched from a third party —
- * the color scheme follows `prefers-color-scheme` and the type stack is the
- * reader's own system fonts. That is partly a performance choice and partly a
- * privacy one: a page on this site makes no request to anywhere but GitHub.
+ * Ships no client JavaScript. There is no script tag on any content page and
+ * no theme toggle writing to localStorage; the color scheme follows
+ * `prefers-color-scheme`. The two typefaces are files on this site, bundled
+ * from `@fontsource`, so a page here makes no request to anywhere but GitHub.
  */
+import '@fontsource/atkinson-hyperlegible-next/400.css';
+import '@fontsource/atkinson-hyperlegible-next/400-italic.css';
+import '@fontsource/atkinson-hyperlegible-next/700.css';
+import '@fontsource/atkinson-hyperlegible-next/800.css';
+import '@fontsource/atkinson-hyperlegible-mono/400.css';
+import '@fontsource/atkinson-hyperlegible-mono/600.css';
+import textFont from '@fontsource/atkinson-hyperlegible-next/files/atkinson-hyperlegible-next-latin-400-normal.woff2?url';
+import displayFont from '@fontsource/atkinson-hyperlegible-next/files/atkinson-hyperlegible-next-latin-800-normal.woff2?url';
 import '../styles/tokens.css';
 import '../styles/base.css';
+import Mark from '../components/Mark.astro';
 import { url, absoluteUrl, GITHUB_REPO } from '../lib/urls';
 
 interface Props {
@@ -17,27 +25,30 @@ interface Props {
   description: string;
   /** Path on this site, without the base, for the canonical link. */
   path: string;
-  /** `wide` relaxes the reading measure for listings and reference tables. */
-  width?: 'prose' | 'wide';
+  /**
+   * `prose` keeps a reading measure, `wide` relaxes it for listings and
+   * reference tables, and `full` hands the whole shell to the page, which lays
+   * out its own grid (the home page).
+   */
+  width?: 'prose' | 'wide' | 'full';
 }
 
 const { title, description, path, width = 'prose' } = Astro.props;
 
 const SITE_NAME = 'resmon';
-const fullTitle = title === SITE_NAME ? SITE_NAME : `${title} · ${SITE_NAME}`;
+const fullTitle = title === SITE_NAME ? `${SITE_NAME} · Research Monitor` : `${title} · ${SITE_NAME}`;
 
 const nav = [
-  { label: 'Overview', href: '/' },
+  { label: 'Sources', href: '/#sources' },
+  { label: 'Tour', href: '/#tour' },
   { label: 'Guide', href: '/guide/' },
-  { label: 'Reference', href: '/reference/' },
   { label: 'Updates', href: '/updates/' },
+  // On a phone these two live in the footer only, so the masthead stays one row.
+  { label: 'Reference', href: '/reference/', wide: true },
 ];
 
 const current = Astro.url.pathname;
-const isCurrent = (href: string) => {
-  const full = url(href);
-  return href === '/' ? current === full || current === `${full}/` : current.startsWith(full);
-};
+const isCurrent = (href: string) => !href.includes('#') && current.startsWith(url(href));
 ---
 
 <!doctype html>
@@ -48,12 +59,17 @@ const isCurrent = (href: string) => {
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={absoluteUrl(path)} />
+    <link rel="icon" href={url('/favicon.svg')} type="image/svg+xml" />
+    <link rel="apple-touch-icon" href={url('/apple-touch-icon.png')} />
+    <link rel="preload" href={textFont} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={displayFont} as="font" type="font/woff2" crossorigin />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content={SITE_NAME} />
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={absoluteUrl(path)} />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content={absoluteUrl('/media/resmon-og.png')} />
+    <meta name="twitter:card" content="summary_large_image" />
     {/*
       The in-app Blog tab hard-codes the feed URL, so this element is for feed
       readers and browsers, not for the app. It is still declared at the path
@@ -72,40 +88,49 @@ const isCurrent = (href: string) => {
     <header class="masthead">
       <div class="shell masthead-inner">
         <a class="wordmark" href={url('/')}>
-          resmon<span class="wordmark-dot">.</span>
+          <Mark />
+          <span>resmon</span>
         </a>
         <nav aria-label="Primary">
           <ul class="nav">
             {
               nav.map((item) => (
-                <li>
+                <li class:list={[item.wide && 'nav-wide']}>
                   <a href={url(item.href)} aria-current={isCurrent(item.href) ? 'page' : undefined}>
                     {item.label}
                   </a>
                 </li>
               ))
             }
-            <li>
-              <a href={GITHUB_REPO} rel="noopener">GitHub</a>
+            <li class="nav-wide">
+              <a href={GITHUB_REPO} rel="noopener">Source code</a>
             </li>
           </ul>
         </nav>
       </div>
     </header>
 
-    <main id="main" class:list={['shell', 'main', width === 'wide' && 'main-wide']}>
+    <main
+      id="main"
+      class:list={['shell', 'main', width === 'wide' && 'main-wide', width === 'full' && 'main-full']}
+    >
       <slot />
     </main>
 
     <footer class="footer">
-      <div class="shell">
-        <p>
-          resmon is a local-first literature-surveillance desktop application. Everything it
-          retrieves stays on the machine that retrieved it.
+      <div class="shell footer-inner">
+        <p class="footer-line">
+          <Mark />
+          <span>
+            resmon is free and open source under the MIT license, by Ryan Kamp. Everything it
+            retrieves stays on the computer that retrieved it.
+          </span>
         </p>
         <ul class="footer-links">
-          <li><a href={GITHUB_REPO}>Source</a></li>
+          <li><a href={GITHUB_REPO}>Source code</a></li>
           <li><a href={`${GITHUB_REPO}/releases`}>Releases</a></li>
+          <li><a href={url('/guide/')}>Guide</a></li>
+          <li><a href={url('/reference/')}>Reference</a></li>
           <li><a href={url('/guide/license/')}>License</a></li>
           <li><a href={url('/third-party-notices/')}>Third-party notices</a></li>
           <li><a href={url('/feed.xml')}>Atom feed</a></li>
@@ -118,39 +143,45 @@ const isCurrent = (href: string) => {
 <style>
   .shell {
     width: 100%;
-    max-width: var(--measure-wide);
+    max-width: var(--shell);
     margin-inline: auto;
     padding-inline: var(--gutter);
   }
 
   .masthead {
-    border-bottom: var(--border-width) solid var(--color-border);
-    background: var(--color-surface);
+    background: var(--color-mast);
+    color: var(--color-mast-text);
   }
 
   .masthead-inner {
     display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    padding-block: var(--space-3);
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-5);
+    min-height: var(--masthead-height);
+    padding-block: var(--space-2);
   }
 
   .wordmark {
-    font-weight: var(--weight-bold);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: var(--weight-heavy);
     font-size: var(--text-lg);
     letter-spacing: var(--tracking-tight);
-    color: var(--color-text);
+    color: var(--color-mast-text);
     text-decoration: none;
   }
 
-  .wordmark-dot {
-    color: var(--color-link);
+  .wordmark:hover {
+    color: var(--color-mast-text);
   }
 
   .nav {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-2) var(--space-4);
+    gap: var(--space-1) var(--space-3);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -161,43 +192,70 @@ const isCurrent = (href: string) => {
     margin-top: 0;
   }
 
+  .nav-wide {
+    display: none;
+  }
+
   .nav a {
-    text-decoration: none;
-    color: var(--color-text-muted);
+    display: inline-block;
     padding-block: var(--space-1);
+    color: var(--color-mast-muted);
+    text-decoration: none;
   }
 
   .nav a:hover {
-    color: var(--color-link-hover);
+    color: var(--color-mast-text);
   }
 
   .nav a[aria-current='page'] {
-    color: var(--color-text);
-    font-weight: var(--weight-semibold);
-    box-shadow: inset 0 calc(-1 * var(--border-width-thick)) 0 var(--color-link);
+    color: var(--color-mast-text);
+    font-weight: var(--weight-bold);
+    text-decoration: underline;
+    text-decoration-thickness: var(--border-width-heavy);
+    text-underline-offset: var(--underline-offset);
+    text-decoration-color: var(--color-mast-text);
   }
 
+  /*
+   * Every page shares the masthead's left edge. A narrow page keeps its reading
+   * measure by limiting its content, not by centering a narrow column under a
+   * wide masthead, which set the text 240 px in from everything around it.
+   */
   .main {
     display: block;
     padding-block: var(--space-6) var(--space-8);
-    max-width: calc(var(--measure) + 2 * var(--gutter));
-    margin-inline: auto;
   }
 
-  .main-wide {
+  .main > :global(*) {
     max-width: var(--measure-wide);
   }
 
-  .footer {
-    border-top: var(--border-width) solid var(--color-border);
-    background: var(--color-surface);
-    color: var(--color-text-muted);
-    font-size: var(--text-sm);
-    padding-block: var(--space-5);
+  .main-full {
+    padding-block: 0 var(--space-8);
   }
 
-  .footer p {
+  .main-full > :global(*) {
+    max-width: none;
+  }
+
+  .footer {
+    border-top: var(--border-width-heavy) solid var(--color-rule-heavy);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    padding-block: var(--space-5) var(--space-6);
+  }
+
+  .footer-inner {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .footer-line {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
     max-width: var(--measure);
+    margin: 0;
   }
 
   .footer-links {
@@ -218,12 +276,8 @@ const isCurrent = (href: string) => {
       padding-inline: var(--gutter-wide);
     }
 
-    .masthead-inner {
-      flex-direction: row;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: var(--space-5);
-      padding-block: var(--space-4);
+    .nav-wide {
+      display: list-item;
     }
   }
 </style>

@@ -1,109 +1,138 @@
 /*
  * Design tokens — the only file in this site that contains a literal color.
  *
- * The app's stylesheet is one 5,000-line file with 13 custom properties and 51
- * hard-coded hex values in it, which is why nobody can restyle it without
- * reading all of it. This site starts the other way round: every color, space,
- * size and duration a component uses is named here, and `scripts/check-tokens.mjs`
- * fails the build if a hex literal, an `rgb(`, an `hsl(` or a raw `px` length
- * appears in any `.astro` file or in `base.css`.
+ * Every color, space, size and duration a component uses is named here, and
+ * `scripts/check-tokens.mjs` fails the build if a hex literal, a color function
+ * or a raw length appears in any `.astro` file or in `base.css`. The same
+ * script reads the text-on-surface pairs below and fails on any that falls
+ * under WCAG AA, in both schemes.
  *
- * The visual language is being designed separately and will land later. What is
- * here is deliberately quiet: a neutral ramp, one accent, and a type scale. The
- * names are the contract. Replacing the values in this file should be enough to
- * reskin the whole site, and if it is ever not enough, that is the bug.
+ * The site is set as a listing: white paper, near-black listing ink, hairline
+ * rules between entries and a heavier rule under each section head. One
+ * ultramarine, the app icon's, is kept for the one thing a visitor came to do,
+ * Download, and for keyboard focus. Links are ink with an offset underline
+ * rather than blue, so that the action is the only colored thing on a page.
  */
 
 :root {
-  /* ---- Neutral ramp (light) -------------------------------------------- */
-  --ink-0: #ffffff;
-  --ink-1: #f7f8f8;
-  --ink-2: #eceeef;
-  --ink-3: #dcdfe1;
-  --ink-4: #b4babd;
-  /*
-   * Darkened from #7c8488, which was the only color on the site that failed
-   * WCAG AA. It is `--color-text-faint`, and `--color-text-faint` is not a
-   * decoration: it is the "UPDATE" eyebrow above a post title, the "On this
-   * page" heading, the "Previous"/"Next" labels and the "README lines 1-69"
-   * provenance line. Measured on the published site it came to 3.58:1 on
-   * `--ink-1` and 3.81:1 on white, against the 4.5:1 that 12.48px text needs.
-   * This value is 4.97:1 and 5.28:1. Dark mode's ramp rebuilds `--ink-5`
-   * separately and already passed at 4.89:1, so it is left alone.
-   */
-  --ink-5: #656d70;
-  --ink-6: #4e5558;
-  --ink-7: #2b3134;
-  --ink-8: #16191b;
+  /* ---- Paper and ink (light) -------------------------------------------- */
+  --paper: #ffffff;
+  --paper-2: #f4f5f7;
+  --paper-3: #e9ebef;
+  --rule: #dcdfe5;
+  --rule-strong: #b9bec8;
+  --ink-faint: #5f6673;
+  --ink-muted: #474d58;
+  --ink: #14161a;
 
-  /* ---- Accent ---------------------------------------------------------- */
-  --accent-strong: #0c5c4e;
-  --accent: #107663;
-  --accent-soft: #e2f0ec;
+  /* ---- The one color ---------------------------------------------------- */
+  --ultra: #2f3fe0;
+  --ultra-deep: #2231c2;
+  --ultra-ink: #ffffff;
+  --ultra-wash: #eceefd;
 
-  /* ---- Status ---------------------------------------------------------- */
+  /* ---- Notice ----------------------------------------------------------- */
   --warn: #8a5a00;
   --warn-soft: #fbf1dd;
 
-  /* ---- Semantic surfaces ----------------------------------------------- */
-  --color-canvas: var(--ink-0);
-  --color-surface: var(--ink-1);
-  --color-surface-raised: var(--ink-0);
-  --color-border: var(--ink-3);
-  --color-border-strong: var(--ink-4);
+  /* ---- Semantic surfaces ------------------------------------------------ */
+  --color-canvas: var(--paper);
+  --color-surface: var(--paper-2);
+  --color-surface-raised: var(--paper);
+  --color-border: var(--rule);
+  --color-border-strong: var(--rule-strong);
+  --color-rule-heavy: var(--ink);
 
-  /* ---- Semantic text --------------------------------------------------- */
-  --color-text: var(--ink-8);
-  --color-text-muted: var(--ink-6);
-  --color-text-faint: var(--ink-5);
-  --color-text-inverse: var(--ink-0);
+  /* ---- Semantic text ---------------------------------------------------- */
+  --color-text: var(--ink);
+  --color-text-muted: var(--ink-muted);
+  --color-text-faint: var(--ink-faint);
+  --color-text-inverse: var(--paper);
 
-  /* ---- Semantic accent ------------------------------------------------- */
-  --color-link: var(--accent-strong);
-  --color-link-hover: var(--accent);
-  --color-accent-surface: var(--accent-soft);
-  --color-focus: var(--accent);
+  /* ---- Links, action, focus --------------------------------------------- */
+  --color-link: var(--ink);
+  --color-link-hover: var(--ink);
+  --color-link-underline: var(--rule-strong);
+  --color-link-underline-hover: var(--ink);
+  --color-accent-surface: var(--ultra-wash);
+  --color-action: var(--ultra);
+  --color-action-hover: var(--ultra-deep);
+  --color-action-text: var(--ultra-ink);
+  --color-focus: var(--ultra);
 
-  /* ---- Code ------------------------------------------------------------ */
-  --color-code-bg: var(--ink-2);
-  --color-code-text: var(--ink-8);
-  --color-codeblock-bg: var(--ink-1);
+  /* ---- Masthead --------------------------------------------------------- */
+  --color-mast: var(--ink);
+  --color-mast-text: var(--paper);
+  --color-mast-muted: #c9ccd3;
+  --color-mark-ground: var(--ultra);
+  --color-mark-dot: #ffffff;
 
-  /* ---- Notice ---------------------------------------------------------- */
+  /* ---- Source-state marks: drawn by shape, never told apart by color ---- */
+  --color-mark-ink: var(--ink);
+  --color-mark-quiet: var(--rule-strong);
+  --mark-hatch: repeating-linear-gradient(
+    45deg,
+    var(--color-mark-ink) 0 0.09rem,
+    transparent 0.09rem 0.22rem
+  );
+  --mark-cross:
+    linear-gradient(45deg, transparent 43%, var(--color-mark-ink) 43% 57%, transparent 57%),
+    linear-gradient(-45deg, transparent 43%, var(--color-mark-ink) 43% 57%, transparent 57%);
+
+  /* ---- Code ------------------------------------------------------------- */
+  --color-code-bg: var(--paper-3);
+  --color-code-text: var(--ink);
+  --color-codeblock-bg: var(--paper-2);
+
+  /* ---- Notice ----------------------------------------------------------- */
   --color-notice-bg: var(--warn-soft);
   --color-notice-border: var(--warn);
-  --color-notice-text: var(--ink-8);
+  --color-notice-text: var(--ink);
 
-  /* ---- Type ------------------------------------------------------------ */
+  /* ---- Type ------------------------------------------------------------- */
+  /*
+   * Atkinson Hyperlegible was drawn for the Braille Institute so that letters
+   * which are usually confused (I l 1, 0 O, rn m) cannot be. A site whose
+   * product is telling one kind of fact from another reads in a face built to
+   * tell one letter from another. The Mono carries every identifier, count,
+   * rate and time, in tabular figures, so columns of numbers line up.
+   * Both are served from this site (`@fontsource`), never from a font CDN.
+   */
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
+    "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
-    monospace;
+    "Atkinson Hyperlegible Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
 
-  --text-xs: 0.78rem;
-  --text-sm: 0.875rem;
+  --text-2xs: 0.75rem;
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9rem;
   --text-base: 1rem;
   --text-md: 1.0625rem;
   --text-lg: 1.25rem;
   --text-xl: 1.5rem;
   --text-2xl: 1.875rem;
-  --text-3xl: 2.25rem;
+  --text-3xl: 2.375rem;
+  --text-display: clamp(2.35rem, 1.2rem + 3.9vw, 4.6rem);
+  --text-entry: 1.3125rem;
 
-  --leading-tight: 1.2;
+  --leading-display: 1.02;
+  --leading-tight: 1.15;
   --leading-snug: 1.35;
-  --leading-normal: 1.65;
+  --leading-normal: 1.6;
 
   --weight-normal: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
   --weight-bold: 700;
+  --weight-heavy: 800;
 
-  --tracking-tight: -0.01em;
+  --tracking-display: -0.032em;
+  --tracking-tight: -0.012em;
   --tracking-wide: 0.04em;
 
-  /* ---- Space (a 4px base, expressed in rem so it scales with the root) -- */
+  /* ---- Space (a 4px base, in rem so it scales with the root) ------------ */
   --space-0: 0;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -113,63 +142,83 @@
   --space-6: 2rem;
   --space-7: 3rem;
   --space-8: 4rem;
+  --space-9: 6rem;
 
-  /* ---- Shape ----------------------------------------------------------- */
-  --radius-sm: 0.25rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
+  /* ---- Shape ------------------------------------------------------------ */
+  --radius-sm: 0.125rem;
+  --radius-md: 0.125rem;
+  --radius-lg: 0.1875rem;
   --border-width: 1px;
+  --border-width-heavy: 2px;
   --border-width-thick: 3px;
+  --underline-offset: 0.22em;
 
-  /* ---- Layout ---------------------------------------------------------- */
-  --measure: 42rem;        /* comfortable reading width for prose          */
-  --measure-wide: 64rem;   /* page shell, index listings, tables           */
-  --page-min-height: 100dvh; /* so a short page's footer reaches the bottom */
+  /* ---- Marks ------------------------------------------------------------ */
+  --mark-size: 0.78rem;
+  --mark-stroke: 0.14rem;
+  --mark-cell: 2.25rem;
+  --brand-mark: 1.5rem;
+
+  /* ---- Layout ----------------------------------------------------------- */
+  --measure: 42rem;
+  --measure-wide: 64rem;
+  --shell: 78rem;
+  --page-min-height: 100dvh;
   --gutter: var(--space-4);
-  --gutter-wide: var(--space-6);
+  --gutter-wide: var(--space-7);
+  --masthead-height: 3.25rem;
+  --entry-number: 3rem;
+  --entry-label: 8rem;
+  --date-column: 12rem;
+  --post-number: 6rem;
+  --measure-display: 17ch;
 
-  /* ---- Motion ---------------------------------------------------------- */
+  /* ---- Motion ----------------------------------------------------------- */
   --duration-fast: 120ms;
+  --duration-fill: 480ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
   color-scheme: light dark;
 }
 
 /*
- * Dark is designed, not derived: the ramp is rebuilt rather than inverted, the
- * accent is lifted so it still passes against a dark surface, and the code
- * background is separated from the page so a fenced block is still legible.
+ * The listing at night: rebuilt rather than inverted. The paper goes to a
+ * blue-black, the ink to an off-white, and the one color is lifted so the
+ * Download block still carries dark text at AA.
  */
 @media (prefers-color-scheme: dark) {
   :root {
-    --ink-0: #101314;
-    --ink-1: #171b1c;
-    --ink-2: #1f2426;
-    --ink-3: #2d3436;
-    --ink-4: #454e51;
-    --ink-5: #7f8a8d;
-    --ink-6: #a7b1b4;
-    --ink-7: #d2d8d9;
-    --ink-8: #eef1f1;
+    --paper: #101115;
+    --paper-2: #17191e;
+    --paper-3: #20232a;
+    --rule: #2b2e37;
+    --rule-strong: #4a4f5c;
+    --ink-faint: #969cab;
+    --ink-muted: #b3b8c4;
+    --ink: #eceef2;
 
-    --accent-strong: #63d6bb;
-    --accent: #45bfa3;
-    --accent-soft: #15302b;
+    --ultra: #8f9bff;
+    --ultra-deep: #a9b2ff;
+    --ultra-ink: #101115;
+    --ultra-wash: #1c2040;
 
     --warn: #e0b057;
     --warn-soft: #2a2213;
 
-    --color-canvas: var(--ink-0);
-    --color-surface: var(--ink-1);
-    --color-surface-raised: var(--ink-2);
-    --color-code-bg: var(--ink-2);
-    --color-codeblock-bg: var(--ink-1);
-    --color-text-inverse: var(--ink-0);
+    --color-surface-raised: var(--paper-2);
+    --color-mast: #22252d;
+    --color-mast-text: #eceef2;
+    --color-mast-muted: #a3a8b4;
+    --color-mark-ground: #2f3fe0;
+    --color-code-bg: var(--paper-3);
+    --color-codeblock-bg: var(--paper-2);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-fast: 0ms;
+    --duration-fill: 0ms;
   }
 }

@@ -2,283 +2,712 @@
 /**
  * The home page, at `/resmon/`.
  *
- * Two audiences at once. A visitor wants to know what resmon is and how to get
+ * Set as a listing: the 26 sources are numbered, counted entries, each with
+ * the facts the app shows before a search, read from the catalog in the app's
+ * own source (`src/data/sources.json`, kept current by a backend test). Below
+ * the listing are the tour, a real run's record, what the app does, how to get
+ * it, and every update.
+ *
+ * Two readers at once. A visitor wants to know what resmon is and how to get
  * it; the app's Blog tab loads this exact URL into its embedded reader on first
- * open and its reader wants the update list. Both are here, in that order, and
- * the update list is complete rather than truncated so the in-app view loses
- * nothing it had under Jekyll.
+ * open, at about 840 px wide, and its reader wants the update list. Both are
+ * here, and the update list is complete rather than truncated.
  */
 import { getCollection } from 'astro:content';
 import Base from '../layouts/Base.astro';
 import PostList from '../components/PostList.astro';
+import RunRecord from '../components/RunRecord.astro';
 import { byDateDescending } from '../lib/posts';
 import { url, GITHUB_REPO, GITHUB_RELEASES } from '../lib/urls';
+import {
+  SOURCES,
+  SOURCE_COUNT,
+  keyShort,
+  keyLong,
+  datesShort,
+  dateLong,
+  authorLong,
+  rateShort,
+  creditLabel,
+  namedAndRest,
+} from '../lib/sources';
 
 const posts = (await getCollection('posts')).sort(byDateDescending);
-const guide = (await getCollection('guide')).sort((a, b) => a.data.order - b.data.order);
+const { named, rest } = namedAndRest(['arXiv', 'PubMed', 'OpenAlex', 'CrossRef']);
 
 const description =
-  'resmon is a local-first desktop application that watches scholarly literature for a ' +
-  'researcher and says when the monitoring itself has broken.';
+  `resmon is a free desktop app that watches ${SOURCE_COUNT} open scholarly sources for the ` +
+  'papers you follow, writes what it finds into reports on your own computer, and records what ' +
+  'every source did on every run.';
 
-/** Deliberately a short list, not the whole guide: the guide index has that. */
-const starting = ['overview', 'install', 'quick-start', 'sources'];
-const starters = starting
-  .map((slug) => guide.find((entry) => entry.id === slug))
-  .filter((entry): entry is (typeof guide)[number] => Boolean(entry));
+const chapters = [
+  ['0:00', 'The Dashboard'],
+  ['0:02', 'A Deep Sweep across seven sources, with each source’s limits shown before it runs'],
+  ['0:11', 'The Monitor while the sources answer, one after another'],
+  ['0:23', 'The run’s report and the papers it found'],
+  ['0:30', 'The Source wall: what every source did on every run'],
+  ['0:35', 'Explorer, across everything collected'],
+  ['0:40', 'Analytics: which sources earn their place'],
+  ['0:44', 'The Calendar of runs and routine fires'],
+  ['0:47', 'The Watchdog'],
+];
+
+const capabilities = [
+  {
+    name: 'Deep Dive and Deep Sweep',
+    line: 'One source in depth, or many in one run.',
+    detail:
+      'Before a search runs, resmon says what each selected source will do with it: how it combines your keywords, whether it can honor your dates, whether it needs a key.',
+  },
+  {
+    name: 'Routines',
+    line: 'The same search on a schedule, said in words.',
+    detail:
+      'A routine fires from an optional background service (launchd, a systemd user unit, or Task Scheduler). Without the service, the Routines page says that nothing will run them.',
+  },
+  {
+    name: 'Reports and a reading queue',
+    line: 'Every run writes a chronological report.',
+    detail:
+      'Markdown, and PDF where LaTeX is installed, with the run’s log and search record. Save the papers worth reading, and export references as BibTeX, RIS, or CSV.',
+  },
+  {
+    name: 'Explorer',
+    line: 'Search everything resmon has collected.',
+    detail: 'One local corpus across every run, filtered by source, category, author, and date.',
+  },
+  {
+    name: 'Source wall and Watchdog',
+    line: 'Whether the watching itself is intact.',
+    detail:
+      'The Source wall marks what each source did on each run. The Watchdog reports sources that fail repeatedly, routines that are overdue, and departures from your own history.',
+  },
+  {
+    name: 'Watch profiles',
+    line: 'Follow a person, not only a topic.',
+    detail:
+      'resmon matches papers to the people you watch and says, for each match, what it can show about it and what it cannot.',
+  },
+  {
+    name: 'Retractions and updates',
+    line: 'Papers that changed after you found them.',
+    detail:
+      'On request, resmon checks Crossref’s Retraction Watch data and the preprint servers for retractions, expressions of concern, journal versions of preprints, and newer versions.',
+  },
+  {
+    name: 'AI summaries and Ask',
+    line: 'With your own key or a signed-in CLI.',
+    detail:
+      'Paper summaries and an assistant, through your own provider key or through Claude Code or Codex if you already use them. Nothing is billed through resmon.',
+  },
+  {
+    name: 'Delivery and backup',
+    line: 'Reports where you read.',
+    detail:
+      'Email, a folder your cloud drive syncs, a signed webhook, or an Atom feed. Back up the database to a folder or to your own Google Drive.',
+  },
+  {
+    name: 'Library and Evidence',
+    line: 'Your own PDFs, kept exactly.',
+    detail:
+      'Keep your files as unchanging local copies, read them in the app, and keep exact passages with your notes.',
+  },
+  {
+    name: 'An MCP server',
+    line: 'resmon’s searches and corpus, for other tools.',
+    detail:
+      'Tools that speak the Model Context Protocol can run routines and sweeps, search the corpus, and read search records.',
+  },
+];
+
+const platforms = [
+  { name: 'macOS, Apple Silicon', file: 'DMG', status: 'Tested: installed and used daily.' },
+  { name: 'macOS, Intel', file: 'DMG', status: 'Built by the release workflow; not yet launched.' },
+  { name: 'Windows (x64)', file: 'Installer (.exe)', status: 'Built by the release workflow; not yet launched.' },
+  { name: 'Linux (x64)', file: 'AppImage', status: 'Built by the release workflow; not yet launched.' },
+];
 ---
 
-<Base title="resmon" description={description} path="/" width="wide">
-  <section class="hero">
-    <h1>Literature surveillance that admits what it does not know</h1>
-    <p class="lede">
-      resmon watches 27 open-access scholarly repositories for the papers that match a
-      researcher's criteria, compiles them into chronological reading reports, and tells the
-      researcher when the watching itself has broken. It runs on the researcher's own machine:
-      the corpus, the credentials and the reports never leave it.
-    </p>
-    <p class="actions">
-      <a class="button" href={GITHUB_RELEASES}>Download a release</a>
-      <a class="button button-quiet" href={url('/guide/install/')}>Install from source</a>
-      <a class="button button-quiet" href={GITHUB_REPO}>Read the source</a>
-    </p>
-  </section>
-
-  {/*
-    The screenshot is 1440 by 868 and the column it sits in is a little over
-    a third as wide, less than a quarter on a phone. At either size the app's
-    own text inside it is too small to read, which is most of what a dashboard
-    screenshot is for. So
-    the figure is a link to the file itself: one tap or click and the reader
-    has it at full size. That is the whole fix — making the thumbnail legible
-    is a question about what this image should be, which belongs with the
-    visual design rather than here.
-
-    `loading="lazy"` was on it, and it is the first image on the page and in
-    the opening viewport on a desktop: lazy loading delays exactly the thing
-    the page is waiting to show. `eager` is what it should have said.
-  */}
-  <figure class="shot">
-    <a href={url('/screenshots/dashboard.png')}>
-      <img
-        src={url('/screenshots/dashboard.png')}
-        alt="The resmon dashboard: a left-hand navigation list, a panel explaining the three run types, a watchdog line reading that nothing looks wrong, and a recent-activity table with one completed Deep Dive against arXiv."
-        width="1440"
-        height="868"
-        loading="eager"
-        decoding="async"
-      />
-    </a>
-    <figcaption>
-      The dashboard, from the end-to-end suite's own run against a disposable
-      corpus. <a href={url('/screenshots/dashboard.png')}>Open it at full size</a>
-      to read the panels.
-    </figcaption>
-  </figure>
-
-  <section class="band">
-    <h2>What it does</h2>
-    <div class="cards">
-      <article>
-        <h3>Watches, on a schedule</h3>
-        <p>
-          Deep Dive and Deep Sweep runs on demand, and Automated Deep Sweeps on a schedule, over
-          a catalog of sources each with its own rate limit and its own terms. A source that goes
-          down degrades a sweep; it does not fail it.
-        </p>
-      </article>
-      <article>
-        <h3>Says which kind of fact it has</h3>
-        <p>
-          A field extracted from a document, a field matched against the corpus and a field
-          guessed by a model are three different things, and resmon labels which is which.
-          Where it cannot know something, it says so instead of rendering a plausible number.
-        </p>
-      </article>
-      <article>
-        <h3>Notices when it has stopped working</h3>
-        <p>
-          A watchdog reports on the monitoring rather than the literature: which sources
-          answered, which returned nothing, and which have quietly stopped answering at all.
-        </p>
-      </article>
-      <article>
-        <h3>Keeps everything local</h3>
-        <p>
-          A SQLite corpus on the researcher's own disk, credentials in the operating system's
-          keyring, and an optional backup to their own Google Drive. No account, no server.
-        </p>
-      </article>
+<Base title="resmon" description={description} path="/" width="full">
+  <section class="lead" aria-labelledby="lead-title">
+    <h1 id="lead-title">
+      One app watching <span class="nowrap">{SOURCE_COUNT} open</span> scholarly sources for the
+      papers you follow.
+    </h1>
+    <div class="lead-side">
+      <p>
+        resmon is a free desktop app. It searches {named}, and {rest} more on demand or on a
+        schedule, writes what it finds into reading reports on your own computer, and records what
+        every source did on every run.
+      </p>
+      <p class="lead-action">
+        <a class="action" href={GITHUB_RELEASES}>Download resmon</a>
+        <a href={url('/guide/install/')}>Install from source</a>
+      </p>
+      <p class="platform-line">
+        Tested on macOS with Apple Silicon. Intel macOS, Windows, and Linux builds are made by the
+        release workflow and have not yet been launched. <a href="#install">Details</a>
+      </p>
     </div>
   </section>
 
-  <section class="band">
-    <h2>Start here</h2>
-    <ul class="link-list">
+  <section id="sources" class="band" aria-labelledby="sources-title">
+    <header class="band-head">
+      <h2 id="sources-title">Sources</h2>
+      <p class="count mono">showing {SOURCES.length} of {SOURCE_COUNT}</p>
+    </header>
+    <p class="band-lede band-lede-short">
+      Every source, with the facts the app shows before a search. Open an entry for the rest.
+    </p>
+
+    <ol class="listing">
       {
-        starters.map((entry) => (
-          <li>
-            <a href={url(`/guide/${entry.id}/`)}>{entry.data.title}</a>
-            <span>{entry.data.summary}</span>
+        SOURCES.map((source, index) => (
+          <li class="entry" id={`source-${source.slug}`}>
+            <details>
+              <summary>
+                <span class="entry-n mono">[{index + 1}]</span>
+                <span class="entry-body">
+                  <span class="entry-name">{source.name}</span>
+                  <span class="entry-cover">{source.subject_coverage}</span>
+                  <span class="entry-facts mono">
+                    {keyShort(source)} · {rateShort(source)} · {source.keyword_combination} ·{' '}
+                    {datesShort(source)}
+                  </span>
+                </span>
+              </summary>
+              <dl class="entry-more">
+                <dt>What it is</dt>
+                <dd>{source.description}.</dd>
+                <dt>API key</dt>
+                <dd>{keyLong(source)}</dd>
+                <dt>Rate</dt>
+                <dd class="mono">{source.rate_limit}</dd>
+                <dt>Keywords</dt>
+                <dd>{source.keyword_combination}</dd>
+                <dt>Date precision</dt>
+                <dd>{dateLong(source)}</dd>
+                <dt>Author search</dt>
+                <dd>{authorLong(source)}</dd>
+                {creditLabel(source) && (
+                  <>
+                    <dt>Credit</dt>
+                    <dd>
+                      {source.attribution} <span class="credit-kind">{creditLabel(source)}</span>
+                    </dd>
+                  </>
+                )}
+                <dt>Website</dt>
+                <dd>
+                  <a href={source.website} rel="noopener">[{source.website.replace(/^https?:\/\//, '')}]</a>
+                </dd>
+              </dl>
+            </details>
           </li>
         ))
       }
-    </ul>
-    <p>
-      <a href={url('/guide/')}>All {guide.length} guide pages</a> ·{' '}
-      <a href={url('/reference/')}>Reference documents</a>
+    </ol>
+    <p class="band-note">
+      Each line reads: whether the source needs your key, the rate resmon holds itself to, how the
+      source combines keywords, and the finest date window it can answer. They come from the catalog
+      in resmon’s source code. What each source’s terms let resmon keep, and why some sources are
+      not here, is in <a href={url('/guide/sources/')}>Sources and their terms</a>.
     </p>
   </section>
 
-  <section class="band">
-    <h2 id="updates">Updates</h2>
+  <section id="tour" class="band" aria-labelledby="tour-title">
+    <header class="band-head">
+      <h2 id="tour-title">The tour</h2>
+      <p class="count mono">54 seconds</p>
+    </header>
+    <div class="tour">
+      <video
+        class="tour-video"
+        controls
+        muted
+        playsinline
+        preload="metadata"
+        poster={url('/media/resmon-tour-poster.webp')}
+        width="1440"
+        height="900"
+      >
+        <source src={url('/media/resmon-tour.mp4')} type="video/mp4" />
+        <a href={url('/media/resmon-tour.mp4')}>Download the tour (MP4)</a>
+      </video>
+      <ol class="chapters">
+        {
+          chapters.map(([time, text]) => (
+            <li>
+              <span class="mono">{time}</span>
+              <span>{text}</span>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
     <p class="band-note">
-      Every release update, newest first. The in-app <strong>About resmon → Blog</strong> tab reads
-      the same posts from <a href={url('/feed.xml')}>this site's Atom feed</a>.
+      Recorded on October 27, 2026 in a fresh copy of resmon. The searches are real queries of the
+      public sources; the clicks were scripted so the tour runs in under a minute.
+    </p>
+  </section>
+
+  <section id="record" class="band" aria-labelledby="record-title">
+    <header class="band-head">
+      <h2 id="record-title">What every source did</h2>
+      <p class="count mono">4 runs · 10 sources</p>
+    </header>
+    <p class="band-lede">
+      A quiet week and a broken search must never look the same. resmon records what every source
+      did on every run, and says why a source returned nothing: it answered and had nothing, it
+      could not be asked, or it never answered. This is the Source wall from the session in the
+      tour, starting with its verdict, word for word.
+    </p>
+    <RunRecord />
+  </section>
+
+  <section id="what" class="band" aria-labelledby="what-title">
+    <header class="band-head">
+      <h2 id="what-title">What it does</h2>
+      <p class="count mono">{capabilities.length} parts</p>
+    </header>
+    <ol class="parts">
+      {
+        capabilities.map((part) => (
+          <li>
+            <h3>{part.name}</h3>
+            <p>
+              <span class="part-line">{part.line}</span> {part.detail}
+            </p>
+          </li>
+        ))
+      }
+    </ol>
+    <p class="band-note">
+      The app’s own Tutorials tab walks through every page, and the <a href={url('/guide/')}>guide</a>
+      goes further.
+    </p>
+  </section>
+
+  <section id="local" class="band" aria-labelledby="local-title">
+    <header class="band-head">
+      <h2 id="local-title">On your computer</h2>
+    </header>
+    <dl class="facts">
+      <div>
+        <dt>No account</dt>
+        <dd>There is nothing to sign up for, and no resmon server to sign in to.</dd>
+      </div>
+      <div>
+        <dt>Your corpus</dt>
+        <dd>A SQLite database and a folder of reports on your own disk.</dd>
+      </div>
+      <div>
+        <dt>Your keys</dt>
+        <dd>Kept in your operating system’s keychain, and sent only to the service they belong to.</dd>
+      </div>
+      <div>
+        <dt>No telemetry</dt>
+        <dd>
+          resmon sends no usage data. Summaries, delivery, and backup send only what you switch
+          on, to where you point them.
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <section id="install" class="band" aria-labelledby="install-title">
+    <header class="band-head">
+      <h2 id="install-title">Get it</h2>
+      <p class="count mono">MIT license · free</p>
+    </header>
+    <div class="install">
+      <table class="platforms">
+        <thead>
+          <tr>
+            <th scope="col">Platform</th>
+            <th scope="col">File</th>
+            <th scope="col">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            platforms.map((p) => (
+              <tr>
+                <th scope="row">{p.name}</th>
+                <td>{p.file}</td>
+                <td>{p.status}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+      <div class="install-side">
+        <p><a class="action" href={GITHUB_RELEASES}>Download resmon</a></p>
+        <p>
+          macOS builds are unsigned, so the first launch needs one extra step; Windows and Linux
+          builds update themselves. The <a href={url('/guide/install/')}>install guide</a> covers
+          both, and running from <a href={GITHUB_REPO}>source</a>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section id="updates" class="band" aria-labelledby="updates-title">
+    <header class="band-head">
+      <h2 id="updates-title">Updates</h2>
+      <p class="count mono">{posts.length} posts</p>
+    </header>
+    <p class="band-lede">
+      Every release update, newest first. The app’s <strong>About resmon → Blog</strong> tab reads
+      the same posts from <a href={url('/feed.xml')}>this site’s Atom feed</a>.
     </p>
     <PostList posts={posts} withSummary />
   </section>
 </Base>
 
 <style>
-  .hero {
+  /* ---- Lead ------------------------------------------------------------- */
+
+  .lead {
+    display: grid;
+    gap: var(--space-5);
+    padding-block: var(--space-7) var(--space-6);
+  }
+
+  .lead h1 {
+    margin: 0;
+    font-size: var(--text-display);
+    line-height: var(--leading-display);
+    letter-spacing: var(--tracking-display);
+    font-weight: var(--weight-heavy);
+    max-width: var(--measure-display);
+  }
+
+  .lead-side p {
+    margin: 0 0 var(--space-4);
     max-width: var(--measure);
-    padding-bottom: var(--space-6);
   }
 
-  .hero h1 {
-    margin-top: 0;
-    font-size: var(--text-2xl);
-  }
-
-  .lede {
-    font-size: var(--text-lg);
-    color: var(--color-text-muted);
-    line-height: var(--leading-snug);
-  }
-
-  .actions {
+  .lead-action {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-3);
-    margin-top: var(--space-5);
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
   }
 
-  .button {
-    display: inline-block;
-    padding: var(--space-2) var(--space-4);
-    border-radius: var(--radius-md);
-    border: var(--border-width) solid var(--color-link);
-    background: var(--color-link);
-    color: var(--color-text-inverse);
-    text-decoration: none;
+  .platform-line {
     font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
+    color: var(--color-text-muted);
   }
 
-  .button:hover {
-    background: var(--color-link-hover);
-    border-color: var(--color-link-hover);
-    color: var(--color-text-inverse);
-  }
-
-  .button-quiet {
-    background: transparent;
-    color: var(--color-link);
-    border-color: var(--color-border-strong);
-  }
-
-  .button-quiet:hover {
-    background: var(--color-accent-surface);
-    color: var(--color-link);
-    border-color: var(--color-link);
-  }
-
-  .shot {
-    margin: 0 0 var(--space-6);
-  }
-
-  .shot img {
-    display: block;
-    width: 100%;
-    border: var(--border-width) solid var(--color-border);
-    border-radius: var(--radius-lg);
-  }
-
-  .shot figcaption {
-    margin-top: var(--space-2);
-    font-size: var(--text-sm);
-    color: var(--color-text-faint);
-  }
+  /* ---- Bands ------------------------------------------------------------ */
 
   .band {
-    padding-block: var(--space-6);
-    border-top: var(--border-width) solid var(--color-border);
+    padding-block: var(--space-6) var(--space-7);
+    border-top: var(--border-width-heavy) solid var(--color-rule-heavy);
   }
 
-  .band h2 {
-    margin-top: 0;
+  .band-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-5);
+    margin-bottom: var(--space-4);
+  }
+
+  .band-head h2 {
+    margin: 0;
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-heavy);
+  }
+
+  .count {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .count::before {
+    content: '(';
+  }
+
+  .count::after {
+    content: ')';
+  }
+
+  .band-lede {
+    max-width: var(--measure);
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-5);
+  }
+
+  .band-lede-short {
+    margin-bottom: var(--space-3);
   }
 
   .band-note {
     max-width: var(--measure);
-    color: var(--color-text-muted);
-    font-size: var(--text-sm);
-  }
-
-  .cards {
-    display: grid;
-    gap: var(--space-4);
-  }
-
-  .cards article {
-    padding: var(--space-4);
-    border: var(--border-width) solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--color-surface);
-  }
-
-  .cards h3 {
-    margin-top: 0;
-    font-size: var(--text-base);
-  }
-
-  .cards p {
-    margin-bottom: 0;
+    margin: var(--space-5) 0 0;
     font-size: var(--text-sm);
     color: var(--color-text-muted);
   }
 
-  .link-list {
+  /* ---- The listing ------------------------------------------------------ */
+
+  .listing {
     list-style: none;
-    margin: 0 0 var(--space-4);
+    margin: 0;
     padding: 0;
     display: grid;
-    gap: var(--space-3);
+    column-gap: var(--space-7);
+  }
+
+  .entry {
+    margin: 0;
+    border-bottom: var(--border-width) solid var(--color-border);
+  }
+
+  .entry summary {
+    display: grid;
+    grid-template-columns: var(--entry-number) 1fr;
+    padding-block: var(--space-3);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .entry summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .entry-n {
+    font-size: var(--text-sm);
+    color: var(--color-text-faint);
+    padding-top: var(--space-1);
+  }
+
+  .entry-body {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .entry-name {
+    font-size: var(--text-entry);
+    font-weight: var(--weight-heavy);
+    letter-spacing: var(--tracking-tight);
+    line-height: var(--leading-tight);
+  }
+
+  .entry-name::after {
+    content: '+';
+    margin-inline-start: var(--space-2);
+    font-family: var(--font-mono);
+    font-weight: var(--weight-normal);
+    font-size: var(--text-base);
+    color: var(--color-text-faint);
+  }
+
+  details[open] .entry-name::after {
+    content: '−';
+  }
+
+  .entry summary:hover .entry-name {
+    text-decoration: underline;
+    text-decoration-thickness: var(--border-width-heavy);
+    text-underline-offset: var(--underline-offset);
+  }
+
+  .entry-cover {
+    color: var(--color-text-muted);
+  }
+
+  .entry-facts {
+    font-size: var(--text-xs);
+    color: var(--color-text);
+  }
+
+  .entry-more {
+    display: grid;
+    grid-template-columns: var(--entry-label) 1fr;
+    gap: var(--space-2) var(--space-4);
+    margin: 0 0 var(--space-4) var(--entry-number);
+    padding: var(--space-3) 0 0;
+    border-top: var(--border-width) dashed var(--color-border-strong);
+    font-size: var(--text-sm);
+  }
+
+  .entry-more dt {
+    font-weight: var(--weight-bold);
+  }
+
+  .entry-more dd {
+    margin: 0;
+    color: var(--color-text-muted);
+  }
+
+  .credit-kind {
+    display: block;
+    font-size: var(--text-xs);
+    color: var(--color-text-faint);
+  }
+
+  /* ---- Tour ------------------------------------------------------------- */
+
+  .tour {
+    display: grid;
+    gap: var(--space-5);
+  }
+
+  .tour-video {
+    display: block;
+    width: 100%;
+    background: var(--color-mast);
+    border: var(--border-width) solid var(--color-rule-heavy);
+  }
+
+  .chapters {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: var(--text-sm);
+  }
+
+  .chapters li {
+    display: grid;
+    grid-template-columns: var(--space-7) 1fr;
+    gap: var(--space-2);
+    padding-block: var(--space-2);
+    border-bottom: var(--border-width) solid var(--color-border);
+    margin: 0;
+  }
+
+  .chapters .mono {
+    color: var(--color-text-faint);
+  }
+
+  /* ---- Parts ------------------------------------------------------------ */
+
+  .parts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    column-gap: var(--space-7);
+  }
+
+  .parts li {
+    padding-block: var(--space-4);
+    border-bottom: var(--border-width) solid var(--color-border);
+    margin: 0;
+  }
+
+  .parts h3 {
+    margin: 0;
+    font-size: var(--text-entry);
+    font-weight: var(--weight-heavy);
+  }
+
+  .parts p {
+    margin: var(--space-2) 0 0;
+    max-width: var(--measure);
+    color: var(--color-text-muted);
+  }
+
+  .part-line {
+    color: var(--color-text);
+  }
+
+  /* ---- Local facts ------------------------------------------------------ */
+
+  .facts {
+    display: grid;
+    gap: var(--space-4) var(--space-7);
+    margin: 0;
+  }
+
+  .facts div {
+    padding-top: var(--space-3);
+    border-top: var(--border-width) solid var(--color-border);
+  }
+
+  .facts dt {
+    font-size: var(--text-entry);
+    font-weight: var(--weight-heavy);
+  }
+
+  .facts dd {
+    margin: var(--space-1) 0 0;
+    color: var(--color-text-muted);
+  }
+
+  /* ---- Install ---------------------------------------------------------- */
+
+  .install {
+    display: grid;
+    gap: var(--space-6);
+  }
+
+  .platforms {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .platforms th,
+  .platforms td {
+    text-align: start;
+    padding: var(--space-3) var(--space-4) var(--space-3) 0;
+    border-bottom: var(--border-width) solid var(--color-border);
+    vertical-align: top;
+  }
+
+  .platforms thead th {
+    border-bottom: var(--border-width-heavy) solid var(--color-rule-heavy);
+    font-size: var(--text-xs);
+  }
+
+  .platforms tbody th {
+    font-weight: var(--weight-bold);
+    white-space: nowrap;
+  }
+
+  .install-side p {
+    margin: 0 0 var(--space-4);
     max-width: var(--measure);
   }
 
-  .link-list li {
-    margin-top: 0;
-  }
+  /* ---- Wider screens ---------------------------------------------------- */
 
-  .link-list a {
-    font-weight: var(--weight-semibold);
-  }
-
-  .link-list span {
-    display: block;
-    color: var(--color-text-muted);
-    font-size: var(--text-sm);
-  }
-
-  @media (min-width: 46rem) {
-    .hero h1 {
-      font-size: var(--text-3xl);
+  @media (min-width: 48rem) {
+    .listing,
+    .parts {
+      grid-template-columns: 1fr 1fr;
     }
 
-    .cards {
+    .facts {
       grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (min-width: 64rem) {
+    .lead {
+      grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
+      align-items: end;
+      gap: var(--space-7);
+      padding-block: var(--space-8) var(--space-7);
+    }
+
+    .tour {
+      grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .facts {
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    .install {
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
     }
   }
 </style>
