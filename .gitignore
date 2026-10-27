@@ -190,6 +190,12 @@ coverage/
 resmon_scripts/frontend/build-resources/*
 # The entitlements file is source, not build output — it must ship with the repo.
 !resmon_scripts/frontend/build-resources/entitlements.mac.plist
+# So are the app icons: icon.svg is the drawing, and the .icns, .ico and .png
+# electron-builder reads are rendered from it.
+!resmon_scripts/frontend/build-resources/icon.svg
+!resmon_scripts/frontend/build-resources/icon.icns
+!resmon_scripts/frontend/build-resources/icon.ico
+!resmon_scripts/frontend/build-resources/icon.png
 resmon_scripts/frontend/release/
 
 # -----------------------------------------------------------------------------
