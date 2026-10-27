@@ -1,5 +1,6 @@
 import React from 'react';
 import { ActiveExecution } from '../../context/ExecutionContext';
+import { useSourceNames } from '../../hooks/useSourceNames';
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -71,6 +72,7 @@ interface RepoProgressGridProps {
 }
 
 const RepoProgressGrid: React.FC<RepoProgressGridProps> = ({ exec }) => {
+  const sourceName = useSourceNames();
   return (
     <div className="mon-repo-grid">
       <h3 className="mon-section-title">Repository Status</h3>
@@ -92,7 +94,7 @@ const RepoProgressGrid: React.FC<RepoProgressGridProps> = ({ exec }) => {
             const zero = exec.repoZeroReasons?.[repo];
             return (
               <tr key={repo} className={`mon-repo-row mon-repo-row--${status}`}>
-                <td className="mon-repo-name">{repo}</td>
+                <td className="mon-repo-name">{sourceName(repo)}</td>
                 <td className="mon-repo-status">
                   <span
                     className={`mon-repo-icon mon-repo-icon--${status}`}
