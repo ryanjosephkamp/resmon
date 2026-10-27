@@ -276,15 +276,14 @@ test('launch, navigation and resources', async () => {
     cloneFile(corpus, path.join(state, 'resmon.db'));
 
     // Cold: a fresh Chromium profile and a database this app has never opened.
-    let { app, win, started, firstWindow } = await launch(state);
-    const coldStarted = started;
-    const cold = await settle(win, 0);
+    const first = await launch(state);
+    const cold = await settle(first.win, 0);
     if (!cold.instrumented) problems.push(`run ${run}: the first document was not instrumented`);
     if (cold.timedOut) problems.push(`run ${run}: the first screen did not settle`);
-    await app.close();
+    await first.app.close();
 
     // Warm: the same profile and database, launched again.
-    ({ app, win, started } = await launch(state));
+    const { app, win, started } = await launch(state);
     const warm = await settle(win, 0);
     if (warm.timedOut) problems.push(`run ${run}: the warm first screen did not settle`);
 
@@ -315,9 +314,9 @@ test('launch, navigation and resources', async () => {
     await app.close();
 
     samples.push({
-      launchCold: cold.settledAt - coldStarted,
+      launchCold: cold.settledAt - first.started,
       launchWarm: warm.settledAt - started,
-      firstWindowCold: firstWindow - coldStarted,
+      firstWindowCold: first.firstWindow - first.started,
       navigation,
       memoryMb: memory,
       idleCpuPercent: cpu,
