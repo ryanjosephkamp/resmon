@@ -18,6 +18,16 @@
   --color-success: #22c55e;
   --color-error: #ef4444;
   --color-warning: #f59e0b;
+  /* Native controls follow the theme: without these, date pickers, number
+     fields, scrollbars, checkboxes and sliders drew in the operating system's
+     light style and its own blue, the one white field on a dark page. */
+  color-scheme: dark;
+  accent-color: var(--color-accent);
+}
+
+::selection {
+  background: rgba(99, 102, 241, 0.45);
+  color: #fff;
 }
 
 html, body, #root {
@@ -52,13 +62,18 @@ html, body, #root {
 }
 
 .sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 16px 20px;
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: var(--color-accent);
+  color: var(--color-text);
   border-bottom: 1px solid var(--color-border);
 }
+
+.sidebar-brand svg { flex-shrink: 0; }
 
 .sidebar-nav {
   flex: 1;
@@ -197,13 +212,22 @@ html, body, #root {
   border-bottom: none;
 }
 
+.simple-table th.num,
+.simple-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .badge {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
+  white-space: nowrap;
 }
+
+.cell-nowrap { white-space: nowrap; }
 
 .badge-success { background: rgba(34,197,94,0.15); color: var(--color-success); }
 .badge-error { background: rgba(239,68,68,0.15); color: var(--color-error); }
@@ -242,7 +266,15 @@ html, body, #root {
 .page-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+/* A page's actions sit at the right. Its Tutorial button stays beside the
+   title: with space-between it landed in the middle of the header on every
+   page that also had actions, a lone button floating in the gap. */
+.page-header > :last-child:not(:first-child):not(.tutorial-link-btn) {
+  margin-left: auto;
 }
 
 .page-header h1 {
@@ -369,6 +401,7 @@ html, body, #root {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  white-space: nowrap;
   transition: background 0.15s, border-color 0.15s;
 }
 
@@ -1312,16 +1345,31 @@ html, body, #root {
 }
 
 .btn-danger {
-  background: #da3633;
-  color: #fff;
-  border: none;
+  background: transparent;
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.5);
   border-radius: 6px;
   cursor: pointer;
   font-weight: 500;
 }
 
 .btn-danger:hover {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: #f87171;
+}
+
+/* A red block on every row made Delete the loudest thing in each table, louder
+   than the page's own primary action. The solid red is kept for the one place
+   it means something: the dialog that asks whether to go ahead. */
+.modal-content .btn-danger {
+  background: #da3633;
+  border-color: #da3633;
+  color: #fff;
+}
+
+.modal-content .btn-danger:hover {
   background: #f85149;
+  border-color: #f85149;
 }
 
 @keyframes fw-pulse {
@@ -2615,12 +2663,20 @@ html, body, #root {
 /* About resmon — Tutorials tab + shared TutorialLinkButton */
 .tutorial-link-btn {
   white-space: nowrap;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}
+
+.tutorial-link-btn:hover {
+  color: var(--color-accent-hover);
+  border-color: var(--color-accent);
+  background: rgba(99, 102, 241, 0.08);
 }
 
 .settings-panel-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -3301,7 +3357,8 @@ html, body, #root {
   font-size: 13px;
 }
 
-.explorer-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.explorer-dates { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.explorer-dates input { min-width: 0; width: 100%; font-size: 12px; padding: 6px; }
 
 .explorer-facet h3 {
   font-size: 11px;
@@ -4212,10 +4269,15 @@ button.duplicate-link-text:hover { color: var(--color-accent); }
 
 /* When a sweep is running the widget takes the corner, so the trigger steps
  * left of it rather than under it. Sibling selector on the shell, because the
- * widget is only in the tree while there is something to show. */
-.floating-widget ~ .assistant-trigger {
-  right: auto;
-  left: 24px;
+ * widget is only in the tree while there is something to show. The step is the
+ * widget's widest width plus a gap: `left: 24px` sent the trigger across the
+ * whole window and set it over the sidebar's last link. */
+.floating-widget--minimized ~ .assistant-trigger {
+  right: calc(24px + 200px + 12px);
+}
+
+.floating-widget--expanded ~ .assistant-trigger {
+  right: calc(24px + 400px + 12px);
 }
 
 .assistant-panel {
@@ -4969,8 +5031,13 @@ li.basis-name-affiliation .basis-chip {
 .assistant-choices :focus-visible, .assistant-turn-choices summary:focus-visible { outline: 2px solid var(--color-text); outline-offset: 2px; }
 
 /* Library owns copies; its long identifiers and literal text must remain readable. */
-.library-page { max-width: 1500px; margin: 0 auto; padding: 1.5rem; }
-.library-page h1 { margin: 0; }
+/* Library and Evidence sit in the same column as every other page: their own
+   padding and centring put the title 24px further in than the rest of the
+   app's, and their headings at the browser's default size. */
+.library-page { max-width: 1500px; margin: 0; padding: 0; }
+.library-page h1 { margin: 0; font-size: 22px; font-weight: 700; }
+.library-page h2 { font-size: 17px; }
+.library-page .page-help, .evidence-page .page-help, .chats-page .page-help { margin: 12px 0 16px; }
 .library-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem; margin: 1rem 0; }
 .library-toolbar h2, .library-toolbar h3 { flex: 1; margin: 0; }
 .library-toolbar label { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
@@ -5002,11 +5069,11 @@ li.basis-name-affiliation .basis-chip {
    could not determine by role and class, not by color, so .library-unknown
    invents no visual treatment the rest of the page does not use. */
 .library-error, .library-unknown { white-space: pre-wrap; }
-@media (max-width: 900px) { .library-workspace { grid-template-columns: minmax(0, 1fr); } .library-page { padding: 1rem; } }
+@media (max-width: 900px) { .library-workspace { grid-template-columns: minmax(0, 1fr); } }
 
 /* Evidence uses the existing palette; every selector is scoped to its page. */
-.evidence-page { max-width: 1600px; margin: 0 auto; padding: 1.5rem; min-width: 0; overflow-wrap: anywhere; }
-.evidence-page h1 { margin: 0; }
+.evidence-page { max-width: 1600px; margin: 0; padding: 0; min-width: 0; overflow-wrap: anywhere; }
+.evidence-page h1 { margin: 0; font-size: 22px; font-weight: 700; }
 .evidence-page h2, .evidence-page h3 { margin: .75rem 0; }
 .evidence-page p { margin: .6rem 0; }
 .evidence-page a { color: var(--color-accent-hover); text-underline-offset: .15em; }
@@ -5345,3 +5412,19 @@ a:hover { color: var(--color-accent-hover); }
   .source-wall { --sw-label-width: 130px; --sw-cell: 20px; }
   .source-wall-headline { font-size: 17px; }
 }
+
+/* A routine's schedule in words, with its cron expression underneath. */
+.schedule-label { display: inline-flex; flex-direction: column; gap: 1px; }
+.schedule-words { white-space: nowrap; }
+.schedule-cron,
+.schedule-cron-only {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  background: none;
+  padding: 0;
+}
+.schedule-cron-only { font-size: 12px; color: var(--color-text); }
+.library-page > .library-toolbar:first-child,
+.evidence-page > .evidence-toolbar:first-child { margin-top: 0; }
+.page-title-row { display: flex; align-items: center; gap: 12px; }

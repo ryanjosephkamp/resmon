@@ -13,6 +13,7 @@ import InfoTooltip from '../components/Help/InfoTooltip';
 import RoutineEditModal from '../components/Routines/RoutineEditModal';
 import { useConfigurationsVersion } from '../lib/configurationsBus';
 import { useRoutinesVersion } from '../lib/routinesBus';
+import ScheduleLabel from '../components/Routines/ScheduleLabel';
 import { routineFiringNote, schedulerNotice, type SchedulerStatus } from '../lib/schedulerStatus';
 
 interface Routine {
@@ -263,7 +264,7 @@ const RoutinesPage: React.FC = () => {
             body: (
               <ul>
                 <li>Click <strong>Create New Routine</strong> to build one from scratch or load a saved routine configuration.</li>
-                <li>The <strong>Schedule</strong> column shows the cron expression; the <strong>Status</strong> column shows whether it is active.</li>
+                <li>The <strong>Schedule</strong> column says when the routine fires, in your computer&rsquo;s local time, with its cron expression beneath. A schedule that cannot be put into words exactly is shown as the expression alone. The <strong>Status</strong> column shows whether it is active.</li>
                 <li>Per-routine <strong>Email</strong>, <strong>AI</strong>, and <strong>Notify</strong> toggles let you override those features on a single row without opening the editor.</li>
                 <li>Use <strong>Activate / Deactivate</strong> to pause a routine without deleting it.</li>
                 <li>If a routine is currently firing, a <strong>Cancel Run</strong> button appears on its row.</li>
@@ -416,7 +417,7 @@ const RoutinesPage: React.FC = () => {
               <React.Fragment key={`local-${r.id}`}>
               <tr>
                 <td>{r.name}</td>
-                <td><code>{r.schedule_cron}</code></td>
+                <td><ScheduleLabel cron={r.schedule_cron} parameters={r.parameters} /></td>
                 <td>
                   <span className={`badge ${r.is_active ? 'badge-success' : 'badge-error'}`}>
                     {r.is_active ? 'Active' : 'Inactive'}

@@ -33,7 +33,7 @@ A Deep Dive runs a targeted one-off query against a **single** repository.
 
 ### Run a Deep Sweep
 
-A Deep Sweep runs a broad one-off query across **multiple** repositories in parallel, then normalizes and de-duplicates the combined result set by DOI and by title + first author.
+A Deep Sweep runs a broad one-off query across **multiple** repositories, one after another, then normalizes and de-duplicates the combined result set by DOI and by title + first author.
 
 1. Open the **Deep Sweep** page at `#/sweep`.
 2. In the repository selector (multi-select), choose every source to include.

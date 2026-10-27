@@ -10,6 +10,7 @@ import BasisBadge from '../components/Profiles/BasisBadge';
 import { DocumentMatch, profilesApi } from '../api/profiles';
 import { apiClient, backendFetch } from '../api/client';
 import { useEmbeddingCapability } from '../hooks/useEmbeddingCapability';
+import { useSourceNames } from '../hooks/useSourceNames';
 
 /**
  * Corpus-wide explorer: every paper resmon has collected, in one place.
@@ -80,6 +81,7 @@ const nf = new Intl.NumberFormat();
 const PAGE = 50;
 
 const ExplorerPage: React.FC = () => {
+  const sourceName = useSourceNames();
   const [params, setParams] = useSearchParams();
 
   // The URL is the single source of truth for committed filters, rather than a
@@ -336,7 +338,8 @@ const ExplorerPage: React.FC = () => {
   const FacetGroup: React.FC<{
     title: string; values: FacetValue[]; selected: string[];
     onToggle: (v: string) => void;
-  }> = ({ title, values, selected, onToggle }) => (
+    label?: (v: string) => string;
+  }> = ({ title, values, selected, onToggle, label = (v) => v }) => (
     <div className="explorer-facet">
       <h3>{title}</h3>
       {values.length === 0 ? (
@@ -351,7 +354,7 @@ const ExplorerPage: React.FC = () => {
                   checked={selected.includes(v.value)}
                   onChange={() => onToggle(v.value)}
                 />
-                <span className="explorer-facet-value" title={v.value}>{v.value}</span>
+                <span className="explorer-facet-value" title={label(v.value)}>{label(v.value)}</span>
                 <span className="explorer-facet-count">{nf.format(v.count)}</span>
               </label>
             </li>
@@ -538,7 +541,7 @@ const ExplorerPage: React.FC = () => {
           {facets && (
             <>
               <FacetGroup title="Source" values={facets.sources} selected={sources}
-                          onToggle={(v) => toggle('source', sources, v)} />
+                          onToggle={(v) => toggle('source', sources, v)} label={sourceName} />
               <FacetGroup title="Category" values={facets.categories} selected={categories}
                           onToggle={(v) => toggle('category', categories, v)} />
               <FacetGroup title="Author" values={facets.authors} selected={authors}
@@ -701,7 +704,7 @@ const ExplorerPage: React.FC = () => {
                   </p>
                 )}
                 <p className="explorer-meta">
-                  <span className="explorer-source">{d.source_repository}</span>
+                  <span className="explorer-source">{sourceName(d.source_repository)}</span>
                   {d.publication_date && <span>{d.publication_date}</span>}
                   {d.doi && <span className="explorer-doi">{d.doi}</span>}
                   {/*

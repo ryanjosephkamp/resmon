@@ -22,7 +22,7 @@ const TutorialLinkButton: React.FC<TutorialLinkButtonProps> = ({ anchor, label =
   return (
     <button
       type="button"
-      className="btn btn-sm btn-primary tutorial-link-btn"
+      className="btn btn-sm tutorial-link-btn"
       onClick={() => navigate({ pathname: '/about-resmon/tutorials', hash: anchor })}
       data-testid={`tutorial-link-${anchor}`}
       aria-label={`Open the ${anchor} tutorial`}

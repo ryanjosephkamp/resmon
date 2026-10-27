@@ -51,7 +51,9 @@ describe('ResultsList', () => {
     expect(screen.getByText('Execution #1')).toBeInTheDocument();
     expect(screen.getByText('Execution #2')).toBeInTheDocument();
     expect(screen.getByText('Execution #3')).toBeInTheDocument();
-    expect(screen.getByText('deep_dive')).toBeInTheDocument();
+    // The badge reads as the page names the type; "Deep Dive" is also an option
+    // in the type filter, so the badge is told apart by its class.
+    expect(screen.getAllByText('Deep Dive').some((el) => el.classList.contains('badge'))).toBe(true);
     expect(screen.getByText('failed')).toBeInTheDocument();
   });
 
@@ -67,6 +69,23 @@ describe('ResultsList', () => {
     expect(screen.getByText('Execution #1')).toBeInTheDocument();
     expect(screen.queryByText('Execution #2')).not.toBeInTheDocument();
     expect(screen.queryByText('Execution #3')).not.toBeInTheDocument();
+  });
+
+  test('the Routine filter shows the runs routines fired, which are stored as automated_sweep', () => {
+    renderList({
+      typeFilter: 'routine',
+      executions: [
+        ...EXECUTIONS,
+        {
+          id: 4, execution_type: 'automated_sweep', status: 'completed',
+          start_time: '2026-08-20T07:00:00', total_results: 3, new_results: 1,
+          keywords: ['graphene'], repositories: ['arxiv'],
+        },
+      ] as any,
+    });
+    expect(screen.getByText('Execution #4')).toBeInTheDocument();
+    expect(screen.getByText('Execution #3')).toBeInTheDocument();
+    expect(screen.queryByText('Execution #1')).not.toBeInTheDocument();
   });
 
   test('status filter narrows the visible rows', () => {

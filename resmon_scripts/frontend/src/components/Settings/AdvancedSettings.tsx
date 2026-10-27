@@ -385,7 +385,7 @@ const AdvancedSettings: React.FC = () => {
       />
       <section style={{ marginBottom: '1.5rem' }}>
         <h3>Run resmon in the background</h3>
-        <p style={{ color: '#666', fontSize: '0.9rem' }}>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
           Installs a per-user service unit so that scheduled routines continue to run
           even when the resmon window is closed. Uses launchd on macOS, systemd --user
           on Linux, and Task Scheduler on Windows.
@@ -408,22 +408,22 @@ const AdvancedSettings: React.FC = () => {
             {/* Update 4 / Fix E — daemon status is read from daemon.lock
                 by the backend, not from the renderer-attached /api/health. */}
             {daemon && daemon.running ? (
-              <span style={{ marginLeft: '0.5rem', color: '#2a7' }}>
+              <span style={{ marginLeft: '0.5rem', color: 'var(--color-success)' }}>
                 · daemon up (pid {daemon.pid}, v{daemon.version}
                 {daemon.is_self ? ', this process' : ''})
               </span>
             ) : daemon && daemon.lock_present ? (
-              <span style={{ marginLeft: '0.5rem', color: '#a62' }}>
+              <span style={{ marginLeft: '0.5rem', color: 'var(--color-warning)' }}>
                 · daemon lock present (pid {daemon.lock_pid}, port {daemon.lock_port}) but unreachable
                 {daemon.error ? `: ${daemon.error}` : ''}
               </span>
             ) : (
-              <span style={{ marginLeft: '0.5rem', color: '#a62' }}>· no daemon running</span>
+              <span style={{ marginLeft: '0.5rem', color: 'var(--color-warning)' }}>· no daemon running</span>
             )}
             {/* Renderer-attached backend identity — kept for diagnostics
                 so the user can compare against the ground-truth daemon. */}
             {health && (
-              <span style={{ marginLeft: '0.5rem', color: '#888' }}>
+              <span style={{ marginLeft: '0.5rem', color: 'var(--color-text-muted)' }}>
                 · this window → pid {health.pid}, v{health.version}
               </span>
             )}
@@ -433,13 +433,13 @@ const AdvancedSettings: React.FC = () => {
               Last started: <code>{formatInstant(daemon.started_at)}</code>
             </div>
           )}
-          <div style={{ color: '#888' }}>
+          <div style={{ color: 'var(--color-text-muted)' }}>
             Unit path: <code>{svc.unit_path}</code>
           </div>
-          <div style={{ color: '#888' }}>Platform: {svc.platform}</div>
+          <div style={{ color: 'var(--color-text-muted)' }}>Platform: {svc.platform}</div>
         </div>
         {status && (
-          <div style={{ marginTop: '0.5rem', color: status.startsWith('Error') ? '#c33' : '#2a7' }}>
+          <div style={{ marginTop: '0.5rem', color: status.startsWith('Error') ? '#f87171' : 'var(--color-success)' }}>
             {status}
           </div>
         )}
@@ -447,7 +447,7 @@ const AdvancedSettings: React.FC = () => {
 
       <section style={{ marginBottom: '1.5rem' }}>
         <h3>Concurrent executions</h3>
-        <p style={{ color: '#666', fontSize: '0.9rem' }}>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
           How many sweeps can run at the same time (range 1–8, default 3).
           Routines that fire while the limit is full are queued (up to 16 at a
           time). Manual dives/sweeps beyond the limit return an error telling
@@ -487,6 +487,7 @@ const AdvancedSettings: React.FC = () => {
               </span>
               <input
                 type="number"
+                className="form-input"
                 min={1}
                 max={64}
                 step={1}
@@ -512,7 +513,7 @@ const AdvancedSettings: React.FC = () => {
               <div
                 style={{
                   fontSize: '0.85rem',
-                  color: execStatus.startsWith('Error') ? '#c33' : '#2a7',
+                  color: execStatus.startsWith('Error') ? '#f87171' : 'var(--color-success)',
                 }}
               >
                 {execStatus}
@@ -520,13 +521,13 @@ const AdvancedSettings: React.FC = () => {
             )}
           </div>
         ) : (
-          <div style={{ color: '#888' }}>Loading execution settings…</div>
+          <div style={{ color: 'var(--color-text-muted)' }}>Loading execution settings…</div>
         )}
       </section>
 
       <section style={{ marginBottom: '1.5rem' }}>
         <h3>Scheduler diagnostics</h3>
-        <p style={{ color: '#666', fontSize: '0.9rem' }}>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
           Read-only view of every active APScheduler job (one row per active
           routine). Use the refresh button to re-query.
         </p>
@@ -539,14 +540,14 @@ const AdvancedSettings: React.FC = () => {
           Refresh
         </button>
         {jobsStatus && (
-          <div style={{ fontSize: '0.85rem', color: '#c33', marginBottom: '0.5rem' }}>
+          <div style={{ fontSize: '0.85rem', color: '#f87171', marginBottom: '0.5rem' }}>
             {jobsStatus}
           </div>
         )}
         {jobs === null ? (
-          <div style={{ color: '#888' }}>Loading scheduler jobs…</div>
+          <div style={{ color: 'var(--color-text-muted)' }}>Loading scheduler jobs…</div>
         ) : jobs.length === 0 ? (
-          <div style={{ color: '#888' }}>No active scheduler jobs.</div>
+          <div style={{ color: 'var(--color-text-muted)' }}>No active scheduler jobs.</div>
         ) : (
           <table className="data-table" style={{ fontSize: '0.85rem', width: '100%' }}>
             <thead>
@@ -575,20 +576,20 @@ const AdvancedSettings: React.FC = () => {
         style={{
           marginTop: '2rem',
           padding: '1rem',
-          border: '1px solid #c33',
+          border: '1px solid rgba(248, 113, 113, 0.55)',
           borderRadius: 6,
           background: 'rgba(204, 51, 51, 0.05)',
         }}
       >
-        <h3 style={{ color: '#c33', marginTop: 0 }}>Danger zone</h3>
-        <p style={{ color: '#666', fontSize: '0.9rem' }}>
+        <h3 style={{ color: '#f87171', marginTop: 0 }}>Danger zone</h3>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
           Bulk erase and reset actions. <strong>Every action here is
           irreversible.</strong> The two API-key wipes use a quick
           confirm/cancel prompt; every other action requires you to type
           <code> CONFIRM </code>(case-sensitive, all caps) before the
           confirm button activates so nothing is wiped by accident.
         </p>
-        <p style={{ color: '#666', fontSize: '0.9rem' }}>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
           <strong>Take a backup first.</strong> Settings → Storage → <em>Back up
           now</em> writes your database and your Library vault to a folder you
           choose, and can put them back. Nothing on this page can be undone.
@@ -602,16 +603,16 @@ const AdvancedSettings: React.FC = () => {
               padding: '0.5rem 0.75rem',
               borderRadius: 4,
               fontSize: '0.85rem',
-              background: dangerStatusKind === 'error' ? '#fdecea' : '#e6f4ea',
-              color: dangerStatusKind === 'error' ? '#c33' : '#1a7e3a',
-              border: `1px solid ${dangerStatusKind === 'error' ? '#c33' : '#1a7e3a'}`,
+              background: dangerStatusKind === 'error' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(34, 197, 94, 0.12)',
+              color: dangerStatusKind === 'error' ? '#fca5a5' : '#86efac',
+              border: `1px solid ${dangerStatusKind === 'error' ? 'rgba(239, 68, 68, 0.5)' : 'rgba(34, 197, 94, 0.5)'}`,
             }}
           >
             {dangerStatus}
           </div>
         )}
 
-        <p style={{ color: '#888', fontSize: '0.8rem', marginTop: 0 }}>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', marginTop: 0 }}>
           These actions affect data stored on this device — the OS keyring,
           the SQLite database, and the app settings.
         </p>
@@ -624,7 +625,7 @@ const AdvancedSettings: React.FC = () => {
                 alignItems: 'flex-start',
                 gap: '0.75rem',
                 padding: '0.5rem 0',
-                borderBottom: '1px solid #eee',
+                borderBottom: '1px solid var(--color-border)',
               }}
             >
               <button
@@ -636,7 +637,7 @@ const AdvancedSettings: React.FC = () => {
               >
                 {a.label}
               </button>
-              <div style={{ fontSize: '0.85rem', color: '#555' }}>
+              <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
                 {a.shortDescription}
               </div>
             </div>

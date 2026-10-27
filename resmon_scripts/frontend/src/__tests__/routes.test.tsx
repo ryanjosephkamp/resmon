@@ -173,9 +173,12 @@ describe('the sidebar and the route table are one set', () => {
     // than the sidebar's.
     expect(links.map((a) => a.getAttribute('href')))
       .toEqual(NAV_ITEMS.map((item) => item.to));
-    // Icon and label sit in adjacent nodes with no separator between them.
+    // The icon is a drawing with no text, so the link reads as its label alone,
+    // and every link carries exactly one icon.
     expect(links.map((a) => (a.textContent ?? '').replace(/\s+/g, ' ').trim()))
-      .toEqual(NAV_ITEMS.map((item) => `${item.icon}${item.label}`));
+      .toEqual(NAV_ITEMS.map((item) => item.label));
+    expect(links.map((a) => a.querySelectorAll('svg.sidebar-icon').length))
+      .toEqual(NAV_ITEMS.map(() => 1));
   });
 });
 

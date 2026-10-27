@@ -8,6 +8,7 @@ import { useExecutions } from '../hooks/useExecutions';
 import ResultsList from '../components/Results/ResultsList';
 import ReportViewer, { ReportTab } from '../components/Results/ReportViewer';
 import PageHelp from '../components/Help/PageHelp';
+import { matchesRunTypeFilter } from '../lib/labels';
 
 interface Execution {
   id: number;
@@ -80,7 +81,7 @@ const ResultsPage: React.FC = () => {
 
   const handleToggleAll = () => {
     const filtered = executions.filter((e) => {
-      if (typeFilter && e.execution_type !== typeFilter) return false;
+      if (!matchesRunTypeFilter(e.execution_type, typeFilter)) return false;
       if (statusFilter && e.status !== statusFilter) return false;
       return true;
     });
@@ -293,7 +294,7 @@ const ResultsPage: React.FC = () => {
             body: (
               <ul>
                 <li>Each row is one execution (manual dive, manual sweep, or routine-fired sweep).</li>
-                <li>The <strong>Name</strong> column resolves to the saved-configuration name when the run was launched from (or saved into) one, otherwise to the routine name for routine-fired runs, otherwise to <code>Execution #&lt;id&gt;</code>.</li>
+                <li>The <strong>Name</strong> column is the run&rsquo;s number, <code>Execution #&lt;id&gt;</code>.</li>
                 <li><strong>Type</strong> and <strong>Status</strong> badges match the color palette used across the app.</li>
                 <li>Use the Type and Status filters to narrow the view.</li>
               </ul>

@@ -64,6 +64,30 @@ const SourceWallPage: React.FC = () => {
 
   return (
     <div className="page source-wall-page">
+      <div className="page-header">
+        <div>
+          <div className="page-title-row">
+            <h1>Source wall</h1>
+            <TutorialLinkButton anchor="source-wall" />
+          </div>
+          <p className="page-subtitle">
+            Is your monitoring still intact? One cell per source per run.
+          </p>
+        </div>
+        <div className="source-wall-controls">
+          <label htmlFor="source-wall-limit">Runs shown</label>
+          <select
+            id="source-wall-limit"
+            value={limit}
+            onChange={(event) => setLimit(Number(event.target.value))}
+          >
+            {WINDOWS.map((size) => (
+              <option key={size} value={size}>{`Last ${size}`}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       <PageHelp
         storageKey="source-wall"
         title="Source wall"
@@ -124,28 +148,6 @@ const SourceWallPage: React.FC = () => {
           },
         ]}
       />
-
-      <div className="page-header">
-        <div>
-          <h1>Source wall</h1>
-          <p className="page-subtitle">
-            Is your monitoring still intact? One cell per source per run.
-          </p>
-        </div>
-        <div className="source-wall-controls">
-          <label htmlFor="source-wall-limit">Runs shown</label>
-          <select
-            id="source-wall-limit"
-            value={limit}
-            onChange={(event) => setLimit(Number(event.target.value))}
-          >
-            {WINDOWS.map((size) => (
-              <option key={size} value={size}>{`Last ${size}`}</option>
-            ))}
-          </select>
-          <TutorialLinkButton anchor="source-wall" />
-        </div>
-      </div>
 
       {error && (
         <div className="source-wall-error" role="alert">

@@ -24,7 +24,7 @@ retires itself the moment you have run anything.</p>
 <li>Click <strong>Run Deep Dive</strong>. The page sends <code>POST /api/search/dive</code>, registers the returned execution id with <code>ExecutionContext</code>, and the floating widget begins streaming progress. When the execution reaches a terminal state, an <strong>Execution #N</strong> result card is rendered inline with counts and a <strong>View Report</strong> link to <code>#/results?exec=&#x3C;id></code>.</li>
 </ol>
 <h3 id="run-a-deep-sweep">Run a Deep Sweep</h3>
-<p>A Deep Sweep runs a broad one-off query across <strong>multiple</strong> repositories in parallel, then normalizes and de-duplicates the combined result set by DOI and by title + first author.</p>
+<p>A Deep Sweep runs a broad one-off query across <strong>multiple</strong> repositories, one after another, then normalizes and de-duplicates the combined result set by DOI and by title + first author.</p>
 <ol>
 <li>Open the <strong>Deep Sweep</strong> page at <code>#/sweep</code>.</li>
 <li>In the repository selector (multi-select), choose every source to include.</li>

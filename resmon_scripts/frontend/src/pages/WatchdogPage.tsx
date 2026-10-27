@@ -4,6 +4,7 @@ import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import PageHelp from '../components/Help/PageHelp';
 import { apiClient } from '../api/client';
 import LifecycleBadge, { LifecycleEvent } from '../components/Explain/LifecycleBadge';
+import { useSourceNames } from '../hooks/useSourceNames';
 
 /**
  * The watchdog: what has stopped working, and what merely looks odd.
@@ -102,8 +103,13 @@ const SEVERITY_GLOSS: Record<Severity, string> = {
   advice: 'Nothing is wrong. Worth considering.',
 };
 
-const scopeLabel = (scope: Finding['scope']): string =>
-  scope.type === 'source' ? `Source · ${scope.id}` : `Routine · ${scope.name ?? scope.id}`;
+const scopeLabel = (
+  scope: Finding['scope'],
+  sourceName: (slug: string) => string = (slug) => slug,
+): string =>
+  scope.type === 'source'
+    ? `Source · ${scope.name ?? sourceName(String(scope.id))}`
+    : `Routine · ${scope.name ?? scope.id}`;
 
 /** Evidence keys rendered as a readable label rather than a raw field name. */
 const EVIDENCE_LABELS: Record<string, string> = {
@@ -138,6 +144,7 @@ const FindingCard: React.FC<{
   onMute: (finding: Finding) => void;
   busy: boolean;
 }> = ({ finding, onMute, busy }) => {
+  const sourceName = useSourceNames();
   const [showEvidence, setShowEvidence] = useState(false);
 
   // Only the fields with a human label are shown. Anything else in the payload
@@ -156,7 +163,7 @@ const FindingCard: React.FC<{
           <span className={`watchdog-chip watchdog-chip-${finding.severity}`}>
             {SEVERITY_LABEL[finding.severity]}
           </span>
-          <span className="watchdog-scope">{scopeLabel(finding.scope)}</span>
+          <span className="watchdog-scope">{scopeLabel(finding.scope, sourceName)}</span>
           {finding.muted && <span className="watchdog-chip watchdog-chip-muted">Muted</span>}
         </div>
         <button
@@ -204,6 +211,7 @@ const FindingCard: React.FC<{
 };
 
 const WatchdogPage: React.FC = () => {
+  const sourceName = useSourceNames();
   const [data, setData] = useState<WatchdogReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -672,7 +680,7 @@ const WatchdogPage: React.FC = () => {
           <ul className="watchdog-unjudged">
             {report.not_enough_data.map((u) => (
               <li key={`${u.scope.type}:${u.scope.id}`}>
-                <span className="watchdog-scope">{scopeLabel(u.scope as Finding['scope'])}</span>
+                <span className="watchdog-scope">{scopeLabel(u.scope as Finding['scope'], sourceName)}</span>
                 <span>{u.reason}</span>
               </li>
             ))}

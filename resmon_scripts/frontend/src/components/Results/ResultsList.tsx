@@ -5,6 +5,8 @@ import {
   RESTARTABLE_STATUSES,
 } from '../../context/executionStatus';
 import { formatInstant } from '../../lib/datetime';
+import { matchesRunTypeFilter, runTypeGroup, runTypeLabel } from '../../lib/labels';
+import { useSourceNames } from '../../hooks/useSourceNames';
 
 /**
  * How many of an execution's sources actually answered.
@@ -64,12 +66,10 @@ interface Props {
 // Map execution_type → badge CSS class. Each type gets a distinct palette
 // that does not collide with the Status badges (green/red/blue).
 const typeBadgeClass = (t: string): string => {
-  switch (t) {
+  switch (runTypeGroup(t)) {
     case 'deep_dive':
-    case 'dive':
       return 'badge-type-dive';
     case 'deep_sweep':
-    case 'sweep':
       return 'badge-type-sweep';
     case 'routine':
       return 'badge-type-routine';
@@ -141,9 +141,9 @@ const formatKeywords = (exec: Execution): string => {
   return '—';
 };
 
-const formatRepos = (exec: Execution): string => {
+const formatRepos = (exec: Execution, name: (slug: string) => string = (slug) => slug): string => {
   if (exec.repositories && exec.repositories.length > 0) {
-    return exec.repositories.join(', ');
+    return exec.repositories.map(name).join(', ');
   }
   return '—';
 };
@@ -220,8 +220,9 @@ const ResultsList: React.FC<Props> = ({
   onRestart,
   restarting,
 }) => {
+  const sourceName = useSourceNames();
   const filtered = executions.filter((e) => {
-    if (typeFilter && e.execution_type !== typeFilter) return false;
+    if (!matchesRunTypeFilter(e.execution_type, typeFilter)) return false;
     if (statusFilter && e.status !== statusFilter) return false;
     return true;
   });
@@ -273,10 +274,10 @@ const ResultsList: React.FC<Props> = ({
                 <td onClick={(ev) => ev.stopPropagation()}>
                   <input type="checkbox" checked={selected.has(e.id)} onChange={() => onToggle(e.id)} />
                 </td>
-                <td>{formatInstant(e.start_time) || '—'}</td>
-                <td>Execution #{e.id}</td>
-                <td><span className={`badge ${typeBadgeClass(e.execution_type)}`}>{e.execution_type}</span></td>
-                <td className="ellipsis-cell" title={formatRepos(e)}>{formatRepos(e)}</td>
+                <td className="cell-nowrap">{formatInstant(e.start_time) || '—'}</td>
+                <td className="cell-nowrap">Execution #{e.id}</td>
+                <td><span className={`badge ${typeBadgeClass(e.execution_type)}`}>{runTypeLabel(e.execution_type)}</span></td>
+                <td className="ellipsis-cell" title={formatRepos(e, sourceName)}>{formatRepos(e, sourceName)}</td>
                 <td className="ellipsis-cell" title={formatKeywords(e)}>{formatKeywords(e)}</td>
                 <td>
                   <span className={`badge ${statusBadgeClass(e.status)}`}>

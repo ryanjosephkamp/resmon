@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../api/client';
 import InfoTooltip from '../Help/InfoTooltip';
+import { useSourceNames } from '../../hooks/useSourceNames';
 
 interface Props {
   mode: 'single' | 'multi';
@@ -11,6 +12,7 @@ interface Props {
 const RepositorySelector: React.FC<Props> = ({ mode, value, onChange }) => {
   const [repositories, setRepositories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const sourceName = useSourceNames();
 
   useEffect(() => {
     apiClient
@@ -45,7 +47,7 @@ const RepositorySelector: React.FC<Props> = ({ mode, value, onChange }) => {
         >
           <option value="">Select a repository</option>
           {repositories.map((r) => (
-            <option key={r} value={r}>{r}</option>
+            <option key={r} value={r}>{sourceName(r)}</option>
           ))}
         </select>
       </div>
@@ -74,7 +76,7 @@ const RepositorySelector: React.FC<Props> = ({ mode, value, onChange }) => {
     <div className="form-field">
       <label className="form-label">
         Repositories
-        <InfoTooltip text="Every selected repository is queried in parallel (subject to the Concurrent Executions limit in Settings → Advanced). Keyed repositories are silently skipped if no key is stored for them in this scope." />
+        <InfoTooltip text="Every selected repository is queried in the same run, one after another. Keyed repositories are silently skipped if no key is stored for them in this scope." />
       </label>
       <div className="repo-multi-header">
         <button type="button" className="btn btn-sm" onClick={handleSelectAll}>
@@ -90,7 +92,7 @@ const RepositorySelector: React.FC<Props> = ({ mode, value, onChange }) => {
               checked={selected.includes(r)}
               onChange={() => handleToggle(r)}
             />
-            <span>{r}</span>
+            <span>{sourceName(r)}</span>
           </label>
         ))}
       </div>

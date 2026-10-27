@@ -48,31 +48,42 @@ export interface NavItem {
   to: string;
   /** The name the user reads, in the sidebar and in the documentation. */
   label: string;
-  /** The glyph rendered to the left of the label. */
-  icon: string;
+  /**
+   * Which drawn icon sits to the left of the label (`NavIcon.tsx`). These were
+   * Unicode glyphs, and the glyphs were a mixed family: different system fonts
+   * drew them at different sizes and weights, Library and Analytics shared one,
+   * and Chats was a telephone.
+   */
+  icon: NavIconName;
 }
 
+/** Every icon the sidebar can draw. */
+export type NavIconName =
+  | 'dashboard' | 'dive' | 'sweep' | 'routines' | 'calendar' | 'results' | 'chats'
+  | 'reading' | 'library' | 'evidence' | 'analytics' | 'watchdog' | 'wall' | 'explorer'
+  | 'profiles' | 'configurations' | 'monitor' | 'repositories' | 'settings' | 'about';
+
 export const NAV_ITEMS: readonly NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: '⊞' },
-  { to: '/dive', label: 'Deep Dive', icon: '⎈' },
-  { to: '/sweep', label: 'Deep Sweep', icon: '⟐' },
-  { to: '/routines', label: 'Routines', icon: '⟳' },
-  { to: '/calendar', label: 'Calendar', icon: '▦' },
-  { to: '/results', label: 'Results & Logs', icon: '◉' },
-  { to: '/chats', label: 'Chats', icon: '☏' },
-  { to: '/reading-queue', label: 'Reading queue', icon: '⚑' },
-  { to: '/library', label: 'Library', icon: '▤' },
-  { to: '/evidence', label: 'Evidence', icon: '▧' },
-  { to: '/analytics', label: 'Analytics', icon: '▤' },
-  { to: '/watchdog', label: 'Watchdog', icon: '◬' },
-  { to: '/source-wall', label: 'Source wall', icon: '▩' },
-  { to: '/explorer', label: 'Explorer', icon: '⌕' },
-  { to: '/profiles', label: 'Watch Profiles', icon: '☖' },
-  { to: '/configurations', label: 'Configurations', icon: '⚙' },
-  { to: '/monitor', label: 'Monitor', icon: '◎' },
-  { to: '/repositories', label: 'Repositories & API Keys', icon: '◈' },
-  { to: '/settings', label: 'Settings', icon: '☰' },
-  { to: '/about-resmon', label: 'About resmon', icon: 'ℹ' },
+  { to: '/', label: 'Dashboard', icon: 'dashboard' },
+  { to: '/dive', label: 'Deep Dive', icon: 'dive' },
+  { to: '/sweep', label: 'Deep Sweep', icon: 'sweep' },
+  { to: '/routines', label: 'Routines', icon: 'routines' },
+  { to: '/calendar', label: 'Calendar', icon: 'calendar' },
+  { to: '/results', label: 'Results & Logs', icon: 'results' },
+  { to: '/chats', label: 'Chats', icon: 'chats' },
+  { to: '/reading-queue', label: 'Reading queue', icon: 'reading' },
+  { to: '/library', label: 'Library', icon: 'library' },
+  { to: '/evidence', label: 'Evidence', icon: 'evidence' },
+  { to: '/analytics', label: 'Analytics', icon: 'analytics' },
+  { to: '/watchdog', label: 'Watchdog', icon: 'watchdog' },
+  { to: '/source-wall', label: 'Source wall', icon: 'wall' },
+  { to: '/explorer', label: 'Explorer', icon: 'explorer' },
+  { to: '/profiles', label: 'Watch Profiles', icon: 'profiles' },
+  { to: '/configurations', label: 'Configurations', icon: 'configurations' },
+  { to: '/monitor', label: 'Monitor', icon: 'monitor' },
+  { to: '/repositories', label: 'Repositories & API Keys', icon: 'repositories' },
+  { to: '/settings', label: 'Settings', icon: 'settings' },
+  { to: '/about-resmon', label: 'About resmon', icon: 'about' },
 ];
 
 /**

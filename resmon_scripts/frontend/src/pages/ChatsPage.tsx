@@ -69,6 +69,7 @@ const ChatsPage: React.FC = () => {
   };
   const blocked = ask.isAnswering && selected !== ask.sessionId;
   return <div className="chats-page">
+    <div className="page-header"><h1>Chats</h1></div>
     <PageHelp storageKey="chats" title="About Chats" summary="Find, read, continue and export saved conversations.">
       <p>Newest created first. Refresh includes new chats. The refresh fixes an ID ceiling, not titles or message contents.
         Filter matches a literal saved-title substring, ignoring ASCII case; other characters match literally.</p>
@@ -88,7 +89,15 @@ const ChatsPage: React.FC = () => {
       <section aria-label="Saved chats" className="chats-list">
         {loading && <p role="status">Loading chats…</p>}
         {listError && <p role="alert">{listError}</p>}
-        {page && <>
+        {page && page.sessions.length === 0 && !page.has_more && (
+          // An empty first page said "Page 1 · 0 chats on this page" and then
+          // "No more matching chats", two sentences about paging and none
+          // about why the list is empty or how it fills.
+          <p className="text-muted">{q
+            ? 'No saved chat title contains that text.'
+            : 'No saved chats yet. Each conversation you have in Ask is saved here.'}</p>
+        )}
+        {page && (page.sessions.length > 0 || page.has_more) && <>
           <p>Page {pageNumber} · {page.sessions.length} chats on this page</p>
           <ul>{page.sessions.map(chat => <li key={chat.id}>
             <button type="button" aria-pressed={chat.id === selected} onClick={() => void select(chat.id)}>
