@@ -22,6 +22,7 @@ No real OS notifications are emitted by these tests.
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -272,7 +273,7 @@ def test_notification_fires_for_routine_when_per_routine_optin(mock_notify):
 
     assert mock_notify.call_count == 1, mock_notify.call_args_list
     title, body = mock_notify.call_args.args
-    assert "Automated Sweep" in body
+    assert body.startswith("notify-hook-test: ")
 
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
@@ -313,6 +314,151 @@ def test_notification_failure_does_not_fail_execution(mock_notify):
     final = database.get_execution_by_id(conn, exec_id)
     assert final["status"] == "completed"
     assert mock_notify.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# What the notification says. The tests above check that one fires; these
+# check its sentence, end to end from the row the hook really reads. Before
+# they existed every completed run's background notification said "0 results
+# (0 new)", because the body read the renderer's field names off the raw row.
+# ---------------------------------------------------------------------------
+
+_FOUR_SOURCES = ["arxiv", "crossref", "openalex", "pubmed"]
+
+
+def _recording_run_prepared(
+    *,
+    status: str,
+    result_count: int | None,
+    new_result_count: int | None,
+    sources: list[tuple[str, str, int, str | None]],
+):
+    """A ``run_prepared`` that leaves the record a real run would have left."""
+
+    def _run(self, exec_id: int) -> dict:
+        for slug, source_status, count, reason in sources:
+            database.record_execution_source(
+                self.db, exec_id, slug, source_status,
+                result_count=count, zero_reason=reason,
+            )
+        database.update_execution_status(
+            self.db, exec_id, status,
+            result_count=result_count, new_result_count=new_result_count,
+        )
+        progress_store.mark_complete(exec_id)
+        return {"execution_id": exec_id, "status": status}
+
+    return _run
+
+
+def _fire_named_routine_and_read_body(run_prepared, *, repositories=None) -> str:
+    _reset_state()
+    _set_notify_settings(notify_manual=False, mode="all")
+    params = json.dumps({
+        "query": "agents",
+        "repositories": list(repositories or _FOUR_SOURCES),
+    })
+    conn = resmon_mod._get_db()
+    rid = database.insert_routine(conn, {
+        "name": "daily_agents",
+        "schedule_cron": "0 16 * * *",
+        "parameters": params,
+        "is_active": 1,
+        "notify_on_complete": 1,
+        "execution_location": "local",
+    })
+    with patch("resmon.SweepEngine.run_prepared", run_prepared), \
+         patch("implementation_scripts.desktop_notifier.notify",
+               return_value=True) as mock_notify:
+        resmon_mod._dispatch_routine_fire(rid, params)
+        rows = database.get_executions(conn)
+        assert len(rows) == 1
+        _wait_for_completion(rows[0]["id"])
+    assert mock_notify.call_count == 1, mock_notify.call_args_list
+    return mock_notify.call_args.args[1]
+
+
+def test_completed_routine_body_names_routine_counts_and_coverage():
+    body = _fire_named_routine_and_read_body(_recording_run_prepared(
+        status="completed", result_count=1500, new_result_count=6,
+        sources=[("arxiv", "ok", 900, None), ("crossref", "ok", 400, None),
+                 ("openalex", "ok", 200, None), ("pubmed", "ok", 0, "answered_empty")],
+    ))
+    assert body == "daily_agents: 6 new of 1,500 results; all 4 sources answered."
+
+
+def test_completed_routine_body_counts_a_source_that_did_not_answer():
+    body = _fire_named_routine_and_read_body(_recording_run_prepared(
+        status="completed", result_count=1500, new_result_count=6,
+        sources=[("arxiv", "ok", 1100, None), ("crossref", "ok", 400, None),
+                 ("openalex", "ok", 0, "upstream_failure"),
+                 ("pubmed", "ok", 0, "answered_empty")],
+    ))
+    assert body == (
+        "daily_agents: 6 new of 1,500 results; 1 of 4 sources did not answer."
+    )
+
+
+def test_completed_body_says_unrecorded_sources_are_unknown_not_failed():
+    # Only two of the four selected sources left a row. The other two are
+    # not failures and not answers; the record cannot say which.
+    body = _fire_named_routine_and_read_body(_recording_run_prepared(
+        status="completed", result_count=12, new_result_count=3,
+        sources=[("arxiv", "ok", 12, None), ("crossref", "ok", 0, "upstream_failure")],
+    ))
+    assert body == (
+        "daily_agents: 3 new of 12 results; 1 of 4 sources did not answer; "
+        "whether 2 answered is unknown."
+    )
+
+
+def test_completed_body_never_prints_an_absent_count_as_zero():
+    # ``executions.result_count`` defaults to 0 and the engine writes both
+    # counts when a run completes, so a row read from the table always has
+    # them. A row that lacks them must still not be rounded to zero.
+    conn = resmon_mod._get_db()
+    row = {
+        "id": 999_999, "execution_type": "deep_dive", "status": "completed",
+        "parameters": json.dumps({"query": "x", "repository": "arxiv"}),
+        "result_count": None, "new_result_count": None,
+    }
+    body = resmon_mod._desktop_notification_body(conn, row, None)
+    assert body == (
+        "Deep Dive: result count not recorded; whether the source answered is unknown."
+    )
+
+
+def test_failed_routine_body_says_failed_and_why():
+    body = _fire_named_routine_and_read_body(_recording_run_prepared(
+        status="failed", result_count=None, new_result_count=None,
+        sources=[(slug, "ok", 0, "upstream_failure") for slug in _FOUR_SOURCES],
+    ))
+    assert body == "daily_agents failed; 4 of 4 sources did not answer."
+
+
+@pytest.mark.parametrize(
+    "coverage,expected",
+    [
+        ({"total": 0, "counts": {}, "selection_known": True},
+         "no source outcome was recorded"),
+        ({"total": 1, "counts": {"answered": 1}, "selection_known": True},
+         "the source answered"),
+        ({"total": 1, "counts": {"non_answer": 1}, "selection_known": True},
+         "the source did not answer"),
+        ({"total": 1, "counts": {"unknown": 1}, "selection_known": True},
+         "whether the source answered is unknown"),
+        ({"total": 3, "counts": {"unknown": 2, "answered": 1}, "selection_known": True},
+         "whether 2 of 3 sources answered is unknown"),
+        # The saved selection could not be read, so the count is of the
+        # sources that left a record and the sentence says so.
+        ({"total": 3, "counts": {"answered": 3}, "selection_known": False},
+         "all 3 recorded sources answered"),
+        ({"total": 3, "counts": {"answered": 3, "partial": 1}, "selection_known": True},
+         "all 3 sources answered (1 only in part)"),
+    ],
+)
+def test_coverage_phrase(coverage, expected):
+    assert resmon_mod._notification_coverage_phrase(coverage) == expected
 
 
 # ---------------------------------------------------------------------------

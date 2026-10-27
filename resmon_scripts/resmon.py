@@ -880,6 +880,104 @@ def _should_dispatch_desktop_notification(
     return False
 
 
+def _notification_coverage_phrase(coverage: dict) -> str:
+    """How many of a run's sources answered, short enough for a notification.
+
+    Read from ``source_coverage.build`` -- the account the Results page and a
+    delivery envelope give -- so the notification can say no more than the
+    record does. A source whose outcome was not recorded is neither an answer
+    nor a failure here; it is counted as unknown, as it is everywhere else.
+    """
+    total = int(coverage.get("total") or 0)
+    if total == 0:
+        return "no source outcome was recorded"
+    counts = coverage.get("counts") or {}
+    non_answer = int(counts.get("non_answer") or 0)
+    unknown = int(counts.get("unknown") or 0)
+    partial = int(counts.get("partial") or 0)
+    # Where the run's saved selection cannot be read, the count is of the
+    # sources that left a record, which may not be every source it asked.
+    qualifier = "" if coverage.get("selection_known") else "recorded "
+    if total == 1:
+        source = f"the {qualifier}source"
+        if non_answer:
+            phrase = f"{source} did not answer"
+        elif unknown:
+            phrase = f"whether {source} answered is unknown"
+        else:
+            phrase = f"{source} answered"
+    else:
+        sources = f"{qualifier}sources"
+        if not non_answer and not unknown:
+            phrase = f"all {total} {sources} answered"
+        elif not unknown:
+            phrase = f"{non_answer} of {total} {sources} did not answer"
+        elif not non_answer:
+            phrase = f"whether {unknown} of {total} {sources} answered is unknown"
+        else:
+            phrase = (
+                f"{non_answer} of {total} {sources} did not answer; "
+                f"whether {unknown} answered is unknown"
+            )
+    if partial:
+        phrase += f" ({partial} only in part)"
+    return phrase
+
+
+def _desktop_notification_body(
+    conn, execution_row: dict, routine_name: Optional[str],
+) -> str:
+    """The sentence a completed or ended run's notification carries.
+
+    This read ``total_results`` and ``new_results``, which are the names
+    ``_enrich_execution_row`` gives the counts for the renderer. The hook hands
+    this function the raw ``executions`` row, whose columns are
+    ``result_count`` and ``new_result_count``, so every notification the
+    background service ever posted for a completed run said "0 results (0
+    new)" -- including a routine that had found 1,500 papers, six of them new.
+    The tests only checked that a notification fired. They now check what it
+    says.
+
+    A count the row does not hold is said to be unrecorded, never printed as
+    zero: a quiet run and an unmeasured one must not read the same.
+    """
+    execution_type = str(execution_row.get("execution_type") or "").strip()
+    subject = routine_name or {
+        "deep_dive": "Deep Dive",
+        "deep_sweep": "Deep Sweep",
+        "automated_sweep": "Routine",
+    }.get(execution_type, "Run")
+
+    try:
+        coverage = source_coverage.build(
+            execution_row, get_execution_sources(conn, int(execution_row["id"])),
+        )
+        coverage_phrase = _notification_coverage_phrase(coverage)
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "Coverage for the notification could not be read", exc_info=True,
+        )
+        coverage_phrase = "which sources answered could not be read"
+
+    status = str(execution_row.get("status") or "").strip().lower()
+    if status == "completed":
+        total = execution_row.get("result_count")
+        new = execution_row.get("new_result_count")
+        if isinstance(total, int) and isinstance(new, int):
+            counts = f"{new:,} new of {total:,} results"
+        elif isinstance(total, int):
+            counts = f"{total:,} results, how many new not recorded"
+        else:
+            counts = "result count not recorded"
+        return f"{subject}: {counts}; {coverage_phrase}."
+    ended = {
+        "failed": "failed",
+        "cancelled": "was cancelled",
+        "interrupted": "was interrupted",
+    }.get(status, f"ended with status {status or 'unknown'}")
+    return f"{subject} {ended}; {coverage_phrase}."
+
+
 def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
     """Best-effort OS-level desktop notification for a completed execution.
 
@@ -915,12 +1013,14 @@ def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
         mode = "none"
 
     routine_notify_on_complete = False
+    routine_name: Optional[str] = None
     routine_id = execution_row.get("routine_id")
     if routine_id:
         try:
             routine = get_routine_by_id(conn, int(routine_id))
             if routine:
                 routine_notify_on_complete = bool(routine.get("notify_on_complete"))
+                routine_name = str(routine.get("name") or "").strip() or None
         except Exception:
             pass
 
@@ -933,22 +1033,12 @@ def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
         return
 
     status = str(execution_row.get("status") or "").strip().lower()
-    type_label = {
-        "deep_dive": "Deep Dive",
-        "deep_sweep": "Deep Sweep",
-        "automated_sweep": "Automated Sweep",
-    }.get(execution_type, "Execution")
     title = (
         "resmon: Execution Completed"
         if status == "completed"
         else f"resmon: Execution {status or 'finished'}"
     )
-    if status == "completed":
-        total = execution_row.get("total_results") or 0
-        new = execution_row.get("new_results") or 0
-        body = f"{type_label} finished — {total} results ({new} new)."
-    else:
-        body = f"{type_label} ended with status: {status or 'unknown'}."
+    body = _desktop_notification_body(conn, execution_row, routine_name)
 
     try:
         desktop_notifier.notify(title, body)
