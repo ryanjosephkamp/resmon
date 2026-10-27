@@ -350,11 +350,71 @@ def _raise_open_file_limit(target: int = 4096) -> None:
         logger.warning("could not raise the open-file limit: %s", exc)
 
 
+def _log_dir_arg(argv: list[str]) -> Optional[Path]:
+    """``--log-dir``, which only the Windows unit passes (see ``service_log``)."""
+    for arg in argv[1:]:
+        flag, sep, value = arg.partition("=")
+        if flag == "--log-dir" and sep and value:
+            return Path(value)
+    return None
+
+
+# Every line the service writes carries the time it was written. The 231 MB
+# error log that made rotation necessary had none, so nothing in it could say
+# when its 166,736 tracebacks happened.
+_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+
+def _uvicorn_log_config() -> dict:
+    """uvicorn's own logging configuration, with a timestamp on every line."""
+    import copy
+
+    from uvicorn.config import LOGGING_CONFIG
+
+    config = copy.deepcopy(LOGGING_CONFIG)
+    for formatter in config.get("formatters", {}).values():
+        fmt = formatter.get("fmt")
+        if isinstance(fmt, str) and "%(asctime)s" not in fmt:
+            formatter["fmt"] = "%(asctime)s " + fmt
+        formatter["use_colors"] = False
+    return config
+
+
+def _start_service_log(argv: list[str]):
+    """Bound the service's log files and stamp the start, before anything else writes."""
+    from . import service_log
+
+    log = None
+    try:
+        log = service_log.attach(_log_dir_arg(argv))
+        if log is not None:
+            log.start()
+    except Exception:  # a log that cannot rotate must not stop the service
+        logger.warning("service log rotation is not running", exc_info=True)
+    # The same records as before -- warnings and errors, which reached stderr
+    # through ``logging.lastResort`` because nothing installs a root handler
+    # -- now with a time and the logger's name. The handler, not the root,
+    # carries the level, so a module logger set to INFO adds nothing here.
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setLevel(logging.WARNING)
+        handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+        root.addHandler(handler)
+    print(
+        f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')} "
+        f"resmon-daemon: starting (pid {os.getpid()})",
+        file=sys.stderr, flush=True,
+    )
+    return log
+
+
 def run(argv: Optional[list[str]] = None) -> int:
     """Run the daemon. Blocks until uvicorn exits. Returns an exit code."""
     argv = list(argv) if argv is not None else list(sys.argv)
     port = _parse_port(argv)
     _apply_state_args(argv)
+    _start_service_log(argv)
     _raise_open_file_limit()
 
     # Ensure ``resmon_scripts`` is on sys.path so ``import resmon`` works when
@@ -384,7 +444,10 @@ def run(argv: Optional[list[str]] = None) -> int:
                 install_signal_handlers()
                 logger.info("%s daemon v%s listening on 127.0.0.1:%d (pid=%d)",
                             APP_NAME, APP_VERSION, port, os.getpid())
-                config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
+                config = uvicorn.Config(
+                    app, host="127.0.0.1", port=port, log_level="info",
+                    log_config=_uvicorn_log_config(),
+                )
                 server = uvicorn.Server(config)
                 try:
                     server.run()

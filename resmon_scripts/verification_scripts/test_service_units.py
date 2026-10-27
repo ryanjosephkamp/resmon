@@ -259,6 +259,7 @@ def test_task_xml_quotes_state_paths():
     [arguments] = [e.text for e in root.iter() if e.tag.endswith("Arguments")]
     assert arguments == (
         r'-m implementation_scripts.daemon 8742 "--db-path=C:\Users\a & b\AppData\Local\resmon\resmon.db"'
+        r' "--log-dir=C:\logs"'
     )
 
 

@@ -42,7 +42,7 @@ All user-facing outputs land under `resmon_reports/` at the project root (`REPOR
 - `resmon_reports/pdfs/` — optional PDF exports (when the user exports a report; see `results_and_logs_info.md`).
 - `resmon_reports/figures/` — static figures included in reports.
 - `resmon_reports/latex/` — LaTeX renditions of reports.
-- `resmon_reports/logs/` — per-execution logs emitted by `TaskLogger` plus the rotating app log (`resmon.log`, 5 MB × 3 backups; `logger.setup_app_logger`).
+- `resmon_reports/logs/` — per-execution logs emitted by `TaskLogger`.
 - `resmon_reports/info_docs/` — the 11 implementation-grounded info documents produced by this tranche.
 - `resmon_experiments/` and `resmon_printouts/` — sibling folders used for ad-hoc experimental artifacts outside the report pipeline.
 
@@ -269,7 +269,7 @@ Every persisted preference is eventually a row in the `settings` table. The Sett
 
 Three logging surfaces coexist:
 
-1. **Rotating app log** — `logger.setup_app_logger(log_dir)` creates a `RotatingFileHandler` at `resmon_reports/logs/resmon.log` (5 MB × 3 backups, UTF-8). Format: `%(asctime)s [%(levelname)s] %(name)s: %(message)s`. Every module uses `logging.getLogger(__name__)` so log lines are traceable to their source.
+1. **Background service logs** — when the service runs, launchd or `systemd --user` sends its output to `resmon-daemon.out.log` and `resmon-daemon.err.log` in the `logs/` folder of the state directory, and on Windows the service opens those files itself (`--log-dir`). Neither service manager rotates a user agent's files, so `service_log` does: each file is capped at 5 MB with two older copies (`.1`, `.2`), checked every minute, and a file inherited far past the cap keeps only its most recent 5 MB. Every line carries a time: uvicorn's lines, warnings and errors (`%(asctime)s %(levelname)s %(name)s: %(message)s`), the service's start, and each rotation. `logger.setup_app_logger` exists but nothing calls it, so there is no `resmon.log`; a window's own backend writes to Electron's console instead.
 2. **Per-execution task log** — `TaskLogger` writes a structured log per execution id into `resmon_reports/logs/` and is linked from `ReportViewer` (see [results_and_logs_info.md](results_and_logs_info.md)).
 3. **In-memory progress events** — `progress_store` (see above) — transient, then persisted to `execution_progress` on completion.
 

@@ -16,7 +16,7 @@ The fastest path is the in-app **About resmon → Issues** tab, which builds eit
 1. A short, specific title.
 2. The resmon version (git commit hash or packaged build number), host OS, Python version (`python3 --version`), and Node.js version (`node --version`).
 3. Reproduction steps — the page, the operation, the exact form input, and the observed error.
-4. Relevant log excerpts. Per-execution logs live under `resmon_reports/logs/` and the rotating app log is `resmon_reports/logs/resmon.log`. Redact any API keys or personal data before pasting.
+4. Relevant log excerpts. Per-execution logs live under `resmon_reports/logs/`; the background service writes `resmon-daemon.err.log` and `resmon-daemon.out.log` in the `logs/` folder of resmon's state directory (`~/Library/Application Support/resmon/logs` on macOS), each capped at 5 MB with two older copies. Redact any API keys or personal data before pasting.
 5. A screenshot of the UI state when the bug is visual.
 
 Security-sensitive reports (credential handling, SQL injection, OAuth flow, keyring access) should not be filed as public issues. Email the maintainer directly instead.
