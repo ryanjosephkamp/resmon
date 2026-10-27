@@ -7,7 +7,7 @@
 <li>A short, specific title.</li>
 <li>The resmon version (git commit hash or packaged build number), host OS, Python version (<code>python3 --version</code>), and Node.js version (<code>node --version</code>).</li>
 <li>Reproduction steps — the page, the operation, the exact form input, and the observed error.</li>
-<li>Relevant log excerpts. Per-execution logs live under <code>resmon_reports/logs/</code> and the rotating app log is <code>resmon_reports/logs/resmon.log</code>. Redact any API keys or personal data before pasting.</li>
+<li>Relevant log excerpts. Per-execution logs live under <code>resmon_reports/logs/</code>; the background service writes <code>resmon-daemon.err.log</code> and <code>resmon-daemon.out.log</code> in the <code>logs/</code> folder of resmon’s state directory (<code>~/Library/Application Support/resmon/logs</code> on macOS), each capped at 5 MB with two older copies. Redact any API keys or personal data before pasting.</li>
 <li>A screenshot of the UI state when the bug is visual.</li>
 </ol>
 <p>Security-sensitive reports (credential handling, SQL injection, OAuth flow, keyring access) should not be filed as public issues. Email the maintainer directly instead.</p>
