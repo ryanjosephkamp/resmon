@@ -13,7 +13,7 @@
 import { getCollection, type CollectionEntry } from 'astro:content';
 import Document from '../layouts/Document.astro';
 import { renderMarkdown } from '../lib/markdown';
-import { postPath, displayDate, byDateDescending } from '../lib/posts';
+import { postPath, writtenDate, byDateDescending } from '../lib/posts';
 import { readDocument } from '../lib/documents';
 import { url } from '../lib/urls';
 
@@ -53,7 +53,7 @@ const older = index >= 0 && index < all.length - 1 ? all[index + 1] : null;
   description={head.description}
   path={path}
   eyebrow="Update"
-  meta={displayDate(post.data.date)}
+  meta={writtenDate(post.data.date)}
   html={html}
   headings={headings}
 >

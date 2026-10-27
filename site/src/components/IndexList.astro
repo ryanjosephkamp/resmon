@@ -1,0 +1,92 @@
+---
+/**
+ * A numbered index in the site's listing form: `[n]`, a title that links,
+ * a one-line description, and where the page comes from in the repository.
+ * The guide and reference indexes use it, so they read like the source
+ * listing on the home page rather than as a grid of cards.
+ */
+interface Row {
+  href: string;
+  title: string;
+  description?: string;
+  source?: string;
+}
+interface Props {
+  rows: Row[];
+  /** Number from here, so a second list on one page continues the first. */
+  start?: number;
+}
+const { rows, start = 1 } = Astro.props;
+---
+
+<ol class="index">
+  {
+    rows.map((row, i) => (
+      <li>
+        <span class="index-n mono">[{start + i}]</span>
+        <span class="index-body">
+          <a href={row.href}>{row.title}</a>
+          {row.description && <span class="index-desc">{row.description}</span>}
+          {row.source && <span class="index-source mono">{row.source}</span>}
+        </span>
+      </li>
+    ))
+  }
+</ol>
+
+<style>
+  .index {
+    list-style: none;
+    margin: var(--space-4) 0 var(--space-6);
+    padding: 0;
+    display: grid;
+    column-gap: var(--space-7);
+  }
+
+  .index li {
+    display: grid;
+    grid-template-columns: var(--entry-number) 1fr;
+    margin: 0;
+    padding-block: var(--space-3);
+    border-bottom: var(--border-width) solid var(--color-border);
+  }
+
+  .index-n {
+    font-size: var(--text-sm);
+    color: var(--color-text-faint);
+    padding-top: var(--space-1);
+  }
+
+  .index-body {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .index-body a {
+    font-size: var(--text-entry);
+    font-weight: var(--weight-heavy);
+    letter-spacing: var(--tracking-tight);
+    line-height: var(--leading-tight);
+    text-decoration-color: transparent;
+  }
+
+  .index-body a:hover {
+    text-decoration-color: var(--color-link-underline-hover);
+  }
+
+  .index-desc {
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .index-source {
+    font-size: var(--text-xs);
+    color: var(--color-text-faint);
+  }
+
+  @media (min-width: 52rem) {
+    .index {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+</style>

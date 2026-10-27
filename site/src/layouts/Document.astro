@@ -16,7 +16,10 @@ interface Props {
   title: string;
   description: string;
   path: string;
-  /** Small label above the title: the section this page belongs to. */
+  /**
+   * The section this page belongs to. Set in the line under the title, as a
+   * listing entry carries its section, not as a label above the heading.
+   */
   eyebrow?: string;
   /** Rendered beneath the title: a date, a summary, a source path. */
   meta?: string;
@@ -43,9 +46,13 @@ const showContents = sections.length >= 4;
 <Base title={title} description={description} path={path} width={width}>
   <article>
     <header class="doc-head">
-      {eyebrow && <p class="eyebrow">{eyebrow}</p>}
       <h1>{title}</h1>
-      {meta && <p class="meta">{meta}</p>}
+      {(eyebrow || meta) && (
+        <p class="meta">
+          {eyebrow && <span class="section">{eyebrow}</span>}
+          {meta && <span>{meta}</span>}
+        </p>
+      )}
     </header>
 
     {
@@ -74,51 +81,56 @@ const showContents = sections.length >= 4;
 
 <style>
   .doc-head {
-    margin-bottom: var(--space-5);
+    margin-bottom: var(--space-6);
     padding-bottom: var(--space-4);
-    border-bottom: var(--border-width) solid var(--color-border);
+    border-bottom: var(--border-width-heavy) solid var(--color-rule-heavy);
   }
 
   .doc-head h1 {
     margin: 0;
-  }
-
-  .eyebrow {
-    margin: 0 0 var(--space-2);
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-wide);
-    text-transform: uppercase;
-    color: var(--color-text-faint);
+    font-size: var(--text-3xl);
   }
 
   .meta {
-    margin: var(--space-2) 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    margin: var(--space-3) 0 0;
     color: var(--color-text-muted);
     font-size: var(--text-sm);
   }
 
+  .section {
+    font-family: var(--font-mono);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text);
+  }
+
+  .section::after {
+    content: '\00B7';
+    margin-inline-start: var(--space-3);
+    color: var(--color-text-faint);
+  }
+
   .contents {
     margin-bottom: var(--space-6);
-    padding: var(--space-4);
-    background: var(--color-surface);
-    border: var(--border-width) solid var(--color-border);
-    border-radius: var(--radius-md);
+    padding-block: var(--space-3);
+    border-block: var(--border-width) solid var(--color-border);
   }
 
   .contents-heading {
     margin: 0 0 var(--space-2);
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-wide);
-    text-transform: uppercase;
-    color: var(--color-text-faint);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-bold);
+    color: var(--color-text);
   }
 
   .contents ul {
     margin: 0;
     padding-inline-start: var(--space-5);
     font-size: var(--text-sm);
+    columns: 2 16rem;
+    column-gap: var(--space-6);
   }
 
   .contents li + li {

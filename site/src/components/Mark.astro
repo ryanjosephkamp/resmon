@@ -1,0 +1,48 @@
+---
+/**
+ * resmon's mark: a lowercase r set as a five-by-five matrix of record dots,
+ * its terminal drawn open. The app icon and this site's favicon are the same
+ * drawing (`resmon_scripts/frontend/build-resources/icon.svg`).
+ */
+interface Props {
+  class?: string;
+}
+const { class: className } = Astro.props;
+const R = ['X.XX.', 'XX..O', 'X....', 'X....', 'X....'];
+const cells = R.flatMap((row, r) =>
+  [...row].map((cell, c) => ({ cell, cx: 28 + c * 11.5, cy: 27 + r * 11.5, key: `${r}-${c}` })),
+).filter((d) => d.cell !== '.');
+---
+
+<svg class:list={['mark', className]} viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+  <rect class="mark-ground" width="100" height="100" rx="24"></rect>
+  {
+    cells.map((d) =>
+      d.cell === 'X' ? (
+        <circle class="mark-dot" cx={d.cx} cy={d.cy} r="4.7" />
+      ) : (
+        <circle class="mark-open" cx={d.cx} cy={d.cy} r="3.5" />
+      ),
+    )
+  }
+</svg>
+
+<style>
+  .mark {
+    display: block;
+    width: var(--brand-mark);
+    height: var(--brand-mark);
+    flex-shrink: 0;
+  }
+  .mark-ground {
+    fill: var(--color-mark-ground);
+  }
+  .mark-dot {
+    fill: var(--color-mark-dot);
+  }
+  .mark-open {
+    fill: none;
+    stroke: var(--color-mark-dot);
+    stroke-width: 2.4;
+  }
+</style>

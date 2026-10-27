@@ -19,15 +19,27 @@ const posts = (await getCollection('posts')).sort(byDateDescending);
   path="/updates/"
   width="wide"
 >
+  <header class="page-head">
   <h1>Updates</h1>
   <p class="lede">
     {posts.length} posts, newest first. The in-app <strong>About resmon → Blog</strong> tab builds
     its list from <a href={url('/feed.xml')}>the Atom feed</a>, which carries the 10 most recent.
   </p>
+  </header>
   <PostList posts={posts} withSummary />
 </Base>
 
 <style>
+  .page-head {
+    padding-bottom: var(--space-4);
+    margin-bottom: var(--space-2);
+    border-bottom: var(--border-width-heavy) solid var(--color-rule-heavy);
+  }
+
+  .page-head .lede {
+    margin-bottom: 0;
+  }
+
   h1 {
     margin-top: 0;
   }

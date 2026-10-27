@@ -104,6 +104,24 @@ export function xmlSchemaUtc(date: Date | string): string {
   return `${parsePostDate(date).toISOString().replace(/\.\d{3}Z$/, '')}+00:00`;
 }
 
+/**
+ * The day the author wrote in the front matter: ``2026-09-04 22:00:00 -0400``
+ * reads ``September 4, 2026``. The post's own title carries that day, so a
+ * list that showed the UTC day instead (``displayDate``) said September 5 beside
+ * a title saying September 4. The permalink keeps the UTC day; it is a URL
+ * already in the wild, not a date for reading.
+ */
+export function writtenDate(date: Date | string): string {
+  const raw = date instanceof Date ? date.toISOString() : String(date).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return displayDate(date);
+  const [, year, month, day] = match;
+  return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12)).toLocaleDateString(
+    'en-US',
+    { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' },
+  );
+}
+
 /** A readable date for page chrome: ``September 21, 2026``, always in UTC. */
 export function displayDate(date: Date | string): string {
   return parsePostDate(date).toLocaleDateString('en-US', {

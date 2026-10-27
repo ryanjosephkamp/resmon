@@ -16,6 +16,9 @@
 html {
   -webkit-text-size-adjust: 100%;
   scroll-behavior: smooth;
+  scrollbar-color: var(--color-border-strong) transparent;
+  /* Anchored sections land below the masthead, not under it. */
+  scroll-padding-top: var(--space-5);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -31,6 +34,9 @@ body {
   font-family: var(--font-sans);
   font-size: var(--text-md);
   line-height: var(--leading-normal);
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
   /* Long technical words (route paths, slugs) must not push the page sideways. */
   overflow-wrap: break-word;
   /*
@@ -49,16 +55,29 @@ body > main {
   flex: 1 0 auto;
 }
 
+::selection {
+  background: var(--color-action);
+  color: var(--color-action-text);
+}
+
 /* ---- Links ------------------------------------------------------------- */
 
+/*
+ * Ink, underlined, with the underline set clear of the descenders. Color is
+ * kept for the one action on a page; a link says it is a link by its line.
+ */
 a {
   color: var(--color-link);
+  text-decoration-line: underline;
+  text-decoration-color: var(--color-link-underline);
   text-decoration-thickness: var(--border-width);
-  text-underline-offset: var(--space-1);
+  text-underline-offset: var(--underline-offset);
+  transition: text-decoration-color var(--duration-fast) var(--ease);
 }
 
 a:hover {
   color: var(--color-link-hover);
+  text-decoration-color: var(--color-link-underline-hover);
 }
 
 :focus-visible {
@@ -76,8 +95,10 @@ h4,
 h5,
 h6 {
   line-height: var(--leading-tight);
-  font-weight: var(--weight-semibold);
-  margin: var(--space-6) 0 var(--space-3);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  margin: var(--space-7) 0 var(--space-3);
+  text-wrap: balance;
   /*
    * Headings are link targets from the in-page table of contents and from
    * elsewhere on the site, and a sticky-free layout still benefits from a
@@ -87,8 +108,8 @@ h6 {
 }
 
 h1 {
-  font-size: var(--text-2xl);
-  letter-spacing: var(--tracking-tight);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-heavy);
 }
 h2 {
   font-size: var(--text-xl);
@@ -102,9 +123,14 @@ h6 {
   font-size: var(--text-md);
 }
 
+p {
+  text-wrap: pretty;
+}
+
 p,
 ul,
 ol,
+dl,
 blockquote,
 table,
 pre {
@@ -128,12 +154,17 @@ hr {
 
 blockquote {
   margin-inline: 0;
-  padding: var(--space-2) var(--space-4);
-  border-inline-start: var(--border-width-thick) solid var(--color-border-strong);
+  padding: var(--space-1) 0 var(--space-1) var(--space-4);
+  border-inline-start: var(--border-width) solid var(--color-border-strong);
   color: var(--color-text-muted);
 }
 
-/* ---- Code -------------------------------------------------------------- */
+strong,
+b {
+  font-weight: var(--weight-bold);
+}
+
+/* ---- Code and numbers -------------------------------------------------- */
 
 code,
 kbd,
@@ -164,6 +195,11 @@ pre code {
   padding: 0;
 }
 
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 /*
  * Shiki emits both a light and a dark theme and switches with a CSS variable.
  * Without this, a dark-mode reader gets light-theme syntax colors on a dark
@@ -183,8 +219,8 @@ pre code {
 /* ---- Tables ------------------------------------------------------------ */
 
 /*
- * Several reference documents carry wide tables (the 27-source catalog, the
- * 184-route index). They scroll inside their own box rather than widening the
+ * Several reference documents carry wide tables (the source catalog, the
+ * route index). They scroll inside their own box rather than widening the
  * page, which is what keeps a phone from scrolling sideways.
  */
 .prose table {
@@ -193,19 +229,20 @@ pre code {
   overflow-x: auto;
   border-collapse: collapse;
   font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .prose th,
 .prose td {
-  border: var(--border-width) solid var(--color-border);
-  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+  padding: var(--space-2) var(--space-3) var(--space-2) 0;
   text-align: start;
   vertical-align: top;
 }
 
 .prose th {
-  background: var(--color-surface);
-  font-weight: var(--weight-semibold);
+  border-bottom: var(--border-width-heavy) solid var(--color-rule-heavy);
+  font-weight: var(--weight-bold);
   white-space: nowrap;
 }
 
@@ -218,6 +255,7 @@ video {
 }
 
 .prose img {
+  border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-md);
 }
 
@@ -229,6 +267,18 @@ video {
 
 .prose > :first-child {
   margin-top: 0;
+}
+
+.prose h2 {
+  padding-top: var(--space-3);
+  border-top: var(--border-width-heavy) solid var(--color-rule-heavy);
+}
+
+/* The document head already ends in that rule; a section that opens the page
+   does not draw a second one under it. */
+.prose > h2:first-child {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .prose h2,
@@ -245,6 +295,27 @@ video {
   border-radius: var(--radius-sm);
 }
 
+/* ---- The one action ---------------------------------------------------- */
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-action);
+  color: var(--color-action-text);
+  font-weight: var(--weight-bold);
+  font-size: var(--text-md);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast) var(--ease);
+}
+
+.action:hover {
+  background: var(--color-action-hover);
+  color: var(--color-action-text);
+}
+
 /* ---- Utility ----------------------------------------------------------- */
 
 .visually-hidden {
@@ -257,6 +328,10 @@ video {
   clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+}
+
+.nowrap {
+  white-space: nowrap;
 }
 
 .skip-link {
