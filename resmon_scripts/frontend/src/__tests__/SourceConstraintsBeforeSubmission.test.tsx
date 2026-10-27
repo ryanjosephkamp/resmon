@@ -80,9 +80,10 @@ function routes() {
   };
 }
 
-async function selectRepository(slug: string) {
-  // The multi-select renders one checkbox per slug, labeled with the slug.
-  const checkbox = screen.getByRole('checkbox', { name: slug });
+async function selectRepository(name: string) {
+  // The multi-select renders one checkbox per source, labeled with the name
+  // the catalog gives it.
+  const checkbox = await screen.findByRole('checkbox', { name });
   await act(async () => {
     fireEvent.click(checkbox);
   });
@@ -104,7 +105,7 @@ describe('Deep Sweep tells the user before they submit', () => {
     mockRoutedFetch(routes());
     await renderWithProviders(<DeepSweepPage />);
 
-    await selectRepository('dblp');
+    await selectRepository('DBLP');
     await setDates('2025-03-01', '2025-09-30');
 
     const notice = screen.getByTestId('source-constraint-notice');
@@ -119,7 +120,7 @@ describe('Deep Sweep tells the user before they submit', () => {
     mockRoutedFetch(routes());
     await renderWithProviders(<DeepSweepPage />);
 
-    await selectRepository('dblp');
+    await selectRepository('DBLP');
     await setDates('2025-01-01', '2026-12-31');
 
     expect(screen.getByTestId('source-constraint-notice')).toHaveTextContent(
@@ -131,7 +132,7 @@ describe('Deep Sweep tells the user before they submit', () => {
     mockRoutedFetch(routes());
     await renderWithProviders(<DeepSweepPage />);
 
-    await selectRepository('arxiv');
+    await selectRepository('arXiv');
     await setDates('2025-03-01', '2025-09-30');
 
     expect(screen.queryByTestId('source-constraint-notice')).not.toBeInTheDocument();

@@ -9,6 +9,9 @@ import PageHelp from '../components/Help/PageHelp';
 import FirstRunCard from '../components/Onboarding/FirstRunCard';
 import { useConfigurationsVersion } from '../lib/configurationsBus';
 import { formatInstant } from '../lib/datetime';
+import { runTypeGroup, runTypeLabel } from '../lib/labels';
+import { useSourceNames } from '../hooks/useSourceNames';
+import ScheduleLabel from '../components/Routines/ScheduleLabel';
 
 interface WatchdogSummary {
   counts: { broken: number; unusual: number; alarms: number };
@@ -21,6 +24,7 @@ interface Routine {
   schedule_cron: string;
   is_active: number;
   last_executed_at: string | null;
+  parameters?: unknown;
 }
 
 interface Execution {
@@ -47,12 +51,10 @@ interface Execution {
 // Dashboard's Recent Activity table renders Type/Source/Status with the
 // exact same palette as the Results & Logs table.
 const typeBadgeClass = (t: string): string => {
-  switch (t) {
+  switch (runTypeGroup(t)) {
     case 'deep_dive':
-    case 'dive':
       return 'badge-type-dive';
     case 'deep_sweep':
-    case 'sweep':
       return 'badge-type-sweep';
     case 'routine':
       return 'badge-type-routine';
@@ -88,8 +90,8 @@ const formatKeywords = (exec: Execution): string => {
   return '—';
 };
 
-const formatRepos = (exec: Execution): string => {
-  if (exec.repositories && exec.repositories.length > 0) return exec.repositories.join(', ');
+const formatRepos = (exec: Execution, name: (slug: string) => string = (slug) => slug): string => {
+  if (exec.repositories && exec.repositories.length > 0) return exec.repositories.map(name).join(', ');
   return '—';
 };
 
@@ -99,6 +101,7 @@ function readFailure(err: unknown): string {
 }
 
 const DashboardPage: React.FC = () => {
+  const sourceName = useSourceNames();
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [watchdog, setWatchdog] = useState<WatchdogSummary | null>(null);
   const [executions, setExecutions] = useState<Execution[]>([]);
@@ -228,7 +231,7 @@ const DashboardPage: React.FC = () => {
               <ul>
                 <li><strong>Getting started</strong> — on a brand-new install only. Three optional things and where to set each one; none of them is needed to search. It reports what resmon can see — a command found, a key slot filled — and never that a lane works, because that cannot be known until the first paper goes through it. <strong>Skip</strong> puts it away for good, and it retires itself as soon as you have run anything.</li>
                 <li><strong>Active Routines</strong> — every enabled scheduled sweep and its next/last fire.</li>
-                <li><strong>Recent Activity</strong> — the 10 most recent executions, with Type, Status, keywords, repositories, and result counts. The <strong>Name</strong> column resolves to the saved-configuration name when the run was launched from (or saved into) one, otherwise to the routine name for routine-fired runs, otherwise to <code>Execution #&lt;id&gt;</code>.</li>
+                <li><strong>Recent Activity</strong> — the 10 most recent executions, with Type, Status, keywords, repositories, and result counts. The <strong>Name</strong> column is the run&rsquo;s number, <code>Execution #&lt;id&gt;</code>, the same number Results &amp; Logs shows.</li>
               </ul>
             ),
           },
@@ -310,7 +313,7 @@ const DashboardPage: React.FC = () => {
                 <tr key={r.id}>
                   <td>{r.name}</td>
                   <td><span className="badge badge-success">Active</span></td>
-                  <td>{r.schedule_cron}</td>
+                  <td><ScheduleLabel cron={r.schedule_cron} parameters={r.parameters} /></td>
                   <td>{formatInstant(r.last_executed_at) || '—'}</td>
                 </tr>
               ))}
@@ -374,14 +377,14 @@ const DashboardPage: React.FC = () => {
                 const isActive = isRunning || isCancelling;
                 return (
                   <tr key={e.id}>
-                    <td>{formatInstant(e.start_time) || '—'}</td>
-                    <td>Execution #{e.id}</td>
+                    <td className="cell-nowrap">{formatInstant(e.start_time) || '—'}</td>
+                    <td className="cell-nowrap">Execution #{e.id}</td>
                     <td>
                       <span className={`badge ${typeBadgeClass(e.execution_type)}`}>
-                        {e.execution_type}
+                        {runTypeLabel(e.execution_type)}
                       </span>
                     </td>
-                    <td className="ellipsis-cell" title={formatRepos(e)}>{formatRepos(e)}</td>
+                    <td className="ellipsis-cell" title={formatRepos(e, sourceName)}>{formatRepos(e, sourceName)}</td>
                     <td className="ellipsis-cell" title={formatKeywords(e)}>{formatKeywords(e)}</td>
                     <td>
                       <span className={`badge ${statusBadgeClass(e.status)}`}>

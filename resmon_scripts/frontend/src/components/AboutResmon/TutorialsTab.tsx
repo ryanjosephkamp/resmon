@@ -163,7 +163,7 @@ export const sections: TutorialSection[] = [
   {
     anchor: 'deep-sweep',
     title: 'Deep Sweep',
-    blurb: 'Broad multi-repository query in parallel, deduplicated into one report.',
+    blurb: 'Broad multi-repository query, deduplicated into one report.',
     mediaCaption: 'Deep Sweep demo.',
     youtubeId: 'SiNrU6os5AY',
     instructions: [
@@ -194,6 +194,7 @@ export const sections: TutorialSection[] = [
       '`What this routine is really looking for` is optional and is the sentence the coverage audit compares results against. Leave it blank and the audit falls back to the keywords, which is a circular reading — the panel says so when it does.',
       'Use `Edit` on any local row to reopen the editor pre-populated from the existing routine; saving issues `PUT /api/routines/{id}`.',
       'Toggle `Activate` / `Deactivate` to start or stop scheduling without deleting the row. Editing a routine leaves it active or inactive as it was; these buttons are the only thing that changes it.',
+      'The `Schedule` column says when each routine fires, in words and in your computer\u2019s local time (\u201cMondays at 7:00 AM\u201d), with the cron expression beneath. A schedule that cannot be stated exactly in words is shown as the expression alone.',
       'In the editor of a saved routine, `Delivery` lists where its report goes, in four kinds: an email address (blank means the one in Settings \u2192 Email), a folder your cloud drive syncs, a webhook (an https address you own, which gets a signed summary and a link to the bundle), or a feed (an Atom file in a folder, which any feed reader can point at). Each destination is either automatic or waits for your review.',
       'A webhook destination needs a shared secret: add the destination, then type the secret on its row. It goes to this computer\u2019s keychain, resmon signs every envelope with it, and an unsigned envelope is never sent. The screen tells you only whether a secret is saved.',
       'Under any routine, `Where did this go?` opens the delivery record \u2014 every attempt, its state, how many tries, and the reason if it has not arrived \u2014 with Deliver, Skip and Retry.',

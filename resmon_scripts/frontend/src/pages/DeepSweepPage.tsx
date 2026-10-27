@@ -175,7 +175,7 @@ const DeepSweepPage: React.FC = () => {
       <PageHelp
         storageKey="deep-sweep"
         title="Deep Sweep"
-        summary="Run a one-off search across many repositories in parallel."
+        summary="Run a one-off search across many repositories in one run."
         sections={[
           {
             heading: 'When to use this page',
@@ -196,7 +196,7 @@ const DeepSweepPage: React.FC = () => {
                 <li>Optionally restrict the date range. If a selected source cannot honor the window you set, a <strong>Before you run this</strong> panel appears under the dates and names the dates that will actually be searched. Which sources those are is on the Repositories &amp; API Keys page, under Date Filtering.</li>
                 <li>Enter one or more keywords (press Enter after each).</li>
                 <li>Adjust the <strong>per-repository</strong> results cap and, if desired, enable AI summarization.</li>
-                <li>Click <strong>Run Deep Sweep</strong>. Repositories are queried concurrently (subject to the Concurrent Executions limit in Settings → Advanced).</li>
+                <li>Click <strong>Run Deep Sweep</strong>. resmon queries the selected repositories one after another, in the order listed; the Concurrent Executions limit in Settings → Advanced is how many runs can go at the same time, not how many repositories.</li>
               </ol>
             ),
           },

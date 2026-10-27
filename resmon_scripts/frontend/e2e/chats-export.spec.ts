@@ -55,7 +55,7 @@ print(json.dumps({x:c.execute('SELECT * FROM "'+x+'" ORDER BY 1').fetchall() for
     const instance = await app.evaluate(({app})=>({pid:process.pid,profile:app.getPath('userData'),state:process.env.RESMON_STATE_DIR,db:process.env.RESMON_DB_PATH,reports:process.env.RESMON_REPORTS_DIR,portFile:process.env.RESMON_PORT_FILE}));
     receipt('instance',{...instance,port,source:REPO_ROOT,health:await get('/api/health'),at:new Date().toISOString()});
     const before=inventory();receipt('before',before);
-    await win.getByRole('link',{name:'☏ Chats'}).click();
+    await win.getByRole('link',{name:'Chats',exact:true}).click();
     const list=win.getByRole('region',{name:'Saved chats'});
     const ids:number[]=[];const sizes:number[]=[];
     for(const count of [50,50,23]) {

@@ -4,6 +4,7 @@ import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import PageHelp from '../components/Help/PageHelp';
 import { apiClient } from '../api/client';
 import { formatInstantDate } from '../lib/datetime';
+import { useSourceNames } from '../hooks/useSourceNames';
 
 /**
  * Analytics over the corpus resmon has already swept.
@@ -149,8 +150,11 @@ const NotEnoughYet: React.FC<{ reason: string | null; sample?: number }> = ({ re
 );
 
 const AnalyticsPage: React.FC = () => {
+  const sourceName = useSourceNames();
   const [data, setData] = useState<Overview | null>(null);
   const [volumeBy, setVolumeBy] = useState<'source' | 'category'>('source');
+  // A volume group is a source slug or a category; only the first has a name.
+  const groupName = (g: string): string => (volumeBy === 'source' ? sourceName(g) : g);
   const [volume, setVolume] = useState<Overview['publication_volume'] | null>(null);
   const [showVolumeTable, setShowVolumeTable] = useState(false);
   const [keywords, setKeywords] = useState<KeywordContribution | null>(null);
@@ -396,8 +400,8 @@ const AnalyticsPage: React.FC = () => {
                         <Link
                           className="analytics-bar-label analytics-bar-link"
                           to={`/explorer?source=${encodeURIComponent(s.source)}`}
-                          title={`Show ${s.source} papers in the Explorer`}
-                        >{s.source}</Link>
+                          title={`Show ${sourceName(s.source)} papers in the Explorer`}
+                        >{sourceName(s.source)}</Link>
                         <span className="analytics-bar-track">
                           <span
                             className="analytics-bar-fill"
@@ -514,7 +518,7 @@ const AnalyticsPage: React.FC = () => {
               />
             ) : (
               <div className="scroll-x">
-                <table className="table">
+                <table className="simple-table">
                   <thead>
                     <tr>
                       <th>Source</th><th>Median</th><th>Fastest</th><th>Slowest</th><th>Papers</th>
@@ -523,7 +527,7 @@ const AnalyticsPage: React.FC = () => {
                   <tbody>
                     {data!.discovery_lag.sources.map((s) => (
                       <tr key={s.source}>
-                        <td>{s.source}</td>
+                        <td>{sourceName(s.source)}</td>
                         <td className="num">
                           {s.sufficient ? `${s.median_days} d` : <span className="text-muted">—</span>}
                         </td>
@@ -662,8 +666,8 @@ const AnalyticsPage: React.FC = () => {
                         <Link
                           className="analytics-legend-link"
                           to={`/explorer?${volumeBy === 'source' ? 'source' : 'category'}=${encodeURIComponent(g)}`}
-                          title={`Show ${g} papers in the Explorer`}
-                        >{g}</Link>
+                          title={`Show ${groupName(g)} papers in the Explorer`}
+                        >{groupName(g)}</Link>
                       )}
                     </span>
                   ))}
@@ -680,11 +684,11 @@ const AnalyticsPage: React.FC = () => {
 
                 {showVolumeTable && (
                   <div className="scroll-x">
-                    <table className="table">
+                    <table className="simple-table">
                       <thead>
                         <tr>
                           <th>Month</th>
-                          {volume.groups.map((g) => <th key={g} className="num">{g}</th>)}
+                          {volume.groups.map((g) => <th key={g} className="num">{groupName(g)}</th>)}
                           <th className="num">Total</th>
                         </tr>
                       </thead>

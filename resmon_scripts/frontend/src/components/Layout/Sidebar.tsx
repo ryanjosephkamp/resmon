@@ -5,6 +5,8 @@ import { useExecution } from '../../context/ExecutionContext';
 // tab's overview enumerates them and a second hand-written copy of this list
 // is exactly what went stale. See that file's header.
 import { NAV_ITEMS } from './navItems';
+import NavIcon from './NavIcon';
+import ResmonMark from './ResmonMark';
 
 const Sidebar: React.FC = () => {
   const { activeExecution } = useExecution();
@@ -12,7 +14,7 @@ const Sidebar: React.FC = () => {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-brand">■ resmon</div>
+      <div className="sidebar-brand"><ResmonMark /> <span>resmon</span></div>
       <nav className="sidebar-nav">
         {NAV_ITEMS.map((item) => (
           <NavLink
@@ -23,7 +25,7 @@ const Sidebar: React.FC = () => {
               `sidebar-link${isActive ? ' active' : ''}`
             }
           >
-            <span className="sidebar-icon">{item.icon}</span>
+            <NavIcon name={item.icon} />
             {item.label}
             {item.to === '/monitor' && isRunning && (
               <span className="sidebar-pulse" />

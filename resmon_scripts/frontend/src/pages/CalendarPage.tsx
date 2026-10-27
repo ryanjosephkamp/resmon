@@ -12,6 +12,7 @@ import { useRoutinesVersion } from '../lib/routinesBus';
 import { useConfigurationsVersion } from '../lib/configurationsBus';
 import { formatInstant } from '../lib/datetime';
 import { routineFiringNote, type SchedulerStatus } from '../lib/schedulerStatus';
+import ScheduleLabel from '../components/Routines/ScheduleLabel';
 
 interface CalendarEvent {
   id: string | number;
@@ -529,18 +530,18 @@ const CalendarPage: React.FC = () => {
             )}
             {popover.event.routine_id && (() => {
               // Routine-only metadata: surface the routine's user-given
-              // name and the saved 5-field cron expression so the popover
-              // is unambiguous about which routine fired (or will fire).
-              // Shown for every status (scheduled / running / completed /
-              // cancelled / failed). The cron string matches the
-              // ``Schedule`` column on the Routines page exactly.
+              // name and its schedule so the popover is unambiguous about
+              // which routine fired (or will fire). Shown for every status
+              // (scheduled / running / completed / cancelled / failed). The
+              // schedule renders exactly as the Routines page's ``Schedule``
+              // column does: in words, with the cron expression beneath.
               const r = routines.find((rt) => rt.id === popover.event.routine_id);
               if (!r) return null;
               return (
                 <>
                   <div><span className="text-muted">Name:</span> {r.name}</div>
                   {r.schedule_cron && (
-                    <div><span className="text-muted">Cron Schedule:</span> {r.schedule_cron}</div>
+                    <div><span className="text-muted">Schedule:</span> <ScheduleLabel cron={r.schedule_cron} parameters={r.parameters} /></div>
                   )}
                 </>
               );

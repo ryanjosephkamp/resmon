@@ -1,5 +1,4 @@
 import React from 'react';
-import TutorialLinkButton from '../components/AboutResmon/TutorialLinkButton';
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import EmailSettings from '../components/Settings/EmailSettings';
 import CloudSettings from '../components/Settings/CloudSettings';
@@ -11,9 +10,11 @@ import AdvancedSettings from '../components/Settings/AdvancedSettings';
 const SettingsPage: React.FC = () => {
   return (
     <div className="page-content">
+      {/* No Tutorial button here: each tab's own header carries the one for that
+          tab, and two stacked Tutorial buttons on one screen asked the reader to
+          guess which was meant. The overview stays in the Tutorials contents. */}
       <div className="page-header">
         <h1>Settings</h1>
-        <TutorialLinkButton anchor="settings" />
       </div>
       <div className="settings-nav">
         <NavLink to="/settings/email" className={({ isActive }) => `tab-btn ${isActive ? 'tab-active' : ''}`}>Email</NavLink>

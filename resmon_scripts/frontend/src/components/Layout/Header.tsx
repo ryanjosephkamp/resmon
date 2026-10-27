@@ -1,29 +1,30 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { useConnectionIdentity } from '../../hooks/useConnectionIdentity';
+import { NAV_ITEMS } from './navItems';
 
-const routeTitles: Record<string, string> = {
-  '/': 'Dashboard',
-  '/dive': 'Deep Dive',
-  '/sweep': 'Deep Sweep',
-  '/routines': 'Routines',
-  '/calendar': 'Calendar',
-  '/results': 'Results & Logs',
-  '/chats': 'Chats',
-  '/reading-queue': 'Reading queue',
-  '/library': 'Library',
-  '/evidence': 'Evidence',
-  '/watchdog': 'Watchdog',
-  '/source-wall': 'Source wall',
-  '/configurations': 'Configurations',
-  '/settings': 'Settings',
-};
+// The title is the sidebar's own name for the page, found by the longest
+// sidebar path the location starts with. A hand-kept table of titles stood
+// here and covered fourteen of the twenty pages, so Analytics, Explorer, Watch
+// Profiles, Monitor, Repositories, every Settings tab and About resmon all
+// headed themselves "resmon".
+export function titleFor(pathname: string): string {
+  if (pathname === '/' || pathname === '') return NAV_ITEMS[0].label;
+  let best: { to: string; label: string } | null = null;
+  for (const item of NAV_ITEMS) {
+    if (item.to === '/') continue;
+    if (pathname === item.to || pathname.startsWith(`${item.to}/`)) {
+      if (!best || item.to.length > best.to.length) best = item;
+    }
+  }
+  return best ? best.label : 'resmon';
+}
 
 const Header: React.FC = () => {
   const location = useLocation();
   const connection = useConnectionIdentity();
   const observed = connection.observation;
-  const title = routeTitles[location.pathname] || 'resmon';
+  const title = titleFor(location.pathname);
   const labels = {
     checking: 'Checking running app', connected: `Connected · ${observed?.identity?.runtime_id.slice(0, 8)}`,
     offline: 'Running app unavailable', identity_unavailable: 'Identity unavailable',
