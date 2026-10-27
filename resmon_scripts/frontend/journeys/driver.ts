@@ -13,7 +13,7 @@
  * for: `register.spec.ts` greps every spec file in this directory for a
  * renderer call and for an import of anything but this module, and fails on a
  * hit. A spec that reaches the renderer directly is a spec that will have to be
- * rewritten, and the cost of rewriting forty-four of them is the reason the 3.0
+ * rewritten, and the cost of rewriting forty-five of them is the reason the 3.0
  * redesign has a parity register at all.
  *
  * **Backend facts do not come off the screen.** `resmon.backend` reads them
@@ -26,6 +26,7 @@ import { test as base, expect } from '@playwright/test';
 import { buildUnderTest, createDriver, driverName } from './drivers';
 import { armExitProbe } from './fixtures/exit-probe';
 import type { SourceReply } from './fixtures/source-endpoint';
+import type { SelectedPrompt } from './fixtures/selected-answer-endpoint';
 
 export { expect };
 
@@ -55,7 +56,11 @@ export type Place =
   | 'Advanced settings'
   | 'Tutorials'
   // — slice 3 -----------------------------------------------------------------
-  | 'Chats';
+  | 'Chats'
+  // — the register refresh ----------------------------------------------------
+  | 'Library'
+  | 'Evidence'
+  | 'Source wall';
 
 /** One run, as the app and the API both identify it. */
 export interface RunHandle {
@@ -1236,4 +1241,317 @@ export interface JourneyDriver {
   associateTheLibraryItemWithPaper(name: string, paperId: number): Promise<string>;
   /** The vault as it exists on the disk, independently of what the app says. */
   readTheVaultOnDisk(): Promise<VaultOnDisk>;
+}
+
+/* ========================================================================== *
+ *  The register refresh — the three Evidence rows slice 2b left pending, and
+ *  the Source wall, which arrived after the register was written and had no
+ *  row at all.
+ *
+ *  Appended in a block of its own for the reason every block above is: a
+ *  delivery that adds its verbs at the end merges, and one that threads them
+ *  through the interface does not. Nothing above this line changed meaning.
+ * ========================================================================== */
+
+/**
+ * A PDF whose pages say exactly these sentences, as text a journey can hand to
+ * `importIntoTheLibrary`.
+ *
+ * Re-exported from the seam for the reason `runGate` is: a spec may import this
+ * module and nothing else, and a document whose pages say something known is
+ * the only way to hold the reader's text against a sentence rather than against
+ * whatever the reader produced.
+ */
+export { authoredPdf } from './fixtures/authored-pdf';
+
+/** One page of one file, as the Evidence reader shows it. */
+export interface EvidencePageView {
+  /** The reader's own heading — the file's name. */
+  file: string;
+  page: number;
+  /** The canonical text pane, character for character. */
+  text: string;
+  /** What the PDF image region says — `Page 1 of 2 rendered · PDF.js …` — or '' for a text file. */
+  image: string;
+  /** The reader's sentence about how much of the document text extraction looked at. */
+  examined: string;
+}
+
+/** One saved record, as the Notes and passages panel lists it. */
+export interface SavedEvidenceNote {
+  file: string;
+  /** `passage` or `note`, as the panel heads the record. */
+  kind: string;
+  page: number | null;
+  /** The quote a passage keeps, or null for a plain note. */
+  quote: string | null;
+  body: string;
+  noteId: string;
+  versionId: string;
+}
+
+/** A saved passage opened again: what the reader selected, and what it said about the match. */
+export interface ReopenedPassage {
+  file: string;
+  page: number;
+  /** The text the reader highlighted in the canonical pane, or ''. */
+  highlighted: string;
+  /** The reader's sentence about whether the saved anchor still matches. */
+  resolution: string;
+}
+
+/** The ZIP Export selected evidence wrote, and what is inside it. */
+export interface EvidenceBundle {
+  path: string;
+  /** Every member's name, as the archive lists them. */
+  members: string[];
+  /** `manifest.json`, parsed — only the fields this suite reads. */
+  manifest: { files: { file_id: string; notes: { note_id: string }[] }[] } & Record<string, unknown>;
+  /** `notes.md`, as text. */
+  notesMarkdown: string;
+  /** Each member's SHA256, keyed by member name. */
+  hashes: Record<string, string>;
+}
+
+/** One explicit selection for an answer. */
+export interface SelectedEvidenceChoice {
+  file: string;
+  /** A PDF's physical page. A text file has one logical page and takes none. */
+  page?: number;
+}
+
+export interface SelectedAnswerRequest {
+  select: SelectedEvidenceChoice[];
+  /** Saved note bodies to include, by the body the dialog labels each one with. */
+  includeNotes?: string[];
+  format: 'question' | 'briefing';
+  instruction: string;
+  /** The explicit model ID the connection is asked for. */
+  model: string;
+}
+
+/** What the dialog discloses before Send — the exact content that will leave the app. */
+export interface SelectedAnswerPreview {
+  /** Each source as the preview heads it (`S01 · name · page 1`) and the text under it. */
+  sources: { id: string; file: string; page: number; text: string }[];
+  /** Every owner-note body the preview shows. */
+  notes: string[];
+  /** The whole disclosure. */
+  text: string;
+}
+
+/** A saved answer, as the Evidence page shows it. */
+export interface SelectedAnswerView {
+  id: string;
+  /** `succeeded`, `failed`, `refused` — the state the article prints. */
+  state: string;
+  /** Each structured item's text, and the citation controls under it. */
+  items: { text: string; citations: string[] }[];
+  /** The `Incomplete / unvalidated output` text, or null where the result validated. */
+  unvalidated: string | null;
+  text: string;
+}
+
+/** One citation of the open answer, opened. */
+export interface OpenedCitation {
+  /** The control's own label: `S01 · name · page 2 · exact quoted text`. */
+  label: string;
+  /** The frozen quote the answer saved. */
+  frozen: string;
+  /** The text the current reader highlights for it, or '' where it opened none. */
+  highlighted: string;
+  /** The reader's sentence about whether the citation matched the current text. */
+  resolution: string;
+}
+
+/** One request the authored model received. */
+export interface AuthoredModelRequest {
+  /** The body exactly as it arrived — the thing a search for an unselected string has to search. */
+  raw: string;
+  /** The app's user prompt, parsed: `{request_sha256, payload}`. */
+  userPayload: SelectedPrompt | null;
+}
+
+export type { SelectedPrompt };
+
+/**
+ * A saved-answer HTML file opened by a reader that is not resmon, with resmon
+ * closed and every request but the one for the file refused.
+ */
+export interface OfflineDocument {
+  /** Every request the reader refused. Anything here is the document reaching for something. */
+  refused: string[];
+  /** Every window it tried to open and every navigation away from itself. */
+  escapes: string[];
+  /** Scripts, images, frames, forms and the other elements that could run or fetch. */
+  activeElements: number;
+  /** Every link's `href`. */
+  hrefs: string[];
+  text: string;
+  /** Whether the document says its answer is incomplete and unvalidated. */
+  saysUnvalidated: boolean;
+  /** Each answer citation, followed by keyboard to its quote and back. */
+  citations: {
+    /** The link's id in the answer. */
+    reference: string;
+    /** Where the link says it goes, as a fragment. */
+    href: string;
+    /** Where following it landed, as a fragment. */
+    arrivedAt: string;
+    quote: string;
+    start: number;
+    end: number;
+    /** The frozen excerpt of the source the quote sits under, as the file prints it. */
+    excerpt: string;
+    /** Where that excerpt begins on its page, in codepoints, as the file records it. */
+    excerptStart: number;
+    /** Where the quote's own return link landed. */
+    returnedTo: string;
+    /** Whether focus came back to the citation that was followed. */
+    returnFocused: boolean;
+  }[];
+}
+
+/** One cell of the Source wall, as the grid draws it. */
+export interface SourceWallCellView {
+  /** The state the cell is drawn as, in the backend's vocabulary. */
+  state: string;
+  /** The mark inside the cell. */
+  glyph: string;
+  /** The word the cell is announced with. */
+  label: string;
+}
+
+export interface SourceWallView {
+  verdict: { level: string; headline: string; detail: string[] };
+  /** `Showing N of M recorded runs`. */
+  window: string;
+  /** The key, in the order the page draws it. */
+  legend: { label: string; glyph: string; count: number }[];
+  /** One row per source, one cell per run, oldest run first. */
+  rows: { source: string; cells: SourceWallCellView[] }[];
+}
+
+/** What the reading pane says about one cell once a person has selected it. */
+export interface SourceWallReading {
+  head: string;
+  label: string;
+  note: string;
+}
+
+/**
+ * The app's own records behind those three pages — each only the fields the
+ * specs read, so the shape a spec depends on is written down rather than
+ * reached for through an `any`.
+ */
+export interface StoredEvidenceNote {
+  note_id: string;
+  kind: string;
+  file_id: string;
+  version_id: string;
+  page_number: number | null;
+  start_codepoint: number | null;
+  end_codepoint: number | null;
+  quote: string | null;
+}
+
+export interface StoredCitation {
+  source_id: string;
+  start_codepoint: number;
+  end_codepoint: number;
+  quote: string;
+}
+
+export interface StoredAnswer {
+  answer_id: string;
+  state: string;
+  cleanup_state: string;
+  request: { payload: { sources: { source_id: string; start_codepoint: number; text: string }[] } };
+  /** Null where the app refused to validate what the model returned. */
+  result: { sections: { items: { citations: StoredCitation[] }[] }[] } | null;
+}
+
+export interface StoredSourceWall {
+  runs: { execution_id: number }[];
+  sources: { slug: string; name: string; cells: { state: string; label: string; note: string }[] }[];
+  state_legend: { state: string; label: string }[];
+  verdict: { level: string; headline: string; detail: string[] };
+}
+
+export interface BackendFacts {
+  /** Every saved Evidence record of this project, as the app stored it — offsets included. */
+  evidenceNotes(project: string): Promise<StoredEvidenceNote[]>;
+  /** One saved selected-evidence answer, as the app stored it. */
+  selectedAnswer(project: string, answerId: string): Promise<StoredAnswer>;
+  /** The grid `GET /api/coverage/source-wall` serves the page. */
+  sourceWall(): Promise<StoredSourceWall>;
+}
+
+export interface JourneyDriver {
+  // — the Evidence workspace (J35) -------------------------------------------
+  /**
+   * From this Library item, follow Open in Evidence, create a project with this
+   * name, and add the item's exact version to it. Returns the page the reader
+   * then shows.
+   */
+  startAnEvidenceProjectFrom(item: string, project: string): Promise<EvidencePageView>;
+  /** Add these Library items to the open project, and return every file it now holds. */
+  addToTheEvidenceProject(items: string[]): Promise<string[]>;
+  /** Open Evidence and select this project. */
+  openTheEvidenceProject(project: string): Promise<void>;
+  /** Select this file of the open project and read one page of it. */
+  readTheEvidencePage(file: string, page?: number): Promise<EvidencePageView>;
+  /** Find this exact text on the page, use it as a passage, and save it with this body. */
+  saveAnEvidencePassage(passage: { file: string; page?: number; quote: string; body: string }): Promise<string>;
+  /** Save a plain note against this file. */
+  saveAnEvidenceNote(note: { file: string; body: string }): Promise<string>;
+  /** Every record the Notes and passages panel lists. */
+  readTheSavedEvidenceNotes(): Promise<SavedEvidenceNote[]>;
+  /** Press Reopen on the saved passage that keeps this quote. */
+  reopenTheSavedPassage(quote: string): Promise<ReopenedPassage>;
+  /** Tick these files in Export selected evidence and download the ZIP. */
+  exportSelectedEvidence(files: string[], options: { includeFiles: boolean }): Promise<EvidenceBundle>;
+
+  // — selected-evidence answers (J36) ----------------------------------------
+  /**
+   * Point the custom API connection at an authored model on loopback, and store
+   * a key for it the way the API Key field does.
+   *
+   * The model is authored; the request the app builds, the key it reads back
+   * out of its own credential store, the validation of what comes back and the
+   * saved answer are the app's.
+   */
+  useAnAuthoredModelForSelectedAnswers(): Promise<void>;
+  /** From now on it attributes this sentence to the first source it is sent — which does not say it. */
+  theAuthoredModelCitesTextItWasNotSent(quote: string): void;
+  /** Every request the authored model has received, in order. */
+  readWhatTheAuthoredModelReceived(): AuthoredModelRequest[];
+  /**
+   * New selected-evidence answer: make these selections, preview them, read the
+   * disclosure, press Send, and read the saved answer once it has finished.
+   */
+  askFromSelectedEvidence(request: SelectedAnswerRequest): Promise<{
+    preview: SelectedAnswerPreview; answer: SelectedAnswerView;
+  }>;
+  /** Open every citation of the answer on screen, one after another. */
+  openEachCitationOfTheAnswer(): Promise<OpenedCitation[]>;
+  /** Open this saved answer from the project's history. */
+  openTheSavedAnswer(answerId: string): Promise<SelectedAnswerView>;
+
+  // — the saved answer, portable (J37) ---------------------------------------
+  /** Press Export HTML on the open answer: the file the download wrote, and what is in it. */
+  exportTheOpenAnswerAsHtml(): Promise<ExportedFile>;
+  /** Quit resmon — window and backend — as a person closing it would. */
+  closeTheApp(): Promise<void>;
+  /**
+   * Open this file in a reader that is not resmon, with every request but the
+   * one for the file refused, and follow each citation by keyboard and back.
+   */
+  readTheFileOffline(file: ExportedFile): Promise<OfflineDocument>;
+
+  // — the Source wall (J45) --------------------------------------------------
+  /** What the Source wall draws for the recorded runs. */
+  readTheSourceWall(): Promise<SourceWallView>;
+  /** Select one cell — a source's row, a run's column counting from 0 — and read the pane. */
+  readTheSourceWallCell(source: string, column: number): Promise<SourceWallReading>;
 }

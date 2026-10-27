@@ -210,6 +210,15 @@ export interface Session {
   relaunch(): Promise<void>;
   /** Move to a brand-new, empty state directory and launch over that. */
   relaunchOverFreshState(): Promise<void>;
+  /**
+   * Close the app — window and backend — and leave it closed.
+   *
+   * J37's journey is reading a saved answer after resmon has gone, and a file
+   * read while the app's backend was still listening would not show that it
+   * needed nothing from it. Teardown still calls `close()`, which then finds
+   * nothing left to stop.
+   */
+  quit(): Promise<void>;
   /** Everything this run's guard refused. */
   refused(): { host: string; port: number }[];
   /** Every close this session had to force. Empty is the expected answer. */
@@ -327,6 +336,8 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
   const alsoClose: (() => Promise<void>)[] = [];
   /** The deliberate lag, read once: see `configuredLag`. Empty on every ordinary run. */
   const lags = configuredLag();
+  /** Whether `quit()` has already put the app away, so teardown does not do it twice. */
+  let quitted = false;
 
   const bring = async (): Promise<void> => {
     app = await electron.launch({
@@ -600,6 +611,11 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
       await bring();
     },
 
+    quit: async () => {
+      await put();
+      quitted = true;
+    },
+
     relaunchOverFreshState: async () => {
       await put();
       stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-restored-'));
@@ -624,7 +640,11 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
       // whose only evidence was a 300-second wall; a teardown that stops
       // halfway should say which half.
       console.log('[journeys] teardown: closing the app');
-      await put().catch(() => { /* already gone */ });
+      // Not a second time. `put()` over an app it has already put away has no
+      // process to watch exit, so it would wait out its orphan grace and its
+      // thirty-second tidy-up and then report a forced close that never
+      // happened — a false line in the one log this suite reads for hangs.
+      if (!quitted) await put().catch(() => { /* already gone */ });
       console.log('[journeys] teardown: stopping the authored source');
       await source.close().catch(() => { /* already closed */ });
       if (alsoClose.length) {

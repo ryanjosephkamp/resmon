@@ -87,14 +87,16 @@ other half of that check and it is in the pull request.
 
 | File | What it is |
 |---|---|
-| `register.ts` | The denominator: all 44 rows of the parity register, their slice and their status. Nothing else in the suite is allowed to disagree with it. |
-| `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer. |
+| `register.ts` | The denominator: all 45 rows of the parity register, their slice and their status, and `ROUTE_ROWS` — which rows carry each page the app routes to. Nothing else in the suite is allowed to disagree with it. |
+| `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; every page in `src/routes.ts` names a carried row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer. |
 | `driver.ts` | The seam — the `JourneyDriver` interface, in the user's words, plus the `journey` test object. |
 | `drivers/classic.ts` | The one file that knows a class name, a hash route or the text on a button. |
 | `drivers/candidate.ts` | Re-exports the classic driver until the 3.0 build replaces its body. |
 | `drivers/session.ts` | One launched resmon of whichever build is under test: launch, ask, kill, relaunch. |
 | `fixtures/source-endpoint.ts` | An authored scholarly source on loopback, and the startup hook that refuses every non-loopback connection and port 8742. |
 | `fixtures/gates.ts` | Runs one of the build's own pytest gates, for the rows whose journey has no screen. |
+| `fixtures/authored-pdf.ts` | A PDF built from sentences a spec wrote, so J35–J37 can hold the reader's text against a known page. |
+| `fixtures/selected-answer-endpoint.ts` | An authored model on loopback for selected-evidence answers, which can be told to cite text it was not sent. |
 | `J<nn>-<slug>.spec.ts` | One register row each. |
 
 ## Six things to know before adding a row
@@ -114,7 +116,10 @@ substring, and "Inactive" satisfied it for as long as the method existed.
 `register.ts` with `slice: '1'` and no spec, and the guard says which file it
 wanted. Add a spec no row claims, and it says that too. Neither direction is
 optional: one alone gives you either a register nothing tests, or a suite that
-has quietly stopped covering the register.
+has quietly stopped covering the register. The same holds one level out: every
+page `src/routes.ts` routes to has an entry in `ROUTE_ROWS` naming the rows that
+carry it, so a new page with no journey is a red guard rather than a page
+nobody measures — which is what the Source wall was for nine days.
 
 **Nothing here touches the renderer.** If a spec needs something the driver
 cannot do, the answer is a new driver method named for what the *person* does,

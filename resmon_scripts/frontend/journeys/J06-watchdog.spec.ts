@@ -47,7 +47,11 @@ journey.describe('J06 Watchdog', () => {
 
     const broken = await resmon.readWatchdog();
     console.log(`[J06] findings: ${JSON.stringify(broken.findings)}`);
-    const failure = broken.findings.find((finding) => finding.scope.includes('arxiv'));
+    // Case-blind, because the scope names the source the way the catalog does
+    // since #219 — `Source · arXiv` — and by its slug before it, and `main`
+    // failed this row on the spelling alone. The classic leg runs a build from
+    // before the change; both are the same source.
+    const failure = broken.findings.find((finding) => finding.scope.toLowerCase().includes('arxiv'));
     expect(failure, 'three failures in a row produced no finding about the source').toBeTruthy();
     expect(failure!.severity.toLowerCase(), 'a source that failed three times is not reported as broken')
       .toBe('broken');

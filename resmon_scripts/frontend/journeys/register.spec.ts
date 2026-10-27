@@ -1,7 +1,7 @@
 /**
  * The guards that make the rest of this directory a denominator.
  *
- * Three things are checked here and all three fail the run rather than logging.
+ * Four things are checked here and all four fail the run rather than logging.
  *
  * 1. **Every built row has exactly one spec, and every spec has a row.** Both
  *    directions matter. One direction alone gives you either a register with
@@ -11,7 +11,11 @@
  *    is not carried forward names the decision that dropped it. Nothing leaves
  *    the register silently.
  * 3. **No spec reaches the renderer.** Everything goes through the driver, so
- *    the 3.0 renderer supplies one file rather than forty-four rewrites.
+ *    the 3.0 renderer supplies one file rather than forty-five rewrites.
+ * 4. **Every page the app routes to names the rows that carry it.** The first
+ *    three compare the register with this directory; this one compares it
+ *    with the app, which nothing did until the Source wall had been a page
+ *    with no row for nine days.
  *
  * These are plain filesystem reads: there is no app to launch to know whether a
  * file exists. They run first because they are named `register.spec.ts` and the
@@ -22,9 +26,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '@playwright/test';
 import {
-  ALLOWED_SPEC_IMPORTS, FORBIDDEN_RENDERER_PATTERNS, JOURNEY_REGISTER,
+  ALLOWED_SPEC_IMPORTS, FORBIDDEN_RENDERER_PATTERNS, JOURNEY_REGISTER, ROUTE_ROWS,
   builtRows, pendingRows, specStem,
 } from './register';
+import { allRouteHashes } from '../src/routes';
 
 const HERE = __dirname;
 const GUARD = 'register.spec.ts';
@@ -45,7 +50,7 @@ test.describe('the journey register and this directory agree', () => {
     expect(new Set(ids).size, 'a register ID appears twice').toBe(ids.length);
     for (const id of ids) expect(id).toMatch(/^J\d{2}$/);
     expect([...ids].sort(), 'the register is not in ID order').toEqual(ids);
-    expect(JOURNEY_REGISTER.length, 'the parity register has 44 journeys').toBe(44);
+    expect(JOURNEY_REGISTER.length, 'the parity register has 45 journeys').toBe(45);
   });
 
   test('every built row has exactly one spec named for it', () => {
@@ -109,6 +114,27 @@ test.describe('the journey register and this directory agree', () => {
     expect(builtRows().length + pending.length
       + JOURNEY_REGISTER.filter((r) => r.status === 'not_carried_forward').length)
       .toBe(JOURNEY_REGISTER.length);
+  });
+});
+
+test.describe('the journey register and the app agree', () => {
+  test('every page the app routes to names the rows that carry it', () => {
+    // The smoke suite's own denominator: every top-level route and every
+    // Settings and About tab, read from the table `App.tsx` renders.
+    const hashes = allRouteHashes().map((route) => route.hash);
+    const unmapped = hashes.filter((hash) => !(hash in ROUTE_ROWS));
+    expect(
+      unmapped,
+      'a page the app routes to has no register row — add a row and its spec, or say in '
+      + 'ROUTE_ROWS which existing row carries what a person does there',
+    ).toEqual([]);
+    const stale = Object.keys(ROUTE_ROWS).filter((hash) => !hashes.includes(hash));
+    expect(stale, 'ROUTE_ROWS names a page the app no longer routes to').toEqual([]);
+    const carried = new Set(JOURNEY_REGISTER.filter((row) => row.status === 'carried').map((row) => row.id));
+    const orphaned = Object.entries(ROUTE_ROWS).flatMap(([hash, { rows }]) => (rows.length
+      ? rows.filter((id) => !carried.has(id)).map((id) => `${hash} → ${id}`)
+      : [`${hash} → no row at all`]));
+    expect(orphaned, 'a page is said to be carried by a row the register does not carry').toEqual([]);
   });
 });
 
