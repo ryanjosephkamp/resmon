@@ -301,6 +301,10 @@ def _verdict(sources: list[dict], run_count: int) -> dict:
 
     stopped: list[str] = []
     silent: list[str] = []
+    # For each silent source, how many of the window's runs recorded an outcome
+    # for it. A source can be silent in two of twelve runs because it was only
+    # in two of them, and the headline must not count the other ten against it.
+    recorded_outcomes: dict[str, int] = {}
     unobserved: list[str] = []
     unasked: list[str] = []
     dropped: list[str] = []
@@ -339,6 +343,9 @@ def _verdict(sources: list[dict], run_count: int) -> dict:
             stopped.append(source["name"])
         else:
             silent.append(source["name"])
+            recorded_outcomes[source["name"]] = sum(
+                1 for cell in source["cells"] if cell["state"] not in _SILENT
+            )
 
     total = len(sources)
     runs = f"{run_count} run{'s' if run_count != 1 else ''}"
@@ -377,15 +384,29 @@ def _verdict(sources: list[dict], run_count: int) -> dict:
         return {"level": "attention", "headline": headline, "detail": detail}
 
     if silent:
+        counts = {recorded_outcomes[name] for name in silent}
         if len(silent) <= 3:
             verb = "has" if len(silent) == 1 else "have"
+            subject = f"{_join(sorted(silent))} {verb}"
+        else:
+            subject = f"{len(silent)} of {total} sources have"
+        pronoun = "it" if len(silent) == 1 else "them"
+        if counts == {run_count}:
+            # Every run in the window recorded a non-answer from each of them.
+            headline = f"{subject} not answered in the last {runs}."
+        elif len(counts) == 1:
+            # "Has not answered in the last 12 runs" said of a source that was
+            # in two of them claimed ten failures nobody recorded. The count is
+            # the runs that recorded an outcome for it, and the sentence says so.
+            (asked,) = counts
             headline = (
-                f"{_join(sorted(silent))} {verb} not answered in the last {runs}."
+                f"{subject} not answered in the {asked} of the last {runs} "
+                f"that recorded an outcome for {pronoun}."
             )
         else:
             headline = (
-                f"{len(silent)} of {total} sources have not answered in the "
-                f"last {runs}."
+                f"{subject} not answered in any of the last {runs} that "
+                f"recorded an outcome for {pronoun}."
             )
         return {"level": "attention", "headline": headline, "detail": detail}
 
