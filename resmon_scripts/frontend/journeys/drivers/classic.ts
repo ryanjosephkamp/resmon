@@ -93,6 +93,17 @@ function isoDate(at: Date): string {
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
 }
 
+/**
+ * A name as a literal inside a regular expression.
+ *
+ * Source and file names are what this driver matches most, and they carry the
+ * characters a pattern treats specially: a file name has a dot in it, and `.`
+ * matches anything.
+ */
+function literally(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function createClassicDriver(session: Session, testInfo: TestInfo): JourneyDriver {
   const win = () => session.win;
 
@@ -402,6 +413,25 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     await expect(widget).toHaveCount(0, { timeout: 15_000 });
   };
 
+  /** Every source's slug and the name the catalog gives it. */
+  const catalogNames = async (): Promise<{ slug: string; name: string }[]> =>
+    (await backend.sourceCatalog()).map((entry) => ({ slug: String(entry.slug), name: String(entry.name) }));
+
+  /**
+   * The slug for a source as a screen names it.
+   *
+   * `SourceOutcome.source` is a slug, and the run panel used to print one.
+   * Since #219 it prints the catalog's name — `arXiv`, `Springer Nature` —
+   * while the report's coverage table still prints the slug, so J19 and J29
+   * compared `arXiv` with `arxiv` and failed on `main` over two surfaces that
+   * agreed. A name the catalog does not know is returned as it was shown,
+   * rather than guessed at.
+   */
+  const asSlug = (shown: string, entries: { slug: string; name: string }[]): string => (
+    entries.some((entry) => entry.slug === shown)
+      ? shown
+      : (entries.find((entry) => entry.name === shown)?.slug ?? shown));
+
   /**
    * Fill in Deep Sweep's form: tick these sources, add the query as a keyword,
    * and set the cap where one is given.
@@ -411,9 +441,19 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
    * other way would not be the one a person's sweep would have used.
    */
   const fillTheSweepForm = async (request: { sources: string[]; query: string; cap?: number }): Promise<void> => {
+    // **A checkbox is found by either of the source's two names.** Since "The
+    // app reads as one interface" (#219) the label carries the catalog's name —
+    // `arXiv` — where it used to carry the slug, and the `^arxiv$` this matched
+    // found nothing: J02, J19, J21, J29 and J38 each timed out on their first
+    // tick, on `main`, for a form that was working. Both spellings are accepted
+    // rather than the new one alone, because the classic leg launches a build
+    // from before the rename and this checkout launches one after it, and in
+    // both a person is ticking the same source.
+    const entries = await catalogNames();
     for (const source of request.sources) {
+      const name = entries.find((entry) => entry.slug === source)?.name ?? source;
       await win().locator('.repo-checkbox-grid label.checkbox-label')
-        .filter({ hasText: new RegExp(`^${source}$`) })
+        .filter({ hasText: new RegExp(`^(${literally(source)}|${literally(name)})$`) })
         .locator('input[type="checkbox"]')
         .check();
     }
@@ -901,12 +941,13 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
         { timeout: 90_000 }).toBe(true);
       }
       const count = await rows.count();
+      const entries = await catalogNames();
       const out: SourceOutcome[] = [];
       for (let i = 0; i < count; i += 1) {
         const row = rows.nth(i);
         const reason = row.locator('.mon-repo-zero-reason');
         out.push({
-          source: (await row.locator('.mon-repo-name').innerText()).trim(),
+          source: asSlug((await row.locator('.mon-repo-name').innerText()).trim(), entries),
           label: (await row.locator('.mon-repo-status-text').innerText()).trim(),
           note: (await reason.count()) ? (await reason.innerText()).trim() : '',
         });
@@ -953,13 +994,17 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       // at a time. The wait above is what stops the table being replaced under
       // this read; taking the whole table in a single turn of the renderer's
       // event loop is what makes that no longer something to get right twice.
-      return win().evaluate(() => Array.from(
+      const read = await win().evaluate(() => Array.from(
         document.querySelectorAll('.coverage-table tbody tr'),
         (row) => {
           const cells = Array.from(row.querySelectorAll('td'), (c) => (c.textContent ?? '').trim());
           return { source: cells[0] ?? '', label: cells[1] ?? '', note: cells[4] ?? '' };
         },
       ));
+      // The same mapping as the run panel's, so the day the report table
+      // follows #219 the two still compare as the same sources.
+      const entries = await catalogNames();
+      return read.map((outcome) => ({ ...outcome, source: asSlug(outcome.source, entries) }));
     },
 
     readReportTabs: async () => {
