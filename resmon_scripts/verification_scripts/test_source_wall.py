@@ -401,6 +401,27 @@ def test_a_source_that_never_answered_in_the_window_is_not_called_stopped(conn):
     assert "not answered in the last 1 run" in verdict["headline"]
 
 
+def test_a_silent_source_is_counted_against_the_runs_that_included_it(conn):
+    # Semantic Scholar was in the first run only. The second run did not ask it,
+    # so "has not answered in the last 2 runs" would claim a failure that the
+    # record does not hold.
+    first = make_run(conn, started="2026-10-01T09:00:00",
+                     repositories=["arxiv", "semantic_scholar"])
+    record(conn, first, "arxiv", count=4)
+    record(conn, first, "semantic_scholar", count=0, reason="upstream_failure",
+           detail={"status": 429, "attempts": 3})
+    second = make_run(conn, started="2026-10-02T09:00:00", repositories=["arxiv"])
+    record(conn, second, "arxiv", count=4)
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["level"] == "attention"
+    assert "in the last 2 runs." not in verdict["headline"]
+    assert verdict["headline"].endswith(
+        "has not answered in the 1 of the last 2 runs that recorded an outcome for it."
+    )
+
+
 def test_an_all_clear_verdict_carries_its_denominator(conn):
     run = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "biorxiv"])
     record(conn, run, "arxiv", count=3)
