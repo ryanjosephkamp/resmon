@@ -5,7 +5,7 @@
  * the text on a button. Everything above it is written in the words of the
  * parity register, and everything below it is a real Electron process over a
  * real backend. When the 3.0 renderer exists, the work is one more file of this
- * shape — not forty-four rewritten specs.
+ * shape — not forty-five rewritten specs.
  *
  * Two rules it follows throughout.
  *
@@ -29,7 +29,8 @@ import { execFileSync, spawnSync } from 'child_process';
 import * as http from 'http';
 import * as net from 'net';
 import { createHash } from 'crypto';
-import { expect } from '@playwright/test';
+import { pathToFileURL } from 'url';
+import { _electron as electron, expect } from '@playwright/test';
 import type { TestInfo } from '@playwright/test';
 import type {
   BackendFacts, BackupResult, CorpusCounts, DiveRequest, InterruptedRow, JourneyDriver,
@@ -59,6 +60,14 @@ import type { ComposerChoice, LibraryItem, TurnChoiceFacts, VaultOnDisk } from '
 import type { ImportOutcome } from '../driver';
 import { startProviderEndpoint } from '../fixtures/provider-endpoint';
 import type { ProviderEndpoint } from '../fixtures/provider-endpoint';
+// The register refresh's, in its own import for the same reason.
+import type {
+  EvidenceBundle, EvidencePageView, ExportedFile, OfflineDocument, OpenedCitation, ReopenedPassage,
+  SavedEvidenceNote, SelectedAnswerPreview, SelectedAnswerView, SourceWallCellView, SourceWallReading,
+  SourceWallView, StoredAnswer, StoredEvidenceNote, StoredSourceWall,
+} from '../driver';
+import { startSelectedAnswerEndpoint } from '../fixtures/selected-answer-endpoint';
+import type { SelectedAnswerEndpoint } from '../fixtures/selected-answer-endpoint';
 import type { Session } from './session';
 
 /** The hash behind each place in the sidebar. The only route table in the suite. */
@@ -85,6 +94,10 @@ const PLACES: Record<Place, string> = {
   Tutorials: '/about-resmon/tutorials',
   // — slice 3 ---------------------------------------------------------------
   Chats: '/chats',
+  // — the register refresh --------------------------------------------------
+  Library: '/library',
+  Evidence: '/evidence',
+  'Source wall': '/source-wall',
 };
 
 /** `YYYY-MM-DD`, in the machine's own timezone, as the date inputs want it. */
@@ -723,6 +736,303 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
     };
   };
 
+  /* ---------------------------------------------------------------------- *
+   *  The register refresh's helpers: Evidence, its answers, and the wall.
+   * ---------------------------------------------------------------------- */
+
+  /**
+   * Ask an Evidence or Library route the way the Evidence page asks it.
+   *
+   * Those routes refuse anything without `X-Resmon-Library: 1` from the
+   * renderer's own origin — a browser guard, not authentication — and
+   * `session.api` sends no such header, which is why J34 read its vault off the
+   * disk instead. J35–J37 need the app's own record of a saved passage and a
+   * saved answer, offsets included, and the screen does not print those. So the
+   * request is made from inside the window, where the Origin is the renderer's
+   * and the token comes from the bridge the app itself uses.
+   */
+  const evidenceRequest = async <T>(method: string, route: string): Promise<T> => win().evaluate(
+    async ([m, r]) => {
+      const backend = (window as unknown as { resmonAPI: { getBackendPort(): string } })
+        .resmonAPI.getBackendPort();
+      const response = await e2eFetch(`http://127.0.0.1:${backend}${r}`, {
+        method: m,
+        headers: { 'X-Resmon-Library': '1' },
+        signal: AbortSignal.timeout(60_000),
+      });
+      const text = await response.text();
+      if (!response.ok) throw new Error(`${m} ${r} answered HTTP ${response.status}: ${text.slice(0, 400)}`);
+      return text ? JSON.parse(text) : null;
+    },
+    [method, route] as const,
+  ) as Promise<T>;
+
+  /** The name of the Evidence project a journey last opened. */
+  let openProject: string | null = null;
+  const theOpenProject = (): string => {
+    expect(openProject, 'this journey has not opened an Evidence project').toBeTruthy();
+    return openProject!;
+  };
+
+  /** This app's vault, and a project in it by the name a person gave it, or null. */
+  const findEvidenceProject = async (name: string): Promise<{ vault: string; id: string } | null> => {
+    const status = await evidenceRequest<{ vault: { vault_id: string } | null }>('GET', '/api/library');
+    expect(status.vault, 'this app has no Library vault for Evidence to read').toBeTruthy();
+    const vault = status.vault!.vault_id;
+    const { projects } = await evidenceRequest<{ projects: { project_id: string; name: string }[] }>(
+      'GET', `/api/evidence/projects?expected_vault_id=${vault}`,
+    );
+    const found = projects.find((project) => project.name === name);
+    return found ? { vault, id: found.project_id } : null;
+  };
+
+  const evidenceProject = async (name: string): Promise<{ vault: string; id: string }> => {
+    const found = await findEvidenceProject(name);
+    expect(found, `Evidence holds no project called ${name}`).toBeTruthy();
+    return found!;
+  };
+
+  /** One Library item's identity, by the name it was imported under. */
+  interface LibraryRecord { original_name: string; file_id: string; version_id: string; media_type: string }
+  const libraryFile = async (name: string): Promise<LibraryRecord> => {
+    const status = await evidenceRequest<{ vault: { vault_id: string } | null }>('GET', '/api/library');
+    const { files } = await evidenceRequest<{ files: LibraryRecord[] }>(
+      'GET', `/api/library/files?expected_vault_id=${status.vault!.vault_id}`,
+    );
+    const found = files.find((file) => file.original_name === name);
+    expect(found, `the Library holds nothing called ${name}`).toBeTruthy();
+    return found!;
+  };
+
+  const evidenceNotesOf = async (name: string): Promise<StoredEvidenceNote[]> => {
+    const project = await evidenceProject(name);
+    const { notes } = await evidenceRequest<{ notes: StoredEvidenceNote[] }>(
+      'GET', `/api/evidence/projects/${project.id}/notes?expected_vault_id=${project.vault}`,
+    );
+    return notes;
+  };
+
+  const answersOf = async (name: string): Promise<{ answer_id: string }[]> => {
+    const project = await evidenceProject(name);
+    const { answers } = await evidenceRequest<{ answers: { answer_id: string }[] }>(
+      'GET', `/api/evidence/projects/${project.id}/answers?expected_vault_id=${project.vault}`,
+    );
+    return answers;
+  };
+
+  const answerOf = async (name: string, id: string): Promise<StoredAnswer> => {
+    const project = await evidenceProject(name);
+    return evidenceRequest('GET', `/api/evidence/projects/${project.id}/answers/${id}?expected_vault_id=${project.vault}`);
+  };
+
+  /** The states a saved answer does not leave. */
+  const TERMINAL_ANSWER_STATES = ['succeeded', 'refused', 'failed', 'cancelled', 'interrupted'];
+
+  const evidenceReader = () => win().getByRole('region', { name: 'Evidence reader' });
+  const evidenceNotesPanel = () => win().getByRole('region', { name: 'Saved evidence notes' });
+  const answerArticle = () => win().getByRole('article', { name: 'Selected evidence answer' });
+
+  /** Select a file of the open project, and wait for the reader to be on it. */
+  const pickTheCollectionFile = async (name: string): Promise<void> => {
+    const item = win().getByRole('region', { name: 'Current collection files' })
+      .getByRole('button', { name: new RegExp(`^${literally(name)} `) });
+    await expect(item, `the project holds no file called ${name}`).toBeVisible({ timeout: 30_000 });
+    await item.click();
+    await expect(item).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
+    await expect(evidenceReader().getByRole('heading', { name, exact: true })).toBeVisible({ timeout: 30_000 });
+  };
+
+  /** Ask the reader for another physical page of the PDF it has open. */
+  const turnTheReaderTo = async (page: number): Promise<void> => {
+    const input = evidenceReader().getByLabel('Page', { exact: true });
+    await expect(input, 'the reader offers no page control here').toBeEnabled({ timeout: 60_000 });
+    await input.fill(String(page));
+    await expect(evidenceReader().getByRole('heading', { name: `Canonical text · physical page ${page}` }))
+      .toBeVisible({ timeout: 30_000 });
+  };
+
+  /**
+   * The page the reader is on, once it has finished reading it.
+   *
+   * **The pane can show the previous page for a moment.** A new page number
+   * renders before the effect that clears the old text has run, so a read
+   * taken straight after turning the page could report page 1's text under
+   * page 2's heading. The wait is therefore for the app's own extraction of
+   * this exact page, asked of the same route the reader asks, and then for the
+   * pane to agree with it — the record first, the screen second, as everywhere
+   * else in this driver. A spec still compares the result with the sentence it
+   * authored, so this cannot make a wrong extraction look right.
+   */
+  const readTheReaderPage = async (file: string): Promise<EvidencePageView> => {
+    const reader = evidenceReader();
+    await expect(reader.getByRole('heading', { name: file, exact: true })).toBeVisible({ timeout: 60_000 });
+    const heading = reader.getByRole('heading', { name: /^Canonical text · (physical|logical) page \d+$/ });
+    await expect(heading).toBeVisible({ timeout: 60_000 });
+    const page = Number(/(\d+)$/.exec((await heading.innerText()).trim())![1]);
+    const pane = reader.getByLabel('Canonical page text');
+    // The reader's own read first. The backend reads one bounded PDF page at a
+    // time and answers a second request with `reader_busy`, which is what the
+    // first draft of this method got by asking while the window was still
+    // asking: J35 failed in four seconds on a healthy app.
+    await expect(pane.or(reader.getByRole('alert')).first()).toBeVisible({ timeout: 60_000 });
+    await expect(reader.getByText('Reading this exact retained page…', { exact: true })).toHaveCount(0, { timeout: 60_000 });
+    const project = await evidenceProject(theOpenProject());
+    const item = await libraryFile(file);
+    let held: { status: string; text: string } = { status: '', text: '' };
+    await expect.poll(async () => {
+      try {
+        held = await evidenceRequest('GET',
+          `/api/evidence/projects/${project.id}/reader/${item.file_id}?expected_vault_id=${project.vault}`
+          + `&version_id=${item.version_id}&page=${page}&representation=text`);
+        return 'read';
+      } catch (error) {
+        // Busy is the one refusal worth asking again about; anything else is
+        // the answer, and is returned so the failure names it.
+        return /reader_busy/.test(String(error)) ? 'busy' : String(error);
+      }
+    }, { timeout: 60_000, message: `the app never read page ${page} of ${file} for itself` }).toBe('read');
+    if (held.status === 'extracted') {
+      await expect(pane, 'the app extracted this page and the reader does not show what it extracted')
+        .toHaveValue(held.text, { timeout: 60_000 });
+    } else {
+      await expect(reader.getByRole('alert').first()).toBeVisible({ timeout: 60_000 });
+    }
+    let image = '';
+    if (item.media_type === 'application/pdf') {
+      // The canvas reports on itself in a status line once PDF.js has drawn
+      // the page, or in an alert when it could not.
+      const region = reader.getByRole('region', { name: 'PDF page image' });
+      const said = region.getByText(/^Page \d+ of \d+ rendered/).or(region.getByRole('alert')).first();
+      await expect(said, 'the PDF image never said whether it drew the page').toBeVisible({ timeout: 60_000 });
+      image = (await said.innerText()).trim();
+    }
+    const examined = reader.locator('p').filter({ hasText: /pages examined by text extraction/ }).first();
+    return {
+      file,
+      page,
+      text: (await pane.count()) ? await pane.inputValue() : '',
+      image,
+      examined: (await examined.count()) ? (await examined.innerText()).trim() : '',
+    };
+  };
+
+  /** Type this body into the note editor, save it, and wait for the record and the notice. */
+  const saveTheOpenNote = async (body: string, button: 'Save passage' | 'Save note'): Promise<string> => {
+    const panel = evidenceNotesPanel();
+    const before = (await evidenceNotesOf(theOpenProject())).length;
+    await panel.getByLabel('Note body', { exact: true }).fill(body);
+    await panel.getByRole('button', { name: button, exact: true }).click();
+    await stored(`the ${button === 'Save passage' ? 'passage' : 'note'} that was saved`,
+      () => evidenceNotesOf(theOpenProject()), (notes) => notes.length === before + 1);
+    const notice = panel.getByText(/^Saved (this exact evidence record|the submitted record)/);
+    await expect(notice, 'the record was stored and the panel never said so').toBeVisible({ timeout: 30_000 });
+    return (await notice.innerText()).trim();
+  };
+
+  /** A folder of this session's own for downloads, by its real path. */
+  const downloadsDir = (): string => {
+    // Real path, because the app reports a download by the path it was saved
+    // to and `os.tmpdir()` on a Mac is a symlink into `/private`.
+    const dir = path.join(fs.realpathSync(session.stateDir), 'downloads');
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  };
+  let downloadsMade = 0;
+
+  /**
+   * Answer the next download's destination with this path.
+   *
+   * The same seam `exportTheOpenChat` uses: the request, the bytes and the
+   * app's own download flow are real, and only the save dialog is answered,
+   * because nothing automated can operate it.
+   */
+  const theNextDownloadGoesTo = async (target: string): Promise<void> => {
+    await session.app.evaluate(({ session: electronSession }, destination) => {
+      electronSession.defaultSession.once('will-download', (_event, item) => {
+        item.setSavePath(destination);
+      });
+    }, target);
+  };
+
+  /** Wait until the app's own Downloads record says this file finished, not merely began. */
+  const theDownloadHasCompleted = async (target: string): Promise<void> => {
+    await expect.poll(() => win().evaluate((wanted) => (window as unknown as {
+      resmonAPI: { getDownloads(): Promise<{ path: string; state: string }[]> };
+    }).resmonAPI.getDownloads().then((items) => items.find((item) => item.path === wanted)?.state ?? ''), target), {
+      timeout: 60_000, message: `the download to ${target} never completed`,
+    }).toBe('completed');
+  };
+
+  /** The authored model a J36 or J37 journey answers its selected evidence with. */
+  let selectedModel: SelectedAnswerEndpoint | null = null;
+
+  /** The saved answer on screen, once it shows the state and cleanup the app recorded. */
+  const readTheAnswerHere = async (id: string): Promise<SelectedAnswerView> => {
+    const saved = await answerOf(theOpenProject(), id);
+    const article = answerArticle();
+    await expect(article, `the page is not showing answer ${id}`).toContainText(`Answer ${id}`, { timeout: 60_000 });
+    // The record first, then the screen agreeing with it. Until the article
+    // prints the stored state it is showing the answer as it was mid-run.
+    await expect(article).toContainText(
+      `State: ${saved.state} · local transport cleanup: ${saved.cleanup_state}`, { timeout: 60_000 },
+    );
+    const rows = article.locator('.selected-answer-item');
+    const items: SelectedAnswerView['items'] = [];
+    for (let i = 0; i < await rows.count(); i += 1) {
+      const row = rows.nth(i);
+      items.push({
+        text: (await row.locator('p').nth(1).innerText()).trim(),
+        citations: (await row.getByRole('button', { name: /^Open citation / }).allInnerTexts())
+          .map((t) => t.trim()),
+      });
+    }
+    const unvalidated = article.getByRole('region', { name: 'Unvalidated answer text' });
+    return {
+      id,
+      state: String(saved.state),
+      items,
+      unvalidated: (await unvalidated.count()) ? ((await unvalidated.locator('pre').textContent()) ?? '') : null,
+      text: (await article.innerText()).trim(),
+    };
+  };
+
+  /**
+   * The reader a saved-answer HTML file is opened in, as an Electron main script.
+   *
+   * Not resmon: a bare window with nothing of the app in it, launched after the
+   * app has quit. It permits exactly one request — the file, once — and records
+   * every other one, every window the document tries to open and every
+   * navigation away from itself, so "it reads offline" is the absence of a
+   * recorded attempt rather than the absence of a network. The same shape as
+   * the reader `e2e/portable-briefing.spec.ts` uses, with `show: false` so a
+   * journey run still puts nothing on the screen.
+   */
+  const offlineReaderMain = (target: string): string => `
+const { app, BrowserWindow, session } = require('electron');
+const target = ${JSON.stringify(target)};
+globalThis.offlineReader = { refused: [], escapes: [] };
+app.whenReady().then(() => {
+  let opened = false;
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
+    const theFile = details.url === target && !opened;
+    if (theFile) opened = true; else globalThis.offlineReader.refused.push(details.url);
+    callback({ cancel: !theFile });
+  });
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  const win = new BrowserWindow({ show: false, width: 1000, height: 850,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
+  win.webContents.setWindowOpenHandler((details) => {
+    globalThis.offlineReader.escapes.push(details.url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url.split('#')[0] !== target) { globalThis.offlineReader.escapes.push(url); event.preventDefault(); }
+  });
+  win.loadURL(target);
+});
+app.on('window-all-closed', () => app.quit());
+`;
+
   const backend: BackendFacts = {
     port: async () => session.port,
     health: () => session.api('GET', '/api/health'),
@@ -812,6 +1122,12 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
         try { return { ...row, parameters: JSON.parse(row.parameters) }; } catch { return row; }
       });
     },
+
+    // — the register refresh -------------------------------------------------
+
+    evidenceNotes: (project) => evidenceNotesOf(project),
+    selectedAnswer: (project, answerId) => answerOf(project, answerId),
+    sourceWall: () => session.api<StoredSourceWall>('GET', '/api/coverage/source-wall?limit=12'),
   };
 
   return {
@@ -3090,6 +3406,478 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       }
       await win().getByRole('button', { name: 'Save assistant settings', exact: true }).click();
       await expect(win().locator('.settings-saved')).toBeVisible({ timeout: 30_000 });
+    },
+
+    /* ---------------------------------------------------------------------- *
+     *  The register refresh: the Evidence workspace (J35), its selected-
+     *  evidence answers (J36), the portable HTML (J37) and the Source wall
+     *  (J45). Appended, for the reason every block above is.
+     * ---------------------------------------------------------------------- */
+
+    startAnEvidenceProjectFrom: async (item, project): Promise<EvidencePageView> => {
+      await selectTheLibraryItem(item);
+      await win().getByRole('link', { name: 'Open in Evidence / add to project' }).click();
+      await expect(win().getByRole('region', { name: 'Selected Library handoff' }),
+        'Open in Evidence did not carry the Library item across').toContainText(item, { timeout: 30_000 });
+      await win().getByLabel('New project name', { exact: true }).fill(project);
+      await win().getByRole('button', { name: 'Create project', exact: true }).click();
+      await stored(`a project called ${project}`, () => findEvidenceProject(project), (made) => made !== null);
+      openProject = project;
+      // Enabled only once the new project is the selected one: the handoff
+      // adds to whichever project is open, so pressing it earlier would be
+      // adding the file to nothing.
+      const add = win().getByRole('button', { name: 'Add selected Library file to project' });
+      await expect(add).toBeEnabled({ timeout: 30_000 });
+      await add.click();
+      return readTheReaderPage(item);
+    },
+
+    addToTheEvidenceProject: async (items): Promise<string[]> => {
+      const chooser = win().getByRole('button', { name: 'Choose from Library', exact: true });
+      await expect(chooser).toBeEnabled({ timeout: 30_000 });
+      await chooser.click();
+      await expect(win().getByRole('region', { name: 'Choose retained Library files' })).toBeVisible({ timeout: 30_000 });
+      const members = win().getByRole('region', { name: 'Current collection files' });
+      for (const item of items) {
+        await win().getByRole('button', { name: `Add ${item}`, exact: true }).click();
+        await expect(members.getByRole('button', { name: new RegExp(`^${literally(item)} `) }),
+          `${item} was added and is not in the collection`).toBeVisible({ timeout: 30_000 });
+        // The chooser's controls are disabled while the add is being saved.
+        await expect(chooser).toBeEnabled({ timeout: 30_000 });
+      }
+      await win().getByRole('button', { name: 'Close Library chooser' }).click();
+      return (await members.locator('button.evidence-item strong').allInnerTexts()).map((t) => t.trim());
+    },
+
+    openTheEvidenceProject: async (project) => {
+      await goto(PLACES.Evidence);
+      const button = win().getByRole('region', { name: 'Project collections' })
+        .getByRole('button', { name: new RegExp(`^${literally(project)} `) });
+      await expect(button, `Evidence lists no project called ${project}`).toBeVisible({ timeout: 60_000 });
+      await button.click();
+      await expect(button).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
+      await expect(win().getByRole('heading', { name: project, exact: true })).toBeVisible({ timeout: 30_000 });
+      openProject = project;
+    },
+
+    readTheEvidencePage: async (file, page): Promise<EvidencePageView> => {
+      await pickTheCollectionFile(file);
+      if (page !== undefined) await turnTheReaderTo(page);
+      return readTheReaderPage(file);
+    },
+
+    saveAnEvidencePassage: async ({ file, page, quote, body }): Promise<string> => {
+      await pickTheCollectionFile(file);
+      if (page !== undefined) await turnTheReaderTo(page);
+      // The page is settled before it is searched: a search run against the
+      // previous page's text would select a passage the person never saw.
+      await readTheReaderPage(file);
+      const reader = evidenceReader();
+      const find = reader.getByLabel('Find on current canonical page');
+      await find.fill(quote);
+      await find.press('Enter');
+      // The reader's own count, which exists only once a search has run.
+      await expect(reader.getByText(/literal match(es)? on this canonical page/),
+        `the reader never reported searching for "${quote}"`).toBeVisible({ timeout: 30_000 });
+      const use = reader.getByRole('button', { name: 'Use selected passage' });
+      await expect(use, `the reader found no "${quote}" to use`).toBeEnabled({ timeout: 30_000 });
+      await use.click();
+      const panel = evidenceNotesPanel();
+      await expect(panel.getByRole('heading', { name: 'New exact passage' })).toBeVisible({ timeout: 30_000 });
+      await expect(panel.locator('form blockquote'),
+        'the passage the panel is about to save is not the text that was found').toHaveText(quote);
+      return saveTheOpenNote(body, 'Save passage');
+    },
+
+    saveAnEvidenceNote: async ({ file, body }): Promise<string> => {
+      await pickTheCollectionFile(file);
+      const panel = evidenceNotesPanel();
+      await panel.getByRole('button', { name: 'Use plain note', exact: true }).click();
+      await expect(panel.getByRole('heading', { name: 'New plain note' })).toBeVisible({ timeout: 30_000 });
+      return saveTheOpenNote(body, 'Save note');
+    },
+
+    readTheSavedEvidenceNotes: async (): Promise<SavedEvidenceNote[]> => {
+      const held = await evidenceNotesOf(theOpenProject());
+      const articles = evidenceNotesPanel().locator('article.evidence-saved-note');
+      await expect(articles, 'the panel does not list every record the app holds')
+        .toHaveCount(held.length, { timeout: 30_000 });
+      const out: SavedEvidenceNote[] = [];
+      for (let i = 0; i < await articles.count(); i += 1) {
+        const article = articles.nth(i);
+        const [file, kind, page] = (await article.locator('h3').innerText()).trim().split(' · ');
+        const quote = article.locator('blockquote');
+        const identity = (await article.locator('.evidence-identity').innerText()).trim();
+        out.push({
+          file,
+          kind,
+          page: page ? Number(page.replace(/^page /, '')) : null,
+          quote: (await quote.count()) ? ((await quote.textContent()) ?? '') : null,
+          body: (await article.locator('p.evidence-literal').textContent()) ?? '',
+          noteId: /^Note (\S+)/.exec(identity)?.[1] ?? '',
+          versionId: /Version (\S+)/.exec(identity)?.[1] ?? '',
+        });
+      }
+      return out;
+    },
+
+    reopenTheSavedPassage: async (quote): Promise<ReopenedPassage> => {
+      const article = evidenceNotesPanel().locator('article.evidence-saved-note')
+        .filter({ has: win().getByText(quote, { exact: true }) }).first();
+      await expect(article, `no saved passage keeps "${quote}"`).toBeVisible({ timeout: 30_000 });
+      const file = (await article.locator('h3').innerText()).trim().split(' · ')[0];
+      await article.getByRole('button', { name: 'Reopen saved passage', exact: true }).click();
+      const reader = evidenceReader();
+      await expect(reader.getByRole('heading', { name: file, exact: true })).toBeVisible({ timeout: 30_000 });
+      // "Unresolved until this exact page is checked" is the state it starts
+      // in; the two sentences waited for here are the two it can end in.
+      const resolution = reader.locator('.evidence-resolution');
+      await expect(resolution, 'the reader never said whether the saved passage still matches')
+        .toHaveText(/^Saved passage (resolved|unresolved:)/, { timeout: 60_000 });
+      const heading = reader.getByRole('heading', { name: /^Canonical text · (physical|logical) page \d+$/ });
+      const pane = reader.getByLabel('Canonical page text');
+      return {
+        file,
+        page: Number(/(\d+)$/.exec((await heading.innerText()).trim())![1]),
+        highlighted: (await pane.count())
+          ? await pane.evaluate((element) => {
+            const text = element as HTMLTextAreaElement;
+            return text.value.slice(text.selectionStart, text.selectionEnd);
+          })
+          : '',
+        resolution: (await resolution.innerText()).trim(),
+      };
+    },
+
+    exportSelectedEvidence: async (files, { includeFiles }): Promise<EvidenceBundle> => {
+      const open = win().getByRole('button', { name: 'Export selected evidence', exact: true });
+      await expect(open).toBeEnabled({ timeout: 30_000 });
+      await open.click();
+      const dialog = win().getByRole('region', { name: 'Selected evidence bundle' });
+      await expect(dialog).toBeVisible({ timeout: 30_000 });
+      for (const file of files) await dialog.getByLabel(new RegExp(`^${literally(file)} `)).check();
+      if (includeFiles) await dialog.getByLabel('Include retained files', { exact: true }).check();
+      downloadsMade += 1;
+      const target = path.join(downloadsDir(), `selected-evidence-${downloadsMade}.zip`);
+      await theNextDownloadGoesTo(target);
+      await dialog.getByRole('button', { name: 'Download selected ZIP' }).click();
+      await expect(dialog.getByText(/^Complete (retained-file|metadata-only) ZIP download requested/),
+        'the bundle was never offered').toBeVisible({ timeout: 120_000 });
+      await theDownloadHasCompleted(target);
+      // Read with the backend's own interpreter, as the configuration export
+      // is, so the archive on disk is left exactly as the app wrote it.
+      const read = JSON.parse(execFileSync(session.python, ['-c', `
+import hashlib, json, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as bundle:
+    assert bundle.testzip() is None
+    names = bundle.namelist()
+    print(json.dumps({'members': names, 'manifest': json.loads(bundle.read('manifest.json')),
+                      'notes': bundle.read('notes.md').decode('utf-8'),
+                      'hashes': {name: hashlib.sha256(bundle.read(name)).hexdigest() for name in names}}))
+`, target], { encoding: 'utf8' }));
+      await dialog.getByRole('button', { name: 'Close export' }).click();
+      return {
+        path: target,
+        members: read.members,
+        manifest: read.manifest,
+        notesMarkdown: read.notes,
+        hashes: read.hashes,
+      };
+    },
+
+    useAnAuthoredModelForSelectedAnswers: async () => {
+      selectedModel = await startSelectedAnswerEndpoint();
+      session.alsoCloseOnClose(() => selectedModel!.close());
+      // The CLI path points at a file that does not exist, on purpose. The
+      // selection dialog offers the Claude Code connection beside the API one,
+      // and a CLI path left blank is found wherever the installers put the real
+      // one; an explicit path that is not an executable is reported as missing
+      // and never falls through to another binary (`ai_cli.discover_cli`). So
+      // this journey cannot start a signed-in agent CLI even by a misclick.
+      await session.api('PUT', '/api/settings/ai', {
+        settings: {
+          ai_cli_path: path.join(session.stateDir, 'no-agent-cli-in-this-journey'),
+          ai_custom_base_url: selectedModel.url,
+        },
+      });
+      // The key goes to the credential store, through the route the API Key
+      // field's Store button posts to. It is in memory inside this backend
+      // process (see `journey_keyring` in fixtures/source-endpoint.ts), so it is
+      // gone after a relaunch — a journey that relaunches and then sends again
+      // has to store it again.
+      await session.api('PUT', '/api/credentials/custom_llm_api_key', { value: 'journey-authored-selected-key' });
+    },
+
+    theAuthoredModelCitesTextItWasNotSent: (quote) => {
+      expect(selectedModel, 'this journey never started an authored model').toBeTruthy();
+      selectedModel!.citeTextItWasNotSent(quote);
+    },
+
+    readWhatTheAuthoredModelReceived: () => {
+      expect(selectedModel, 'this journey never started an authored model').toBeTruthy();
+      return selectedModel!.calls().map((call) => ({ raw: call.raw, userPayload: call.userPayload }));
+    },
+
+    askFromSelectedEvidence: async (request) => {
+      const before = (await answersOf(theOpenProject())).map((answer) => answer.answer_id);
+      const panel = win().getByRole('region', { name: 'Evidence answers' });
+      const start = panel.getByRole('button', { name: 'New selected-evidence answer' });
+      await expect(start).toBeEnabled({ timeout: 30_000 });
+      await start.click();
+      const dialog = win().getByRole('dialog', { name: 'Select evidence for an answer' });
+      await expect(dialog).toBeVisible({ timeout: 30_000 });
+      for (const choice of request.select) {
+        if (choice.page !== undefined) {
+          await dialog.getByLabel(`Physical page for ${choice.file}`).fill(String(choice.page));
+          await dialog.getByRole('button', { name: `Add ${choice.file} page`, exact: true }).click();
+        } else {
+          await dialog.getByRole('button', { name: `Add ${choice.file} logical page 1`, exact: true }).click();
+        }
+      }
+      // The dialog's own list is its record of what was added, and a selection
+      // that silently failed to add would otherwise surface only as a shorter
+      // preview.
+      await expect(dialog.locator('fieldset ol > li'), 'a selection was pressed and not added')
+        .toHaveCount(request.select.length, { timeout: 15_000 });
+      for (const body of request.includeNotes ?? []) {
+        await dialog.getByLabel(new RegExp(`^Include note body: ${literally(body)}`)).check();
+      }
+      await dialog.getByLabel('Answer format').selectOption(request.format);
+      await dialog.getByLabel('Question or briefing instruction').fill(request.instruction);
+      await dialog.getByLabel('Connection', { exact: true }).selectOption('api_key:custom');
+      await dialog.getByLabel('Model', { exact: true }).fill(request.model);
+      await dialog.getByRole('button', { name: 'Preview selected content' }).click();
+      const disclosure = dialog.getByRole('region', { name: 'Exact disclosure preview' });
+      await expect(disclosure.getByRole('heading', { name: 'Inspect before Send' }),
+        'the preview never arrived').toBeVisible({ timeout: 120_000 });
+      const preview: SelectedAnswerPreview = { sources: [], notes: [], text: '' };
+      const articles = disclosure.locator('article');
+      for (let i = 0; i < await articles.count(); i += 1) {
+        const article = articles.nth(i);
+        const head = (await article.locator('h4').innerText()).trim();
+        const body = (await article.locator('pre').textContent()) ?? '';
+        const source = /^(S\d+) · (.+) · page (\d+)$/.exec(head);
+        if (source) preview.sources.push({ id: source[1], file: source[2], page: Number(source[3]), text: body });
+        else preview.notes.push(body);
+      }
+      preview.text = (await disclosure.innerText()).trim();
+      await disclosure.getByRole('button', { name: 'Send selected evidence' }).click();
+      let id = '';
+      await stored('a new saved answer', async () => {
+        const fresh = (await answersOf(theOpenProject())).map((answer) => answer.answer_id)
+          .filter((answer) => !before.includes(answer));
+        id = fresh[0] ?? '';
+        return fresh.length;
+      }, (count) => count === 1, 60_000);
+      await stored(`answer ${id} to finish, with its local cleanup confirmed`, () => answerOf(theOpenProject(), id),
+        (answer) => TERMINAL_ANSWER_STATES.includes(String(answer.state)) && answer.cleanup_state === 'confirmed',
+        150_000);
+      await expect(dialog, 'the selection dialog outlived the Send it admitted').toHaveCount(0, { timeout: 30_000 });
+      return { preview, answer: await readTheAnswerHere(id) };
+    },
+
+    openEachCitationOfTheAnswer: async (): Promise<OpenedCitation[]> => {
+      const article = answerArticle();
+      await expect(article).toBeVisible({ timeout: 30_000 });
+      const buttons = article.getByRole('button', { name: /^Open citation / });
+      const out: OpenedCitation[] = [];
+      for (let i = 0; i < await buttons.count(); i += 1) {
+        const label = (await buttons.nth(i).innerText()).trim();
+        await buttons.nth(i).click();
+        const excerpt = article.getByRole('region', { name: 'Saved citation excerpt' });
+        await expect(excerpt.getByRole('heading', { name: `Frozen citation · ${label.split(' · ')[0]}` }))
+          .toBeVisible({ timeout: 30_000 });
+        // Either the current reader's verdict on the exact range, or the
+        // excerpt's own alert when the current original could not be checked.
+        const verdict = excerpt.locator('.evidence-resolution')
+          .filter({ hasText: /^(Citation matched|Saved citation unresolved:)/ })
+          .or(excerpt.getByRole('alert')).first();
+        await expect(verdict, `${label} never said whether it matched the current text`)
+          .toBeVisible({ timeout: 60_000 });
+        const pane = excerpt.getByLabel('Canonical page text');
+        out.push({
+          label,
+          frozen: (await excerpt.locator('pre').first().textContent()) ?? '',
+          highlighted: (await pane.count())
+            ? await pane.evaluate((element) => {
+              const text = element as HTMLTextAreaElement;
+              return text.value.slice(text.selectionStart, text.selectionEnd);
+            })
+            : '',
+          resolution: (await verdict.innerText()).trim(),
+        });
+      }
+      return out;
+    },
+
+    openTheSavedAnswer: async (answerId): Promise<SelectedAnswerView> => {
+      const history = win().getByRole('region', { name: 'Saved answer history' });
+      const row = history.getByRole('button').filter({ hasText: answerId });
+      await expect(row, `the history lists no answer ${answerId}`).toBeVisible({ timeout: 60_000 });
+      await row.click();
+      return readTheAnswerHere(answerId);
+    },
+
+    exportTheOpenAnswerAsHtml: async (): Promise<ExportedFile> => {
+      const article = answerArticle();
+      await expect(article).toBeVisible({ timeout: 30_000 });
+      downloadsMade += 1;
+      const target = path.join(downloadsDir(), `selected-answer-${downloadsMade}.html`);
+      await theNextDownloadGoesTo(target);
+      await article.getByRole('button', { name: 'Export HTML', exact: true }).click();
+      await expect(article.getByText(/^The selected HTML was handed to the browser download flow\./),
+        'the page never said it handed the HTML over').toBeVisible({ timeout: 60_000 });
+      await theDownloadHasCompleted(target);
+      return { path: target, text: fs.readFileSync(target, 'utf8') };
+    },
+
+    closeTheApp: () => session.quit(),
+
+    readTheFileOffline: async (file): Promise<OfflineDocument> => {
+      const target = pathToFileURL(file.path).href;
+      const dir = fs.mkdtempSync(path.join(session.stateDir, 'offline-reader-'));
+      const main = path.join(dir, 'reader.js');
+      fs.writeFileSync(main, offlineReaderMain(target));
+      // Nothing of resmon's environment: this is somebody else's reader.
+      const env: Record<string, string> = {};
+      for (const [key, value] of Object.entries(process.env)) {
+        if (typeof value === 'string' && !key.startsWith('RESMON_') && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value;
+      }
+      const reader = await electron.launch({
+        args: [main, `--user-data-dir=${path.join(dir, 'profile')}`],
+        cwd: session.root.frontend,
+        env,
+        timeout: 120_000,
+      });
+      try {
+        const page = await reader.firstWindow({ timeout: 60_000 });
+        await expect(page.locator('main')).toBeVisible({ timeout: 60_000 });
+        expect(page.url(), 'the reader is not showing the file it was given').toBe(target);
+        /** Focus this element, press Enter, and wait for the fragment it navigates to. */
+        const follow = async (selector: string, expected: string): Promise<string> => {
+          const arrived = page.waitForURL((url) => url.hash === expected, { timeout: 15_000 }).catch(() => undefined);
+          await page.locator(selector).focus();
+          await page.keyboard.press('Enter');
+          await arrived;
+          return new URL(page.url()).hash;
+        };
+        const citations: OfflineDocument['citations'] = [];
+        const references = page.locator('#answer a[id^="reference-"]');
+        for (let i = 0; i < await references.count(); i += 1) {
+          const reference = String(await references.nth(i).getAttribute('id'));
+          const href = String(await references.nth(i).getAttribute('href'));
+          const arrivedAt = await follow(`#${reference}`, href);
+          const quote = page.locator(href);
+          const fields = quote.locator('dd');
+          // The source section the quote sits in, and the excerpt it froze: the
+          // text a reader without resmon has to check the quote against.
+          const source = quote.locator('xpath=ancestor::section[contains(concat(" ", @class, " "), " source ")][1]');
+          const startField = source.locator(':scope > dl.meta > dt').filter({ hasText: /^start_codepoint$/ })
+            .locator('xpath=following-sibling::dd[1]');
+          const returnedTo = await follow(`${href} a`, `#${reference}`);
+          citations.push({
+            reference,
+            href,
+            arrivedAt,
+            quote: (await quote.locator('div.literal').textContent()) ?? '',
+            start: Number(await fields.nth(1).textContent()),
+            end: Number(await fields.nth(2).textContent()),
+            excerpt: (await source.locator(':scope > div.literal').first().textContent()) ?? '',
+            excerptStart: Number(await startField.textContent()),
+            returnedTo,
+            returnFocused: await page.evaluate((id) => document.activeElement?.id === id, reference),
+          });
+        }
+        const observed = await reader.evaluate(() => (globalThis as unknown as {
+          offlineReader: { refused: string[]; escapes: string[] };
+        }).offlineReader);
+        return {
+          refused: observed.refused,
+          escapes: observed.escapes,
+          activeElements: await page.locator(
+            'script,img,form,input,iframe,object,embed,base,svg,link,video,audio,picture,source,meta[http-equiv="refresh"]',
+          ).count(),
+          hrefs: await page.locator('a').evaluateAll((links) => links.map((link) => link.getAttribute('href') ?? '')),
+          text: ((await page.locator('body').textContent()) ?? '').replace(/\s+/g, ' ').trim(),
+          saysUnvalidated: (await page.getByRole('heading', { name: 'Incomplete / unvalidated output' }).count()) > 0,
+          citations,
+        };
+      } finally {
+        await reader.close().catch(() => { /* already gone */ });
+      }
+    },
+
+    readTheSourceWall: async (): Promise<SourceWallView> => {
+      await goto(PLACES['Source wall']);
+      const served = await backend.sourceWall();
+      const verdict = win().getByTestId('source-wall-verdict');
+      // The record first, then the screen agreeing with it: the headline is
+      // composed by the backend, so the page is loaded when it prints that one.
+      await expect(verdict.locator('.source-wall-headline'), 'the wall never drew the verdict the app composed')
+        .toHaveText(served.verdict.headline, { timeout: 60_000 });
+      const rows = win().locator('table.source-wall-grid tbody tr');
+      await expect(rows, 'the wall draws a different number of sources from the grid it was served')
+        .toHaveCount(served.sources.length, { timeout: 30_000 });
+      const legend = win().getByTestId('source-wall-legend').locator('li');
+      const out: SourceWallView = {
+        verdict: {
+          level: String(await verdict.getAttribute('data-level')),
+          headline: (await verdict.locator('.source-wall-headline').innerText()).trim(),
+          detail: (await verdict.locator('.source-wall-detail-line').allInnerTexts()).map((t) => t.trim()),
+        },
+        window: (await win().getByTestId('source-wall-window').innerText()).trim(),
+        legend: [],
+        rows: [],
+      };
+      for (let i = 0; i < await legend.count(); i += 1) {
+        const entry = legend.nth(i);
+        out.legend.push({
+          label: (await entry.locator('.source-wall-legend-name').innerText()).trim(),
+          glyph: ((await entry.locator('.source-wall-swatch').textContent()) ?? '').trim(),
+          count: Number((await entry.locator('.source-wall-legend-count').innerText()).trim()),
+        });
+      }
+      for (let i = 0; i < await rows.count(); i += 1) {
+        const row = rows.nth(i);
+        const cells = row.getByTestId('source-wall-cell');
+        const drawn: SourceWallCellView[] = [];
+        for (let j = 0; j < await cells.count(); j += 1) {
+          const cell = cells.nth(j);
+          // `<source>, <run> <date>: <label>` — the label is what follows the
+          // last colon; none of the backend's labels contains one.
+          const announced = String(await cell.getAttribute('aria-label'));
+          drawn.push({
+            state: String(await cell.getAttribute('data-state')),
+            glyph: ((await cell.textContent()) ?? '').trim(),
+            label: announced.slice(announced.lastIndexOf(': ') + 2),
+          });
+        }
+        out.rows.push({ source: (await row.locator('th[scope="row"]').innerText()).trim(), cells: drawn });
+      }
+      return out;
+    },
+
+    readTheSourceWallCell: async (source, column): Promise<SourceWallReading> => {
+      await goto(PLACES['Source wall']);
+      const served = await backend.sourceWall();
+      const record = served.sources.find((row) => row.name === source);
+      expect(record, `the wall was served no row for ${source}`).toBeTruthy();
+      const row = win().locator('table.source-wall-grid tbody tr')
+        .filter({ has: win().locator('th[scope="row"]', { hasText: new RegExp(`^${literally(source)}$`) }) });
+      await expect(row, `the wall draws no single row for ${source}`).toHaveCount(1, { timeout: 60_000 });
+      await row.getByTestId('source-wall-cell').nth(column).click();
+      const pane = win().getByTestId('source-wall-detail');
+      // The pane shows the backend's sentence for the cell; waiting for that
+      // sentence is what tells two cells of the same source apart.
+      await expect(pane.locator('.source-wall-reading-note'), 'the reading pane never showed this cell')
+        .toHaveText(record!.cells[column].note, { timeout: 30_000 });
+      const state = pane.locator('.source-wall-reading-state');
+      const glyph = ((await state.locator('.source-wall-swatch').textContent()) ?? '').trim();
+      return {
+        head: (await pane.locator('.source-wall-reading-head').innerText()).trim(),
+        label: ((await state.textContent()) ?? '').replace(glyph, '').trim(),
+        note: (await pane.locator('.source-wall-reading-note').innerText()).trim(),
+      };
     },
   };
 }

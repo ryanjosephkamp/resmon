@@ -1,13 +1,20 @@
 /**
  * The denominator.
  *
- * Forty-four rows, one per user journey the 3.0 renderer has to carry forward.
- * The IDs and titles are copied from the workspace parity register — the same
- * list the capability register's J-rows come from — and `register.spec.ts`
- * refuses to let this file and the spec files in this directory disagree. A row
- * with no test cannot exist, and a test with no row cannot exist either; that
- * mutual guard is the only thing that makes "N of 44" a measurement rather than
- * a hand count.
+ * Forty-five rows, one per user journey the 3.0 renderer has to carry forward.
+ * J01–J44 are copied from the workspace parity register — the same list the
+ * capability register's J-rows come from — and `register.spec.ts` refuses to
+ * let this file and the spec files in this directory disagree. A row with no
+ * test cannot exist, and a test with no row cannot exist either; that mutual
+ * guard is the only thing that makes "N of 45" a measurement rather than a
+ * hand count.
+ *
+ * **J45 was added here, not copied.** The Source wall (#175) became a page on
+ * October 18, 2026, 26 days after this register was written, and for the nine
+ * days after that it was a journey nothing measured: the guard compared the register with
+ * the spec files and nothing compared it with the app. The check that found it
+ * is now `ROUTE_ROWS` below. The workspace register has to take the same row,
+ * with the same title, for the two to agree again.
  *
  * **`status`.** Every row is `carried` today: nothing has been dropped from the
  * register. A row that stops being carried takes `status: 'not_carried_forward'`
@@ -35,11 +42,15 @@
  * because a `-q` pytest run does not print one.
  */
 
-export type JourneySlice = '1' | '2a' | '2b';
+/**
+ * `refresh` is the October 27, 2026 check of the register against the app's
+ * routes — the delivery that owes J45, the one row it added.
+ */
+export type JourneySlice = '1' | '2a' | '2b' | 'refresh';
 export type JourneyStatus = 'carried' | 'not_carried_forward';
 
 export interface JourneyRow {
-  /** `J01`…`J44`, as the workspace register numbers them. */
+  /** `J01`…`J45`, as the workspace register numbers them. */
   id: string;
   /** The row's title, byte-identical to the workspace register's. */
   title: string;
@@ -101,9 +112,9 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J32', title: 'Chats and export', slice: '2b', status: 'carried', built: true },
   { id: 'J33', title: 'Composer choices', slice: '2b', status: 'carried', built: true },
   { id: 'J34', title: 'Owned Library', slice: '2b', status: 'carried', built: true },
-  { id: 'J35', title: 'Evidence workspace', slice: '2b', status: 'carried' },
-  { id: 'J36', title: 'Selected-evidence answers', slice: '2b', status: 'carried' },
-  { id: 'J37', title: 'Portable saved-answer HTML', slice: '2b', status: 'carried' },
+  { id: 'J35', title: 'Evidence workspace', slice: '2b', status: 'carried', built: true },
+  { id: 'J36', title: 'Selected-evidence answers', slice: '2b', status: 'carried', built: true },
+  { id: 'J37', title: 'Portable saved-answer HTML', slice: '2b', status: 'carried', built: true },
   { id: 'J38', title: 'Interrupted runs and Restart', slice: '1', status: 'carried' },
   { id: 'J39', title: 'One run per routine, one per submission, missed fires', slice: '2b', status: 'carried', built: true },
   { id: 'J40', title: 'Delivery: where a report goes, and whether it got there', slice: '2b', status: 'carried', built: true },
@@ -111,6 +122,7 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J42', title: 'Local API locked to this app', slice: '2b', status: 'carried', built: true },
   { id: 'J43', title: 'Upgrade in place', slice: '2b', status: 'carried', built: true },
   { id: 'J44', title: 'Driving resmon from an external harness (MCP)', slice: '2b', status: 'carried', built: true },
+  { id: 'J45', title: 'Source wall: what every source did on recent runs', slice: 'refresh', status: 'carried', built: true },
 ];
 
 /** The slice whose rows were built when this directory was born. */
@@ -129,6 +141,78 @@ export function pendingRows(): JourneyRow[] {
     (row) => row.status === 'carried' && row.slice !== BUILT_SLICE && row.built !== true,
   );
 }
+
+/**
+ * Every page a person can reach, and the rows that carry what they do there.
+ *
+ * **Why this exists.** The guard below this file's rows compares the register
+ * with the spec files, and until October 27, 2026 nothing compared it with the
+ * app: the Source wall shipped as a page and had no row, and the suite stayed
+ * green over a journey it did not measure. So every hash `allRouteHashes()` in
+ * `src/routes.ts` returns — the same denominator the smoke suite sweeps,
+ * Settings and About tabs included — has an entry here, and `register.spec.ts`
+ * fails on a hash with none, on an entry that is not a hash, and on an entry
+ * that names no carried row. A page added without a row is now a red run
+ * rather than a nine-day silence.
+ *
+ * **What an entry claims.** That the row's journey is what a person does on
+ * that page — not that the row's spec exercises every control on it. Where a
+ * page and its row do not share a name, `why` says what the page is for and
+ * why that is the row's journey rather than one of its own; where the row's
+ * spec does not reach the page at all, `why` says that too. Those are the
+ * places a reviewer should look first when deciding whether the register is
+ * missing a journey.
+ */
+export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?: string }>> = {
+  '/': {
+    rows: ['J15'],
+    why: 'The Dashboard summarizes routines and runs whose journeys are J03 and J18; what is its '
+      + 'own is the first-run card, J15. Its sentence when it cannot read routines or runs (#210) '
+      + 'is a property of that summary, not a journey of its own, and no spec reaches it.',
+  },
+  '/dive': { rows: ['J01'] },
+  '/sweep': { rows: ['J02', 'J21'] },
+  '/routines': { rows: ['J03', 'J11', 'J39', 'J40'] },
+  '/calendar': { rows: ['J20'] },
+  '/results': { rows: ['J18', 'J38'] },
+  '/chats': { rows: ['J32'] },
+  '/reading-queue': { rows: ['J28'] },
+  '/library': { rows: ['J34'] },
+  '/evidence': { rows: ['J35', 'J36', 'J37'] },
+  '/analytics': { rows: ['J05'] },
+  '/watchdog': { rows: ['J06'] },
+  '/source-wall': { rows: ['J45'] },
+  '/explorer': { rows: ['J12', 'J09', 'J10'] },
+  '/profiles': { rows: ['J07', 'J08'] },
+  '/configurations': { rows: ['J21'] },
+  '/monitor': { rows: ['J19', 'J29'] },
+  '/repositories': { rows: ['J22', 'J08'] },
+  '/settings': { rows: ['J23'], why: 'Lands on the Email tab.' },
+  '/settings/email': { rows: ['J23'] },
+  '/settings/cloud': { rows: ['J24'] },
+  '/settings/ai': { rows: ['J13', 'J14', 'J17', 'J33'] },
+  '/settings/storage': { rows: ['J41'] },
+  '/settings/notifications': { rows: ['J23'] },
+  '/settings/advanced': { rows: ['J04', 'J26'] },
+  '/about-resmon': { rows: ['J25'], why: 'Lands on the Tutorials tab.' },
+  '/about-resmon/tutorials': { rows: ['J25'] },
+  '/about-resmon/issues': {
+    rows: ['J25'],
+    why: 'Composes a report and hands it to the person\'s own mail client or a GitHub issue page; '
+      + 'resmon sends nothing itself. Filed with the in-app documentation rather than given a row, '
+      + 'and J25\'s spec does not open this tab.',
+  },
+  '/about-resmon/blog': {
+    rows: ['J25'],
+    why: 'Reads the public site\'s posts in an origin-locked view: documentation about resmon, not '
+      + 'monitoring. J25\'s spec does not open this tab.',
+  },
+  '/about-resmon/about-app': {
+    rows: ['J25'],
+    why: 'The version and the author\'s links. The version a person can check against the backend '
+      + 'is J30\'s header; this tab is documentation, and J25\'s spec does not open it.',
+  },
+};
 
 /** `J01-deep-dive` from `J01` + `Deep Dive`: the spec file's stem. */
 export function specStem(row: JourneyRow): string {
@@ -155,7 +239,7 @@ export function specStem(row: JourneyRow): string {
  * that is allowed to reach the renderer. Keeping the literals in this module,
  * which is not a spec file, lets the guard cover every spec file in the
  * directory — one per built row plus the guard — with no exemption at all.
- * (44 is the register's rows and the suite's case count is a third number;
+ * (45 is the register's rows and the suite's case count is a third number;
  * neither is what this counts. The guard takes its denominator from a
  * directory read rather than from a figure written here, which is why no
  * number appears in this sentence.)
