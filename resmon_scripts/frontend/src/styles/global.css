@@ -4269,10 +4269,15 @@ button.duplicate-link-text:hover { color: var(--color-accent); }
 
 /* When a sweep is running the widget takes the corner, so the trigger steps
  * left of it rather than under it. Sibling selector on the shell, because the
- * widget is only in the tree while there is something to show. */
-.floating-widget ~ .assistant-trigger {
-  right: auto;
-  left: 24px;
+ * widget is only in the tree while there is something to show. The step is the
+ * widget's widest width plus a gap: `left: 24px` sent the trigger across the
+ * whole window and set it over the sidebar's last link. */
+.floating-widget--minimized ~ .assistant-trigger {
+  right: calc(24px + 200px + 12px);
+}
+
+.floating-widget--expanded ~ .assistant-trigger {
+  right: calc(24px + 400px + 12px);
 }
 
 .assistant-panel {
