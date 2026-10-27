@@ -68,7 +68,7 @@ async function download(url, dest) {
 /** Never ship these inside the app. */
 const EXCLUDE = new Set([
   '__pycache__', '.pytest_cache', 'verification_scripts', 'notebooks',
-  'given_scripts', 'node_modules', 'frontend', 'cloud_deploy', '.DS_Store',
+  'given_scripts', 'node_modules', 'frontend', 'cloud_deploy', '.DS_Store', 'perf',
 ]);
 
 function copyTree(from, to) {

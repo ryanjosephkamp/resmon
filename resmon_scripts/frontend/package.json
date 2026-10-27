@@ -22,6 +22,8 @@
     "journeys": "playwright test --config journeys/playwright.config.ts",
     "journeys:classic": "RESMON_JOURNEY_DRIVER=classic playwright test --config journeys/playwright.config.ts",
     "typecheck:journeys": "tsc --noEmit --project journeys/tsconfig.json",
+    "perf:ui": "playwright test --config perf/playwright.config.ts",
+    "typecheck:perf": "tsc --noEmit --project perf/tsconfig.json",
     "prepare:backend": "node scripts/prepare-backend.js",
     "dist": "npm run build && electron-builder --publish never",
     "dist:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist"
