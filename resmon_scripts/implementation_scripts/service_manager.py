@@ -179,20 +179,25 @@ def render_template(
     """
     src = template or template_path()
     raw = src.read_text(encoding="utf-8")
+    resolved_log_dir = str(log_dir or _log_dir())
+    args = list(state_arguments() if state_args is None else state_args)
+    if src.name.endswith(".xml"):
+        # Task Scheduler's Exec action cannot redirect output, so the service
+        # opens its own log files there; launchd and systemd open them from
+        # the unit's {{LOG_DIR}} lines instead (see ``service_log``).
+        args.append(f"--log-dir={resolved_log_dir}")
     mapping = {
         "{{PYTHON}}": python or default_python(),
         "{{PORT}}": str(port if port is not None else default_port()),
         "{{WORKDIR}}": str(workdir or _resmon_scripts_dir()),
-        "{{LOG_DIR}}": str(log_dir or _log_dir()),
-        "{{STATE_ARGS}}": _format_state_args(
-            state_arguments() if state_args is None else state_args, src,
-        ),
+        "{{LOG_DIR}}": resolved_log_dir,
+        "{{STATE_ARGS}}": _format_state_args(args, src),
     }
     out = raw
     for placeholder, value in mapping.items():
         out = out.replace(placeholder, value)
-    # Safety: the task.xml template does not use {{LOG_DIR}}; that is fine.
-    # But no required placeholder should leak through unresolved.
+    # The task.xml template has no {{LOG_DIR}} line; its log directory travels
+    # in the arguments above. No required placeholder may leak through.
     leftover = [p for p in REQUIRED_PLACEHOLDERS if p in out]
     assert not leftover, f"Unresolved placeholders in rendered unit: {leftover}"
     return out

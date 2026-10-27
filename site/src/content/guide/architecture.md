@@ -199,9 +199,9 @@ resmon/
     ├── pdfs/                         # Exported PDF reports.
     ├── latex/                        # Exported LaTeX reports.
     ├── figures/                      # Static figures embedded in reports.
-    ├── logs/                         # resmon.log (5 MB × 3 backups) + per-execution TaskLogger logs.
+    ├── logs/                         # Per-execution TaskLogger logs.
     └── info_docs/                    # 11 implementation-grounded info documents.
 ```
 
-OS-scoped state (daemon lock file, service-unit-managed logs) lives outside the repository, under `~/Library/Application Support/resmon` on macOS, `$XDG_STATE_HOME/resmon` on Linux, and `%LOCALAPPDATA%\resmon` on Windows (resolved by `daemon.state_dir()`).
+OS-scoped state (daemon lock file, the background service's logs) lives outside the repository, under `~/Library/Application Support/resmon` on macOS, `$XDG_STATE_HOME/resmon` on Linux, and `%LOCALAPPDATA%\resmon` on Windows (resolved by `daemon.state_dir()`). The background service's two logs there, `logs/resmon-daemon.out.log` and `logs/resmon-daemon.err.log`, are capped at 5 MB each with two older copies, and every line carries a time.
 
