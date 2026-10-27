@@ -235,3 +235,6 @@ resmon_scripts/frontend/test-results/
 # file even if a later rule out-ranked this line. Two independent failures,
 # which is the point.
 !docs/**
+
+# The performance harness writes Playwright output here (frontend/perf/).
+resmon_scripts/frontend/perf/test-results/
