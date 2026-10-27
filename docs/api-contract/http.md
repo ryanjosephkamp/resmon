@@ -2,7 +2,7 @@
 
 **Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` writes this file from the running FastAPI application; `verification_scripts/test_api_contract.py` regenerates it and fails on any difference. Regenerate with `python -m implementation_scripts.api_contract --write`.
 
-186 routes, over 44 register rows: 39 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
+186 routes, over 45 register rows: 40 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
 
 ## How to read a row
 
@@ -481,6 +481,12 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 Read out of `resmon_scripts/mcp_server.py` rather than transcribed: `api_contract.mcp_driven_routes()` parses every `backend.request(method, path)` call in that module — method included, so a path the harness only reads does not appear here as a path it also deletes — and matches each against the route table.
 
 Calls in `mcp_server.py` that resolve to no single route, and so are not in the table above: `GET /api/settings/{}`, `PUT /api/settings/{}`. The settings path is built from a tool argument and reaches the `GET`/`PUT /api/settings/*` routes; it is named here rather than dropped, because a table that quietly omits what it could not read is worse than one that says so.
+
+## J45 — Source wall: what every source did on recent runs
+
+| Method | Path | Auth | SSE | Response | Purpose |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/api/coverage/source-wall` | token | — | — | Every source's recorded answer to each of the last `limit` runs. |
 
 ## Closed vocabularies
 

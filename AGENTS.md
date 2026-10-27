@@ -391,7 +391,7 @@ frozen for the duration: changing it takes its own PR.
 
 **`docs/api-contract/openapi.json` and `docs/api-contract/http.md` are generated, and
 guarded.** They describe the whole HTTP surface — every route's method, path, parameters
-and request body, and which of the 44 parity-register rows each route serves — and they
+and request body, and which of the 45 parity-register rows each route serves — and they
 are written by `implementation_scripts/api_contract.py` from the real FastAPI app, never
 by hand. `verification_scripts/test_api_contract.py` regenerates both in-process and fails
 on any difference, naming the routes that were added, removed or reshaped. So a change to
