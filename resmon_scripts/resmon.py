@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import queue
+import re
 import sqlite3
 import shutil
 import sys
@@ -15,7 +16,7 @@ import zipfile
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Optional, TypeVar
+from typing import Callable, Literal, Optional, TypeVar
 
 import httpx
 
@@ -5299,6 +5300,72 @@ def update_notification_settings(body: SettingsBody):
     try:
         _set_settings_group(conn, "notifications", cleaned)
         return {"success": True}
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# Appearance: the theme and the accent color
+# ---------------------------------------------------------------------------
+#
+# Kept in the engine rather than in the renderer's localStorage because the
+# renderer is served from a new loopback port on every launch, and localStorage
+# belongs to the origin, port included: a choice saved there is gone at the next
+# start. Here it lives in ``app_settings``, so a backup carries it and Reset
+# settings clears it with everything else.
+#
+# **Deliberately not a settings group**, for the reason the first-run dismissal
+# is not one: ``update_settings`` reaches groups, and how the window looks is the
+# person's to change in Settings rather than something the assistant is asked to
+# do. Outside ``_SETTINGS_GROUPS`` there is no path to it, rather than a rule
+# saying not to.
+#
+# The engine stores no default accent. ``accent`` is null until the person picks
+# one, and the interface then draws its own default, so that default is one
+# value in one place.
+
+_APPEARANCE_THEME_KEY = "ui_theme"
+_APPEARANCE_ACCENT_KEY = "ui_accent"
+_APPEARANCE_THEMES = ("system", "light", "dark")
+_ACCENT_PATTERN = r"^#[0-9a-fA-F]{6}$"
+
+
+class AppearanceBody(BaseModel):
+    """The whole appearance, every time: a PUT replaces both values."""
+
+    theme: Literal["system", "light", "dark"]
+    accent: Optional[str] = Field(..., pattern=_ACCENT_PATTERN)
+
+
+def _read_appearance(conn) -> dict:
+    # A stored value that is not one of ours (an older build, a hand edit) reads
+    # as unset rather than reaching the interface as something it must parse.
+    theme = str(get_setting(conn, _APPEARANCE_THEME_KEY) or "")
+    accent = str(get_setting(conn, _APPEARANCE_ACCENT_KEY) or "").lower()
+    return {
+        "theme": theme if theme in _APPEARANCE_THEMES else "system",
+        "accent": accent if re.fullmatch(_ACCENT_PATTERN, accent) else None,
+    }
+
+
+@app.get("/api/appearance", response_model=response_models.Appearance,
+         response_model_exclude_unset=True)
+def get_appearance():
+    conn = _get_db()
+    try:
+        return _read_appearance(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/appearance", response_model=response_models.Appearance,
+         response_model_exclude_unset=True)
+def update_appearance(body: AppearanceBody):
+    conn = _get_db()
+    try:
+        set_setting(conn, _APPEARANCE_THEME_KEY, body.theme)
+        set_setting(conn, _APPEARANCE_ACCENT_KEY, (body.accent or "").lower())
+        return _read_appearance(conn)
     finally:
         _close_db(conn)
 

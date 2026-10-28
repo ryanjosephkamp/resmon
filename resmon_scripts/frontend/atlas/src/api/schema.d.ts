@@ -342,6 +342,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/appearance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Appearance */
+        get: operations["get_appearance_api_appearance_get"];
+        /** Update Appearance */
+        put: operations["update_appearance_api_appearance_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/assistant/permissions": {
         parameters: {
             query?: never;
@@ -3434,6 +3452,38 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * Appearance
+         * @description ``GET`` and ``PUT /api/appearance``: the theme and the accent chosen.
+         *
+         *     ``accent`` is a lowercase ``#rrggbb``, or null when none has been chosen and
+         *     the interface draws its own default. The PUT answers what it stored, so a
+         *     caller can see the lowercasing rather than assume it.
+         */
+        Appearance: {
+            /** Accent */
+            accent: string | null;
+            /**
+             * Theme
+             * @enum {string}
+             */
+            theme: "system" | "light" | "dark";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AppearanceBody
+         * @description The whole appearance, every time: a PUT replaces both values.
+         */
+        AppearanceBody: {
+            /** Accent */
+            accent: string | null;
+            /**
+             * Theme
+             * @enum {string}
+             */
+            theme: "system" | "light" | "dark";
+        };
         /** AssistantMessageBody */
         AssistantMessageBody: {
             /** Legacy Adoption */
@@ -6017,6 +6067,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_appearance_api_appearance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Appearance"];
+                };
+            };
+        };
+    };
+    update_appearance_api_appearance_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppearanceBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Appearance"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -121,6 +121,9 @@ REGISTER: tuple[tuple[str, str], ...] = (
     # Added with the register refresh (#223): the Source wall (#175) shipped
     # after the register was written and had no row; its route sat under J29.
     ("J45", "Source wall: what every source did on recent runs"),
+    # Added with the Atlas interface (rebuild phase 2): the theme and the accent
+    # color, which the engine keeps because the renderer's storage cannot.
+    ("J46", "Appearance: theme and accent"),
 )
 
 #: ``J01`` -> ``Deep Dive``.
@@ -384,6 +387,8 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("POST", "/api/settings/email/test"): ("J23",),
     ("GET", "/api/settings/notifications"): ("J23",),
     ("PUT", "/api/settings/notifications"): ("J23",),
+    ("GET", "/api/appearance"): ("J46",),
+    ("PUT", "/api/appearance"): ("J46",),
 }
 
 

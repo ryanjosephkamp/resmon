@@ -17,7 +17,7 @@ import * as path from 'path';
 import { resolveInterpreter } from '../e2e/fixtures/python-interpreter';
 import { driverName } from './drivers';
 import { targetAppRoot } from './drivers/session';
-import { JOURNEY_REGISTER, builtRows, pendingRows } from './register';
+import { JOURNEY_REGISTER, LATER_SLICES, builtRows, pendingRows } from './register';
 
 export default function globalSetup(): void {
   const root = targetAppRoot();
@@ -43,7 +43,7 @@ export default function globalSetup(): void {
   }
 
   const pending = pendingRows();
-  const bySlice = ['2a', '2b']
+  const bySlice = LATER_SLICES
     .map((s) => `${pending.filter((r) => r.slice === s).length} in slice ${s}`)
     .join(', ');
   console.log(`[journeys] build under test: ${root.frontend}`);

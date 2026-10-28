@@ -675,6 +675,18 @@ class SettingsSaved(LosslessModel):
     success: bool
 
 
+class Appearance(LosslessModel):
+    """``GET`` and ``PUT /api/appearance``: the theme and the accent chosen.
+
+    ``accent`` is a lowercase ``#rrggbb``, or null when none has been chosen and
+    the interface draws its own default. The PUT answers what it stored, so a
+    caller can see the lowercasing rather than assume it.
+    """
+
+    theme: Literal["system", "light", "dark"]
+    accent: Optional[str]
+
+
 class ExecutionSettingsSaved(LosslessModel):
     """``PUT /api/settings/execution`` echoes what it stored.
 

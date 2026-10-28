@@ -26,7 +26,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '@playwright/test';
 import {
-  ALLOWED_SPEC_IMPORTS, FORBIDDEN_RENDERER_PATTERNS, JOURNEY_REGISTER, ROUTE_ROWS,
+  ALLOWED_SPEC_IMPORTS, FORBIDDEN_RENDERER_PATTERNS, JOURNEY_REGISTER, LATER_SLICES, ROUTE_ROWS,
   builtRows, pendingRows, specStem,
 } from './register';
 import { allRouteHashes } from '../src/routes';
@@ -50,7 +50,7 @@ test.describe('the journey register and this directory agree', () => {
     expect(new Set(ids).size, 'a register ID appears twice').toBe(ids.length);
     for (const id of ids) expect(id).toMatch(/^J\d{2}$/);
     expect([...ids].sort(), 'the register is not in ID order').toEqual(ids);
-    expect(JOURNEY_REGISTER.length, 'the parity register has 45 journeys').toBe(45);
+    expect(JOURNEY_REGISTER.length, 'the parity register has 46 journeys').toBe(46);
   });
 
   test('every built row has exactly one spec named for it', () => {
@@ -89,7 +89,7 @@ test.describe('the journey register and this directory agree', () => {
   });
 
   test('a pending row names the slice that owes it, and a dropped row names its decision', () => {
-    const unslotted = pendingRows().filter((row) => !['2a', '2b'].includes(row.slice));
+    const unslotted = pendingRows().filter((row) => !LATER_SLICES.includes(row.slice));
     expect(unslotted.map((r) => r.id), 'a pending row belongs to no slice').toEqual([]);
 
     const dropped = JOURNEY_REGISTER.filter((row) => row.status === 'not_carried_forward');
@@ -102,7 +102,7 @@ test.describe('the journey register and this directory agree', () => {
 
   test('the suite prints how much of the register it covers', () => {
     const pending = pendingRows();
-    const bySlice = ['2a', '2b']
+    const bySlice = LATER_SLICES
       .map((s) => `${pending.filter((r) => r.slice === s).length} in slice ${s}`)
       .join(', ');
     const line = `${builtRows().length} of ${JOURNEY_REGISTER.length} rows have a journey test; `
