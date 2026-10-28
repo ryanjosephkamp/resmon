@@ -156,14 +156,17 @@ def test_every_paper_is_on_the_plate_and_inside_its_region(db):
     assert (distance <= fit.disc_r[fit.region] + 1e-4).all()
 
 
-def test_regions_do_not_overlap(db):
-    _corpus(db, per_topic=50)
+@pytest.mark.parametrize("seed", [7, 8, 9, 10, 11])
+def test_regions_do_not_overlap(db, seed):
+    """Not even by a sliver. Several corpora, because the first version of the
+    separation left 0.002 of overlap on Linux's BLAS and none on macOS's."""
+    _corpus(db, per_topic=50, seed=seed)
     fit = cm.fit_corpus(db, None)
     k = len(fit.disc_r)
     for a in range(k):
         for b in range(a + 1, k):
             gap = np.linalg.norm(fit.disc_xy[a] - fit.disc_xy[b]) - fit.disc_r[a] - fit.disc_r[b]
-            assert gap > -1e-3, (a, b, gap)
+            assert gap >= 0, (a, b, gap)
 
 
 def test_a_paper_that_arrives_later_lands_in_its_topics_region(db):

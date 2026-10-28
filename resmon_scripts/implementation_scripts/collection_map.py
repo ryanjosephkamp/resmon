@@ -454,23 +454,39 @@ def _tsne(distances: np.ndarray, init: np.ndarray, rng: np.random.Generator,
 
 
 def _separate(centers: np.ndarray, radii: np.ndarray, rounds: int = 300) -> np.ndarray:
-    """Push discs apart until none overlap, each staying near where t-SNE put it."""
-    home = centers.copy()
-    y = centers.copy()
+    """Push discs apart until none overlap, each staying near where it started.
+
+    Two phases. The first pushes apart while pulling each disc back toward its
+    start, which keeps the layout's neighborhoods; that pull can balance the
+    push with a sliver of overlap left (0.002, on Linux's BLAS and not on
+    macOS's), so the second pushes with no pull until no two discs overlap.
+    """
+    home = centers.astype(np.float64)
+    y = home.copy()
     n = len(y)
     if n < 2:
         return y
     gap = 0.04 * float(radii.mean())
-    for _ in range(rounds):
+
+    def step(pull: float) -> float:
+        nonlocal y
         diff = y[:, None, :] - y[None, :, :]
         dist = np.sqrt((diff ** 2).sum(-1)) + np.eye(n)
         need = radii[:, None] + radii[None, :] + gap
         overlap = np.clip(need - dist, 0, None)
         np.fill_diagonal(overlap, 0.0)
-        if overlap.max() < 1e-4:
+        worst = float(overlap.max())
+        if worst > 0:
+            push = (overlap / dist)[:, :, None] * diff * 0.5
+            y = y + push.sum(1) + pull * (home - y)
+        return worst
+
+    for _ in range(rounds):
+        if step(0.01) < 1e-4:
             break
-        push = (overlap / dist)[:, :, None] * diff * 0.5
-        y = y + push.sum(1) + 0.01 * (home - y)
+    for _ in range(2_000):
+        if step(0.0) <= 1e-9:
+            break
     return y
 
 
