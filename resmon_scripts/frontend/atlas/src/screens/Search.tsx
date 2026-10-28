@@ -242,6 +242,9 @@ export function Search() {
                   <span className="source-name">
                     {entry.name}
                     {missing && <span className="source-key">needs an API key</span>}
+                    <span className="source-key" data-author-query={entry.entity_search.author_query}>
+                      {authorWords(entry.entity_search.author_query)}
+                    </span>
                   </span>
                   <span className="source-fact">{entry.keyword_combination}</span>
                   <span className="source-fact num" title={entry.rate_limit}>{rateShort(rate, entry.rate_limit)}</span>
@@ -321,4 +324,15 @@ export function Search() {
       <RunLog />
     </div>
   );
+}
+
+/**
+ * Whether a source can be asked about a person, as the catalog states it. A
+ * watch on a person through a source that cannot be asked finds nothing, and
+ * the run says so on that source's own row; this says it before asking.
+ */
+function authorWords(query: string): string {
+  if (query === 'none') return 'cannot be asked about an author';
+  if (query === 'unknown') return 'not known whether it can be asked about an author';
+  return 'can be asked about an author';
 }

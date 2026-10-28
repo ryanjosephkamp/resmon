@@ -15,8 +15,8 @@ import * as path from 'path';
 import { expect, type TestInfo } from '@playwright/test';
 import type {
   BackendFacts, CoverageAudit, DeliveryRecord, DrawnAppearance, ExplorerList, ExportedFile, InterruptedRow,
-  JourneyDriver, Place, PlateReading, QueuedPaper, RankedList, RoutineFacts, RunHandle, RunNowAnswer, SourceOutcome,
-  ThemeChoice, TodayReading, UpcomingFire, WhyPanel,
+  JourneyDriver, Place, PlateReading, ProfileCreation, ProfileMatches, QueuedPaper, RankedList, RoutineFacts, RunHandle,
+  RunNowAnswer, SourceOutcome, ThemeChoice, TodayReading, UpcomingFire, WhyPanel,
 } from '../driver';
 import type { Session } from './session';
 
@@ -28,6 +28,10 @@ const ATLAS_PLACES: Partial<Record<Place, string>> = {
   // month ahead's fires beneath them.
   Routines: '/watches',
   Calendar: '/watches',
+  'Watch Profiles': '/watches/people',
+  // Atlas lists every source with its limits, and whether it can be asked
+  // about a person, where a person chooses sources: Ask the sources.
+  Repositories: '/search/ask',
 };
 
 /** The words each theme card is labeled with in Settings. */
@@ -47,7 +51,9 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'exportReadingQueue'
   | 'listRoutineNames' | 'readRoutine' | 'activateRoutine' | 'deactivateRoutine' | 'toggleDesktopNotification'
   | 'readUpcomingFires' | 'runNowControlIsOnTheRow' | 'askForThisRoutineToRunNow' | 'readDeliveryRecord'
-  | 'skipDelivery' | 'readCoverageAudit' | 'writeRoutineIntent'>;
+  | 'skipDelivery' | 'readCoverageAudit' | 'writeRoutineIntent'
+  | 'createWatchProfile' | 'readProfileMatches' | 'readBasisBadgesInTheExplorer' | 'readTheHelpOnThisPage'
+  | 'readWhatThisPlaceSays'>;
 
 /** The reading-queue filter buttons, by the journey's word for each. */
 const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
@@ -90,6 +96,12 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     } else if (hash === '/watches') {
       await expect(win().getByRole('heading', { name: 'Watches', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('section.watch-index')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    } else if (hash === '/watches/people') {
+      await expect(win().getByRole('heading', { name: 'People', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('.page.people')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    } else if (hash === '/search/ask') {
+      await expect(win().getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('.source').first()).toBeVisible({ timeout: 30_000 });
     } else {
       await expect(win().getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
     }
@@ -282,6 +294,83 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
 
   return {
     open: (place) => goto(place),
+
+    // — people ---------------------------------------------------------------
+
+    createWatchProfile: async (profile): Promise<ProfileCreation> => {
+      await goto('Watch Profiles');
+      await win().getByRole('button', { name: 'New person', exact: true }).click();
+      const editor = win().locator('form.person-editor');
+      await expect(editor).toBeVisible({ timeout: 30_000 });
+      await editor.locator('#person-name').fill(profile.name);
+      if (profile.orcid) await editor.locator('#person-orcid').fill(profile.orcid);
+      // Read before saving: the journey is about what a person is told while
+      // they are still deciding, and the saved profile's copy is another surface.
+      const note = editor.locator('[data-people="warning"]');
+      const warns = (await note.getAttribute('data-state')) === 'warns';
+      const warningAtCreation = warns ? (await note.locator('p').last().innerText()).trim() : '';
+      const created = win().waitForResponse(
+        (r) => r.url().endsWith('/api/profiles') && r.request().method() === 'POST',
+      );
+      await editor.getByRole('button', { name: 'Save person', exact: true }).click();
+      const response = await created;
+      expect(response.ok(), 'the person the editor submitted was refused').toBe(true);
+      const id = Number((await response.json()).id);
+      const row = win().locator(`.person[data-profile="${id}"]`);
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      return { id, warningAtCreation, chipInList: (await row.locator('.basis-chip').innerText()).trim() };
+    },
+
+    readProfileMatches: async (name): Promise<ProfileMatches> => {
+      const profile = (await backend.profiles()).find((p) => p.display_name === name);
+      expect(profile, `no watch profile named ${name}`).toBeTruthy();
+      const id = Number(profile!.id);
+      await goto('Watch Profiles');
+      await win().locator(`.person[data-profile="${id}"] .watch-name`).click();
+      const page = win().locator(`.person-page[data-profile="${id}"]`);
+      await expect(page).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+      // The page's empty sentence is drawn only once the matches are read, but
+      // the count is the app's own, so the read is held to it.
+      const recorded = await session.api<{ total?: number }>('GET', `/api/profiles/${id}/matches`);
+      await expect(page.locator(Number(recorded.total ?? 0) > 0 ? '[data-people="counts"]' : '[data-people="no-matches"]'))
+        .toBeVisible({ timeout: 30_000 });
+      const items = await page.locator('.match').evaluateAll((rows) => rows.map((row) => ({
+        basis: row.querySelector('.basis-chip')?.textContent?.trim() ?? '',
+        author: (row.querySelector('.match-author')?.textContent ?? '').trim().replace(/^as /, ''),
+        title: row.querySelector('.result-title')?.textContent?.trim() ?? '',
+      })));
+      const counts = page.locator('[data-people="counts"]');
+      return { counts: (await counts.count()) ? (await counts.innerText()).trim() : '', items };
+    },
+
+    readBasisBadgesInTheExplorer: async () => {
+      await openCollection();
+      // Where the app says a profile has matched something, wait for a badge;
+      // where it says nothing has, there is nothing to wait for.
+      let recorded = 0;
+      for (const profile of await backend.profiles()) {
+        const matches = await session.api<{ total?: number }>('GET', `/api/profiles/${profile.id}/matches`);
+        recorded += Number(matches.total ?? 0);
+      }
+      const chips = win().locator('.result-people .basis-chip');
+      if (recorded > 0) await expect(chips.first()).toBeVisible({ timeout: 30_000 });
+      return (await chips.allInnerTexts()).map((t) => t.trim());
+    },
+
+    readTheHelpOnThisPage: async () => {
+      const help = win().locator('details.place-help').first();
+      await expect(help, 'this place offers no help block').toBeVisible({ timeout: 30_000 });
+      if ((await help.getAttribute('open')) === null) await help.locator('summary').click();
+      const body = help.locator('.place-help-body');
+      await expect(body).toBeVisible({ timeout: 15_000 });
+      return `${(await help.locator('summary').innerText()).trim()}\n${(await body.innerText()).trim()}`;
+    },
+
+    readWhatThisPlaceSays: async () => {
+      const main = win().locator('main.stage');
+      await expect(main).toBeVisible({ timeout: 30_000 });
+      return (await main.innerText()).trim();
+    },
 
     // — watches -------------------------------------------------------------
 

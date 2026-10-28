@@ -8,6 +8,7 @@ import { basisWords, PaperSky } from '../sky/PaperSky';
 import { authors, count, number } from '../today/format';
 import { foldedAway, standingInFor } from './fold';
 import { SearchTabs } from './SearchTabs';
+import { BASIS_MEANING, basisWords as matchBasis } from '../watches/people/model';
 
 type ExplorerPaper = components['schemas']['ExplorerPaper'];
 type Sort = 'newest' | 'similarity';
@@ -63,6 +64,13 @@ export function Collection() {
     queryFn: () => answer(engine().POST('/api/links/for-documents', { body: { document_ids: ids } })),
   });
   const anyLinks = !!links.data && Object.keys(links.data.links).length > 0;
+  // The people a paper matched, and on what basis: a name on a paper is not a
+  // person, and each row says which claim its match makes.
+  const people = useQuery({
+    queryKey: ['profile-matches-for', ids],
+    enabled: ids.length > 0,
+    queryFn: () => answer(engine().POST('/api/profiles/matches/for-documents', { body: { document_ids: ids } })),
+  });
   const folded = useQuery({
     queryKey: ['fold', ids],
     enabled: fold && anyLinks,
@@ -75,7 +83,7 @@ export function Collection() {
   const visible = rows.filter((row) => !hidden.has(row.id));
 
   const total = first?.total ?? 0;
-  const busy = pages.isFetching || links.isFetching || (fold && folded.isFetching);
+  const busy = pages.isFetching || links.isFetching || people.isFetching || (fold && folded.isFetching);
   const countSentence = first
     ? `${number(total)}${first.total_is_capped ? '+' : ''} ${total === 1 ? 'paper' : 'papers'} ${query ? 'match' : 'in your collection'}`
     : '';
@@ -172,6 +180,17 @@ export function Collection() {
                   </div>
                   {also.length > 0 && (
                     <ul className="result-links">{also.map((link) => <li key={link.id}>{link.label}</li>)}</ul>
+                  )}
+                  {(people.data?.matches[String(paper.id)] ?? []).length > 0 && (
+                    <ul className="result-people">
+                      {(people.data?.matches[String(paper.id)] ?? []).map((match) => (
+                        <li key={`${match.profile_id}:${match.basis}`} data-basis={match.basis}>
+                          <span className="basis-chip" title={BASIS_MEANING[match.basis]}>{matchBasis(match.basis)}</span>
+                          <Link to={`/watches/people/${match.profile_id}`}>{match.display_name}</Link>
+                          <span className="match-author">as {match.matched_author}</span>
+                        </li>
+                      ))}
+                    </ul>
                   )}
                   {fold && standing > 0 && (
                     <p className="result-folded">Standing in for {count(standing, 'other record')} of the same work.</p>

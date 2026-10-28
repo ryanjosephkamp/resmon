@@ -794,3 +794,45 @@ code.cron { font: 400 12px/1 var(--mono); color: var(--ink-2); background: var(-
   .delivery-row { grid-template-columns: 64px 80px minmax(0, 1fr) 150px; }
   .delivery-where, .delivery-detail { grid-column: 3 / -1; }
 }
+
+/* ---------------------------------------------------------------- people */
+
+.watch-index .search-tabs, .people .search-tabs { margin-bottom: 14px; }
+.people { max-width: 1060px; }
+.person { display: grid; grid-template-columns: minmax(0, auto) auto 1fr; align-items: baseline; column-gap: 12px; padding: 14px 0 12px; border-top: 1px solid var(--rule); }
+.person:first-child { border-top: 0; }
+.person .meta { grid-column: 1 / -1; }
+/* The weaker claims are muted; only a match by identity stands out, which is the claim worth standing out. */
+.basis-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; border: 1px solid var(--rule-2); font: 500 11.5px/1 var(--sans); color: var(--ink-2); white-space: nowrap; }
+[data-basis="identifier"] .basis-chip, .basis-chip[data-basis="identifier"] { border-color: var(--accent-mark); color: var(--accent-ink); }
+.result-people { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.result-people li { display: flex; align-items: center; gap: 8px; font: 400 12.5px/1.4 var(--sans); color: var(--ink-3); }
+.result-people a { color: var(--ink-2); text-underline-offset: 3px; }
+.match-author { color: var(--ink-3); }
+.match-list { list-style: none; margin: 0; padding: 0; }
+.match { padding: 10px 0; border-top: 1px solid var(--rule); }
+.match:first-child { border-top: 0; }
+.match .result-title { font-size: 14px; }
+.match-evidence { margin: 4px 0 0; font: 400 12px/1.45 var(--sans); color: var(--ink-3); max-width: 80ch; }
+.person-page .run-main { grid-template-columns: minmax(0, 1fr) minmax(300px, 420px); }
+
+.place-help { margin: 18px 0 6px; max-width: 76ch; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); }
+.place-help summary { cursor: pointer; padding: 10px 14px; font: 600 13.5px/1.3 var(--sans); color: var(--ink); }
+.place-help[open] summary { border-bottom: 1px solid var(--rule); }
+.place-help-body { padding: 4px 14px 12px; }
+.place-help-body p { margin: 10px 0 0; font: 400 13.5px/1.6 var(--sans); color: var(--ink-2); }
+
+.person-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); gap: 16px 28px; margin: 22px 0 8px; padding: 20px 22px; border: 1px solid var(--rule-2); border-radius: 10px; background: var(--panel); max-width: 980px; }
+.person-fields { display: grid; gap: 6px; }
+.person-fields label { margin-top: 8px; font: 600 13px/1.3 var(--sans); color: var(--ink); }
+.person-fields label span { font-weight: 400; color: var(--ink-3); margin-left: 6px; }
+.person-fields input, .person-fields textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--rule-2); border-radius: 7px; background: var(--plate); color: var(--ink); font: 400 14px/1.45 var(--sans); }
+.person-fields textarea { resize: vertical; }
+.person-fields input:focus-visible, .person-fields textarea:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+.person-warning { align-self: start; padding: 12px 14px; border-radius: 8px; background: var(--panel-2); }
+.person-warning[data-state="warns"] { border-left: 2px solid var(--accent-mark); }
+.person-warning p:last-child { margin: 0; font: 400 13.5px/1.55 var(--sans); color: var(--ink); }
+.person-warning .why-limits-label { margin-top: 0; }
+.person-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
+.person-actions .field-error { margin: 0; }
+@media (max-width: 1000px) { .person-editor { grid-template-columns: minmax(0, 1fr); } }

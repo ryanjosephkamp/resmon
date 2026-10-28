@@ -309,22 +309,26 @@ def test_the_editor_previews_the_sentences_the_api_returns():
     stripped: ``**every match will be name-only**`` is a Markdown convention the
     API's consumers render, and the editor would print the asterisks.
     """
-    editor = (PROJECT_ROOT / "resmon_scripts" / "frontend" / "src" / "components"
-              / "Profiles" / "ProfileEditor.tsx")
-    assert editor.is_file(), "the profile editor moved; this guard must move with it"
-    source = editor.read_text(encoding="utf-8")
-    # The TSX wraps each sentence across several string literals, so the
-    # comparison is over the text with its line breaks and concatenation removed.
-    flattened = re.sub(r"'\s*\+\s*'", "", source)
-    flattened = re.sub(r"\s+", " ", flattened)
+    frontend = PROJECT_ROOT / "resmon_scripts" / "frontend"
+    # Both interfaces preview it until the classic one goes: the classic
+    # editor, and Atlas's People model, which its editor reads.
+    editors = (frontend / "src" / "components" / "Profiles" / "ProfileEditor.tsx",
+               frontend / "atlas" / "src" / "screens" / "watches" / "people" / "model.ts")
+    for editor in editors:
+        assert editor.is_file(), f"{editor.name} moved; this guard must move with it"
+        source = editor.read_text(encoding="utf-8")
+        # The TSX wraps each sentence across several string literals, so the
+        # comparison is over the text with its line breaks and concatenation removed.
+        flattened = re.sub(r"'\s*\+\s*'", "", source)
+        flattened = re.sub(r"\s+", " ", flattened)
 
-    for profile in ({"display_name": "A Person"},
-                    {"display_name": "A Person", "affiliations": ["MIT"]}):
-        sentence = wp.basis_warning_for(wp.validate_profile(profile))
-        assert sentence, "both of these profiles must warn"
-        plain = re.sub(r"\s+", " ", sentence.replace("**", ""))
-        assert plain in flattened, (
-            "the editor no longer previews the sentence the API returns:\n"
-            f"  API:    {plain}\n"
-            "  editor: not found in ProfileEditor.tsx"
-        )
+        for profile in ({"display_name": "A Person"},
+                        {"display_name": "A Person", "affiliations": ["MIT"]}):
+            sentence = wp.basis_warning_for(wp.validate_profile(profile))
+            assert sentence, "both of these profiles must warn"
+            plain = re.sub(r"\s+", " ", sentence.replace("**", ""))
+            assert plain in flattened, (
+                "the editor no longer previews the sentence the API returns:\n"
+                f"  API:    {plain}\n"
+                f"  editor: not found in {editor.name}"
+            )
