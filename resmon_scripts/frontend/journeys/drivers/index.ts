@@ -56,8 +56,11 @@ export async function createDriver(options: {
   sourceReply: SourceReply;
   testInfo: TestInfo;
 }): Promise<{ api: JourneyDriver; close: () => Promise<void> }> {
-  const session = await startSession({ sourceReply: options.sourceReply });
-  const make = driverName() === 'classic' ? createClassicDriver : createCandidateDriver;
+  // The candidate is the Atlas interface: the classic driver drives the
+  // renderer resmon ships, the candidate drives the one being built.
+  const name = driverName();
+  const session = await startSession({ sourceReply: options.sourceReply, ui: name === 'candidate' ? 'atlas' : 'classic' });
+  const make = name === 'classic' ? createClassicDriver : createCandidateDriver;
   const api = make(session, options.testInfo);
   return { api, close: () => session.close() };
 }

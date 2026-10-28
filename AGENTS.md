@@ -443,7 +443,10 @@ proves.
 test per row of the 3.0 parity register, and the same suite runs against more
 than one build: `RESMON_JOURNEY_APP` names the `frontend/` directory of the app
 under test and `RESMON_JOURNEY_DRIVER` chooses `classic` or `candidate`, so the
-app as it is and the app as it was can be measured from one commit. Nothing in a
+app as it is and the app as it was can be measured from one commit. The
+candidate is the Atlas interface: a journey Atlas does not carry yet is skipped
+with "Not in Atlas yet", never failed and never passed, so a candidate run's
+skip count is what the switch-over waits on. Nothing in a
 spec touches the renderer — every spec goes through `driver.ts`, written in the
 words of the journeys, and `register.spec.ts` greps for a renderer call or a
 stray import and fails on a hit, which is what will make these specs survive the

@@ -132,9 +132,9 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J43', title: 'Upgrade in place', slice: '2b', status: 'carried', built: true },
   { id: 'J44', title: 'Driving resmon from an external harness (MCP)', slice: '2b', status: 'carried', built: true },
   { id: 'J45', title: 'Source wall: what every source did on recent runs', slice: 'refresh', status: 'carried', built: true },
-  { id: 'J46', title: 'Appearance: theme and accent', slice: 'atlas', status: 'carried' },
-  { id: 'J47', title: 'Collection map: where every paper sits', slice: 'atlas', status: 'carried' },
-  { id: 'J48', title: 'Today: the papers since you last looked', slice: 'atlas', status: 'carried' },
+  { id: 'J46', title: 'Appearance: theme and accent', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J47', title: 'Collection map: where every paper sits', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J48', title: 'Today: the papers since you last looked', slice: 'atlas', status: 'carried', built: true },
 ];
 
 /** The slice whose rows were built when this directory was born. */
