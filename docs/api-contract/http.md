@@ -12,7 +12,7 @@
 
 **Purpose.** The first line of the endpoint's docstring, for the 92 of 192 routes that have one. The remaining 100 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 64 of 192 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 128 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 70 of 192 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 122 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -117,8 +117,8 @@ No route of its own. The capability is in the normaliser, the catalog's `entity_
 | `GET` | `/api/embeddings/estimate` | token | — | — | What a backfill would cost, before it starts. |
 | `POST` | `/api/embeddings/probe` | token | — | — | Ask the configured (or supplied) lane to embed one short string. |
 | `POST` | `/api/embeddings/rebuild` | token | — | — | Rebuild the vector index from the canonical table. |
-| `GET` | `/api/embeddings/status` | token | — | — | N of M embedded with model X, the run, the index, and the extension. |
-| `POST` | `/api/explorer/search` | token | — | — | Search the whole corpus. POST because the filter set is a structure. |
+| `GET` | `/api/embeddings/status` | token | — | `EmbeddingStatus` | N of M embedded with model X, the run, the index, and the extension. |
+| `POST` | `/api/explorer/search` | token | — | `ExplorerPage` | Search the whole corpus. POST because the filter set is a structure. |
 | `GET` | `/api/settings/embeddings` | token | — | `EmbeddingSettingsPage` | The stored settings, plus everything the tab needs to render honestly. |
 | `PUT` | `/api/settings/embeddings` | token | — | `EmbeddingSettingsSaved` | Store the settings, refusing a provider that cannot embed. |
 
@@ -127,8 +127,8 @@ No route of its own. The capability is in the normaliser, the catalog's `entity_
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/documents/{document_id}/links` | token | — | — | What else in the corpus looks like the same work as this paper. |
-| `POST` | `/api/links/collapse-preview` | token | — | — | Which of these ids a collapse *would* fold, without folding anything. |
-| `POST` | `/api/links/for-documents` | token | — | — | Links for a page of results in one round trip. |
+| `POST` | `/api/links/collapse-preview` | token | — | `CollapsePreview` | Which of these ids a collapse *would* fold, without folding anything. |
+| `POST` | `/api/links/for-documents` | token | — | `PaperLinks` | Links for a page of results in one round trip. |
 | `POST` | `/api/links/scan` | token | — | — | Find near-duplicates across the corpus. Returns immediately. |
 | `POST` | `/api/links/scan/cancel` | token | — | — | Stop after the document in flight. Links already written are kept. |
 | `GET` | `/api/links/status` | token | — | — | How many links are stored, by method, and the scan's state. |
@@ -143,10 +143,10 @@ No route of its own. The capability is in the normaliser, the catalog's `entity_
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/documents/{doc_id}/why` | token | — | — | What is locally verifiable about why this paper is in the corpus. |
+| `GET` | `/api/documents/{doc_id}/why` | token | — | `PaperWhy` | What is locally verifiable about why this paper is in the corpus. |
 | `POST` | `/api/explorer/export` | token | — | — | Export everything matching the current filters, not just the page shown. |
 | `POST` | `/api/explorer/facets` | token | — | — | Available filter values and their counts, for the current filters. |
-| `POST` | `/api/explorer/search` | token | — | — | Search the whole corpus. POST because the filter set is a structure. |
+| `POST` | `/api/explorer/search` | token | — | `ExplorerPage` | Search the whole corpus. POST because the filter set is a structure. |
 
 ## J13 — The assistant (CLI lane)
 
@@ -198,7 +198,7 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 | `POST` | `/api/executions/export` | token | — | — | Bundle the reports and logs for the selected executions into a .zip. |
 | `DELETE` | `/api/executions/{exec_id}` | token | — | — | *Delete Execution* |
 | `GET` | `/api/executions/{exec_id}` | token | — | `Run` | *Get Execution* |
-| `GET` | `/api/executions/{exec_id}/documents` | token | — | — | One page of the papers this run found, each with its stored id. |
+| `GET` | `/api/executions/{exec_id}/documents` | token | — | `RunPapersPage` | One page of the papers this run found, each with its stored id. |
 | `GET` | `/api/executions/{exec_id}/log` | token | — | `RunLog` | *Get Execution Log* |
 | `GET` | `/api/executions/{exec_id}/references` | token | — | — | Export one run; JSON can explicitly include corpus IDs for follow-up reads. |
 | `GET` | `/api/executions/{exec_id}/report` | token | — | `RunReport` | *Get Execution Report* |
@@ -453,13 +453,13 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | `GET` | `/api/analytics/source-contribution` | token | — | — | Per source: papers delivered, and how many nothing else found. |
 | `GET` | `/api/credentials` | token | — | `CredentialsPresence` | Return per-credential status for every known credential name. |
 | `GET` | `/api/documents/{doc_id}/lifecycle` | token | — | — | Lifecycle events recorded against one paper. |
-| `GET` | `/api/documents/{doc_id}/why` | token | — | — | What is locally verifiable about why this paper is in the corpus. |
+| `GET` | `/api/documents/{doc_id}/why` | token | — | `PaperWhy` | What is locally verifiable about why this paper is in the corpus. |
 | `GET` | `/api/documents/{document_id}/similar` | token | — | — | The papers nearest this one, with distances and their sources. |
 | `GET` | `/api/executions` | token | — | `list` | *List Executions* |
 | `GET` | `/api/executions/{exec_id}` | token | — | `Run` | *Get Execution* |
 | `GET` | `/api/executions/{exec_id}/references` | token | — | — | Export one run; JSON can explicitly include corpus IDs for follow-up reads. |
 | `GET` | `/api/executions/{exec_id}/search-record` | token | — | — | The complete, dated account of one search. |
-| `POST` | `/api/explorer/search` | token | — | — | Search the whole corpus. POST because the filter set is a structure. |
+| `POST` | `/api/explorer/search` | token | — | `ExplorerPage` | Search the whole corpus. POST because the filter set is a structure. |
 | `POST` | `/api/export/references` | token | — | — | Render one selection, with one entry per stored document ID. |
 | `GET` | `/api/health` | token | — | `Health` | Liveness endpoint. Returns process identity so clients can attach-or-spawn. |
 | `GET` | `/api/profiles` | token | — | `WatchProfileList` | *List Watch Profiles* |

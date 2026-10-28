@@ -1780,3 +1780,175 @@ class RunRestarted(LosslessModel):
     restarted_from: Optional[int]
     ai_enabled: bool
     duplicate: Optional[bool] = None
+
+
+# ===========================================================================
+# The collection: searching it, a paper's account, and the same work twice
+# ===========================================================================
+
+class PaperColumns(LosslessModel):
+    """A ``documents`` row as stored, in column order.
+
+    ``authors`` and ``categories`` are the stored text, not parsed lists.
+    ``pub_sort`` is the generated sort key (the publication date, or an empty
+    string where there is none) that keyset paging orders by.
+    """
+
+    id: int
+    source_repository: str
+    external_id: str
+    doi: Optional[str]
+    title: str
+    authors: Optional[str]
+    abstract: Optional[str]
+    publication_date: Optional[str]
+    url: Optional[str]
+    categories: Optional[str]
+    metadata_hash: str
+    first_seen_at: str
+    pub_sort: str
+
+
+class ExplorerPaper(PaperColumns):
+    """One row of an Explorer page. ``distance`` is present only under the
+    similarity sort, and ``None`` for a paper with no vector yet, which is
+    listed after every ranked one rather than dropped."""
+
+    distance: Optional[float] = None
+
+
+class ExplorerPage(LosslessModel):
+    """``POST /api/explorer/search``.
+
+    ``total`` is the count of every match, capped at ``count_cap`` when
+    ``total_is_capped``. Under ``sort == "similarity"`` the phrase ranks the
+    filtered set rather than filtering it, and ``ranked_count``,
+    ``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says
+    why a requested ranking was refused and the page fell back to newest.
+    Each of those four is absent when it does not apply.
+    """
+
+    results: list[ExplorerPaper]
+    next_cursor: Optional[Any]
+    has_more: bool
+    total: int
+    total_is_capped: bool
+    count_cap: int
+    used_full_text_index: bool
+    page_size: int
+    sort: str
+    ranked_count: Optional[int] = None
+    unranked_count: Optional[int] = None
+    model: Optional[str] = None
+    similarity_unavailable: Optional[str] = None
+
+
+class RunPaper(PaperColumns):
+    """One of a run's papers, and where it stands in the reading queue
+    (``to_read``, ``read``, or ``None`` when it is not saved)."""
+
+    queue_status: Optional[str]
+
+
+class RunPapersPage(LosslessModel):
+    """``GET /api/executions/{exec_id}/documents``: one page of a run's papers."""
+
+    papers: list[RunPaper]
+    total: int
+    limit: int
+    offset: int
+    only_new: bool
+
+
+class PaperWhyDocument(LosslessModel):
+    id: int
+    title: str
+    source_repository: str
+    doi: Optional[str]
+    publication_date: Optional[str]
+    first_seen_at: Optional[str]
+
+
+class PaperWhySource(LosslessModel):
+    """The source the paper came from, and whether resmon or the source decided
+    the match: ``resmon_filtered_locally`` is false for a relevance-ranked
+    upstream, which resmon cannot speak about with certainty."""
+
+    slug: str
+    name: str
+    keyword_combination: str
+    keyword_combination_notes: str
+    resmon_filtered_locally: bool
+
+
+class PaperWhyRun(LosslessModel):
+    execution_id: int
+    execution_type: str
+    start_time: Optional[str]
+    routine_name: Optional[str]
+    keywords: list[str]
+
+
+class PaperWhyKeyword(LosslessModel):
+    """One requested keyword: whether it is in the fields resmon holds, which
+    ones, and those named in words (``where``)."""
+
+    keyword: str
+    matched: bool
+    fields: list[str]
+    where: str
+    contains_operators: bool
+
+
+class PaperWhy(LosslessModel):
+    """``GET /api/documents/{doc_id}/why``: what resmon can say about why a
+    paper is in the corpus, and ``what_resmon_cannot_see`` -- the limits of
+    that account, stated rather than implied."""
+
+    document: PaperWhyDocument
+    source: PaperWhySource
+    runs: list[PaperWhyRun]
+    keywords: list[PaperWhyKeyword]
+    matched_count: int
+    keyword_count: int
+    verdict: str
+    headline: str
+    what_resmon_cannot_see: list[str]
+    fields_checked: list[str]
+
+
+class PaperLink(LosslessModel):
+    """Another record that looks like the same work, and why: ``method`` is
+    ``shared_doi`` or ``vector+title``; ``label`` is the sentence a person reads."""
+
+    id: int
+    title: str
+    source_repository: str
+    kind: str
+    score: Optional[float]
+    method: str
+    label: str
+
+
+class PaperLinks(LosslessModel):
+    """``POST /api/links/for-documents``: the links of each asked-for paper,
+    keyed by its id as a string. A paper with none is absent."""
+
+    links: dict[str, list[PaperLink]]
+
+
+class CollapsePreview(LosslessModel):
+    """``POST /api/links/collapse-preview``: which rows a per-view fold would
+    keep, and which it would fold into each kept one. It hides nothing itself."""
+
+    keep: list[int]
+    folded: dict[str, list[int]]
+
+
+class EmbeddingStatus(EmbeddingJobStatus):
+    """``GET /api/embeddings/status``: the backfill, the coverage, the vector
+    extension and index, the configured lane, and whether ranking by meaning
+    is available now (and if not, why)."""
+
+    lane: Optional[EmbeddingLaneView]
+    capability: EmbeddingCapability

@@ -561,6 +561,35 @@
         "title": "CloudSettings",
         "type": "object"
       },
+      "CollapsePreview": {
+        "additionalProperties": true,
+        "description": "``POST /api/links/collapse-preview``: which rows a per-view fold would\nkeep, and which it would fold into each kept one. It hides nothing itself.",
+        "properties": {
+          "folded": {
+            "additionalProperties": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Folded",
+            "type": "object"
+          },
+          "keep": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Keep",
+            "type": "array"
+          }
+        },
+        "required": [
+          "keep",
+          "folded"
+        ],
+        "title": "CollapsePreview",
+        "type": "object"
+      },
       "CollectionMap": {
         "additionalProperties": true,
         "description": "``GET /api/map``: where every paper sits, and on what basis.\n\n``basis`` says what nearness means on this map: ``embeddings`` (the set\nmodel's vectors) or ``words`` (word statistics computed on this machine).\nIt describes the points served, which during a refit can differ from the\nbasis the next map will have.",
@@ -1785,6 +1814,47 @@
         "title": "EmbeddingSettingsValues",
         "type": "object"
       },
+      "EmbeddingStatus": {
+        "additionalProperties": true,
+        "description": "``GET /api/embeddings/status``: the backfill, the coverage, the vector\nextension and index, the configured lane, and whether ranking by meaning\nis available now (and if not, why).",
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/EmbeddingCapability"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/EmbeddingCoverage"
+          },
+          "extension": {
+            "$ref": "#/components/schemas/VectorExtensionStatus"
+          },
+          "index": {
+            "$ref": "#/components/schemas/EmbeddingIndexState"
+          },
+          "lane": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EmbeddingLaneView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run": {
+            "$ref": "#/components/schemas/EmbeddingJobRun"
+          }
+        },
+        "required": [
+          "run",
+          "coverage",
+          "extension",
+          "index",
+          "lane",
+          "capability"
+        ],
+        "title": "EmbeddingStatus",
+        "type": "object"
+      },
       "ExecutionExport": {
         "properties": {
           "ids": {
@@ -1993,6 +2063,241 @@
           }
         },
         "title": "ExplorerFilters",
+        "type": "object"
+      },
+      "ExplorerPage": {
+        "additionalProperties": true,
+        "description": "``POST /api/explorer/search``.\n\n``total`` is the count of every match, capped at ``count_cap`` when\n``total_is_capped``. Under ``sort == \"similarity\"`` the phrase ranks the\nfiltered set rather than filtering it, and ``ranked_count``,\n``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says\nwhy a requested ranking was refused and the page fell back to newest.\nEach of those four is absent when it does not apply.",
+        "properties": {
+          "count_cap": {
+            "title": "Count Cap",
+            "type": "integer"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "ranked_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranked Count"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ExplorerPaper"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "similarity_unavailable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity Unavailable"
+          },
+          "sort": {
+            "title": "Sort",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_is_capped": {
+            "title": "Total Is Capped",
+            "type": "boolean"
+          },
+          "unranked_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unranked Count"
+          },
+          "used_full_text_index": {
+            "title": "Used Full Text Index",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "results",
+          "next_cursor",
+          "has_more",
+          "total",
+          "total_is_capped",
+          "count_cap",
+          "used_full_text_index",
+          "page_size",
+          "sort"
+        ],
+        "title": "ExplorerPage",
+        "type": "object"
+      },
+      "ExplorerPaper": {
+        "additionalProperties": true,
+        "description": "One row of an Explorer page. ``distance`` is present only under the\nsimilarity sort, and ``None`` for a paper with no vector yet, which is\nlisted after every ranked one rather than dropped.",
+        "properties": {
+          "abstract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstract"
+          },
+          "authors": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authors"
+          },
+          "categories": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categories"
+          },
+          "distance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "external_id": {
+            "title": "External Id",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "metadata_hash": {
+            "title": "Metadata Hash",
+            "type": "string"
+          },
+          "pub_sort": {
+            "title": "Pub Sort",
+            "type": "string"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "source_repository": {
+            "title": "Source Repository",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "source_repository",
+          "external_id",
+          "doi",
+          "title",
+          "authors",
+          "abstract",
+          "publication_date",
+          "url",
+          "categories",
+          "metadata_hash",
+          "first_seen_at",
+          "pub_sort"
+        ],
+        "title": "ExplorerPaper",
         "type": "object"
       },
       "ExplorerSearchBody": {
@@ -2457,6 +2762,333 @@
           "detail"
         ],
         "title": "OnboardingStep",
+        "type": "object"
+      },
+      "PaperLink": {
+        "additionalProperties": true,
+        "description": "Another record that looks like the same work, and why: ``method`` is\n``shared_doi`` or ``vector+title``; ``label`` is the sentence a person reads.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "source_repository": {
+            "title": "Source Repository",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "source_repository",
+          "kind",
+          "score",
+          "method",
+          "label"
+        ],
+        "title": "PaperLink",
+        "type": "object"
+      },
+      "PaperLinks": {
+        "additionalProperties": true,
+        "description": "``POST /api/links/for-documents``: the links of each asked-for paper,\nkeyed by its id as a string. A paper with none is absent.",
+        "properties": {
+          "links": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/PaperLink"
+              },
+              "type": "array"
+            },
+            "title": "Links",
+            "type": "object"
+          }
+        },
+        "required": [
+          "links"
+        ],
+        "title": "PaperLinks",
+        "type": "object"
+      },
+      "PaperWhy": {
+        "additionalProperties": true,
+        "description": "``GET /api/documents/{doc_id}/why``: what resmon can say about why a\npaper is in the corpus, and ``what_resmon_cannot_see`` -- the limits of\nthat account, stated rather than implied.",
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/PaperWhyDocument"
+          },
+          "fields_checked": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields Checked",
+            "type": "array"
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "keyword_count": {
+            "title": "Keyword Count",
+            "type": "integer"
+          },
+          "keywords": {
+            "items": {
+              "$ref": "#/components/schemas/PaperWhyKeyword"
+            },
+            "title": "Keywords",
+            "type": "array"
+          },
+          "matched_count": {
+            "title": "Matched Count",
+            "type": "integer"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/PaperWhyRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/PaperWhySource"
+          },
+          "verdict": {
+            "title": "Verdict",
+            "type": "string"
+          },
+          "what_resmon_cannot_see": {
+            "items": {
+              "type": "string"
+            },
+            "title": "What Resmon Cannot See",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document",
+          "source",
+          "runs",
+          "keywords",
+          "matched_count",
+          "keyword_count",
+          "verdict",
+          "headline",
+          "what_resmon_cannot_see",
+          "fields_checked"
+        ],
+        "title": "PaperWhy",
+        "type": "object"
+      },
+      "PaperWhyDocument": {
+        "additionalProperties": true,
+        "properties": {
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "first_seen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "source_repository": {
+            "title": "Source Repository",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "source_repository",
+          "doi",
+          "publication_date",
+          "first_seen_at"
+        ],
+        "title": "PaperWhyDocument",
+        "type": "object"
+      },
+      "PaperWhyKeyword": {
+        "additionalProperties": true,
+        "description": "One requested keyword: whether it is in the fields resmon holds, which\nones, and those named in words (``where``).",
+        "properties": {
+          "contains_operators": {
+            "title": "Contains Operators",
+            "type": "boolean"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "keyword": {
+            "title": "Keyword",
+            "type": "string"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "boolean"
+          },
+          "where": {
+            "title": "Where",
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyword",
+          "matched",
+          "fields",
+          "where",
+          "contains_operators"
+        ],
+        "title": "PaperWhyKeyword",
+        "type": "object"
+      },
+      "PaperWhyRun": {
+        "additionalProperties": true,
+        "properties": {
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "execution_type": {
+            "title": "Execution Type",
+            "type": "string"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Keywords",
+            "type": "array"
+          },
+          "routine_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Name"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          }
+        },
+        "required": [
+          "execution_id",
+          "execution_type",
+          "start_time",
+          "routine_name",
+          "keywords"
+        ],
+        "title": "PaperWhyRun",
+        "type": "object"
+      },
+      "PaperWhySource": {
+        "additionalProperties": true,
+        "description": "The source the paper came from, and whether resmon or the source decided\nthe match: ``resmon_filtered_locally`` is false for a relevance-ranked\nupstream, which resmon cannot speak about with certainty.",
+        "properties": {
+          "keyword_combination": {
+            "title": "Keyword Combination",
+            "type": "string"
+          },
+          "keyword_combination_notes": {
+            "title": "Keyword Combination Notes",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "resmon_filtered_locally": {
+            "title": "Resmon Filtered Locally",
+            "type": "boolean"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "keyword_combination",
+          "keyword_combination_notes",
+          "resmon_filtered_locally"
+        ],
+        "title": "PaperWhySource",
         "type": "object"
       },
       "ProfileImportBody": {
@@ -4092,6 +4724,173 @@
           "log_text"
         ],
         "title": "RunLog",
+        "type": "object"
+      },
+      "RunPaper": {
+        "additionalProperties": true,
+        "description": "One of a run's papers, and where it stands in the reading queue\n(``to_read``, ``read``, or ``None`` when it is not saved).",
+        "properties": {
+          "abstract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstract"
+          },
+          "authors": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authors"
+          },
+          "categories": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categories"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "external_id": {
+            "title": "External Id",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "metadata_hash": {
+            "title": "Metadata Hash",
+            "type": "string"
+          },
+          "pub_sort": {
+            "title": "Pub Sort",
+            "type": "string"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "queue_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Status"
+          },
+          "source_repository": {
+            "title": "Source Repository",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "source_repository",
+          "external_id",
+          "doi",
+          "title",
+          "authors",
+          "abstract",
+          "publication_date",
+          "url",
+          "categories",
+          "metadata_hash",
+          "first_seen_at",
+          "pub_sort",
+          "queue_status"
+        ],
+        "title": "RunPaper",
+        "type": "object"
+      },
+      "RunPapersPage": {
+        "additionalProperties": true,
+        "description": "``GET /api/executions/{exec_id}/documents``: one page of a run's papers.",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "only_new": {
+            "title": "Only New",
+            "type": "boolean"
+          },
+          "papers": {
+            "items": {
+              "$ref": "#/components/schemas/RunPaper"
+            },
+            "title": "Papers",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "papers",
+          "total",
+          "limit",
+          "offset",
+          "only_new"
+        ],
+        "title": "RunPapersPage",
         "type": "object"
       },
       "RunReport": {
@@ -8499,7 +9298,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PaperWhy"
+                }
               }
             },
             "description": "Successful Response"
@@ -8724,7 +9525,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EmbeddingStatus"
+                }
               }
             },
             "description": "Successful Response"
@@ -9791,7 +10594,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunPapersPage"
+                }
               }
             },
             "description": "Successful Response"
@@ -10237,7 +11042,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorerPage"
+                }
               }
             },
             "description": "Successful Response"
@@ -10909,7 +11716,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CollapsePreview"
+                }
               }
             },
             "description": "Successful Response"
@@ -10946,7 +11755,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PaperLinks"
+                }
               }
             },
             "description": "Successful Response"
