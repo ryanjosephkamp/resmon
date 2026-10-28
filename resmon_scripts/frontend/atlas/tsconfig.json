@@ -1,5 +1,5 @@
 {
-  "//": "The Atlas renderer's own program: ESM and bundler resolution for Vite, strict. The repository tsconfig covers the classic renderer only; `npm run typecheck` runs both.",
+  "//": "The Atlas renderer's own program: ESM and bundler resolution for Vite, strict. The repository tsconfig covers the classic renderer only; `npm run typecheck` runs both. Unit tests under `__tests__` are Jest's, type-checked by ts-jest against `tsconfig.test.json` when they run.",
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -13,5 +13,6 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  "exclude": ["src/**/__tests__/**"]
 }

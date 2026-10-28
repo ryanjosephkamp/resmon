@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, nativeTheme, shell } from 'electron';
 import { installDownloads } from './downloads';
 import { autoUpdater } from 'electron-updater';
 import { ChildProcess, spawn } from 'child_process';
@@ -96,6 +96,16 @@ function isHiddenWindow(): boolean {
 if (isBackgroundWindow() && process.platform === 'darwin') {
   app.setActivationPolicy('accessory');
 }
+
+// The Atlas renderer is built beside the classic one (dist/atlas) while the
+// rebuild is under way; RESMON_UI=atlas serves it instead. Anything else,
+// including unset, serves the classic renderer, which stays the app until the
+// Atlas one passes the journey suite and the performance gate.
+const ATLAS = process.env.RESMON_UI === 'atlas';
+
+// Kept in sync with `--color-bg` in styles/global.css by hand; see the note on
+// `backgroundColor` in `createWindow`.
+const CLASSIC_GROUND = '#0f1117';
 
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
@@ -460,6 +470,8 @@ function contentTypeFor(filePath: string): string {
     case '.jpeg': return 'image/jpeg';
     case '.svg': return 'image/svg+xml; charset=utf-8';
     case '.ico': return 'image/x-icon';
+    case '.woff2': return 'font/woff2';
+    case '.woff': return 'font/woff';
     default: return 'application/octet-stream';
   }
 }
@@ -525,7 +537,41 @@ function isE2E(): boolean {
   return process.env.RESMON_E2E === '1';
 }
 
-function createWindow(): void {
+/**
+ * The ground the Atlas window opens on, from the theme the engine has stored,
+ * with "system" resolved here. Read before the window exists, so its first
+ * frame is already the right color; the renderer reads the same value before
+ * its own first paint. An engine that does not answer within a second leaves
+ * the system's theme, which is what the renderer falls back to as well. The
+ * two grounds are `--ground` in `atlas/src/theme/tokens.css`.
+ */
+function atlasGround(port: number, token: string): Promise<string> {
+  const ground = (dark: boolean) => (dark ? '#0a0a0b' : '#ffffff');
+  return new Promise((resolve) => {
+    const fallback = () => resolve(ground(nativeTheme.shouldUseDarkColors));
+    const req = http.get(
+      { host: '127.0.0.1', port, path: '/api/appearance', headers: bearer(token), timeout: 1000 },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => { body += chunk; });
+        res.on('end', () => {
+          try {
+            const theme = res.statusCode === 200 ? (JSON.parse(body) as { theme?: unknown }).theme : null;
+            if (theme === 'dark' || theme === 'light') resolve(ground(theme === 'dark'));
+            else fallback();
+          } catch {
+            fallback();
+          }
+        });
+      },
+    );
+    req.on('timeout', () => req.destroy());
+    req.on('error', fallback);
+  });
+}
+
+function createWindow(ground: string = CLASSIC_GROUND): void {
   if (rendererPort === null) {
     throw new Error('Renderer server has not been started');
   }
@@ -556,8 +602,12 @@ function createWindow(): void {
     //
     // Kept in sync with `--color-bg` in styles/global.css by hand — there is no
     // build step shared between the CSS and the main process, so a theme change
-    // has to touch both. That is worth one comment and no machinery.
-    backgroundColor: '#0f1117',
+    // has to touch both. That is worth one comment and no machinery. The Atlas
+    // renderer's ground follows the stored theme, so it is passed in.
+    backgroundColor: ground,
+    // Atlas draws its own top bar on macOS, with the window controls inset in
+    // it, so the bar is the only chrome. Elsewhere the system frame stays.
+    ...(ATLAS && process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -904,11 +954,7 @@ app.whenReady().then(async () => {
   try {
     // The renderer server comes first (2.2): the backend has to be told the
     // renderer's exact origin, which is only known once this port is bound.
-    // The Atlas renderer is built beside the classic one (dist/atlas) while the
-    // rebuild is under way; RESMON_UI=atlas serves it instead. Anything else,
-    // including unset, serves the classic renderer, which stays the app until
-    // the Atlas one passes the journey suite and the performance gate.
-    const rendererRoot = path.join(__dirname, '..', process.env.RESMON_UI === 'atlas' ? 'atlas' : 'renderer');
+    const rendererRoot = path.join(__dirname, '..', ATLAS ? 'atlas' : 'renderer');
     const rendererOrigin = `http://127.0.0.1:${await startRendererServer(rendererRoot)}`;
 
     // Attach-or-spawn: if the lock file points to a live daemon, attach.
@@ -1019,7 +1065,9 @@ app.whenReady().then(async () => {
     });
 
     installApplicationMenu();
-    createWindow();
+    createWindow(ATLAS && backendPort !== null && backendToken !== null
+      ? await atlasGround(backendPort, backendToken)
+      : CLASSIC_GROUND);
     if (mainWindow) installDownloads(mainWindow);
     initAutoUpdater();
   } catch (err) {

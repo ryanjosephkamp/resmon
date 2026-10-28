@@ -48,6 +48,15 @@ resmon_scripts/
 Backend and renderer talk **only** over HTTP on `127.0.0.1`. That boundary is the seam:
 work on one side of it cannot break the other except through an endpoint's shape.
 
+**The Atlas renderer keeps nothing in browser storage.** It is served from a new loopback
+port on every launch, and `localStorage` belongs to the origin, port included, so it starts
+empty each time. A preference Atlas must remember is an engine route: the theme and accent
+are `/api/appearance`. Accent tones are derived in `atlas/src/theme/accent.ts`, and
+`theme/__tests__/accent.test.ts` holds every tone to its contrast line over 530 colors in
+both themes. An Electron spec that depends on the system theme passes `colorScheme: null` to
+`electron.launch`: Playwright otherwise tells the page the system is light, while the main
+process reads the real one.
+
 ## Commands
 
 ```bash
