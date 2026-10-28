@@ -13,9 +13,18 @@
  * `/api/executions/{id}/report` has no text. What it *does* keep is the
  * read-time coverage account, and that account is careful in exactly the way
  * the invariant asks for — the source that answered is recorded as having
- * answered with its count, the source that was never reached is
- * "outcome not recorded" rather than a silent zero, and the account says out
- * loud that the run is not completed and its coverage may be incomplete.
+ * answered with its count, the source that could not be asked keeps its stated
+ * reason rather than a silent zero, and the account says out loud that the run
+ * is not completed and its coverage may be incomplete.
+ *
+ * **Sources are asked together since #242**, up to eight at a time. Before it
+ * they were asked one after another, so with arXiv held Springer was never
+ * reached and this row asserted "outcome not recorded" for it. Now both are
+ * asked at once: Springer is recorded straight away as not queried for want of
+ * a key, before the cancel lands. That is the truth of the run, and it is what
+ * this row now asserts. A selected source that leaves no row at all still
+ * reads "outcome not recorded"; `test_source_coverage.py` holds that at the
+ * engine (`test_exact_slug_selection_missing_and_additional_sources`).
  *
  * So this asserts the invariant ("no fabricated completion; source failures
  * stay visible; the work done so far is not thrown away") and *reports* the
@@ -63,12 +72,13 @@ journey.describe('J19 Live monitoring', () => {
     expect(answered.label, 'the source that answered before the cancel lost its outcome')
       .toContain('answered');
 
-    // And the source that was never reached is explicitly unrecorded rather
-    // than reported as having found nothing — which is the difference the whole
-    // coverage feature exists to keep.
-    const unreached = outcomes.find((o) => o.source === 'springer')!;
-    expect(unreached.note.toLowerCase()).toContain('not recorded');
-    expect(unreached.label.toLowerCase()).toContain('unknown');
+    // And the source that could not be asked keeps its reason: a recorded
+    // non-answer that names the missing key, never a quiet zero that reads as
+    // "found nothing" -- which is the difference the whole coverage feature
+    // exists to keep.
+    const keyless = outcomes.find((o) => o.source === 'springer')!;
+    expect(keyless.label.toLowerCase()).toContain('non answer');
+    expect(keyless.note.toLowerCase()).toContain('key');
 
     // Reported, not asserted: at this base a cancelled sweep has no report
     // document, which is not what the register's J19 sentence describes. The
