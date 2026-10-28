@@ -75,8 +75,8 @@ NumPy is the one dependency it added.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 575 tests across 60 suites
-npm run e2e                                      # the real Electron app — 117 cases in 35 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 908 tests across 87 suites
+npm run e2e                                      # the real Electron app — 124 cases in 41 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -300,6 +300,19 @@ anything turns red.
 - Python 3.10 is the floor — no `match` statements or 3.11+ syntax.
 - No new runtime dependency without saying so explicitly in the PR body: the app ships a
   bundled interpreter and every dependency lands in a ~900 MB build.
+
+## The app as the background service
+
+`--service` launches the app as the background service: no window, no Dock icon, and
+the engine (`implementation_scripts.daemon`, the scheduler's owner) as its child. One
+resmon runs per Chromium profile; a second launch exits 0 and the running one opens
+the window on its own engine. Notifications go from the engine to a token-guarded
+listener on loopback in the app (`electron/host.ts`, `desktop_notifier.notify`), so
+macOS credits them to resmon; one the app does not take is posted the old way.
+**No installed unit runs `--service` yet** — `service_manager` still starts the bare
+engine. Under `RESMON_E2E` or `RESMON_NOTICES_TO_LOG` the app logs each notice as a
+`[main] notice {…}` line instead of putting it on the screen. Journey:
+`e2e/service-host.spec.ts`; the memory each form costs: `python -m perf host`.
 
 ## The two "cloud"s — do not conflate them
 
