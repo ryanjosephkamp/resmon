@@ -21,6 +21,10 @@ const PATHS = {
   bookmarked: <path d="M4 2.5h8v11L8 10.75 4 13.5Z" fill="currentColor" />,
   open: <><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5" /><path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" /></>,
   fault: <><circle cx="8" cy="8" r="5.75" /><path d="M4 12 12 4" /></>,
+  close: <path d="M4 4l8 8M12 4l-8 8" />,
+  stop: <rect x="3.75" y="3.75" width="8.5" height="8.5" rx="1.5" />,
+  back: <path d="M13 8H3M7 4 3 8l4 4" />,
+  download: <><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7" /><path d="M2.75 13.25h10.5" /></>,
 } as const;
 
 export type IconName = keyof typeof PATHS;

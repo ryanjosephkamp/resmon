@@ -10,9 +10,12 @@
  * Every method waits for a state before it reads the screen, as the classic
  * driver's guard requires of that file.
  */
+import * as fs from 'fs';
+import * as path from 'path';
 import { expect, type TestInfo } from '@playwright/test';
 import type {
-  BackendFacts, DrawnAppearance, JourneyDriver, Place, PlateReading, ThemeChoice, TodayReading,
+  BackendFacts, DrawnAppearance, ExportedFile, InterruptedRow, JourneyDriver, Place, PlateReading, RunHandle,
+  SourceOutcome, ThemeChoice, TodayReading,
 } from '../driver';
 import type { Session } from './session';
 
@@ -31,7 +34,29 @@ const THEME_CARD: Record<ThemeChoice, string> = {
 
 export type AtlasDriver = Pick<JourneyDriver,
   'open' | 'reopenTheApp' | 'chooseTheme' | 'chooseAccent' | 'readAppearance' | 'readThePlate'
-  | 'readToday' | 'markAllRead'>;
+  | 'readToday' | 'markAllRead'
+  | 'runDive' | 'runSweep' | 'readRunPanelOutcomes' | 'cancelRunFromMonitor' | 'openReport' | 'readReportTabs'
+  | 'readCoverageSentence' | 'readReportOutcomes' | 'exportReferences' | 'readInterruptedRow' | 'restartRun'>;
+
+/**
+ * The journey's words for each state the run's live panel draws. The panel
+ * says "12 found" or "did not answer"; the journeys were written against the
+ * first run panel's vocabulary, and the state underneath is the same one.
+ */
+const PANEL_WORDS: Record<string, string> = {
+  pending: 'pending',
+  asking: 'querying',
+  answered: 'done',
+  no_answer: 'no answer',
+  not_queried: 'not queried',
+  not_recorded: 'reason not recorded',
+  error: 'error',
+};
+
+function isoDate(at: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}
 
 export function createAtlasDriver(session: Session, testInfo: TestInfo, backend: BackendFacts): AtlasDriver {
   const win = () => session.win;
@@ -67,8 +92,172 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     await expect(win().locator('.index-bar h2')).toHaveText(/^New /);
   };
 
+  const openSearch = async (): Promise<void> => {
+    await win().evaluate(() => { window.location.hash = '#/search'; });
+    await expect(win().getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible({ timeout: 30_000 });
+    await expect(win().locator('.source').first()).toBeVisible({ timeout: 30_000 });
+    await expect(win().locator('section.runlog')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+  };
+
+  const openRun = async (run: RunHandle): Promise<void> => {
+    await win().evaluate((id) => { window.location.hash = `#/runs/${id}`; }, run.id);
+    await expect(win().locator(`.run[data-run="${run.id}"]`)).toBeVisible({ timeout: 30_000 });
+  };
+
+  /** The run page, once the run has stopped running: what a person reads afterwards. */
+  const openSettled = async (run: RunHandle): Promise<void> => {
+    await openRun(run);
+    await expect(win().locator('.run')).not.toHaveAttribute('data-status', 'running', { timeout: 150_000 });
+  };
+
+  /** A catalog row by slug, or by the source's name as the catalog writes it. */
+  const sourceRow = async (source: string) => {
+    const bySlug = win().locator(`.source[data-source="${source}"]`);
+    if (await bySlug.count()) return bySlug;
+    const byName = win().locator('.source').filter({
+      has: win().locator('.source-name', { hasText: new RegExp(`^${source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }),
+    });
+    await expect(byName, `Search lists no source "${source}"`).toHaveCount(1);
+    return byName;
+  };
+
+  const ask = async (kind: 'Deep Dive' | 'Deep Sweep', sources: string[], terms: string[],
+    days: number | undefined, cap: number | undefined): Promise<RunHandle> => {
+    await openSearch();
+    await win().getByRole('button', { name: kind, exact: true }).click();
+    await expect(win().getByRole('button', { name: kind, exact: true })).toHaveAttribute('aria-pressed', 'true');
+    for (const source of sources) await (await sourceRow(source)).locator('input').check();
+    const field = win().getByLabel('Search terms');
+    for (const term of terms) {
+      await field.fill(term);
+      await field.press('Enter');
+    }
+    if (days === undefined) {
+      await win().getByRole('button', { name: 'Any time', exact: true }).click();
+    } else {
+      const to = new Date();
+      const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+      await win().locator('.date input').first().fill(isoDate(from));
+      await win().locator('.date input').nth(1).fill(isoDate(to));
+    }
+    if (cap !== undefined) await win().getByLabel('Most papers per source').fill(String(cap));
+    const route = kind === 'Deep Dive' ? '/api/search/dive' : '/api/search/sweep';
+    const started = win().waitForResponse((r) => r.url().endsWith(route) && r.request().method() === 'POST');
+    await win().getByRole('button', { name: /^Ask / }).click();
+    const response = await started;
+    expect(response.status(), `${route} answered HTTP ${response.status()}`).toBeLessThan(300);
+    const id = Number((await response.json()).execution_id);
+    await expect(win().locator(`.run[data-run="${id}"]`)).toBeVisible({ timeout: 30_000 });
+    return { id };
+  };
+
   return {
     open: (place) => goto(place),
+
+    runDive: async (request) => {
+      if (request.summarize) notInAtlasYet('a summary of each paper on a Deep Dive');
+      return ask('Deep Dive', [request.source], request.keywords, request.days, request.cap);
+    },
+
+    runSweep: (request) => ask('Deep Sweep', request.sources, [request.query], undefined, request.cap),
+
+    readRunPanelOutcomes: async (run, options): Promise<SourceOutcome[]> => {
+      await openRun(run);
+      if (options?.settled) {
+        await expect(win().locator('.run')).not.toHaveAttribute('data-status', 'running', { timeout: 150_000 });
+        await win().getByRole('tab', { name: 'Progress' }).click();
+        await expect(win().locator('.live-panel .live-row[data-state="pending"], .live-panel .live-row[data-state="asking"]'))
+          .toHaveCount(0, { timeout: 30_000 });
+      }
+      const panel = win().locator('.live-panel').first();
+      await expect(panel).toBeVisible({ timeout: 30_000 });
+      return panel.locator('.live-row').evaluateAll((rows, words) => rows.map((row) => ({
+        source: (row as HTMLElement).dataset.source ?? '',
+        label: words[(row as HTMLElement).dataset.state ?? ''] ?? (row as HTMLElement).dataset.state ?? '',
+        note: row.querySelector('.src-note')?.textContent?.trim() ?? '',
+      })), PANEL_WORDS);
+    },
+
+    cancelRunFromMonitor: async (run) => {
+      await openRun(run);
+      const stopped = win().waitForResponse((r) => r.url().endsWith(`/api/executions/${run.id}/cancel`)
+        && r.request().method() === 'POST');
+      await win().getByRole('button', { name: 'Stop', exact: true }).click();
+      expect((await stopped).status()).toBeLessThan(300);
+    },
+
+    openReport: (run) => openSettled(run),
+
+    readReportTabs: async () => {
+      const tabs = win().getByRole('tab');
+      await expect(tabs.first()).toBeVisible({ timeout: 30_000 });
+      return (await tabs.allInnerTexts()).map((t) => t.trim());
+    },
+
+    readCoverageSentence: async (run) => {
+      await openSettled(run);
+      const sentence = win().locator('[data-coverage-summary]');
+      await expect(sentence).toBeVisible({ timeout: 30_000 });
+      return (await sentence.innerText()).trim();
+    },
+
+    readReportOutcomes: async (run): Promise<SourceOutcome[]> => {
+      await openSettled(run);
+      await expect(win().locator('.recorded')).toBeVisible({ timeout: 30_000 });
+      return win().locator('.recorded .recorded-row').evaluateAll((rows) => rows.map((row) => ({
+        source: (row as HTMLElement).dataset.source ?? '',
+        // The recorded category, as the record's own table words it.
+        label: ((row as HTMLElement).dataset.category ?? '').replace('_', ' '),
+        note: row.querySelector('.src-note')?.textContent?.trim() ?? '',
+      })));
+    },
+
+    exportReferences: async (runs, format): Promise<ExportedFile> => {
+      await openSearch();
+      for (const run of runs) {
+        const row = win().locator(`.run-row[data-run="${run.id}"]`);
+        await expect(row).toBeVisible({ timeout: 30_000 });
+        await row.getByRole('checkbox').check();
+      }
+      const label = { bibtex: 'BibTeX', ris: 'RIS', csv: 'CSV' }[format];
+      const extension = { bibtex: 'bib', ris: 'ris', csv: 'csv' }[format];
+      const destination = path.join(session.stateDir, `journey-references.${extension}`);
+      // The real Electron download, with only the destination picker replaced.
+      await session.app.evaluate(({ BrowserWindow }, target) => {
+        BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => {
+          item.setSavePath(target as string);
+        });
+      }, destination);
+      await win().locator('.export-bar').getByRole('button', { name: label, exact: true }).click();
+      await expect.poll(() => fs.existsSync(destination), { timeout: 30_000 }).toBe(true);
+      await expect.poll(() => fs.statSync(destination).size, { timeout: 30_000 }).toBeGreaterThan(0);
+      return { path: destination, text: fs.readFileSync(destination, 'utf8') };
+    },
+
+    readInterruptedRow: async (run): Promise<InterruptedRow> => {
+      await openSearch();
+      const row = win().locator(`.run-row[data-run="${run.id}"]`);
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      await expect(row.locator('.run-status')).toHaveAttribute('data-status', 'interrupted', { timeout: 30_000 });
+      return {
+        badge: (await row.locator('.run-status').innerText()).trim(),
+        note: (await row.locator('.run-note').innerText()).trim(),
+      };
+    },
+
+    restartRun: async (run) => {
+      await openSearch();
+      const row = win().locator(`.run-row[data-run="${run.id}"]`);
+      await row.getByRole('button', { name: 'Restart' }).click();
+      let next = 0;
+      await expect.poll(async () => {
+        const rows = await backend.executions();
+        const restarted = rows.filter((r) => r.restarted_from === run.id);
+        next = restarted.length === 1 ? Number(restarted[0].id) : 0;
+        return restarted.length;
+      }, { timeout: 30_000 }).toBe(1);
+      return { id: next };
+    },
 
     reopenTheApp: () => session.relaunch(),
 

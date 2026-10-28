@@ -24,7 +24,10 @@ import { createClassicDriver } from './classic';
 import type { Session } from './session';
 
 /** The classic driver's members that never touch the window's markup. */
-const RENDERER_FREE = new Set<string>(['backend', 'takePicture', 'releaseTheSource']);
+const RENDERER_FREE = new Set<string>([
+  'backend', 'takePicture', 'releaseTheSource', 'refusedConnections', 'waitForRunToSettle', 'reportExists',
+  'killTheBackend',
+]);
 
 export function createCandidateDriver(session: Session, testInfo: TestInfo): JourneyDriver {
   const classic = createClassicDriver(session, testInfo);
