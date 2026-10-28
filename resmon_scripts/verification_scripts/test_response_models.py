@@ -124,6 +124,10 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("GET", "/api/settings/storage"),
         ("PUT", "/api/settings/storage"),
     ),
+    "appearance": (
+        ("GET", "/api/appearance"),
+        ("PUT", "/api/appearance"),
+    ),
     "reading queue": (
         ("GET", "/api/reading-queue"),
         ("POST", "/api/reading-queue"),
@@ -354,6 +358,7 @@ def driven() -> Drive:
         drive("GET", "/api/onboarding")
         _drive_process_identity(drive)
         _drive_settings(drive)
+        _drive_appearance(drive)
 
         # A profile with no identifier, so ``basis_warning`` is a sentence and
         # not ``None``: the field most easily lost is the one carrying a value.
@@ -469,6 +474,18 @@ def _drive_process_identity(drive: Drive) -> None:
     assert catalog, "the catalog must have rows for its model to be exercised"
     drive("GET", "/api/credentials")
     drive("POST", "/api/renderer/heartbeat")
+
+
+def _drive_appearance(drive: Drive) -> None:
+    """An enum and a nullable color, and a PUT that answers what it stored.
+
+    Read before a choice, where ``accent`` is null, and after one, where it is
+    the lowercased string the PUT reported: the null and the string are the two
+    shapes the field has.
+    """
+    drive("GET", "/api/appearance")
+    drive("PUT", "/api/appearance", json={"theme": "dark", "accent": "#3D8AFF"})
+    drive("GET", "/api/appearance")
 
 
 def _drive_settings(drive: Drive) -> None:

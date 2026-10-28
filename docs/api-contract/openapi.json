@@ -250,6 +250,70 @@
         "title": "AiSettings",
         "type": "object"
       },
+      "Appearance": {
+        "additionalProperties": true,
+        "description": "``GET`` and ``PUT /api/appearance``: the theme and the accent chosen.\n\n``accent`` is a lowercase ``#rrggbb``, or null when none has been chosen and\nthe interface draws its own default. The PUT answers what it stored, so a\ncaller can see the lowercasing rather than assume it.",
+        "properties": {
+          "accent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accent"
+          },
+          "theme": {
+            "enum": [
+              "system",
+              "light",
+              "dark"
+            ],
+            "title": "Theme",
+            "type": "string"
+          }
+        },
+        "required": [
+          "theme",
+          "accent"
+        ],
+        "title": "Appearance",
+        "type": "object"
+      },
+      "AppearanceBody": {
+        "description": "The whole appearance, every time: a PUT replaces both values.",
+        "properties": {
+          "accent": {
+            "anyOf": [
+              {
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accent"
+          },
+          "theme": {
+            "enum": [
+              "system",
+              "light",
+              "dark"
+            ],
+            "title": "Theme",
+            "type": "string"
+          }
+        },
+        "required": [
+          "theme",
+          "accent"
+        ],
+        "title": "AppearanceBody",
+        "type": "object"
+      },
       "AssistantMessageBody": {
         "additionalProperties": false,
         "properties": {
@@ -5075,6 +5139,60 @@
           }
         },
         "summary": "Analytics Summary"
+      }
+    },
+    "/api/appearance": {
+      "get": {
+        "operationId": "get_appearance_api_appearance_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Appearance"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Appearance"
+      },
+      "put": {
+        "operationId": "update_appearance_api_appearance_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppearanceBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Appearance"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Appearance"
       }
     },
     "/api/assistant/permissions": {
