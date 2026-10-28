@@ -56,6 +56,7 @@ from implementation_scripts.database import (
     get_execution_ai,
     get_execution_documents,
     get_execution_documents_page,
+    get_routine_document_ids,
     get_documents_by_ids,
     update_execution_status,
     touch_execution_heartbeat,
@@ -1552,7 +1553,8 @@ def renderer_heartbeat():
     return {"ok": True, "ttl_sec": _RENDERER_HEARTBEAT_TTL_SEC}
 
 
-@app.get("/api/routines")
+@app.get("/api/routines", response_model=list[response_models.RoutineRow],
+         response_model_exclude_unset=True)
 def list_routines():
     conn = _get_db()
     try:
@@ -1598,7 +1600,8 @@ def list_routines():
         _close_db(conn)
 
 
-@app.get("/api/routines/{routine_id}")
+@app.get("/api/routines/{routine_id}", response_model=response_models.Routine,
+         response_model_exclude_unset=True)
 def get_routine(routine_id: int):
     """Fetch a single routine by ID.
 
@@ -1679,7 +1682,8 @@ def _entity_source_warning(entity: Optional[dict], parameters: dict) -> Optional
         "so on the source's row.")
 
 
-@app.post("/api/routines", status_code=201)
+@app.post("/api/routines", status_code=201, response_model=response_models.RoutineCreated,
+          response_model_exclude_unset=True)
 def create_routine(body: RoutineCreate):
     conn = _get_db()
     try:
@@ -1716,7 +1720,8 @@ def create_routine(body: RoutineCreate):
         _close_db(conn)
 
 
-@app.put("/api/routines/{routine_id}")
+@app.put("/api/routines/{routine_id}", response_model=response_models.RoutineUpdated,
+         response_model_exclude_unset=True)
 def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
     conn = _get_db()
     try:
@@ -1772,7 +1777,8 @@ def delete_routine_endpoint(routine_id: int):
         _close_db(conn)
 
 
-@app.post("/api/routines/{routine_id}/activate")
+@app.post("/api/routines/{routine_id}/activate", response_model=response_models.RoutineActivation,
+          response_model_exclude_unset=True)
 def activate_routine(routine_id: int):
     conn = _get_db()
     try:
@@ -1798,7 +1804,8 @@ def activate_routine(routine_id: int):
 # after the backoff has given up.
 
 
-@app.get("/api/routines/{routine_id}/delivery-targets")
+@app.get("/api/routines/{routine_id}/delivery-targets", response_model=response_models.DeliveryTargets,
+         response_model_exclude_unset=True)
 def list_routine_delivery_targets(routine_id: int):
     conn = _get_db()
     try:
@@ -1815,7 +1822,8 @@ def list_routine_delivery_targets(routine_id: int):
         _close_db(conn)
 
 
-@app.post("/api/routines/{routine_id}/delivery-targets")
+@app.post("/api/routines/{routine_id}/delivery-targets",
+          response_model=response_models.DeliveryTargetAdded, response_model_exclude_unset=True)
 def add_routine_delivery_target(routine_id: int, body: DeliveryTargetCreate):
     conn = _get_db()
     try:
@@ -1868,7 +1876,8 @@ def delete_routine_delivery_target(routine_id: int, target_id: int):
         _close_db(conn)
 
 
-@app.get("/api/routines/{routine_id}/deliveries")
+@app.get("/api/routines/{routine_id}/deliveries", response_model=response_models.RoutineDeliveries,
+         response_model_exclude_unset=True)
 def list_routine_deliveries(routine_id: int, limit: int = 100):
     conn = _get_db()
     try:
@@ -1898,7 +1907,8 @@ def list_execution_deliveries(exec_id: int):
         _close_db(conn)
 
 
-@app.post("/api/deliveries/{delivery_id}/deliver")
+@app.post("/api/deliveries/{delivery_id}/deliver", response_model=response_models.DeliveryActed,
+          response_model_exclude_unset=True)
 def approve_delivery(delivery_id: int):
     """Release a delivery that was waiting for review. The only promotion."""
     conn = _get_db()
@@ -1917,7 +1927,8 @@ def approve_delivery(delivery_id: int):
         _close_db(conn)
 
 
-@app.post("/api/deliveries/{delivery_id}/skip")
+@app.post("/api/deliveries/{delivery_id}/skip", response_model=response_models.DeliveryActed,
+          response_model_exclude_unset=True)
 def skip_delivery(delivery_id: int):
     conn = _get_db()
     try:
@@ -1997,7 +2008,8 @@ def delivery_bundle(delivery_id: int, exp: str = "", sig: str = ""):
     )
 
 
-@app.post("/api/deliveries/{delivery_id}/retry")
+@app.post("/api/deliveries/{delivery_id}/retry", response_model=response_models.DeliveryActed,
+          response_model_exclude_unset=True)
 def retry_delivery(delivery_id: int):
     """Start the attempt sequence again, after the backoff has given up."""
     conn = _get_db()
@@ -2017,7 +2029,8 @@ def retry_delivery(delivery_id: int):
         _close_db(conn)
 
 
-@app.post("/api/routines/{routine_id}/run")
+@app.post("/api/routines/{routine_id}/run", response_model=response_models.RoutineRunStarted,
+          response_model_exclude_unset=True)
 def run_routine_now(routine_id: int):
     """Run a routine immediately, outside its schedule.
 
@@ -2106,7 +2119,8 @@ def run_routine_now(routine_id: int):
         _close_db(conn)
 
 
-@app.post("/api/routines/{routine_id}/deactivate")
+@app.post("/api/routines/{routine_id}/deactivate", response_model=response_models.RoutineActivation,
+          response_model_exclude_unset=True)
 def deactivate_routine(routine_id: int):
     conn = _get_db()
     try:
@@ -2117,6 +2131,26 @@ def deactivate_routine(routine_id: int):
         _sync_routine_config(conn, routine_id)
         _sched_remove_routine(routine_id)
         return {"id": routine_id, "is_active": False}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/routines/{routine_id}/documents", response_model=response_models.RoutineDocuments,
+         response_model_exclude_unset=True)
+def routine_documents(routine_id: int, limit: int = Query(2000, ge=1, le=10000)):
+    """The papers this routine's runs collected: a watch's constellation.
+
+    Ids only, newest run first and each paper once, because what a screen does
+    with them is mark them on the collection map; a page of records is the
+    Explorer's job. ``total`` counts all of them, so a screen whose ``limit``
+    cut the list short can say so rather than imply the marks are complete.
+    """
+    conn = _get_db()
+    try:
+        if not get_routine_by_id(conn, routine_id):
+            raise HTTPException(404, "Routine not found")
+        ids, total = get_routine_document_ids(conn, routine_id, limit=limit)
+        return {"routine_id": routine_id, "document_ids": ids, "total": total, "limit": limit}
     finally:
         _close_db(conn)
 
@@ -2255,10 +2289,14 @@ def list_executions(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     type: Optional[str] = Query(None, alias="type"),
+    routine_id: Optional[int] = Query(None),
 ):
     conn = _get_db()
     try:
-        rows = get_executions(conn, limit=limit, offset=offset, execution_type=type)
+        # ``routine_id`` is one watch's runs, its nights, for a page that lists
+        # them without fetching every run resmon has made to filter them.
+        rows = get_executions(conn, limit=limit, offset=offset, execution_type=type,
+                              routine_id=routine_id)
         outcomes = _source_outcomes(conn, [int(r["id"]) for r in rows])
         for row in rows:
             row["coverage"] = source_coverage.build(row, get_execution_sources(conn, int(row["id"])))
@@ -3954,7 +3992,8 @@ def _coverage_for_routine(conn, routine_id: int) -> dict:
     return audit
 
 
-@app.get("/api/routines/{routine_id}/coverage")
+@app.get("/api/routines/{routine_id}/coverage", response_model=response_models.RoutineCoverage,
+         response_model_exclude_unset=True)
 def routine_coverage(routine_id: int):
     """Is this routine finding what its owner meant, and what is it missing?
 
@@ -4595,7 +4634,8 @@ def watchdog_unmute(request: WatchdogMuteRequest):
         _close_db(conn)
 
 
-@app.get("/api/calendar/events")
+@app.get("/api/calendar/events", response_model=list[response_models.CalendarEvent],
+         response_model_exclude_unset=True)
 def calendar_events(
     start: Optional[str] = None,
     end: Optional[str] = None,

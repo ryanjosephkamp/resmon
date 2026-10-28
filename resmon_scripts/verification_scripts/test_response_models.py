@@ -200,6 +200,28 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     "the scheduler": (
         ("GET", "/api/scheduler/status"),
     ),
+    "watches": (
+        ("GET", "/api/routines"),
+        ("POST", "/api/routines"),
+        ("GET", "/api/routines/{routine_id}"),
+        ("PUT", "/api/routines/{routine_id}"),
+        ("POST", "/api/routines/{routine_id}/activate"),
+        ("POST", "/api/routines/{routine_id}/deactivate"),
+        ("POST", "/api/routines/{routine_id}/run"),
+        ("GET", "/api/routines/{routine_id}/documents"),
+        ("GET", "/api/routines/{routine_id}/delivery-targets"),
+        ("POST", "/api/routines/{routine_id}/delivery-targets"),
+        ("GET", "/api/routines/{routine_id}/deliveries"),
+        ("GET", "/api/routines/{routine_id}/coverage"),
+    ),
+    "where a watch's reports go": (
+        ("POST", "/api/deliveries/{delivery_id}/deliver"),
+        ("POST", "/api/deliveries/{delivery_id}/skip"),
+        ("POST", "/api/deliveries/{delivery_id}/retry"),
+    ),
+    "the calendar": (
+        ("GET", "/api/calendar/events"),
+    ),
 }
 
 #: Routes whose body is a list of **strings**, so there is no object anywhere
@@ -493,6 +515,7 @@ def driven() -> Drive:
         _drive_today(drive)
         _drive_runs(drive)
         _drive_collection(drive)
+        _drive_watches(drive, doc_ids)
 
         yield drive
 
@@ -544,8 +567,8 @@ def _drive_collection(drive: Drive) -> None:
     for two of the three papers, so a ranked page has distances, a paper
     listed last with none, and the counts and model the similarity sort adds;
     an empty phrase is refused, which is the one body carrying
-    ``similarity_unavailable``. Last in the scenario, and the lane is turned
-    off again at the end, so nothing above embeds.
+    ``similarity_unavailable``. The lane is turned off again at the end, so no
+    slice embeds unless it sets up its own.
     """
     from embedding_server import EmbeddingServer, deterministic_vector  # noqa: PLC0415
     from implementation_scripts import vector_index  # noqa: PLC0415
@@ -951,6 +974,134 @@ def _drive_watchdog_and_first_run(drive: Drive) -> None:
         f"this read left {undecided}")
 
     drive("POST", "/api/onboarding/dismiss")
+
+
+def _drive_watches(drive: Drive, doc_ids: list[int]) -> None:
+    """A watch: made, read, changed, paused and resumed, run now, its papers,
+    where its report went, its coverage audit both ways, and its fires.
+
+    The routine asks a source that needs a key, so its run is skipped at once
+    and settles without the network, as the runs slice explains. Two papers
+    the scenario already holds are then linked to that run, so the papers route
+    answers ids rather than an empty list. Three destinations: a folder that
+    exists, and two webhooks in review mode, so the record has two deliveries
+    waiting for a person: one is skipped and retried, the other released. No
+    drain runs in this suite, so nothing is sent anywhere.
+
+    The coverage audit is read twice: with no intent and no embedding model,
+    which is the reason sentence, and with an intent through the suite's
+    loopback embedder and fourteen indexed results, which is the measured audit
+    with its distribution and lists where this Python can load the vector index,
+    and the sentence saying it cannot where it cannot. Last,
+    the routine is resumed so the calendar promises its fires beside its run,
+    and paused again.
+    """
+    import tempfile  # noqa: PLC0415
+    from embedding_server import EmbeddingServer, deterministic_vector  # noqa: PLC0415
+    from implementation_scripts import vector_index  # noqa: PLC0415
+
+    profile = drive.client.post("/api/profiles", json={"kind": "person", "display_name": "Ada Watched"})
+    assert profile.status_code == 201, profile.text
+    # bioRxiv cannot be asked about an author, so a routine watching a person
+    # through it alone is created with the sentence saying it will find nothing.
+    person = drive("POST", "/api/routines", expect=201, json={
+        "name": "a person, through a source that cannot ask", "schedule_cron": "0 7 * * 1",
+        "parameters": {"repositories": ["biorxiv"],
+                       "entity": {"profile_id": profile.json()["id"], "mode": "new_papers"}}})
+    assert person.get("entity_warning"), person
+    made = drive("POST", "/api/routines", expect=201, json={
+        "name": "Perovskite films", "schedule_cron": "0 9 * * *",
+        "parameters": {"repositories": ["springer"], "keywords": ["perovskite"],
+                       "query": "perovskite", "max_results": 5},
+        "is_active": False})
+    assert "entity" not in made, made
+    rid = made["id"]
+    drive("GET", "/api/routines")
+    drive("GET", f"/api/routines/{rid}")
+    drive("PUT", f"/api/routines/{rid}", json={"intent": "Stable perovskite films.", "notify_on_complete": True})
+    cleared = drive("PUT", f"/api/routines/{rid}", json={"intent": ""})
+    assert "intent" in cleared and cleared["intent"] is None, cleared
+    drive("POST", f"/api/routines/{rid}/activate")
+    drive("POST", f"/api/routines/{rid}/deactivate")
+
+    with tempfile.TemporaryDirectory() as folder:
+        drive("POST", f"/api/routines/{rid}/delivery-targets",
+              json={"channel": "folder", "target": folder, "mode": "automatic", "enabled": True})
+        for n in range(2):
+            drive("POST", f"/api/routines/{rid}/delivery-targets",
+                  json={"channel": "webhook", "target": f"https://watch-{n}.invalid/hook",
+                        "mode": "review", "enabled": True})
+        drive("GET", f"/api/routines/{rid}/delivery-targets")
+
+        started = drive("POST", f"/api/routines/{rid}/run")
+        assert started["was_inactive"] is True, started
+        _wait_until_settled(drive, started["execution_id"])
+        conn = resmon_mod._get_db()
+        try:
+            for doc in doc_ids:
+                conn.execute("INSERT OR IGNORE INTO execution_documents (execution_id, document_id) "
+                             "VALUES (?, ?)", (started["execution_id"], doc))
+            conn.commit()
+        finally:
+            resmon_mod._close_db(conn)
+        papers = drive("GET", f"/api/routines/{rid}/documents")
+        assert sorted(papers["document_ids"]) == sorted(doc_ids) and papers["total"] == len(doc_ids), papers
+        nights = drive("GET", "/api/executions", params={"routine_id": rid})
+        assert [row["id"] for row in nights] == [started["execution_id"]], nights
+
+        record = drive("GET", f"/api/routines/{rid}/deliveries")
+        held = [d["id"] for d in record["deliveries"] if d["state"] == "awaiting_review"]
+        assert len(held) == 2, record
+        drive("POST", f"/api/deliveries/{held[0]}/skip")
+        drive("POST", f"/api/deliveries/{held[0]}/retry")
+        drive("POST", f"/api/deliveries/{held[1]}/deliver")
+        drive("GET", f"/api/routines/{rid}/deliveries")
+
+    unmeasured = drive("GET", f"/api/routines/{rid}/coverage")
+    assert unmeasured["intent_source"] == "keywords" and unmeasured["reason"], unmeasured
+    with EmbeddingServer() as server:
+        model = "scenario-model"
+        made_lane = drive.client.put("/api/settings/embeddings", json={"settings": {
+            "embedding_enabled": "true", "embedding_provider": "local",
+            "embedding_model": model, "embedding_endpoint": server.base_url}})
+        assert made_lane.status_code == 200, made_lane.text
+        # Fourteen more of the run's papers, every one embedded and indexed: the
+        # audit draws a distribution only from twelve or more, and the papers
+        # the collection slice embedded are outside this routine, so they are
+        # what the missed list can name.
+        conn = resmon_mod._get_db()
+        try:
+            measurable = vector_index.load_extension(conn) is not None
+            for n in range(14):
+                doc = conn.execute(
+                    "INSERT INTO documents (source_repository, external_id, title, metadata_hash) "
+                    "VALUES ('springer', ?, ?, ?)",
+                    (f"watch-{n}", f"Perovskite film {n}", f"watch-{n}")).lastrowid
+                conn.execute("INSERT INTO execution_documents (execution_id, document_id) VALUES (?, ?)",
+                             (started["execution_id"], doc))
+                vector = deterministic_vector(f"perovskite film {n}", server.dims)
+                conn.execute(
+                    "INSERT INTO document_embeddings (document_id, model, dims, vector, fields) "
+                    "VALUES (?, ?, ?, ?, 'title+abstract')",
+                    (doc, model, len(vector), vector_index.pack_vector(vector)))
+            if measurable:
+                assert vector_index.rebuild(conn, model)["ok"]
+            conn.commit()
+        finally:
+            resmon_mod._close_db(conn)
+        drive.client.put(f"/api/routines/{rid}", json={"intent": "Stable perovskite films."})
+        measured = drive("GET", f"/api/routines/{rid}/coverage")
+        if measurable:
+            assert measured["distribution"] and measured["off_target"], measured
+        else:
+            assert "cannot load" in measured["reason"], measured
+        drive.client.put("/api/settings/embeddings", json={"settings": {"embedding_enabled": "false"}})
+
+    drive("POST", f"/api/routines/{rid}/activate")
+    events = drive("GET", "/api/calendar/events")
+    kinds = {event["status"] for event in events if event.get("routine_id") == rid}
+    assert {"scheduled"} < kinds, kinds
+    drive("POST", f"/api/routines/{rid}/deactivate")
 
 
 def _drive_scheduler(drive: Drive) -> None:

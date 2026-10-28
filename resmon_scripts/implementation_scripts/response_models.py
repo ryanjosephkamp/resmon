@@ -180,7 +180,7 @@ these two reasons applies.
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -1959,3 +1959,346 @@ class EmbeddingStatus(EmbeddingJobStatus):
 
     lane: Optional[EmbeddingLaneView]
     capability: EmbeddingCapability
+
+
+# ===========================================================================
+# Watches: a routine, its schedule, its runs and papers, where its reports go,
+# and whether it finds what was meant
+# ===========================================================================
+
+class MissedFires(LosslessModel):
+    """Fires that did not run, counted in pairs with the time beside each count.
+
+    ``count`` is every recorded miss. ``overlap_skipped`` is the subset refused
+    because the routine's previous run was still going; the rest came due while
+    resmon was not running, and ``last_closed_miss_due_at_utc`` is the latest of
+    those. A routine that has missed none answers with zeros, not an absent key.
+    """
+
+    count: int
+    last_due_at_utc: Optional[str]
+    overlap_skipped: int
+    last_overlap_skipped_due_at_utc: Optional[str]
+    last_closed_miss_due_at_utc: Optional[str]
+
+
+class MissedFire(LosslessModel):
+    """One fire that came due and did not run, and what became of it since."""
+
+    id: int
+    routine_id: int
+    due_at_utc: str
+    observed_at_utc: Optional[str]
+    disposition: Optional[str]
+
+
+class RoutineRow(LosslessModel):
+    """One row of ``GET /api/routines``: the ``routines`` row as stored, and
+    what its latest run did.
+
+    The five switches are SQLite's ``0`` and ``1`` here, as this list has always
+    sent them; the single-routine read below coerces them to booleans. Typed as
+    sent rather than as meant, so neither body changes. ``parameters``,
+    ``ai_settings`` and ``storage_settings`` are the stored JSON text, not
+    parsed objects. ``last_execution`` repeats ``last_executed_at`` under the
+    name the classic table reads.
+    """
+
+    id: int
+    name: str
+    schedule_cron: str
+    parameters: str
+    is_active: int
+    email_enabled: int
+    email_ai_summary_enabled: int
+    ai_enabled: int
+    notify_on_complete: int
+    ai_settings: Optional[str]
+    storage_settings: Optional[str]
+    intent: Optional[str]
+    execution_location: Optional[str]
+    created_at: str
+    updated_at: str
+    last_executed_at: Optional[str]
+    last_execution: Optional[str]
+    last_status: Optional[str]
+    missed_fires: MissedFires
+
+
+class Routine(LosslessModel):
+    """``GET /api/routines/{routine_id}``: one routine, its switches as
+    booleans, and every fire it missed, oldest first."""
+
+    id: int
+    name: str
+    schedule_cron: str
+    parameters: str
+    is_active: bool
+    email_enabled: bool
+    email_ai_summary_enabled: bool
+    ai_enabled: bool
+    notify_on_complete: bool
+    ai_settings: Optional[str]
+    storage_settings: Optional[str]
+    intent: Optional[str]
+    execution_location: Optional[str]
+    created_at: str
+    updated_at: str
+    last_executed_at: Optional[str]
+    missed_fires: MissedFires
+    missed_fire_details: list[MissedFire]
+
+
+class RoutineCreated(LosslessModel):
+    """``POST /api/routines``. ``entity`` is present only for a routine that
+    watches a person, and ``entity_warning`` only when none of its sources can
+    be asked about one: the routine is still created, and the sentence says it
+    will find nothing until a source that can is added."""
+
+    id: int
+    name: str
+    entity: Optional[dict[str, Any]] = None
+    entity_warning: Optional[str] = None
+
+
+class RoutineUpdated(LosslessModel):
+    """``PUT /api/routines/{routine_id}``: the id and each column the request
+    changed, as stored. Absent where unchanged; ``intent`` is ``None`` where
+    the request cleared it. Switches are stored ``0`` or ``1`` and the JSON
+    columns as text, which is what this answer repeats."""
+
+    id: int
+    name: Optional[str] = None
+    schedule_cron: Optional[str] = None
+    parameters: Optional[str] = None
+    intent: Optional[str] = None
+    is_active: Optional[int] = None
+    email_enabled: Optional[int] = None
+    email_ai_summary_enabled: Optional[int] = None
+    ai_enabled: Optional[int] = None
+    ai_settings: Optional[str] = None
+    storage_settings: Optional[str] = None
+    notify_on_complete: Optional[int] = None
+
+
+class RoutineActivation(LosslessModel):
+    """``POST /api/routines/{routine_id}/activate`` and ``/deactivate``. Only
+    the schedule changes: the routine and its runs stay."""
+
+    id: int
+    is_active: bool
+
+
+class RoutineRunStarted(LosslessModel):
+    """``POST /api/routines/{routine_id}/run``: a run started now, outside the
+    schedule.
+
+    ``was_inactive`` says the routine was not scheduled and ran once because it
+    was asked to, and ``detail`` says so in a sentence. A routine already
+    running is refused with a 409 whose detail names that run, which is an
+    error body and not this one.
+    """
+
+    execution_id: int
+    routine_id: int
+    was_inactive: bool
+    missed_fires_marked_ran_late: int
+    detail: str
+
+
+class RoutineDocuments(LosslessModel):
+    """``GET /api/routines/{routine_id}/documents``: the papers this routine's
+    runs collected, newest run first, each once.
+
+    ``total`` counts every one; ``document_ids`` stops at ``limit``. Only ids:
+    what a screen marks on the collection map, not a page of records.
+    """
+
+    routine_id: int
+    document_ids: list[int]
+    total: int
+    limit: int
+
+
+class DeliveryTarget(LosslessModel):
+    """A destination a routine's reports go to. ``enabled`` is stored ``0`` or
+    ``1``; ``mode`` is ``automatic`` or ``review`` (each delivery waits for a
+    person)."""
+
+    id: int
+    routine_id: int
+    channel: str
+    target: str
+    enabled: int
+    mode: str
+    created_at_utc: str
+    updated_at_utc: str
+
+
+class DeliveryTargets(LosslessModel):
+    """``GET /api/routines/{routine_id}/delivery-targets``, and the channels
+    resmon can act on today, so a screen offers exactly those."""
+
+    routine_id: int
+    targets: list[DeliveryTarget]
+    shipped_channels: list[str]
+
+
+class DeliveryTargetAdded(LosslessModel):
+    """``POST /api/routines/{routine_id}/delivery-targets``."""
+
+    id: int
+    routine_id: int
+
+
+class Delivery(LosslessModel):
+    """One report's journey to one destination, as recorded.
+
+    ``state`` is the drain's own word: ``queued``, ``awaiting_review``,
+    ``delivering``, ``delivered``, ``failed`` or ``skipped``. ``target_snapshot``
+    is where it was sent at the time, which survives the destination being
+    removed. Each field is stored, none inferred: "delivered" is never read
+    off the absence of an error.
+    """
+
+    id: int
+    execution_id: int
+    target_id: Optional[int]
+    channel: str
+    target_snapshot: str
+    state: str
+    attempts: int
+    next_attempt_at_utc: Optional[str]
+    last_error: Optional[str]
+    artifact_sha256: Optional[str]
+    owner_pid: Optional[int]
+    owner_runtime_id: Optional[str]
+    queued_at_utc: str
+    delivered_at_utc: Optional[str]
+
+
+class DeliverySummaryLast(LosslessModel):
+    """The most recent delivery of a routine, in brief."""
+
+    id: int
+    execution_id: int
+    channel: str
+    state: str
+    attempts: int
+    last_error: Optional[str]
+    delivered_at_utc: Optional[str]
+
+
+class DeliverySummary(LosslessModel):
+    """Enabled destinations by channel, how many deliveries wait for a person,
+    and the latest one, or ``None`` where there has been none."""
+
+    targets: dict[str, int]
+    enabled_target_count: int
+    awaiting_review: int
+    last: Optional[DeliverySummaryLast]
+
+
+class RoutineDeliveries(LosslessModel):
+    """``GET /api/routines/{routine_id}/deliveries``: the record, newest
+    first."""
+
+    routine_id: int
+    deliveries: list[Delivery]
+    summary: DeliverySummary
+
+
+class DeliveryActed(LosslessModel):
+    """``POST /api/deliveries/{delivery_id}/deliver``, ``/skip`` and ``/retry``:
+    the state the person's decision left it in. ``attempts`` is present only on
+    a retry, which starts the count again."""
+
+    id: int
+    state: str
+    attempts: Optional[int] = None
+
+
+class CoveragePaper(LosslessModel):
+    """One paper in a coverage list, and its distance from the intent: what was
+    measured, not a verdict on whether it belongs."""
+
+    id: int
+    distance: float
+    title: str
+    source_repository: str
+    publication_date: Optional[str]
+    doi: Optional[str]
+    url: Optional[str]
+
+
+class CoverageDistribution(LosslessModel):
+    """How far this routine's own results sit from its intent."""
+
+    count: int
+    min: float
+    median: float
+    p75_cutoff: float
+    max: float
+
+
+class RoutineCoverage(LosslessModel):
+    """``GET /api/routines/{routine_id}/coverage``: is this routine finding what
+    was meant, and what is it missing?
+
+    ``intent_source`` is ``stated`` for a written intent and ``keywords`` where
+    none was written and the routine's keywords stand in, which measures the
+    query against what the query produced. ``cannot_see`` is the sentence that
+    bounds both lists: resmon compares only against papers it already holds.
+    ``reason`` says why there is nothing to measure, or is ``None``.
+    ``summary`` is present whenever the audit itself ran, including to say why
+    it measured nothing; ``missed_reference_distance`` (the median of this
+    routine's own distances, which a missed paper must be inside) only when it
+    measured.
+    """
+
+    routine_id: int
+    routine_name: Optional[str]
+    intent: str
+    intent_source: str
+    model: Optional[str]
+    cannot_see: str
+    results: int
+    results_embedded: int
+    off_target: list[CoveragePaper]
+    off_target_total: int
+    missed_in_corpus: list[CoveragePaper]
+    missed_in_corpus_total: int
+    missed_in_corpus_total_is_lower_bound: bool
+    distribution: Optional[CoverageDistribution]
+    reason: Optional[str]
+    missed_reference_distance: Optional[float] = None
+    summary: Optional[str] = None
+
+
+class CalendarEvent(LosslessModel):
+    """One event of ``GET /api/calendar/events``: a run that happened, or a fire
+    a routine's schedule promises.
+
+    A run's ``id`` is its execution id; a promised fire's is a string naming
+    the routine and the time (``routine-3-2026-10-29T09:00:00-04:00``) and its
+    ``status`` is ``scheduled``. Promised fires are expanded only for active
+    routines, from now to a year ahead, in the machine's own timezone.
+    ``saved_configuration_id`` and ``saved_configuration_name`` are present on
+    runs only.
+    """
+
+    id: Union[int, str]
+    title: str
+    start: str
+    end: str
+    allDay: bool
+    color: str
+    execution_id: Optional[int]
+    routine_id: Optional[int]
+    saved_configuration_id: Optional[int] = None
+    saved_configuration_name: Optional[str] = None
+    type: str
+    status: str
+    query: Optional[str]
+    total_results: Optional[int]
+    new_results: Optional[int]
