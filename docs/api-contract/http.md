@@ -2,7 +2,7 @@
 
 **Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` writes this file from the running FastAPI application; `verification_scripts/test_api_contract.py` regenerates it and fails on any difference. Regenerate with `python -m implementation_scripts.api_contract --write`.
 
-193 routes, over 48 register rows: 43 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
+194 routes, over 48 register rows: 43 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
 
 ## How to read a row
 
@@ -10,9 +10,9 @@
 
 **SSE.** `yes` means the handler answers with `text/event-stream`. The response is a sequence of events, not a JSON body, and a client that reads it with an ordinary fetch-and-parse will hang.
 
-**Purpose.** The first line of the endpoint's docstring, for the 93 of 193 routes that have one. The remaining 100 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
+**Purpose.** The first line of the endpoint's docstring, for the 94 of 194 routes that have one. The remaining 100 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 71 of 193 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 122 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 87 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 107 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -40,14 +40,15 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/routines` | token | — | — | *List Routines* |
-| `POST` | `/api/routines` | token | — | — | *Create Routine* |
+| `GET` | `/api/routines` | token | — | `list` | *List Routines* |
+| `POST` | `/api/routines` | token | — | `RoutineCreated` | *Create Routine* |
 | `DELETE` | `/api/routines/{routine_id}` | token | — | — | *Delete Routine Endpoint* |
-| `GET` | `/api/routines/{routine_id}` | token | — | — | Fetch a single routine by ID. |
-| `PUT` | `/api/routines/{routine_id}` | token | — | — | *Update Routine Endpoint* |
-| `POST` | `/api/routines/{routine_id}/activate` | token | — | — | *Activate Routine* |
-| `POST` | `/api/routines/{routine_id}/deactivate` | token | — | — | *Deactivate Routine* |
-| `POST` | `/api/routines/{routine_id}/run` | token | — | — | Run a routine immediately, outside its schedule. |
+| `GET` | `/api/routines/{routine_id}` | token | — | `Routine` | Fetch a single routine by ID. |
+| `PUT` | `/api/routines/{routine_id}` | token | — | `RoutineUpdated` | *Update Routine Endpoint* |
+| `POST` | `/api/routines/{routine_id}/activate` | token | — | `RoutineActivation` | *Activate Routine* |
+| `POST` | `/api/routines/{routine_id}/deactivate` | token | — | `RoutineActivation` | *Deactivate Routine* |
+| `GET` | `/api/routines/{routine_id}/documents` | token | — | `RoutineDocuments` | The papers this routine's runs collected: a watch's constellation. |
+| `POST` | `/api/routines/{routine_id}/run` | token | — | `RoutineRunStarted` | Run a routine immediately, outside its schedule. |
 | `GET` | `/api/scheduler/jobs` | token | — | — | *Get Scheduler Jobs* |
 | `GET` | `/api/scheduler/status` | token | — | `SchedulerStatus` | Whether this database's active routines will fire, and what decides it. |
 
@@ -137,7 +138,7 @@ No route of its own. The capability is in the normaliser, the catalog's `entity_
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/routines/{routine_id}/coverage` | token | — | — | Is this routine finding what its owner meant, and what is it missing? |
+| `GET` | `/api/routines/{routine_id}/coverage` | token | — | `RoutineCoverage` | Is this routine finding what its owner meant, and what is it missing? |
 
 ## J12 — Explorer
 
@@ -219,7 +220,7 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/calendar/events` | token | — | — | *Calendar Events* |
+| `GET` | `/api/calendar/events` | token | — | `list` | *Calendar Events* |
 
 ## J21 — Saved configurations
 
@@ -393,8 +394,8 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/routines/{routine_id}` | token | — | — | Fetch a single routine by ID. |
-| `POST` | `/api/routines/{routine_id}/run` | token | — | — | Run a routine immediately, outside its schedule. |
+| `GET` | `/api/routines/{routine_id}` | token | — | `Routine` | Fetch a single routine by ID. |
+| `POST` | `/api/routines/{routine_id}/run` | token | — | `RoutineRunStarted` | Run a routine immediately, outside its schedule. |
 | `POST` | `/api/search/dive` | token | — | `RunStarted` | *Search Dive* |
 | `POST` | `/api/search/sweep` | token | — | `RunStarted` | *Search Sweep* |
 | `GET` | `/api/settings/execution` | token | — | `ExecutionSettings` | *Get Execution Settings* |
@@ -405,13 +406,13 @@ No route. Recorded in the register as not carried forward.
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/deliveries/{delivery_id}/bundle` | signed link | — | — | The report bundle a webhook envelope linked to, for whoever holds the link. |
-| `POST` | `/api/deliveries/{delivery_id}/deliver` | token | — | — | Release a delivery that was waiting for review. The only promotion. |
-| `POST` | `/api/deliveries/{delivery_id}/retry` | token | — | — | Start the attempt sequence again, after the backoff has given up. |
-| `POST` | `/api/deliveries/{delivery_id}/skip` | token | — | — | *Skip Delivery* |
+| `POST` | `/api/deliveries/{delivery_id}/deliver` | token | — | `DeliveryActed` | Release a delivery that was waiting for review. The only promotion. |
+| `POST` | `/api/deliveries/{delivery_id}/retry` | token | — | `DeliveryActed` | Start the attempt sequence again, after the backoff has given up. |
+| `POST` | `/api/deliveries/{delivery_id}/skip` | token | — | `DeliveryActed` | *Skip Delivery* |
 | `GET` | `/api/executions/{exec_id}/deliveries` | token | — | — | *List Execution Deliveries* |
-| `GET` | `/api/routines/{routine_id}/deliveries` | token | — | — | *List Routine Deliveries* |
-| `GET` | `/api/routines/{routine_id}/delivery-targets` | token | — | — | *List Routine Delivery Targets* |
-| `POST` | `/api/routines/{routine_id}/delivery-targets` | token | — | — | *Add Routine Delivery Target* |
+| `GET` | `/api/routines/{routine_id}/deliveries` | token | — | `RoutineDeliveries` | *List Routine Deliveries* |
+| `GET` | `/api/routines/{routine_id}/delivery-targets` | token | — | `DeliveryTargets` | *List Routine Delivery Targets* |
+| `POST` | `/api/routines/{routine_id}/delivery-targets` | token | — | `DeliveryTargetAdded` | *Add Routine Delivery Target* |
 | `DELETE` | `/api/routines/{routine_id}/delivery-targets/{target_id}` | token | — | — | *Delete Routine Delivery Target* |
 | `PUT` | `/api/routines/{routine_id}/delivery-targets/{target_id}` | token | — | — | *Update Routine Delivery Target* |
 
@@ -436,7 +437,7 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/auth/renderer-origin` | token | — | — | Allow one more exact renderer origin on this backend. |
 | `GET` | `/api/deliveries/{delivery_id}/bundle` | signed link | — | — | The report bundle a webhook envelope linked to, for whoever holds the link. |
 
-The guard is in front of all 193 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
+The guard is in front of all 194 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
 
 ## J43 — Upgrade in place
 
@@ -468,14 +469,14 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | `GET` | `/api/profiles/{profile_id}` | token | — | `WatchProfile` | *Get Watch Profile* |
 | `GET` | `/api/profiles/{profile_id}/matches` | token | — | `WatchProfileMatchPage` | Papers matched to this profile, **each with the basis it was matched on**. |
 | `GET` | `/api/repositories/catalog` | token | — | `list` | Return the static repository catalog (never returns secrets). |
-| `GET` | `/api/routines` | token | — | — | *List Routines* |
-| `POST` | `/api/routines` | token | — | — | *Create Routine* |
-| `GET` | `/api/routines/{routine_id}` | token | — | — | Fetch a single routine by ID. |
-| `POST` | `/api/routines/{routine_id}/activate` | token | — | — | *Activate Routine* |
-| `GET` | `/api/routines/{routine_id}/coverage` | token | — | — | Is this routine finding what its owner meant, and what is it missing? |
-| `POST` | `/api/routines/{routine_id}/deactivate` | token | — | — | *Deactivate Routine* |
-| `GET` | `/api/routines/{routine_id}/deliveries` | token | — | — | *List Routine Deliveries* |
-| `POST` | `/api/routines/{routine_id}/run` | token | — | — | Run a routine immediately, outside its schedule. |
+| `GET` | `/api/routines` | token | — | `list` | *List Routines* |
+| `POST` | `/api/routines` | token | — | `RoutineCreated` | *Create Routine* |
+| `GET` | `/api/routines/{routine_id}` | token | — | `Routine` | Fetch a single routine by ID. |
+| `POST` | `/api/routines/{routine_id}/activate` | token | — | `RoutineActivation` | *Activate Routine* |
+| `GET` | `/api/routines/{routine_id}/coverage` | token | — | `RoutineCoverage` | Is this routine finding what its owner meant, and what is it missing? |
+| `POST` | `/api/routines/{routine_id}/deactivate` | token | — | `RoutineActivation` | *Deactivate Routine* |
+| `GET` | `/api/routines/{routine_id}/deliveries` | token | — | `RoutineDeliveries` | *List Routine Deliveries* |
+| `POST` | `/api/routines/{routine_id}/run` | token | — | `RoutineRunStarted` | Run a routine immediately, outside its schedule. |
 | `POST` | `/api/search/sweep` | token | — | `RunStarted` | *Search Sweep* |
 | `GET` | `/api/watchdog` | token | — | `WatchdogReport` | Findings, what could not be judged yet, and the thresholds used. |
 

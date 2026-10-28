@@ -2857,6 +2857,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/routines/{routine_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Routine Documents
+         * @description The papers this routine's runs collected: a watch's constellation.
+         *
+         *     Ids only, newest run first and each paper once, because what a screen does
+         *     with them is mark them on the collection map; a page of records is the
+         *     Explorer's job. ``total`` counts all of them, so a screen whose ``limit``
+         *     cut the list short can say so rather than imply the marks are complete.
+         */
+        get: operations["routine_documents_api_routines__routine_id__documents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/routines/{routine_id}/run": {
         parameters: {
             query?: never;
@@ -3690,6 +3715,52 @@ export interface components {
              */
             path: string;
         };
+        /**
+         * CalendarEvent
+         * @description One event of ``GET /api/calendar/events``: a run that happened, or a fire
+         *     a routine's schedule promises.
+         *
+         *     A run's ``id`` is its execution id; a promised fire's is a string naming
+         *     the routine and the time (``routine-3-2026-10-29T09:00:00-04:00``) and its
+         *     ``status`` is ``scheduled``. Promised fires are expanded only for active
+         *     routines, from now to a year ahead, in the machine's own timezone.
+         *     ``saved_configuration_id`` and ``saved_configuration_name`` are present on
+         *     runs only.
+         */
+        CalendarEvent: {
+            /** Allday */
+            allDay: boolean;
+            /** Color */
+            color: string;
+            /** End */
+            end: string;
+            /** Execution Id */
+            execution_id: number | null;
+            /** Id */
+            id: number | string;
+            /** New Results */
+            new_results: number | null;
+            /** Query */
+            query: string | null;
+            /** Routine Id */
+            routine_id: number | null;
+            /** Saved Configuration Id */
+            saved_configuration_id?: number | null;
+            /** Saved Configuration Name */
+            saved_configuration_name?: string | null;
+            /** Start */
+            start: string;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+            /** Total Results */
+            total_results: number | null;
+            /** Type */
+            type: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** CloudBackup */
         CloudBackup: {
             /** Execution Ids */
@@ -3873,6 +3944,47 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * CoverageDistribution
+         * @description How far this routine's own results sit from its intent.
+         */
+        CoverageDistribution: {
+            /** Count */
+            count: number;
+            /** Max */
+            max: number;
+            /** Median */
+            median: number;
+            /** Min */
+            min: number;
+            /** P75 Cutoff */
+            p75_cutoff: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CoveragePaper
+         * @description One paper in a coverage list, and its distance from the intent: what was
+         *     measured, not a verdict on whether it belongs.
+         */
+        CoveragePaper: {
+            /** Distance */
+            distance: number;
+            /** Doi */
+            doi: string | null;
+            /** Id */
+            id: number;
+            /** Publication Date */
+            publication_date: string | null;
+            /** Source Repository */
+            source_repository: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * CredentialPresence
          * @description Whether one credential is there, never what it is.
          *
@@ -3924,6 +4036,142 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * Delivery
+         * @description One report's journey to one destination, as recorded.
+         *
+         *     ``state`` is the drain's own word: ``queued``, ``awaiting_review``,
+         *     ``delivering``, ``delivered``, ``failed`` or ``skipped``. ``target_snapshot``
+         *     is where it was sent at the time, which survives the destination being
+         *     removed. Each field is stored, none inferred: "delivered" is never read
+         *     off the absence of an error.
+         */
+        Delivery: {
+            /** Artifact Sha256 */
+            artifact_sha256: string | null;
+            /** Attempts */
+            attempts: number;
+            /** Channel */
+            channel: string;
+            /** Delivered At Utc */
+            delivered_at_utc: string | null;
+            /** Execution Id */
+            execution_id: number;
+            /** Id */
+            id: number;
+            /** Last Error */
+            last_error: string | null;
+            /** Next Attempt At Utc */
+            next_attempt_at_utc: string | null;
+            /** Owner Pid */
+            owner_pid: number | null;
+            /** Owner Runtime Id */
+            owner_runtime_id: string | null;
+            /** Queued At Utc */
+            queued_at_utc: string;
+            /** State */
+            state: string;
+            /** Target Id */
+            target_id: number | null;
+            /** Target Snapshot */
+            target_snapshot: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DeliveryActed
+         * @description ``POST /api/deliveries/{delivery_id}/deliver``, ``/skip`` and ``/retry``:
+         *     the state the person's decision left it in. ``attempts`` is present only on
+         *     a retry, which starts the count again.
+         */
+        DeliveryActed: {
+            /** Attempts */
+            attempts?: number | null;
+            /** Id */
+            id: number;
+            /** State */
+            state: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DeliverySummary
+         * @description Enabled destinations by channel, how many deliveries wait for a person,
+         *     and the latest one, or ``None`` where there has been none.
+         */
+        DeliverySummary: {
+            /** Awaiting Review */
+            awaiting_review: number;
+            /** Enabled Target Count */
+            enabled_target_count: number;
+            last: components["schemas"]["DeliverySummaryLast"] | null;
+            /** Targets */
+            targets: {
+                [key: string]: number;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DeliverySummaryLast
+         * @description The most recent delivery of a routine, in brief.
+         */
+        DeliverySummaryLast: {
+            /** Attempts */
+            attempts: number;
+            /** Channel */
+            channel: string;
+            /** Delivered At Utc */
+            delivered_at_utc: string | null;
+            /** Execution Id */
+            execution_id: number;
+            /** Id */
+            id: number;
+            /** Last Error */
+            last_error: string | null;
+            /** State */
+            state: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DeliveryTarget
+         * @description A destination a routine's reports go to. ``enabled`` is stored ``0`` or
+         *     ``1``; ``mode`` is ``automatic`` or ``review`` (each delivery waits for a
+         *     person).
+         */
+        DeliveryTarget: {
+            /** Channel */
+            channel: string;
+            /** Created At Utc */
+            created_at_utc: string;
+            /** Enabled */
+            enabled: number;
+            /** Id */
+            id: number;
+            /** Mode */
+            mode: string;
+            /** Routine Id */
+            routine_id: number;
+            /** Target */
+            target: string;
+            /** Updated At Utc */
+            updated_at_utc: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DeliveryTargetAdded
+         * @description ``POST /api/routines/{routine_id}/delivery-targets``.
+         */
+        DeliveryTargetAdded: {
+            /** Id */
+            id: number;
+            /** Routine Id */
+            routine_id: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * DeliveryTargetCreate
          * @description One destination for a routine's report.
          *
@@ -3959,6 +4207,21 @@ export interface components {
             mode?: string | null;
             /** Target */
             target?: string | null;
+        };
+        /**
+         * DeliveryTargets
+         * @description ``GET /api/routines/{routine_id}/delivery-targets``, and the channels
+         *     resmon can act on today, so a screen offers exactly those.
+         */
+        DeliveryTargets: {
+            /** Routine Id */
+            routine_id: number;
+            /** Shipped Channels */
+            shipped_channels: string[];
+            /** Targets */
+            targets: components["schemas"]["DeliveryTarget"][];
+        } & {
+            [key: string]: unknown;
         };
         /** DiveRequest */
         DiveRequest: {
@@ -4618,6 +4881,47 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * MissedFire
+         * @description One fire that came due and did not run, and what became of it since.
+         */
+        MissedFire: {
+            /** Disposition */
+            disposition: string | null;
+            /** Due At Utc */
+            due_at_utc: string;
+            /** Id */
+            id: number;
+            /** Observed At Utc */
+            observed_at_utc: string | null;
+            /** Routine Id */
+            routine_id: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * MissedFires
+         * @description Fires that did not run, counted in pairs with the time beside each count.
+         *
+         *     ``count`` is every recorded miss. ``overlap_skipped`` is the subset refused
+         *     because the routine's previous run was still going; the rest came due while
+         *     resmon was not running, and ``last_closed_miss_due_at_utc`` is the latest of
+         *     those. A routine that has missed none answers with zeros, not an absent key.
+         */
+        MissedFires: {
+            /** Count */
+            count: number;
+            /** Last Closed Miss Due At Utc */
+            last_closed_miss_due_at_utc: string | null;
+            /** Last Due At Utc */
+            last_due_at_utc: string | null;
+            /** Last Overlap Skipped Due At Utc */
+            last_overlap_skipped_due_at_utc: string | null;
+            /** Overlap Skipped */
+            overlap_skipped: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * NotificationSettings
          * @description ``GET /api/settings/notifications`` — the one group that is not strings.
          *
@@ -5229,6 +5533,115 @@ export interface components {
              */
             vault_parent: string;
         };
+        /**
+         * Routine
+         * @description ``GET /api/routines/{routine_id}``: one routine, its switches as
+         *     booleans, and every fire it missed, oldest first.
+         */
+        Routine: {
+            /** Ai Enabled */
+            ai_enabled: boolean;
+            /** Ai Settings */
+            ai_settings: string | null;
+            /** Created At */
+            created_at: string;
+            /** Email Ai Summary Enabled */
+            email_ai_summary_enabled: boolean;
+            /** Email Enabled */
+            email_enabled: boolean;
+            /** Execution Location */
+            execution_location: string | null;
+            /** Id */
+            id: number;
+            /** Intent */
+            intent: string | null;
+            /** Is Active */
+            is_active: boolean;
+            /** Last Executed At */
+            last_executed_at: string | null;
+            /** Missed Fire Details */
+            missed_fire_details: components["schemas"]["MissedFire"][];
+            missed_fires: components["schemas"]["MissedFires"];
+            /** Name */
+            name: string;
+            /** Notify On Complete */
+            notify_on_complete: boolean;
+            /** Parameters */
+            parameters: string;
+            /** Schedule Cron */
+            schedule_cron: string;
+            /** Storage Settings */
+            storage_settings: string | null;
+            /** Updated At */
+            updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RoutineActivation
+         * @description ``POST /api/routines/{routine_id}/activate`` and ``/deactivate``. Only
+         *     the schedule changes: the routine and its runs stay.
+         */
+        RoutineActivation: {
+            /** Id */
+            id: number;
+            /** Is Active */
+            is_active: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RoutineCoverage
+         * @description ``GET /api/routines/{routine_id}/coverage``: is this routine finding what
+         *     was meant, and what is it missing?
+         *
+         *     ``intent_source`` is ``stated`` for a written intent and ``keywords`` where
+         *     none was written and the routine's keywords stand in, which measures the
+         *     query against what the query produced. ``cannot_see`` is the sentence that
+         *     bounds both lists: resmon compares only against papers it already holds.
+         *     ``reason`` says why there is nothing to measure, or is ``None``.
+         *     ``summary`` is present whenever the audit itself ran, including to say why
+         *     it measured nothing; ``missed_reference_distance`` (the median of this
+         *     routine's own distances, which a missed paper must be inside) only when it
+         *     measured.
+         */
+        RoutineCoverage: {
+            /** Cannot See */
+            cannot_see: string;
+            distribution: components["schemas"]["CoverageDistribution"] | null;
+            /** Intent */
+            intent: string;
+            /** Intent Source */
+            intent_source: string;
+            /** Missed In Corpus */
+            missed_in_corpus: components["schemas"]["CoveragePaper"][];
+            /** Missed In Corpus Total */
+            missed_in_corpus_total: number;
+            /** Missed In Corpus Total Is Lower Bound */
+            missed_in_corpus_total_is_lower_bound: boolean;
+            /** Missed Reference Distance */
+            missed_reference_distance?: number | null;
+            /** Model */
+            model: string | null;
+            /** Off Target */
+            off_target: components["schemas"]["CoveragePaper"][];
+            /** Off Target Total */
+            off_target_total: number;
+            /** Reason */
+            reason: string | null;
+            /** Results */
+            results: number;
+            /** Results Embedded */
+            results_embedded: number;
+            /** Routine Id */
+            routine_id: number;
+            /** Routine Name */
+            routine_name: string | null;
+            /** Summary */
+            summary?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** RoutineCreate */
         RoutineCreate: {
             /**
@@ -5276,6 +5689,61 @@ export interface components {
             } | null;
         };
         /**
+         * RoutineCreated
+         * @description ``POST /api/routines``. ``entity`` is present only for a routine that
+         *     watches a person, and ``entity_warning`` only when none of its sources can
+         *     be asked about one: the routine is still created, and the sentence says it
+         *     will find nothing until a source that can is added.
+         */
+        RoutineCreated: {
+            /** Entity */
+            entity?: {
+                [key: string]: unknown;
+            } | null;
+            /** Entity Warning */
+            entity_warning?: string | null;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RoutineDeliveries
+         * @description ``GET /api/routines/{routine_id}/deliveries``: the record, newest
+         *     first.
+         */
+        RoutineDeliveries: {
+            /** Deliveries */
+            deliveries: components["schemas"]["Delivery"][];
+            /** Routine Id */
+            routine_id: number;
+            summary: components["schemas"]["DeliverySummary"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RoutineDocuments
+         * @description ``GET /api/routines/{routine_id}/documents``: the papers this routine's
+         *     runs collected, newest run first, each once.
+         *
+         *     ``total`` counts every one; ``document_ids`` stops at ``limit``. Only ids:
+         *     what a screen marks on the collection map, not a page of records.
+         */
+        RoutineDocuments: {
+            /** Document Ids */
+            document_ids: number[];
+            /** Limit */
+            limit: number;
+            /** Routine Id */
+            routine_id: number;
+            /** Total */
+            total: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * RoutineFiring
          * @description One active routine, and whether anything will fire it.
          *
@@ -5295,6 +5763,83 @@ export interface components {
             reason: "scheduled" | "not_scheduled" | "no_scheduler_running" | "unconfirmed";
             /** Will Fire */
             will_fire: boolean | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RoutineRow
+         * @description One row of ``GET /api/routines``: the ``routines`` row as stored, and
+         *     what its latest run did.
+         *
+         *     The five switches are SQLite's ``0`` and ``1`` here, as this list has always
+         *     sent them; the single-routine read below coerces them to booleans. Typed as
+         *     sent rather than as meant, so neither body changes. ``parameters``,
+         *     ``ai_settings`` and ``storage_settings`` are the stored JSON text, not
+         *     parsed objects. ``last_execution`` repeats ``last_executed_at`` under the
+         *     name the classic table reads.
+         */
+        RoutineRow: {
+            /** Ai Enabled */
+            ai_enabled: number;
+            /** Ai Settings */
+            ai_settings: string | null;
+            /** Created At */
+            created_at: string;
+            /** Email Ai Summary Enabled */
+            email_ai_summary_enabled: number;
+            /** Email Enabled */
+            email_enabled: number;
+            /** Execution Location */
+            execution_location: string | null;
+            /** Id */
+            id: number;
+            /** Intent */
+            intent: string | null;
+            /** Is Active */
+            is_active: number;
+            /** Last Executed At */
+            last_executed_at: string | null;
+            /** Last Execution */
+            last_execution: string | null;
+            /** Last Status */
+            last_status: string | null;
+            missed_fires: components["schemas"]["MissedFires"];
+            /** Name */
+            name: string;
+            /** Notify On Complete */
+            notify_on_complete: number;
+            /** Parameters */
+            parameters: string;
+            /** Schedule Cron */
+            schedule_cron: string;
+            /** Storage Settings */
+            storage_settings: string | null;
+            /** Updated At */
+            updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RoutineRunStarted
+         * @description ``POST /api/routines/{routine_id}/run``: a run started now, outside the
+         *     schedule.
+         *
+         *     ``was_inactive`` says the routine was not scheduled and ran once because it
+         *     was asked to, and ``detail`` says so in a sentence. A routine already
+         *     running is refused with a 409 whose detail names that run, which is an
+         *     error body and not this one.
+         */
+        RoutineRunStarted: {
+            /** Detail */
+            detail: string;
+            /** Execution Id */
+            execution_id: number;
+            /** Missed Fires Marked Ran Late */
+            missed_fires_marked_ran_late: number;
+            /** Routine Id */
+            routine_id: number;
+            /** Was Inactive */
+            was_inactive: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -5328,6 +5873,41 @@ export interface components {
             storage_settings?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /**
+         * RoutineUpdated
+         * @description ``PUT /api/routines/{routine_id}``: the id and each column the request
+         *     changed, as stored. Absent where unchanged; ``intent`` is ``None`` where
+         *     the request cleared it. Switches are stored ``0`` or ``1`` and the JSON
+         *     columns as text, which is what this answer repeats.
+         */
+        RoutineUpdated: {
+            /** Ai Enabled */
+            ai_enabled?: number | null;
+            /** Ai Settings */
+            ai_settings?: string | null;
+            /** Email Ai Summary Enabled */
+            email_ai_summary_enabled?: number | null;
+            /** Email Enabled */
+            email_enabled?: number | null;
+            /** Id */
+            id: number;
+            /** Intent */
+            intent?: string | null;
+            /** Is Active */
+            is_active?: number | null;
+            /** Name */
+            name?: string | null;
+            /** Notify On Complete */
+            notify_on_complete?: number | null;
+            /** Parameters */
+            parameters?: string | null;
+            /** Schedule Cron */
+            schedule_cron?: string | null;
+            /** Storage Settings */
+            storage_settings?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * RoutineWatchingProfile
@@ -7656,7 +8236,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CalendarEvent"][];
                 };
             };
             /** @description Validation Error */
@@ -8160,7 +8740,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DeliveryActed"];
                 };
             };
             /** @description Validation Error */
@@ -8191,7 +8771,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DeliveryActed"];
                 };
             };
             /** @description Validation Error */
@@ -8222,7 +8802,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DeliveryActed"];
                 };
             };
             /** @description Validation Error */
@@ -9141,6 +9721,7 @@ export interface operations {
                 limit?: number;
                 offset?: number;
                 type?: string | null;
+                routine_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -10994,7 +11575,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RoutineRow"][];
                 };
             };
         };
@@ -11018,7 +11599,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RoutineCreated"];
                 };
             };
             /** @description Validation Error */
@@ -11049,7 +11630,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Routine"];
                 };
             };
             /** @description Validation Error */
@@ -11084,7 +11665,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RoutineUpdated"];
                 };
             };
             /** @description Validation Error */
@@ -11146,7 +11727,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RoutineActivation"];
                 };
             };
             /** @description Validation Error */
@@ -11177,7 +11758,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RoutineCoverage"];
                 };
             };
             /** @description Validation Error */
@@ -11208,7 +11789,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RoutineActivation"];
                 };
             };
             /** @description Validation Error */
@@ -11241,7 +11822,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RoutineDeliveries"];
                 };
             };
             /** @description Validation Error */
@@ -11272,7 +11853,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DeliveryTargets"];
                 };
             };
             /** @description Validation Error */
@@ -11307,7 +11888,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DeliveryTargetAdded"];
                 };
             };
             /** @description Validation Error */
@@ -11389,6 +11970,39 @@ export interface operations {
             };
         };
     };
+    routine_documents_api_routines__routine_id__documents_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                routine_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutineDocuments"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     run_routine_now_api_routines__routine_id__run_post: {
         parameters: {
             query?: never;
@@ -11406,7 +12020,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RoutineRunStarted"];
                 };
             };
             /** @description Validation Error */

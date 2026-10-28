@@ -2424,34 +2424,55 @@ def get_executions(
     limit: int = 50,
     offset: int = 0,
     execution_type: str | None = None,
+    routine_id: int | None = None,
 ) -> list[dict]:
-    """Paginated execution history, optionally filtered by type.
+    """Paginated execution history, optionally filtered by type and routine.
 
     LEFT JOINs ``saved_configurations`` so each row carries a denormalized
     ``saved_configuration_name`` field (NULL when the execution is not
     linked to a saved config). The JOIN happens at read time so renames
     of the underlying config row are reflected without any backfill.
     """
-    base = (
+    where: list[str] = []
+    params: list = []
+    if execution_type:
+        where.append("executions.execution_type = ?")
+        params.append(execution_type)
+    if routine_id is not None:
+        where.append("executions.routine_id = ?")
+        params.append(int(routine_id))
+    rows = conn.execute(
         "SELECT executions.*, saved_configurations.name AS saved_configuration_name "
         "FROM executions "
         "LEFT JOIN saved_configurations "
         "  ON saved_configurations.id = executions.saved_configuration_id "
-    )
-    if execution_type:
-        rows = conn.execute(
-            base
-            + "WHERE executions.execution_type = ? "
-            "ORDER BY executions.start_time DESC LIMIT ? OFFSET ?",
-            (execution_type, limit, offset),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            base
-            + "ORDER BY executions.start_time DESC LIMIT ? OFFSET ?",
-            (limit, offset),
-        ).fetchall()
+        + (f"WHERE {' AND '.join(where)} " if where else "")
+        + "ORDER BY executions.start_time DESC LIMIT ? OFFSET ?",
+        (*params, limit, offset),
+    ).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_routine_document_ids(
+    conn: sqlite3.Connection, routine_id: int, limit: int = 2000,
+) -> tuple[list[int], int]:
+    """The papers a routine's runs collected, newest run first, each once.
+
+    Returns ``(ids up to limit, total)``. ``executions.routine_id`` carries no
+    index, and that is deliberate here rather than an oversight: the table
+    holds one row per run, which is thousands at most, and an index would be
+    a schema step for a scan this small.
+    """
+    rows = conn.execute(
+        "SELECT execution_documents.document_id AS id, MAX(executions.start_time) AS latest "
+        "FROM execution_documents "
+        "JOIN executions ON executions.id = execution_documents.execution_id "
+        "WHERE executions.routine_id = ? "
+        "GROUP BY execution_documents.document_id "
+        "ORDER BY latest DESC, id DESC",
+        (int(routine_id),),
+    ).fetchall()
+    return [int(r["id"]) for r in rows[:limit]], len(rows)
 
 
 def get_execution_by_id(conn: sqlite3.Connection, exec_id: int) -> dict | None:
