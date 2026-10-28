@@ -181,6 +181,21 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("GET", "/api/executions/{exec_id}/log"),
         ("POST", "/api/executions/{exec_id}/cancel"),
         ("POST", "/api/executions/{exec_id}/restart"),
+        ("GET", "/api/executions/{exec_id}/documents"),
+    ),
+    "the Explorer": (
+        ("POST", "/api/explorer/search"),
+    ),
+    "a paper's account": (
+        ("GET", "/api/documents/{doc_id}"),
+        ("GET", "/api/documents/{doc_id}/why"),
+    ),
+    "the same work twice": (
+        ("POST", "/api/links/for-documents"),
+        ("POST", "/api/links/collapse-preview"),
+    ),
+    "the embedding index": (
+        ("GET", "/api/embeddings/status"),
     ),
     "the scheduler": (
         ("GET", "/api/scheduler/status"),
@@ -477,6 +492,7 @@ def driven() -> Drive:
         _drive_collection_map(drive)
         _drive_today(drive)
         _drive_runs(drive)
+        _drive_collection(drive)
 
         yield drive
 
@@ -514,6 +530,97 @@ def _drive_today(drive: Drive) -> None:
     ids = [paper["id"] for paper in first["papers"]][:3] + [987654]
     briefs = drive("POST", "/api/documents/briefs", json={"ids": ids})
     assert [b["id"] for b in briefs] == ids[:-1]
+
+
+def _drive_collection(drive: Drive) -> None:
+    """The collection: searched, a run's papers, one paper's account, the same
+    work twice, and a ranking by meaning.
+
+    Three papers on one topic, two of them the same work from two sources
+    (they share a DOI), so the link routes answer a link and a fold rather
+    than empty maps. One is saved to read, so the run's papers carry a queue
+    status beside a ``None``. The ranking uses the suite's real loopback
+    embedding server (``embedding_server.py``) as the lane, with vectors stored
+    for two of the three papers, so a ranked page has distances, a paper
+    listed last with none, and the counts and model the similarity sort adds;
+    an empty phrase is refused, which is the one body carrying
+    ``similarity_unavailable``. Last in the scenario, and the lane is turned
+    off again at the end, so nothing above embeds.
+    """
+    from embedding_server import EmbeddingServer, deterministic_vector  # noqa: PLC0415
+    from implementation_scripts import vector_index  # noqa: PLC0415
+    from implementation_scripts.database import (  # noqa: PLC0415
+        insert_execution, link_execution_document, record_execution_source, update_execution_status,
+    )
+
+    conn = resmon_mod._get_db()
+    try:
+        ids = []
+        for n, (source, title, doi) in enumerate((
+            ("arxiv", "Perovskite solar cells that keep their efficiency", "10.5555/same-work"),
+            ("crossref", "Perovskite solar cells that keep their efficiency", "10.5555/same-work"),
+            ("arxiv", "Perovskite light-emitting diodes", None),
+        )):
+            ids.append(conn.execute(
+                "INSERT INTO documents (source_repository, external_id, title, abstract, authors, doi, "
+                "publication_date, metadata_hash) VALUES (?, ?, ?, ?, 'A. Author', ?, '2026-10-01', ?)",
+                (source, f"collection-{n}", title, f"{title}. A perovskite film is studied.", doi,
+                 f"collection-{n}")).lastrowid)
+        run = insert_execution(conn, {
+            "execution_type": "deep_dive", "start_time": "2026-10-28T00:00:00Z",
+            "parameters": json.dumps({"repository": "arxiv", "query": "perovskite", "keywords": ["perovskite"]}),
+        })
+        for doc in ids:
+            link_execution_document(conn, run, doc)
+        record_execution_source(conn, run, "arxiv", "ok", result_count=len(ids), zero_reason=None)
+        update_execution_status(conn, run, "completed", end_time="2026-10-28T00:00:09Z",
+                                result_count=len(ids), new_result_count=len(ids))
+        conn.execute(
+            "INSERT INTO document_links (document_a, document_b, kind, score, method) "
+            "VALUES (?, ?, 'near_duplicate', NULL, 'shared_doi')", (ids[0], ids[1]))
+        conn.commit()
+    finally:
+        resmon_mod._close_db(conn)
+    saved = drive.client.post("/api/reading-queue", json={"document_id": ids[0]})
+    assert saved.status_code == 201, saved.text
+
+    page = drive("GET", f"/api/executions/{run}/documents")
+    assert {p["queue_status"] for p in page["papers"]} == {"to_read", None}
+    drive("POST", "/api/explorer/search", json={"query": "perovskite", "limit": 50})
+    drive("GET", f"/api/documents/{ids[0]}")
+    drive("GET", f"/api/documents/{ids[2]}")
+    drive("GET", f"/api/documents/{ids[0]}/why")
+    drive("GET", f"/api/documents/{ids[2]}/why", params={"execution_id": run})
+    links = drive("POST", "/api/links/for-documents", json={"document_ids": ids})
+    assert links["links"], "the link model needs a link to be compared"
+    folded = drive("POST", "/api/links/collapse-preview", json={"document_ids": ids})
+    assert folded["folded"], "the fold model needs a fold to be compared"
+
+    drive("GET", "/api/embeddings/status")
+    with EmbeddingServer() as server:
+        model = "scenario-model"
+        made = drive.client.put("/api/settings/embeddings", json={"settings": {
+            "embedding_enabled": "true", "embedding_provider": "local",
+            "embedding_model": model, "embedding_endpoint": server.base_url}})
+        assert made.status_code == 200, made.text
+        conn = resmon_mod._get_db()
+        try:
+            for doc, title in ((ids[0], "Perovskite solar cells"), (ids[2], "Perovskite diodes")):
+                vector = deterministic_vector(title, server.dims)
+                conn.execute(
+                    "INSERT INTO document_embeddings (document_id, model, dims, vector, fields) "
+                    "VALUES (?, ?, ?, ?, 'title+abstract')",
+                    (doc, model, len(vector), vector_index.pack_vector(vector)))
+            conn.commit()
+        finally:
+            resmon_mod._close_db(conn)
+        drive("GET", "/api/embeddings/status")
+        ranked = drive("POST", "/api/explorer/search",
+                       json={"query": "perovskite solar", "sort": "similarity", "limit": 50})
+        assert ranked["sort"] == "similarity" and ranked["unranked_count"] >= 1, ranked
+        refused = drive("POST", "/api/explorer/search", json={"query": "", "sort": "similarity", "limit": 50})
+        assert "similarity_unavailable" in refused, refused
+        drive.client.put("/api/settings/embeddings", json={"settings": {"embedding_enabled": "false"}})
 
 
 def _wait_until_settled(drive: Drive, exec_id: int, timeout: float = 30.0) -> dict:

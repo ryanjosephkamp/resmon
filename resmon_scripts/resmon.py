@@ -2724,7 +2724,8 @@ def get_execution_progress_events(exec_id: int, response: Response):
     return get_progress_events(conn, exec_id)
 
 
-@app.get("/api/executions/{exec_id}/documents")
+@app.get("/api/executions/{exec_id}/documents", response_model=response_models.RunPapersPage,
+         response_model_exclude_unset=True)
 def get_execution_papers(
     exec_id: int,
     limit: int = reading_queue.DEFAULT_PAGE_SIZE,
@@ -3826,7 +3827,8 @@ def _embed_query(conn, text: str) -> tuple[Optional[bytes], Optional[str], Optio
     return vector_index.pack_vector(vectors[0]), lane.model, None
 
 
-@app.post("/api/explorer/search")
+@app.post("/api/explorer/search", response_model=response_models.ExplorerPage,
+          response_model_exclude_unset=True)
 def explorer_search(body: ExplorerSearchBody):
     """Search the whole corpus. POST because the filter set is a structure.
 
@@ -3987,7 +3989,8 @@ class DocumentIdsBody(BaseModel):
     document_ids: list[int] = []
 
 
-@app.post("/api/links/for-documents")
+@app.post("/api/links/for-documents", response_model=response_models.PaperLinks,
+          response_model_exclude_unset=True)
 def links_for_documents(body: DocumentIdsBody):
     """Links for a page of results in one round trip.
 
@@ -4003,7 +4006,8 @@ def links_for_documents(body: DocumentIdsBody):
         _close_db(conn)
 
 
-@app.post("/api/links/collapse-preview")
+@app.post("/api/links/collapse-preview", response_model=response_models.CollapsePreview,
+          response_model_exclude_unset=True)
 def links_collapse_preview(body: DocumentIdsBody):
     """Which of these ids a collapse *would* fold, without folding anything.
 
@@ -4473,7 +4477,30 @@ def document_lifecycle(doc_id: int):
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/documents/{doc_id}/why")
+@app.get("/api/documents/{doc_id}", response_model=response_models.Paper,
+         response_model_exclude_unset=True)
+def get_document(doc_id: int):
+    """One paper as stored, and where it stands in the reading queue.
+
+    The record exactly as resmon holds it: what the source gave (title,
+    authors, abstract, identifiers, date) and when resmon first saw it. It adds
+    nothing the corpus does not hold -- no summary, no score -- so a screen
+    that shows a paper from this shows only what was collected.
+    """
+    conn = _get_db()
+    try:
+        row = conn.execute("SELECT documents.* FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Document not found")
+        paper = dict(row)
+        paper["queue_status"] = reading_queue.statuses_for(conn, [doc_id]).get(doc_id)
+        return paper
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/documents/{doc_id}/why", response_model=response_models.PaperWhy,
+         response_model_exclude_unset=True)
 def document_why(doc_id: int, execution_id: Optional[int] = None):
     """What is locally verifiable about why this paper is in the corpus."""
     conn = _get_db()
@@ -5147,7 +5174,8 @@ def probe_embedding_lane(body: EmbeddingProbeBody | None = None):
         _close_db(conn)
 
 
-@app.get("/api/embeddings/status")
+@app.get("/api/embeddings/status", response_model=response_models.EmbeddingStatus,
+         response_model_exclude_unset=True)
 def embedding_status():
     """N of M embedded with model X, the run, the index, and the extension."""
     conn = _get_db()
