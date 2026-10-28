@@ -4,8 +4,9 @@ The harness is how the rebuild's performance gate is decided, so the parts a
 wrong number would come from are tested here: the replay transport (a request
 with no recording must be refused, never answered from the network), the gate
 arithmetic (a throughput that drops is worse, a duration that drops is
-better), the seeded corpus (the same every time), and the isolation of every
-process the harness starts.
+better), the soak's reading of a sawtooth (a leak is a rising floor, not a
+high last peak), the seeded corpus (the same every time), and the isolation of
+every process the harness starts.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
-from perf import instance, replay, seed, stats  # noqa: E402
+from perf import instance, replay, seed, soak, stats  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +123,40 @@ def test_a_measurement_the_candidate_lost_is_not_a_pass():
     rows = {r["name"]: r for r in stats.compare(base, cand)}
     assert rows["b"]["status"] == "not compared"
     assert rows["b"]["reason"] == "missing from the candidate"
+
+
+# ---------------------------------------------------------------------------
+# The soak by runs
+# ---------------------------------------------------------------------------
+
+
+def _sawtooth(runs: int, leak_mb_per_run: float) -> tuple[list[dict], list[dict]]:
+    """Three samples a run: the floor, partway up, and a peak that wanders.
+
+    The last block's peak is the highest of all, as the first soak's was, so a
+    reading that judged by the last peak would call both of these leaks.
+    """
+    samples, finished = [], []
+    for run in range(1, runs + 1):
+        floor = 120.0 + leak_mb_per_run * run
+        peak = floor + 100.0 + 50.0 * ((run * 37) % 7) / 6.0 + (60.0 if run > runs - 20 else 0.0)
+        for rss in (floor, floor + 40.0, peak):
+            samples.append({"run": run, "rss_mb": rss, "open_files": 85})
+        finished.append({"run": run, "status": "completed"})
+    return samples, finished
+
+
+def test_a_soak_with_a_flat_floor_and_a_high_last_peak_reads_as_no_leak():
+    shape = soak.by_blocks(*_sawtooth(100, 0.0), warmup_runs=20)
+    assert [b["runs"] for b in shape["blocks"]] == [[1, 20], [21, 40], [41, 60], [61, 80], [81, 100]]
+    assert abs(shape["floor_mb_per_100_runs"]) < 1e-9
+    assert shape["peak_mb_per_100_runs"] > 0
+    assert shape["open_files_per_100_runs"] == 0
+
+
+def test_a_soak_whose_floor_rises_reads_as_the_rate_it_rises_at():
+    shape = soak.by_blocks(*_sawtooth(100, 0.5), warmup_runs=20)
+    assert math.isclose(shape["floor_mb_per_100_runs"], 50.0)
 
 
 # ---------------------------------------------------------------------------

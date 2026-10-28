@@ -27,6 +27,8 @@ Everything runs from `resmon_scripts/`:
 
 # The soak: the background service running a routine every three minutes for hours.
 .venv/bin/python -m perf soak --hours 4 --replies ~/resmon-perf-replies --out /tmp/soak.json
+# The same soak by work: 240 runs (twelve hours at that cadence), each started as the last ends.
+.venv/bin/python -m perf soak --runs 240 --replies ~/resmon-perf-replies --out /tmp/soak-runs.json
 ```
 
 `run` writes `results.json` (every sample, the machine, the commit) and
@@ -102,7 +104,13 @@ and each installer.
 **The soak (`soak.py`):** the background service, started as launchd starts it
 with its scheduler on, fires a routine every three minutes for the hours asked;
 memory and open files are sampled every 30 seconds, and the slope of each after
-an hour of warm-up is reported.
+an hour of warm-up is reported. With `--runs N` it runs the routine N times
+instead, each run started the moment the last one finishes and the recordings
+answered without their latency (`--latency recorded` keeps it), sampling every
+2 seconds. A sawtooth's peaks say when the allocator last let go, so this mode
+reports blocks of 20 runs: the lowest and highest memory in each, and the slope
+of each per 100 runs after the first block. A leak raises the floor. It does
+not measure anything that grows with time alone; `--hours` does.
 
 ## Known limits
 
