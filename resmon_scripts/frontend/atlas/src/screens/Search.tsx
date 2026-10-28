@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
 import { Icon } from '../shell/Icon';
+import { SearchTabs } from './collection/SearchTabs';
 import { RunLog } from './runs/RunLog';
 import type { CatalogEntry } from './runs/model';
 
@@ -175,6 +176,7 @@ export function Search() {
   return (
     <div className="search">
       <form className="ask" onSubmit={submit} aria-label="Ask the sources">
+        <SearchTabs />
         <div className="ask-head">
           <h1 className="page-title">Ask the sources</h1>
           <div className="seg" role="group" aria-label="Kind of search">

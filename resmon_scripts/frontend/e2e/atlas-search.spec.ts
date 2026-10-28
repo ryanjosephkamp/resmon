@@ -80,7 +80,8 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await win.getByRole('navigation', { name: 'Sections' }).waitFor({ timeout: 120_000 });
 
     // The catalog states each source's limits before anything is asked.
-    await win.getByRole('link', { name: 'Search' }).click();
+    await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Search' }).click();
+    await win.getByRole('navigation', { name: 'Search' }).getByRole('link', { name: 'Ask the sources' }).click();
     await expect(win.getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible();
     const springer = win.locator('.source[data-source="springer"]');
     await expect(springer).toContainText('needs an API key');
@@ -114,7 +115,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
 
     // The run's paper, in its own tab and on the map's caption.
     await expect(win.locator('.paper-row .paper-title')).toHaveText([TITLE]);
-    await expect(win.locator('.run-sky figcaption')).toContainText(/1 paper/);
+    await expect(win.locator('.run-main .sky figcaption')).toContainText(/1 paper/);
 
     // The live panel's reading of the run's events agrees with the record.
     await win.getByRole('tab', { name: 'Progress' }).click();

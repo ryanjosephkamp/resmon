@@ -1,4 +1,7 @@
 import type { ReactElement } from 'react';
+import { Collection } from './screens/collection/Collection';
+import { Paper } from './screens/collection/Paper';
+import { ReadingQueue } from './screens/library/ReadingQueue';
 import { Placeholder } from './screens/Placeholder';
 import { Run } from './screens/Run';
 import { Search } from './screens/Search';
@@ -20,8 +23,8 @@ export interface Section {
 export const SECTIONS: readonly Section[] = [
   { path: '/today', label: 'Today', keywords: 'new papers morning plate index', element: <Today /> },
   { path: '/watches', label: 'Watches', keywords: 'routines constellations profiles', element: <Placeholder title="Watches" /> },
-  { path: '/search', label: 'Search', keywords: 'find papers corpus deep dive sweep runs export', element: <Search /> },
-  { path: '/library', label: 'Library', keywords: 'saved reading queue files', element: <Placeholder title="Library" /> },
+  { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep runs export', element: <Collection /> },
+  { path: '/library', label: 'Library', keywords: 'saved reading queue to read files', element: <ReadingQueue /> },
   { path: '/ask', label: 'Ask', keywords: 'assistant question chat', element: <Placeholder title="Ask" /> },
   { path: '/health', label: 'Health', keywords: 'sources coverage diagnostics watchdog', element: <Placeholder title="Health" /> },
 ];
@@ -38,7 +41,9 @@ export const SETTINGS: Section = {
  * opened from Search's run log, from a notification, or from Today.
  */
 export const DETAILS: readonly { path: string; element: ReactElement }[] = [
+  { path: '/search/ask', element: <Search /> },
   { path: '/runs/:id', element: <Run /> },
+  { path: '/papers/:id', element: <Paper /> },
 ];
 
 export const HOME = '/today';

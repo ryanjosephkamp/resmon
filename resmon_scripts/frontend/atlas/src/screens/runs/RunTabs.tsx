@@ -1,21 +1,16 @@
 import { useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
+import type { components } from '../../api/schema';
+import { queueWords } from '../collection/Paper';
 import { authors, number } from '../today/format';
 import { Markdown } from './markdown';
 import type { LiveSource, ProgressEvent, Run } from './model';
 import { LivePanel } from './LivePanel';
 
-/** One paper as `/api/executions/{id}/documents` serves it (`documents.*`, no model). */
-export interface RunPaper {
-  id: number;
-  title: string | null;
-  authors?: string | null;
-  source_repository?: string | null;
-  publication_date?: string | null;
-  url?: string | null;
-  doi?: string | null;
-}
+/** One of a run's papers, with its place in the reading queue. */
+export type RunPaper = components['schemas']['RunPaper'];
 
 const TABS = ['Papers', 'Report', 'Search record', 'Log', 'Metadata', 'Progress'] as const;
 type Tab = typeof TABS[number];
@@ -51,7 +46,7 @@ export function RunTabs({ run, live, names, events, papers, running }: Props) {
         ))}
       </div>
       <div className="run-panel" role="tabpanel" id="run-tab-panel" aria-labelledby={`run-tab-${tab}`}>
-        {tab === 'Papers' && <Papers papers={papers} running={running} />}
+        {tab === 'Papers' && <Papers runId={run.id} papers={papers} running={running} />}
         {tab === 'Report' && <TextRecord id={run.id} kind="report" running={running} />}
         {tab === 'Log' && <TextRecord id={run.id} kind="log" running={running} />}
         {tab === 'Search record' && <SearchRecord id={run.id} settledAt={running ? null : run.end_time} />}
@@ -62,7 +57,15 @@ export function RunTabs({ run, live, names, events, papers, running }: Props) {
   );
 }
 
-function Papers({ papers, running }: Pick<Props, 'papers' | 'running'>) {
+function Papers({ runId, papers, running }: Pick<Props, 'papers' | 'running'> & { runId: number }) {
+  const client = useQueryClient();
+  const save = useMutation({
+    mutationFn: (documentId: number) => answer(engine().POST('/api/reading-queue', { body: { document_id: documentId } })),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['run-papers', runId] });
+      void client.invalidateQueries({ queryKey: ['reading-queue'] });
+    },
+  });
   if (running) return <p className="record-cap">The run&rsquo;s papers are listed when it has finished storing them.</p>;
   if (!papers) return <p className="record-cap">Reading the run&rsquo;s papers.</p>;
   if (!papers.papers.length) return <p className="record-cap">This run stored no papers.</p>;
@@ -74,18 +77,30 @@ function Papers({ papers, running }: Pick<Props, 'papers' | 'running'>) {
           : `${number(papers.total)} ${papers.total === 1 ? 'paper' : 'papers'} this run stored.`}
       </p>
       <ol className="paper-list">
-        {papers.papers.map((paper) => (
-          <li key={paper.id} className="paper-row" data-document={paper.id}>
-            <span className="paper-title">{paper.title || 'Untitled'}</span>
-            <span className="meta">
-              <span className="who">{authors(paper.authors)}</span>
-              {paper.source_repository && (<><span className="sep" /><span>{paper.source_repository}</span></>)}
-              {paper.publication_date && (<><span className="sep" /><span>{paper.publication_date}</span></>)}
-              {paper.url && (<><span className="sep" /><a href={paper.url} target="_blank" rel="noreferrer">open</a></>)}
-            </span>
-          </li>
-        ))}
+        {papers.papers.map((paper) => {
+          const state = queueWords(paper.queue_status);
+          return (
+            <li key={paper.id} className="paper-row" data-document={paper.id} data-queue={paper.queue_status ?? 'none'}>
+              <div className="paper-row-main">
+                <Link to={`/papers/${paper.id}`} className="paper-title">{paper.title || 'Untitled'}</Link>
+                <span className="meta">
+                  <span className="who">{authors(paper.authors)}</span>
+                  <span className="sep" /><span>{paper.source_repository}</span>
+                  {paper.publication_date && (<><span className="sep" /><span>{paper.publication_date}</span></>)}
+                  {paper.url && (<><span className="sep" /><a href={paper.url} target="_blank" rel="noreferrer">open</a></>)}
+                </span>
+              </div>
+              {state
+                ? <span className="queue-state saved" data-status={paper.queue_status}>Saved · {state}</span>
+                : (
+                  <button type="button" className="btn sm" disabled={save.isPending && save.variables === paper.id}
+                    onClick={() => save.mutate(paper.id)}>Save to read</button>
+                )}
+            </li>
+          );
+        })}
       </ol>
+      {save.error && <p className="field-error" role="alert">The paper could not be saved: {save.error.message}.</p>}
     </>
   );
 }

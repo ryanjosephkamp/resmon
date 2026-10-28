@@ -14,8 +14,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { expect, type TestInfo } from '@playwright/test';
 import type {
-  BackendFacts, DrawnAppearance, ExportedFile, InterruptedRow, JourneyDriver, Place, PlateReading, RunHandle,
-  SourceOutcome, ThemeChoice, TodayReading,
+  BackendFacts, DrawnAppearance, ExplorerList, ExportedFile, InterruptedRow, JourneyDriver, Place, PlateReading,
+  QueuedPaper, RankedList, RunHandle, SourceOutcome, ThemeChoice, TodayReading, WhyPanel,
 } from '../driver';
 import type { Session } from './session';
 
@@ -36,7 +36,13 @@ export type AtlasDriver = Pick<JourneyDriver,
   'open' | 'reopenTheApp' | 'chooseTheme' | 'chooseAccent' | 'readAppearance' | 'readThePlate'
   | 'readToday' | 'markAllRead'
   | 'runDive' | 'runSweep' | 'readRunPanelOutcomes' | 'cancelRunFromMonitor' | 'openReport' | 'readReportTabs'
-  | 'readCoverageSentence' | 'readReportOutcomes' | 'exportReferences' | 'readInterruptedRow' | 'restartRun'>;
+  | 'readCoverageSentence' | 'readReportOutcomes' | 'exportReferences' | 'readInterruptedRow' | 'restartRun'
+  | 'rankTheExplorerBy' | 'readExplorerList' | 'readExplorerTitles' | 'collapseDuplicates' | 'openFirstPaper'
+  | 'readWhyPanel' | 'savePapersFromRun' | 'readReadingQueue' | 'markPaperRead' | 'removeFromReadingQueue'
+  | 'exportReadingQueue'>;
+
+/** The reading-queue filter buttons, by the journey's word for each. */
+const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
 
 /**
  * The journey's words for each state the run's live panel draws. The panel
@@ -93,7 +99,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
   };
 
   const openSearch = async (): Promise<void> => {
-    await win().evaluate(() => { window.location.hash = '#/search'; });
+    await win().evaluate(() => { window.location.hash = '#/search/ask'; });
     await expect(win().getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible({ timeout: 30_000 });
     await expect(win().locator('.source').first()).toBeVisible({ timeout: 30_000 });
     await expect(win().locator('section.runlog')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
@@ -151,8 +157,190 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     return { id };
   };
 
+  /** Search › Your collection, settled: the list read, the duplicate labels and folds with it. */
+  const openCollection = async (query?: string): Promise<void> => {
+    const onIt = await win().evaluate(() => window.location.hash === '#/search');
+    if (!onIt) await win().evaluate(() => { window.location.hash = '#/search'; });
+    await expect(win().getByRole('heading', { name: 'Your collection', level: 1 })).toBeVisible({ timeout: 30_000 });
+    if (query !== undefined) {
+      const field = win().getByLabel('Search your collection');
+      if ((await field.inputValue()) !== query) {
+        await field.fill(query);
+        await field.press('Enter');
+      }
+    }
+    await settledResults();
+  };
+
+  const settledResults = async (): Promise<void> => {
+    const results = win().locator('section.results');
+    await expect(results).toHaveAttribute('aria-busy', 'false', { timeout: 60_000 });
+    await expect(results).not.toHaveAttribute('data-capability', 'unknown', { timeout: 30_000 });
+    await expect(win().locator('.count-sentence')).not.toHaveText('', { timeout: 30_000 });
+  };
+
+  const readList = async (): Promise<ExplorerList> => {
+    await settledResults();
+    const rows = await win().locator('.result').evaluateAll((items) => items.map((item) => ({
+      title: item.querySelector('.result-title')?.textContent?.trim() ?? '',
+      alsoAppearsAs: [...item.querySelectorAll('.result-links li')].map((li) => li.textContent?.trim() ?? ''),
+      distance: item.querySelector('.result-distance')?.textContent?.trim() ?? '',
+    })));
+    const note = win().locator('.collapse-note');
+    return {
+      countSentence: (await win().locator('.count-sentence').innerText()).trim(),
+      rows,
+      collapseNote: (await note.count()) ? (await note.innerText()).trim() : '',
+    };
+  };
+
+  const openQueue = async (filter: 'to read' | 'read' | 'all'): Promise<void> => {
+    await win().evaluate(() => { window.location.hash = '#/library'; });
+    await expect(win().getByRole('heading', { name: 'Reading queue', level: 1 })).toBeVisible({ timeout: 30_000 });
+    const button = win().getByRole('group', { name: 'Show' }).getByRole('button', { name: new RegExp(`^${QUEUE_FILTER[filter]}`) });
+    await button.click();
+    await expect(button).toHaveAttribute('aria-pressed', 'true');
+    await expect(win().locator('section.queue')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    await expect(win().locator('.queue-row, .queue-empty').first()).toBeVisible({ timeout: 30_000 });
+  };
+
+  const readQueue = async (): Promise<QueuedPaper[]> => win().locator('.queue-row').evaluateAll((rows) => rows.map((row) => ({
+    id: Number((row as HTMLElement).dataset.document),
+    title: row.querySelector('.queue-title')?.textContent?.trim() ?? '',
+    state: row.querySelector('.queue-state')?.textContent?.trim() ?? '',
+  })));
+
   return {
     open: (place) => goto(place),
+
+    // — the collection ------------------------------------------------------
+
+    rankTheExplorerBy: async (phrase): Promise<RankedList> => {
+      await openCollection(phrase);
+      const capability = await win().locator('section.results').getAttribute('data-capability');
+      const control = win().getByRole('group', { name: 'Order' });
+      if (capability !== 'available') {
+        await expect(control).toHaveCount(0);
+        return { note: '', controlsPresent: false, list: await readList() };
+      }
+      await control.getByRole('button', { name: 'Closest in meaning' }).click();
+      const note = win().locator('.rank-note').first();
+      await expect(note).toContainText('Closest to:', { timeout: 60_000 });
+      await settledResults();
+      return { note: (await note.innerText()).trim(), controlsPresent: true, list: await readList() };
+    },
+
+    readExplorerList: async (): Promise<ExplorerList> => {
+      await openCollection();
+      // The labels come from a second read the list does not wait for; where
+      // the engine holds links, wait until they are drawn.
+      const status = await backend.linkStatus();
+      if (Number(status.links ?? 0) > 0) {
+        await expect(win().locator('.result-links li').first()).toBeVisible({ timeout: 30_000 });
+      }
+      return readList();
+    },
+
+    readExplorerTitles: async () => {
+      await openCollection('');
+      await expect(win().locator('.result').first()).toBeVisible({ timeout: 30_000 });
+      return (await win().locator('.result .result-title').allInnerTexts()).map((t) => t.trim());
+    },
+
+    collapseDuplicates: async (on) => {
+      await openCollection();
+      const box = win().locator('.fold-toggle input');
+      await expect(box).toBeVisible({ timeout: 30_000 });
+      if (on) {
+        const preview = win().waitForResponse((r) => r.url().endsWith('/api/links/collapse-preview'));
+        await box.check();
+        await preview;
+        await expect(win().locator('.collapse-note')).toBeVisible({ timeout: 30_000 });
+      } else {
+        await box.uncheck();
+        await expect(win().locator('.collapse-note')).toHaveCount(0);
+      }
+      await expect(box).toBeChecked({ checked: on });
+      await settledResults();
+    },
+
+    openFirstPaper: async () => {
+      await openCollection('');
+      const first = win().locator('.result .result-title').first();
+      await expect(first).toBeVisible({ timeout: 30_000 });
+      const title = (await first.innerText()).trim();
+      await first.click();
+      await expect(win().locator('.paper[data-paper]')).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('.paper-name')).toHaveText(title);
+      return title;
+    },
+
+    readWhyPanel: async (): Promise<WhyPanel> => {
+      const why = win().locator('.why');
+      await expect(why.locator('.why-limits-label')).toBeVisible({ timeout: 30_000 });
+      const matches = await why.locator('.why-keywords li').evaluateAll((items) => items.map((li) => ({
+        keyword: li.querySelector('.why-keyword')?.textContent?.trim() ?? '',
+        field: li.querySelector('.why-where')?.textContent?.trim() ?? '',
+      })));
+      return {
+        matches,
+        cannotSee: (await why.locator('.why-limits li').allInnerTexts()).map((t) => t.trim()),
+        text: (await why.innerText()).trim(),
+      };
+    },
+
+    savePapersFromRun: async (run): Promise<QueuedPaper[]> => {
+      await openSettled(run);
+      await win().getByRole('tab', { name: 'Papers' }).click();
+      const rows = win().locator('.paper-row[data-document]');
+      await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+      const saved: QueuedPaper[] = [];
+      for (const row of await rows.all()) {
+        const id = Number(await row.getAttribute('data-document'));
+        const title = (await row.locator('.paper-title').innerText()).trim();
+        await row.getByRole('button', { name: 'Save to read' }).click();
+        await expect(win().locator(`.paper-row[data-document="${id}"]`)).toHaveAttribute('data-queue', 'to_read', { timeout: 30_000 });
+        saved.push({ id, title, state: 'To read' });
+      }
+      return saved;
+    },
+
+    readReadingQueue: async (filter) => {
+      await openQueue(filter);
+      return readQueue();
+    },
+
+    markPaperRead: async (paper) => {
+      await openQueue('all');
+      const row = win().locator(`.queue-row[data-document="${paper.id}"]`);
+      await row.getByRole('button', { name: 'Mark read' }).click();
+      await expect(row.locator('.queue-state')).toHaveText('Read', { timeout: 30_000 });
+    },
+
+    removeFromReadingQueue: async (paper) => {
+      await openQueue('all');
+      await win().locator(`.queue-row[data-document="${paper.id}"]`).getByRole('button', { name: 'Remove' }).click();
+      await expect(win().locator(`.queue-row[data-document="${paper.id}"]`)).toHaveCount(0, { timeout: 30_000 });
+    },
+
+    exportReadingQueue: async (papers, format): Promise<ExportedFile> => {
+      await openQueue('all');
+      for (const paper of papers) {
+        await win().locator(`.queue-row[data-document="${paper.id}"]`).getByRole('checkbox').check();
+      }
+      const label = { bibtex: 'BibTeX', ris: 'RIS', csv: 'CSV' }[format];
+      const extension = { bibtex: 'bib', ris: 'ris', csv: 'csv' }[format];
+      const destination = path.join(session.stateDir, `journey-queue.${extension}`);
+      await session.app.evaluate(({ BrowserWindow }, target) => {
+        BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => {
+          item.setSavePath(target as string);
+        });
+      }, destination);
+      await win().locator('.queue-export').getByRole('button', { name: label, exact: true }).click();
+      await expect.poll(() => fs.existsSync(destination), { timeout: 30_000 }).toBe(true);
+      await expect.poll(() => fs.statSync(destination).size, { timeout: 30_000 }).toBeGreaterThan(0);
+      return { path: destination, text: fs.readFileSync(destination, 'utf8') };
+    },
 
     runDive: async (request) => {
       if (request.summarize) notInAtlasYet('a summary of each paper on a Deep Dive');

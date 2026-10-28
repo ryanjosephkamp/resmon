@@ -26,7 +26,7 @@ import type { Session } from './session';
 /** The classic driver's members that never touch the window's markup. */
 const RENDERER_FREE = new Set<string>([
   'backend', 'takePicture', 'releaseTheSource', 'refusedConnections', 'waitForRunToSettle', 'reportExists',
-  'killTheBackend',
+  'killTheBackend', 'enableRankingByMeaning', 'scanForNearDuplicates',
 ]);
 
 export function createCandidateDriver(session: Session, testInfo: TestInfo): JourneyDriver {
