@@ -999,6 +999,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{doc_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Document
+         * @description One paper as stored, and where it stands in the reading queue.
+         *
+         *     The record exactly as resmon holds it: what the source gave (title,
+         *     authors, abstract, identifiers, date) and when resmon first saw it. It adds
+         *     nothing the corpus does not hold -- no summary, no score -- so a screen
+         *     that shows a paper from this shows only what was collected.
+         */
+        get: operations["get_document_api_documents__doc_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{doc_id}/lifecycle": {
         parameters: {
             query?: never;
@@ -3683,6 +3708,21 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * CollapsePreview
+         * @description ``POST /api/links/collapse-preview``: which rows a per-view fold would
+         *     keep, and which it would fold into each kept one. It hides nothing itself.
+         */
+        CollapsePreview: {
+            /** Folded */
+            folded: {
+                [key: string]: number[];
+            };
+            /** Keep */
+            keep: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * CollectionMap
          * @description ``GET /api/map``: where every paper sits, and on what basis.
          *
@@ -4228,6 +4268,22 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * EmbeddingStatus
+         * @description ``GET /api/embeddings/status``: the backfill, the coverage, the vector
+         *     extension and index, the configured lane, and whether ranking by meaning
+         *     is available now (and if not, why).
+         */
+        EmbeddingStatus: {
+            capability: components["schemas"]["EmbeddingCapability"];
+            coverage: components["schemas"]["EmbeddingCoverage"];
+            extension: components["schemas"]["VectorExtensionStatus"];
+            index: components["schemas"]["EmbeddingIndexState"];
+            lane: components["schemas"]["EmbeddingLaneView"] | null;
+            run: components["schemas"]["EmbeddingJobRun"];
+        } & {
+            [key: string]: unknown;
+        };
         /** ExecutionExport */
         ExecutionExport: {
             /** Ids */
@@ -4322,6 +4378,85 @@ export interface components {
              * @default []
              */
             sources: string[];
+        };
+        /**
+         * ExplorerPage
+         * @description ``POST /api/explorer/search``.
+         *
+         *     ``total`` is the count of every match, capped at ``count_cap`` when
+         *     ``total_is_capped``. Under ``sort == "similarity"`` the phrase ranks the
+         *     filtered set rather than filtering it, and ``ranked_count``,
+         *     ``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says
+         *     why a requested ranking was refused and the page fell back to newest.
+         *     Each of those four is absent when it does not apply.
+         */
+        ExplorerPage: {
+            /** Count Cap */
+            count_cap: number;
+            /** Has More */
+            has_more: boolean;
+            /** Model */
+            model?: string | null;
+            /** Next Cursor */
+            next_cursor: unknown | null;
+            /** Page Size */
+            page_size: number;
+            /** Ranked Count */
+            ranked_count?: number | null;
+            /** Results */
+            results: components["schemas"]["ExplorerPaper"][];
+            /** Similarity Unavailable */
+            similarity_unavailable?: string | null;
+            /** Sort */
+            sort: string;
+            /** Total */
+            total: number;
+            /** Total Is Capped */
+            total_is_capped: boolean;
+            /** Unranked Count */
+            unranked_count?: number | null;
+            /** Used Full Text Index */
+            used_full_text_index: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ExplorerPaper
+         * @description One row of an Explorer page. ``distance`` is present only under the
+         *     similarity sort, and ``None`` for a paper with no vector yet, which is
+         *     listed after every ranked one rather than dropped.
+         */
+        ExplorerPaper: {
+            /** Abstract */
+            abstract: string | null;
+            /** Authors */
+            authors: string | null;
+            /** Categories */
+            categories: string | null;
+            /** Distance */
+            distance?: number | null;
+            /** Doi */
+            doi: string | null;
+            /** External Id */
+            external_id: string;
+            /** First Seen At */
+            first_seen_at: string;
+            /** Id */
+            id: number;
+            /** Metadata Hash */
+            metadata_hash: string;
+            /** Pub Sort */
+            pub_sort: string;
+            /** Publication Date */
+            publication_date: string | null;
+            /** Source Repository */
+            source_repository: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /** ExplorerSearchBody */
         ExplorerSearchBody: {
@@ -4563,6 +4698,178 @@ export interface components {
             done: boolean | null;
             /** Id */
             id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * Paper
+         * @description ``GET /api/documents/{doc_id}``: one paper as stored, and its place in the
+         *     reading queue (``to_read``, ``read``, or ``None`` when it is not saved).
+         */
+        Paper: {
+            /** Abstract */
+            abstract: string | null;
+            /** Authors */
+            authors: string | null;
+            /** Categories */
+            categories: string | null;
+            /** Doi */
+            doi: string | null;
+            /** External Id */
+            external_id: string;
+            /** First Seen At */
+            first_seen_at: string;
+            /** Id */
+            id: number;
+            /** Metadata Hash */
+            metadata_hash: string;
+            /** Pub Sort */
+            pub_sort: string;
+            /** Publication Date */
+            publication_date: string | null;
+            /** Queue Status */
+            queue_status: string | null;
+            /** Source Repository */
+            source_repository: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * PaperLink
+         * @description Another record that looks like the same work, and why: ``method`` is
+         *     ``shared_doi`` or ``vector+title``; ``label`` is the sentence a person reads.
+         */
+        PaperLink: {
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Method */
+            method: string;
+            /** Score */
+            score: number | null;
+            /** Source Repository */
+            source_repository: string;
+            /** Title */
+            title: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * PaperLinks
+         * @description ``POST /api/links/for-documents``: the links of each asked-for paper,
+         *     keyed by its id as a string. A paper with none is absent.
+         */
+        PaperLinks: {
+            /** Links */
+            links: {
+                [key: string]: components["schemas"]["PaperLink"][];
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * PaperWhy
+         * @description ``GET /api/documents/{doc_id}/why``: what resmon can say about why a
+         *     paper is in the corpus, and ``what_resmon_cannot_see`` -- the limits of
+         *     that account, stated rather than implied.
+         */
+        PaperWhy: {
+            document: components["schemas"]["PaperWhyDocument"];
+            /** Fields Checked */
+            fields_checked: string[];
+            /** Headline */
+            headline: string;
+            /** Keyword Count */
+            keyword_count: number;
+            /** Keywords */
+            keywords: components["schemas"]["PaperWhyKeyword"][];
+            /** Matched Count */
+            matched_count: number;
+            /** Runs */
+            runs: components["schemas"]["PaperWhyRun"][];
+            source: components["schemas"]["PaperWhySource"];
+            /** Verdict */
+            verdict: string;
+            /** What Resmon Cannot See */
+            what_resmon_cannot_see: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** PaperWhyDocument */
+        PaperWhyDocument: {
+            /** Doi */
+            doi: string | null;
+            /** First Seen At */
+            first_seen_at: string | null;
+            /** Id */
+            id: number;
+            /** Publication Date */
+            publication_date: string | null;
+            /** Source Repository */
+            source_repository: string;
+            /** Title */
+            title: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * PaperWhyKeyword
+         * @description One requested keyword: whether it is in the fields resmon holds, which
+         *     ones, and those named in words (``where``).
+         */
+        PaperWhyKeyword: {
+            /** Contains Operators */
+            contains_operators: boolean;
+            /** Fields */
+            fields: string[];
+            /** Keyword */
+            keyword: string;
+            /** Matched */
+            matched: boolean;
+            /** Where */
+            where: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** PaperWhyRun */
+        PaperWhyRun: {
+            /** Execution Id */
+            execution_id: number;
+            /** Execution Type */
+            execution_type: string;
+            /** Keywords */
+            keywords: string[];
+            /** Routine Name */
+            routine_name: string | null;
+            /** Start Time */
+            start_time: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * PaperWhySource
+         * @description The source the paper came from, and whether resmon or the source decided
+         *     the match: ``resmon_filtered_locally`` is false for a relevance-ranked
+         *     upstream, which resmon cannot speak about with certainty.
+         */
+        PaperWhySource: {
+            /** Keyword Combination */
+            keyword_combination: string;
+            /** Keyword Combination Notes */
+            keyword_combination_notes: string;
+            /** Name */
+            name: string;
+            /** Resmon Filtered Locally */
+            resmon_filtered_locally: boolean;
+            /** Slug */
+            slug: string;
         } & {
             [key: string]: unknown;
         };
@@ -5230,6 +5537,61 @@ export interface components {
         RunLog: {
             /** Log Text */
             log_text: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunPaper
+         * @description One of a run's papers, and where it stands in the reading queue
+         *     (``to_read``, ``read``, or ``None`` when it is not saved).
+         */
+        RunPaper: {
+            /** Abstract */
+            abstract: string | null;
+            /** Authors */
+            authors: string | null;
+            /** Categories */
+            categories: string | null;
+            /** Doi */
+            doi: string | null;
+            /** External Id */
+            external_id: string;
+            /** First Seen At */
+            first_seen_at: string;
+            /** Id */
+            id: number;
+            /** Metadata Hash */
+            metadata_hash: string;
+            /** Pub Sort */
+            pub_sort: string;
+            /** Publication Date */
+            publication_date: string | null;
+            /** Queue Status */
+            queue_status: string | null;
+            /** Source Repository */
+            source_repository: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunPapersPage
+         * @description ``GET /api/executions/{exec_id}/documents``: one page of a run's papers.
+         */
+        RunPapersPage: {
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Only New */
+            only_new: boolean;
+            /** Papers */
+            papers: components["schemas"]["RunPaper"][];
+            /** Total */
+            total: number;
         } & {
             [key: string]: unknown;
         };
@@ -7907,6 +8269,37 @@ export interface operations {
             };
         };
     };
+    get_document_api_documents__doc_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Paper"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     document_lifecycle_api_documents__doc_id__lifecycle_get: {
         parameters: {
             query?: never;
@@ -7957,7 +8350,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PaperWhy"];
                 };
             };
             /** @description Validation Error */
@@ -8163,7 +8556,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EmbeddingStatus"];
                 };
             };
         };
@@ -8975,7 +9368,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunPapersPage"];
                 };
             };
             /** @description Validation Error */
@@ -9303,7 +9696,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ExplorerPage"];
                 };
             };
             /** @description Validation Error */
@@ -9796,7 +10189,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CollapsePreview"];
                 };
             };
             /** @description Validation Error */
@@ -9829,7 +10222,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PaperLinks"];
                 };
             };
             /** @description Validation Error */
