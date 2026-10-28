@@ -55,6 +55,12 @@ what a request must carry, where the token lives, and — just as plainly — wh
 and why. A reviewer reading <code>git diff docs/api-contract/</code> should be able to see the whole of
 what moved without reading the implementation.</p>
 </li>
+<li>
+<p>Regenerate the Atlas renderer’s types from the new description, from <code>resmon_scripts/frontend/</code>:</p>
+<pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gen:atlas-api</span></span></code></pre>
+<p>and commit <code>atlas/src/api/schema.d.ts</code> with the rest. <code>npm run typecheck</code> (which CI runs) fails
+while that file is stale, and a renderer call to a route that changed shape stops compiling.</p>
+</li>
 </ol>
 <p>A new route also needs a line in <code>api_contract.ROUTE_JOURNEYS</code> saying which register row it serves.
 Until it has one the guard stays red: a route nobody can name a journey for is a route the renderer
