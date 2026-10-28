@@ -129,9 +129,8 @@ if (process.env.RESMON_STATE_DIR && !process.argv.some((a) => a.startsWith('--us
 }
 const SOLE_INSTANCE = app.requestSingleInstanceLock();
 if (!SOLE_INSTANCE) {
-  // `quit`, as Electron documents for this case, not `exit`: on Linux an
-  // `exit` this early ended the process by a signal rather than with 0
-  // (Route smoke, PR #237), and a unit reads a signal as a failure.
+  // `quit`, the pattern Electron documents for a launch that did not get the
+  // lock: the app's normal quit path, which exits 0.
   app.quit();
 }
 
