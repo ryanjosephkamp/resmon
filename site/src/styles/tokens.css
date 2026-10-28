@@ -159,6 +159,15 @@
   --mark-cell: 2.25rem;
   --brand-mark: 1.5rem;
 
+  /* ---- Icons ------------------------------------------------------------ */
+  /*
+   * The footer's contact icons and Sponsor button. 2.5rem is 40 px, a target a
+   * thumb can hit on a phone without catching the icon beside it.
+   */
+  --icon-size: 1.1875rem;
+  --icon-size-small: 1.0625rem;
+  --target-size: 2.5rem;
+
   /* ---- Layout ----------------------------------------------------------- */
   --measure: 42rem;
   --measure-wide: 64rem;

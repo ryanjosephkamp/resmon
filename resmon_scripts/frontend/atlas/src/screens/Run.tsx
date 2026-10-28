@@ -14,9 +14,6 @@ import { RunSky } from './runs/RunSky';
 import { LivePanel } from './runs/LivePanel';
 import { RunTabs, type RunPaper } from './runs/RunTabs';
 
-/** The papers page of `/api/executions/{id}/documents`, which declares no model. */
-interface PaperPage { papers: RunPaper[]; total: number }
-
 /** How many of a run's papers are read for the sky; a sweep can store thousands. */
 const SKY_LIMIT = 2_000;
 
@@ -69,14 +66,14 @@ export function Run() {
     queryKey: ['run-papers', id, settledAt],
     enabled: run.isSuccess && !running,
     queryFn: async () => {
-      const first = (await answer(engine().GET('/api/executions/{exec_id}/documents', {
+      const first = await answer(engine().GET('/api/executions/{exec_id}/documents', {
         params: { path: { exec_id: id }, query: { limit: 200, offset: 0 } },
-      }))) as unknown as PaperPage;
-      const all = [...first.papers];
+      }));
+      const all: RunPaper[] = [...first.papers];
       while (all.length < Math.min(first.total, SKY_LIMIT)) {
-        const next = (await answer(engine().GET('/api/executions/{exec_id}/documents', {
+        const next = await answer(engine().GET('/api/executions/{exec_id}/documents', {
           params: { path: { exec_id: id }, query: { limit: 200, offset: all.length } },
-        }))) as unknown as PaperPage;
+        }));
         if (!next.papers.length) break;
         all.push(...next.papers);
       }
@@ -121,7 +118,7 @@ export function Run() {
       <div className="page">
         <h1 className="page-title">Run {raw} could not be read</h1>
         <p className="page-lede">{run.error?.message ?? 'The engine has no such run.'}</p>
-        <p><Link to="/search" className="btn">Back to Search</Link></p>
+        <p><Link to="/search/ask" className="btn">Back to the runs</Link></p>
       </div>
     );
   }
@@ -134,7 +131,7 @@ export function Run() {
   return (
     <div className="run" data-run={data.id} data-status={data.status}>
       <header className="run-head">
-        <Link to="/search" className="back"><Icon name="back" size={14} />Search</Link>
+        <Link to="/search/ask" className="back"><Icon name="back" size={14} />Runs</Link>
         <div className="run-headline">
           <h1 className={watch ? 'run-name it' : 'run-name'}>{runTitle(data, watch)}</h1>
           <div className="run-actions">
