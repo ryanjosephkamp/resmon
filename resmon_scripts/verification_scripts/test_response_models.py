@@ -187,6 +187,7 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/explorer/search"),
     ),
     "a paper's account": (
+        ("GET", "/api/documents/{doc_id}"),
         ("GET", "/api/documents/{doc_id}/why"),
     ),
     "the same work twice": (
@@ -586,6 +587,8 @@ def _drive_collection(drive: Drive) -> None:
     page = drive("GET", f"/api/executions/{run}/documents")
     assert {p["queue_status"] for p in page["papers"]} == {"to_read", None}
     drive("POST", "/api/explorer/search", json={"query": "perovskite", "limit": 50})
+    drive("GET", f"/api/documents/{ids[0]}")
+    drive("GET", f"/api/documents/{ids[2]}")
     drive("GET", f"/api/documents/{ids[0]}/why")
     drive("GET", f"/api/documents/{ids[2]}/why", params={"execution_id": run})
     links = drive("POST", "/api/links/for-documents", json={"document_ids": ids})

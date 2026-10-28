@@ -2764,6 +2764,135 @@
         "title": "OnboardingStep",
         "type": "object"
       },
+      "Paper": {
+        "additionalProperties": true,
+        "description": "``GET /api/documents/{doc_id}``: one paper as stored, and its place in the\nreading queue (``to_read``, ``read``, or ``None`` when it is not saved).",
+        "properties": {
+          "abstract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstract"
+          },
+          "authors": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authors"
+          },
+          "categories": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categories"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "external_id": {
+            "title": "External Id",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "metadata_hash": {
+            "title": "Metadata Hash",
+            "type": "string"
+          },
+          "pub_sort": {
+            "title": "Pub Sort",
+            "type": "string"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "queue_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Status"
+          },
+          "source_repository": {
+            "title": "Source Repository",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "source_repository",
+          "external_id",
+          "doi",
+          "title",
+          "authors",
+          "abstract",
+          "publication_date",
+          "url",
+          "categories",
+          "metadata_hash",
+          "first_seen_at",
+          "pub_sort",
+          "queue_status"
+        ],
+        "title": "Paper",
+        "type": "object"
+      },
       "PaperLink": {
         "additionalProperties": true,
         "description": "Another record that looks like the same work, and why: ``method`` is\n``shared_doi`` or ``vector+title``; ``label`` is the sentence a person reads.",
@@ -9223,6 +9352,46 @@
           }
         },
         "summary": "Get Document Briefs"
+      }
+    },
+    "/api/documents/{doc_id}": {
+      "get": {
+        "description": "One paper as stored, and where it stands in the reading queue.\n\nThe record exactly as resmon holds it: what the source gave (title,\nauthors, abstract, identifiers, date) and when resmon first saw it. It adds\nnothing the corpus does not hold -- no summary, no score -- so a screen\nthat shows a paper from this shows only what was collected.",
+        "operationId": "get_document_api_documents__doc_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Paper"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Document"
       }
     },
     "/api/documents/{doc_id}/lifecycle": {

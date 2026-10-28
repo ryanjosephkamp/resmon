@@ -1843,6 +1843,13 @@ class ExplorerPage(LosslessModel):
     similarity_unavailable: Optional[str] = None
 
 
+class Paper(PaperColumns):
+    """``GET /api/documents/{doc_id}``: one paper as stored, and its place in the
+    reading queue (``to_read``, ``read``, or ``None`` when it is not saved)."""
+
+    queue_status: Optional[str]
+
+
 class RunPaper(PaperColumns):
     """One of a run's papers, and where it stands in the reading queue
     (``to_read``, ``read``, or ``None`` when it is not saved)."""

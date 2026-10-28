@@ -4477,6 +4477,28 @@ def document_lifecycle(doc_id: int):
 # ---------------------------------------------------------------------------
 
 
+@app.get("/api/documents/{doc_id}", response_model=response_models.Paper,
+         response_model_exclude_unset=True)
+def get_document(doc_id: int):
+    """One paper as stored, and where it stands in the reading queue.
+
+    The record exactly as resmon holds it: what the source gave (title,
+    authors, abstract, identifiers, date) and when resmon first saw it. It adds
+    nothing the corpus does not hold -- no summary, no score -- so a screen
+    that shows a paper from this shows only what was collected.
+    """
+    conn = _get_db()
+    try:
+        row = conn.execute("SELECT documents.* FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Document not found")
+        paper = dict(row)
+        paper["queue_status"] = reading_queue.statuses_for(conn, [doc_id]).get(doc_id)
+        return paper
+    finally:
+        _close_db(conn)
+
+
 @app.get("/api/documents/{doc_id}/why", response_model=response_models.PaperWhy,
          response_model_exclude_unset=True)
 def document_why(doc_id: int, execution_id: Optional[int] = None):

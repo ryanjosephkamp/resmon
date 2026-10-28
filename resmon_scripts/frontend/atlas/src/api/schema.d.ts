@@ -999,6 +999,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{doc_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Document
+         * @description One paper as stored, and where it stands in the reading queue.
+         *
+         *     The record exactly as resmon holds it: what the source gave (title,
+         *     authors, abstract, identifiers, date) and when resmon first saw it. It adds
+         *     nothing the corpus does not hold -- no summary, no score -- so a screen
+         *     that shows a paper from this shows only what was collected.
+         */
+        get: operations["get_document_api_documents__doc_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{doc_id}/lifecycle": {
         parameters: {
             query?: never;
@@ -4677,6 +4702,43 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * Paper
+         * @description ``GET /api/documents/{doc_id}``: one paper as stored, and its place in the
+         *     reading queue (``to_read``, ``read``, or ``None`` when it is not saved).
+         */
+        Paper: {
+            /** Abstract */
+            abstract: string | null;
+            /** Authors */
+            authors: string | null;
+            /** Categories */
+            categories: string | null;
+            /** Doi */
+            doi: string | null;
+            /** External Id */
+            external_id: string;
+            /** First Seen At */
+            first_seen_at: string;
+            /** Id */
+            id: number;
+            /** Metadata Hash */
+            metadata_hash: string;
+            /** Pub Sort */
+            pub_sort: string;
+            /** Publication Date */
+            publication_date: string | null;
+            /** Queue Status */
+            queue_status: string | null;
+            /** Source Repository */
+            source_repository: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * PaperLink
          * @description Another record that looks like the same work, and why: ``method`` is
          *     ``shared_doi`` or ``vector+title``; ``label`` is the sentence a person reads.
@@ -8194,6 +8256,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentBrief"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_api_documents__doc_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Paper"];
                 };
             };
             /** @description Validation Error */
