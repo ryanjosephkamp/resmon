@@ -1326,7 +1326,8 @@ def _reject_if_at_manual_cap() -> None:
         )
 
 
-@app.post("/api/search/dive")
+@app.post("/api/search/dive", response_model=response_models.RunStarted,
+          response_model_exclude_unset=True)
 def search_dive(body: DiveRequest):
     conn = _get_db()
     # Before the cap check, deliberately: a resubmission of a run that is
@@ -1361,7 +1362,8 @@ def search_dive(body: DiveRequest):
     return {"execution_id": exec_id}
 
 
-@app.post("/api/search/sweep")
+@app.post("/api/search/sweep", response_model=response_models.RunStarted,
+          response_model_exclude_unset=True)
 def search_sweep(body: SweepRequest):
     conn = _get_db()
     # Before the cap check, deliberately: a resubmission of a run that is
@@ -2247,7 +2249,8 @@ def source_wall_grid(
         _close_db(conn)
 
 
-@app.get("/api/executions")
+@app.get("/api/executions", response_model=list[response_models.RunRow],
+         response_model_exclude_unset=True)
 def list_executions(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -2266,12 +2269,14 @@ def list_executions(
         _close_db(conn)
 
 
-@app.get("/api/executions/active")
+@app.get("/api/executions/active", response_model=response_models.ActiveRuns,
+         response_model_exclude_unset=True)
 def active_executions():
     return {"active_ids": progress_store.get_active_ids()}
 
 
-@app.get("/api/executions/{exec_id}")
+@app.get("/api/executions/{exec_id}", response_model=response_models.Run,
+         response_model_exclude_unset=True)
 def get_execution(exec_id: int, expected_runtime_id: Optional[str] = None):
     _check_expected_runtime(expected_runtime_id)
     conn = _get_db()
@@ -2292,7 +2297,8 @@ def get_execution(exec_id: int, expected_runtime_id: Optional[str] = None):
         _close_db(conn)
 
 
-@app.get("/api/executions/{exec_id}/report")
+@app.get("/api/executions/{exec_id}/report", response_model=response_models.RunReport,
+         response_model_exclude_unset=True)
 def get_execution_report(exec_id: int):
     conn = _get_db()
     try:
@@ -2307,7 +2313,8 @@ def get_execution_report(exec_id: int):
         _close_db(conn)
 
 
-@app.get("/api/executions/{exec_id}/log")
+@app.get("/api/executions/{exec_id}/log", response_model=response_models.RunLog,
+         response_model_exclude_unset=True)
 def get_execution_log(exec_id: int):
     conn = _get_db()
     try:
@@ -2511,7 +2518,8 @@ _RESTARTABLE_STATES = ("interrupted", "failed", "cancelled")
 _TERMINAL_EXECUTION_STATES = ("completed", "failed", "cancelled", "interrupted")
 
 
-@app.post("/api/executions/{exec_id}/cancel")
+@app.post("/api/executions/{exec_id}/cancel", response_model=response_models.RunCancelRequested,
+          response_model_exclude_unset=True)
 def cancel_execution(exec_id: int):
     """Request cooperative cancellation of a running execution.
 
@@ -2542,7 +2550,8 @@ def cancel_execution(exec_id: int):
     return {"status": "cancellation_requested"}
 
 
-@app.post("/api/executions/{exec_id}/restart", status_code=202)
+@app.post("/api/executions/{exec_id}/restart", status_code=202,
+          response_model=response_models.RunRestarted, response_model_exclude_unset=True)
 def restart_execution(exec_id: int, body: Optional[RestartRequest] = None):
     """Start a fresh execution with the source's parameters, linked back to it.
 
