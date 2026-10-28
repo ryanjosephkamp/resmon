@@ -868,6 +868,100 @@ class CollectionMap(LosslessModel):
     points: MapPoints
 
 
+class TodaySourceNote(LosslessModel):
+    """A source that did not answer on a watch's last run, or whose answer is unknown."""
+
+    source: str
+    label: str
+    note: str
+
+
+class TodayRun(LosslessModel):
+    """A watch's most recent run."""
+
+    execution_id: int
+    status: str
+    started_at: Optional[str]
+    ended_at: Optional[str]
+    result_count: int
+    new_result_count: int
+    sources_total: int
+    sources_answered: int
+    sources_not_answered: list[TodaySourceNote]
+
+
+class TodayWatch(LosslessModel):
+    """A routine, with what it found since the last look.
+
+    ``next_fire_at`` is what the job store holds, not a promise that anything
+    will fire it: ``/api/scheduler/status`` says whether something will.
+    """
+
+    id: int
+    name: str
+    is_active: bool
+    new_count: int
+    last_run: Optional[TodayRun]
+    next_fire_at: Optional[str]
+    #: Every paper this watch's runs have ever returned, for its outline on the plate.
+    members: list[int]
+
+
+class TodayPaper(LosslessModel):
+    """A paper resmon first collected since the last look.
+
+    ``abstract_lede`` is the opening of the abstract as the source gave it,
+    never a summary; resmon does not keep summaries per paper.
+    """
+
+    id: int
+    title: str
+    authors: Optional[str]
+    source: str
+    publication_date: Optional[str]
+    first_seen_at: Optional[str]
+    abstract_lede: Optional[str]
+    url: Optional[str]
+    doi: Optional[str]
+    watches: list[int]
+    queue_status: Optional[str]
+
+
+class Today(LosslessModel):
+    """``GET /api/today``.
+
+    ``window`` is ``since_last_look`` when a look is recorded and
+    ``first_look`` when none is, in which case ``since`` is seven days before
+    ``now`` and the interface says so. ``papers`` holds at most 1,000, newest
+    first; ``total`` counts them all.
+    """
+
+    now: str
+    since: Optional[str]
+    window: Literal["since_last_look", "first_look"]
+    total: int
+    papers: list[TodayPaper]
+    from_searches: int
+    watches: list[TodayWatch]
+
+
+class DocumentBrief(LosslessModel):
+    """``POST /api/documents/briefs``: one line about a paper, for a hover."""
+
+    id: int
+    title: str
+    authors: Optional[str]
+    source: str
+    publication_date: Optional[str]
+    first_seen_at: Optional[str]
+
+
+class TodayLooked(LosslessModel):
+    """``POST /api/today/looked``: the moment recorded."""
+
+    looked_at: str
+
+
 class EmbeddingIndexState(LosslessModel):
     """What the vector index currently holds."""
 

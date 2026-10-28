@@ -126,6 +126,8 @@ REGISTER: tuple[tuple[str, str], ...] = (
     ("J46", "Appearance: theme and accent"),
     # The Atlas plate: every paper placed by text similarity (rebuild phase 2).
     ("J47", "Collection map: where every paper sits"),
+    # Atlas's first screen: the morning edition (rebuild phase 2, step 5).
+    ("J48", "Today: the papers since you last looked"),
 )
 
 #: ``J01`` -> ``Deep Dive``.
@@ -391,6 +393,9 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("PUT", "/api/settings/notifications"): ("J23",),
     ("GET", "/api/appearance"): ("J46",),
     ("GET", "/api/map"): ("J47",),
+    ("POST", "/api/documents/briefs"): ("J47", "J48"),
+    ("GET", "/api/today"): ("J48",),
+    ("POST", "/api/today/looked"): ("J48",),
     ("PUT", "/api/appearance"): ("J46",),
 }
 

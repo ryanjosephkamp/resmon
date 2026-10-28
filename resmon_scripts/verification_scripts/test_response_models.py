@@ -132,6 +132,13 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     "collection map": (
         ("GET", "/api/map"),
     ),
+    "today": (
+        ("GET", "/api/today"),
+        ("POST", "/api/today/looked"),
+    ),
+    "document briefs": (
+        ("POST", "/api/documents/briefs"),
+    ),
     "reading queue": (
         ("GET", "/api/reading-queue"),
         ("POST", "/api/reading-queue"),
@@ -455,6 +462,7 @@ def driven() -> Drive:
         _drive_configurations(drive)
         _drive_scheduler(drive)
         _drive_collection_map(drive)
+        _drive_today(drive)
 
         yield drive
 
@@ -479,6 +487,19 @@ def _drive_process_identity(drive: Drive) -> None:
     assert catalog, "the catalog must have rows for its model to be exercised"
     drive("GET", "/api/credentials")
     drive("POST", "/api/renderer/heartbeat")
+
+
+def _drive_today(drive: Drive) -> None:
+    """Both windows: the first look (seven days, nothing recorded) with the
+    scenario's papers, routines and runs in it, then the window after a look,
+    which is empty."""
+    first = drive("GET", "/api/today")
+    drive("POST", "/api/today/looked")
+    drive("GET", "/api/today")
+    # Briefs for the papers Today listed, and for an id that is not there.
+    ids = [paper["id"] for paper in first["papers"]][:3] + [987654]
+    briefs = drive("POST", "/api/documents/briefs", json={"ids": ids})
+    assert [b["id"] for b in briefs] == ids[:-1]
 
 
 def _drive_collection_map(drive: Drive) -> None:

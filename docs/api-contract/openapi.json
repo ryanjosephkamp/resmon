@@ -1123,6 +1123,84 @@
         "title": "DiveRequest",
         "type": "object"
       },
+      "DocumentBrief": {
+        "additionalProperties": true,
+        "description": "``POST /api/documents/briefs``: one line about a paper, for a hover.",
+        "properties": {
+          "authors": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authors"
+          },
+          "first_seen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "authors",
+          "source",
+          "publication_date",
+          "first_seen_at"
+        ],
+        "title": "DocumentBrief",
+        "type": "object"
+      },
+      "DocumentBriefsBody": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 200,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "DocumentBriefsBody",
+        "type": "object"
+      },
       "DocumentIdsBody": {
         "properties": {
           "document_ids": {
@@ -3788,6 +3866,358 @@
           "query"
         ],
         "title": "SweepRequest",
+        "type": "object"
+      },
+      "Today": {
+        "additionalProperties": true,
+        "description": "``GET /api/today``.\n\n``window`` is ``since_last_look`` when a look is recorded and\n``first_look`` when none is, in which case ``since`` is seven days before\n``now`` and the interface says so. ``papers`` holds at most 1,000, newest\nfirst; ``total`` counts them all.",
+        "properties": {
+          "from_searches": {
+            "title": "From Searches",
+            "type": "integer"
+          },
+          "now": {
+            "title": "Now",
+            "type": "string"
+          },
+          "papers": {
+            "items": {
+              "$ref": "#/components/schemas/TodayPaper"
+            },
+            "title": "Papers",
+            "type": "array"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "watches": {
+            "items": {
+              "$ref": "#/components/schemas/TodayWatch"
+            },
+            "title": "Watches",
+            "type": "array"
+          },
+          "window": {
+            "enum": [
+              "since_last_look",
+              "first_look"
+            ],
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "now",
+          "since",
+          "window",
+          "total",
+          "papers",
+          "from_searches",
+          "watches"
+        ],
+        "title": "Today",
+        "type": "object"
+      },
+      "TodayLooked": {
+        "additionalProperties": true,
+        "description": "``POST /api/today/looked``: the moment recorded.",
+        "properties": {
+          "looked_at": {
+            "title": "Looked At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "looked_at"
+        ],
+        "title": "TodayLooked",
+        "type": "object"
+      },
+      "TodayPaper": {
+        "additionalProperties": true,
+        "description": "A paper resmon first collected since the last look.\n\n``abstract_lede`` is the opening of the abstract as the source gave it,\nnever a summary; resmon does not keep summaries per paper.",
+        "properties": {
+          "abstract_lede": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstract Lede"
+          },
+          "authors": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authors"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "first_seen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "queue_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Status"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "watches": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Watches",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "authors",
+          "source",
+          "publication_date",
+          "first_seen_at",
+          "abstract_lede",
+          "url",
+          "doi",
+          "watches",
+          "queue_status"
+        ],
+        "title": "TodayPaper",
+        "type": "object"
+      },
+      "TodayRun": {
+        "additionalProperties": true,
+        "description": "A watch's most recent run.",
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "new_result_count": {
+            "title": "New Result Count",
+            "type": "integer"
+          },
+          "result_count": {
+            "title": "Result Count",
+            "type": "integer"
+          },
+          "sources_answered": {
+            "title": "Sources Answered",
+            "type": "integer"
+          },
+          "sources_not_answered": {
+            "items": {
+              "$ref": "#/components/schemas/TodaySourceNote"
+            },
+            "title": "Sources Not Answered",
+            "type": "array"
+          },
+          "sources_total": {
+            "title": "Sources Total",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "execution_id",
+          "status",
+          "started_at",
+          "ended_at",
+          "result_count",
+          "new_result_count",
+          "sources_total",
+          "sources_answered",
+          "sources_not_answered"
+        ],
+        "title": "TodayRun",
+        "type": "object"
+      },
+      "TodaySourceNote": {
+        "additionalProperties": true,
+        "description": "A source that did not answer on a watch's last run, or whose answer is unknown.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "label",
+          "note"
+        ],
+        "title": "TodaySourceNote",
+        "type": "object"
+      },
+      "TodayWatch": {
+        "additionalProperties": true,
+        "description": "A routine, with what it found since the last look.\n\n``next_fire_at`` is what the job store holds, not a promise that anything\nwill fire it: ``/api/scheduler/status`` says whether something will.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TodayRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "members": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "new_count": {
+            "title": "New Count",
+            "type": "integer"
+          },
+          "next_fire_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Fire At"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_active",
+          "new_count",
+          "last_run",
+          "next_fire_at",
+          "members"
+        ],
+        "title": "TodayWatch",
         "type": "object"
       },
       "ValidationError": {
@@ -6760,6 +7190,49 @@
           }
         },
         "summary": "Skip Delivery"
+      }
+    },
+    "/api/documents/briefs": {
+      "post": {
+        "description": "A line about each paper asked for, for the plate's hover: title, authors,\nsource and dates. Ids that are not in the corpus are left out, not invented.",
+        "operationId": "get_document_briefs_api_documents_briefs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentBriefsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DocumentBrief"
+                  },
+                  "title": "Response Get Document Briefs Api Documents Briefs Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Document Briefs"
       }
     },
     "/api/documents/{doc_id}/lifecycle": {
@@ -11441,6 +11914,44 @@
           }
         },
         "summary": "Update Storage Settings"
+      }
+    },
+    "/api/today": {
+      "get": {
+        "description": "The papers resmon first collected since Today was last looked at, by watch.\n\nSee ``today`` for what \"new\", \"looked\" and \"watch\" mean. Reading this does\nnot mark anything looked at; ``POST /api/today/looked`` does.",
+        "operationId": "get_today_api_today_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Today"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Today"
+      }
+    },
+    "/api/today/looked": {
+      "post": {
+        "description": "Record that Today was looked at now: the next window starts here.",
+        "operationId": "mark_today_looked_api_today_looked_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodayLooked"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Mark Today Looked"
       }
     },
     "/api/watchdog": {

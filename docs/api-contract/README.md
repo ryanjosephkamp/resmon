@@ -58,7 +58,7 @@ point of having it. The failure message is the review.
 ## How the renderer rebuild uses it
 
 **A screen may call what is in here and nothing else.** The 3.0 renderer is measured against this
-file: for each of the 47 parity-register rows, `http.md` lists the routes that carry it, so a screen
+file: for each of the 48 parity-register rows, `http.md` lists the routes that carry it, so a screen
 that has been rebuilt can be checked against the routes its journey actually needs rather than
 against somebody's memory of the old page. A screen that needs something not in here is asking for
 a backend change, which is a pull request of its own and arrives before the screen does.

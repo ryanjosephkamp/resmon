@@ -87,7 +87,7 @@ other half of that check and it is in the pull request.
 
 | File | What it is |
 |---|---|
-| `register.ts` | The denominator: all 47 rows of the parity register, their slice and their status, and `ROUTE_ROWS` — which rows carry each page the app routes to. Nothing else in the suite is allowed to disagree with it. |
+| `register.ts` | The denominator: all 48 rows of the parity register, their slice and their status, and `ROUTE_ROWS` — which rows carry each page the app routes to. Nothing else in the suite is allowed to disagree with it. |
 | `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; every page in `src/routes.ts` names a carried row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer. |
 | `driver.ts` | The seam — the `JourneyDriver` interface, in the user's words, plus the `journey` test object. |
 | `drivers/classic.ts` | The one file that knows a class name, a hash route or the text on a button. |

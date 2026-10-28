@@ -978,6 +978,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/briefs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get Document Briefs
+         * @description A line about each paper asked for, for the plate's hover: title, authors,
+         *     source and dates. Ids that are not in the corpus are left out, not invented.
+         */
+        post: operations["get_document_briefs_api_documents_briefs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{doc_id}/lifecycle": {
         parameters: {
             query?: never;
@@ -3297,6 +3318,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Today
+         * @description The papers resmon first collected since Today was last looked at, by watch.
+         *
+         *     See ``today`` for what "new", "looked" and "watch" mean. Reading this does
+         *     not mark anything looked at; ``POST /api/today/looked`` does.
+         */
+        get: operations["get_today_api_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/today/looked": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Today Looked
+         * @description Record that Today was looked at now: the next window starts here.
+         */
+        post: operations["mark_today_looked_api_today_looked_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/watchdog": {
         parameters: {
             query?: never;
@@ -3880,6 +3944,31 @@ export interface components {
             request_id?: string | null;
             /** Saved Configuration Id */
             saved_configuration_id?: number | null;
+        };
+        /**
+         * DocumentBrief
+         * @description ``POST /api/documents/briefs``: one line about a paper, for a hover.
+         */
+        DocumentBrief: {
+            /** Authors */
+            authors: string | null;
+            /** First Seen At */
+            first_seen_at: string | null;
+            /** Id */
+            id: number;
+            /** Publication Date */
+            publication_date: string | null;
+            /** Source */
+            source: string;
+            /** Title */
+            title: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** DocumentBriefsBody */
+        DocumentBriefsBody: {
+            /** Ids */
+            ids: number[];
         };
         /** DocumentIdsBody */
         DocumentIdsBody: {
@@ -5145,6 +5234,143 @@ export interface components {
             request_id?: string | null;
             /** Saved Configuration Id */
             saved_configuration_id?: number | null;
+        };
+        /**
+         * Today
+         * @description ``GET /api/today``.
+         *
+         *     ``window`` is ``since_last_look`` when a look is recorded and
+         *     ``first_look`` when none is, in which case ``since`` is seven days before
+         *     ``now`` and the interface says so. ``papers`` holds at most 1,000, newest
+         *     first; ``total`` counts them all.
+         */
+        Today: {
+            /** From Searches */
+            from_searches: number;
+            /** Now */
+            now: string;
+            /** Papers */
+            papers: components["schemas"]["TodayPaper"][];
+            /** Since */
+            since: string | null;
+            /** Total */
+            total: number;
+            /** Watches */
+            watches: components["schemas"]["TodayWatch"][];
+            /**
+             * Window
+             * @enum {string}
+             */
+            window: "since_last_look" | "first_look";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TodayLooked
+         * @description ``POST /api/today/looked``: the moment recorded.
+         */
+        TodayLooked: {
+            /** Looked At */
+            looked_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TodayPaper
+         * @description A paper resmon first collected since the last look.
+         *
+         *     ``abstract_lede`` is the opening of the abstract as the source gave it,
+         *     never a summary; resmon does not keep summaries per paper.
+         */
+        TodayPaper: {
+            /** Abstract Lede */
+            abstract_lede: string | null;
+            /** Authors */
+            authors: string | null;
+            /** Doi */
+            doi: string | null;
+            /** First Seen At */
+            first_seen_at: string | null;
+            /** Id */
+            id: number;
+            /** Publication Date */
+            publication_date: string | null;
+            /** Queue Status */
+            queue_status: string | null;
+            /** Source */
+            source: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string | null;
+            /** Watches */
+            watches: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TodayRun
+         * @description A watch's most recent run.
+         */
+        TodayRun: {
+            /** Ended At */
+            ended_at: string | null;
+            /** Execution Id */
+            execution_id: number;
+            /** New Result Count */
+            new_result_count: number;
+            /** Result Count */
+            result_count: number;
+            /** Sources Answered */
+            sources_answered: number;
+            /** Sources Not Answered */
+            sources_not_answered: components["schemas"]["TodaySourceNote"][];
+            /** Sources Total */
+            sources_total: number;
+            /** Started At */
+            started_at: string | null;
+            /** Status */
+            status: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TodaySourceNote
+         * @description A source that did not answer on a watch's last run, or whose answer is unknown.
+         */
+        TodaySourceNote: {
+            /** Label */
+            label: string;
+            /** Note */
+            note: string;
+            /** Source */
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TodayWatch
+         * @description A routine, with what it found since the last look.
+         *
+         *     ``next_fire_at`` is what the job store holds, not a promise that anything
+         *     will fire it: ``/api/scheduler/status`` says whether something will.
+         */
+        TodayWatch: {
+            /** Id */
+            id: number;
+            /** Is Active */
+            is_active: boolean;
+            last_run: components["schemas"]["TodayRun"] | null;
+            /** Members */
+            members: number[];
+            /** Name */
+            name: string;
+            /** New Count */
+            new_count: number;
+            /** Next Fire At */
+            next_fire_at: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /** ValidationError */
         ValidationError: {
@@ -7294,6 +7520,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_briefs_api_documents_briefs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentBriefsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentBrief"][];
                 };
             };
             /** @description Validation Error */
@@ -11119,6 +11378,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_today_api_today_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Today"];
+                };
+            };
+        };
+    };
+    mark_today_looked_api_today_looked_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayLooked"];
                 };
             };
         };
