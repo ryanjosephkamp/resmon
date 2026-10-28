@@ -113,7 +113,7 @@ from implementation_scripts.api_registry import list_repositories
 from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
     analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store, collection_map,
-    coverage_audit, embedding_job,
+    coverage_audit, embedding_job, today,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
     reading_queue, reference_export, response_models, search_record, source_coverage,
     source_wall, vector_index, watch_profiles,
@@ -5857,6 +5857,64 @@ def _job_store_next_fire_times(conn: sqlite3.Connection) -> dict[str, Optional[f
         str(row[0]): row[1]
         for row in conn.execute("SELECT id, next_run_time FROM apscheduler_jobs")
     }
+
+
+def _next_fire_epochs(conn: sqlite3.Connection) -> dict[str, Optional[float]]:
+    """``routine id -> next fire`` (epoch seconds), from whichever store holds
+    the jobs: this backend's scheduler when it runs one, else the job store
+    inside this database. A time here is what is scheduled, not a promise that
+    anything will fire it; ``/api/scheduler/status`` answers that."""
+    if scheduler is None:
+        return _job_store_next_fire_times(conn)
+    out: dict[str, Optional[float]] = {}
+    for job in scheduler.get_active_jobs():
+        raw = job.get("next_run_time")
+        try:
+            out[str(job["id"])] = datetime.fromisoformat(raw).timestamp() if raw else None
+        except (TypeError, ValueError):
+            out[str(job["id"])] = None
+    return out
+
+
+@app.get("/api/today", response_model=response_models.Today, response_model_exclude_unset=True)
+def get_today():
+    """The papers resmon first collected since Today was last looked at, by watch.
+
+    See ``today`` for what "new", "looked" and "watch" mean. Reading this does
+    not mark anything looked at; ``POST /api/today/looked`` does.
+    """
+    conn = _get_db()
+    try:
+        return today.build(conn, _next_fire_epochs(conn))
+    finally:
+        _close_db(conn)
+
+
+class DocumentBriefsBody(BaseModel):
+    ids: list[int] = Field(..., max_length=today.BRIEF_LIMIT)
+
+
+@app.post("/api/documents/briefs", response_model=list[response_models.DocumentBrief],
+          response_model_exclude_unset=True)
+def get_document_briefs(body: DocumentBriefsBody):
+    """A line about each paper asked for, for the plate's hover: title, authors,
+    source and dates. Ids that are not in the corpus are left out, not invented."""
+    conn = _get_db()
+    try:
+        return today.briefs(conn, body.ids)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/today/looked", response_model=response_models.TodayLooked,
+          response_model_exclude_unset=True)
+def mark_today_looked():
+    """Record that Today was looked at now: the next window starts here."""
+    conn = _get_db()
+    try:
+        return {"looked_at": today.mark_looked(conn)}
+    finally:
+        _close_db(conn)
 
 
 def _who_fires_without_a_scheduler_here(installed: bool) -> tuple[str, Optional[str]]:

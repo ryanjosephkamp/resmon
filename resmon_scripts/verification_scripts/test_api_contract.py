@@ -337,7 +337,7 @@ def test_every_route_is_mapped_to_a_register_row():
     assert not unmapped, (
         "Routes with no row in api_contract.ROUTE_JOURNEYS:\n  "
         + "\n  ".join(sorted(unmapped))
-        + "\nAdd each one to the mapping with the register row (J01…J47) it serves."
+        + "\nAdd each one to the mapping with the register row (J01…J48) it serves."
     )
 
 
@@ -353,7 +353,7 @@ def test_the_mapping_has_no_route_the_app_does_not():
 
 def test_every_register_id_used_is_one_of_the_forty_five():
     """``J46`` and ``J7`` are both typos, and both would render as a lost row."""
-    assert len(api_contract.REGISTER) == 47
+    assert len(api_contract.REGISTER) == 48
     known = set(api_contract.REGISTER_TITLES)
     used = {
         journey
@@ -368,7 +368,7 @@ def test_every_register_id_used_is_one_of_the_forty_five():
 
 
 def test_every_register_row_appears_in_the_index():
-    """All 47 headings, in order, whether or not they carry a route."""
+    """All 48 headings, in order, whether or not they carry a route."""
     index = _committed(api_contract.HTTP_INDEX_PATH)
     position = -1
     for jid, title in api_contract.REGISTER:
