@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
@@ -32,6 +32,11 @@ export function ReadingQueue() {
     queryKey: ['reading-queue', filter],
     queryFn: () => answer(engine().GET('/api/reading-queue', { params: { query: { status: filter, limit: PAGE, offset: 0 } } })),
   });
+  const catalog = useQuery({
+    queryKey: ['catalog'], staleTime: Infinity,
+    queryFn: () => answer(engine().GET('/api/repositories/catalog')),
+  });
+  const names = useMemo(() => new Map((catalog.data ?? []).map((e) => [e.slug, e.name])), [catalog.data]);
   const refresh = () => void client.invalidateQueries({ queryKey: ['reading-queue'] });
   const mark = useMutation({
     mutationFn: ({ id, status }: { id: number; status: 'read' | 'to_read' }) => answer(engine().PUT('/api/reading-queue/{document_id}', {
@@ -100,7 +105,7 @@ export function ReadingQueue() {
                   <Link to={`/papers/${entry.document_id}`} className="queue-title">{doc?.title ?? `Paper ${entry.document_id}`}</Link>
                   <div className="meta">
                     <span className="who">{authors(doc?.authors)}</span>
-                    {doc?.source_repository && (<><span className="sep" /><span>{doc.source_repository}</span></>)}
+                    {doc?.source_repository && (<><span className="sep" /><span>{names.get(doc.source_repository) ?? doc.source_repository}</span></>)}
                     <span className="sep" />
                     <span className="queue-state" data-status={entry.status}>{queueWords(entry.status)}</span>
                   </div>

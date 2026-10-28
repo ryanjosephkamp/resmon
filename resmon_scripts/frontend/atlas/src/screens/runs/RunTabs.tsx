@@ -46,7 +46,7 @@ export function RunTabs({ run, live, names, events, papers, running }: Props) {
         ))}
       </div>
       <div className="run-panel" role="tabpanel" id="run-tab-panel" aria-labelledby={`run-tab-${tab}`}>
-        {tab === 'Papers' && <Papers runId={run.id} papers={papers} running={running} />}
+        {tab === 'Papers' && <Papers runId={run.id} papers={papers} running={running} names={names} />}
         {tab === 'Report' && <TextRecord id={run.id} kind="report" running={running} />}
         {tab === 'Log' && <TextRecord id={run.id} kind="log" running={running} />}
         {tab === 'Search record' && <SearchRecord id={run.id} settledAt={running ? null : run.end_time} />}
@@ -57,7 +57,7 @@ export function RunTabs({ run, live, names, events, papers, running }: Props) {
   );
 }
 
-function Papers({ runId, papers, running }: Pick<Props, 'papers' | 'running'> & { runId: number }) {
+function Papers({ runId, papers, running, names }: Pick<Props, 'papers' | 'running' | 'names'> & { runId: number }) {
   const client = useQueryClient();
   const save = useMutation({
     mutationFn: (documentId: number) => answer(engine().POST('/api/reading-queue', { body: { document_id: documentId } })),
@@ -85,7 +85,7 @@ function Papers({ runId, papers, running }: Pick<Props, 'papers' | 'running'> & 
                 <Link to={`/papers/${paper.id}`} className="paper-title">{paper.title || 'Untitled'}</Link>
                 <span className="meta">
                   <span className="who">{authors(paper.authors)}</span>
-                  <span className="sep" /><span>{paper.source_repository}</span>
+                  <span className="sep" /><span>{names.get(paper.source_repository) ?? paper.source_repository}</span>
                   {paper.publication_date && (<><span className="sep" /><span>{paper.publication_date}</span></>)}
                   {paper.url && (<><span className="sep" /><a href={paper.url} target="_blank" rel="noreferrer">open</a></>)}
                 </span>
