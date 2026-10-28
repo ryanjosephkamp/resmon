@@ -109,7 +109,9 @@ instead, each run started the moment the last one finishes and the recordings
 answered without their latency (`--latency recorded` keeps it), sampling every
 2 seconds. A sawtooth's peaks say when the allocator last let go, so this mode
 reports blocks of 20 runs: the lowest and highest memory in each, and the slope
-of each per 100 runs after the first block. A leak raises the floor. It does
+of each per 100 runs after the first block. A leak raises the floor. On macOS it
+reads the physical footprint, which counts compressed memory; resident size is
+recorded too but hides a leak once the compressor takes idle pages. It does
 not measure anything that grows with time alone; `--hours` does.
 
 ## Known limits

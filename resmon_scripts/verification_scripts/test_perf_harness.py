@@ -141,7 +141,7 @@ def _sawtooth(runs: int, leak_mb_per_run: float) -> tuple[list[dict], list[dict]
         floor = 120.0 + leak_mb_per_run * run
         peak = floor + 100.0 + 50.0 * ((run * 37) % 7) / 6.0 + (60.0 if run > runs - 20 else 0.0)
         for rss in (floor, floor + 40.0, peak):
-            samples.append({"run": run, "rss_mb": rss, "open_files": 85})
+            samples.append({"run": run, "rss_mb": rss, "footprint_mb": rss + 30.0, "open_files": 85})
         finished.append({"run": run, "status": "completed"})
     return samples, finished
 
@@ -150,6 +150,7 @@ def test_a_soak_with_a_flat_floor_and_a_high_last_peak_reads_as_no_leak():
     shape = soak.by_blocks(*_sawtooth(100, 0.0), warmup_runs=20)
     assert [b["runs"] for b in shape["blocks"]] == [[1, 20], [21, 40], [41, 60], [61, 80], [81, 100]]
     assert abs(shape["floor_mb_per_100_runs"]) < 1e-9
+    assert abs(shape["footprint_floor_mb_per_100_runs"]) < 1e-9
     assert shape["peak_mb_per_100_runs"] > 0
     assert shape["open_files_per_100_runs"] == 0
 
@@ -157,6 +158,7 @@ def test_a_soak_with_a_flat_floor_and_a_high_last_peak_reads_as_no_leak():
 def test_a_soak_whose_floor_rises_reads_as_the_rate_it_rises_at():
     shape = soak.by_blocks(*_sawtooth(100, 0.5), warmup_runs=20)
     assert math.isclose(shape["floor_mb_per_100_runs"], 50.0)
+    assert math.isclose(shape["footprint_floor_mb_per_100_runs"], 50.0)
 
 
 # ---------------------------------------------------------------------------

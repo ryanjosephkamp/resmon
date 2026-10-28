@@ -25,7 +25,10 @@ still does, and the first soak's three hours are its answer so far.
 A sawtooth's peaks say when the allocator last let go, not whether anything is
 kept, so the by-runs mode judges by blocks of runs: the lowest and highest
 memory in each block, and the slope of each across the blocks after warm-up.
-A leak raises the floor; a noisy allocator moves only the peaks.
+A leak raises the floor; a noisy allocator moves only the peaks. On macOS the
+memory judged is the physical footprint, which counts compressed pages;
+resident size is kept beside it and is not evidence on a Mac that compresses
+(``resources.footprint_mb`` says why).
 """
 
 from __future__ import annotations
@@ -120,7 +123,9 @@ def run(work: Path, corpus: Path, replies: Path, *, hours: float, interval: floa
 
 def _sample(backend, **extra) -> dict:
     snap = resources.snapshot(backend.proc.pid)
+    footprint = resources.footprint_mb(backend.proc.pid)
     return {"rss_mb": round(snap["total_mb"], 1),
+            "footprint_mb": None if footprint is None else round(footprint, 1),
             "open_files": resources.open_files(backend.proc.pid), **extra}
 
 
@@ -135,8 +140,11 @@ def by_blocks(samples: list[dict], finished: list[dict], warmup_runs: int) -> di
         last = min(first + BLOCK_RUNS - 1, len(finished))
         inside = [s for s in samples if first <= s["run"] <= last]
         files = [s["open_files"] for s in inside if s["open_files"] is not None]
+        prints = [s["footprint_mb"] for s in inside if s.get("footprint_mb") is not None]
         blocks.append({
             "runs": [first, last],
+            "footprint_mb_min": min(prints) if prints else None,
+            "footprint_mb_max": max(prints) if prints else None,
             "rss_mb_min": min(s["rss_mb"] for s in inside),
             "rss_mb_max": max(s["rss_mb"] for s in inside),
             "open_files_min": min(files) if files else None,
@@ -150,6 +158,8 @@ def by_blocks(samples: list[dict], finished: list[dict], warmup_runs: int) -> di
         return _slope_per_hour(points) / 3600.0 * 100.0 if len(points) >= 2 else None
 
     return {
+        "footprint_floor_mb_per_100_runs": per_100("footprint_mb_min"),
+        "footprint_peak_mb_per_100_runs": per_100("footprint_mb_max"),
         "floor_mb_per_100_runs": per_100("rss_mb_min"),
         "peak_mb_per_100_runs": per_100("rss_mb_max"),
         "open_files_per_100_runs": per_100("open_files_max"),
@@ -239,7 +249,11 @@ def describe(result: dict) -> str:
             f"{result['runs']} runs back to back in {result['wall_minutes']} min "
             f"({result['not_completed']} not completed; a run took {result['run_seconds_median']} s "
             f"at the median, latency {result['latency']}). After {result['warmup_runs']} runs of "
-            f"warm-up, in blocks of {result['block_runs']}: memory floor "
+            f"warm-up, in blocks of {result['block_runs']}: footprint floor "
+            f"{first.get('footprint_mb_min')} → {last.get('footprint_mb_min')} MB "
+            f"({_signed(result.get('footprint_floor_mb_per_100_runs'))} MB per 100 runs), peak "
+            f"{first.get('footprint_mb_max')} → {last.get('footprint_mb_max')} MB "
+            f"({_signed(result.get('footprint_peak_mb_per_100_runs'))}); resident floor "
             f"{first.get('rss_mb_min')} → {last.get('rss_mb_min')} MB "
             f"({_signed(result['floor_mb_per_100_runs'])} MB per 100 runs), peak "
             f"{first.get('rss_mb_max')} → {last.get('rss_mb_max')} MB "
