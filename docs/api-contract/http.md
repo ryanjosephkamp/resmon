@@ -12,7 +12,7 @@
 
 **Purpose.** The first line of the endpoint's docstring, for the 92 of 192 routes that have one. The remaining 100 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 55 of 192 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 137 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 64 of 192 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 128 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -24,7 +24,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | *Get Execution Progress Events* |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
-| `POST` | `/api/search/dive` | token | — | — | *Search Dive* |
+| `POST` | `/api/search/dive` | token | — | `RunStarted` | *Search Dive* |
 | `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
 
 ## J02 — Deep Sweep
@@ -34,7 +34,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | *Get Execution Progress Events* |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
 | `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
-| `POST` | `/api/search/sweep` | token | — | — | *Search Sweep* |
+| `POST` | `/api/search/sweep` | token | — | `RunStarted` | *Search Sweep* |
 
 ## J03 — Routines
 
@@ -194,14 +194,14 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/executions` | token | — | — | *List Executions* |
+| `GET` | `/api/executions` | token | — | `list` | *List Executions* |
 | `POST` | `/api/executions/export` | token | — | — | Bundle the reports and logs for the selected executions into a .zip. |
 | `DELETE` | `/api/executions/{exec_id}` | token | — | — | *Delete Execution* |
-| `GET` | `/api/executions/{exec_id}` | token | — | — | *Get Execution* |
+| `GET` | `/api/executions/{exec_id}` | token | — | `Run` | *Get Execution* |
 | `GET` | `/api/executions/{exec_id}/documents` | token | — | — | One page of the papers this run found, each with its stored id. |
-| `GET` | `/api/executions/{exec_id}/log` | token | — | — | *Get Execution Log* |
+| `GET` | `/api/executions/{exec_id}/log` | token | — | `RunLog` | *Get Execution Log* |
 | `GET` | `/api/executions/{exec_id}/references` | token | — | — | Export one run; JSON can explicitly include corpus IDs for follow-up reads. |
-| `GET` | `/api/executions/{exec_id}/report` | token | — | — | *Get Execution Report* |
+| `GET` | `/api/executions/{exec_id}/report` | token | — | `RunReport` | *Get Execution Report* |
 | `GET` | `/api/executions/{exec_id}/search-record` | token | — | — | The complete, dated account of one search. |
 | `POST` | `/api/export/references` | token | — | — | Render one selection, with one entry per stored document ID. |
 
@@ -209,8 +209,8 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/executions/active` | token | — | — | *Active Executions* |
-| `POST` | `/api/executions/{exec_id}/cancel` | token | — | — | Request cooperative cancellation of a running execution. |
+| `GET` | `/api/executions/active` | token | — | `ActiveRuns` | *Active Executions* |
+| `POST` | `/api/executions/{exec_id}/cancel` | token | — | `RunCancelRequested` | Request cooperative cancellation of a running execution. |
 | `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | *Get Execution Progress Events* |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
 
@@ -299,7 +299,7 @@ No route. Recorded in the register as not carried forward.
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/coverage/source-wall` | token | — | — | Every source's recorded answer to each of the last `limit` runs. |
-| `GET` | `/api/executions/{exec_id}` | token | — | — | *Get Execution* |
+| `GET` | `/api/executions/{exec_id}` | token | — | `Run` | *Get Execution* |
 | `GET` | `/api/executions/{exec_id}/search-record` | token | — | — | The complete, dated account of one search. |
 
 ## J30 — Runtime identity
@@ -384,8 +384,8 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/executions/{exec_id}` | token | — | — | *Get Execution* |
-| `POST` | `/api/executions/{exec_id}/restart` | token | — | — | Start a fresh execution with the source's parameters, linked back to it. |
+| `GET` | `/api/executions/{exec_id}` | token | — | `Run` | *Get Execution* |
+| `POST` | `/api/executions/{exec_id}/restart` | token | — | `RunRestarted` | Start a fresh execution with the source's parameters, linked back to it. |
 | `POST` | `/api/renderer/heartbeat` | token | — | `RendererHeartbeat` | Renderer-presence ping. |
 
 ## J39 — One run per routine, one per submission, missed fires
@@ -394,8 +394,8 @@ No route. Recorded in the register as not carried forward.
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/routines/{routine_id}` | token | — | — | Fetch a single routine by ID. |
 | `POST` | `/api/routines/{routine_id}/run` | token | — | — | Run a routine immediately, outside its schedule. |
-| `POST` | `/api/search/dive` | token | — | — | *Search Dive* |
-| `POST` | `/api/search/sweep` | token | — | — | *Search Sweep* |
+| `POST` | `/api/search/dive` | token | — | `RunStarted` | *Search Dive* |
+| `POST` | `/api/search/sweep` | token | — | `RunStarted` | *Search Sweep* |
 | `GET` | `/api/settings/execution` | token | — | `ExecutionSettings` | *Get Execution Settings* |
 | `PUT` | `/api/settings/execution` | token | — | `ExecutionSettingsSaved` | *Update Execution Settings* |
 
@@ -455,8 +455,8 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | `GET` | `/api/documents/{doc_id}/lifecycle` | token | — | — | Lifecycle events recorded against one paper. |
 | `GET` | `/api/documents/{doc_id}/why` | token | — | — | What is locally verifiable about why this paper is in the corpus. |
 | `GET` | `/api/documents/{document_id}/similar` | token | — | — | The papers nearest this one, with distances and their sources. |
-| `GET` | `/api/executions` | token | — | — | *List Executions* |
-| `GET` | `/api/executions/{exec_id}` | token | — | — | *Get Execution* |
+| `GET` | `/api/executions` | token | — | `list` | *List Executions* |
+| `GET` | `/api/executions/{exec_id}` | token | — | `Run` | *Get Execution* |
 | `GET` | `/api/executions/{exec_id}/references` | token | — | — | Export one run; JSON can explicitly include corpus IDs for follow-up reads. |
 | `GET` | `/api/executions/{exec_id}/search-record` | token | — | — | The complete, dated account of one search. |
 | `POST` | `/api/explorer/search` | token | — | — | Search the whole corpus. POST because the filter set is a structure. |
@@ -475,7 +475,7 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | `POST` | `/api/routines/{routine_id}/deactivate` | token | — | — | *Deactivate Routine* |
 | `GET` | `/api/routines/{routine_id}/deliveries` | token | — | — | *List Routine Deliveries* |
 | `POST` | `/api/routines/{routine_id}/run` | token | — | — | Run a routine immediately, outside its schedule. |
-| `POST` | `/api/search/sweep` | token | — | — | *Search Sweep* |
+| `POST` | `/api/search/sweep` | token | — | `RunStarted` | *Search Sweep* |
 | `GET` | `/api/watchdog` | token | — | `WatchdogReport` | Findings, what could not be judged yet, and the thresholds used. |
 
 Read out of `resmon_scripts/mcp_server.py` rather than transcribed: `api_contract.mcp_driven_routes()` parses every `backend.request(method, path)` call in that module — method included, so a path the harness only reads does not appear here as a path it also deletes — and matches each against the route table.

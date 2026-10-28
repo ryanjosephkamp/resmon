@@ -3444,6 +3444,16 @@ export interface components {
             /** Provider */
             provider: string;
         };
+        /**
+         * ActiveRuns
+         * @description ``GET /api/executions/active``: the runs this backend is running now.
+         */
+        ActiveRuns: {
+            /** Active Ids */
+            active_ids: number[];
+        } & {
+            [key: string]: unknown;
+        };
         /** AdminConfirmBody */
         AdminConfirmBody: {
             /**
@@ -5029,6 +5039,337 @@ export interface components {
             mode: string | null;
             /** Name */
             name: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * Run
+         * @description ``GET /api/executions/{exec_id}``: the row, which backend answered, and the
+         *     runs restarted from it (the reverse of ``restarted_from``).
+         */
+        Run: {
+            /** Cancel Reason */
+            cancel_reason: string | null;
+            coverage: components["schemas"]["RunCoverage"];
+            /** Current Stage */
+            current_stage: string | null;
+            /** Dedup Cross Source */
+            dedup_cross_source: number | null;
+            /** Dedup Duplicates */
+            dedup_duplicates: number | null;
+            /** Dedup Invalid */
+            dedup_invalid: number | null;
+            /** Dedup New */
+            dedup_new: number | null;
+            /** Dedup Total */
+            dedup_total: number | null;
+            /** End Time */
+            end_time: string | null;
+            /** Error Message */
+            error_message: string | null;
+            /** Execution Type */
+            execution_type: string;
+            /** Id */
+            id: number;
+            identity: components["schemas"]["RuntimeIdentity"];
+            /** Interrupted Reason */
+            interrupted_reason: string | null;
+            /** Keywords */
+            keywords: string[] | null;
+            /** Last Seen At Utc */
+            last_seen_at_utc: string | null;
+            /** Log Path */
+            log_path: string | null;
+            /** New Result Count */
+            new_result_count: number | null;
+            /** New Results */
+            new_results: number | null;
+            /** Owner Pid */
+            owner_pid: number | null;
+            /** Owner Runtime Id */
+            owner_runtime_id: string | null;
+            /** Parameters */
+            parameters: string | null;
+            /** Progress Events */
+            progress_events: string | null;
+            /** Query */
+            query: string | null;
+            /** Repositories */
+            repositories: string[] | null;
+            /** Request Id */
+            request_id: string | null;
+            /** Restarted From */
+            restarted_from: number | null;
+            /** Restarted Into */
+            restarted_into: number[];
+            /** Result Count */
+            result_count: number | null;
+            /** Result Path */
+            result_path: string | null;
+            /** Routine Id */
+            routine_id: number | null;
+            /** Saved Configuration Id */
+            saved_configuration_id: number | null;
+            /** Saved Configuration Name */
+            saved_configuration_name: string | null;
+            source_outcomes: components["schemas"]["RunSourceOutcomes"] | null;
+            /** Start Time */
+            start_time: string | null;
+            /** Status */
+            status: string;
+            /** Total Results */
+            total_results: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunCancelRequested
+         * @description ``POST /api/executions/{exec_id}/cancel``. Cancellation is cooperative:
+         *     this says it was asked for, not that the run has stopped.
+         */
+        RunCancelRequested: {
+            /**
+             * Status
+             * @constant
+             */
+            status: "cancellation_requested";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunCoverage
+         * @description Which sources answered a run, as ``source_coverage.build`` accounts for it.
+         *
+         *     The same object the Results page, a delivery envelope and the search
+         *     record read, built from saved facts at read time. ``summary`` is the one
+         *     sentence; ``sources`` is the run's selection, in its order, and
+         *     ``additional_sources`` what was recorded outside it.
+         */
+        RunCoverage: {
+            /** Additional Sources */
+            additional_sources: components["schemas"]["RunCoverageSource"][];
+            /** Basis */
+            basis: string;
+            /** Basis Label */
+            basis_label: string;
+            counts: components["schemas"]["RunCoverageCounts"];
+            /** Execution Id */
+            execution_id: number;
+            /** Notes */
+            notes: string[];
+            /** Selection Known */
+            selection_known: boolean;
+            /** Sources */
+            sources: components["schemas"]["RunCoverageSource"][];
+            /** Summary */
+            summary: string;
+            /** Total */
+            total: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunCoverageCounts
+         * @description How the selected sources split. ``genuine_empty`` and ``partial`` are
+         *     subsets of ``answered``, not further categories.
+         */
+        RunCoverageCounts: {
+            /** Answered */
+            answered: number;
+            /** Genuine Empty */
+            genuine_empty: number;
+            /** Non Answer */
+            non_answer: number;
+            /** Partial */
+            partial: number;
+            /** Unknown */
+            unknown: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunCoverageSource
+         * @description One source's recorded outcome on one run, from ``source_coverage.outcome``.
+         *
+         *     ``category`` is ``answered``, ``non_answer`` or ``unknown``; ``label`` is
+         *     the short reason a person reads, and ``note`` the sentence that explains
+         *     it. A selected source with no recorded row is ``unknown`` with
+         *     ``outcome_recorded`` false, and every recorded field ``None``: nothing about
+         *     an attempt, a failure or an empty answer can be inferred from silence.
+         */
+        RunCoverageSource: {
+            /** Category */
+            category: string;
+            /** Genuine Empty */
+            genuine_empty: boolean;
+            /** Label */
+            label: string;
+            /** Note */
+            note: string;
+            /** Outcome Recorded */
+            outcome_recorded: boolean;
+            /** Partial */
+            partial: boolean;
+            /** Recorded At */
+            recorded_at: string | null;
+            /** Result Count */
+            result_count: number | null;
+            /** Source */
+            source: string;
+            /** Status */
+            status: string | null;
+            /** Zero Reason */
+            zero_reason: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunLog
+         * @description ``GET /api/executions/{exec_id}/log``: the run's log as written.
+         */
+        RunLog: {
+            /** Log Text */
+            log_text: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunReport
+         * @description ``GET /api/executions/{exec_id}/report``: the Markdown report as written.
+         */
+        RunReport: {
+            /** Report Text */
+            report_text: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunRestarted
+         * @description ``POST /api/executions/{exec_id}/restart``: a new run with the old one's
+         *     parameters, linked back to it. ``duplicate`` as on ``RunStarted``.
+         */
+        RunRestarted: {
+            /** Ai Enabled */
+            ai_enabled: boolean;
+            /** Duplicate */
+            duplicate?: boolean | null;
+            /** Execution Id */
+            execution_id: number;
+            /** Restarted From */
+            restarted_from: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunRow
+         * @description One row of ``GET /api/executions``, newest first.
+         */
+        RunRow: {
+            /** Cancel Reason */
+            cancel_reason: string | null;
+            coverage: components["schemas"]["RunCoverage"];
+            /** Current Stage */
+            current_stage: string | null;
+            /** Dedup Cross Source */
+            dedup_cross_source: number | null;
+            /** Dedup Duplicates */
+            dedup_duplicates: number | null;
+            /** Dedup Invalid */
+            dedup_invalid: number | null;
+            /** Dedup New */
+            dedup_new: number | null;
+            /** Dedup Total */
+            dedup_total: number | null;
+            /** End Time */
+            end_time: string | null;
+            /** Error Message */
+            error_message: string | null;
+            /** Execution Type */
+            execution_type: string;
+            /** Id */
+            id: number;
+            /** Interrupted Reason */
+            interrupted_reason: string | null;
+            /** Keywords */
+            keywords: string[] | null;
+            /** Last Seen At Utc */
+            last_seen_at_utc: string | null;
+            /** Log Path */
+            log_path: string | null;
+            /** New Result Count */
+            new_result_count: number | null;
+            /** New Results */
+            new_results: number | null;
+            /** Owner Pid */
+            owner_pid: number | null;
+            /** Owner Runtime Id */
+            owner_runtime_id: string | null;
+            /** Parameters */
+            parameters: string | null;
+            /** Progress Events */
+            progress_events: string | null;
+            /** Query */
+            query: string | null;
+            /** Repositories */
+            repositories: string[] | null;
+            /** Request Id */
+            request_id: string | null;
+            /** Restarted From */
+            restarted_from: number | null;
+            /** Result Count */
+            result_count: number | null;
+            /** Result Path */
+            result_path: string | null;
+            /** Routine Id */
+            routine_id: number | null;
+            /** Saved Configuration Id */
+            saved_configuration_id: number | null;
+            /** Saved Configuration Name */
+            saved_configuration_name: string | null;
+            source_outcomes: components["schemas"]["RunSourceOutcomes"] | null;
+            /** Start Time */
+            start_time: string | null;
+            /** Status */
+            status: string;
+            /** Total Results */
+            total_results: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunSourceOutcomes
+         * @description The compact per-run count the list shows on each row.
+         *
+         *     ``could_not_answer`` counts the zeros that were not answers; ``not_recorded``
+         *     the zeros resmon never observed, deliberately folded into neither.
+         */
+        RunSourceOutcomes: {
+            /** Answered */
+            answered: number;
+            /** Could Not Answer */
+            could_not_answer: number;
+            /** Not Recorded */
+            not_recorded: number;
+            /** Selected */
+            selected: number;
+            /** Sources That Could Not Answer */
+            sources_that_could_not_answer: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunStarted
+         * @description ``POST /api/search/dive`` and ``POST /api/search/sweep``.
+         *
+         *     ``duplicate`` is present only when ``request_id`` matched a submission
+         *     already made, and the id is that earlier run's: a retried click starts
+         *     nothing new. Absent rather than ``false`` on a first submission.
+         */
+        RunStarted: {
+            /** Duplicate */
+            duplicate?: boolean | null;
+            /** Execution Id */
+            execution_id: number;
         } & {
             [key: string]: unknown;
         };
@@ -8420,7 +8761,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunRow"][];
                 };
             };
             /** @description Validation Error */
@@ -8449,7 +8790,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ActiveRuns"];
                 };
             };
         };
@@ -8506,7 +8847,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Run"];
                 };
             };
             /** @description Validation Error */
@@ -8568,7 +8909,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunCancelRequested"];
                 };
             };
             /** @description Validation Error */
@@ -8665,7 +9006,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunLog"];
                 };
             };
             /** @description Validation Error */
@@ -8795,7 +9136,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunReport"];
                 };
             };
             /** @description Validation Error */
@@ -8830,7 +9171,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunRestarted"];
                 };
             };
             /** @description Validation Error */
@@ -10745,7 +11086,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunStarted"];
                 };
             };
             /** @description Validation Error */
@@ -10798,7 +11139,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunStarted"];
                 };
             };
             /** @description Validation Error */

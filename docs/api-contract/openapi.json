@@ -69,6 +69,24 @@
         "title": "AIModelsRequest",
         "type": "object"
       },
+      "ActiveRuns": {
+        "additionalProperties": true,
+        "description": "``GET /api/executions/active``: the runs this backend is running now.",
+        "properties": {
+          "active_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Active Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "active_ids"
+        ],
+        "title": "ActiveRuns",
+        "type": "object"
+      },
       "AdminConfirmBody": {
         "properties": {
           "confirm": {
@@ -3429,6 +3447,1179 @@
           "mode"
         ],
         "title": "RoutineWatchingProfile",
+        "type": "object"
+      },
+      "Run": {
+        "additionalProperties": true,
+        "description": "``GET /api/executions/{exec_id}``: the row, which backend answered, and the\nruns restarted from it (the reverse of ``restarted_from``).",
+        "properties": {
+          "cancel_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Reason"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/RunCoverage"
+          },
+          "current_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Stage"
+          },
+          "dedup_cross_source": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedup Cross Source"
+          },
+          "dedup_duplicates": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedup Duplicates"
+          },
+          "dedup_invalid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedup Invalid"
+          },
+          "dedup_new": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedup New"
+          },
+          "dedup_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedup Total"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "execution_type": {
+            "title": "Execution Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/RuntimeIdentity"
+          },
+          "interrupted_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interrupted Reason"
+          },
+          "keywords": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keywords"
+          },
+          "last_seen_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At Utc"
+          },
+          "log_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log Path"
+          },
+          "new_result_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Result Count"
+          },
+          "new_results": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Results"
+          },
+          "owner_pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Pid"
+          },
+          "owner_runtime_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Runtime Id"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameters"
+          },
+          "progress_events": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Events"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          },
+          "repositories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repositories"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "restarted_from": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restarted From"
+          },
+          "restarted_into": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Restarted Into",
+            "type": "array"
+          },
+          "result_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Count"
+          },
+          "result_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Path"
+          },
+          "routine_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Id"
+          },
+          "saved_configuration_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Configuration Id"
+          },
+          "saved_configuration_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Configuration Name"
+          },
+          "source_outcomes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSourceOutcomes"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total_results": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Results"
+          }
+        },
+        "required": [
+          "id",
+          "execution_type",
+          "routine_id",
+          "saved_configuration_id",
+          "parameters",
+          "start_time",
+          "end_time",
+          "status",
+          "result_count",
+          "new_result_count",
+          "log_path",
+          "result_path",
+          "error_message",
+          "progress_events",
+          "current_stage",
+          "owner_pid",
+          "owner_runtime_id",
+          "last_seen_at_utc",
+          "interrupted_reason",
+          "restarted_from",
+          "cancel_reason",
+          "dedup_total",
+          "dedup_new",
+          "dedup_duplicates",
+          "dedup_invalid",
+          "dedup_cross_source",
+          "request_id",
+          "saved_configuration_name",
+          "identity",
+          "coverage",
+          "query",
+          "keywords",
+          "repositories",
+          "total_results",
+          "new_results",
+          "source_outcomes",
+          "restarted_into"
+        ],
+        "title": "Run",
+        "type": "object"
+      },
+      "RunCancelRequested": {
+        "additionalProperties": true,
+        "description": "``POST /api/executions/{exec_id}/cancel``. Cancellation is cooperative:\nthis says it was asked for, not that the run has stopped.",
+        "properties": {
+          "status": {
+            "const": "cancellation_requested",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "RunCancelRequested",
+        "type": "object"
+      },
+      "RunCoverage": {
+        "additionalProperties": true,
+        "description": "Which sources answered a run, as ``source_coverage.build`` accounts for it.\n\nThe same object the Results page, a delivery envelope and the search\nrecord read, built from saved facts at read time. ``summary`` is the one\nsentence; ``sources`` is the run's selection, in its order, and\n``additional_sources`` what was recorded outside it.",
+        "properties": {
+          "additional_sources": {
+            "items": {
+              "$ref": "#/components/schemas/RunCoverageSource"
+            },
+            "title": "Additional Sources",
+            "type": "array"
+          },
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "basis_label": {
+            "title": "Basis Label",
+            "type": "string"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/RunCoverageCounts"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "selection_known": {
+            "title": "Selection Known",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/RunCoverageSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "execution_id",
+          "basis",
+          "basis_label",
+          "selection_known",
+          "total",
+          "counts",
+          "summary",
+          "sources",
+          "additional_sources",
+          "notes"
+        ],
+        "title": "RunCoverage",
+        "type": "object"
+      },
+      "RunCoverageCounts": {
+        "additionalProperties": true,
+        "description": "How the selected sources split. ``genuine_empty`` and ``partial`` are\nsubsets of ``answered``, not further categories.",
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "genuine_empty": {
+            "title": "Genuine Empty",
+            "type": "integer"
+          },
+          "non_answer": {
+            "title": "Non Answer",
+            "type": "integer"
+          },
+          "partial": {
+            "title": "Partial",
+            "type": "integer"
+          },
+          "unknown": {
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "answered",
+          "non_answer",
+          "unknown",
+          "genuine_empty",
+          "partial"
+        ],
+        "title": "RunCoverageCounts",
+        "type": "object"
+      },
+      "RunCoverageSource": {
+        "additionalProperties": true,
+        "description": "One source's recorded outcome on one run, from ``source_coverage.outcome``.\n\n``category`` is ``answered``, ``non_answer`` or ``unknown``; ``label`` is\nthe short reason a person reads, and ``note`` the sentence that explains\nit. A selected source with no recorded row is ``unknown`` with\n``outcome_recorded`` false, and every recorded field ``None``: nothing about\nan attempt, a failure or an empty answer can be inferred from silence.",
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "genuine_empty": {
+            "title": "Genuine Empty",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "outcome_recorded": {
+            "title": "Outcome Recorded",
+            "type": "boolean"
+          },
+          "partial": {
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At"
+          },
+          "result_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Count"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "zero_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zero Reason"
+          }
+        },
+        "required": [
+          "source",
+          "category",
+          "label",
+          "note",
+          "outcome_recorded",
+          "status",
+          "result_count",
+          "zero_reason",
+          "recorded_at",
+          "genuine_empty",
+          "partial"
+        ],
+        "title": "RunCoverageSource",
+        "type": "object"
+      },
+      "RunLog": {
+        "additionalProperties": true,
+        "description": "``GET /api/executions/{exec_id}/log``: the run's log as written.",
+        "properties": {
+          "log_text": {
+            "title": "Log Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "log_text"
+        ],
+        "title": "RunLog",
+        "type": "object"
+      },
+      "RunReport": {
+        "additionalProperties": true,
+        "description": "``GET /api/executions/{exec_id}/report``: the Markdown report as written.",
+        "properties": {
+          "report_text": {
+            "title": "Report Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "report_text"
+        ],
+        "title": "RunReport",
+        "type": "object"
+      },
+      "RunRestarted": {
+        "additionalProperties": true,
+        "description": "``POST /api/executions/{exec_id}/restart``: a new run with the old one's\nparameters, linked back to it. ``duplicate`` as on ``RunStarted``.",
+        "properties": {
+          "ai_enabled": {
+            "title": "Ai Enabled",
+            "type": "boolean"
+          },
+          "duplicate": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "restarted_from": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restarted From"
+          }
+        },
+        "required": [
+          "execution_id",
+          "restarted_from",
+          "ai_enabled"
+        ],
+        "title": "RunRestarted",
+        "type": "object"
+      },
+      "RunRow": {
+        "additionalProperties": true,
+        "description": "One row of ``GET /api/executions``, newest first.",
+        "properties": {
+          "cancel_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Reason"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/RunCoverage"
+          },
+          "current_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Stage"
+          },
+          "dedup_cross_source": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedup Cross Source"
+          },
+          "dedup_duplicates": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedup Duplicates"
+          },
+          "dedup_invalid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedup Invalid"
+          },
+          "dedup_new": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedup New"
+          },
+          "dedup_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedup Total"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "execution_type": {
+            "title": "Execution Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "interrupted_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interrupted Reason"
+          },
+          "keywords": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keywords"
+          },
+          "last_seen_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At Utc"
+          },
+          "log_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log Path"
+          },
+          "new_result_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Result Count"
+          },
+          "new_results": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Results"
+          },
+          "owner_pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Pid"
+          },
+          "owner_runtime_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Runtime Id"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameters"
+          },
+          "progress_events": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Events"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          },
+          "repositories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repositories"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "restarted_from": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restarted From"
+          },
+          "result_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Count"
+          },
+          "result_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Path"
+          },
+          "routine_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Id"
+          },
+          "saved_configuration_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Configuration Id"
+          },
+          "saved_configuration_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Configuration Name"
+          },
+          "source_outcomes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSourceOutcomes"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total_results": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Results"
+          }
+        },
+        "required": [
+          "id",
+          "execution_type",
+          "routine_id",
+          "saved_configuration_id",
+          "parameters",
+          "start_time",
+          "end_time",
+          "status",
+          "result_count",
+          "new_result_count",
+          "log_path",
+          "result_path",
+          "error_message",
+          "progress_events",
+          "current_stage",
+          "owner_pid",
+          "owner_runtime_id",
+          "last_seen_at_utc",
+          "interrupted_reason",
+          "restarted_from",
+          "cancel_reason",
+          "dedup_total",
+          "dedup_new",
+          "dedup_duplicates",
+          "dedup_invalid",
+          "dedup_cross_source",
+          "request_id",
+          "saved_configuration_name",
+          "coverage",
+          "query",
+          "keywords",
+          "repositories",
+          "total_results",
+          "new_results",
+          "source_outcomes"
+        ],
+        "title": "RunRow",
+        "type": "object"
+      },
+      "RunSourceOutcomes": {
+        "additionalProperties": true,
+        "description": "The compact per-run count the list shows on each row.\n\n``could_not_answer`` counts the zeros that were not answers; ``not_recorded``\nthe zeros resmon never observed, deliberately folded into neither.",
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "could_not_answer": {
+            "title": "Could Not Answer",
+            "type": "integer"
+          },
+          "not_recorded": {
+            "title": "Not Recorded",
+            "type": "integer"
+          },
+          "selected": {
+            "title": "Selected",
+            "type": "integer"
+          },
+          "sources_that_could_not_answer": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources That Could Not Answer",
+            "type": "array"
+          }
+        },
+        "required": [
+          "selected",
+          "answered",
+          "could_not_answer",
+          "not_recorded",
+          "sources_that_could_not_answer"
+        ],
+        "title": "RunSourceOutcomes",
+        "type": "object"
+      },
+      "RunStarted": {
+        "additionalProperties": true,
+        "description": "``POST /api/search/dive`` and ``POST /api/search/sweep``.\n\n``duplicate`` is present only when ``request_id`` matched a submission\nalready made, and the id is that earlier run's: a retried click starts\nnothing new. Absent rather than ``false`` on a first submission.",
+        "properties": {
+          "duplicate": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "execution_id"
+        ],
+        "title": "RunStarted",
         "type": "object"
       },
       "RuntimeIdentity": {
@@ -8304,7 +9495,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunRow"
+                  },
+                  "title": "Response List Executions Api Executions Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -8330,7 +9527,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveRuns"
+                }
               }
             },
             "description": "Successful Response"
@@ -8445,7 +9644,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
               }
             },
             "description": "Successful Response"
@@ -8483,7 +9684,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunCancelRequested"
+                }
               }
             },
             "description": "Successful Response"
@@ -8625,7 +9828,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunLog"
+                }
               }
             },
             "description": "Successful Response"
@@ -8814,7 +10019,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunReport"
+                }
               }
             },
             "description": "Successful Response"
@@ -8869,7 +10076,9 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunRestarted"
+                }
               }
             },
             "description": "Successful Response"
@@ -11257,7 +12466,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunStarted"
+                }
               }
             },
             "description": "Successful Response"
@@ -11315,7 +12526,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunStarted"
+                }
               }
             },
             "description": "Successful Response"

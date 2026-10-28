@@ -1592,3 +1592,191 @@ class SchedulerStatus(LosslessModel):
     service_installed: bool
     service_version: Optional[str]
     routines: list[RoutineFiring]
+
+
+# ===========================================================================
+# Runs: starting one, reading one, stopping one, starting it again
+# ===========================================================================
+
+class RunStarted(LosslessModel):
+    """``POST /api/search/dive`` and ``POST /api/search/sweep``.
+
+    ``duplicate`` is present only when ``request_id`` matched a submission
+    already made, and the id is that earlier run's: a retried click starts
+    nothing new. Absent rather than ``false`` on a first submission.
+    """
+
+    execution_id: int
+    duplicate: Optional[bool] = None
+
+
+class RunCoverageCounts(LosslessModel):
+    """How the selected sources split. ``genuine_empty`` and ``partial`` are
+    subsets of ``answered``, not further categories."""
+
+    answered: int
+    non_answer: int
+    unknown: int
+    genuine_empty: int
+    partial: int
+
+
+class RunCoverageSource(LosslessModel):
+    """One source's recorded outcome on one run, from ``source_coverage.outcome``.
+
+    ``category`` is ``answered``, ``non_answer`` or ``unknown``; ``label`` is
+    the short reason a person reads, and ``note`` the sentence that explains
+    it. A selected source with no recorded row is ``unknown`` with
+    ``outcome_recorded`` false, and every recorded field ``None``: nothing about
+    an attempt, a failure or an empty answer can be inferred from silence.
+    """
+
+    source: str
+    category: str
+    label: str
+    note: str
+    outcome_recorded: bool
+    status: Optional[str]
+    result_count: Optional[int]
+    zero_reason: Optional[str]
+    recorded_at: Optional[str]
+    genuine_empty: bool
+    partial: bool
+
+
+class RunCoverage(LosslessModel):
+    """Which sources answered a run, as ``source_coverage.build`` accounts for it.
+
+    The same object the Results page, a delivery envelope and the search
+    record read, built from saved facts at read time. ``summary`` is the one
+    sentence; ``sources`` is the run's selection, in its order, and
+    ``additional_sources`` what was recorded outside it.
+    """
+
+    execution_id: int
+    basis: str
+    basis_label: str
+    selection_known: bool
+    total: int
+    counts: RunCoverageCounts
+    summary: str
+    sources: list[RunCoverageSource]
+    additional_sources: list[RunCoverageSource]
+    notes: list[str]
+
+
+class RunSourceOutcomes(LosslessModel):
+    """The compact per-run count the list shows on each row.
+
+    ``could_not_answer`` counts the zeros that were not answers; ``not_recorded``
+    the zeros resmon never observed, deliberately folded into neither.
+    """
+
+    selected: int
+    answered: int
+    could_not_answer: int
+    not_recorded: int
+    sources_that_could_not_answer: list[str]
+
+
+class RunColumns(LosslessModel):
+    """The ``executions`` row as stored, in column order, and its configuration's name.
+
+    ``parameters`` and ``progress_events`` are the stored JSON **text**, not
+    parsed objects; ``query``, ``keywords`` and ``repositories`` on the models
+    below are what the engine parsed out of ``parameters`` for a reader.
+    ``interrupted_reason`` is set only on an interrupted run: ``owner_dead``
+    (the process running it stopped), ``daemon_restart`` (resmon was shut
+    down) or ``unknown``.
+    """
+
+    id: int
+    execution_type: str
+    routine_id: Optional[int]
+    saved_configuration_id: Optional[int]
+    parameters: Optional[str]
+    start_time: Optional[str]
+    end_time: Optional[str]
+    status: str
+    result_count: Optional[int]
+    new_result_count: Optional[int]
+    log_path: Optional[str]
+    result_path: Optional[str]
+    error_message: Optional[str]
+    progress_events: Optional[str]
+    current_stage: Optional[str]
+    owner_pid: Optional[int]
+    owner_runtime_id: Optional[str]
+    last_seen_at_utc: Optional[str]
+    interrupted_reason: Optional[str]
+    restarted_from: Optional[int]
+    cancel_reason: Optional[str]
+    dedup_total: Optional[int]
+    dedup_new: Optional[int]
+    dedup_duplicates: Optional[int]
+    dedup_invalid: Optional[int]
+    dedup_cross_source: Optional[int]
+    request_id: Optional[str]
+    saved_configuration_name: Optional[str]
+
+
+class RunRow(RunColumns):
+    """One row of ``GET /api/executions``, newest first."""
+
+    coverage: RunCoverage
+    query: Optional[str]
+    keywords: Optional[list[str]]
+    repositories: Optional[list[str]]
+    total_results: Optional[int]
+    new_results: Optional[int]
+    source_outcomes: Optional[RunSourceOutcomes]
+
+
+class Run(RunColumns):
+    """``GET /api/executions/{exec_id}``: the row, which backend answered, and the
+    runs restarted from it (the reverse of ``restarted_from``)."""
+
+    identity: RuntimeIdentity
+    coverage: RunCoverage
+    query: Optional[str]
+    keywords: Optional[list[str]]
+    repositories: Optional[list[str]]
+    total_results: Optional[int]
+    new_results: Optional[int]
+    source_outcomes: Optional[RunSourceOutcomes]
+    restarted_into: list[int]
+
+
+class ActiveRuns(LosslessModel):
+    """``GET /api/executions/active``: the runs this backend is running now."""
+
+    active_ids: list[int]
+
+
+class RunReport(LosslessModel):
+    """``GET /api/executions/{exec_id}/report``: the Markdown report as written."""
+
+    report_text: str
+
+
+class RunLog(LosslessModel):
+    """``GET /api/executions/{exec_id}/log``: the run's log as written."""
+
+    log_text: str
+
+
+class RunCancelRequested(LosslessModel):
+    """``POST /api/executions/{exec_id}/cancel``. Cancellation is cooperative:
+    this says it was asked for, not that the run has stopped."""
+
+    status: Literal["cancellation_requested"]
+
+
+class RunRestarted(LosslessModel):
+    """``POST /api/executions/{exec_id}/restart``: a new run with the old one's
+    parameters, linked back to it. ``duplicate`` as on ``RunStarted``."""
+
+    execution_id: int
+    restarted_from: Optional[int]
+    ai_enabled: bool
+    duplicate: Optional[bool] = None

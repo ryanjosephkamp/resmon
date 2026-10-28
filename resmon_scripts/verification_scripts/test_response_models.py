@@ -169,6 +169,19 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/configurations/export"),
         ("POST", "/api/configurations/import"),
     ),
+    "starting a run": (
+        ("POST", "/api/search/dive"),
+        ("POST", "/api/search/sweep"),
+    ),
+    "runs": (
+        ("GET", "/api/executions"),
+        ("GET", "/api/executions/active"),
+        ("GET", "/api/executions/{exec_id}"),
+        ("GET", "/api/executions/{exec_id}/report"),
+        ("GET", "/api/executions/{exec_id}/log"),
+        ("POST", "/api/executions/{exec_id}/cancel"),
+        ("POST", "/api/executions/{exec_id}/restart"),
+    ),
     "the scheduler": (
         ("GET", "/api/scheduler/status"),
     ),
@@ -463,6 +476,7 @@ def driven() -> Drive:
         _drive_scheduler(drive)
         _drive_collection_map(drive)
         _drive_today(drive)
+        _drive_runs(drive)
 
         yield drive
 
@@ -500,6 +514,101 @@ def _drive_today(drive: Drive) -> None:
     ids = [paper["id"] for paper in first["papers"]][:3] + [987654]
     briefs = drive("POST", "/api/documents/briefs", json={"ids": ids})
     assert [b["id"] for b in briefs] == ids[:-1]
+
+
+def _wait_until_settled(drive: Drive, exec_id: int, timeout: float = 30.0) -> dict:
+    """Poll a run, unrecorded, until it is no longer running."""
+    import time  # noqa: PLC0415 — only the runs slice waits on a thread
+
+    deadline = time.monotonic() + timeout
+    while True:
+        row = drive.client.get(f"/api/executions/{exec_id}").json()
+        if row["status"] != "running":
+            return row
+        assert time.monotonic() < deadline, f"run {exec_id} still running after {timeout} s"
+        time.sleep(0.05)
+
+
+def _drive_runs(drive: Drive) -> None:
+    """Runs started over the API, read back, restarted and cancelled.
+
+    Real runs, not seeded rows, over sources that require an API key: the
+    suite's keyring is empty, so each is skipped at once and records a
+    non-answer (``missing_key``), and the coverage on the rows below has
+    recorded sources to compare. A keyless source would also record one, but
+    only after ``safe_request``'s retries against the suite's refused
+    connections, which took this file from 2 seconds to 52. Last in the
+    scenario, so its runs reach no slice above.
+
+    The same ``request_id`` twice is what makes ``duplicate`` appear: absent
+    on the first answer and present on the second, the conditional key
+    ``response_model_exclude_unset`` exists for. Cancel needs a run that is
+    running when it is asked; one is registered by hand and never started, so
+    the answer cannot race a thread that finishes first.
+    """
+    from implementation_scripts.progress import progress_store  # noqa: PLC0415
+
+    dive = drive("POST", "/api/search/dive",
+                 json={"repository": "springer", "query": "x", "keywords": ["x"],
+                       "max_results": 5, "request_id": "runs-slice-1"})
+    again = drive("POST", "/api/search/dive",
+                  json={"repository": "springer", "query": "x", "keywords": ["x"],
+                        "max_results": 5, "request_id": "runs-slice-1"})
+    assert "duplicate" not in dive and again == {"execution_id": dive["execution_id"], "duplicate": True}
+    sweep = drive("POST", "/api/search/sweep",
+                  json={"repositories": ["springer", "core"], "query": "y",
+                        "keywords": ["y"], "max_results": 5})
+    for run in (dive, sweep):
+        _wait_until_settled(drive, run["execution_id"])
+
+    rows = drive("GET", "/api/executions", params={"limit": 10})
+    assert rows and any(row["coverage"]["sources"] for row in rows), (
+        "the coverage model needs a recorded source to be compared")
+    drive("GET", "/api/executions/active")
+    first = drive("GET", f"/api/executions/{dive['execution_id']}")
+    if first.get("result_path") and Path(first["result_path"]).exists():
+        drive("GET", f"/api/executions/{dive['execution_id']}/report")
+    if first.get("log_path") and Path(first["log_path"]).exists():
+        drive("GET", f"/api/executions/{dive['execution_id']}/log")
+
+    assert first["status"] in ("failed", "completed", "cancelled"), first["status"]
+    if first["status"] == "completed":
+        # Restart takes a run that did not finish; this one did, so it is
+        # marked as having stopped before it is restarted.
+        conn = resmon_mod._get_db()
+        try:
+            conn.execute("UPDATE executions SET status = 'interrupted', "
+                         "interrupted_reason = 'owner_dead' WHERE id = ?",
+                         (dive["execution_id"],))
+            conn.commit()
+        finally:
+            resmon_mod._close_db(conn)
+    restarted = drive("POST", f"/api/executions/{dive['execution_id']}/restart", expect=202)
+    assert restarted["restarted_from"] == dive["execution_id"] and "duplicate" not in restarted
+    _wait_until_settled(drive, restarted["execution_id"])
+    linked = drive("GET", f"/api/executions/{dive['execution_id']}")
+    assert linked["restarted_into"] == [restarted["execution_id"]]
+
+    conn = resmon_mod._get_db()
+    try:
+        held = conn.execute(
+            "INSERT INTO executions (execution_type, parameters, start_time, status) "
+            "VALUES ('deep_dive', ?, '2026-10-28T00:00:00Z', 'running')",
+            (json.dumps({"repository": "arxiv", "query": "z"}),)).lastrowid
+        conn.commit()
+    finally:
+        resmon_mod._close_db(conn)
+    progress_store.register(held)
+    try:
+        drive("POST", f"/api/executions/{held}/cancel")
+    finally:
+        progress_store.cleanup(held)
+        conn = resmon_mod._get_db()
+        try:
+            conn.execute("UPDATE executions SET status = 'cancelled' WHERE id = ?", (held,))
+            conn.commit()
+        finally:
+            resmon_mod._close_db(conn)
 
 
 def _drive_collection_map(drive: Drive) -> None:
