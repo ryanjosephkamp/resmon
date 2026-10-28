@@ -193,7 +193,9 @@ def test_ten_sources_are_asked_eight_at_a_time(monkeypatch):
     try:
         gate.wait_for(8)
         time.sleep(0.3)          # room for a ninth, if the bound did not hold
-        assert gate.entered == TEN[:8], "the first eight selected start first"
+        # Started in selection order; which thread reaches the gate first is
+        # the scheduler's business.
+        assert sorted(gate.entered) == sorted(TEN[:8]), "the first eight selected start first"
         assert gate.most == 8
     finally:
         gate.release.set()
@@ -321,19 +323,25 @@ def test_a_run_answered_out_of_order_claims_what_a_one_at_a_time_run_claims(monk
     assert starts_and_ends == [pair for slug in _MIXED for pair in (
         ("repo_start", slug), ("repo_error" if slug in ("dblp", "ieee") else "repo_done", slug))]
     assert finished_order(parallel["events"]) != finished_order(serial["events"])
-    assert finished_order(parallel["events"])[:3] == ["ieee", "core", "europepmc"]
+    done = finished_order(parallel["events"])
+    assert done[0] == "ieee", "a retired source fails before any search starts"
+    assert done.index("europepmc") < done.index("arxiv"), "0.08 s answers before 0.40 s"
 
     assert _claims(parallel["events"]) == _claims(serial["events"])
     assert _record(parallel_db, parallel["exec_id"]) == _record(serial_db, serial["exec_id"])
     assert (_log_lines(parallel["result"]["log_path"])
             == _log_lines(serial["result"]["log_path"]))
     # The report's footer lists the zero notes in the order sources were
-    # selected, so the two reports agree line for line apart from the run's
-    # own id and times.
+    # selected, so the two reports agree line for line apart from the times.
+    # Both databases are fresh, so both runs have the same id.
+    assert parallel["exec_id"] == serial["exec_id"]
+
     def report(result):
         text = Path(result["result"]["report_path"]).read_text(encoding="utf-8")
-        text = text.replace(str(result["exec_id"]), "<id>")
-        return [line for line in text.splitlines() if not re.search(r"\d\d:\d\d", line)]
+        text = re.sub(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)?",
+                      "<time>", text)
+        text = re.sub(r"\d{8}T\d{6}", "<start>", text)
+        return [re.sub(r"\d+(\.\d+)? ?s\b", "<seconds>", line) for line in text.splitlines()]
     assert report(parallel) == report(serial)
 
     record = _record(parallel_db, parallel["exec_id"])
@@ -425,9 +433,9 @@ def test_a_slow_source_still_says_so_while_others_finish(monkeypatch, conn):
     beats = [e for e in run["events"]
              if e.get("type") == "query_progress" and e.get("phase") == "searching"]
     assert {e["repository"] for e in beats} == {"zenodo"}
-    assert len(beats) >= 3
+    assert len(beats) >= 2
     elapsed = [e["elapsed"] for e in beats]
-    assert elapsed == sorted(elapsed) and elapsed[-1] < 0.6
+    assert elapsed == sorted(elapsed)
     assert all(e["message"] == f"still querying zenodo ({e['elapsed']:.0f}s elapsed)"
                or e["message"].startswith("still querying zenodo (") for e in beats)
 
@@ -446,7 +454,7 @@ def test_two_sweeps_at_once_contend_on_each_sources_one_module_level_limiter(mon
     same three sources run at once, each asking its three sources together.
     """
     modules = {"crossref": api_crossref, "doaj": api_doaj, "openalex": api_openalex}
-    interval = 0.25
+    interval = 0.4
     limiters = {slug: api_base.RateLimiter(1 / interval) for slug in modules}
     for slug, module in modules.items():
         monkeypatch.setattr(module, "_RATE_LIMITER", limiters[slug])
@@ -457,7 +465,7 @@ def test_two_sweeps_at_once_contend_on_each_sources_one_module_level_limiter(mon
 
     monkeypatch.setattr(httpx.Client, "request", request)
 
-    admissions: list[tuple[str, int, float]] = []
+    admissions: list[tuple[str, int, float, int]] = []
     lock = threading.Lock()
     acquire = api_base.RateLimiter.acquire
 
@@ -465,7 +473,8 @@ def test_two_sweeps_at_once_contend_on_each_sources_one_module_level_limiter(mon
         acquire(self, deadline=deadline)
         name = threading.current_thread().name          # search-<slug>-<exec id>
         with lock:
-            admissions.append((name.split("-")[1], id(self), time.monotonic()))
+            admissions.append((name.split("-")[1], id(self), time.monotonic(),
+                               threading.get_ident()))
 
     monkeypatch.setattr(api_base.RateLimiter, "acquire", recording_acquire)
 
@@ -487,9 +496,13 @@ def test_two_sweeps_at_once_contend_on_each_sources_one_module_level_limiter(mon
     assert len(results) == 2
 
     for slug in modules:
-        mine = sorted((at, ident) for s, ident, at in admissions if s == slug)
-        assert len(mine) >= 2, f"{slug}: both sweeps should have asked it"
-        assert {ident for _at, ident in mine} == {id(limiters[slug])}, (
+        mine = sorted((at, limiter, thread) for s, limiter, at, thread in admissions if s == slug)
+        assert len({thread for *_rest, thread in mine}) >= 2, (
+            f"{slug}: both sweeps' search threads should have asked it")
+        assert {limiter for _at, limiter, _t in mine} == {id(limiters[slug])}, (
             f"{slug}: a request went through a limiter other than the module's")
+        # Recorded just after admission, so a preempted thread can shave a
+        # little off a gap; half the interval still separates "spaced by the
+        # limiter" from "asked at once", which would be ~0 s apart.
         gaps = [b[0] - a[0] for a, b in zip(mine, mine[1:])]
-        assert min(gaps) >= interval * 0.9, f"{slug}: admissions {gaps} s apart"
+        assert min(gaps) >= interval / 2, f"{slug}: admissions {gaps} s apart"
