@@ -35,6 +35,13 @@ const PYTHON_SOURCE = path.resolve(
 const GENERATED_PATH = path.join('src', 'api', 'zeroReasonVocabulary.ts');
 
 /**
+ * The same module for the Atlas renderer, which is a separate program and
+ * cannot import the classic renderer's files. Written from the same text, so
+ * the two cannot disagree; the classic copy goes with the classic renderer.
+ */
+const ATLAS_GENERATED_PATH = path.join('atlas', 'src', 'api', 'zeroReasonVocabulary.ts');
+
+/**
  * Pull one `NAME = <delimiter> ... <delimiter>` literal out of the Python.
  *
  * Comments are stripped first: both blocks carry prose explaining why a value
@@ -155,18 +162,22 @@ ${list(vocabulary.didNotAnswer)}
 }
 
 function main() {
-  const target = path.join(FRONTEND_ROOT, GENERATED_PATH);
   const text = renderModule();
-  const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
-  if (existing === text) {
-    process.stdout.write(`${GENERATED_PATH} is already up to date.\n`);
-    return;
+  for (const relative of [GENERATED_PATH, ATLAS_GENERATED_PATH]) {
+    const target = path.join(FRONTEND_ROOT, relative);
+    const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
+    if (existing === text) {
+      process.stdout.write(`${relative} is already up to date.\n`);
+      continue;
+    }
+    fs.writeFileSync(target, text);
+    process.stdout.write(`Wrote ${relative}.\n`);
   }
-  fs.writeFileSync(target, text);
-  process.stdout.write(`Wrote ${GENERATED_PATH}.\n`);
 }
 
-module.exports = { PYTHON_SOURCE, GENERATED_PATH, pythonVocabulary, renderModule };
+module.exports = {
+  PYTHON_SOURCE, GENERATED_PATH, ATLAS_GENERATED_PATH, pythonVocabulary, renderModule,
+};
 
 if (require.main === module) {
   main();

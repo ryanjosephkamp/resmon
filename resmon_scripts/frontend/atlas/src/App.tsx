@@ -1,5 +1,5 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { HOME, SECTIONS, SETTINGS } from './routes';
+import { DETAILS, HOME, SECTIONS, SETTINGS } from './routes';
 import { Shell } from './shell/Shell';
 
 /**
@@ -12,8 +12,8 @@ export function App() {
     <HashRouter>
       <Routes>
         <Route element={<Shell />}>
-          {[...SECTIONS, SETTINGS].map((section) => (
-            <Route key={section.path} path={section.path} element={section.element} />
+          {[...SECTIONS, SETTINGS, ...DETAILS].map((screen) => (
+            <Route key={screen.path} path={screen.path} element={screen.element} />
           ))}
           <Route path="*" element={<Navigate to={HOME} replace />} />
         </Route>

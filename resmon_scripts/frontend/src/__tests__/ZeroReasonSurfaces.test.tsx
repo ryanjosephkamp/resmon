@@ -498,6 +498,10 @@ test('the renderer vocabulary is still the backend vocabulary', () => {
   const committed = fs.readFileSync(
     pathlib.resolve(__dirname, '..', '..', generator.GENERATED_PATH), 'utf8');
   expect(committed).toBe(generator.renderModule());
+  // Atlas's copy, the same text, so the two renderers cannot disagree.
+  const atlas = fs.readFileSync(
+    pathlib.resolve(__dirname, '..', '..', generator.ATLAS_GENERATED_PATH), 'utf8');
+  expect(atlas).toBe(generator.renderModule());
 
   const { zeroReasons, didNotAnswer } = generator.pythonVocabulary();
   expect([...ZERO_REASONS]).toEqual(zeroReasons);
