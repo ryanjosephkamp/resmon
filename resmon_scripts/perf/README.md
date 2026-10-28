@@ -102,7 +102,7 @@ and each installer.
 **The soak (`soak.py`):** the background service, started as launchd starts it
 with its scheduler on, fires a routine every three minutes for the hours asked;
 memory and open files are sampled every 30 seconds, and the slope of each after
-a 20-minute warm-up is reported.
+an hour of warm-up is reported.
 
 ## Known limits
 
