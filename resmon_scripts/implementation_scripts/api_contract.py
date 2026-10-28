@@ -118,6 +118,9 @@ REGISTER: tuple[tuple[str, str], ...] = (
     ("J42", "Local API locked to this app"),
     ("J43", "Upgrade in place"),
     ("J44", "Driving resmon from an external harness (MCP)"),
+    # Added with the register refresh (#223): the Source wall (#175) shipped
+    # after the register was written and had no row; its route sat under J29.
+    ("J45", "Source wall: what every source did on recent runs"),
 )
 
 #: ``J01`` -> ``Deep Dive``.
@@ -284,7 +287,7 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("GET", "/api/evidence/projects/{project_id}/answers/{answer_id}/events"): ("J36",),
     ("GET", "/api/evidence/projects/{project_id}/answers/{answer_id}/export"): ("J37", "J36"),
     # --- The source wall ---------------------------------------------------
-    ("GET", "/api/coverage/source-wall"): ("J29",),
+    ("GET", "/api/coverage/source-wall"): ("J45", "J29"),
     # --- Executions: history, reports, exports -----------------------------
     ("GET", "/api/executions"): ("J18",),
     ("POST", "/api/executions/export"): ("J18",),
