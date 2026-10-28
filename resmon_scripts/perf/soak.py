@@ -37,7 +37,7 @@ def _slope_per_hour(points: list[tuple[float, float]]) -> float:
 
 
 def run(work: Path, corpus: Path, replies: Path, *, hours: float, interval: float = 30.0,
-        warmup_minutes: float = 20.0, out: Optional[Path] = None,
+        warmup_minutes: float = 60.0, out: Optional[Path] = None,
         progress=None) -> dict:
     state = instance.fresh_state(work, "soak", seed_db=corpus)
     backend = instance.start_backend(state, daemon=True, scheduler=True,
@@ -55,7 +55,12 @@ def run(work: Path, corpus: Path, replies: Path, *, hours: float, interval: floa
             if backend.proc.poll() is not None:
                 raise RuntimeError(f"the service exited with {backend.proc.returncode}")
             snap = resources.snapshot(backend.proc.pid)
-            runs = backend.get("/api/executions", params={"limit": 500})
+            # Only the soak routine's own runs: the seeded corpus already
+            # holds 150 runs, and the first soak counted them as its own,
+            # reporting 209 runs and six failures for a soak whose 59 runs
+            # all completed.
+            runs = [r for r in backend.get("/api/executions", params={"limit": 500})
+                    if r.get("routine_id") == routine.get("id")]
             sample = {
                 "t": round(time.monotonic() - started, 1),
                 "rss_mb": round(snap["total_mb"], 1),
@@ -85,6 +90,8 @@ def run(work: Path, corpus: Path, replies: Path, *, hours: float, interval: floa
             [(s["t"], float(s["open_files"])) for s in steady if s["open_files"] is not None]),
         "rss_mb_first": steady[0]["rss_mb"] if steady else None,
         "rss_mb_last": steady[-1]["rss_mb"] if steady else None,
+        "rss_mb_min": min(s["rss_mb"] for s in steady) if steady else None,
+        "rss_mb_max": max(s["rss_mb"] for s in steady) if steady else None,
         "open_files_first": steady[0]["open_files"] if steady else None,
         "open_files_last": steady[-1]["open_files"] if steady else None,
     }
@@ -97,8 +104,9 @@ def describe(result: dict) -> str:
     return (
         f"{result['hours']} h, a routine every 3 minutes ({result['runs']} runs, "
         f"{result['not_completed']} not completed). After a {result['warmup_minutes']:.0f}-minute "
-        f"warm-up: memory {result['rss_mb_first']} → {result['rss_mb_last']} MB "
-        f"({result['rss_mb_per_hour']:+.1f} MB/h); open files {result['open_files_first']} → "
+        f"warm-up: memory {result['rss_mb_first']} → {result['rss_mb_last']} MB, ranging "
+        f"{result['rss_mb_min']}–{result['rss_mb_max']} MB ({result['rss_mb_per_hour']:+.1f} MB/h "
+        f"by least squares); open files {result['open_files_first']} → "
         f"{result['open_files_last']} ({result['open_files_per_hour']:+.1f}/h)."
     )
 
