@@ -18,6 +18,7 @@ import displayFont from '@fontsource/atkinson-hyperlegible-next/files/atkinson-h
 import '../styles/tokens.css';
 import '../styles/base.css';
 import Mark from '../components/Mark.astro';
+import Credit from '../components/Credit.astro';
 import { url, absoluteUrl, GITHUB_REPO } from '../lib/urls';
 
 interface Props {
@@ -122,8 +123,8 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
         <p class="footer-line">
           <Mark />
           <span>
-            resmon is free and open source under the MIT license, by Ryan Kamp. Everything it
-            retrieves stays on the computer that retrieved it.
+            resmon is free and open source under the MIT license. Everything it retrieves stays
+            on the computer that retrieved it.
           </span>
         </p>
         <ul class="footer-links">
@@ -135,6 +136,7 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
           <li><a href={url('/third-party-notices/')}>Third-party notices</a></li>
           <li><a href={url('/feed.xml')}>Atom feed</a></li>
         </ul>
+        <Credit />
       </div>
     </footer>
   </body>

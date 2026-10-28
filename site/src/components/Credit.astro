@@ -1,0 +1,179 @@
+---
+/**
+ * The footer's last row: who made resmon, where to find him, and how to
+ * sponsor the work. The same five links and the same Sponsor link as the
+ * footer of Ryan Kamp's other projects, set in this site's type and tokens.
+ *
+ * The icons are inline drawings rather than a sprite file or an icon font, so
+ * the row adds no request to a page. Each link names its destination for a
+ * screen reader, because the icon is all a sighted visitor sees.
+ */
+interface Social {
+  href: string;
+  label: string;
+  title: string;
+  /** The drawing inside a 24 by 24 viewBox. */
+  body: string;
+}
+
+const AUTHOR = 'https://ryanjosephkamp.github.io/';
+const SPONSOR = 'https://github.com/sponsors/ryanjosephkamp';
+
+const socials: Social[] = [
+  {
+    href: AUTHOR,
+    label: 'Ryan Kamp’s website',
+    title: 'Website',
+    body: '<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M2.8 12h18.4M12 2.8c2.6 2.6 3.9 5.7 3.9 9.2s-1.3 6.6-3.9 9.2c-2.6-2.6-3.9-5.7-3.9-9.2S9.4 5.4 12 2.8Z"/></g>',
+  },
+  {
+    href: 'https://github.com/ryanjosephkamp/',
+    label: 'Ryan Kamp on GitHub',
+    title: 'GitHub',
+    body: '<path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>',
+  },
+  {
+    href: 'https://www.linkedin.com/in/rjk1999',
+    label: 'Ryan Kamp on LinkedIn',
+    title: 'LinkedIn',
+    body: '<path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>',
+  },
+  {
+    href: 'https://x.com/ryanjosephkamp',
+    label: 'Ryan Kamp on X',
+    title: 'X',
+    body: '<path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/>',
+  },
+  {
+    href: 'https://m.youtube.com/@RyanJosephKamp',
+    label: 'Ryan Kamp on YouTube',
+    title: 'YouTube',
+    body: '<path fill="currentColor" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>',
+  },
+];
+---
+
+<div class="credit">
+  <p class="made">Made by <a href={AUTHOR}>Ryan Kamp</a></p>
+  <ul class="social" aria-label="Ryan Kamp online">
+    {
+      socials.map((s) => (
+        <li>
+          <a href={s.href} aria-label={s.label} title={s.title}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <Fragment set:html={s.body} />
+            </svg>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+  <a class="sponsor" href={SPONSOR}>
+    <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+      <path
+        d="M10 16.8S3 12.6 3 7.6A3.6 3.6 0 0 1 10 6a3.6 3.6 0 0 1 7 1.6c0 5-7 9.2-7 9.2Z"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linejoin="round"></path>
+    </svg>
+    Sponsor on GitHub
+  </a>
+</div>
+
+<style>
+  .credit {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
+    padding-top: var(--space-4);
+    border-top: var(--border-width) solid var(--color-border);
+  }
+
+  .made {
+    margin: 0;
+    color: var(--color-text);
+    font-weight: var(--weight-bold);
+  }
+
+  /*
+   * Pulled left by the padding around each drawing, so the first icon lines up
+   * with the text above it on a phone, where the row wraps under "Made by",
+   * and sits one ordinary gap from it on a wider screen.
+   */
+  .social {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin: 0;
+    margin-left: calc((var(--icon-size) - var(--target-size)) / 2);
+    padding: 0;
+    list-style: none;
+  }
+
+  .social li + li {
+    margin-top: 0;
+  }
+
+  .social a {
+    display: grid;
+    place-items: center;
+    width: var(--target-size);
+    height: var(--target-size);
+    border-radius: var(--radius-lg);
+    color: var(--color-text-muted);
+    text-decoration: none;
+    transition:
+      color var(--duration-fast) var(--ease),
+      background-color var(--duration-fast) var(--ease);
+  }
+
+  .social a:hover {
+    color: var(--color-text);
+    background: var(--color-surface);
+  }
+
+  .social svg {
+    width: var(--icon-size);
+    height: var(--icon-size);
+  }
+
+  /*
+   * An outlined button rather than a filled one: the site keeps its one color
+   * for Download, so the heart is drawn in ink like every other icon here.
+   */
+  .sponsor {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--target-size);
+    padding-inline: var(--space-4);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    color: var(--color-text);
+    font-weight: var(--weight-bold);
+    text-decoration: none;
+    transition:
+      border-color var(--duration-fast) var(--ease),
+      background-color var(--duration-fast) var(--ease);
+  }
+
+  .sponsor:hover {
+    color: var(--color-text);
+    border-color: var(--color-text);
+    background: var(--color-surface);
+  }
+
+  .sponsor svg {
+    width: var(--icon-size-small);
+    height: var(--icon-size-small);
+  }
+
+  /* On a phone the button takes its own line from the left edge. */
+  @media (min-width: 40rem) {
+    .sponsor {
+      margin-left: auto;
+    }
+  }
+</style>
