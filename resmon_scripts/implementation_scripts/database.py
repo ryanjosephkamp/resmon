@@ -631,8 +631,9 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # author-identity columns on ``document_authors``. 14 adds ``reading_queue``:
 # one membership row per saved paper, additive, with nothing backfilled --
 # resmon never observed which papers a user meant to read before the queue
-# existed, so an upgraded database starts empty and says so.
-SCHEMA_VERSION = 21
+# existed, so an upgraded database starts empty and says so. 22 indexes
+# ``documents.metadata_hash``, which every stored result is checked against.
+SCHEMA_VERSION = 22
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -718,6 +719,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     # record references ``executions`` -- both are in their final shape only
     # once the rebuild above has run.
     _migrate_delivery(conn)
+    _migrate_metadata_hash_index(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
     # invisible to every other -- an in-memory database shared through
@@ -2018,6 +2020,55 @@ def _migrate_delivery(conn: sqlite3.Connection) -> None:
     except BaseException:
         conn.execute("ROLLBACK TO delivery_v21")
         conn.execute("RELEASE delivery_v21")
+        raise
+    conn.commit()
+
+
+# Schema 22. ``normalizer.deduplicate_batch`` asks ``find_duplicates_by_hash``
+# about every result a sweep stores, and without this index each of those
+# questions read the whole ``documents`` table: the performance baseline of
+# 628d1b5 measured 6.9 s of a 28.2 s ten-source sweep in that stage at 10,000
+# papers, growing with the corpus. Not in ``_SCHEMA_SQL`` because a new
+# object is a new schema: the cumulative-upgrade test holds a released
+# fixture at today's ``SCHEMA_VERSION`` to a launch that changes nothing.
+_METADATA_HASH_INDEX_DDL = (
+    "CREATE INDEX idx_documents_metadata_hash ON documents(metadata_hash)"
+)
+
+
+def _migrate_metadata_hash_index(conn: sqlite3.Connection) -> None:
+    """Index ``documents.metadata_hash``. Additive; fresh and upgrade alike.
+
+    Building it reads every paper once, on the launch that performs the
+    21 -> 22 upgrade. An index of that name with different SQL is a conflict,
+    as in ``_migrate_delivery``, not something to accept quietly.
+    """
+    conn.execute("SAVEPOINT metadata_hash_v22")
+    try:
+        row = conn.execute(
+            "SELECT type, sql FROM sqlite_master WHERE name = ?",
+            ("idx_documents_metadata_hash",),
+        ).fetchone()
+        if row is None:
+            conn.execute(_METADATA_HASH_INDEX_DDL)
+            row = conn.execute(
+                "SELECT type, sql FROM sqlite_master WHERE name = ?",
+                ("idx_documents_metadata_hash",),
+            ).fetchone()
+        if (not row or row[0] != "index"
+                or " ".join((row[1] or "").split()) != _METADATA_HASH_INDEX_DDL):
+            raise sqlite3.DatabaseError(
+                "Conflicting schema-22 shape: idx_documents_metadata_hash")
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+            "WHERE CAST(app_settings.value AS INTEGER)<22",
+            (_SCHEMA_VERSION_KEY, "22"),
+        )
+        conn.execute("RELEASE metadata_hash_v22")
+    except BaseException:
+        conn.execute("ROLLBACK TO metadata_hash_v22")
+        conn.execute("RELEASE metadata_hash_v22")
         raise
     conn.commit()
 

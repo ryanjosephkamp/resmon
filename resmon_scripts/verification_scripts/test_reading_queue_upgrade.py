@@ -463,7 +463,9 @@ SCHEMA_14_TO_18_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
                             "routine_delivery_targets",
                             "idx_routine_delivery_targets_routine",
                             "deliveries", "idx_deliveries_due",
-                            "idx_deliveries_execution"}
+                            "idx_deliveries_execution",
+                            # Schema 22: the index the duplicate check reads.
+                            "idx_documents_metadata_hash"}
 
 
 def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):
