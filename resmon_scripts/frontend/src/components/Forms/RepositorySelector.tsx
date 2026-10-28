@@ -76,7 +76,7 @@ const RepositorySelector: React.FC<Props> = ({ mode, value, onChange }) => {
     <div className="form-field">
       <label className="form-label">
         Repositories
-        <InfoTooltip text="Every selected repository is queried in the same run, one after another. Keyed repositories are silently skipped if no key is stored for them in this scope." />
+        <InfoTooltip text="Every selected repository is queried in the same run, up to eight at a time, and each is asked no faster than its own rate limit. Keyed repositories are silently skipped if no key is stored for them in this scope." />
       </label>
       <div className="repo-multi-header">
         <button type="button" className="btn btn-sm" onClick={handleSelectAll}>

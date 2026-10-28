@@ -3,6 +3,7 @@
 
 import json
 import logging
+import queue
 import sqlite3
 import threading
 import time
@@ -56,6 +57,21 @@ _CATALOG_NAMES = {entry.slug: entry.name for entry in REPOSITORY_CATALOG}
 
 def _source_display_name(slug: str) -> str:
     return _CATALOG_NAMES.get(slug, slug)
+
+
+# How many sources one sweep asks at once. Asking several at a time asks no
+# upstream any faster: every request to a source still waits on that source's
+# own module-level RateLimiter, exactly as it did when sources were asked one
+# after another. What this bounds is one run's footprint -- search threads,
+# open connections and result sets held at once -- for a sweep that selects
+# every source resmon has. The renderer says "up to eight at a time" on the
+# repository selector, the Deep Sweep page's help and its tutorial; a change
+# here changes those three.
+_SOURCE_CONCURRENCY = 8
+
+# How long a source may search before the live log says it is still at it,
+# and how often after that. The cancel flag is read on the same beat.
+_HEARTBEAT_SECONDS = 2.0
 
 
 class _ExecutionCancelled(Exception):
@@ -269,7 +285,8 @@ class SweepEngine:
         missing_key_repos: list[str] = []
         repo_errors: list[dict] = []
         # One entry per source that came back with nothing, in the order the
-        # sources were queried. Rendered into the report's footer.
+        # sources were selected (not the order they answered in). Rendered
+        # into the report's footer.
         zero_notes: list[dict] = []
         try:
             # 2.1 — a watch routine names a profile, and a routine that names one
@@ -297,7 +314,7 @@ class SweepEngine:
                     wall_start=wall_start,
                 )
 
-            # 3. Query each repository
+            # 3. Query the repositories, several at once
             store.emit(exec_id, {
                 "type": "stage",
                 "stage": "querying",
@@ -306,236 +323,20 @@ class SweepEngine:
             })
             update_current_stage(self.db, exec_id, "querying")
 
-            for i, repo_name in enumerate(repositories):
-                # Cancellation checkpoint
-                if store.should_cancel(exec_id):
-                    return self._handle_cancellation(exec_id, task_log, all_results, wall_start)
-
-                store.emit(exec_id, {
-                    "type": "repo_start",
-                    "repository": repo_name,
-                    "index": i + 1,
-                    "total_repos": len(repositories),
-                    "timestamp": now_iso(),
-                })
-
-                task_log.log(f"Querying repository: {repo_name}")
-                # Detect missing API keys for repositories that require one.
-                cred_name = required_credential_for_sweep(repo_name)
-                if cred_name and not get_credential_for(exec_id, cred_name):
-                    missing_key_repos.append(repo_name)
-                    task_log.log(
-                        f"  {repo_name}: WARNING — no API key configured "
-                        f"(credential '{cred_name}'); this repository will return 0 results"
-                    )
-                    store.emit(exec_id, {
-                        "type": "repo_skipped_missing_key",
-                        "repository": repo_name,
-                        "credential_name": cred_name,
-                        "index": i + 1,
-                        "total_repos": len(repositories),
-                        "timestamp": now_iso(),
-                    })
-                    self._record_source(
-                        exec_id, repo_name, "skipped_missing_key",
-                        credential_name=cred_name,
-                    )
-                try:
-                    client = get_client(repo_name)
-                    # Thread the exec_id onto the client so that any
-                    # ephemeral (per-execution) credentials are honored by
-                    # credential_manager.get_credential_for.
-                    try:
-                        client._exec_id = exec_id
-                    except Exception:
-                        # Non-fatal: client may not inherit from BaseAPIClient.
-                        pass
-                    store.emit(exec_id, {
-                        "type": "query_progress",
-                        "repository": repo_name,
-                        "phase": "search_start",
-                        "query": query_params.get("query", ""),
-                        "max_results": query_params.get("max_results", 100),
-                        "timestamp": now_iso(),
-                    })
-                    results, outcome = self._search_with_heartbeat(
-                        client=client,
-                        repo_name=repo_name,
-                        exec_id=exec_id,
-                        query_params=query_params,
-                    )
-                    store.emit(exec_id, {
-                        "type": "query_progress",
-                        "repository": repo_name,
-                        "phase": "search_done",
-                        "result_count": len(results),
-                        "timestamp": now_iso(),
-                    })
-                    task_log.log(f"  {repo_name}: {len(results)} results")
-
-                    # 2.1 — **local verification, on every candidate.** A
-                    # source's author search is a generator, not a verdict:
-                    # arXiv's `au:` is a text match over a field and Crossref's
-                    # `query.author` is relevance-ranked, and neither is a claim
-                    # about identity. Every record is re-checked here against the
-                    # profile, so a routine's results contain only what resmon
-                    # can evidence itself — and the count that did not survive is
-                    # recorded rather than silently dropped.
-                    entity_profile = query_params.get("entity_profile")
-                    if entity_profile is not None and results:
-                        verified, rejected = self._verify_entity_candidates(
-                            results, entity_profile)
-                        if rejected:
-                            task_log.log(
-                                f"    {rejected} of {len(results)} did not "
-                                f"survive verification against the profile")
-                        entity_matches.update(verified)
-                        results = [record for record, _m in verified.values()]
-
-                    all_results.extend(results)
-
-                    # Preserve a terminal issue even when earlier pages yielded
-                    # usable records. The row stays ``ok`` and the records stay
-                    # available, but every consumer can see that the retained
-                    # set may be incomplete.
-                    zero_reason_value: str | None = None
-                    zero_detail_value: dict | None = None
-                    zero_message: str | None = None
-                    if not results:
-                        if repo_name in missing_key_repos:
-                            # The engine already knows this one, and it is a
-                            # better answer than anything the channel holds.
-                            zero_reason_value = "missing_key"
-                            zero_detail_value = {
-                                "credential_name":
-                                    required_credential_for_sweep(repo_name),
-                            }
-                        else:
-                            zero_reason_value, zero_detail_value = (
-                                zero_reason_module.derive(outcome))
-                        zero_message = zero_reason_module.sentence(
-                            _source_display_name(repo_name),
-                            zero_reason_value, zero_detail_value,
-                        )
-                        task_log.log(f"    {zero_message}")
-                        zero_notes.append({
-                            "source": _source_display_name(repo_name),
-                            "slug": repo_name,
-                            "reason": zero_reason_value,
-                            "sentence": zero_message,
-                        })
-                    else:
-                        issue = zero_reason_module.terminal_issue(outcome)
-                        if issue:
-                            zero_reason_value, issue_detail = issue
-                            zero_detail_value = {
-                                **issue_detail,
-                                "partial": True,
-                                "returned": len(results),
-                            }
-                            zero_message = zero_reason_module.partial_sentence(
-                                _source_display_name(repo_name),
-                                zero_reason_value,
-                                zero_detail_value,
-                                len(results),
-                            )
-                            # Persist the exact catalog-rendered sentence. The
-                            # saved coverage/search-record path knows the stable
-                            # source slug, while this engine owns display names;
-                            # carrying the rendered sentence avoids a circular
-                            # catalog import and keeps every surface identical.
-                            zero_detail_value["message"] = zero_message
-                            task_log.log(f"    {zero_message}")
-                            zero_notes.append({
-                                "source": _source_display_name(repo_name),
-                                "slug": repo_name,
-                                "reason": zero_reason_value,
-                                "sentence": zero_message,
-                                "partial": True,
-                                "returned": len(results),
-                            })
-
-                    store.emit(exec_id, {
-                        "type": "repo_done",
-                        "repository": repo_name,
-                        "index": i + 1,
-                        "total_repos": len(repositories),
-                        "result_count": len(results),
-                        "zero_reason": zero_reason_value,
-                        "zero_detail": zero_detail_value,
-                        # The rendered sentence travels with the event so the
-                        # renderer displays what the backend wrote rather than
-                        # keeping a second copy of this vocabulary in
-                        # TypeScript for the two to drift apart.
-                        "zero_message": zero_message,
-                        "timestamp": now_iso(),
-                    })
-                    # A source that was flagged for a missing key keeps that
-                    # status -- it explains the zero better than "ok" does --
-                    # but the count it actually returned is still recorded.
-                    self._record_source(
-                        exec_id, repo_name,
-                        "skipped_missing_key" if repo_name in missing_key_repos else "ok",
-                        result_count=len(results),
-                        credential_name=required_credential_for_sweep(repo_name),
-                        zero_reason=zero_reason_value,
-                        zero_detail=zero_detail_value,
-                    )
-                except _ExecutionCancelled:
-                    # Mark the in-flight repo as errored for UI clarity, then
-                    # short-circuit to the cancellation handler.
-                    store.emit(exec_id, {
-                        "type": "repo_error",
-                        "repository": repo_name,
-                        "index": i + 1,
-                        "total_repos": len(repositories),
-                        "error": "cancelled by user",
-                        "timestamp": now_iso(),
-                    })
-                    self._record_source(
-                        exec_id, repo_name, "cancelled",
-                        error_message="cancelled by user",
-                    )
-                    task_log.log(f"  {repo_name}: CANCELLED by user")
-                    return self._handle_cancellation(exec_id, task_log, all_results, wall_start)
-                except Exception as exc:
-                    task_log.log(f"  {repo_name}: ERROR - {exc}")
-                    logger.warning("Query failed for %s: %s", repo_name, exc)
-                    repo_errors.append({"repository": repo_name, "error": str(exc)})
-                    # A routine saved before a source was retired still names
-                    # its slug and lands here. The row stays an error -- the
-                    # query genuinely did not run -- but it now carries the
-                    # reason too, so the search record can say "withdrawn on
-                    # its terms" rather than only quoting an exception.
-                    retired_reason = RETIRED_REPOSITORIES.get(repo_name)
-                    zero_notes.append({
-                        "source": _source_display_name(repo_name),
-                        "slug": repo_name,
-                        "reason": "retired" if retired_reason else "error",
-                        "sentence": (
-                            retired_reason if retired_reason
-                            else f"The query failed: {exc}. This is not a zero "
-                                 "— the source did not answer."
-                        ),
-                    })
-                    self._record_source(
-                        exec_id, repo_name,
-                        "skipped_missing_key" if repo_name in missing_key_repos else "error",
-                        error_message=str(exc),
-                        credential_name=required_credential_for_sweep(repo_name),
-                        zero_reason="retired" if retired_reason else None,
-                        zero_detail=(
-                            {"detail": retired_reason} if retired_reason else None
-                        ),
-                    )
-                    store.emit(exec_id, {
-                        "type": "repo_error",
-                        "repository": repo_name,
-                        "index": i + 1,
-                        "total_repos": len(repositories),
-                        "error": str(exc),
-                        "timestamp": now_iso(),
-                    })
+            cancelled = self._query_sources(
+                exec_id=exec_id,
+                repositories=repositories,
+                query_params=query_params,
+                task_log=task_log,
+                wall_start=wall_start,
+                all_results=all_results,
+                entity_matches=entity_matches,
+                missing_key_repos=missing_key_repos,
+                repo_errors=repo_errors,
+                zero_notes=zero_notes,
+            )
+            if cancelled is not None:
+                return cancelled
 
             store.emit(exec_id, {
                 "type": "log_entry",
@@ -1669,103 +1470,421 @@ class SweepEngine:
                         else "no_author_query")
         return "no_author_query"
 
-    def _search_with_heartbeat(
+    def _query_sources(
         self,
         *,
-        client,
-        repo_name: str,
         exec_id: int,
+        repositories: list[str],
         query_params: dict,
-        heartbeat_interval: float = 2.0,
-    ) -> tuple[list, dict | None]:
-        """Run ``client.search()`` in a worker thread while emitting heartbeat
-        progress events every ``heartbeat_interval`` seconds.
+        task_log: TaskLogger,
+        wall_start: float,
+        all_results: list,
+        entity_matches: dict,
+        missing_key_repos: list[str],
+        repo_errors: list[dict],
+        zero_notes: list[dict],
+    ) -> Optional[dict]:
+        """Ask the selected sources, up to ``_SOURCE_CONCURRENCY`` at a time.
 
-        This guarantees that a slow repository query (e.g. paginated bioRxiv
-        fetches) still produces visible live-log activity for the frontend
-        poller even though the underlying HTTP calls are synchronous.
+        Sources used to be asked one after another, so a sweep took the sum of
+        its sources' times. Asking them together changes nothing an upstream
+        sees: every request to a source still goes through ``safe_request`` and
+        that source's module-level ``RateLimiter`` (biorxiv and medrxiv, one
+        host, share one), and each source's operation deadline still starts
+        inside its own ``search()``.
 
-        Returns the results **and** the search's outcome channel snapshot,
-        because the channel is thread-local to the worker and this is the only
-        place both are in scope at once.
+        Only ``client.search`` runs off this thread. Every event, task-log line
+        and database write happens here, as each source finishes, on the
+        connection that has always written them. What the rest of the run reads
+        -- the results, the zero notes, the errors and the verified watch
+        matches -- is put into the caller's collections in the order the
+        sources were *selected*, once all of them have answered, so
+        deduplication, the report and the search record come out as a
+        one-at-a-time run wrote them whichever source happened to answer first.
+
+        Returns the cancellation result when the run was cancelled, else None.
         """
         store = progress_store
-        result_holder: dict = {}
+        total = len(repositories)
+        waiting = list(enumerate(repositories))
+        # Position in ``repositories`` -> the source's name, its search's
+        # holder, when it started, and when its next heartbeat is due.
+        in_flight: dict[int, dict] = {}
+        finished: "queue.Queue[int]" = queue.Queue()
+        # What each source contributed, by its position in ``repositories``.
+        results_by: dict[int, list] = {}
+        verified_by: dict[int, dict] = {}
+        notes_by: dict[int, list[dict]] = {}
+        errors_by: dict[int, list[dict]] = {}
 
-        def _worker() -> None:
-            # The outcome channel is thread-local and this thread is fresh per
-            # source, but it is reset explicitly rather than relied upon:
-            # lifecycle.py also calls safe_request, outside any search, and a
-            # thread this pool ever reuses would carry that value in as if it
-            # were this source's answer.
-            reset_search_outcome()
+        def assemble() -> None:
+            for i in range(total):
+                all_results.extend(results_by.get(i, []))
+                entity_matches.update(verified_by.get(i, {}))
+                zero_notes.extend(notes_by.get(i, []))
+                repo_errors.extend(errors_by.get(i, []))
+
+        def fail(i: int, repo_name: str, exc: Exception) -> None:
+            task_log.log(f"  {repo_name}: ERROR - {exc}")
+            logger.warning("Query failed for %s: %s", repo_name, exc)
+            errors_by.setdefault(i, []).append({"repository": repo_name, "error": str(exc)})
+            # A routine saved before a source was retired still names
+            # its slug and lands here. The row stays an error -- the
+            # query genuinely did not run -- but it now carries the
+            # reason too, so the search record can say "withdrawn on
+            # its terms" rather than only quoting an exception.
+            retired_reason = RETIRED_REPOSITORIES.get(repo_name)
+            notes_by.setdefault(i, []).append({
+                "source": _source_display_name(repo_name),
+                "slug": repo_name,
+                "reason": "retired" if retired_reason else "error",
+                "sentence": (
+                    retired_reason if retired_reason
+                    else f"The query failed: {exc}. This is not a zero "
+                         "— the source did not answer."
+                ),
+            })
+            self._record_source(
+                exec_id, repo_name,
+                "skipped_missing_key" if repo_name in missing_key_repos else "error",
+                error_message=str(exc),
+                credential_name=required_credential_for_sweep(repo_name),
+                zero_reason="retired" if retired_reason else None,
+                zero_detail=(
+                    {"detail": retired_reason} if retired_reason else None
+                ),
+            )
+            store.emit(exec_id, {
+                "type": "repo_error",
+                "repository": repo_name,
+                "index": i + 1,
+                "total_repos": total,
+                "error": str(exc),
+                "timestamp": now_iso(),
+            })
+
+        def begin(i: int, repo_name: str) -> None:
+            store.emit(exec_id, {
+                "type": "repo_start",
+                "repository": repo_name,
+                "index": i + 1,
+                "total_repos": total,
+                "timestamp": now_iso(),
+            })
+
+            task_log.log(f"Querying repository: {repo_name}")
+            # Detect missing API keys for repositories that require one.
+            cred_name = required_credential_for_sweep(repo_name)
+            if cred_name and not get_credential_for(exec_id, cred_name):
+                missing_key_repos.append(repo_name)
+                task_log.log(
+                    f"  {repo_name}: WARNING — no API key configured "
+                    f"(credential '{cred_name}'); this repository will return 0 results"
+                )
+                store.emit(exec_id, {
+                    "type": "repo_skipped_missing_key",
+                    "repository": repo_name,
+                    "credential_name": cred_name,
+                    "index": i + 1,
+                    "total_repos": total,
+                    "timestamp": now_iso(),
+                })
+                self._record_source(
+                    exec_id, repo_name, "skipped_missing_key",
+                    credential_name=cred_name,
+                )
             try:
-                # 2.1 — a watch routine asks the source about a *person*, and a
-                # source that cannot be asked is not called at all. The zero
-                # reason is recorded on this thread's own channel, where every
-                # other reason is recorded, so it reaches the task log, the
-                # monitor, the results row, the search record, the report and
-                # the MCP surface with no per-caller edit.
-                #
-                # **What comes back is a candidate list, never a verdict.** Every
-                # record is re-checked against the profile downstream; a source's
-                # author search is a generator.
-                profile = query_params.get("entity_profile")
-                if profile is not None:
-                    try:
-                        result_holder["results"] = client.search_entity(
-                            profile,
-                            date_from=query_params.get("date_from"),
-                            date_to=query_params.get("date_to"),
-                            max_results=query_params.get("max_results", 100),
-                        )
-                    except EntityUnsupported:
-                        note_entity_unsupported(self._entity_unsupported_detail(repo_name))
-                        result_holder["results"] = []
+                client = get_client(repo_name)
+                # Thread the exec_id onto the client so that any
+                # ephemeral (per-execution) credentials are honored by
+                # credential_manager.get_credential_for.
+                try:
+                    client._exec_id = exec_id
+                except Exception:
+                    # Non-fatal: client may not inherit from BaseAPIClient.
+                    pass
+                store.emit(exec_id, {
+                    "type": "query_progress",
+                    "repository": repo_name,
+                    "phase": "search_start",
+                    "query": query_params.get("query", ""),
+                    "max_results": query_params.get("max_results", 100),
+                    "timestamp": now_iso(),
+                })
+            except Exception as exc:
+                fail(i, repo_name, exc)
+                return
+
+            holder: dict = {}
+
+            def work() -> None:
+                try:
+                    holder.update(self._search_source(client, repo_name, query_params))
+                finally:
+                    finished.put(i)
+
+            started = time.monotonic()
+            in_flight[i] = {"repo": repo_name, "holder": holder, "started": started,
+                            "beat": started + _HEARTBEAT_SECONDS}
+            threading.Thread(
+                target=work, daemon=True, name=f"search-{repo_name}-{exec_id}"
+            ).start()
+
+        def finish(i: int) -> None:
+            flight = in_flight.pop(i)
+            repo_name = flight["repo"]
+            holder = flight["holder"]
+            try:
+                if "error" in holder:
+                    raise holder["error"]
+                results, outcome = holder.get("results", []), holder.get("outcome")
+                store.emit(exec_id, {
+                    "type": "query_progress",
+                    "repository": repo_name,
+                    "phase": "search_done",
+                    "result_count": len(results),
+                    "timestamp": now_iso(),
+                })
+                task_log.log(f"  {repo_name}: {len(results)} results")
+
+                # 2.1 — **local verification, on every candidate.** A
+                # source's author search is a generator, not a verdict:
+                # arXiv's `au:` is a text match over a field and Crossref's
+                # `query.author` is relevance-ranked, and neither is a claim
+                # about identity. Every record is re-checked here against the
+                # profile, so a routine's results contain only what resmon
+                # can evidence itself — and the count that did not survive is
+                # recorded rather than silently dropped.
+                entity_profile = query_params.get("entity_profile")
+                if entity_profile is not None and results:
+                    verified, rejected = self._verify_entity_candidates(
+                        results, entity_profile)
+                    if rejected:
+                        task_log.log(
+                            f"    {rejected} of {len(results)} did not "
+                            f"survive verification against the profile")
+                    verified_by[i] = verified
+                    results = [record for record, _m in verified.values()]
+
+                results_by[i] = results
+
+                # Preserve a terminal issue even when earlier pages yielded
+                # usable records. The row stays ``ok`` and the records stay
+                # available, but every consumer can see that the retained
+                # set may be incomplete.
+                zero_reason_value: str | None = None
+                zero_detail_value: dict | None = None
+                zero_message: str | None = None
+                if not results:
+                    if repo_name in missing_key_repos:
+                        # The engine already knows this one, and it is a
+                        # better answer than anything the channel holds.
+                        zero_reason_value = "missing_key"
+                        zero_detail_value = {
+                            "credential_name":
+                                required_credential_for_sweep(repo_name),
+                        }
+                    else:
+                        zero_reason_value, zero_detail_value = (
+                            zero_reason_module.derive(outcome))
+                    zero_message = zero_reason_module.sentence(
+                        _source_display_name(repo_name),
+                        zero_reason_value, zero_detail_value,
+                    )
+                    task_log.log(f"    {zero_message}")
+                    notes_by.setdefault(i, []).append({
+                        "source": _source_display_name(repo_name),
+                        "slug": repo_name,
+                        "reason": zero_reason_value,
+                        "sentence": zero_message,
+                    })
                 else:
-                    result_holder["results"] = client.search(
-                        query=query_params.get("query", ""),
+                    issue = zero_reason_module.terminal_issue(outcome)
+                    if issue:
+                        zero_reason_value, issue_detail = issue
+                        zero_detail_value = {
+                            **issue_detail,
+                            "partial": True,
+                            "returned": len(results),
+                        }
+                        zero_message = zero_reason_module.partial_sentence(
+                            _source_display_name(repo_name),
+                            zero_reason_value,
+                            zero_detail_value,
+                            len(results),
+                        )
+                        # Persist the exact catalog-rendered sentence. The
+                        # saved coverage/search-record path knows the stable
+                        # source slug, while this engine owns display names;
+                        # carrying the rendered sentence avoids a circular
+                        # catalog import and keeps every surface identical.
+                        zero_detail_value["message"] = zero_message
+                        task_log.log(f"    {zero_message}")
+                        notes_by.setdefault(i, []).append({
+                            "source": _source_display_name(repo_name),
+                            "slug": repo_name,
+                            "reason": zero_reason_value,
+                            "sentence": zero_message,
+                            "partial": True,
+                            "returned": len(results),
+                        })
+
+                store.emit(exec_id, {
+                    "type": "repo_done",
+                    "repository": repo_name,
+                    "index": i + 1,
+                    "total_repos": total,
+                    "result_count": len(results),
+                    "zero_reason": zero_reason_value,
+                    "zero_detail": zero_detail_value,
+                    # The rendered sentence travels with the event so the
+                    # renderer displays what the backend wrote rather than
+                    # keeping a second copy of this vocabulary in
+                    # TypeScript for the two to drift apart.
+                    "zero_message": zero_message,
+                    "timestamp": now_iso(),
+                })
+                # A source that was flagged for a missing key keeps that
+                # status -- it explains the zero better than "ok" does --
+                # but the count it actually returned is still recorded.
+                self._record_source(
+                    exec_id, repo_name,
+                    "skipped_missing_key" if repo_name in missing_key_repos else "ok",
+                    result_count=len(results),
+                    credential_name=required_credential_for_sweep(repo_name),
+                    zero_reason=zero_reason_value,
+                    zero_detail=zero_detail_value,
+                )
+            except Exception as exc:
+                fail(i, repo_name, exc)
+
+        def cancel() -> dict:
+            # A source whose search has already returned is recorded as
+            # answered, as a one-at-a-time run recorded the source it had just
+            # finished before reaching its next checkpoint.
+            while True:
+                try:
+                    finish(finished.get_nowait())
+                except queue.Empty:
+                    break
+            for i in sorted(in_flight):
+                repo_name = in_flight[i]["repo"]
+                # Mark each in-flight repo as errored for UI clarity, then
+                # short-circuit to the cancellation handler. Their worker
+                # threads are daemons and are abandoned; each exits when its
+                # request returns.
+                store.emit(exec_id, {
+                    "type": "repo_error",
+                    "repository": repo_name,
+                    "index": i + 1,
+                    "total_repos": total,
+                    "error": "cancelled by user",
+                    "timestamp": now_iso(),
+                })
+                self._record_source(
+                    exec_id, repo_name, "cancelled",
+                    error_message="cancelled by user",
+                )
+                task_log.log(f"  {repo_name}: CANCELLED by user")
+            in_flight.clear()
+            assemble()
+            return self._handle_cancellation(exec_id, task_log, all_results, wall_start)
+
+        while waiting or in_flight:
+            while waiting and len(in_flight) < _SOURCE_CONCURRENCY:
+                # Cancellation checkpoint
+                if store.should_cancel(exec_id):
+                    return cancel()
+                begin(*waiting.pop(0))
+            if not in_flight:
+                continue
+            due = min(flight["beat"] for flight in in_flight.values())
+            try:
+                done: Optional[int] = finished.get(timeout=max(0.0, due - time.monotonic()))
+            except queue.Empty:
+                done = None
+            if done is not None:
+                finish(done)
+            now = time.monotonic()
+            if not any(flight["beat"] <= now for flight in in_flight.values()):
+                continue
+            # Cooperative cancellation: if the user requested cancel while
+            # searches are still in flight, stop waiting for them.
+            if store.should_cancel(exec_id):
+                return cancel()
+            # A slow source (e.g. paginated bioRxiv fetches) still produces
+            # visible live-log activity for the frontend poller, even though
+            # the underlying HTTP calls are synchronous.
+            for i in sorted(in_flight):
+                flight = in_flight[i]
+                if flight["beat"] > now:
+                    continue
+                elapsed = now - flight["started"]
+                store.emit(exec_id, {
+                    "type": "query_progress",
+                    "repository": flight["repo"],
+                    "phase": "searching",
+                    "message": f"still querying {flight['repo']} ({elapsed:.0f}s elapsed)",
+                    "elapsed": round(elapsed, 1),
+                    "timestamp": now_iso(),
+                })
+                flight["beat"] = now + _HEARTBEAT_SECONDS
+
+        assemble()
+        return None
+
+    def _search_source(self, client, repo_name: str, query_params: dict) -> dict:
+        """One source's search, on whichever thread runs it. Never raises.
+
+        Returns ``results`` or ``error``, and always ``outcome``: the snapshot
+        of the search's outcome channel, taken here because the channel is
+        thread-local and the caller cannot reach this thread's.
+        """
+        holder: dict = {}
+        # The outcome channel is thread-local and this thread is fresh per
+        # source, but it is reset explicitly rather than relied upon:
+        # lifecycle.py also calls safe_request, outside any search, and a
+        # thread that is ever reused would carry that value in as if it
+        # were this source's answer.
+        reset_search_outcome()
+        try:
+            # 2.1 — a watch routine asks the source about a *person*, and a
+            # source that cannot be asked is not called at all. The zero
+            # reason is recorded on this thread's own channel, where every
+            # other reason is recorded, so it reaches the task log, the
+            # monitor, the results row, the search record, the report and
+            # the MCP surface with no per-caller edit.
+            #
+            # **What comes back is a candidate list, never a verdict.** Every
+            # record is re-checked against the profile downstream; a source's
+            # author search is a generator.
+            profile = query_params.get("entity_profile")
+            if profile is not None:
+                try:
+                    holder["results"] = client.search_entity(
+                        profile,
                         date_from=query_params.get("date_from"),
                         date_to=query_params.get("date_to"),
                         max_results=query_params.get("max_results", 100),
                     )
-            except BaseException as exc:  # re-raised in caller
-                result_holder["error"] = exc
-            finally:
-                # Snapshotted here, on the thread that owns the channel. The
-                # caller cannot read it: by the time it runs, this thread's
-                # thread-local is out of reach.
-                result_holder["outcome"] = search_outcome().snapshot()
-
-        t = threading.Thread(
-            target=_worker, daemon=True, name=f"search-{repo_name}-{exec_id}"
-        )
-        start = time.monotonic()
-        t.start()
-
-        while t.is_alive():
-            t.join(timeout=heartbeat_interval)
-            if not t.is_alive():
-                break
-            # Cooperative cancellation: if the user requested cancel while
-            # the underlying HTTP call is still in flight, abandon the worker
-            # thread (it is a daemon and will exit when its request returns)
-            # and raise immediately so the pipeline can tear down.
-            if store.should_cancel(exec_id):
-                raise _ExecutionCancelled()
-            elapsed = time.monotonic() - start
-            store.emit(exec_id, {
-                "type": "query_progress",
-                "repository": repo_name,
-                "phase": "searching",
-                "message": f"still querying {repo_name} ({elapsed:.0f}s elapsed)",
-                "elapsed": round(elapsed, 1),
-                "timestamp": now_iso(),
-            })
-
-        if "error" in result_holder:
-            raise result_holder["error"]
-        return result_holder.get("results", []), result_holder.get("outcome")
+                except EntityUnsupported:
+                    note_entity_unsupported(self._entity_unsupported_detail(repo_name))
+                    holder["results"] = []
+            else:
+                holder["results"] = client.search(
+                    query=query_params.get("query", ""),
+                    date_from=query_params.get("date_from"),
+                    date_to=query_params.get("date_to"),
+                    max_results=query_params.get("max_results", 100),
+                )
+        except BaseException as exc:  # re-raised by the caller
+            holder["error"] = exc
+        finally:
+            # Snapshotted here, on the thread that owns the channel. The
+            # caller cannot read it: by the time it runs, this thread's
+            # thread-local is out of reach.
+            holder["outcome"] = search_outcome().snapshot()
+        return holder
 
     def _maybe_auto_backup(
         self,

@@ -169,7 +169,7 @@ export const sections: TutorialSection[] = [
     instructions: [
       'Select one or more repositories, enter keywords, optionally set a date range, and set the per-repository Max Results cap.',
       'Optionally enable AI summarization with the same per-execution overrides as Deep Dive.',
-      'Click `Run Deep Sweep`; the backend queries each repository, deduplicates the combined set, and produces a single Markdown report.',
+      'Click `Run Deep Sweep`; the backend queries the repositories, up to eight at a time and each within its own rate limit, deduplicates the combined set, and produces a single Markdown report.',
     ],
     features: [
       'Deduplication runs by DOI and by `(title + first-author)` across the combined result set.',
