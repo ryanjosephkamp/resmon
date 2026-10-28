@@ -174,8 +174,13 @@ def cmd_soak(args: argparse.Namespace) -> int:
     work = Path(tempfile.mkdtemp(prefix="resmon-soak-"))
     corpus = seed.cached(Path(args.cache), papers=UI_CORPUS_PAPERS, embed_dims=SEMANTIC_DIMS)
     try:
-        result = soak.run(work, corpus, Path(args.replies), hours=args.hours,
-                          out=Path(args.out), progress=_say)
+        if args.runs:
+            result = soak.run_back_to_back(work, corpus, Path(args.replies), runs=args.runs,
+                                           latency=args.latency, out=Path(args.out),
+                                           progress=_say)
+        else:
+            result = soak.run(work, corpus, Path(args.replies), hours=args.hours,
+                              out=Path(args.out), progress=_say)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     _say(soak.describe(result))
@@ -256,7 +261,11 @@ def main(argv: list[str] | None = None) -> int:
     run.set_defaults(func=cmd_run)
 
     sk = sub.add_parser("soak")
-    sk.add_argument("--hours", type=float, required=True)
+    by = sk.add_mutually_exclusive_group(required=True)
+    by.add_argument("--hours", type=float, help="a routine every 3 minutes for this long")
+    by.add_argument("--runs", type=int, help="this many runs, each started as the last ends")
+    sk.add_argument("--latency", default="zero",
+                    help="--runs only: recorded, zero, or a scale factor for the recordings' latency")
     sk.add_argument("--out", required=True)
     sk.add_argument("--replies", default=replies_default)
     sk.add_argument("--cache", default=str(DEFAULT_CACHE))

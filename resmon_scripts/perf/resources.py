@@ -9,9 +9,13 @@ consumed over a window divided by the window, which is the honest form of
 
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 from typing import Optional
+
+_FOOTPRINT = re.compile(r"Footprint:\s*([\d.]+)\s*(B|KB|MB|GB)\b")
+_TO_MB = {"B": 1 / 1048576.0, "KB": 1 / 1024.0, "MB": 1.0, "GB": 1024.0}
 
 
 def _ps() -> list[tuple[int, int, int, float, str]]:
@@ -110,3 +114,31 @@ def open_files(pid: int) -> Optional[int]:
         return None
     lines = out.splitlines()
     return max(0, len(lines) - 1) if lines else None
+
+
+def footprint_mb(root: int) -> Optional[float]:
+    """The tree's physical footprint in megabytes, from macOS's ``footprint``.
+
+    Resident size cannot see a leak on a Mac that is compressing memory: the
+    compressor takes the pages nothing touches, which are a leak's pages, and
+    they leave RSS. The first by-runs soak read the service at 40 MB, below
+    what it starts at, while this Mac held 23 GB compressed. The footprint is
+    what Activity Monitor calls Memory and counts compressed pages, so it is
+    the number a leak cannot hide from. ``None`` where the tool is absent
+    (Linux) or a process cannot be read.
+    """
+    total = 0.0
+    for proc in tree(root):
+        try:
+            out = subprocess.run(["footprint", "-p", str(proc["pid"])],
+                                 capture_output=True, text=True, timeout=30).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        match = _FOOTPRINT.search(out)
+        if match:
+            total += float(match.group(1)) * _TO_MB[match.group(2)]
+        elif proc["pid"] == root:
+            return None
+        # A child that exited between ``ps`` and ``footprint`` (``ps`` itself,
+        # when the root is this process) holds nothing now and is left out.
+    return total
