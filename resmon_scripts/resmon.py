@@ -1043,7 +1043,8 @@ def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
     body = _desktop_notification_body(conn, execution_row, routine_name)
 
     try:
-        desktop_notifier.notify(title, body)
+        exec_id = execution_row.get("id")
+        desktop_notifier.notify(title, body, execution_id=int(exec_id) if exec_id is not None else None)
     except Exception:
         logging.getLogger(__name__).debug(
             "desktop_notifier.notify raised", exc_info=True,
@@ -8181,6 +8182,9 @@ def main():
     # the token is written beside the daemon lock for clients that did not
     # start this process (the MCP server under a harness) and is never printed.
     token = api_auth.configure_from_environment()
+    # The app's notification listener, when the app started this backend.
+    from implementation_scripts import desktop_notifier
+    desktop_notifier.configure_host_from_environment()
     create_app()
     print(f"{APP_NAME} v{APP_VERSION}")
     write_port_file(port)

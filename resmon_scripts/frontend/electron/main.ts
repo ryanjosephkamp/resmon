@@ -1,5 +1,8 @@
-import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, shell } from 'electron';
 import { installDownloads } from './downloads';
+import {
+  isServiceLaunch, routeForNotice, servicePort, startNoticeListener, type Notice, type NoticeListener,
+} from './host';
 import { autoUpdater } from 'electron-updater';
 import { ChildProcess, spawn } from 'child_process';
 import * as crypto from 'crypto';
@@ -97,6 +100,38 @@ if (isBackgroundWindow() && process.platform === 'darwin') {
   app.setActivationPolicy('accessory');
 }
 
+/**
+ * True when this launch is the background service (`host.ts` says what that
+ * is). Read once: the service and a window launch differ from the first line
+ * of `whenReady` on.
+ */
+const SERVICE = isServiceLaunch(process.argv, process.env);
+
+// The service has no window until one is asked for, so no Dock icon and no
+// menu bar either; opening a window gives it both (`showWindow`). Module
+// scope for the reason given above for background windows: from `whenReady`
+// the icon flickers into the Dock first.
+if (SERVICE && process.platform === 'darwin') {
+  app.setActivationPolicy('accessory');
+}
+
+// One resmon per profile. A second launch while one runs hands over and quits:
+// to a service, it is a request for a window on the engine that is already
+// running (`second-instance` below), which is what makes the window and the
+// service one process; a second service has nothing to add and exits 0, which
+// a unit that restarts only on failure leaves alone.
+//
+// An instance under test names its own state directory; its Chromium profile
+// goes inside it unless the launch names one, so a test instance can never
+// share a lock, or anything else in the profile, with the resmon a person runs.
+if (process.env.RESMON_STATE_DIR && !process.argv.some((a) => a.startsWith('--user-data-dir'))) {
+  app.setPath('userData', path.join(process.env.RESMON_STATE_DIR, 'electron-user-data'));
+}
+const SOLE_INSTANCE = app.requestSingleInstanceLock();
+if (!SOLE_INSTANCE) {
+  app.exit(0);
+}
+
 // The Atlas renderer is built beside the classic one (dist/atlas) while the
 // rebuild is under way; RESMON_UI=atlas serves it instead. Anything else,
 // including unset, serves the classic renderer, which stays the app until the
@@ -128,6 +163,17 @@ let attachedToDaemon: boolean = false;
  * never a URL, never a log line.
  */
 let backendToken: string | null = null;
+/** The renderer's origin, once its server is bound; a service opens windows later. */
+let rendererOriginValue: string | null = null;
+/** Where the engine sends notifications, when this app started the engine. */
+let noticeListener: NoticeListener | null = null;
+/**
+ * Notifications on screen. Held so they are not collected before they are
+ * clicked: a collected `Notification` drops its click handler.
+ */
+const liveNotices = new Set<Notification>();
+/** True once quitting has begun, so the engine exiting is expected, not a failure. */
+let quitting = false;
 
 /** Platform-appropriate state directory for resmon. Mirrors daemon.state_dir(). */
 function stateDir(): string {
@@ -357,29 +403,8 @@ function backendSpawnSpec(
 
 /** Spawn the Python backend and return the child process. */
 function startBackend(port: number, token: string, rendererOrigin: string): ChildProcess {
-  // Where the Python backend lives depends on whether we are running from a
-  // checkout or from an installed .app.
-  //
-  //   development  frontend/dist/electron/  ->  ../../..  ->  resmon_scripts/
-  //   packaged     Contents/Resources/backend/resmon_scripts/
-  //
-  // The packaged copy ships its own virtual environment beside it, so an
-  // installed resmon does not depend on what Python the machine happens to
-  // have, or on the user ever having run pip.
-  const scriptDir = app.isPackaged
-    ? path.join(process.resourcesPath, 'backend', 'resmon_scripts')
-    : path.resolve(__dirname, '..', '..', '..');
+  const { scriptDir, pythonPath } = backendLocation();
   const resmonScript = path.join(scriptDir, 'resmon.py');
-  // The standalone runtime keeps the interpreter at python/python.exe on
-  // Windows and python/bin/python3 elsewhere.
-  const bundledPython = process.platform === 'win32'
-    ? path.join(process.resourcesPath, 'backend', 'python', 'python.exe')
-    : path.join(process.resourcesPath, 'backend', 'python', 'bin', 'python3');
-  const systemPython = process.platform === 'win32' ? 'python' : 'python3';
-  const pythonPath =
-    process.env.RESMON_PYTHON ||
-    (app.isPackaged && fs.existsSync(bundledPython) ? bundledPython : systemPython);
-
   // Update 4 / Fix D — A renderer-spawned fallback backend must NOT own
   // a ResmonScheduler. The launchd daemon is the sole scheduler owner;
   // letting both processes register jobs against the same SQLite
@@ -406,6 +431,13 @@ function startBackend(port: number, token: string, rendererOrigin: string): Chil
       || path.join(state, 'resmon_reports');
   }
 
+  // The app posts this backend's notifications as resmon, as it does the
+  // service's (`postNotice`), rather than the backend posting them through a
+  // tool macOS credits to Script Editor.
+  if (noticeListener) {
+    backendEnv.RESMON_HOST_NOTIFY_URL = noticeListener.url;
+    backendEnv.RESMON_HOST_NOTIFY_TOKEN = noticeListener.token;
+  }
   const spec = backendSpawnSpec(pythonPath, resmonScript, port, token, rendererOrigin, backendEnv);
   const child = spawn(spec.command, spec.args, {
     cwd: scriptDir,
@@ -427,6 +459,146 @@ function startBackend(port: number, token: string, rendererOrigin: string): Chil
   });
 
   return child;
+}
+
+/** Where the Python backend and the interpreter to run it with live. */
+function backendLocation(): { scriptDir: string; pythonPath: string } {
+  // Where the Python backend lives depends on whether we are running from a
+  // checkout or from an installed .app.
+  //
+  //   development  frontend/dist/electron/  ->  ../../..  ->  resmon_scripts/
+  //   packaged     Contents/Resources/backend/resmon_scripts/
+  //
+  // The packaged copy ships its own virtual environment beside it, so an
+  // installed resmon does not depend on what Python the machine happens to
+  // have, or on the user ever having run pip.
+  const scriptDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'backend', 'resmon_scripts')
+    : path.resolve(__dirname, '..', '..', '..');
+  // The standalone runtime keeps the interpreter at python/python.exe on
+  // Windows and python/bin/python3 elsewhere.
+  const bundledPython = process.platform === 'win32'
+    ? path.join(process.resourcesPath, 'backend', 'python', 'python.exe')
+    : path.join(process.resourcesPath, 'backend', 'python', 'bin', 'python3');
+  const systemPython = process.platform === 'win32' ? 'python' : 'python3';
+  const pythonPath =
+    process.env.RESMON_PYTHON ||
+    (app.isPackaged && fs.existsSync(bundledPython) ? bundledPython : systemPython);
+  return { scriptDir, pythonPath };
+}
+
+/**
+ * Start the engine as the background service's own.
+ *
+ * The same `implementation_scripts.daemon` the unit used to start by itself,
+ * so everything that makes it the service stays as it was: it owns the
+ * scheduler, takes the daemon lock, writes the token file the MCP server and
+ * the CLI read, and shuts down cooperatively on SIGTERM. What changes is that
+ * it is this app's child, given this app's token and the address of its notice
+ * listener, so its notifications are posted by the app.
+ *
+ * Its output is this process's output: under a unit that is the unit's log
+ * files, which the engine rotates by reading the path behind the descriptor
+ * (`service_log`), so the logs stay where they were and stay bounded.
+ */
+function startServiceEngine(port: number, token: string, rendererOrigin: string): ChildProcess {
+  const { scriptDir, pythonPath } = backendLocation();
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    // The unit set PYTHONPATH to the backend's directory; that comes first, and
+    // a path the environment already carries is kept after it.
+    PYTHONPATH: [scriptDir, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
+    RESMON_API_TOKEN: token,
+    RESMON_RENDERER_ORIGIN: rendererOrigin,
+  };
+  // The service is the one scheduler; a variable inherited from a shell that
+  // turned it off would leave every routine unfired with nothing to say so.
+  delete env.RESMON_DISABLE_SCHEDULER;
+  if (app.isPackaged) {
+    const state = stateDir();
+    fs.mkdirSync(state, { recursive: true });
+    env.RESMON_DB_PATH = env.RESMON_DB_PATH || path.join(state, 'resmon.db');
+    env.RESMON_REPORTS_DIR = env.RESMON_REPORTS_DIR || path.join(state, 'resmon_reports');
+  }
+  if (noticeListener) {
+    env.RESMON_HOST_NOTIFY_URL = noticeListener.url;
+    env.RESMON_HOST_NOTIFY_TOKEN = noticeListener.token;
+  }
+  const child = spawn(pythonPath, ['-m', 'implementation_scripts.daemon', String(port)], {
+    cwd: scriptDir,
+    stdio: ['ignore', 'inherit', 'inherit'],
+    env,
+  });
+  child.on('exit', (code, signal) => {
+    backendProcess = null;
+    if (quitting) return;
+    // The engine is the service. Without it this process is a listener with
+    // nothing to listen to, so it goes too, and fails, so that a unit that
+    // restarts on failure starts both again.
+    console.error(`[main] The engine exited (code ${code}, signal ${signal}); the service is stopping.`);
+    app.exit(1);
+  });
+  return child;
+}
+
+/**
+ * Post a notification the engine sent, as resmon. Clicking it opens the run.
+ *
+ * Under the e2e suites, and under the performance harness
+ * (`RESMON_NOTICES_TO_LOG`), nothing is put on the screen of the person at the
+ * Mac: the notice is written to the log, as a line a spec can read, and the
+ * answer to the engine is the same as for a posted one.
+ */
+function postNotice(notice: Notice): boolean {
+  // The OS shows the app's name on every notification it posts; a title that
+  // starts with it says it twice.
+  const title = notice.title.replace(/^resmon:\s*/i, '') || 'resmon';
+  if (isE2E() || process.env.RESMON_NOTICES_TO_LOG === '1') {
+    console.log(`[main] notice ${JSON.stringify({ title, body: notice.body, executionId: notice.executionId })}`);
+    return true;
+  }
+  if (!Notification.isSupported()) return false;
+  const shown = new Notification({ title, body: notice.body });
+  // A long-lived service must not keep every notification it ever posted.
+  if (liveNotices.size >= 50) liveNotices.delete(liveNotices.values().next().value as Notification);
+  liveNotices.add(shown);
+  shown.on('click', () => {
+    liveNotices.delete(shown);
+    void showWindow(routeForNotice(notice, ATLAS));
+  });
+  shown.on('close', () => liveNotices.delete(shown));
+  // The OS took it: the one fact about the screen this process can know.
+  shown.on('show', () => console.log(`[main] Notification shown (run ${notice.executionId ?? 'none'})`));
+  shown.on('failed', (_event, error) => {
+    liveNotices.delete(shown);
+    console.error(`[main] A notification could not be shown: ${error}`);
+  });
+  shown.show();
+  return true;
+}
+
+/**
+ * Bring the window up at `route`, creating it if there is none.
+ *
+ * A window launch has one from the start; the service makes one when it is
+ * asked to (a second launch of resmon, the Dock icon, a notification clicked)
+ * and takes the Dock icon and menu bar back while it is open.
+ */
+async function showWindow(route: string | null): Promise<void> {
+  if (mainWindow) {
+    if (route) {
+      await mainWindow.webContents.executeJavaScript(`window.location.hash = ${JSON.stringify(`#${route}`)};`);
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+  // Still starting: the engine is not up, so there is nothing to show yet.
+  if (backendPort === null || backendToken === null || rendererOriginValue === null) return;
+  if (SERVICE && process.platform === 'darwin') app.setActivationPolicy('regular');
+  createWindow(ATLAS ? await atlasGround(backendPort, backendToken) : CLASSIC_GROUND, route);
+  if (mainWindow) installDownloads(mainWindow);
 }
 
 /** Poll GET /api/health until the backend responds with 200. */
@@ -571,7 +743,7 @@ function atlasGround(port: number, token: string): Promise<string> {
   });
 }
 
-function createWindow(ground: string = CLASSIC_GROUND): void {
+function createWindow(ground: string = CLASSIC_GROUND, route: string | null = null): void {
   if (rendererPort === null) {
     throw new Error('Renderer server has not been started');
   }
@@ -678,7 +850,7 @@ function createWindow(ground: string = CLASSIC_GROUND): void {
   mainWindow.webContents.on('will-navigate', keepToRenderer);
   mainWindow.webContents.on('will-redirect', keepToRenderer);
 
-  mainWindow.loadURL(`http://127.0.0.1:${rendererPort}/index.html`);
+  mainWindow.loadURL(`http://127.0.0.1:${rendererPort}/index.html${route ? `#${route}` : ''}`);
 
   // Open maximized by default (not full-screen) for a more spacious default
   // layout. Users can still un-maximize, resize, or close normally.
@@ -951,19 +1123,39 @@ function initAutoUpdater(): void {
 }
 
 app.whenReady().then(async () => {
+  // A second instance has handed over and is exiting (`SOLE_INSTANCE`).
+  if (!SOLE_INSTANCE) return;
   try {
     // The renderer server comes first (2.2): the backend has to be told the
     // renderer's exact origin, which is only known once this port is bound.
     const rendererRoot = path.join(__dirname, '..', ATLAS ? 'atlas' : 'renderer');
     const rendererOrigin = `http://127.0.0.1:${await startRendererServer(rendererRoot)}`;
+    rendererOriginValue = rendererOrigin;
+    // Before any backend starts: a backend this app starts posts its
+    // notifications through the app.
+    noticeListener = await startNoticeListener(postNotice);
+
+    if (SERVICE) {
+      backendPort = servicePort(process.env);
+      backendToken = mintToken();
+      console.log(`[main] Starting the service's engine on port ${backendPort}`);
+      backendProcess = startServiceEngine(backendPort, backendToken, rendererOrigin);
+      // The engine takes the daemon lock and imports the whole app before it
+      // answers; a cold start of the packaged engine was measured at a few
+      // seconds, and the health wait allows 15.
+      await waitForBackend(backendPort, backendToken);
+      console.log('[main] The service is running');
+    }
 
     // Attach-or-spawn: if the lock file points to a live daemon, attach.
     // Update 4 / Fix C — retry with a longer per-attempt timeout so a
     // launchd-respawn-in-progress (lock file rewritten but FastAPI not
     // yet bound) does not cause a single-shot 500 ms probe to time out
     // and trigger a competing-backend spawn.
-    const attached = await tryAttachToDaemon(rendererOrigin);
-    if (attached !== null) {
+    const attached = SERVICE ? null : await tryAttachToDaemon(rendererOrigin);
+    if (SERVICE) {
+      // The engine above is this service's own.
+    } else if (attached !== null) {
       backendPort = attached.port;
       backendToken = attached.token;
       attachedToDaemon = true;
@@ -1065,18 +1257,44 @@ app.whenReady().then(async () => {
     });
 
     installApplicationMenu();
-    createWindow(ATLAS && backendPort !== null && backendToken !== null
-      ? await atlasGround(backendPort, backendToken)
-      : CLASSIC_GROUND);
-    if (mainWindow) installDownloads(mainWindow);
-    initAutoUpdater();
+    // The service opens no window of its own; `showWindow` makes one on request.
+    // It does not check for updates either: an update replaces the bundle, and
+    // offering it is a window's job, with a person looking at it.
+    if (!SERVICE) {
+      await showWindow(null);
+      initAutoUpdater();
+    }
   } catch (err) {
     console.error('[main] Failed to start:', err);
     app.quit();
   }
 });
 
+// A second launch of resmon, while this one runs: a window, here.
+app.on('second-instance', () => {
+  void showWindow(null);
+});
+
+// The Dock icon clicked, or the app opened again from the Finder, on macOS.
+app.on('activate', () => {
+  if (SERVICE && BrowserWindow.getAllWindows().length === 0) void showWindow(null);
+});
+
+// launchd and systemd stop a service with SIGTERM. Node's default is to exit on
+// the spot, which would leave the engine running without its parent, holding
+// the port and the lock the next start needs; quitting stops it first.
+if (SERVICE) {
+  process.on('SIGTERM', () => app.quit());
+  process.on('SIGINT', () => app.quit());
+}
+
 app.on('window-all-closed', () => {
+  // The service outlives its windows: closing the last one hands the Dock icon
+  // and the menu bar back and leaves the engine running.
+  if (SERVICE) {
+    if (process.platform === 'darwin') app.setActivationPolicy('accessory');
+    return;
+  }
   if (backendProcess && !attachedToDaemon) {
     backendProcess.kill();
     backendProcess = null;
@@ -1084,7 +1302,25 @@ app.on('window-all-closed', () => {
   app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  quitting = true;
+  if (SERVICE && backendProcess && backendProcess.exitCode === null && backendProcess.signalCode === null) {
+    // Hold the quit until the engine has shut down cooperatively (it cancels
+    // running executions and flushes the scheduler on SIGTERM), so the next
+    // start finds the port and the lock free. 20 s, then it is killed.
+    event.preventDefault();
+    const engine = backendProcess;
+    if (!engine.killed) {
+      const deadline = setTimeout(() => engine.kill('SIGKILL'), 20_000);
+      engine.once('exit', () => {
+        clearTimeout(deadline);
+        noticeListener?.close();
+        app.exit(0);
+      });
+      engine.kill('SIGTERM');
+    }
+    return;
+  }
   if (backendProcess && !attachedToDaemon) {
     backendProcess.kill();
     backendProcess = null;

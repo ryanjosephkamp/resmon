@@ -439,6 +439,10 @@ def run(argv: Optional[list[str]] = None) -> int:
             # and never accepted: this process knows only the token it minted.
             token = api_auth.configure_from_environment()
             api_auth.write_token_file(port, token)
+            # Set when resmon's app is the service and started this process:
+            # notifications then go to the app, which posts them as resmon.
+            from implementation_scripts import desktop_notifier  # type: ignore
+            desktop_notifier.configure_host_from_environment()
             try:
                 app = create_app()
                 install_signal_handlers()

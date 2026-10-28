@@ -2,6 +2,7 @@
 
     run      every measurement; writes results.json and summary.md to --out
     soak     the background service running routines for --hours
+    host     the background service as the bare engine and as the app, alternated
     record   record the benchmark sweep's replies from the live sources
     seed     build a seeded corpus (run builds the ones it needs itself)
     compare  a candidate's results.json against a baseline's, by the gate
@@ -22,7 +23,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import engine, instance, seed, size, soak, stats
+from . import engine, host, instance, seed, size, soak, stats
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 REPO = SCRIPTS.parent
@@ -187,6 +188,27 @@ def cmd_soak(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_host(args: argparse.Namespace) -> int:
+    work = Path(tempfile.mkdtemp(prefix="resmon-host-"))
+    corpus = seed.cached(Path(args.cache), papers=UI_CORPUS_PAPERS, embed_dims=SEMANTIC_DIMS)
+    executable = [args.executable] if args.executable else None
+    rounds = []
+    try:
+        # Alternated, so a drift in the machine's state over the sitting lands
+        # on both forms rather than on whichever ran second.
+        for number in range(args.rounds):
+            for form in ("engine", "app"):
+                result = host.measure(work, corpus, Path(args.replies), form=form,
+                                      executable=executable, python=args.python, progress=_say)
+                rounds.append({"round": number + 1, **result})
+                instance.write_json(Path(args.out), {"rounds": rounds})
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    instance.write_json(Path(args.out), {"rounds": rounds, "summary": host.summarize(rounds)})
+    _say(host.describe(host.summarize(rounds)))
+    return 0
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     replies = Path(args.replies)
     if (replies / "index.json").exists() and not args.force:
@@ -270,6 +292,15 @@ def main(argv: list[str] | None = None) -> int:
     sk.add_argument("--replies", default=replies_default)
     sk.add_argument("--cache", default=str(DEFAULT_CACHE))
     sk.set_defaults(func=cmd_soak)
+
+    hs = sub.add_parser("host")
+    hs.add_argument("--rounds", type=int, default=5)
+    hs.add_argument("--out", required=True)
+    hs.add_argument("--replies", default=replies_default)
+    hs.add_argument("--cache", default=str(DEFAULT_CACHE))
+    hs.add_argument("--executable", help="a packaged app's binary; default: the checkout's Electron")
+    hs.add_argument("--python", help="the bare engine's interpreter; give a packaged app's own runtime")
+    hs.set_defaults(func=cmd_host)
 
     rec = sub.add_parser("record")
     rec.add_argument("--replies", default=replies_default, required=replies_default is None)

@@ -40,6 +40,112 @@ from implementation_scripts.progress import progress_store  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
+# desktop_notifier — the app as the poster
+# ---------------------------------------------------------------------------
+
+
+class _Listener:
+    """The app's notification listener, as a loopback server that records what it took."""
+
+    def __init__(self, status: int = 204) -> None:
+        import http.server
+        import threading
+
+        listener = self
+        self.received: list[dict] = []
+        self.status = status
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802
+                length = int(self.headers.get("Content-Length") or 0)
+                listener.received.append({
+                    "authorization": self.headers.get("Authorization"),
+                    "body": json.loads(self.rfile.read(length) or b"{}"),
+                })
+                self.send_response(listener.status)
+                self.end_headers()
+
+            def log_message(self, *args):  # quiet
+                pass
+
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/notify"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def close(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+
+@pytest.fixture
+def hosted(monkeypatch):
+    listener = _Listener()
+    monkeypatch.setenv(desktop_notifier.HOST_URL_ENV, listener.url)
+    monkeypatch.setenv(desktop_notifier.HOST_TOKEN_ENV, "t" * 43)
+    assert desktop_notifier.configure_host_from_environment() is True
+    yield listener
+    listener.close()
+    desktop_notifier._host = None
+
+
+def test_a_hosted_backend_hands_the_notification_to_the_app_and_runs_no_tool(hosted):
+    with patch.object(desktop_notifier, "_run", side_effect=AssertionError("a tool ran")):
+        assert desktop_notifier.notify("resmon: Execution Completed", "6 new of 1,500", execution_id=141) is True
+    [taken] = hosted.received
+    assert taken["authorization"] == "Bearer " + "t" * 43
+    assert taken["body"] == {"title": "resmon: Execution Completed", "body": "6 new of 1,500",
+                             "execution_id": 141}
+
+
+def test_the_listener_address_and_token_leave_the_environment(hosted):
+    # Nothing the backend starts later (an agent CLI, its MCP servers) inherits them.
+    import os
+    assert desktop_notifier.HOST_URL_ENV not in os.environ
+    assert desktop_notifier.HOST_TOKEN_ENV not in os.environ
+
+
+def test_a_notification_the_app_does_not_take_is_posted_the_old_way(hosted):
+    # The app stopped answering: the notification is not lost.
+    hosted.close()
+    with patch.object(desktop_notifier, "_run", return_value=True) as tool, \
+         patch.object(desktop_notifier.shutil, "which", return_value="/usr/bin/tool"):
+        ok = desktop_notifier.notify("t", "b", execution_id=1)
+    if desktop_notifier.is_supported():
+        assert ok is True and tool.call_count == 1
+
+
+def test_a_refusal_from_the_app_is_posted_the_old_way(monkeypatch):
+    listener = _Listener(status=401)
+    try:
+        monkeypatch.setenv(desktop_notifier.HOST_URL_ENV, listener.url)
+        monkeypatch.setenv(desktop_notifier.HOST_TOKEN_ENV, "wrong")
+        desktop_notifier.configure_host_from_environment()
+        with patch.object(desktop_notifier, "_run", return_value=True) as tool, \
+             patch.object(desktop_notifier.shutil, "which", return_value="/usr/bin/tool"):
+            desktop_notifier.notify("t", "b")
+        assert len(listener.received) == 1
+        if desktop_notifier.is_supported():
+            assert tool.call_count == 1
+    finally:
+        listener.close()
+        desktop_notifier._host = None
+
+
+@pytest.mark.parametrize("url", [
+    "https://127.0.0.1:9/notify",          # not plain http
+    "http://localhost:9/notify",           # a name, which resolves however the machine says
+    "http://10.0.0.5:9/notify",            # not loopback
+    "http://127.0.0.1/notify",             # no port
+])
+def test_only_a_loopback_listener_is_accepted(monkeypatch, url):
+    monkeypatch.setenv(desktop_notifier.HOST_URL_ENV, url)
+    monkeypatch.setenv(desktop_notifier.HOST_TOKEN_ENV, "t" * 43)
+    assert desktop_notifier.configure_host_from_environment() is False
+    assert desktop_notifier._host is None
+
+
+# ---------------------------------------------------------------------------
 # desktop_notifier — per-platform routing
 # ---------------------------------------------------------------------------
 
@@ -235,6 +341,8 @@ def test_notification_fires_for_manual_dive_when_enabled(mock_notify):
     title, body = mock_notify.call_args.args
     assert "resmon" in title.lower()
     assert "Deep Dive" in body
+    # The run it is about, so the app can open that run when it is clicked.
+    assert mock_notify.call_args.kwargs == {"execution_id": exec_id}
 
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)

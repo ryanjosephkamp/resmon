@@ -129,16 +129,22 @@ def footprint_mb(root: int) -> Optional[float]:
     """
     total = 0.0
     for proc in tree(root):
-        try:
-            out = subprocess.run(["footprint", "-p", str(proc["pid"])],
-                                 capture_output=True, text=True, timeout=30).stdout
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        match = _FOOTPRINT.search(out)
-        if match:
-            total += float(match.group(1)) * _TO_MB[match.group(2)]
+        one = footprint_of(proc["pid"])
+        if one is not None:
+            total += one
         elif proc["pid"] == root:
             return None
         # A child that exited between ``ps`` and ``footprint`` (``ps`` itself,
         # when the root is this process) holds nothing now and is left out.
     return total
+
+
+def footprint_of(pid: int) -> Optional[float]:
+    """One process's physical footprint in megabytes; ``None`` if it cannot be read."""
+    try:
+        out = subprocess.run(["footprint", "-p", str(pid)],
+                             capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = _FOOTPRINT.search(out)
+    return float(match.group(1)) * _TO_MB[match.group(2)] if match else None
