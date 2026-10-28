@@ -14,8 +14,16 @@ import { bridge } from '../bridge';
 export type Engine = ReturnType<typeof createClient<paths>>;
 
 export class EngineError extends Error {
-  constructor(readonly status: number, message: string) {
+  /**
+   * The engine's own sentence, where it refused with one (FastAPI's string
+   * `detail`): "This routine is already running as execution 12…". A screen
+   * shows this rather than the route and status, which say only that it failed.
+   */
+  readonly detail: string | null;
+
+  constructor(readonly status: number, message: string, detail: string | null = null) {
     super(message);
+    this.detail = detail;
   }
 }
 
@@ -51,7 +59,9 @@ export async function answer<T>(
   const { data, error, response } = await call;
   if (error !== undefined || data === undefined) {
     const route = new URL(response.url).pathname;
-    throw new EngineError(response.status, `${route} answered HTTP ${response.status}`);
+    const said = (error as { detail?: unknown } | undefined)?.detail;
+    throw new EngineError(response.status, `${route} answered HTTP ${response.status}`,
+      typeof said === 'string' ? said : null);
   }
   return data;
 }

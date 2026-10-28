@@ -14,8 +14,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { expect, type TestInfo } from '@playwright/test';
 import type {
-  BackendFacts, DrawnAppearance, ExplorerList, ExportedFile, InterruptedRow, JourneyDriver, Place, PlateReading,
-  QueuedPaper, RankedList, RunHandle, SourceOutcome, ThemeChoice, TodayReading, WhyPanel,
+  BackendFacts, CoverageAudit, DeliveryRecord, DrawnAppearance, ExplorerList, ExportedFile, InterruptedRow,
+  JourneyDriver, Place, PlateReading, QueuedPaper, RankedList, RoutineFacts, RunHandle, RunNowAnswer, SourceOutcome,
+  ThemeChoice, TodayReading, UpcomingFire, WhyPanel,
 } from '../driver';
 import type { Session } from './session';
 
@@ -23,6 +24,10 @@ import type { Session } from './session';
 const ATLAS_PLACES: Partial<Record<Place, string>> = {
   Today: '/today',
   'Appearance settings': '/settings',
+  // Routines and the calendar are one place in Atlas: each watch, and the
+  // month ahead's fires beneath them.
+  Routines: '/watches',
+  Calendar: '/watches',
 };
 
 /** The words each theme card is labeled with in Settings. */
@@ -39,7 +44,10 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'readCoverageSentence' | 'readReportOutcomes' | 'exportReferences' | 'readInterruptedRow' | 'restartRun'
   | 'rankTheExplorerBy' | 'readExplorerList' | 'readExplorerTitles' | 'collapseDuplicates' | 'openFirstPaper'
   | 'readWhyPanel' | 'savePapersFromRun' | 'readReadingQueue' | 'markPaperRead' | 'removeFromReadingQueue'
-  | 'exportReadingQueue'>;
+  | 'exportReadingQueue'
+  | 'listRoutineNames' | 'readRoutine' | 'activateRoutine' | 'deactivateRoutine' | 'toggleDesktopNotification'
+  | 'readUpcomingFires' | 'runNowControlIsOnTheRow' | 'askForThisRoutineToRunNow' | 'readDeliveryRecord'
+  | 'skipDelivery' | 'readCoverageAudit' | 'writeRoutineIntent'>;
 
 /** The reading-queue filter buttons, by the journey's word for each. */
 const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
@@ -79,6 +87,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     if (place === 'Today') {
       await expect(win().locator('nav[aria-label="Sections"] a[aria-current="page"]'))
         .toHaveText('Today', { timeout: 30_000 });
+    } else if (hash === '/watches') {
+      await expect(win().getByRole('heading', { name: 'Watches', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('section.watch-index')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
     } else {
       await expect(win().getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
     }
@@ -210,8 +221,223 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     state: row.querySelector('.queue-state')?.textContent?.trim() ?? '',
   })));
 
+  // — watches ---------------------------------------------------------------
+
+  const routineNamed = async (name: string): Promise<{ id: number; record: Record<string, unknown> }> => {
+    const record = (await backend.routines()).find((r) => r.name === name);
+    expect(record, `no routine named ${name}`).toBeTruthy();
+    return { id: Number(record!.id), record: record! };
+  };
+
+  /**
+   * A watch's own page, read fresh: arrived at from the Watches list, so the
+   * page reads the engine on arrival rather than showing what an earlier visit
+   * read before the journey changed something behind it.
+   */
+  const openWatch = async (name: string): Promise<number> => {
+    const { id } = await routineNamed(name);
+    await goto('Routines');
+    await win().evaluate((routine) => { window.location.hash = `#/watches/${routine}`; }, id);
+    const page = win().locator(`.watch-page[data-routine="${id}"]`);
+    await expect(page).toBeVisible({ timeout: 30_000 });
+    // A page visited before draws what it read then while it reads again.
+    await expect(page).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    return id;
+  };
+
+  const openWatchTab = async (name: string, tab: string): Promise<number> => {
+    const id = await openWatch(name);
+    const button = win().getByRole('tab', { name: tab, exact: true });
+    await button.click();
+    await expect(button).toHaveAttribute('aria-selected', 'true');
+    return id;
+  };
+
+  /** The record first, then the screen: the switch is drawn from the record. */
+  const setScheduled = async (name: string, active: boolean): Promise<void> => {
+    const id = await openWatch(name);
+    const page = win().locator(`.watch-page[data-routine="${id}"]`);
+    if ((await page.getAttribute('data-active')) !== String(active)) {
+      await win().getByRole('button', { name: active ? 'Resume' : 'Pause', exact: true }).click();
+    }
+    await expect.poll(async () => Boolean((await routineNamed(name)).record.is_active), {
+      timeout: 30_000, message: `the app never recorded ${name} as ${active ? 'active' : 'inactive'}`,
+    }).toBe(active);
+    await expect(page, 'the record changed and the page still shows the old state')
+      .toHaveAttribute('data-active', String(active), { timeout: 30_000 });
+    await expect(page.locator('.run-meta .watch-state')).toHaveText(active ? 'Watching' : 'Paused');
+  };
+
+  /** Every delivery of a routine settled in the engine: a read taken mid-drain is of a delivery in flight. */
+  const settledDeliveries = async (id: number): Promise<Record<number, string>> => {
+    let recorded: Record<number, string> = {};
+    await expect.poll(async () => {
+      const record = await session.api<{ deliveries: { id: number; state: string }[] }>('GET', `/api/routines/${id}/deliveries`);
+      recorded = Object.fromEntries(record.deliveries.map((row) => [Number(row.id), String(row.state)]));
+      return record.deliveries.length > 0
+        && record.deliveries.every((row) => !['queued', 'delivering'].includes(String(row.state)));
+    }, { timeout: 120_000 }).toBe(true);
+    return recorded;
+  };
+
   return {
     open: (place) => goto(place),
+
+    // — watches -------------------------------------------------------------
+
+    listRoutineNames: async () => {
+      await goto('Routines');
+      // The denominator is the engine's own list: wait until every name it
+      // holds is drawn, rather than reading an empty list that is still loading.
+      const expected = (await backend.routines()).map((r) => String(r.name));
+      const names = win().locator('.watch-list .watch-name');
+      await expect.poll(async () => {
+        const drawn = (await names.allInnerTexts()).map((t) => t.trim());
+        return expected.every((name) => drawn.includes(name));
+      }, { timeout: 30_000, message: `Watches never drew all ${expected.length} watch(es) the app reports` }).toBe(true);
+      return (await names.allInnerTexts()).map((t) => t.trim());
+    },
+
+    readRoutine: async (name): Promise<RoutineFacts> => {
+      const id = await openWatch(name);
+      const page = win().locator(`.watch-page[data-routine="${id}"]`);
+      return {
+        name: (await page.locator('.run-name').innerText()).trim(),
+        active: (await page.getAttribute('data-active')) === 'true',
+        desktopNotification: (await page.locator('[data-switch="notify_on_complete"]').getAttribute('aria-checked')) === 'true',
+      };
+    },
+
+    activateRoutine: (name) => setScheduled(name, true),
+    deactivateRoutine: (name) => setScheduled(name, false),
+
+    toggleDesktopNotification: async (name) => {
+      // Read against the record before the click: "it is on now" is true of a
+      // switch that was already on. The journey is that the click changed
+      // something and the change was kept.
+      const before = Boolean((await routineNamed(name)).record.notify_on_complete);
+      await openWatch(name);
+      const toggle = win().locator('[data-switch="notify_on_complete"]');
+      await expect(toggle).toHaveAttribute('aria-checked', String(before));
+      await toggle.click();
+      await expect.poll(async () => Boolean((await routineNamed(name)).record.notify_on_complete), {
+        timeout: 30_000, message: `${name}'s desktop notification was never recorded as ${before ? 'off' : 'on'}`,
+      }).toBe(!before);
+      await expect(toggle, 'the record flipped and the switch still shows the old state')
+        .toHaveAttribute('aria-checked', String(!before), { timeout: 30_000 });
+    },
+
+    readUpcomingFires: async (): Promise<UpcomingFire[]> => {
+      await goto('Calendar');
+      const month = win().locator('section.month-ahead');
+      await expect(month).toHaveAttribute('data-state', 'read', { timeout: 30_000 });
+      // Every fire the engine's calendar promises, each saying whether the
+      // month on screen draws it. A drawn fire is matched by its watch and its
+      // exact time, so one occurrence is told from the next.
+      const names = new Map((await backend.routines()).map((r) => [Number(r.id), String(r.name)]));
+      const events = await session.api<{ routine_id: number | null; start: string; title: string; status: string }[]>(
+        'GET', '/api/calendar/events');
+      const drawn = new Set(await month.locator('.fire').evaluateAll((marks) => marks.map(
+        (mark) => `${(mark as HTMLElement).dataset.routine}|${(mark as HTMLElement).dataset.at}`,
+      )));
+      return events
+        .filter((e) => e.status === 'scheduled')
+        .map((e) => ({
+          routine: names.get(Number(e.routine_id)) ?? String(e.title),
+          when: new Date(String(e.start)),
+          title: String(e.title),
+          drawn: drawn.has(`${e.routine_id}|${e.start}`),
+        }));
+    },
+
+    runNowControlIsOnTheRow: async (name) => {
+      // On the watch's own page, which is where Atlas puts it, for every
+      // watch: the engine runs a paused one once when asked.
+      await openWatch(name);
+      return (await win().getByRole('button', { name: 'Run now', exact: true }).count()) > 0;
+    },
+
+    askForThisRoutineToRunNow: async (name): Promise<RunNowAnswer> => {
+      const id = await openWatch(name);
+      const answered = win().waitForResponse(
+        (r) => r.url().endsWith(`/api/routines/${id}/run`) && r.request().method() === 'POST',
+      );
+      await win().getByRole('button', { name: 'Run now', exact: true }).click();
+      await answered;
+      const said = win().locator('.run-now-said, .run-now-refusal');
+      await expect(said, 'Run now was answered and the page said nothing').toBeVisible({ timeout: 30_000 });
+      const started = await said.getAttribute('data-run-started');
+      const text = (await said.innerText()).trim();
+      // The kind of refusal is a response header the renderer is not given
+      // cross-origin, so the app cannot read it either: '' here, as in the
+      // classic driver, and the sentence is what the row asserts.
+      return started
+        ? { run: { id: Number(started) }, refusal: '', refusalKind: '' }
+        : { run: null, refusal: text, refusalKind: '' };
+    },
+
+    readDeliveryRecord: async (name): Promise<DeliveryRecord[]> => {
+      const { id } = await routineNamed(name);
+      const recorded = await settledDeliveries(id);
+      await openWatchTab(name, 'Where reports go');
+      const rows = win().locator('.delivery-list .delivery-row');
+      await expect(rows).toHaveCount(Object.keys(recorded).length, { timeout: 30_000 });
+      // Each row drawn as the engine now records it, not as an earlier read had it.
+      for (const [rowId, state] of Object.entries(recorded)) {
+        await expect(win().locator(`.delivery-row[data-delivery="${rowId}"]`)).toHaveAttribute('data-state', state, { timeout: 30_000 });
+      }
+      return rows.evaluateAll((list, states) => list.map((row) => {
+        const el = row as HTMLElement;
+        const deliveryId = Number(el.dataset.delivery);
+        return {
+          id: deliveryId,
+          channel: el.dataset.channel ?? '',
+          state: el.querySelector('.delivery-state')?.textContent?.trim() ?? '',
+          recorded: (states as Record<string, string>)[String(deliveryId)] ?? '',
+          detail: el.querySelector('.delivery-detail')?.textContent?.trim() ?? '',
+        };
+      }), recorded);
+    },
+
+    skipDelivery: async (name, delivery) => {
+      await openWatchTab(name, 'Where reports go');
+      const row = win().locator(`.delivery-row[data-delivery="${delivery.id}"]`);
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      await row.getByRole('button', { name: 'Skip', exact: true }).click();
+      await expect(row).toHaveAttribute('data-state', 'skipped', { timeout: 30_000 });
+    },
+
+    writeRoutineIntent: async (name, intent) => {
+      // Through the watch's own intent field, which is where a person writes it.
+      await openWatchTab(name, 'What it finds');
+      const field = win().getByLabel('What this watch is really looking for');
+      await field.fill(intent);
+      await win().locator('.intent-form').getByRole('button', { name: 'Save', exact: true }).click();
+      await expect.poll(async () => (await routineNamed(name)).record.intent ?? '', {
+        timeout: 30_000, message: `the intent for ${name} was never recorded`,
+      }).toBe(intent);
+      await expect(win().locator('[data-coverage="intent"]'), 'the audit never compared against the saved intent')
+        .toContainText(intent, { timeout: 60_000 });
+    },
+
+    readCoverageAudit: async (name): Promise<CoverageAudit> => {
+      await openWatchTab(name, 'What it finds');
+      const panel = win().locator('.coverage');
+      await expect(panel).toHaveAttribute('data-coverage-state', 'read', { timeout: 60_000 });
+      await expect(panel.locator('[data-coverage="intent"], [data-coverage="reason"]').first()).toBeVisible();
+      const read = async (key: string): Promise<string> => {
+        const node = panel.locator(`[data-coverage="${key}"]`).first();
+        return (await node.count()) ? (await node.innerText()).trim() : '';
+      };
+      return {
+        intent: await read('intent'),
+        reason: await read('reason'),
+        offTargetShowing: await read('off-target-showing'),
+        missedShowing: await read('missed-showing'),
+        cannotSee: await read('cannot-see'),
+        text: (await panel.innerText()).trim(),
+      };
+    },
 
     // — the collection ------------------------------------------------------
 
