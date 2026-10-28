@@ -63,7 +63,13 @@ def run(routine_id, docs, started, sources, kind="automated_sweep"):
 run(routine, ids["protein"]["old"], now - timedelta(days=30), {"arxiv": ("ok", 11, None), "dblp": ("ok", 3, None)})
 run(routine, ids["protein"]["new"], now - timedelta(hours=2), {"arxiv": ("ok", 3, None), "dblp": ("ok", 0, "upstream_failure")})
 run(None, ids["traffic"]["new"], now - timedelta(hours=3), {"arxiv": ("ok", 3, None)}, kind="deep_sweep")
-set_setting(conn, "today_looked_at", fmt(now - timedelta(hours=20)))
+# The last look is yesterday at noon on this machine's clock, which the heading
+# words as "yesterday". It was 20 hours ago, which is yesterday only before
+# 20:00: from then until midnight the heading read "New since today" and the
+# case failed, on CI's UTC runners every evening from 20:00 UTC.
+local = datetime.now().astimezone()
+looked = local.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
+set_setting(conn, "today_looked_at", fmt(looked.astimezone(timezone.utc)))
 conn.commit()
 print(json.dumps({"new": sum(len(v["new"]) for v in ids.values()), "watch_new": len(ids["protein"]["new"])}))
 `;
