@@ -1,0 +1,24 @@
+/* Atlas tokens: the night chart on true black, the printed atlas by day
+   (rebuild direction contract). The accent becomes the user's value later. */
+:root {
+  --ground: #ffffff; --panel: #f7f6f3; --ink: #141413; --ink-2: #4a4843; --rule: #e2e0da;
+  --accent: #c25417;
+  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --ground: #0a0a0b; --panel: #111112; --ink: #f1eee6; --ink-2: #bfbab0; --rule: #232325; --accent: #ff8a3d; color-scheme: dark; }
+}
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--ground); color: var(--ink); font: 400 14px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+.atlas { display: grid; grid-template-rows: 52px 1fr; height: 100%; }
+.atlas-bar { display: flex; align-items: center; gap: 32px; padding: 0 24px 0 88px; border-bottom: 1px solid var(--rule); -webkit-app-region: drag; }
+.atlas-bar a { -webkit-app-region: no-drag; }
+.atlas-lockup { font-size: 16px; color: var(--ink-2); }
+.atlas-lockup b { color: var(--ink); font-weight: 600; }
+.atlas-bar ul { display: flex; gap: 24px; list-style: none; margin: 0; padding: 0; }
+.atlas-bar a { color: var(--ink-2); text-decoration: none; }
+.atlas-bar a[aria-current="page"] { color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); padding-bottom: 14px; }
+.atlas-main { padding: 32px 40px; }
+.atlas-main h1 { font-size: 28px; font-weight: 500; margin: 0 0 8px; }
+.atlas-status { color: var(--ink-2); margin: 0; }

@@ -904,7 +904,11 @@ app.whenReady().then(async () => {
   try {
     // The renderer server comes first (2.2): the backend has to be told the
     // renderer's exact origin, which is only known once this port is bound.
-    const rendererRoot = path.join(__dirname, '..', 'renderer');
+    // The Atlas renderer is built beside the classic one (dist/atlas) while the
+    // rebuild is under way; RESMON_UI=atlas serves it instead. Anything else,
+    // including unset, serves the classic renderer, which stays the app until
+    // the Atlas one passes the journey suite and the performance gate.
+    const rendererRoot = path.join(__dirname, '..', process.env.RESMON_UI === 'atlas' ? 'atlas' : 'renderer');
     const rendererOrigin = `http://127.0.0.1:${await startRendererServer(rendererRoot)}`;
 
     // Attach-or-spawn: if the lock file points to a live daemon, attach.

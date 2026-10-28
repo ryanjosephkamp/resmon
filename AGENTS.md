@@ -40,7 +40,9 @@ resmon_scripts/
 │   ├── database.py                 schema + migrations
 │   └── ...                         sweep_engine, scheduler, watchdog, lifecycle, …
 ├── verification_scripts/           pytest suite + conftest.py
-└── frontend/src/                   React renderer (pages/, components/, api/, hooks/)
+├── frontend/src/                   React renderer (pages/, components/, api/, hooks/)
+└── frontend/atlas/                 the Atlas renderer, built beside the classic one
+                                    (Vite, into dist/atlas); RESMON_UI=atlas serves it
 ```
 
 Backend and renderer talk **only** over HTTP on `127.0.0.1`. That boundary is the seam:
