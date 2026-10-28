@@ -14,6 +14,13 @@ const PATHS = {
   check: <path d="m3.25 8.5 3 3 6.5-7" />,
   arrow: <path d="M3 8h10M9 4l4 4-4 4" />,
   reset: <><path d="M2.75 8a5.25 5.25 0 1 0 1.54-3.71" /><path d="M2.5 2.5v2.75h2.75" /></>,
+  plus: <path d="M8 3v10M3 8h10" />,
+  minus: <path d="M3 8h10" />,
+  fit: <path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />,
+  bookmark: <path d="M4 2.5h8v11L8 10.75 4 13.5Z" />,
+  bookmarked: <path d="M4 2.5h8v11L8 10.75 4 13.5Z" fill="currentColor" />,
+  open: <><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5" /><path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" /></>,
+  fault: <><circle cx="8" cy="8" r="5.75" /><path d="M4 12 12 4" /></>,
 } as const;
 
 export type IconName = keyof typeof PATHS;

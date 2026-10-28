@@ -121,8 +121,7 @@ test('a theme and an accent chosen in Settings come back on the next launch', as
         await expect(win.getByText('Drawn deeper here, so it stays readable.')).toHaveCount(1);
         await shoot(win, 'atlas-settings-light.png');
         await win.getByRole('link', { name: 'Today' }).click();
-        await expect(win.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
-        await expect(win.getByRole('status')).toHaveText(/Connected to the engine/);
+        await expect(win.locator('.plate-waiting[role="status"]')).toHaveText(/Your collection is empty/);
         await shoot(win, 'atlas-today-light.png');
 
         expect(problems, 'the page reported errors').toEqual([]);
