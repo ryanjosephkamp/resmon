@@ -25,7 +25,8 @@ test('RESMON_UI=atlas serves the Atlas shell, connected to its own backend', asy
     const win = await app.firstWindow({ timeout: 180_000 });
     await expect(win.getByLabel('resmon')).toBeVisible({ timeout: 60_000 });
     await expect(win.getByRole('navigation', { name: 'Sections' })).toBeVisible();
-    await expect(win.getByRole('status')).toHaveText(/Connected to the engine/, { timeout: 120_000 });
+    // An empty collection: Today says so, which it can only do once the engine has answered.
+    await expect(win.locator('.plate-waiting[role="status"]')).toHaveText(/Your collection is empty/, { timeout: 120_000 });
     const port = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort: () => string } }).resmonAPI.getBackendPort());
     expect(port, 'the installed service port is never used').not.toBe('8742');
     // The classic renderer's sidebar is not on the page.
