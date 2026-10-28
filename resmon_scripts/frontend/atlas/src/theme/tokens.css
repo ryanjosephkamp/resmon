@@ -1,0 +1,81 @@
+/*
+ * Atlas: the night chart and the printed atlas.
+ *
+ * Two grounds, one ink ramp each, and one accent the person chooses. The accent
+ * tones below are the default amber's; `appearance.tsx` replaces them with tones
+ * derived from the chosen color (see `accent.ts` for the contrast each holds).
+ * The fault red is fixed: it means a source did not answer, and nothing else.
+ *
+ * `data-theme` is set on <html> before the first paint, from the engine's
+ * stored appearance, so neither theme flashes the other. The window behind the
+ * page is painted the same ground by `electron/main.ts`. Any element can carry
+ * `data-theme` too, which is how Settings draws a sample in the other theme.
+ */
+
+:root {
+  --sans: "Geist Variable", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --serif: "Spectral", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --r: 7px;
+  --r-lg: 10px;
+  --bar-h: 52px;
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --dur: 180ms;
+
+  --accent: #ff8a3d;
+  --accent-ink: #ff8a3d;
+  --accent-mark: #ff8a3d;
+  --accent-fill: #ff8a3d;
+  --on-accent: #0a0a0b;
+  --accent-wash: rgba(255, 138, 61, .09);
+  --accent-wash-2: rgba(255, 138, 61, .3);
+}
+
+/* The night chart: true black, chalk ink. */
+:root[data-theme="dark"], [data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0a0a0b;
+  --plate: #0a0a0b;
+  --bar: #0c0c0d;
+  --panel: #111112;
+  --panel-2: #18181a;
+  --raise: #1f1f21;
+  --rule: #232322;
+  --rule-2: #34332f;
+  --ink: #f1eee6;
+  --ink-2: #bfbab0;
+  --ink-3: #8f8b82;
+  --grid: #1a1a1b;
+  --grid-minor: #141415;
+  --frame: #4a4842;
+  --band: #3a3935;
+  --bound: #77736b;
+  --fault: #ff6253;
+  --shadow: 0 10px 28px rgba(0, 0, 0, .45);
+  --scrim: rgba(0, 0, 0, .55);
+}
+
+/* The printed atlas: white paper, black ink. */
+:root[data-theme="light"], [data-theme="light"] {
+  color-scheme: light;
+  --ground: #ffffff;
+  --plate: #ffffff;
+  --bar: #ffffff;
+  --panel: #f7f6f3;
+  --panel-2: #efeee9;
+  --raise: #ffffff;
+  --rule: #e3e1dc;
+  --rule-2: #cfccc5;
+  --ink: #141413;
+  --ink-2: #45433e;
+  --ink-3: #69665f;
+  --grid: #ecebe6;
+  --grid-minor: #f4f3f0;
+  --frame: #8c897f;
+  --band: #b9b6ae;
+  --bound: #7d7a72;
+  --fault: #c22b1d;
+  --shadow: 0 10px 28px rgba(20, 20, 19, .12);
+  --scrim: rgba(20, 20, 19, .28);
+}

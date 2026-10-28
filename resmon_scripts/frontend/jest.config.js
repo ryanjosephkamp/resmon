@@ -8,7 +8,7 @@
  */
 module.exports = {
   testEnvironment: 'jsdom',
-  roots: ['<rootDir>/src'],
+  roots: ['<rootDir>/src', '<rootDir>/atlas/src'],
   testMatch: ['**/__tests__/**/*.test.ts?(x)'],
   transform: {
     '^.+\\.tsx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.test.json' }],
