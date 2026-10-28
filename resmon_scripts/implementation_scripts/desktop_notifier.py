@@ -17,17 +17,26 @@ the Electron renderer is not running. Manual runs reach this code path
 too, providing a backend safety net for the in-renderer browser
 ``Notification`` API.
 
+When resmon's own app started this backend, a notification goes to the app
+instead and the app posts it (see "The app as the poster" below): a tool such
+as ``osascript`` posts under its own name, and macOS credits every
+``osascript`` notification to Script Editor. The tools stay the fallback.
+
 Tests stub ``_run`` so they exercise routing logic without spawning
 real subprocesses.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
@@ -152,17 +161,83 @@ def is_supported() -> bool:
     return False
 
 
-def notify(title: str, body: str) -> bool:
+# ---------------------------------------------------------------------------
+# The app as the poster
+# ---------------------------------------------------------------------------
+#
+# macOS credits a notification to the process that posts it, so every one the
+# background service sent through ``osascript`` arrived as Script Editor's,
+# with Script Editor's icon, and clicking it opened Script Editor. A process
+# cannot post under another app's name, so the fix is to have the app post:
+# when resmon's own app starts this backend, it runs a small listener on
+# loopback and passes its address and a token in the environment, and a
+# notification sent there is posted by the app, as resmon, and opens the run
+# when clicked. The tools remain for a backend nothing hosts, and for an app
+# that stops answering: a notification the app did not take is posted the old
+# way rather than lost.
+
+HOST_URL_ENV = "RESMON_HOST_NOTIFY_URL"
+HOST_TOKEN_ENV = "RESMON_HOST_NOTIFY_TOKEN"
+# The app answers on loopback in well under a millisecond; a listener that has
+# not answered in two seconds is gone, and the fallback should not wait longer.
+_HOST_TIMEOUT_SEC = 2.0
+_host: Optional[tuple[str, str]] = None
+
+
+def configure_host_from_environment() -> bool:
+    """Read (and remove) the app's listener address and token; True if both are usable.
+
+    Removed from ``os.environ`` for the reason ``api_auth`` removes the API
+    token: nothing this backend later starts -- agent CLIs, the MCP servers
+    they spawn -- should inherit a credential it was not handed. Only a plain
+    ``http`` address on ``127.0.0.1`` is accepted; anything else is ignored and
+    notifications take the tool path.
+    """
+    global _host
+    url = os.environ.pop(HOST_URL_ENV, None)
+    token = os.environ.pop(HOST_TOKEN_ENV, None)
+    _host = None
+    if url and token:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme == "http" and parsed.hostname == "127.0.0.1" and parsed.port:
+            _host = (url, token)
+        else:
+            logger.warning("Ignoring %s: not an http address on 127.0.0.1", HOST_URL_ENV)
+    return _host is not None
+
+
+def _notify_host(title: str, body: str, execution_id: Optional[int]) -> bool:
+    """Hand the notification to the app. True only if the app took it."""
+    if _host is None:
+        return False
+    url, token = _host
+    payload = json.dumps({"title": title, "body": body, "execution_id": execution_id}).encode("utf-8")
+    request = urllib.request.Request(url, data=payload, method="POST", headers={
+        "Authorization": f"Bearer {token}", "Content-Type": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(request, timeout=_HOST_TIMEOUT_SEC) as response:
+            return 200 <= response.status < 300
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        logger.warning("The app did not take a notification (%s); posting it directly.", exc)
+        return False
+
+
+def notify(title: str, body: str, *, execution_id: Optional[int] = None) -> bool:
     """Post a desktop notification. Returns True on success.
 
     Never raises. Failure modes (helper missing, helper non-zero exit,
     sandboxed environment without GUI access) all result in ``False``
-    and a debug log line.
+    and a debug log line. ``execution_id`` is the run the notification is
+    about; the app opens it when the notification is clicked, and the tools
+    cannot use it.
     """
     if not isinstance(title, str) or not isinstance(body, str):
         return False
     title = title.strip() or "resmon"
     body = body.strip()
+    if _notify_host(title, body, execution_id):
+        return True
     if sys.platform == "darwin":
         return _notify_macos(title, body)
     if sys.platform == "win32":

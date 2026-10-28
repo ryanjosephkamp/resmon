@@ -33,7 +33,7 @@ export function installDownloads(window: BrowserWindow): void {
     shell.showItemInFolder(record.path);
     return true;
   });
-  window.webContents.session.on('will-download', (_event, item, contents) => {
+  const onWillDownload = (_event: Electron.Event, item: Electron.DownloadItem, contents: Electron.WebContents) => {
     if (contents !== window.webContents) return;
     const id = String(++sequence);
     const record: DownloadRecord = { id, filename: item.getFilename(), state: 'progressing', path: '', receivedBytes: 0, totalBytes: item.getTotalBytes() };
@@ -48,5 +48,15 @@ export function installDownloads(window: BrowserWindow): void {
       record.path = state === 'completed' ? item.getSavePath() : '';
       publish();
     });
+  };
+  const session = window.webContents.session;
+  session.on('will-download', onWillDownload);
+  // The background service opens a window, and another after that one closes,
+  // in one process; each window's handlers go with it, or the next window's
+  // `ipcMain.handle` throws on a channel that is already taken.
+  window.once('closed', () => {
+    ipcMain.removeHandler('resmon:downloads');
+    ipcMain.removeHandler('resmon:reveal-download');
+    session.removeListener('will-download', onWillDownload);
   });
 }

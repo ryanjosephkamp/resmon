@@ -29,6 +29,8 @@ Everything runs from `resmon_scripts/`:
 .venv/bin/python -m perf soak --hours 4 --replies ~/resmon-perf-replies --out /tmp/soak.json
 # The same soak by work: 240 runs (twelve hours at that cadence), each started as the last ends.
 .venv/bin/python -m perf soak --runs 240 --replies ~/resmon-perf-replies --out /tmp/soak-runs.json
+# The background service as the bare engine and as the app (--service), alternated.
+.venv/bin/python -m perf host --rounds 5 --replies ~/resmon-perf-replies --out /tmp/host.json
 ```
 
 `run` writes `results.json` (every sample, the machine, the commit) and
@@ -113,6 +115,18 @@ of each per 100 runs after the first block. A leak raises the floor. On macOS it
 reads the physical footprint, which counts compressed memory; resident size is
 recorded too but hides a leak once the compressor takes idle pages. It does
 not measure anything that grows with time alone; `--hours` does.
+
+**The service's two forms (`host.py`):** the background service as the bare
+engine (`implementation_scripts.daemon`, as launchd starts it today) and as the
+app launched with `--service`, which runs that same engine as its child. Each
+round measures both over the same seeded corpus and recordings, alternating so
+a drift in the machine lands on both: memory by role (the app's main process,
+Chromium's GPU and utility processes, the engine) and in total, as resident
+size and as physical footprint, 5 seconds after start and after one run, and
+CPU over 30 seconds of idling. The app's notifications are written to its log,
+not shown. `--executable` and `--python` measure a packaged app against the
+runtime it ships. `hook/sitecustomize.py` installs the recorded-reply transport
+in the engine the app starts, which `backend.py` cannot wrap.
 
 ## Known limits
 
