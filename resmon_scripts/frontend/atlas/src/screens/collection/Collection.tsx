@@ -90,8 +90,11 @@ export function Collection() {
           if (!ready) return 'The collection map is not ready yet; matches are marked once it is.';
           if (!query) return `Every paper in your collection, ${basisWords(basis)}. Matches are marked as you search.`;
           if (!ids.length) return 'Nothing matches, so nothing is marked.';
-          const listed = ids.length < total ? ` (the first ${number(ids.length)} of ${number(total)})` : '';
-          return `${number(placed ?? 0)} of the ${count(ids.length, 'match', 'matches')} listed${listed} marked, ${basisWords(basis)}.`;
+          const listed = ids.length < total
+            ? `the first ${number(ids.length)} of ${number(total)} matches`
+            : count(ids.length, 'match', 'matches');
+          if (placed === ids.length) return `Marked: ${listed}, ${basisWords(basis)}.`;
+          return `Marked: ${number(placed ?? 0)} of ${listed}; the map has not placed the rest yet.`;
         }}
       />
       <section className="index results" aria-label="Your collection" aria-busy={busy}

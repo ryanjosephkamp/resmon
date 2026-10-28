@@ -97,7 +97,10 @@ export function PaperSky({ marked, focus = null, label, caption, shape = 'square
       }
 
       ctx.fillStyle = ink;
-      ctx.globalAlpha = 0.45;
+      ctx.globalAlpha = 0.55;
+      // The collection's own points grow a little with the drawing, so a large
+      // sky still reads as a collection rather than as dust.
+      const dot = Math.max(1.2, Math.min(2.2, size / 420));
       const hits: [number, number][] = [];
       let focused: [number, number] | null = null;
       for (let i = 0; i < points.id.length; i += 1) {
@@ -105,7 +108,7 @@ export function PaperSky({ marked, focus = null, label, caption, shape = 'square
         const x = px(points.x[i] ?? 0); const y = py(points.y[i] ?? 0);
         if (id === focus) { focused = [x, y]; continue; }
         if (wanted.has(id)) { hits.push([x, y]); continue; }
-        ctx.fillRect(x - 0.6, y - 0.6, 1.2, 1.2);
+        ctx.fillRect(x - dot / 2, y - dot / 2, dot, dot);
       }
       ctx.globalAlpha = 1;
       // A ring per paper reads while there are a handful; past that the rings
