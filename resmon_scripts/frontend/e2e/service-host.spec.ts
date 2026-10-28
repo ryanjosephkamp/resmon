@@ -152,8 +152,9 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
 
     // A second launch of resmon hands over and exits; the service opens the window.
     const second = spawn(app.process().spawnfile, ['.', profile], { cwd: FRONTEND_ROOT, env, stdio: 'ignore' });
-    const secondExit = await new Promise<number | null>((resolve) => second.once('exit', (code) => resolve(code)));
-    expect(secondExit).toBe(0);
+    const secondExit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve) => second.once('exit', (code, signal) => resolve({ code, signal })));
+    expect(secondExit).toEqual({ code: 0, signal: null });
     const win = await app.firstWindow({ timeout: 60_000 });
     await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
     // On the service's engine, not one of its own.
