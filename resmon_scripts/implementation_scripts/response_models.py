@@ -809,6 +809,65 @@ class EmbeddingCoverage(LosslessModel):
     model: Optional[str]
 
 
+class MapRegion(LosslessModel):
+    """One region of the collection map: a disc on the plate, and its name.
+
+    ``label`` and ``terms`` are the words most distinctive of the region's
+    papers, so they are always lexical, whatever basis placed the papers.
+    """
+
+    id: int
+    label: str
+    terms: list[str]
+    x: float
+    y: float
+    r: float
+    size: int
+
+
+class MapPoints(LosslessModel):
+    """Every paper on the plate, one entry per paper in each list, in id order.
+
+    Columns rather than one object per paper: at 100,000 papers this is the
+    difference between a few megabytes and a few dozen."""
+
+    id: list[int]
+    x: list[float]
+    y: list[float]
+    region: list[int]
+    seen_day: list[int]
+
+
+class MapUnplaced(LosslessModel):
+    """Papers in the collection that are not on the plate, and why."""
+
+    no_text: int
+    not_embedded: int
+
+
+class CollectionMap(LosslessModel):
+    """``GET /api/map``: where every paper sits, and on what basis.
+
+    ``basis`` says what nearness means on this map: ``embeddings`` (the set
+    model's vectors) or ``words`` (word statistics computed on this machine).
+    It describes the points served, which during a refit can differ from the
+    basis the next map will have.
+    """
+
+    state: Literal["empty", "fitting", "failed", "ready"]
+    basis: Optional[Literal["embeddings", "words"]]
+    model: Optional[str]
+    fitted_at: Optional[str]
+    fitted_count: int
+    placed_since_fit: int
+    refitting: bool
+    error: Optional[str]
+    embedding_coverage: Optional[EmbeddingCoverage]
+    unplaced: MapUnplaced
+    regions: list[MapRegion]
+    points: MapPoints
+
+
 class EmbeddingIndexState(LosslessModel):
     """What the vector index currently holds."""
 

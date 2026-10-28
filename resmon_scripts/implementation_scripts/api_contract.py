@@ -124,6 +124,8 @@ REGISTER: tuple[tuple[str, str], ...] = (
     # Added with the Atlas interface (rebuild phase 2): the theme and the accent
     # color, which the engine keeps because the renderer's storage cannot.
     ("J46", "Appearance: theme and accent"),
+    # The Atlas plate: every paper placed by text similarity (rebuild phase 2).
+    ("J47", "Collection map: where every paper sits"),
 )
 
 #: ``J01`` -> ``Deep Dive``.
@@ -388,6 +390,7 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("GET", "/api/settings/notifications"): ("J23",),
     ("PUT", "/api/settings/notifications"): ("J23",),
     ("GET", "/api/appearance"): ("J46",),
+    ("GET", "/api/map"): ("J47",),
     ("PUT", "/api/appearance"): ("J46",),
 }
 

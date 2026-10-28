@@ -22,6 +22,12 @@ httpx==0.28.1
 keyring==25.7.0
 lxml==6.0.4
 nltk==3.9.4
+# The collection map (implementation_scripts/collection_map.py): latent semantic
+# analysis, k-means and t-SNE over up to 100,000 papers, which pure Python
+# cannot do in tolerable time. 2.2.x is the last line supporting Python 3.10,
+# the floor. BSD-3-Clause; the wheel carries its own license files, including
+# those of the OpenBLAS it bundles.
+numpy==2.2.6
 openai==2.31.0
 pydantic==2.12.4
 python-dateutil==2.9.0.post0

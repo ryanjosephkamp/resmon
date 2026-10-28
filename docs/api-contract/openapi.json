@@ -543,6 +543,121 @@
         "title": "CloudSettings",
         "type": "object"
       },
+      "CollectionMap": {
+        "additionalProperties": true,
+        "description": "``GET /api/map``: where every paper sits, and on what basis.\n\n``basis`` says what nearness means on this map: ``embeddings`` (the set\nmodel's vectors) or ``words`` (word statistics computed on this machine).\nIt describes the points served, which during a refit can differ from the\nbasis the next map will have.",
+        "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "enum": [
+                  "embeddings",
+                  "words"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "embedding_coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EmbeddingCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "fitted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fitted At"
+          },
+          "fitted_count": {
+            "title": "Fitted Count",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "placed_since_fit": {
+            "title": "Placed Since Fit",
+            "type": "integer"
+          },
+          "points": {
+            "$ref": "#/components/schemas/MapPoints"
+          },
+          "refitting": {
+            "title": "Refitting",
+            "type": "boolean"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/MapRegion"
+            },
+            "title": "Regions",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "empty",
+              "fitting",
+              "failed",
+              "ready"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "unplaced": {
+            "$ref": "#/components/schemas/MapUnplaced"
+          }
+        },
+        "required": [
+          "state",
+          "basis",
+          "model",
+          "fitted_at",
+          "fitted_count",
+          "placed_since_fit",
+          "refitting",
+          "error",
+          "embedding_coverage",
+          "unplaced",
+          "regions",
+          "points"
+        ],
+        "title": "CollectionMap",
+        "type": "object"
+      },
       "ConfigCreate": {
         "properties": {
           "config_type": {
@@ -2004,6 +2119,124 @@
           }
         },
         "title": "LifecycleForDocumentsRequest",
+        "type": "object"
+      },
+      "MapPoints": {
+        "additionalProperties": true,
+        "description": "Every paper on the plate, one entry per paper in each list, in id order.\n\nColumns rather than one object per paper: at 100,000 papers this is the\ndifference between a few megabytes and a few dozen.",
+        "properties": {
+          "id": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Id",
+            "type": "array"
+          },
+          "region": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Region",
+            "type": "array"
+          },
+          "seen_day": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Seen Day",
+            "type": "array"
+          },
+          "x": {
+            "items": {
+              "type": "number"
+            },
+            "title": "X",
+            "type": "array"
+          },
+          "y": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Y",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "x",
+          "y",
+          "region",
+          "seen_day"
+        ],
+        "title": "MapPoints",
+        "type": "object"
+      },
+      "MapRegion": {
+        "additionalProperties": true,
+        "description": "One region of the collection map: a disc on the plate, and its name.\n\n``label`` and ``terms`` are the words most distinctive of the region's\npapers, so they are always lexical, whatever basis placed the papers.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "r": {
+            "title": "R",
+            "type": "number"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "terms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Terms",
+            "type": "array"
+          },
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "terms",
+          "x",
+          "y",
+          "r",
+          "size"
+        ],
+        "title": "MapRegion",
+        "type": "object"
+      },
+      "MapUnplaced": {
+        "additionalProperties": true,
+        "description": "Papers in the collection that are not on the plate, and why.",
+        "properties": {
+          "no_text": {
+            "title": "No Text",
+            "type": "integer"
+          },
+          "not_embedded": {
+            "title": "Not Embedded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "no_text",
+          "not_embedded"
+        ],
+        "title": "MapUnplaced",
         "type": "object"
       },
       "NotificationSettings": {
@@ -9099,6 +9332,25 @@
           }
         },
         "summary": "Links Status"
+      }
+    },
+    "/api/map": {
+      "get": {
+        "description": "Where every paper sits on the Atlas plate, and on what basis.\n\nThe first call on a collection starts a fit in the background and answers\n``fitting``; later calls answer from the fit, placing papers that arrived\nsince. See ``collection_map`` for what a position does and does not say.",
+        "operationId": "get_collection_map_api_map_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionMap"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Collection Map"
       }
     },
     "/api/onboarding": {
