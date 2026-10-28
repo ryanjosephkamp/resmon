@@ -151,10 +151,17 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     expect(notices[0].title).toBe('Execution Completed');
 
     // A second launch of resmon hands over and exits; the service opens the window.
-    const second = spawn(app.process().spawnfile, ['.', profile], { cwd: FRONTEND_ROOT, env, stdio: 'ignore' });
+    // Launched as Playwright launched the first: on Linux it passes
+    // --no-sandbox, and without it Chromium aborts at its sandbox check
+    // (SIGTRAP on the xvfb job) before the app's own code runs at all.
+    const secondArgs = [...(process.platform === 'linux' ? ['--no-sandbox'] : []), '.', profile];
+    const second = spawn(app.process().spawnfile, secondArgs, { cwd: FRONTEND_ROOT, env, stdio: ['ignore', 'ignore', 'pipe'] });
+    const secondErr: string[] = [];
+    second.stderr?.on('data', (chunk: Buffer) => secondErr.push(chunk.toString()));
     const secondExit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
       (resolve) => second.once('exit', (code, signal) => resolve({ code, signal })));
-    expect(secondExit).toEqual({ code: 0, signal: null });
+    expect(secondExit, `the second launch's stderr:\n${secondErr.join('').slice(-2000)}`)
+      .toEqual({ code: 0, signal: null });
     const win = await app.firstWindow({ timeout: 60_000 });
     await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
     // On the service's engine, not one of its own.
