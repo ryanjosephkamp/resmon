@@ -35,6 +35,15 @@ A change to the surface takes its own pull request. That is the whole mechanism:
    and why. A reviewer reading `git diff docs/api-contract/` should be able to see the whole of
    what moved without reading the implementation.
 
+4. Regenerate the Atlas renderer's types from the new description, from `resmon_scripts/frontend/`:
+
+   ```bash
+   npm run gen:atlas-api
+   ```
+
+   and commit `atlas/src/api/schema.d.ts` with the rest. `npm run typecheck` (which CI runs) fails
+   while that file is stale, and a renderer call to a route that changed shape stops compiling.
+
 A new route also needs a line in `api_contract.ROUTE_JOURNEYS` saying which register row it serves.
 Until it has one the guard stays red: a route nobody can name a journey for is a route the renderer
 has no reason to call.

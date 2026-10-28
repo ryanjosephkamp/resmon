@@ -1,11 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { getJson } from './api';
-
-interface Health {
-  status?: string;
-  version?: string;
-  pid?: number;
-}
+import { answer, engine } from './api/client';
 
 const SECTIONS = ['Today', 'Watches', 'Search', 'Library', 'Ask', 'Health'] as const;
 
@@ -15,7 +9,7 @@ const SECTIONS = ['Today', 'Watches', 'Search', 'Library', 'Ask', 'Health'] as c
  * screens arrive one step at a time (rebuild plan, phase 2).
  */
 export function App() {
-  const health = useQuery({ queryKey: ['health'], queryFn: () => getJson<Health>('/api/health') });
+  const health = useQuery({ queryKey: ['health'], queryFn: () => answer(engine().GET('/api/health')) });
   return (
     <div className="atlas">
       <header className="atlas-bar">

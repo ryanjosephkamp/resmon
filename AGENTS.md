@@ -399,7 +399,9 @@ by hand. `verification_scripts/test_api_contract.py` regenerates both in-process
 on any difference, naming the routes that were added, removed or reshaped. So a change to
 the surface takes its own PR: change the route, run
 `python -m implementation_scripts.api_contract --write` from `resmon_scripts/`, commit the
-regenerated files in that PR, and say in the body what changed and why. A **new route also
+regenerated files in that PR, and say in the body what changed and why. The Atlas renderer's
+types are generated from the same file: run `npm run gen:atlas-api` in `frontend/` and commit
+`atlas/src/api/schema.d.ts` too, or `npm run typecheck` fails. A **new route also
 needs a line in `api_contract.ROUTE_JOURNEYS`** naming the register row it serves; without
 one the guard stays red. Editing either file to make a red test green, rather than to
 record a change you meant, is the one thing this mechanism exists to stop.
