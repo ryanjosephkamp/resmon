@@ -1,12 +1,12 @@
 /**
  * The denominator.
  *
- * Forty-six rows, one per user journey the 3.0 renderer has to carry forward.
+ * Forty-seven rows, one per user journey the 3.0 renderer has to carry forward.
  * J01–J44 are copied from the workspace parity register — the same list the
  * capability register's J-rows come from — and `register.spec.ts` refuses to
  * let this file and the spec files in this directory disagree. A row with no
  * test cannot exist, and a test with no row cannot exist either; that mutual
- * guard is the only thing that makes "N of 46" a measurement rather than a
+ * guard is the only thing that makes "N of 47" a measurement rather than a
  * hand count.
  *
  * **J45 was added here, not copied.** The Source wall (#175) became a page on
@@ -20,7 +20,8 @@
  * and the accent color in the engine, at `/api/appearance`, because the
  * renderer's storage does not survive a launch; the route needed a row to
  * serve. Its test is owed by the `atlas` slice, whose candidate driver is the
- * first that can reach a screen where the accent is chosen.
+ * first that can reach a screen where the accent is chosen. J47, the
+ * collection map behind Today's plate (`/api/map`), arrived the same way.
  *
  * **`status`.** Every row is `carried` today: nothing has been dropped from the
  * register. A row that stops being carried takes `status: 'not_carried_forward'`
@@ -51,13 +52,13 @@
 /**
  * `refresh` is the October 27, 2026 check of the register against the app's
  * routes — the delivery that owes J45, the one row it added. `atlas` is the
- * rebuilt interface, which owes J46.
+ * rebuilt interface, which owes J46 and J47.
  */
 export type JourneySlice = '1' | '2a' | '2b' | 'refresh' | 'atlas';
 export type JourneyStatus = 'carried' | 'not_carried_forward';
 
 export interface JourneyRow {
-  /** `J01`…`J46`, as the workspace register numbers them. */
+  /** `J01`…`J47`, as the workspace register numbers them. */
   id: string;
   /** The row's title, byte-identical to the workspace register's. */
   title: string;
@@ -131,6 +132,7 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J44', title: 'Driving resmon from an external harness (MCP)', slice: '2b', status: 'carried', built: true },
   { id: 'J45', title: 'Source wall: what every source did on recent runs', slice: 'refresh', status: 'carried', built: true },
   { id: 'J46', title: 'Appearance: theme and accent', slice: 'atlas', status: 'carried' },
+  { id: 'J47', title: 'Collection map: where every paper sits', slice: 'atlas', status: 'carried' },
 ];
 
 /** The slice whose rows were built when this directory was born. */

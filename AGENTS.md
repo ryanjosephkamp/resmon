@@ -30,7 +30,7 @@ implies more certainty than it earns is rejected even when the code is correct.
 
 ```
 resmon_scripts/
-├── resmon.py                       FastAPI app — 188 routes, the API seam
+├── resmon.py                       FastAPI app — 189 routes, the API seam
 │                                   described in docs/api-contract/ (generated, guarded)
 ├── implementation_scripts/         backend modules
 │   ├── api_base.py                 BaseAPIClient, NormalizedResult, RateLimiter, safe_request
@@ -56,6 +56,15 @@ are `/api/appearance`. Accent tones are derived in `atlas/src/theme/accent.ts`, 
 both themes. An Electron spec that depends on the system theme passes `colorScheme: null` to
 `electron.launch`: Playwright otherwise tells the page the system is light, while the main
 process reads the real one.
+
+**The collection map (`/api/map`, `implementation_scripts/collection_map.py`) is derived
+data with a stated basis.** Positions come from the set embedding model only when it has
+embedded 90% of the corpus, otherwise from word statistics computed on the machine, and
+the answer's `basis` says which: never describe a `words` map as placing papers by meaning.
+Region names are always lexical. A full fit runs on a background thread (about 25 s and
+under 600 MB at 100,000 papers, measured) and is cached beside the database as
+`<db>-map.npz`, which `_erase_corpus` deletes because it holds words from the papers.
+NumPy is the one dependency it added.
 
 ## Commands
 
@@ -402,7 +411,7 @@ frozen for the duration: changing it takes its own PR.
 
 **`docs/api-contract/openapi.json` and `docs/api-contract/http.md` are generated, and
 guarded.** They describe the whole HTTP surface — every route's method, path, parameters
-and request body, and which of the 46 parity-register rows each route serves — and they
+and request body, and which of the 47 parity-register rows each route serves — and they
 are written by `implementation_scripts/api_contract.py` from the real FastAPI app, never
 by hand. `verification_scripts/test_api_contract.py` regenerates both in-process and fails
 on any difference, naming the routes that were added, removed or reshaped. So a change to

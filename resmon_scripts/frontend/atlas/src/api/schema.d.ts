@@ -2206,6 +2206,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Collection Map
+         * @description Where every paper sits on the Atlas plate, and on what basis.
+         *
+         *     The first call on a collection starts a fit in the background and answers
+         *     ``fitting``; later calls answer from the fit, placing papers that arrived
+         *     since. See ``collection_map`` for what a position does and does not say.
+         */
+        get: operations["get_collection_map_api_map_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/onboarding": {
         parameters: {
             query?: never;
@@ -3584,6 +3608,43 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * CollectionMap
+         * @description ``GET /api/map``: where every paper sits, and on what basis.
+         *
+         *     ``basis`` says what nearness means on this map: ``embeddings`` (the set
+         *     model's vectors) or ``words`` (word statistics computed on this machine).
+         *     It describes the points served, which during a refit can differ from the
+         *     basis the next map will have.
+         */
+        CollectionMap: {
+            /** Basis */
+            basis: ("embeddings" | "words") | null;
+            embedding_coverage: components["schemas"]["EmbeddingCoverage"] | null;
+            /** Error */
+            error: string | null;
+            /** Fitted At */
+            fitted_at: string | null;
+            /** Fitted Count */
+            fitted_count: number;
+            /** Model */
+            model: string | null;
+            /** Placed Since Fit */
+            placed_since_fit: number;
+            points: components["schemas"]["MapPoints"];
+            /** Refitting */
+            refitting: boolean;
+            /** Regions */
+            regions: components["schemas"]["MapRegion"][];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "empty" | "fitting" | "failed" | "ready";
+            unplaced: components["schemas"]["MapUnplaced"];
+        } & {
+            [key: string]: unknown;
+        };
         /** ConfigCreate */
         ConfigCreate: {
             /** Config Type */
@@ -4263,6 +4324,64 @@ export interface components {
         LifecycleForDocumentsRequest: {
             /** Document Ids */
             document_ids?: number[];
+        };
+        /**
+         * MapPoints
+         * @description Every paper on the plate, one entry per paper in each list, in id order.
+         *
+         *     Columns rather than one object per paper: at 100,000 papers this is the
+         *     difference between a few megabytes and a few dozen.
+         */
+        MapPoints: {
+            /** Id */
+            id: number[];
+            /** Region */
+            region: number[];
+            /** Seen Day */
+            seen_day: number[];
+            /** X */
+            x: number[];
+            /** Y */
+            y: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * MapRegion
+         * @description One region of the collection map: a disc on the plate, and its name.
+         *
+         *     ``label`` and ``terms`` are the words most distinctive of the region's
+         *     papers, so they are always lexical, whatever basis placed the papers.
+         */
+        MapRegion: {
+            /** Id */
+            id: number;
+            /** Label */
+            label: string;
+            /** R */
+            r: number;
+            /** Size */
+            size: number;
+            /** Terms */
+            terms: string[];
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * MapUnplaced
+         * @description Papers in the collection that are not on the plate, and why.
+         */
+        MapUnplaced: {
+            /** No Text */
+            no_text: number;
+            /** Not Embedded */
+            not_embedded: number;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * NotificationSettings
@@ -9180,6 +9299,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_collection_map_api_map_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionMap"];
                 };
             };
         };

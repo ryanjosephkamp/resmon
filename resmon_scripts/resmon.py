@@ -112,7 +112,8 @@ from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
 from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
-    analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store, coverage_audit, embedding_job,
+    analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store, collection_map,
+    coverage_audit, embedding_job,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
     reading_queue, reference_export, response_models, search_record, source_coverage,
     source_wall, vector_index, watch_profiles,
@@ -4978,6 +4979,23 @@ def _current_embedding_lane(conn):
     return embeddings.build_lane(_load_embedding_settings(conn))
 
 
+@app.get("/api/map", response_model=response_models.CollectionMap,
+         response_model_exclude_unset=True)
+def get_collection_map():
+    """Where every paper sits on the Atlas plate, and on what basis.
+
+    The first call on a collection starts a fit in the background and answers
+    ``fitting``; later calls answer from the fit, placing papers that arrived
+    since. See ``collection_map`` for what a position does and does not say.
+    """
+    conn = _get_db()
+    try:
+        lane = _current_embedding_lane(conn)
+        return collection_map.snapshot(conn, lane.model if lane else None, open_connection=_get_db)
+    finally:
+        _close_db(conn)
+
+
 def _embedding_capability(conn) -> dict:
     """Whether this backend can rank at all, and what by.
 
@@ -6609,6 +6627,9 @@ def _erase_corpus(conn) -> int:
     count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
     conn.execute("DELETE FROM documents")
     conn.execute("DELETE FROM sqlite_sequence WHERE name='documents'")
+    # The collection map's cache holds positions and words taken from these
+    # papers, so it goes with them.
+    collection_map.forget(conn)
     try:
         conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
     except sqlite3.Error:

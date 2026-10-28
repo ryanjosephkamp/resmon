@@ -72,6 +72,7 @@ from pydantic import BaseModel, ConfigDict, create_model  # noqa: E402
 import resmon as resmon_mod                                    # noqa: E402
 from implementation_scripts import response_models             # noqa: E402
 from implementation_scripts import watch_profiles as wp        # noqa: E402
+from implementation_scripts import collection_map              # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +128,9 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     "appearance": (
         ("GET", "/api/appearance"),
         ("PUT", "/api/appearance"),
+    ),
+    "collection map": (
+        ("GET", "/api/map"),
     ),
     "reading queue": (
         ("GET", "/api/reading-queue"),
@@ -450,6 +454,7 @@ def driven() -> Drive:
         _drive_watchdog_and_first_run(drive)
         _drive_configurations(drive)
         _drive_scheduler(drive)
+        _drive_collection_map(drive)
 
         yield drive
 
@@ -474,6 +479,30 @@ def _drive_process_identity(drive: Drive) -> None:
     assert catalog, "the catalog must have rows for its model to be exercised"
     drive("GET", "/api/credentials")
     drive("POST", "/api/renderer/heartbeat")
+
+
+def _drive_collection_map(drive: Drive) -> None:
+    """Both shapes the map has: ``fitting`` with empty columns, then ``ready``.
+
+    Last in the scenario, because it adds papers with text: the papers above
+    have titles only, and a map of papers it cannot place would never show the
+    region and point shapes that are the reason to model this route.
+    """
+    conn = resmon_mod._get_db()
+    topics = ("protein folding residue", "traffic congestion road", "quantum circuit qubit")
+    for index in range(12):
+        words = topics[index % 3]
+        conn.execute(
+            "INSERT INTO documents (source_repository, external_id, title, abstract, metadata_hash) "
+            "VALUES ('arxiv', ?, ?, ?, ?)",
+            (f"map-{index}", f"{words} study {index}", f"We examine {words} with a {words} benchmark.",
+             f"map-{index}"))
+    conn.commit()
+    drive("GET", "/api/map")
+    collection_map.wait(conn)
+    ready = drive("GET", "/api/map")
+    assert ready["state"] == "ready" and ready["points"]["id"], ready
+    collection_map.forget(conn)
 
 
 def _drive_appearance(drive: Drive) -> None:
