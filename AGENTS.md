@@ -40,6 +40,8 @@ resmon_scripts/
 │   ├── database.py                 schema + migrations
 │   └── ...                         sweep_engine, scheduler, watchdog, lifecycle, …
 ├── verification_scripts/           pytest suite + conftest.py
+├── cli/                            the `resmon` command line: standard library only,
+│                                   pipx install ./resmon_scripts/cli
 ├── frontend/src/                   React renderer (pages/, components/, api/, hooks/)
 └── frontend/atlas/                 the Atlas renderer, built beside the classic one
                                     (Vite, into dist/atlas); RESMON_UI=atlas serves it
@@ -65,6 +67,16 @@ Region names are always lexical. A full fit runs on a background thread (about 2
 under 600 MB at 100,000 papers, measured) and is cached beside the database as
 `<db>-map.npz`, which `_erase_corpus` deletes because it holds words from the papers.
 NumPy is the one dependency it added.
+
+**The `resmon` command line is a client of the HTTP API, never of the database.** Like the MCP
+server, it finds a running engine from files: `RESMON_PORT` alone when set, else `daemon.lock`
+(the service, preferred because it owns the schedule), else the port file, with the token from
+`api-token-<port>`. It never starts an engine for a command, because an engine's start is not a
+read (a staged restore, a schema migration, adopting runs as interrupted, the delivery drain);
+`resmon_cli/engine.py` sets that out. `test_cli.py` fails if any CLI module mentions `sqlite3` or
+`implementation_scripts`, and drives the real service entry point and the window's engine through
+`perf.instance`. `--json` prints the engine's body unchanged, so a route the CLI reads that changes
+shape changes its output: the same test compares them.
 
 ## Commands
 

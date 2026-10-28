@@ -81,6 +81,25 @@ pip install -r requirements.txt
 cd resmon_scripts/frontend && npm install && npm start
 ```
 
+## Command line
+
+`resmon` asks the running resmon (the background service, or the app's own engine) what it has
+collected and how its watches are doing, in the app's words, with `--json` on every command. It
+never opens the database and never starts resmon itself; with nothing running, it says where it
+looked and exits with status 3. Install it from a clone with
+[pipx](https://pipx.pypa.io/); it needs Python 3.10 and nothing else.
+
+```bash
+pipx install ./resmon_scripts/cli
+resmon today            # papers first collected since you last marked all read, by watch
+resmon wall             # every source's answer to each recent run
+resmon service status   # which resmon it reached, and whether your watches will run
+```
+
+The other commands are `search`, `runs`, `export`, and `watch list` / `watch add`;
+[`resmon_scripts/cli/README.md`](resmon_scripts/cli/README.md) covers each one and how the command
+finds resmon.
+
 ## Documentation
 
 The documentation lives on the project site, **<https://ryanjosephkamp.github.io/resmon/>**.
