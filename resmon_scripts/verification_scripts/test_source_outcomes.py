@@ -1028,13 +1028,19 @@ def test_hal_budget_expiry_is_stored_in_the_row_record_log_and_report(
     flight on a real socket. What is asserted is behaviour: one attempt,
     ``operation_deadline``, and that sentence stored in the row, the record, the
     log and the report.
+
+    The budget is two seconds, not 0.2. The server counts a hit only once it has
+    read the request, and on a loaded CI runner 0.2 s ran out before it had: the
+    client had made its one attempt and the server had counted none (October 28,
+    2026, Python 3.11 job, ``assert 1 == 0``). Two seconds is the time the
+    request needs to arrive, not a guess at how long the runner might stall.
     """
     from pathlib import Path
     from resmon_scripts.implementation_scripts import api_hal
 
-    budget_seconds = 0.2
+    budget_seconds = 2.0
     http_server.behaviour = "sleep"
-    http_server.sleep_for = 30 * budget_seconds
+    http_server.sleep_for = 10 * budget_seconds
     http_server.reply = (503, "synthetic unavailable")
     monkeypatch.setattr(api_hal, "_HAL_API_URL", http_server.url)
     monkeypatch.setattr(api_hal, "_RATE_LIMITER", api_base.RateLimiter(1000))
