@@ -43,6 +43,8 @@ interface Props {
   now: Date;
   saved: ReadonlyMap<number, boolean>;
   marking: boolean;
+  /** Re-reading the engine: the list says so, to a screen reader and to a test. */
+  busy: boolean;
   onSelect: (id: number) => void;
   onPoint: (id: number | null) => void;
   onZoomTo: (target: { watchId?: number; regionId?: number; paperId?: number }) => void;
@@ -53,7 +55,7 @@ interface Props {
 
 export function TodayIndex(props: Props) {
   const {
-    papers, total, fromSearches, collectionSize, watches, regions, sourceName, heading, lit, selected, now, saved, marking,
+    papers, total, fromSearches, collectionSize, watches, regions, sourceName, heading, lit, selected, now, saved, marking, busy,
     onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer,
   } = props;
   const [by, setBy] = useState<'watch' | 'region'>('watch');
@@ -105,7 +107,7 @@ export function TodayIndex(props: Props) {
 
   const shown = papers.length;
   return (
-    <section className="index" aria-labelledby="index-title">
+    <section className="index" aria-labelledby="index-title" aria-busy={busy}>
       <header className="index-bar">
         <h2 id="index-title">{heading} <span>{number(total)}</span></h2>
         <div className="seg" role="group" aria-label="Group by">
