@@ -75,8 +75,8 @@ NumPy is the one dependency it added.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 908 tests across 87 suites
-npm run e2e                                      # the real Electron app — 124 cases in 41 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 925 tests across 88 suites
+npm run e2e                                      # the real Electron app — 125 cases in 42 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -473,6 +473,11 @@ two legs, both with a `break_row` input.
 
 Saved conversation read/export contract: `docs/api-contract/assistant-conversations.md`;
 Chats journey: `resmon_scripts/frontend/e2e/chats-export.spec.ts`.
+
+Atlas Search and the run (slice 1 of the screens): `atlas/src/screens/Search.tsx`,
+`Run.tsx` and `screens/runs/`; the run routes' bodies are the "starting a run" and
+"runs" slices of `test_response_models.py`; real-app journey `e2e/atlas-search.spec.ts`.
+The zero-reason vocabulary is generated into both renderers by `npm run gen:zero-reason`.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
 
