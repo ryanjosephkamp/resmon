@@ -70,8 +70,16 @@ import { startSelectedAnswerEndpoint } from '../fixtures/selected-answer-endpoin
 import type { SelectedAnswerEndpoint } from '../fixtures/selected-answer-endpoint';
 import type { Session } from './session';
 
+/**
+ * The places only the Atlas interface has. The classic renderer has nowhere to
+ * take a person for them, so its driver answers them by skipping the journey
+ * and saying why, never by going somewhere else.
+ */
+type AtlasOnlyPlace = 'Today' | 'Appearance settings';
+const ATLAS_ONLY: readonly Place[] = ['Today', 'Appearance settings'];
+
 /** The hash behind each place in the sidebar. The only route table in the suite. */
-const PLACES: Record<Place, string> = {
+const PLACES: Record<Exclude<Place, AtlasOnlyPlace>, string> = {
   'Deep Dive': '/dive',
   'Deep Sweep': '/sweep',
   Routines: '/routines',
@@ -1033,6 +1041,12 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => app.quit());
 `;
 
+  /** A journey this renderer cannot take: skipped, with the reason in the report. */
+  const theClassicRendererHasNo = (what: string): never => {
+    testInfo.skip(true, `The classic renderer has no ${what}; this journey belongs to the Atlas interface.`);
+    throw new Error('unreachable: a skipped journey does not continue');
+  };
+
   const backend: BackendFacts = {
     port: async () => session.port,
     health: () => session.api('GET', '/api/health'),
@@ -1128,13 +1142,36 @@ app.on('window-all-closed', () => app.quit());
     evidenceNotes: (project) => evidenceNotesOf(project),
     selectedAnswer: (project, answerId) => answerOf(project, answerId),
     sourceWall: () => session.api<StoredSourceWall>('GET', '/api/coverage/source-wall?limit=12'),
+    // — the Atlas interface: facts any renderer can read ---------------------
+    appearance: () => session.api('GET', '/api/appearance'),
+    collectionMap: () => session.api('GET', '/api/map'),
+    today: () => session.api('GET', '/api/today'),
+    collectPapers: async (request) => {
+      const to = new Date();
+      const from = new Date(to.getTime() - (request.days ?? 30) * 24 * 60 * 60 * 1000);
+      const started = await session.api<{ execution_id: number }>('POST', '/api/search/dive', {
+        repository: request.source,
+        query: request.keywords.join(' '),
+        keywords: request.keywords,
+        date_from: isoDate(from),
+        date_to: isoDate(to),
+        max_results: request.cap ?? 20,
+      });
+      const run = { id: started.execution_id };
+      await expect.poll(async () => String((await backend.execution(run)).status), { timeout: 150_000 })
+        .not.toMatch(/^(running|cancelling)$/);
+      return run;
+    },
   };
 
   return {
     name: 'classic',
     backend,
 
-    open: (place) => goto(PLACES[place]),
+    open: async (place) => {
+      if (ATLAS_ONLY.includes(place)) theClassicRendererHasNo(`${place} screen`);
+      await goto(PLACES[place as Exclude<Place, AtlasOnlyPlace>]);
+    },
 
     reopenTheApp: () => session.relaunch(),
 
@@ -2699,9 +2736,10 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
           seen.push({ url: request.url(), authorization: request.headers().authorization ?? null });
         }
       };
+      if (ATLAS_ONLY.includes(place)) theClassicRendererHasNo(`${place} screen`);
       win().on('request', watch);
       try {
-        await goto(PLACES[place]);
+        await goto(PLACES[place as Exclude<Place, AtlasOnlyPlace>]);
         await expect.poll(() => seen.length, { timeout: 30_000 }).toBeGreaterThan(0);
         // The page goes on asking after the first answer; a moment here means
         // the list is what the page really sent rather than its first request.
@@ -3879,5 +3917,13 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         note: (await pane.locator('.source-wall-reading-note').innerText()).trim(),
       };
     },
+
+    // — the Atlas interface (J46, J47, J48): not this renderer's ---------------
+    chooseTheme: async () => theClassicRendererHasNo('theme choice'),
+    chooseAccent: async () => theClassicRendererHasNo('accent color'),
+    readAppearance: async () => theClassicRendererHasNo('theme or accent'),
+    readThePlate: async () => theClassicRendererHasNo('collection map'),
+    readToday: async () => theClassicRendererHasNo('Today screen'),
+    markAllRead: async () => theClassicRendererHasNo('Mark all read'),
   };
 }

@@ -8,9 +8,14 @@ current markup would have to be rewritten alongside it, which is the same as
 having no suite at all during the only period when one matters. So nothing here
 touches the renderer. Every spec is written in the words of the journey it
 covers — *run a dive*, *read the coverage sentence*, *back up now* — and a
-**driver** behind it maps those onto one renderer's markup. When the 3.0
-renderer exists it supplies `drivers/candidate.ts` and every spec here runs
-against it unedited.
+**driver** behind it maps those onto one renderer's markup. The candidate is the
+Atlas interface, which this build serves with `RESMON_UI=atlas`:
+`drivers/candidate.ts` drives what Atlas has (`drivers/atlas.ts`) and skips every
+other journey with the reason "Not in Atlas yet: …". A candidate run's skipped
+count is therefore how much of the register Atlas still has to carry, and the
+switch-over waits for it to reach zero. J46, J47 and J48 are Atlas's own
+journeys; the classic driver skips them the same way, saying the classic
+renderer has no such screen.
 
 That is a property, not a promise: `register.spec.ts` greps every spec file for
 a renderer call or an import of anything but the driver, and fails on a hit.
@@ -91,7 +96,8 @@ other half of that check and it is in the pull request.
 | `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; every page in `src/routes.ts` names a carried row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer. |
 | `driver.ts` | The seam — the `JourneyDriver` interface, in the user's words, plus the `journey` test object. |
 | `drivers/classic.ts` | The one file that knows a class name, a hash route or the text on a button. |
-| `drivers/candidate.ts` | Re-exports the classic driver until the 3.0 build replaces its body. |
+| `drivers/candidate.ts` | The Atlas interface: `drivers/atlas.ts` for what Atlas has, the classic driver's renderer-free members (`backend`, pictures, the authored source), and a skip with its reason for everything else. |
+| `drivers/atlas.ts` | The journeys Atlas can take so far, in Atlas's markup. |
 | `drivers/session.ts` | One launched resmon of whichever build is under test: launch, ask, kill, relaunch. |
 | `fixtures/source-endpoint.ts` | An authored scholarly source on loopback, and the startup hook that refuses every non-loopback connection and port 8742. |
 | `fixtures/gates.ts` | Runs one of the build's own pytest gates, for the rows whose journey has no screen. |

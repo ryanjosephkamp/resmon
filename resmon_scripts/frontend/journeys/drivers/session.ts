@@ -276,8 +276,25 @@ function seedTheTokenizer(stateDir: string): string {
   return target;
 }
 
-function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<string, string> {
+/**
+ * Which interface a session launches. `classic` is the renderer resmon ships;
+ * `atlas` is the rebuilt one, which the same build serves when `RESMON_UI` is
+ * `atlas`. The build under test is the same either way; only the window differs.
+ */
+export type Interface = 'classic' | 'atlas';
+
+/** The element that means the interface has drawn its frame, per interface. */
+const LANDMARK: Record<Interface, string> = {
+  classic: '.app-main',
+  // The top bar's sections: drawn once the stored appearance has been read and
+  // the app has rendered, which is the moment a person can use it.
+  atlas: 'nav[aria-label="Sections"]',
+};
+
+function envFor(stateDir: string, root: AppRoot, sourceUrl: string, ui: Interface): Record<string, string> {
   const env = launchEnv(stateDir, true);
+  if (ui === 'atlas') env.RESMON_UI = 'atlas';
+  else delete env.RESMON_UI;
   env.NLTK_DATA = seedTheTokenizer(stateDir);
   const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl });
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
@@ -311,14 +328,15 @@ function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<stri
   return env;
 }
 
-export async function startSession(options: { sourceReply: SourceReply }): Promise<Session> {
+export async function startSession(options: { sourceReply: SourceReply; ui?: Interface }): Promise<Session> {
+  const ui: Interface = options.ui ?? 'classic';
   const root = targetAppRoot();
   const source = await startSourceEndpoint(options.sourceReply);
   let stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-'));
   // Every state directory this session has used, so a journey that moves to a
   // fresh one (a restore) does not leave the first behind on the machine.
   const stateDirs = [stateDir];
-  let env = envFor(stateDir, root, source.url);
+  let env = envFor(stateDir, root, source.url, ui);
   registerStateDir(stateDir);
 
   let app!: ElectronApplication;
@@ -355,7 +373,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     // here too, so the knob survives `reopenTheApp()`.
     await installLag(win, lags);
     await win.waitForLoadState('domcontentloaded');
-    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 90_000 });
+    await win.locator(LANDMARK[ui]).waitFor({ state: 'visible', timeout: 90_000 });
     port = await win.evaluate(
       () => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort(),
     );
@@ -620,7 +638,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
       await put();
       stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-restored-'));
       stateDirs.push(stateDir);
-      env = envFor(stateDir, root, source.url);
+      env = envFor(stateDir, root, source.url, ui);
       registerStateDir(stateDir);
       await bring();
     },

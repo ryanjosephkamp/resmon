@@ -60,7 +60,12 @@ export type Place =
   // — the register refresh ----------------------------------------------------
   | 'Library'
   | 'Evidence'
-  | 'Source wall';
+  | 'Source wall'
+  // — the Atlas interface (rebuild phase 2) -----------------------------------
+  // Places only Atlas has. The classic driver answers them by skipping, with
+  // the reason, because the classic renderer has nowhere to take a person.
+  | 'Today'
+  | 'Appearance settings';
 
 /** One run, as the app and the API both identify it. */
 export interface RunHandle {
@@ -1554,4 +1559,89 @@ export interface JourneyDriver {
   readTheSourceWall(): Promise<SourceWallView>;
   /** Select one cell — a source's row, a run's column counting from 0 — and read the pane. */
   readTheSourceWallCell(source: string, column: number): Promise<SourceWallReading>;
+}
+
+// — the Atlas interface (rebuild phase 2): J46, J47, J48 ----------------------
+
+/** What a person chooses for the theme: follow the system, or one of the two. */
+export type ThemeChoice = 'system' | 'light' | 'dark';
+
+/** What the window is drawn in, read off the page rather than the setting. */
+export interface DrawnAppearance {
+  theme: 'light' | 'dark';
+  /** The chosen accent as the page applies it, lowercase `#rrggbb`. */
+  accent: string;
+}
+
+/** What the plate's title block says, read as a person reads it. */
+export interface PlateReading {
+  /** "all 42 papers on the map": the papers the plate says it shows. */
+  papers: number;
+  /** The sentence saying what placed them, from "placed" to its end. */
+  basis: string;
+}
+
+/** Today's list, read as a person reads it. */
+export interface TodayReading {
+  /** The list's heading, without its count: "New since yesterday", "New this week". */
+  heading: string;
+  /** The count beside the heading. */
+  total: number;
+  /** Each group in the list, as its heading names it, with the count it gives. */
+  groups: { name: string; count: number }[];
+  /** Every source note a watch shows. */
+  notes: string[];
+  /** The number on every entry, in list order. */
+  numbers: number[];
+  /** What the list says when it has nothing in it, or null. */
+  empty: string | null;
+}
+
+/** The parts of `GET /api/map` a journey reads. */
+export interface StoredCollectionMap {
+  state: 'empty' | 'fitting' | 'failed' | 'ready';
+  basis: 'embeddings' | 'words' | null;
+  points: { id: number[] };
+  unplaced: { no_text: number; not_embedded: number };
+}
+
+/** The parts of `GET /api/today` a journey reads. */
+export interface StoredToday {
+  window: 'since_last_look' | 'first_look';
+  total: number;
+}
+
+export interface BackendFacts {
+  /** `GET /api/appearance`: the theme and accent the engine keeps. */
+  appearance(): Promise<{ theme: ThemeChoice; accent: string | null }>;
+  /** `GET /api/map`: where every paper sits, and on what basis. */
+  collectionMap(): Promise<StoredCollectionMap>;
+  /** `GET /api/today`: the papers since the last look, by watch. */
+  today(): Promise<StoredToday>;
+  /**
+   * Collect papers from the authored source over the app's own API, and wait
+   * for the run to finish. Setup for a journey that reads what was collected
+   * rather than for one about collecting it: J01 is the dive form's journey.
+   */
+  collectPapers(request: DiveRequest): Promise<RunHandle>;
+}
+
+export interface JourneyDriver {
+  // — appearance (J46) ---------------------------------------------------------
+  /** Choose the theme in Settings, and wait until the app has kept it. */
+  chooseTheme(theme: ThemeChoice): Promise<void>;
+  /** Type an accent color into Settings, and wait until the app has kept it. */
+  chooseAccent(hex: string): Promise<void>;
+  /** What the window is drawn in right now. */
+  readAppearance(): Promise<DrawnAppearance>;
+
+  // — the collection map (J47) -------------------------------------------------
+  /** Open Today, wait for the plate to draw, and read its title block. */
+  readThePlate(): Promise<PlateReading>;
+
+  // — Today (J48) --------------------------------------------------------------
+  /** Open Today and read its list once every number in it is lit. */
+  readToday(): Promise<TodayReading>;
+  /** Press Mark all read, and wait until the app has recorded the look. */
+  markAllRead(): Promise<void>;
 }

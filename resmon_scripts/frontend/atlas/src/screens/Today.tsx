@@ -30,13 +30,23 @@ export function Today() {
   const map = useQuery({
     queryKey: MAP_KEY,
     queryFn: () => answer(engine().GET('/api/map')),
-    // A map being fitted, or refitted, is asked for again until it is done.
+    // A map being fitted, or refitted, is asked for again until it is done;
+    // otherwise once a minute and on returning to the window, like Today.
     refetchInterval: (query) => {
       const data = query.state.data as CollectionMap | undefined;
-      return data && (data.state === 'fitting' || data.refitting) ? 2_000 : false;
+      return data && (data.state === 'fitting' || data.refitting) ? 2_000 : 60_000;
     },
+    refetchOnWindowFocus: true,
   });
-  const today = useQuery({ queryKey: TODAY_KEY, queryFn: () => answer(engine().GET('/api/today')) });
+  // Papers arrive while the app is open (a watch runs overnight), so Today is
+  // read again once a minute and on returning to the window. Read once, it
+  // went on saying "nothing collected" over a collection that had grown.
+  const today = useQuery({
+    queryKey: TODAY_KEY,
+    queryFn: () => answer(engine().GET('/api/today')),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
   const status = useQuery({ queryKey: ['scheduler-status'], queryFn: () => answer(engine().GET('/api/scheduler/status')) });
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
@@ -48,6 +58,11 @@ export function Today() {
   });
 
   const [now] = useState(() => new Date());
+  // New papers mean new stars: when Today's count moves, the map is asked again.
+  const total = today.data?.total;
+  useEffect(() => {
+    if (total !== undefined) void client.invalidateQueries({ queryKey: MAP_KEY });
+  }, [total, client]);
   const plate = useRef<PlateHandle>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [pointedId, setPointedId] = useState<number | null>(null);
@@ -239,6 +254,7 @@ export function Today() {
           now={now}
           saved={saved}
           marking={looked.isPending}
+          busy={today.isFetching}
           onSelect={(id) => { setSelectedId(id); zoomTo({ paperId: id }); }}
           onPoint={setPointedId}
           onZoomTo={zoomTo}
