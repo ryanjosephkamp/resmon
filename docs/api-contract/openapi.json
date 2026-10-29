@@ -268,6 +268,36 @@
         "title": "AiSettings",
         "type": "object"
       },
+      "AnalyticsOverview": {
+        "additionalProperties": true,
+        "description": "``GET /api/analytics/overview``: the five views in one round trip.",
+        "properties": {
+          "discovery_lag": {
+            "$ref": "#/components/schemas/DiscoveryLag"
+          },
+          "publication_volume": {
+            "$ref": "#/components/schemas/PublicationVolume"
+          },
+          "routine_health": {
+            "$ref": "#/components/schemas/RoutineHealth"
+          },
+          "source_contribution": {
+            "$ref": "#/components/schemas/SourceContribution"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/CorpusSummary"
+          }
+        },
+        "required": [
+          "summary",
+          "source_contribution",
+          "discovery_lag",
+          "routine_health",
+          "publication_volume"
+        ],
+        "title": "AnalyticsOverview",
+        "type": "object"
+      },
       "Appearance": {
         "additionalProperties": true,
         "description": "``GET`` and ``PUT /api/appearance``: the theme and the accent chosen.\n\n``accent`` is a lowercase ``#rrggbb``, or null when none has been chosen and\nthe interface draws its own default. The PUT answers what it stored, so a\ncaller can see the lowercasing rather than assume it.",
@@ -1044,6 +1074,87 @@
         "title": "ConfigurationUpdated",
         "type": "object"
       },
+      "CorpusSummary": {
+        "additionalProperties": true,
+        "description": "``GET /api/analytics/summary``. ``doi_coverage`` is ``None`` over no papers: a share of nothing.",
+        "properties": {
+          "completed_executions": {
+            "title": "Completed Executions",
+            "type": "integer"
+          },
+          "distinct_authors": {
+            "title": "Distinct Authors",
+            "type": "integer"
+          },
+          "documents": {
+            "title": "Documents",
+            "type": "integer"
+          },
+          "doi_coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi Coverage"
+          },
+          "first_seen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "sources": {
+            "title": "Sources",
+            "type": "integer"
+          },
+          "sufficient": {
+            "title": "Sufficient",
+            "type": "boolean"
+          },
+          "unique_papers": {
+            "title": "Unique Papers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "documents",
+          "unique_papers",
+          "distinct_authors",
+          "sources",
+          "completed_executions",
+          "first_seen",
+          "last_seen",
+          "doi_coverage",
+          "sample_size",
+          "sufficient"
+        ],
+        "title": "CorpusSummary",
+        "type": "object"
+      },
       "CoverageDistribution": {
         "additionalProperties": true,
         "description": "How far this routine's own results sit from its intent.",
@@ -1797,6 +1908,112 @@
           "shipped_channels"
         ],
         "title": "DeliveryTargets",
+        "type": "object"
+      },
+      "DiscoveryLag": {
+        "additionalProperties": true,
+        "description": "``GET /api/analytics/discovery-lag``.",
+        "properties": {
+          "insufficient_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insufficient Reason"
+          },
+          "minimum_sample": {
+            "title": "Minimum Sample",
+            "type": "integer"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/DiscoveryLagRow"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "sufficient": {
+            "title": "Sufficient",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sources",
+          "sample_size",
+          "sufficient",
+          "minimum_sample",
+          "insufficient_reason"
+        ],
+        "title": "DiscoveryLag",
+        "type": "object"
+      },
+      "DiscoveryLagRow": {
+        "additionalProperties": true,
+        "description": "One source's lag, in days. ``None`` below the minimum sample, rather than a median of three.",
+        "properties": {
+          "fastest_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fastest Days"
+          },
+          "median_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Days"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "slowest_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slowest Days"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "sufficient": {
+            "title": "Sufficient",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source",
+          "sample_size",
+          "sufficient",
+          "median_days",
+          "fastest_days",
+          "slowest_days"
+        ],
+        "title": "DiscoveryLagRow",
         "type": "object"
       },
       "DiveRequest": {
@@ -3176,6 +3393,151 @@
         "title": "Health",
         "type": "object"
       },
+      "KeywordContribution": {
+        "additionalProperties": true,
+        "description": "``GET /api/analytics/keyword-contribution``. Not part of the overview: it reads every paper once.",
+        "properties": {
+          "documents_considered": {
+            "title": "Documents Considered",
+            "type": "integer"
+          },
+          "documents_matched": {
+            "title": "Documents Matched",
+            "type": "integer"
+          },
+          "documents_unexplained": {
+            "title": "Documents Unexplained",
+            "type": "integer"
+          },
+          "fields_checked": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields Checked",
+            "type": "array"
+          },
+          "insufficient_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insufficient Reason"
+          },
+          "keywords": {
+            "items": {
+              "$ref": "#/components/schemas/KeywordContributionRow"
+            },
+            "title": "Keywords",
+            "type": "array"
+          },
+          "minimum_sample_for_share": {
+            "title": "Minimum Sample For Share",
+            "type": "integer"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/KeywordScope"
+          },
+          "sufficient": {
+            "title": "Sufficient",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scope",
+          "keywords",
+          "documents_considered",
+          "documents_matched",
+          "documents_unexplained",
+          "sample_size",
+          "minimum_sample_for_share",
+          "sufficient",
+          "insufficient_reason",
+          "fields_checked"
+        ],
+        "title": "KeywordContribution",
+        "type": "object"
+      },
+      "KeywordContributionRow": {
+        "additionalProperties": true,
+        "description": "One keyword: papers it matched, and how many no other keyword did.\n\n``unique_share`` is ``None`` below ``minimum_sample_for_share`` matches.",
+        "properties": {
+          "contains_operators": {
+            "title": "Contains Operators",
+            "type": "boolean"
+          },
+          "keyword": {
+            "title": "Keyword",
+            "type": "string"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "shared": {
+            "title": "Shared",
+            "type": "integer"
+          },
+          "unique": {
+            "title": "Unique",
+            "type": "integer"
+          },
+          "unique_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unique Share"
+          }
+        },
+        "required": [
+          "keyword",
+          "matched",
+          "unique",
+          "shared",
+          "contains_operators",
+          "unique_share"
+        ],
+        "title": "KeywordContributionRow",
+        "type": "object"
+      },
+      "KeywordScope": {
+        "additionalProperties": true,
+        "description": "``corpus``, or ``execution`` with the run's id.",
+        "properties": {
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "KeywordScope",
+        "type": "object"
+      },
       "LibraryLinkBody": {
         "additionalProperties": false,
         "properties": {
@@ -4094,6 +4456,87 @@
           }
         },
         "title": "ProfileMatchesForDocumentsBody",
+        "type": "object"
+      },
+      "PublicationVolume": {
+        "additionalProperties": true,
+        "description": "``GET /api/analytics/publication-volume``, by ``source`` or ``category``.",
+        "properties": {
+          "group_by": {
+            "title": "Group By",
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "insufficient_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insufficient Reason"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/PublicationVolumeMonth"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "sufficient": {
+            "title": "Sufficient",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "group_by",
+          "groups",
+          "series",
+          "sample_size",
+          "sufficient",
+          "insufficient_reason"
+        ],
+        "title": "PublicationVolume",
+        "type": "object"
+      },
+      "PublicationVolumeMonth": {
+        "additionalProperties": true,
+        "description": "One month: its total and each group's count; groups outside the top eight are ``other``.",
+        "properties": {
+          "groups": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Groups",
+            "type": "object"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "month",
+          "total",
+          "groups"
+        ],
+        "title": "PublicationVolumeMonth",
         "type": "object"
       },
       "ReadingQueueCounts": {
@@ -5287,6 +5730,184 @@
           "reason"
         ],
         "title": "RoutineFiring",
+        "type": "object"
+      },
+      "RoutineHealth": {
+        "additionalProperties": true,
+        "description": "``GET /api/analytics/routine-health``.",
+        "properties": {
+          "insufficient_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insufficient Reason"
+          },
+          "minimum_runs": {
+            "title": "Minimum Runs",
+            "type": "integer"
+          },
+          "routines": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineHealthRow"
+            },
+            "title": "Routines",
+            "type": "array"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "stale_after": {
+            "title": "Stale After",
+            "type": "integer"
+          },
+          "sufficient": {
+            "title": "Sufficient",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "routines",
+          "minimum_runs",
+          "stale_after",
+          "sample_size",
+          "sufficient",
+          "insufficient_reason"
+        ],
+        "title": "RoutineHealth",
+        "type": "object"
+      },
+      "RoutineHealthRow": {
+        "additionalProperties": true,
+        "description": "One watch: what its completed runs found, and its fires that did not run.",
+        "properties": {
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "last_missed_fire_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Missed Fire At"
+          },
+          "last_new_result_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last New Result At"
+          },
+          "missed_fires": {
+            "title": "Missed Fires",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "routine_id": {
+            "title": "Routine Id",
+            "type": "integer"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "runs_since_new": {
+            "title": "Runs Since New",
+            "type": "integer"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "schedule_cron": {
+            "title": "Schedule Cron",
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineHealthRun"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "sufficient": {
+            "title": "Sufficient",
+            "type": "boolean"
+          },
+          "total_new": {
+            "title": "Total New",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "routine_id",
+          "name",
+          "missed_fires",
+          "last_missed_fire_at",
+          "schedule_cron",
+          "is_active",
+          "runs",
+          "series",
+          "runs_since_new",
+          "last_new_result_at",
+          "total_new",
+          "status",
+          "sample_size",
+          "sufficient"
+        ],
+        "title": "RoutineHealthRow",
+        "type": "object"
+      },
+      "RoutineHealthRun": {
+        "additionalProperties": true,
+        "properties": {
+          "new_results": {
+            "title": "New Results",
+            "type": "integer"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "total_results": {
+            "title": "Total Results",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start_time",
+          "new_results",
+          "total_results"
+        ],
+        "title": "RoutineHealthRun",
         "type": "object"
       },
       "RoutineRow": {
@@ -7383,6 +8004,436 @@
         "title": "SettingsSaved",
         "type": "object"
       },
+      "SourceContribution": {
+        "additionalProperties": true,
+        "description": "``GET /api/analytics/source-contribution``: overlap needs two sources to compare.",
+        "properties": {
+          "insufficient_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insufficient Reason"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceContributionRow"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "sufficient": {
+            "title": "Sufficient",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sources",
+          "sample_size",
+          "sufficient",
+          "insufficient_reason"
+        ],
+        "title": "SourceContribution",
+        "type": "object"
+      },
+      "SourceContributionRow": {
+        "additionalProperties": true,
+        "properties": {
+          "duplicated": {
+            "title": "Duplicated",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unique_papers": {
+            "title": "Unique Papers",
+            "type": "integer"
+          },
+          "unique_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unique Share"
+          }
+        },
+        "required": [
+          "source",
+          "total",
+          "unique_papers",
+          "duplicated",
+          "unique_share"
+        ],
+        "title": "SourceContributionRow",
+        "type": "object"
+      },
+      "SourceWall": {
+        "additionalProperties": true,
+        "description": "``GET /api/coverage/source-wall``: every source's answer to each of the last runs.\n\nServed classified, with every word a screen draws: the legend, the verdict\nand the notes. A renderer that re-derived a state from ``status`` and\n``zero_reason`` would be the second place to get it wrong.",
+        "properties": {
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/SourceWallRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceWallSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "state_legend": {
+            "items": {
+              "$ref": "#/components/schemas/SourceWallLegendEntry"
+            },
+            "title": "State Legend",
+            "type": "array"
+          },
+          "states": {
+            "items": {
+              "type": "string"
+            },
+            "title": "States",
+            "type": "array"
+          },
+          "totals": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Totals",
+            "type": "object"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/SourceWallVerdict"
+          },
+          "window": {
+            "$ref": "#/components/schemas/SourceWallWindow"
+          }
+        },
+        "required": [
+          "runs",
+          "sources",
+          "states",
+          "state_legend",
+          "totals",
+          "verdict",
+          "window",
+          "notes"
+        ],
+        "title": "SourceWall",
+        "type": "object"
+      },
+      "SourceWallCell": {
+        "additionalProperties": true,
+        "description": "One source's recorded answer to one run, already classified.\n\n``state`` is one of ``source_wall.WALL_STATES``; ``label`` and ``note`` are\n``source_coverage``'s own words, unedited. ``outcome_recorded`` false is a\nrun with no row for this source, which reads as not recorded or, where the\nrun's saved selection says so, not asked. ``in_selection`` is ``None`` when\nthe run's selection cannot be read.",
+        "properties": {
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "in_selection": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "In Selection"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "outcome_recorded": {
+            "title": "Outcome Recorded",
+            "type": "boolean"
+          },
+          "partial": {
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "result_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Count"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "zero_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zero Reason"
+          }
+        },
+        "required": [
+          "execution_id",
+          "state",
+          "label",
+          "note",
+          "result_count",
+          "status",
+          "zero_reason",
+          "partial",
+          "outcome_recorded",
+          "in_selection"
+        ],
+        "title": "SourceWallCell",
+        "type": "object"
+      },
+      "SourceWallLegendEntry": {
+        "additionalProperties": true,
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "meaning": {
+            "title": "Meaning",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "label",
+          "meaning"
+        ],
+        "title": "SourceWallLegendEntry",
+        "type": "object"
+      },
+      "SourceWallRun": {
+        "additionalProperties": true,
+        "description": "One column of the wall: a run, oldest first.",
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "execution_type": {
+            "title": "Execution Type",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "execution_id",
+          "execution_type",
+          "status",
+          "started_at",
+          "ended_at",
+          "label"
+        ],
+        "title": "SourceWallRun",
+        "type": "object"
+      },
+      "SourceWallSource": {
+        "additionalProperties": true,
+        "description": "One row: a source, its cells in run order, and how many of each state.",
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/SourceWallCell"
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "in_catalog": {
+            "title": "In Catalog",
+            "type": "boolean"
+          },
+          "latest_known_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Known State"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "in_catalog",
+          "cells",
+          "counts",
+          "latest_known_state"
+        ],
+        "title": "SourceWallSource",
+        "type": "object"
+      },
+      "SourceWallVerdict": {
+        "additionalProperties": true,
+        "description": "The sentence at the top. ``level`` is ``empty``, ``ok``, ``attention`` or ``unknown``.",
+        "properties": {
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Detail",
+            "type": "array"
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "level": {
+            "title": "Level",
+            "type": "string"
+          }
+        },
+        "required": [
+          "level",
+          "headline",
+          "detail"
+        ],
+        "title": "SourceWallVerdict",
+        "type": "object"
+      },
+      "SourceWallWindow": {
+        "additionalProperties": true,
+        "properties": {
+          "max": {
+            "title": "Max",
+            "type": "integer"
+          },
+          "requested": {
+            "title": "Requested",
+            "type": "integer"
+          },
+          "returned": {
+            "title": "Returned",
+            "type": "integer"
+          },
+          "runs_available": {
+            "title": "Runs Available",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requested",
+          "returned",
+          "max",
+          "runs_available"
+        ],
+        "title": "SourceWallWindow",
+        "type": "object"
+      },
       "StarterWatchProfile": {
         "additionalProperties": true,
         "description": "One of the curated profiles that ship with the app.\n\nNot a ``WatchProfile``: a starter is a file on disk, not a row, so it has\nno ``id``, no timestamps, and a ``source_file`` instead. Modeling it as a\nprofile with optional ids would have told a client the two are the same\nthing, which is the drift this contract exists to stop.",
@@ -9413,7 +10464,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoveryLag"
+                }
               }
             },
             "description": "Successful Response"
@@ -9448,7 +10501,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/KeywordContribution"
+                }
               }
             },
             "description": "Successful Response"
@@ -9475,7 +10530,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsOverview"
+                }
               }
             },
             "description": "Successful Response"
@@ -9514,7 +10571,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationVolume"
+                }
               }
             },
             "description": "Successful Response"
@@ -9541,7 +10600,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineHealth"
+                }
               }
             },
             "description": "Successful Response"
@@ -9558,7 +10619,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SourceContribution"
+                }
               }
             },
             "description": "Successful Response"
@@ -9574,7 +10637,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CorpusSummary"
+                }
               }
             },
             "description": "Successful Response"
@@ -10650,7 +11715,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SourceWall"
+                }
               }
             },
             "description": "Successful Response"

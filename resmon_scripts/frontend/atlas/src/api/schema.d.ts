@@ -3602,6 +3602,19 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * AnalyticsOverview
+         * @description ``GET /api/analytics/overview``: the five views in one round trip.
+         */
+        AnalyticsOverview: {
+            discovery_lag: components["schemas"]["DiscoveryLag"];
+            publication_volume: components["schemas"]["PublicationVolume"];
+            routine_health: components["schemas"]["RoutineHealth"];
+            source_contribution: components["schemas"]["SourceContribution"];
+            summary: components["schemas"]["CorpusSummary"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * Appearance
          * @description ``GET`` and ``PUT /api/appearance``: the theme and the accent chosen.
          *
@@ -3945,6 +3958,34 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * CorpusSummary
+         * @description ``GET /api/analytics/summary``. ``doi_coverage`` is ``None`` over no papers: a share of nothing.
+         */
+        CorpusSummary: {
+            /** Completed Executions */
+            completed_executions: number;
+            /** Distinct Authors */
+            distinct_authors: number;
+            /** Documents */
+            documents: number;
+            /** Doi Coverage */
+            doi_coverage: number | null;
+            /** First Seen */
+            first_seen: string | null;
+            /** Last Seen */
+            last_seen: string | null;
+            /** Sample Size */
+            sample_size: number;
+            /** Sources */
+            sources: number;
+            /** Sufficient */
+            sufficient: boolean;
+            /** Unique Papers */
+            unique_papers: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * CoverageDistribution
          * @description How far this routine's own results sit from its intent.
          */
@@ -4272,6 +4313,44 @@ export interface components {
             shipped_channels: string[];
             /** Targets */
             targets: components["schemas"]["DeliveryTarget"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DiscoveryLag
+         * @description ``GET /api/analytics/discovery-lag``.
+         */
+        DiscoveryLag: {
+            /** Insufficient Reason */
+            insufficient_reason: string | null;
+            /** Minimum Sample */
+            minimum_sample: number;
+            /** Sample Size */
+            sample_size: number;
+            /** Sources */
+            sources: components["schemas"]["DiscoveryLagRow"][];
+            /** Sufficient */
+            sufficient: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DiscoveryLagRow
+         * @description One source's lag, in days. ``None`` below the minimum sample, rather than a median of three.
+         */
+        DiscoveryLagRow: {
+            /** Fastest Days */
+            fastest_days: number | null;
+            /** Median Days */
+            median_days: number | null;
+            /** Sample Size */
+            sample_size: number;
+            /** Slowest Days */
+            slowest_days: number | null;
+            /** Source */
+            source: string;
+            /** Sufficient */
+            sufficient: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -4837,6 +4916,67 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * KeywordContribution
+         * @description ``GET /api/analytics/keyword-contribution``. Not part of the overview: it reads every paper once.
+         */
+        KeywordContribution: {
+            /** Documents Considered */
+            documents_considered: number;
+            /** Documents Matched */
+            documents_matched: number;
+            /** Documents Unexplained */
+            documents_unexplained: number;
+            /** Fields Checked */
+            fields_checked: string[];
+            /** Insufficient Reason */
+            insufficient_reason: string | null;
+            /** Keywords */
+            keywords: components["schemas"]["KeywordContributionRow"][];
+            /** Minimum Sample For Share */
+            minimum_sample_for_share: number;
+            /** Sample Size */
+            sample_size: number;
+            scope: components["schemas"]["KeywordScope"];
+            /** Sufficient */
+            sufficient: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * KeywordContributionRow
+         * @description One keyword: papers it matched, and how many no other keyword did.
+         *
+         *     ``unique_share`` is ``None`` below ``minimum_sample_for_share`` matches.
+         */
+        KeywordContributionRow: {
+            /** Contains Operators */
+            contains_operators: boolean;
+            /** Keyword */
+            keyword: string;
+            /** Matched */
+            matched: number;
+            /** Shared */
+            shared: number;
+            /** Unique */
+            unique: number;
+            /** Unique Share */
+            unique_share: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * KeywordScope
+         * @description ``corpus``, or ``execution`` with the run's id.
+         */
+        KeywordScope: {
+            /** Execution Id */
+            execution_id?: number | null;
+            /** Type */
+            type: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** LibraryLinkBody */
         LibraryLinkBody: {
             /** Document Id */
@@ -5249,6 +5389,42 @@ export interface components {
              * @default []
              */
             document_ids: number[];
+        };
+        /**
+         * PublicationVolume
+         * @description ``GET /api/analytics/publication-volume``, by ``source`` or ``category``.
+         */
+        PublicationVolume: {
+            /** Group By */
+            group_by: string;
+            /** Groups */
+            groups: string[];
+            /** Insufficient Reason */
+            insufficient_reason: string | null;
+            /** Sample Size */
+            sample_size: number;
+            /** Series */
+            series: components["schemas"]["PublicationVolumeMonth"][];
+            /** Sufficient */
+            sufficient: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * PublicationVolumeMonth
+         * @description One month: its total and each group's count; groups outside the top eight are ``other``.
+         */
+        PublicationVolumeMonth: {
+            /** Groups */
+            groups: {
+                [key: string]: number;
+            };
+            /** Month */
+            month: string;
+            /** Total */
+            total: number;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * ReadingQueueCounts
@@ -5815,6 +5991,73 @@ export interface components {
             reason: "scheduled" | "not_scheduled" | "no_scheduler_running" | "unconfirmed";
             /** Will Fire */
             will_fire: boolean | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RoutineHealth
+         * @description ``GET /api/analytics/routine-health``.
+         */
+        RoutineHealth: {
+            /** Insufficient Reason */
+            insufficient_reason: string | null;
+            /** Minimum Runs */
+            minimum_runs: number;
+            /** Routines */
+            routines: components["schemas"]["RoutineHealthRow"][];
+            /** Sample Size */
+            sample_size: number;
+            /** Stale After */
+            stale_after: number;
+            /** Sufficient */
+            sufficient: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RoutineHealthRow
+         * @description One watch: what its completed runs found, and its fires that did not run.
+         */
+        RoutineHealthRow: {
+            /** Is Active */
+            is_active: boolean;
+            /** Last Missed Fire At */
+            last_missed_fire_at: string | null;
+            /** Last New Result At */
+            last_new_result_at: string | null;
+            /** Missed Fires */
+            missed_fires: number;
+            /** Name */
+            name: string;
+            /** Routine Id */
+            routine_id: number;
+            /** Runs */
+            runs: number;
+            /** Runs Since New */
+            runs_since_new: number;
+            /** Sample Size */
+            sample_size: number;
+            /** Schedule Cron */
+            schedule_cron: string;
+            /** Series */
+            series: components["schemas"]["RoutineHealthRun"][];
+            /** Status */
+            status: string;
+            /** Sufficient */
+            sufficient: boolean;
+            /** Total New */
+            total_new: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** RoutineHealthRun */
+        RoutineHealthRun: {
+            /** New Results */
+            new_results: number;
+            /** Start Time */
+            start_time: string | null;
+            /** Total Results */
+            total_results: number;
         } & {
             [key: string]: unknown;
         };
@@ -6521,6 +6764,179 @@ export interface components {
         SettingsSaved: {
             /** Success */
             success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SourceContribution
+         * @description ``GET /api/analytics/source-contribution``: overlap needs two sources to compare.
+         */
+        SourceContribution: {
+            /** Insufficient Reason */
+            insufficient_reason: string | null;
+            /** Sample Size */
+            sample_size: number;
+            /** Sources */
+            sources: components["schemas"]["SourceContributionRow"][];
+            /** Sufficient */
+            sufficient: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SourceContributionRow */
+        SourceContributionRow: {
+            /** Duplicated */
+            duplicated: number;
+            /** Source */
+            source: string;
+            /** Total */
+            total: number;
+            /** Unique Papers */
+            unique_papers: number;
+            /** Unique Share */
+            unique_share: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SourceWall
+         * @description ``GET /api/coverage/source-wall``: every source's answer to each of the last runs.
+         *
+         *     Served classified, with every word a screen draws: the legend, the verdict
+         *     and the notes. A renderer that re-derived a state from ``status`` and
+         *     ``zero_reason`` would be the second place to get it wrong.
+         */
+        SourceWall: {
+            /** Notes */
+            notes: string[];
+            /** Runs */
+            runs: components["schemas"]["SourceWallRun"][];
+            /** Sources */
+            sources: components["schemas"]["SourceWallSource"][];
+            /** State Legend */
+            state_legend: components["schemas"]["SourceWallLegendEntry"][];
+            /** States */
+            states: string[];
+            /** Totals */
+            totals: {
+                [key: string]: number;
+            };
+            verdict: components["schemas"]["SourceWallVerdict"];
+            window: components["schemas"]["SourceWallWindow"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SourceWallCell
+         * @description One source's recorded answer to one run, already classified.
+         *
+         *     ``state`` is one of ``source_wall.WALL_STATES``; ``label`` and ``note`` are
+         *     ``source_coverage``'s own words, unedited. ``outcome_recorded`` false is a
+         *     run with no row for this source, which reads as not recorded or, where the
+         *     run's saved selection says so, not asked. ``in_selection`` is ``None`` when
+         *     the run's selection cannot be read.
+         */
+        SourceWallCell: {
+            /** Execution Id */
+            execution_id: number;
+            /** In Selection */
+            in_selection: boolean | null;
+            /** Label */
+            label: string;
+            /** Note */
+            note: string;
+            /** Outcome Recorded */
+            outcome_recorded: boolean;
+            /** Partial */
+            partial: boolean;
+            /** Result Count */
+            result_count: number | null;
+            /** State */
+            state: string;
+            /** Status */
+            status: string | null;
+            /** Zero Reason */
+            zero_reason: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SourceWallLegendEntry */
+        SourceWallLegendEntry: {
+            /** Label */
+            label: string;
+            /** Meaning */
+            meaning: string;
+            /** State */
+            state: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SourceWallRun
+         * @description One column of the wall: a run, oldest first.
+         */
+        SourceWallRun: {
+            /** Ended At */
+            ended_at: string | null;
+            /** Execution Id */
+            execution_id: number;
+            /** Execution Type */
+            execution_type: string;
+            /** Label */
+            label: string;
+            /** Started At */
+            started_at: string | null;
+            /** Status */
+            status: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SourceWallSource
+         * @description One row: a source, its cells in run order, and how many of each state.
+         */
+        SourceWallSource: {
+            /** Cells */
+            cells: components["schemas"]["SourceWallCell"][];
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** In Catalog */
+            in_catalog: boolean;
+            /** Latest Known State */
+            latest_known_state: string | null;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SourceWallVerdict
+         * @description The sentence at the top. ``level`` is ``empty``, ``ok``, ``attention`` or ``unknown``.
+         */
+        SourceWallVerdict: {
+            /** Detail */
+            detail: string[];
+            /** Headline */
+            headline: string;
+            /** Level */
+            level: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SourceWallWindow */
+        SourceWallWindow: {
+            /** Max */
+            max: number;
+            /** Requested */
+            requested: number;
+            /** Returned */
+            returned: number;
+            /** Runs Available */
+            runs_available: number;
         } & {
             [key: string]: unknown;
         };
@@ -7667,7 +8083,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DiscoveryLag"];
                 };
             };
         };
@@ -7689,7 +8105,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["KeywordContribution"];
                 };
             };
             /** @description Validation Error */
@@ -7718,7 +8134,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AnalyticsOverview"];
                 };
             };
         };
@@ -7741,7 +8157,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PublicationVolume"];
                 };
             };
             /** @description Validation Error */
@@ -7770,7 +8186,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RoutineHealth"];
                 };
             };
         };
@@ -7790,7 +8206,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SourceContribution"];
                 };
             };
         };
@@ -7810,7 +8226,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CorpusSummary"];
                 };
             };
         };
@@ -8672,7 +9088,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SourceWall"];
                 };
             };
             /** @description Validation Error */

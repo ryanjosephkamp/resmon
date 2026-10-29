@@ -12,7 +12,7 @@
 
 **Purpose.** The first line of the endpoint's docstring, for the 94 of 194 routes that have one. The remaining 100 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 94 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 100 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 102 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 92 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -66,13 +66,13 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/analytics/discovery-lag` | token | — | — | Median days between publication and resmon first seeing each paper. |
-| `GET` | `/api/analytics/keyword-contribution` | token | — | — | Per keyword: papers it found that no other keyword did. |
-| `GET` | `/api/analytics/overview` | token | — | — | Everything the Analytics page needs, in one round trip. |
-| `GET` | `/api/analytics/publication-volume` | token | — | — | Papers per publication month, split by source or subject category. |
-| `GET` | `/api/analytics/routine-health` | token | — | — | Per routine: new results per run, and whether it has gone quiet. |
-| `GET` | `/api/analytics/source-contribution` | token | — | — | Per source: papers delivered, and how many nothing else found. |
-| `GET` | `/api/analytics/summary` | token | — | — | *Analytics Summary* |
+| `GET` | `/api/analytics/discovery-lag` | token | — | `DiscoveryLag` | Median days between publication and resmon first seeing each paper. |
+| `GET` | `/api/analytics/keyword-contribution` | token | — | `KeywordContribution` | Per keyword: papers it found that no other keyword did. |
+| `GET` | `/api/analytics/overview` | token | — | `AnalyticsOverview` | Everything the Analytics page needs, in one round trip. |
+| `GET` | `/api/analytics/publication-volume` | token | — | `PublicationVolume` | Papers per publication month, split by source or subject category. |
+| `GET` | `/api/analytics/routine-health` | token | — | `RoutineHealth` | Per routine: new results per run, and whether it has gone quiet. |
+| `GET` | `/api/analytics/source-contribution` | token | — | `SourceContribution` | Per source: papers delivered, and how many nothing else found. |
+| `GET` | `/api/analytics/summary` | token | — | `CorpusSummary` | *Analytics Summary* |
 
 ## J06 — Watchdog
 
@@ -300,7 +300,7 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/coverage/source-wall` | token | — | — | Every source's recorded answer to each of the last `limit` runs. |
+| `GET` | `/api/coverage/source-wall` | token | — | `SourceWall` | Every source's recorded answer to each of the last `limit` runs. |
 | `GET` | `/api/executions/{exec_id}` | token | — | `Run` | *Get Execution* |
 | `GET` | `/api/executions/{exec_id}/search-record` | token | — | — | The complete, dated account of one search. |
 
@@ -447,12 +447,12 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/analytics/discovery-lag` | token | — | — | Median days between publication and resmon first seeing each paper. |
-| `GET` | `/api/analytics/keyword-contribution` | token | — | — | Per keyword: papers it found that no other keyword did. |
-| `GET` | `/api/analytics/overview` | token | — | — | Everything the Analytics page needs, in one round trip. |
-| `GET` | `/api/analytics/publication-volume` | token | — | — | Papers per publication month, split by source or subject category. |
-| `GET` | `/api/analytics/routine-health` | token | — | — | Per routine: new results per run, and whether it has gone quiet. |
-| `GET` | `/api/analytics/source-contribution` | token | — | — | Per source: papers delivered, and how many nothing else found. |
+| `GET` | `/api/analytics/discovery-lag` | token | — | `DiscoveryLag` | Median days between publication and resmon first seeing each paper. |
+| `GET` | `/api/analytics/keyword-contribution` | token | — | `KeywordContribution` | Per keyword: papers it found that no other keyword did. |
+| `GET` | `/api/analytics/overview` | token | — | `AnalyticsOverview` | Everything the Analytics page needs, in one round trip. |
+| `GET` | `/api/analytics/publication-volume` | token | — | `PublicationVolume` | Papers per publication month, split by source or subject category. |
+| `GET` | `/api/analytics/routine-health` | token | — | `RoutineHealth` | Per routine: new results per run, and whether it has gone quiet. |
+| `GET` | `/api/analytics/source-contribution` | token | — | `SourceContribution` | Per source: papers delivered, and how many nothing else found. |
 | `GET` | `/api/credentials` | token | — | `CredentialsPresence` | Return per-credential status for every known credential name. |
 | `GET` | `/api/documents/{doc_id}/lifecycle` | token | — | — | Lifecycle events recorded against one paper. |
 | `GET` | `/api/documents/{doc_id}/why` | token | — | `PaperWhy` | What is locally verifiable about why this paper is in the corpus. |
@@ -488,7 +488,7 @@ Calls in `mcp_server.py` that resolve to no single route, and so are not in the 
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/coverage/source-wall` | token | — | — | Every source's recorded answer to each of the last `limit` runs. |
+| `GET` | `/api/coverage/source-wall` | token | — | `SourceWall` | Every source's recorded answer to each of the last `limit` runs. |
 
 ## J46 — Appearance: theme and accent
 

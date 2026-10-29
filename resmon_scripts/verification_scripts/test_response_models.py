@@ -239,6 +239,18 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("PUT", "/api/credentials/{key_name}"),
         ("DELETE", "/api/credentials/{key_name}"),
     ),
+    "the source wall": (
+        ("GET", "/api/coverage/source-wall"),
+    ),
+    "analytics": (
+        ("GET", "/api/analytics/overview"),
+        ("GET", "/api/analytics/summary"),
+        ("GET", "/api/analytics/source-contribution"),
+        ("GET", "/api/analytics/discovery-lag"),
+        ("GET", "/api/analytics/routine-health"),
+        ("GET", "/api/analytics/publication-volume"),
+        ("GET", "/api/analytics/keyword-contribution"),
+    ),
 }
 
 #: Routes whose body is a list of **strings**, so there is no object anywhere
@@ -535,6 +547,7 @@ def driven() -> Drive:
         _drive_watches(drive, doc_ids)
         _drive_background_service(drive)
         _drive_credentials_and_the_test_send(drive)
+        _drive_source_wall_and_analytics(drive)
 
         yield drive
 
@@ -654,6 +667,74 @@ def _drive_credentials_and_the_test_send(drive: Drive) -> None:
         sent = drive("POST", "/api/settings/email/test")
     assert sent == {"success": True, "recipient": "someone@example.org"}, sent
     drive("DELETE", "/api/credentials/smtp_password")
+
+
+def _drive_source_wall_and_analytics(drive: Drive) -> None:
+    """The Source wall over every run the scenario recorded, and the analytics views.
+
+    Last in the scenario, so the wall has the watchdog slice's failures, the
+    runs slice's ``missing_key`` non-answers and its cancelled run to classify,
+    and every view has the slices' papers and watches to count.
+
+    Two of the views are only interesting past a threshold, so this adds what
+    crosses it: six dated papers from a second source, so overlap and the lag
+    median are drawn rather than refused, and three completed runs of one
+    watch, so its health is judged. The views below the threshold answer with
+    ``insufficient_reason`` and ``None`` shares, which is the half of each
+    model a well-stocked corpus would never exercise; the first reads, before
+    the rows are added, are those.
+    """
+    first = drive("GET", "/api/analytics/overview")
+    assert first["discovery_lag"]["sufficient"] is False, (
+        "the lag view must be read below its threshold once, so its None medians "
+        "are compared")
+    wall = drive("GET", "/api/coverage/source-wall")
+    states = {cell["state"] for source in wall["sources"] for cell in source["cells"]}
+    assert {"failed", "could_not_be_asked"} <= states, (
+        f"the wall must classify a failure and a non-answer to be worth comparing: {states}")
+    narrow = drive("GET", "/api/coverage/source-wall?limit=1")
+    assert narrow["window"]["returned"] == 1
+
+    conn = resmon_mod._get_db()
+    try:
+        for index in range(6):
+            conn.execute(
+                "INSERT INTO documents (source_repository, external_id, title, "
+                "publication_date, first_seen_at, metadata_hash, categories) "
+                "VALUES ('crossref', ?, ?, ?, ?, ?, ?)",
+                (f"C{index}", f"Crossref paper {index}", f"2026-0{index + 1}-01",
+                 f"2026-0{index + 1}-0{index + 2}T00:00:00Z", f"c{index}",
+                 "astro-ph.CO, cs.LG" if index % 2 else None))
+        routine_id = conn.execute(
+            "SELECT id FROM routines ORDER BY id LIMIT 1").fetchone()["id"]
+        for index, new in enumerate((4, 0, 0)):
+            conn.execute(
+                "INSERT INTO executions (execution_type, parameters, start_time, "
+                "end_time, status, routine_id, result_count, new_result_count) "
+                "VALUES ('automated_sweep', ?, ?, ?, 'completed', ?, ?, ?)",
+                ('{"keywords": ["perovskite"], "repositories": ["crossref"]}',
+                 f"2026-07-0{index + 1}T08:00:00Z", f"2026-07-0{index + 1}T08:01:00Z",
+                 routine_id, 6, new))
+        conn.commit()
+    finally:
+        resmon_mod._close_db(conn)
+
+    drive("GET", "/api/analytics/summary")
+    drive("GET", "/api/analytics/source-contribution")
+    lag = drive("GET", "/api/analytics/discovery-lag")
+    assert lag["sufficient"] is True, "six dated crossref papers cross the lag threshold"
+    health = drive("GET", "/api/analytics/routine-health")
+    assert any(row["sufficient"] for row in health["routines"]), (
+        "three completed runs of one watch cross the health threshold")
+    drive("GET", "/api/analytics/publication-volume")
+    drive("GET", "/api/analytics/publication-volume?group_by=category&months=6")
+    drive("GET", "/api/analytics/overview")
+    corpus = drive("GET", "/api/analytics/keyword-contribution")
+    assert corpus["scope"] == {"type": "corpus"}, (
+        "the corpus scope carries no execution_id, and the model must not invent one")
+    run_id = wall["runs"][-1]["execution_id"]
+    one = drive("GET", f"/api/analytics/keyword-contribution?execution_id={run_id}")
+    assert one["scope"] == {"type": "execution", "execution_id": run_id}
 
 
 def _drive_today(drive: Drive) -> None:
