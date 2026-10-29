@@ -52,8 +52,14 @@ export function Sources() {
       <PlaceHelp summary="About sources and their keys">
         <p>
           Each source’s details say the finest date its query can express. Most take exact dates; a few take whole
-          months or whole years. A source that takes only whole years refuses a shorter window rather than widening
-          it, so a short window there comes back empty by construction, and the run’s search record says so.
+          months or whole years. A source that takes only whole years cannot be asked for a shorter window, and resmon
+          does not widen it to fit: the source is not asked, and the window is recorded as one it could not answer,
+          never as an answer with nothing in it. The run and its search record say so.
+        </p>
+        <p>
+          Each source’s details give two rates, and they are different things. resmon’s pace is the rate resmon sets
+          for its own requests to that source. The source’s published policy is what the source says about its own
+          limits.
         </p>
         <p>
           A key you store is kept in {where}, never in resmon’s database, and is sent only to its source. A stored
@@ -104,8 +110,8 @@ function SourceRow({ entry, state }: { entry: CatalogEntry; state: string | null
       {open && (
         <dl className="source-details">
           <dt>Description</dt><dd>{entry.description || 'Not stated'}</dd>
-          <dt>Rate limit</dt><dd>{entry.rate_limit || 'Not stated'}</dd>
-          {entry.upstream_policy && <><dt>Upstream policy</dt><dd>{entry.upstream_policy}</dd></>}
+          <dt>resmon’s pace</dt><dd>{entry.rate_limit || 'Not stated'}</dd>
+          {entry.upstream_policy && <><dt>The source’s published policy</dt><dd>{entry.upstream_policy}</dd></>}
           <dt>Date filtering</dt><dd>{DATES[entry.date_granularity] ?? entry.date_granularity}</dd>
           {entry.keyword_combination && <><dt>How terms combine</dt><dd>{entry.keyword_combination}</dd></>}
           {entry.keyword_combination_notes && <><dt>About combining terms</dt><dd>{entry.keyword_combination_notes}</dd></>}

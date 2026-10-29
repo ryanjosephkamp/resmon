@@ -4,8 +4,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { count, number } from '../today/format';
 import { Answers } from './Answers';
-import { evidence, evidenceFetch, type Anchor, type FileRecord, type Member, type Note, type Project } from './evidenceApi';
-import { pinOf } from './evidenceModel';
+import { evidence, evidenceFetch, EvidenceRefusal, type Anchor, type FileRecord, type Member, type Note, type Project } from './evidenceApi';
+import { bundleRefusal, pinOf } from './evidenceModel';
 import { LibraryTabs } from './LibraryTabs';
 import { Reader } from './Reader';
 import { LIBRARY, LIBRARY_KEY, kindOf, sizeWords, type LibraryFile } from './libraryApi';
@@ -139,6 +139,11 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
     void client.invalidateQueries({ queryKey: ['evidence-notes', projectId] });
     void client.invalidateQueries({ queryKey: ['evidence-projects', vault] });
   };
+  /** A write refused because the project moved on: read the project and its files again. */
+  const readAgain = () => {
+    void client.invalidateQueries({ queryKey: ['evidence-project', projectId] });
+    void client.invalidateQueries({ queryKey: ['evidence-members', projectId] });
+  };
   const remove = useMutation({
     mutationFn: (file: FileRecord) => evidence.remove(project!, file),
     onSuccess: (done) => { changed(done.project); setPicked(null); },
@@ -166,7 +171,8 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
         </p>
         <div className="lib-actions">
           <button type="button" className="btn sm" aria-pressed={adding} onClick={() => setAdding((a) => !a)}>Add files</button>
-          <button type="button" className="btn sm" aria-pressed={exporting} disabled={!memberList.length} onClick={() => setExporting((x) => !x)}>
+          <button type="button" className="btn sm" aria-pressed={exporting && memberList.length > 0} disabled={!memberList.length}
+            onClick={() => setExporting((x) => !x)}>
             Export selected evidence
           </button>
         </div>
@@ -195,7 +201,8 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
         </section>
       )}
       {adding && <AddFiles vault={vault} project={project} members={memberList} onAdded={changed} />}
-      {exporting && <Bundle project={project} members={memberList} />}
+      {/* With no file left there is nothing to export, so the panel goes rather than keep a choice of files that are gone. */}
+      {exporting && memberList.length > 0 && <Bundle project={project} members={memberList} onStale={readAgain} />}
 
       <div className="ev-views" role="group" aria-label="In this project">
         <button type="button" className="ev-view" aria-pressed={view === 'files'} onClick={() => show('files')}>Files and passages</button>
@@ -372,13 +379,23 @@ function NotesPanel({ project, file, member, anchor, editing, onEdit, notes, tot
 /**
  * Export: 1 to 20 chosen files, every record made against those exact
  * versions, and their bytes if asked. Nothing of a file left out goes in.
+ *
+ * The choice is read against the project's files as they are now, so a file
+ * removed from the project leaves the choice, its bytes leave the size, and
+ * Save stays off until something that is still here is chosen.
  */
-function Bundle({ project, members }: { project: Project; members: Member[] }) {
+function Bundle({ project, members, onStale }: { project: Project; members: Member[]; onStale: () => void }) {
   const [chosen, setChosen] = useState<string[]>([]);
   const [include, setInclude] = useState(false);
+  const current = members.filter((m) => chosen.includes(m.file_id));
+  const toggle = (fileId: string, on: boolean) => {
+    const kept = current.map((m) => m.file_id).filter((id) => id !== fileId);
+    setChosen(on ? [...kept, fileId] : kept);
+  };
   const download = useMutation({
     mutationFn: async () => {
-      const selected = members.filter((m) => chosen.includes(m.file_id)).map((m) => ({ file_id: m.file_id, version_id: m.version_id }));
+      const selected = current.map((m) => ({ file_id: m.file_id, version_id: m.version_id }));
+      if (!selected.length) throw new EngineError(0, 'Choose at least one of this project’s files first.');
       const response = await evidenceFetch(`/projects/${project.project_id}/bundle`, 'POST', {
         expected_vault_id: project.vault_id, expected_revision: project.revision, selected, include_files: include,
       });
@@ -394,10 +411,11 @@ function Bundle({ project, members }: { project: Project; members: Member[] }) {
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      return { bundleId, size: bytes.byteLength };
+      return { bundleId, size: bytes.byteLength, files: selected.length, include };
     },
+    onError: (error) => { if (error instanceof EvidenceRefusal && error.reason === 'stale_revision') onStale(); },
   });
-  const bytes = members.filter((m) => chosen.includes(m.file_id)).reduce((n, m) => n + m.file.byte_size, 0);
+  const bytes = current.reduce((n, m) => n + m.file.byte_size, 0);
   return (
     <section className="ev-bundle" aria-label="Export selected evidence">
       <p className="form-hint">Choose 1 to 20 files. Every record saved against those exact versions goes with them; nothing of a file left out does.</p>
@@ -405,8 +423,8 @@ function Bundle({ project, members }: { project: Project; members: Member[] }) {
         {members.map((m) => (
           <li key={m.file_id}>
             <label className="choice">
-              <input type="checkbox" checked={chosen.includes(m.file_id)} disabled={!chosen.includes(m.file_id) && chosen.length >= 20}
-                onChange={(e) => setChosen((c) => (e.target.checked ? [...c, m.file_id] : c.filter((x) => x !== m.file_id)))} />
+              <input type="checkbox" checked={chosen.includes(m.file_id)} disabled={!chosen.includes(m.file_id) && current.length >= 20}
+                onChange={(e) => toggle(m.file_id, e.target.checked)} />
               <span>{m.file.original_name}</span>
             </label>
           </li>
@@ -414,17 +432,20 @@ function Bundle({ project, members }: { project: Project; members: Member[] }) {
       </ul>
       <label className="choice">
         <input type="checkbox" checked={include} onChange={(e) => setInclude(e.target.checked)} />
-        <span>Include the files themselves ({sizeWords(bytes)} recorded), re-checked against their hashes first</span>
+        <span>
+          Include the files themselves
+          {current.length ? ` (${sizeWords(bytes)} recorded)` : ''}, re-checked against their hashes first
+        </span>
       </label>
-      <button type="button" className="btn sm primary" disabled={!chosen.length || download.isPending} onClick={() => download.mutate()}>
+      <button type="button" className="btn sm primary" disabled={!current.length || download.isPending} onClick={() => download.mutate()}>
         {download.isPending ? 'Building the archive' : 'Save the archive'}
       </button>
       {download.data && (
         <p className="settings-said" role="status" data-evidence="exported">
-          Saved a {include ? 'files-and-records' : 'records-only'} archive of {count(chosen.length, 'file')}, {sizeWords(download.data.size)}.
+          Saved a {download.data.include ? 'files-and-records' : 'records-only'} archive of {count(download.data.files, 'file')}, {sizeWords(download.data.size)}.
         </p>
       )}
-      {download.error && <p className="field-error" role="alert">{errorWords(download.error)}</p>}
+      {download.error && <p className="field-error" role="alert">{bundleRefusal(download.error)}</p>}
       <p className="form-hint">An archive is a portable copy of what you chose, not a backup: it is not encrypted, and it names the files and carries their notes.</p>
     </section>
   );

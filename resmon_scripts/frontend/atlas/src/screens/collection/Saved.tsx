@@ -2,9 +2,11 @@ import { useRef, useState, type ChangeEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
+import { saveFile } from '../runs/downloads';
 import { count } from '../today/format';
 import { instant, scheduleText } from '../watches/model';
 import { SearchTabs } from './SearchTabs';
+import { archiveName, savedArchive } from './savedExport';
 import { SAVED_KEY, savedAsks, savedKind, type SavedConfiguration } from './savedSearches';
 
 /**
@@ -38,8 +40,20 @@ export function Saved() {
   });
   const names = new Map((catalog.data ?? []).map((e) => [e.slug, e.name]));
 
+  // Read again at the moment of export, so the file holds what the engine has
+  // now rather than what this page last drew, and handed to the system as a
+  // download, which asks where to save it.
   const exported = useMutation({
-    mutationFn: (ids: number[]) => answer(engine().POST('/api/configurations/export', { body: { ids } })),
+    mutationFn: async (ids: number[]) => {
+      const now = await answer(engine().GET('/api/configurations'));
+      const chosenRows = now.filter((c) => ids.includes(c.id));
+      if (!chosenRows.length) throw new EngineError(0, 'None of the chosen searches is saved any longer, so nothing was exported.');
+      const at = new Date();
+      const filename = archiveName(at);
+      saveFile(savedArchive(chosenRows, at), filename, 'application/zip');
+      return { filename, searches: chosenRows.filter((c) => c.config_type !== 'routine').length,
+        watches: chosenRows.filter((c) => c.config_type === 'routine').length, missing: ids.length - chosenRows.length };
+    },
   });
   const imported = useMutation({
     mutationFn: (files: File[]) => answer(engine().POST('/api/configurations/import', {
@@ -146,7 +160,9 @@ export function Saved() {
       </div>
       {exported.data && (
         <p className="settings-said" role="status" data-saved="exported">
-          Exported to <code className="path">{exported.data.path}</code>
+          {exportedWords(exported.data.searches, exported.data.watches)} into <code className="path">{exported.data.filename}</code>;
+          the save dialog asks where it goes.
+          {exported.data.missing > 0 && ` ${count(exported.data.missing, 'chosen row was', 'chosen rows were')} no longer saved, and left out.`}
         </p>
       )}
       {imported.data && (
@@ -181,6 +197,15 @@ export function Saved() {
       </section>
     </div>
   );
+}
+
+/** "Put 1 saved search", "Put 2 saved searches and 1 watch". */
+export function exportedWords(searches: number, watches: number): string {
+  const parts = [
+    searches > 0 && count(searches, 'saved search', 'saved searches'),
+    watches > 0 && count(watches, 'watch', 'watches'),
+  ].filter(Boolean);
+  return `Put ${parts.join(' and ')}`;
 }
 
 /** "Imported 1 saved search.", "Imported 2 saved searches and 1 watch, which arrives paused." */

@@ -50,17 +50,50 @@ export const FINAL_EVENTS: ReadonlySet<string> = new Set(['complete', 'cancelled
  *
  * The same reading the classic run panel makes (`repoDoneStatus`), from the
  * same generated vocabulary: a reason resmon does not know, or a count that is
- * not a count, is `not_recorded` rather than a guess either way.
+ * not a count, is `not_recorded` rather than a guess either way. Two states
+ * belong only to a run that has ended: `cancelled`, a source that was being
+ * asked when the run was stopped, and `not_reached`, one the run never began
+ * to ask before its last event.
  */
-export type LiveState = 'pending' | 'asking' | 'answered' | 'no_answer' | 'not_queried' | 'not_recorded' | 'error';
+export type LiveState =
+  | 'pending' | 'asking' | 'answered' | 'no_answer' | 'not_queried' | 'not_recorded' | 'error'
+  | 'cancelled' | 'not_reached';
 
 export interface LiveSource {
   slug: string;
   state: LiveState;
   count: number | null;
+  /** The recorded zero reason, when the source's event carried one. */
+  reason: string | null;
   /** The engine's own sentence for a zero, or the error; empty when there is none. */
   note: string;
 }
+
+/**
+ * The error `sweep_engine` records for a source that was being asked when the
+ * run was stopped (`cancel()`): the stop, not a failure of the source.
+ */
+const CANCELLED_BY_USER = 'cancelled by user';
+
+/** The engine's sentence for such a source, as the run's recorded coverage words it. */
+const CANCELLED_NOTE = 'The run was cancelled while this source was being queried.';
+
+/**
+ * The short words for each zero reason, the same ones the recorded coverage
+ * uses (`source_coverage.outcome`), so the live panel and the record never
+ * describe one reason two ways.
+ */
+export const ZERO_LABELS: Readonly<Record<string, string>> = {
+  answered_empty: 'answered, zero',
+  rights_filtered: 'answered; nothing storable',
+  records_unusable: 'answered; nothing storable',
+  window_unanswerable: 'could not answer this window',
+  upstream_failure: 'did not answer',
+  parse_failure: 'reply unreadable',
+  missing_key: 'no API key configured',
+  retired: 'withdrawn',
+  entity_unsupported: 'entity unsupported',
+};
 
 const KNOWN_REASONS: ReadonlySet<string> = new Set(ZERO_REASONS);
 
@@ -74,14 +107,21 @@ export function outcomeOf(count: number | null | undefined, reason: string | nul
   return DID_NOT_ANSWER.has(reason) ? 'non_answer' : 'answered';
 }
 
-/** Each selected source's live state, in the order the run selected them. */
-export function liveSources(selected: readonly string[], events: readonly ProgressEvent[]): LiveSource[] {
+/**
+ * Each selected source's live state, in the order the run selected them.
+ *
+ * `ended` says the run is no longer running. Its events then say all they
+ * will: a source still waiting after the run's last event was never asked, and
+ * one still being asked has no recorded outcome. Without a last event (an
+ * interrupted run keeps none) neither is known, so both are `not_recorded`.
+ */
+export function liveSources(selected: readonly string[], events: readonly ProgressEvent[], ended = false): LiveSource[] {
   const bySlug = new Map<string, LiveSource>();
   const order = [...selected];
   const at = (slug: string): LiveSource => {
     let source = bySlug.get(slug);
     if (!source) {
-      source = { slug, state: 'pending', count: null, note: '' };
+      source = { slug, state: 'pending', count: null, reason: null, note: '' };
       bySlug.set(slug, source);
       if (!order.includes(slug)) order.push(slug);
     }
@@ -99,6 +139,7 @@ export function liveSources(selected: readonly string[], events: readonly Progre
       case 'repo_done': {
         const outcome = outcomeOf(event.result_count, event.zero_reason);
         source.count = typeof event.result_count === 'number' ? event.result_count : null;
+        source.reason = event.zero_reason ?? null;
         source.state = outcome === 'answered' ? 'answered'
           : outcome === 'unknown' ? 'not_recorded'
             : event.zero_reason === 'missing_key' ? 'not_queried' : 'no_answer';
@@ -107,22 +148,42 @@ export function liveSources(selected: readonly string[], events: readonly Progre
       }
       case 'repo_skipped_missing_key':
         source.state = 'not_queried';
+        source.reason = 'missing_key';
         source.note = event.credential_name
           ? `Not queried: no API key is configured (${event.credential_name}).`
           : 'Not queried: no API key is configured.';
         break;
       case 'repo_error':
-        source.state = 'error';
-        source.note = event.error ? String(event.error) : '';
+        if (event.error === CANCELLED_BY_USER) {
+          source.state = 'cancelled';
+          source.note = CANCELLED_NOTE;
+        } else {
+          source.state = 'error';
+          source.note = event.error ? String(event.error) : '';
+        }
         break;
       default:
         break;
     }
   }
+  if (ended) {
+    const finished = events.some((event) => FINAL_EVENTS.has(event.type));
+    for (const source of bySlug.values()) {
+      if (source.state === 'pending' && finished) {
+        source.state = 'not_reached';
+        source.note = 'The run ended before it asked this source.';
+      } else if (source.state === 'pending' || source.state === 'asking') {
+        source.state = 'not_recorded';
+        source.note = finished
+          ? 'The run ended while this source was being asked, and what it answered was not recorded.'
+          : 'The run kept no events for this source, so what it did is not recorded here.';
+      }
+    }
+  }
   return order.map((slug) => bySlug.get(slug) as LiveSource);
 }
 
-/** The words the screen shows for a live state. */
+/** The words the screen shows for a live state: for a zero, its reason's own words. */
 export function liveLabel(source: LiveSource): string {
   switch (source.state) {
     case 'pending': return 'waiting';
@@ -130,11 +191,15 @@ export function liveLabel(source: LiveSource): string {
     case 'answered':
       return source.count && source.count > 0
         ? `${source.count.toLocaleString('en-US')} found`
-        : 'answered, nothing found';
-    case 'no_answer': return 'did not answer';
-    case 'not_queried': return 'not queried';
-    case 'not_recorded': return 'reason not recorded';
+        : ZERO_LABELS[source.reason ?? ''] ?? 'answered, zero';
+    case 'no_answer': return ZERO_LABELS[source.reason ?? ''] ?? 'did not answer';
+    case 'not_queried': return 'no API key configured';
+    case 'not_recorded':
+      return source.count === 0 && (!source.reason || source.reason === 'not_recorded')
+        ? 'zero, reason not recorded' : 'outcome not recorded';
     case 'error': return 'error';
+    case 'cancelled': return 'cancelled';
+    case 'not_reached': return 'not asked';
   }
 }
 
@@ -161,6 +226,32 @@ export function runKind(executionType: string): string {
   }
 }
 
+/**
+ * An instant the engine stored, which it always stores in UTC. A stamp
+ * without an offset is read as UTC too, never as the reader's local time.
+ */
+export function storedInstant(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const zoned = /(?:Z|[+-]\d\d:?\d\d)$/i.test(iso) ? iso : `${iso}Z`;
+  const at = new Date(zoned);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+const SECONDS = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+const MINUTES = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
+const DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+/** "October 28, 2026 at 9:14 AM", in the reader's own time zone. */
+export function dayAndTime(at: Date): string {
+  return `${DAY.format(at)} at ${MINUTES.format(at)}`;
+}
+
+/** "4:34:12 PM": a progress event's time, in the reader's own time zone like every other time here. */
+export function eventTime(iso: string | null | undefined): string {
+  const at = storedInstant(iso);
+  return at ? SECONDS.format(at) : '';
+}
+
 /** Why an interrupted run stopped, as a sentence, from the stored token. */
 export function interruptedSentence(run: Pick<RunRow, 'interrupted_reason' | 'last_seen_at_utc'>): string {
   const why: Record<string, string> = {
@@ -168,11 +259,88 @@ export function interruptedSentence(run: Pick<RunRow, 'interrupted_reason' | 'la
     daemon_restart: 'resmon was shut down',
   };
   const reason = why[run.interrupted_reason ?? ''] ?? 'the reason was not recorded';
-  const seen = run.last_seen_at_utc
-    ? `; last seen working ${run.last_seen_at_utc.slice(0, 16).replace('T', ' ')} UTC`
-    : '';
+  const last = storedInstant(run.last_seen_at_utc);
+  const seen = last ? `; last seen working ${dayAndTime(last)}` : '';
   return `Interrupted: ${reason}${seen}.`;
+}
+
+/**
+ * Why a run's report or log cannot be shown, in the run's own terms.
+ *
+ * The engine answers 404 both when it recorded no file and when the file it
+ * recorded has gone from disk; the run's `result_path` and `log_path` say
+ * which. Where none was recorded the run's status says why: a run still going
+ * writes its report at the end, and one that was stopped, interrupted or failed
+ * ended before it did. Anything other than a 404 is the engine not answering,
+ * in its own words where it gave some.
+ */
+export function absentRecordWords(
+  run: Pick<RunRow, 'status' | 'result_path' | 'log_path'>,
+  kind: 'report' | 'log',
+  running: boolean,
+  status: number,
+  detail: string | null,
+): string {
+  if (running) return `The ${kind} is written when the run finishes.`;
+  if (status !== 404) {
+    return `The ${kind} could not be read${detail ? `: ${detail}` : '. The engine did not answer; try the tab again.'}`;
+  }
+  const path = kind === 'report' ? run.result_path : run.log_path;
+  if (path) return `resmon wrote a ${kind} for this run, but the file is no longer at ${path}.`;
+  const sources = kind === 'report' ? ' What each source did is above, and in the Search record tab.' : '';
+  switch (run.status) {
+    case 'cancelled': return `resmon recorded no ${kind} for this run: it was stopped before it finished.${sources}`;
+    case 'interrupted': return `resmon recorded no ${kind} for this run: it was interrupted before it finished.${sources}`;
+    case 'failed': return `resmon recorded no ${kind} for this run: it failed before it finished.${sources}`;
+    case 'completed': return `This run finished, and resmon recorded no ${kind} for it.`;
+    default: return `resmon recorded no ${kind} for this run.`;
+  }
 }
 
 /** Runs that can be started again with the same parameters. */
 export const RESTARTABLE: ReadonlySet<string> = new Set(['interrupted', 'failed', 'cancelled']);
+
+/** A setting the run's stored parameters record as on or off, or null when they do not record it. */
+function recordedFlag(parameters: string | null | undefined, key: string): boolean | null {
+  if (!parameters) return null;
+  try {
+    const parsed: unknown = JSON.parse(parameters);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const value = (parsed as Record<string, unknown>)[key];
+    return typeof value === 'boolean' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What Restart does with a run's AI summaries and with its email and deliveries. */
+export interface RestartFacts {
+  ai: string;
+  delivery: string;
+  /** A watch's run: the watch whose settings decide where a restarted run is sent. */
+  watchId: number | null;
+}
+
+/**
+ * What a person needs to know before pressing Restart, from what the run
+ * recorded and from what Restart does (`restart_execution`). It copies the
+ * search verbatim; it summarizes only when the run recorded an attempt to,
+ * with today's AI settings; and the delivery hook sends only a watch's run,
+ * as that watch is set when the run finishes, never a search asked by hand.
+ * The run's parameters hold the search alone, so whether AI or email was on
+ * is said to be not recorded unless they hold it.
+ */
+export function restartFacts(run: Pick<RunRow, 'parameters' | 'execution_type' | 'routine_id'>): RestartFacts {
+  const ai = recordedFlag(run.parameters, 'ai_enabled');
+  const email = recordedFlag(run.parameters, 'email_enabled');
+  const watchRun = run.execution_type === 'automated_sweep' && run.routine_id !== null;
+  const aiThen = ai === null ? 'Not recorded with this run.' : `${ai ? 'On' : 'Off'} when this run started, as its parameters record.`;
+  const emailThen = email === null ? 'Not recorded with this run.' : `Email was ${email ? 'on' : 'off'} when this run started, as its parameters record.`;
+  return {
+    ai: `${aiThen} Restart summarizes only if this run recorded an attempt to, using what Settings › AI holds now.`,
+    delivery: watchRun
+      ? `${emailThen} A restarted run is emailed and delivered as its watch is set when the run finishes.`
+      : 'None. resmon emails and delivers only a watch’s runs, and this search was asked by hand.',
+    watchId: watchRun ? run.routine_id : null,
+  };
+}

@@ -1,6 +1,6 @@
 import { frames, type Choices, type TurnEvent } from '../askApi';
 import {
-  applyEvent, callText, choiceProblem, costWords, describeCall, firstChoice, reportWords, requestedWords,
+  applyEvent, callText, choiceProblem, costWords, describeCall, firstChoice, reasonWords, reportWords, requestedWords,
   savedCalls, shortToolName, startLive,
 } from '../askModel';
 
@@ -114,6 +114,19 @@ test('a choice cannot be sent to an unavailable connection, or to an API connect
   expect(choiceProblem(c, { version: 1, runtime: 'api_key', provider: 'custom', model: ' ', effort: null }))
     .toMatch(/needs a model ID/);
   expect(choiceProblem(c, { version: 1, runtime: 'api_key', provider: 'custom', model: 'm', effort: null })).toBeNull();
+});
+
+test('a missing key names the screen where Atlas stores it, not the classic one the engine names', () => {
+  const engine = 'No anthropic API key is stored. Add one under Repositories & API Keys (anthropic_api_key); '
+    + 'resmon reads it from your system keychain and never puts it in a conversation.';
+  expect(reasonWords(engine)).toBe('No anthropic API key is stored. Add one under Settings › AI (anthropic_api_key); '
+    + 'resmon reads it from your system keychain and never puts it in a conversation.');
+  const c = choices({ connections: [{ runtime: 'api_key', provider: 'anthropic', label: 'Anthropic', implemented: true,
+    available: false, reason: engine, effort_supported: false, family: 'anthropic_messages' }] as never });
+  expect(choiceProblem(c, { version: 1, runtime: 'api_key', provider: 'anthropic', model: 'm', effort: null }))
+    .not.toContain('Repositories & API Keys');
+  // Any other sentence is the engine's, unchanged.
+  expect(reasonWords('Claude CLI executable not found.')).toBe('Claude CLI executable not found.');
 });
 
 test('saved tool calls are drawn only when they are the shape resmon writes', () => {

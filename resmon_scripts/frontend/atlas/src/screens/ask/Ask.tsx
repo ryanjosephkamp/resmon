@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { download } from '../library/libraryApi';
 import { ask, type Bound, type ChoiceRequest, type Choices, type Detail, type Message, type TurnChoices } from './askApi';
 import {
-  basisWords, callText, choiceProblem, connectionKey, connectionOf, costWords, describeCall, providerWords,
+  basisWords, callText, choiceProblem, connectionKey, connectionOf, costWords, describeCall, providerWords, reasonWords,
   reportWords, requestedWords, savedCalls, shortToolName, type Card, type LiveCall, type LiveMessage,
 } from './askModel';
 import { CHATS_KEY, STATUS_KEY, chatKey, useAsk } from './AskProvider';
@@ -351,7 +351,7 @@ function Composer({ detail, statusError, children }: { detail: Detail | null; st
     : !status.data ? null
       : unreadable ? 'This conversation’s saved choices are not in a form this version reads, so it cannot be continued. It can be read and exported.'
         : fresh || legacy ? choiceProblem(choices, draft)
-          : connection && !connection.available ? connection.reason : null;
+          : connection && !connection.available ? reasonWords(connection.reason) : null;
   const disabled = !!problem || !status.data || (answering && !mine);
 
   // Each ⌘/ puts the caret here once: when it arrives, or as soon as the
@@ -402,7 +402,7 @@ function Composer({ detail, statusError, children }: { detail: Detail | null; st
       {problem && (
         <p className="conv-unavailable">
           {problem}{' '}
-          {!unreadable && <Link to="/settings/ai">Settings → AI</Link>}
+          {!unreadable && <Link to="/settings/ai">Open Settings › AI</Link>}
         </p>
       )}
       <form className="conv-composer" onSubmit={submit}>
@@ -478,7 +478,8 @@ function ChoiceControls({ choices, value, onChange, legacy }: {
         </div>
       )}
       {value && api && <p className="conv-quiet conv-no-effort">Effort: not supported by this connection.</p>}
-      {connection && <p className="conv-quiet conv-reason">{connection.reason}</p>}
+      {/* An unavailable connection's reason is said once, below, beside the way to Settings › AI. */}
+      {connection?.available && <p className="conv-quiet conv-reason">{connection.reason}</p>}
       {!value && choices.default_error && <p className="conv-quiet">{choices.default_error}</p>}
       <details className="conv-limits">
         <summary>What these choices establish</summary>

@@ -122,12 +122,47 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await expect(win.locator('.live-row[data-source="arxiv"]')).toHaveAttribute('data-state', 'answered');
     await expect(win.locator('.live-row[data-source="springer"]')).toHaveAttribute('data-state', 'not_queried');
     await expect(win.locator('.events')).toContainText('The run finished: completed.');
+    // Each event's time is the reader's local time, as the heading's is: a
+    // clock with AM or PM, never the stored UTC slice.
+    await expect(win.locator('.events li .num').first()).toHaveText(/^\d{1,2}:\d{2}:\d{2}\s(AM|PM)$/);
 
     // The tabs a run's record has.
     expect((await win.getByRole('tab').allInnerTexts()).map((t) => t.trim()))
       .toEqual(['Papers', 'Report', 'Search record', 'Log', 'Metadata', 'Progress']);
     await win.getByRole('tab', { name: 'Report' }).click();
     await expect(win.locator('.record-text.is-report')).toContainText(TITLE);
+
+    // The run's own record as files: the real downloads, with only each
+    // destination chosen here.
+    const downloadTo = (target: string) => app.evaluate(({ BrowserWindow }, where) => {
+      BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => {
+        item.setSavePath(where as string);
+      });
+    }, target);
+    const contents = (file: string) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
+    const reportFile = path.join(stateDir, 'atlas-report.md');
+    await downloadTo(reportFile);
+    await win.locator('[data-record="save-report"]').click();
+    await expect.poll(() => contents(reportFile), { timeout: 30_000 }).toContain(TITLE);
+    await win.getByRole('tab', { name: 'Search record' }).click();
+    const recordFile = path.join(stateDir, 'atlas-search-record.md');
+    await downloadTo(recordFile);
+    await win.locator('[data-record="save-search-record"]').click();
+    await expect.poll(() => contents(recordFile), { timeout: 30_000 }).toMatch(/^# Search record/);
+
+    // The bundle is written by the engine, which says where; with no folder
+    // chosen it is the system's temporary folder, and the page says so.
+    const bundled = win.waitForResponse((r) => r.url().endsWith('/api/executions/export'));
+    await win.locator('[data-run="bundle"]').click();
+    const bundlePath = String(((await (await bundled).json()) as { path: string }).path);
+    try {
+      const written = win.locator('[data-run="bundle-written"]');
+      await expect(written.locator('code')).toHaveText(bundlePath, { timeout: 30_000 });
+      await expect(written).toContainText('temporary folder');
+      expect(fs.readFileSync(bundlePath).subarray(0, 4).join(',')).toBe('80,75,3,4');
+    } finally {
+      fs.rmSync(bundlePath, { force: true });
+    }
 
     // Export: the real download, with only the destination chosen here.
     const destination = path.join(stateDir, 'atlas-search.bib');

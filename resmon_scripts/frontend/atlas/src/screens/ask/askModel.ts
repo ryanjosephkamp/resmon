@@ -114,12 +114,22 @@ export function connectionOf(choices: Choices | undefined, choice: { runtime?: s
   return choice ? choices?.connections.find((c) => connectionKey(c) === connectionKey(choice)) : undefined;
 }
 
+/**
+ * A connection's reason in Atlas's words. The engine's sentence for a missing
+ * provider key names the classic interface's screen, Repositories & API Keys;
+ * in Atlas a provider's key is stored in Settings › AI, so that is the place
+ * named.
+ */
+export function reasonWords(reason: string): string {
+  return reason.replace(/Repositories & API Keys/g, 'Settings › AI');
+}
+
 /** Why a choice cannot be sent yet, or `null` when it can. */
 export function choiceProblem(choices: Choices | undefined, choice: ChoiceRequest | null): string | null {
   if (!choice) return 'Choose a connection first.';
   const connection = connectionOf(choices, choice);
   if (!connection) return 'That connection is not one the engine offers.';
-  if (!connection.available) return connection.reason;
+  if (!connection.available) return reasonWords(connection.reason);
   if (choice.runtime === 'api_key' && !choice.model?.trim()) return 'This connection needs a model ID: there is no default to fall back on.';
   return null;
 }

@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { answer, engine } from '../api/client';
+import { answer, engine, EngineError } from '../api/client';
+import { bridge, systemName } from '../bridge';
 import { Icon } from '../shell/Icon';
 import { duration, when } from './today/format';
 import {
-  FINAL_EVENTS, interruptedSentence, liveSources, RESTARTABLE, runKind, runTitle, selectedSources,
+  FINAL_EVENTS, interruptedSentence, liveSources, RESTARTABLE, restartFacts, runKind, runTitle, selectedSources,
   type CoverageSource, type ProgressEvent, type Run as RunData,
 } from './runs/model';
+import { writeBundle } from './runs/downloads';
 import { exportReferences, FORMATS, type ReferenceFormat } from './runs/references';
 import { RUNS_KEY } from './runs/RunLog';
 import { RunSky } from './runs/RunSky';
@@ -16,6 +18,11 @@ import { RunTabs, type RunPaper } from './runs/RunTabs';
 
 /** How many of a run's papers are read for the sky; a sweep can store thousands. */
 const SKY_LIMIT = 2_000;
+
+/** The engine's own sentence for a refusal where it gave one, otherwise what failed. */
+function refusal(error: Error): string {
+  return error instanceof EngineError && error.detail ? error.detail : error.message;
+}
 
 /** A recorded outcome's mark: filled for an answer, a ring for unknown, the fault mark for a non-answer. */
 function OutcomeMark({ category }: { category: string }) {
@@ -90,9 +97,11 @@ export function Run() {
     queryFn: () => answer(engine().GET('/api/routines')) as Promise<{ id: number; name: string }[]>,
   });
 
+  // Each takes the run's id as its variable, so a mutation's state is read
+  // only for the run it was asked about when this screen moves to another.
   const stop = useMutation({
-    mutationFn: () => answer(engine().POST('/api/executions/{exec_id}/cancel', { params: { path: { exec_id: id } } })),
-    onSettled: () => client.invalidateQueries({ queryKey: ['run', id] }),
+    mutationFn: (runId: number) => answer(engine().POST('/api/executions/{exec_id}/cancel', { params: { path: { exec_id: runId } } })),
+    onSettled: (_done, _error, runId) => client.invalidateQueries({ queryKey: ['run', runId] }),
   });
   const restart = useMutation({
     mutationFn: () => answer(engine().POST('/api/executions/{exec_id}/restart', {
@@ -106,9 +115,10 @@ export function Run() {
   const exporting = useMutation({
     mutationFn: (format: ReferenceFormat) => exportReferences({ execution_ids: [id] }, format, `resmon-references-${id}`),
   });
+  const bundle = useMutation({ mutationFn: (runId: number) => writeBundle(runId) });
 
   const live = useMemo(
-    () => (run.data ? liveSources(selectedSources(run.data), events.data ?? []) : []),
+    () => (run.data ? liveSources(selectedSources(run.data), events.data ?? [], run.data.status !== 'running') : []),
     [run.data, events.data],
   );
 
@@ -125,8 +135,17 @@ export function Run() {
 
   const data: RunData = run.data;
   const watch = data.routine_id ? routines.data?.find((r) => r.id === data.routine_id)?.name ?? null : null;
-  const took = duration(data.start_time, data.end_time);
+  // An interrupted run's end is when resmon noticed it had stopped, which can
+  // be days later; the time between is not time it worked, so none is shown.
+  const took = data.status === 'interrupted' ? null : duration(data.start_time, data.end_time);
   const recorded: CoverageSource[] = [...data.coverage.sources, ...data.coverage.additional_sources];
+  // A stop is cooperative: the run ends at its next checkpoint, so the screen
+  // says a stop was asked for until the run says it has ended.
+  const stopping = running && stop.variables === id && (stop.isPending || stop.isSuccess);
+  const written = bundle.variables === id ? bundle.data ?? null : null;
+  const reveal = bridge()?.revealPath;
+  const failure = (stop.variables === id ? stop.error : null) ?? restart.error ?? exporting.error
+    ?? (bundle.variables === id ? bundle.error : null);
 
   return (
     <div className="run" data-run={data.id} data-status={data.status}>
@@ -136,8 +155,8 @@ export function Run() {
           <h1 className={watch ? 'run-name it' : 'run-name'}>{runTitle(data, watch)}</h1>
           <div className="run-actions">
             {running && (
-              <button type="button" className="btn" onClick={() => stop.mutate()} disabled={stop.isPending}>
-                <Icon name="stop" size={14} />{stop.isPending ? 'Stopping' : 'Stop'}
+              <button type="button" className="btn" onClick={() => stop.mutate(id)} disabled={stopping}>
+                <Icon name="stop" size={14} />{stopping ? 'Stopping…' : 'Stop'}
               </button>
             )}
             {RESTARTABLE.has(data.status) && (
@@ -153,6 +172,12 @@ export function Run() {
                     onClick={() => exporting.mutate(format.id)}>{format.label}</button>
                 ))}
               </div>
+            )}
+            {!running && (
+              <button type="button" className="btn" data-run="bundle" disabled={bundle.isPending}
+                aria-describedby="run-bundle-what" onClick={() => bundle.mutate(id)}>
+                <Icon name="download" size={14} />{bundle.isPending ? 'Writing the bundle' : 'Bundle'}
+              </button>
             )}
           </div>
         </div>
@@ -173,11 +198,36 @@ export function Run() {
             <span key={next}><span className="sep" /> <Link to={`/runs/${next}`}>restarted as run {next}</Link></span>
           ))}
         </div>
+        {stopping && (
+          <p className="run-note" role="status" data-run="stopping">
+            Stopping. resmon has asked this run to stop, and it stops at its next checkpoint; until then it is still running.
+          </p>
+        )}
         {data.status === 'interrupted' && <p className="run-note">{interruptedSentence(data)}</p>}
         {data.status === 'failed' && data.error_message && <p className="run-note">{data.error_message}</p>}
-        {(stop.error || restart.error || exporting.error) && (
-          <p className="field-error" role="alert">{(stop.error ?? restart.error ?? exporting.error)?.message}</p>
+        {RESTARTABLE.has(data.status) && <RestartFacts run={data} />}
+        {!running && (
+          <p id="run-bundle-what" className="sr-only">
+            The run&rsquo;s bundle: its report, with a PDF and LaTeX where they could be made, the log, the metadata, and the
+            search record, in one archive.
+          </p>
         )}
+        {written && (
+          <p className="settings-said" role="status" data-run="bundle-written">
+            Wrote the run&rsquo;s bundle (its report, with a PDF and LaTeX where they could be made, the log, the metadata,
+            and the search record) to <code className="path">{written.path}</code>.
+            {written.temporary && (
+              <> No folder is chosen under <Link to="/settings/storage">Settings › Backup</Link>, so it is in the
+                system&rsquo;s temporary folder, which the system may empty; move it somewhere you keep.</>
+            )}
+            {reveal && (
+              <>{' '}<button type="button" className="btn sm quiet" onClick={() => void reveal(written.path)}>
+                Show in {systemName() === 'macOS' ? 'Finder' : 'its folder'}
+              </button></>
+            )}
+          </p>
+        )}
+        {failure && <p className="field-error" role="alert">{refusal(failure)}</p>}
       </header>
 
       <div className="run-main">
@@ -214,5 +264,27 @@ export function Run() {
 
       <RunTabs run={data} live={live} names={names} events={events.data ?? []} papers={papers.data ?? null} running={running} />
     </div>
+  );
+}
+
+/**
+ * What Restart will and will not do, beside the button: a person deciding
+ * whether to start a run again needs to know whether it summarizes with AI
+ * and whether it is emailed or delivered before pressing it, not after.
+ */
+function RestartFacts({ run }: { run: RunData }) {
+  const facts = restartFacts(run);
+  return (
+    <dl className="run-restart-facts" aria-label="What Restart does" data-run="restart-facts">
+      <div><dt>Restart asks</dt><dd>The same sources, terms, dates, and cap this run recorded, as a new run.</dd></div>
+      <div><dt>AI summaries</dt><dd>{facts.ai}</dd></div>
+      <div>
+        <dt>Email and delivery</dt>
+        <dd>
+          {facts.delivery}
+          {facts.watchId !== null && <>{' '}<Link to={`/watches/${facts.watchId}`}>Open the watch</Link></>}
+        </dd>
+      </div>
+    </dl>
   );
 }
