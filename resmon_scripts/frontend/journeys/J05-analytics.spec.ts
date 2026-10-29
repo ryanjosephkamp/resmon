@@ -42,10 +42,13 @@ journey.describe('J05 Analytics', () => {
       'Which sources earn their place',
       'Which keywords earn their place',
       'How quickly each source surfaces a paper',
-      'Routine health',
     ]) {
       expect(drawn, `the Analytics page no longer draws "${card}"`).toContain(card.toLowerCase());
     }
+    // The fifth view is the same view in either interface's word for a
+    // routine: Atlas calls routines watches.
+    expect(drawn.some((heading) => heading === 'routine health' || heading === 'watch health'),
+      'the Analytics page no longer draws the routine (watch) health view').toBe(true);
 
     // The counts the seeded corpus implies. The Papers tile is the Explorer's
     // own total, read from the backend, not a number chosen here.
@@ -91,7 +94,8 @@ journey.describe('J05 Analytics', () => {
     // the Explorer already filtered, not on the unfiltered list.
     const followed = await resmon.followTheChartIntoTheExplorer();
     console.log(`[J05] followed into ${followed.hash}`);
-    expect(followed.hash, 'the link out of Analytics did not carry a filter').toMatch(/#\/explorer\?(source|category)=/);
+    // The classic Explorer is Atlas's Search › Your collection, at #/search.
+    expect(followed.hash, 'the link out of Analytics did not carry a filter').toMatch(/#\/(explorer|search)\?(source|category)=/);
     expect(followed.list.rows.length, 'the pre-filtered Explorer listed nothing').toBeGreaterThan(0);
     expect(followed.list.countSentence).toMatch(/matching your filters/);
 
