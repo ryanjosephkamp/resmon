@@ -87,8 +87,8 @@ shape changes its output: the same test compares them.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 1028 tests across 98 suites
-npm run e2e                                      # the real Electron app — 133 cases in 50 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 1032 tests across 99 suites
+npm run e2e                                      # the real Electron app — 134 cases in 51 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -533,6 +533,15 @@ number, opened and shown by the engine's verified path. Every Library call sends
 `X-Resmon-Library: 1` (`LibraryOriginGuard`). The routes' bodies are the "the owned library" slice
 of `test_response_models.py`; real-app journey `e2e/atlas-files.spec.ts`, with the folder chooser,
 the opener and the download destination scripted.
+Atlas Library › Evidence: `/library/evidence` (`Evidence.tsx`, `evidenceApi.ts`, `evidenceModel.ts`).
+A file comes from Your files by Open in Evidence and is added to a project only when asked. A
+passage is pinned to one page's text by its hash and Unicode codepoint offsets (classic's
+`selectionAnchor` and `resolveSaved`, ported); a page read once is not read again, and a
+`reader_busy` refusal is retried, because the engine reads one PDF page at a time. The Evidence
+routes parse their own bodies, so these calls go out raw and come back typed. The routes' bodies are
+the "evidence projects" slice of `test_response_models.py`; real-app journey
+`e2e/atlas-evidence.spec.ts`. Atlas reads a PDF's text and does not draw its page yet, so J35 is
+skipped through Atlas with that reason.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
 
