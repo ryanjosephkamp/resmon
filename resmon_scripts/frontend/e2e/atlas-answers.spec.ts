@@ -69,6 +69,8 @@ test('Answers: an exact disclosure, one answer per Send, citations that resolve,
     const win = await app.firstWindow({ timeout: 180_000 });
     const problems: string[] = [];
     win.on('pageerror', (e) => problems.push(e.message));
+    // The router sets its own address when it mounts, so nothing navigates before it has.
+    await expect(win.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 120_000 });
     // The authored model, reached through the custom API connection. The CLI
     // path is the fake's too, so no real agent CLI can start by a misclick.
     await library(win, '/api/settings/ai', 'PUT', { settings: { ai_cli_path: fake.cli, ai_custom_base_url: fake.base } });
@@ -134,7 +136,11 @@ test('Answers: an exact disclosure, one answer per Send, citations that resolve,
     };
     const first = await compose();
     const heads = await first.disclosure.locator('article.ev-source h4').allInnerTexts();
-    expect(heads.sort()).toEqual(['S01 · two-pages.pdf · page 2', 'S02 · unicode.txt · page 1', 'Your note · revision 1'].sort());
+    // The engine numbers sources by file id, which is random, so S01 and S02
+    // can fall either way round: the numbers and the sources are held apart.
+    expect(heads.map((h) => h.replace(/^S0[12] · /, '')).sort())
+      .toEqual(['two-pages.pdf · page 2', 'unicode.txt · page 1', 'Your note · revision 1'].sort());
+    expect(heads.map((h) => /^(S\d+) · /.exec(h)?.[1]).filter(Boolean).sort()).toEqual(['S01', 'S02']);
     await expect(first.disclosure.locator('article.ev-source pre').filter({ hasText: /^Beta evidence stays separate\.$/ })).toHaveCount(1);
     await expect(first.disclosure.locator('article.ev-source pre').filter({ hasText: new RegExp(`^${PASSAGE}$`) })).toHaveCount(1);
     await expect(first.disclosure).toContainText('a custom API, requested-synthetic-model, effort not supported, at the custom address set in Settings.');
