@@ -33,7 +33,7 @@ test('only admitted and running are not final', () => {
 test('asked for and reported are said apart, and a token count is never a cost', () => {
   const requested = { version: 1, runtime: 'api_key', provider: 'custom', requested_model: 'm-1', requested_effort: null,
     model_basis: 'explicit', effort_basis: 'not_supported', binding_basis: 'new' } as const;
-  expect(requestedWords(requested)).toBe('custom, m-1, effort not supported');
+  expect(requestedWords(requested)).toBe('a custom API, m-1, effort not supported');
   expect(requestedWords({ ...requested, runtime: 'claude_cli', provider: 'claude_code', requested_model: null }))
     .toBe('Claude Code, its default model (not known here), effort its default (not known here)');
   expect(reportedWords([])).toBe('No model was reported.');

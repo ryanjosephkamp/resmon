@@ -39,11 +39,16 @@ export function citationLabel(source: Source): string {
   return `${source.source_id} · ${source.original_name} · page ${source.page_number}`;
 }
 
+/** A provider's name as a person knows it; an unknown one is shown as the engine names it. */
+const PROVIDER_WORDS: Record<string, string> = {
+  claude_code: 'Claude Code', anthropic: 'Anthropic', openai: 'OpenAI', google: 'Google', custom: 'a custom API',
+};
+
 /** What was asked for: the connection, the model and the effort, or the runtime's own default where none was named. */
 export function requestedWords(requested: Answer['request']['payload']['requested']): string {
   const model = requested.requested_model ?? 'its default model (not known here)';
   const effort = requested.requested_effort ?? (requested.runtime === 'api_key' ? 'not supported' : 'its default (not known here)');
-  return `${requested.provider === 'claude_code' ? 'Claude Code' : requested.provider}, ${model}, effort ${effort}`;
+  return `${PROVIDER_WORDS[requested.provider] ?? requested.provider}, ${model}, effort ${effort}`;
 }
 
 /** What the runtime reported it used, which can differ from what was asked for. */

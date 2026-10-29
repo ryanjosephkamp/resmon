@@ -48,6 +48,9 @@ export function Reader({ project, file, member, pin, onAnchor, onRemove, removin
   });
   const data: PageText | undefined = text.data;
   const resolution = useMemo(() => (pin ? resolutionWords(pin, data) : null), [pin, data]);
+  const match = !pin ? null : !data ? 'pending' : matches(pin, data) ? 'yes' : 'no';
+  // A citation's check opens on its text; the drawn page is there when asked for.
+  const [drawing, setDrawing] = useState(!readOnly);
   useEffect(() => {
     if (!pin || !data || !matches(pin, data)) return;
     const [start, end] = utf16Range(data.text, pin.start_codepoint, pin.end_codepoint);
@@ -87,6 +90,7 @@ export function Reader({ project, file, member, pin, onAnchor, onRemove, removin
       </div>
       <p className="record-cap ev-identity">Version <code className="path">{file.version_id}</code> · SHA-256 <code className="path">{file.sha256}</code></p>
       {!member && !readOnly && <p className="record-cap" data-evidence="removed">This file is no longer in the project. Its saved records are kept.</p>}
+      {resolution && <p className="ev-verdict" role="status" data-evidence="resolution" data-match={match}>{resolution}</p>}
       {isPdf && (
         <form className="ev-pages" onSubmit={(e) => {
           e.preventDefault();
@@ -101,7 +105,10 @@ export function Reader({ project, file, member, pin, onAnchor, onRemove, removin
           <button type="button" className="btn sm" disabled={text.isFetching || page >= (pages ?? 1)} onClick={() => turn(page + 1)}>Next page</button>
         </form>
       )}
-      {isPdf && (
+      {isPdf && !drawing && (
+        <button type="button" className="btn sm quiet ev-draw" onClick={() => setDrawing(true)}>Show the page as drawn</button>
+      )}
+      {isPdf && drawing && (
         <PdfPage page={page} drawn={{
           vault_id: project.vault_id, project_id: project.project_id, file_id: file.file_id,
           version_id: file.version_id, sha256: file.sha256, byte_size: file.byte_size,
@@ -116,12 +123,14 @@ export function Reader({ project, file, member, pin, onAnchor, onRemove, removin
             ? <p className="not-enough">{PAGE_STATUS[data.status] ?? data.status}</p>
             : (
               <>
-                <form className="lib-link-form" onSubmit={findNext}>
-                  <label htmlFor="ev-find">Find on this page’s text</label>
-                  <input id="ev-find" value={find} maxLength={200} onChange={(e) => setFind(e.target.value)} autoComplete="off" />
-                  <button type="submit" className="btn sm" disabled={!find}>Find</button>
-                  {found && <span className="record-cap" role="status" data-evidence="found">{found}</span>}
-                </form>
+                {!readOnly && (
+                  <form className="lib-link-form" onSubmit={findNext}>
+                    <label htmlFor="ev-find">Find on this page’s text</label>
+                    <input id="ev-find" value={find} maxLength={200} onChange={(e) => setFind(e.target.value)} autoComplete="off" />
+                    <button type="submit" className="btn sm" disabled={!find}>Find</button>
+                    {found && <span className="record-cap" role="status" data-evidence="found">{found}</span>}
+                  </form>
+                )}
                 <textarea ref={pane} className="ev-text" aria-label="Canonical page text" readOnly value={data.text} data-page={data.page_number}
                   onSelect={choose} onKeyUp={choose} rows={14} />
                 {!readOnly && (
@@ -136,7 +145,6 @@ export function Reader({ project, file, member, pin, onAnchor, onRemove, removin
             )}
         </>
       )}
-      {resolution && <p className="settings-said" role="status" data-evidence="resolution">{resolution}</p>}
     </section>
   );
 }

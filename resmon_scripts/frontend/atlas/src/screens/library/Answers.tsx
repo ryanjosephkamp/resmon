@@ -406,7 +406,8 @@ function Disclosure({ preview, sending, onSend, onBack }: { preview: Preview; se
       {p.coverage.files.map((f) => (
         <p className="record-cap" key={f.file_id}>
           Version <code className="path">{f.version_id}</code>: page {f.selected_pages.join(', ')} of {f.known_page_count ?? 'an unknown number'} sent;{' '}
-          {f.unexamined_page_count === null ? 'how many were not examined is not known' : `${count(f.unexamined_page_count, 'page')} not examined`}.
+          {f.unexamined_page_count === null ? 'how many were not examined is not known'
+            : f.unexamined_page_count === 0 ? 'every page examined' : `${count(f.unexamined_page_count, 'page')} not examined`}.
         </p>
       ))}
       <p className="record-cap">{p.disclosure.source_strings_may_contain_private_material}</p>
@@ -425,7 +426,7 @@ function Disclosure({ preview, sending, onSend, onBack }: { preview: Preview; se
       ))}
       <details><summary>The exact instructions the app sends with it</summary><pre>{preview.request.system_text}</pre></details>
       <details><summary>The exact text sent, as one string</summary><pre>{preview.request.user_prompt}</pre></details>
-      <p className="record-cap">Request SHA-256 <code className="path">{preview.request_sha256}</code>. This preview expires at {when(preview.expires_at_utc, new Date())}.</p>
+      <p className="record-cap">Request SHA-256 <code className="path">{preview.request_sha256}</code>. This preview expires {when(preview.expires_at_utc, new Date())}.</p>
       <p className="record-cap">{p.disclosure.limitations}</p>
       <p className="form-hint">One new answer, with no tools and no earlier conversation, stopped after 300 seconds. A stopped request may still be worked on, and charged for, by the provider.</p>
       <div className="ev-use">

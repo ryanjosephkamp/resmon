@@ -1383,7 +1383,8 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ev-answer-section { display: grid; gap: 10px; }
 .ev-answer-item { display: grid; gap: 4px; padding-left: 12px; border-left: 2px solid var(--rule-2); }
 .ev-answer-item .record-cap { margin: 0; }
-.ev-answer-text { margin: 0; font: 400 15px/1.55 var(--serif); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ev-answer-text { margin: 0; font: 400 15px/1.55 var(--sans); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ev-answer-section ul { margin: 0; padding-left: 20px; font: 400 14px/1.5 var(--sans); color: var(--ink-2); }
 .ev-cites { display: flex; flex-wrap: wrap; gap: 6px; }
 .ev-cite {
   height: 26px; padding: 0 10px; border: 1px solid var(--rule-2); border-radius: 999px; background: var(--plate);
@@ -1394,6 +1395,14 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ev-cite:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
 .ev-unvalidated { display: grid; gap: 6px; padding: 12px 14px; border: 1px dashed var(--rule-2); border-radius: var(--r); }
 .ev-citation { background: var(--plate); }
+/* Whether a pinned range is still exactly the page's text: the one line a reopened passage or a citation is opened for. */
+.ev-verdict {
+  margin: 10px 0 0; padding: 8px 12px; border-left: 3px solid var(--rule-2); border-radius: 0 var(--r) var(--r) 0;
+  background: var(--panel-2); font: 500 13.5px/1.5 var(--sans); color: var(--ink);
+}
+.ev-verdict[data-match="yes"] { border-left-color: var(--accent-mark); background: var(--accent-wash); }
+.ev-verdict[data-match="no"] { border-left-color: var(--fault); }
+.ev-draw { margin-top: 10px; }
 .ev-citation .ev-reader { padding: 0; border: 0; background: transparent; }
 @media (max-width: 1100px) { .ev-answers-split { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 900px) { .evidence-split { grid-template-columns: minmax(0, 1fr); } }
