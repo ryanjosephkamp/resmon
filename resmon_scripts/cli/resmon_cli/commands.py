@@ -30,7 +30,7 @@ INTERRUPTED_REASON_TEXT = {
     "daemon_restart": "resmon was shut down",
 }
 
-ADVANCED = "In Settings → Advanced, turn Run resmon in the background"
+ADVANCED = "In Settings › In the background, turn Run resmon in the background"
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ def scheduler_notice(status: Mapping[str, Any]) -> Optional[str]:
     if state == "fires_here":
         return (f"{'An active watch has' if n == 1 else f'{n} active watches have'} no schedule "
                 f"registered with the scheduler, so nothing will run {'it' if n == 1 else 'them'}. "
-                f"Deactivate and activate {'it' if n == 1 else 'each one'} on the Routines page to "
+                f"Pause and resume {'it' if n == 1 else 'each one'} on its page under Watches to "
                 "register it again.")
     if state == "no_service":
         return (f"{lead} The resmon this command reached does not run watches itself, and no "
@@ -119,7 +119,7 @@ def scheduler_notice(status: Mapping[str, Any]) -> Optional[str]:
                 "command reached is not connected to it.")
     if state == "service_unreachable":
         return (f"{lead} A background service is recorded on this computer but did not answer. "
-                "Settings → Advanced shows what it found.")
+                "Settings › In the background shows what it found.")
     if state == "scheduler_off":
         return f"{lead} This resmon was started with its scheduler turned off."
     return lead
@@ -771,12 +771,12 @@ def watch_add(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     active = bool(routine.get("is_active"))
     out.para(f'Added watch #{rid} "{routine.get("name")}", {"active" if active else "inactive"}.')
     out.para(_watch_line(routine, names), indent=2, hang=4)
-    out.para("How the keywords combine is up to each source; the Repositories page says how each "
+    out.para("How the keywords combine is up to each source; Settings › Sources says how each "
              "one does.", indent=2, hang=2)
     if created.get("entity_warning"):
         out.para(str(created["entity_warning"]), indent=2, hang=2)
     if not active:
-        out.para("Nothing will run it until it is activated on the Routines page.", indent=2, hang=2)
+        out.para("Nothing will run it until it is resumed on its page under Watches.", indent=2, hang=2)
     elif status is None:
         out.para("Whether anything will run it is not recorded: this resmon has no scheduler "
                  "status route.", indent=2, hang=2)

@@ -413,7 +413,102 @@ def test_cancel_records_answered_sources_as_answered_and_in_flight_ones_as_cance
                        if e.get("type") == "repo_error" and e.get("error") == "cancelled by user")
     assert cancelled == ["crossref", "dblp"]
     assert not any(e.get("repository") == "doaj" for e in events)
+
+    # The cancelled run leaves a report of what it had, stored where a finished
+    # run's is, accounting for every selected source.
+    row = get_execution_by_id(connection, out["exec_id"])
+    assert row["result_path"] == out["result"]["report_path"]
+    assert row["log_path"] == out["result"]["log_path"]
+    assert Path(row["log_path"]).exists()
+    report = Path(row["result_path"]).read_text(encoding="utf-8")
+    assert report.startswith("# resmon Literature Report (cancelled)\n")
+    assert "**Status:** Cancelled before the run finished" in report
+    assert "**Total Results:**" not in report
+    assert "**Collected before the cancel:** 1 result, not added to your collection" in report
+    assert "still asking the sources" in report
+    assert "A paper from arxiv, number 1" in report
+    assert _section(report, "## Sources that answered") == "\n\n- **arXiv**: returned 1 record.\n"
+    interrupted = _section(report, "## Sources the cancellation interrupted")
+    assert "**CrossRef**" in interrupted and "**DBLP**" in interrupted
+    assert "**DOAJ**" in _section(report, "## Sources not asked before the run was cancelled")
+    assert "## Sources that answered with nothing to keep" not in report
     connection.close()
+
+
+def _section(text: str, heading: str) -> str:
+    """The body under one ``##`` heading, up to the next rule or heading."""
+    start = text.index(heading) + len(heading)
+    ends = [i for i in (text.find("\n## ", start), text.find("\n---", start)) if i != -1]
+    return text[start:min(ends)] if ends else text[start:]
+
+
+def test_a_cancelled_single_source_run_reports_its_source_as_interrupted(monkeypatch):
+    monkeypatch.setattr(se, "_HEARTBEAT_SECONDS", 0.05)
+    hold, asked = threading.Event(), threading.Event()
+
+    def script(slug: str) -> list:
+        asked.set()
+        hold.wait(10)
+        return [_paper(slug, 1)]
+
+    _stand_ins(monkeypatch, script)
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    init_db(conn=connection)
+    out, thread = _start(connection, ["biorxiv"])
+    thread.start()
+    try:
+        assert asked.wait(5)
+        progress_store.request_cancel(out["exec_id"])
+        thread.join(5)
+        assert not thread.is_alive()
+    finally:
+        hold.set()
+        thread.join(5)
+
+    assert out["result"]["status"] == "cancelled"
+    row = get_execution_by_id(connection, out["exec_id"])
+    report = Path(row["result_path"]).read_text(encoding="utf-8")
+    assert report.startswith("# resmon Literature Report (cancelled)\n")
+    assert "**Collected before the cancel:** 0 results, not added to your collection" in report
+    assert "## Sources that answered\n" not in report
+    assert "- **bioRxiv**: bioRxiv was still being asked when the run was cancelled" in _section(
+        report, "## Sources the cancellation interrupted")
+    # A source the cancel interrupted is not a quiet source.
+    assert "## Sources that answered with nothing to keep" not in report
+    assert "## Sources that did not answer, and why" not in report
+    connection.close()
+
+
+def test_a_cancel_after_every_source_finished_says_nothing_was_stored(monkeypatch, conn):
+    """The checkpoint between asking and storing: every source is accounted for
+    as having finished, and the report says the papers never reached the
+    collection, which is true of this stage and of no other."""
+    def script(slug: str) -> list:
+        if slug == "hal":
+            return []
+        # The last search to return raises the flag, so the next checkpoint the
+        # run meets is the one after querying.
+        progress_store.request_cancel(exec_ids[-1])
+        return [_paper(slug, 1), _paper(slug, 2)]
+
+    exec_ids: list[int] = []
+    _stand_ins(monkeypatch, script)
+    engine = SweepEngine(db_conn=conn, config={})
+    exec_ids.append(engine.prepare_execution(
+        "deep_sweep", ["hal", "arxiv"], {"query": "graphs", "max_results": 10}))
+    progress_store.register(exec_ids[-1])
+    monkeypatch.setattr(se, "_SOURCE_CONCURRENCY", 1)
+    result = engine.run_prepared(exec_ids[-1])
+
+    assert result["status"] == "cancelled"
+    report = Path(result["report_path"]).read_text(encoding="utf-8")
+    assert "Every source had finished" in report
+    assert "**Collected before the cancel:** 2 results, not added to your collection" in report
+    assert _section(report, "## Sources that answered") == "\n\n- **arXiv**: returned 2 records.\n"
+    assert "**HAL**" in _section(report, "## Sources whose outcome was not recorded")
+    assert "## Sources the cancellation interrupted" not in report
+    assert "## Sources not asked before the run was cancelled" not in report
+    assert conn.execute("SELECT count(*) FROM documents").fetchone()[0] == 0
 
 
 # ---------------------------------------------------------------------------

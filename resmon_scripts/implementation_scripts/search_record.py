@@ -97,6 +97,49 @@ def _keywords(params: dict) -> list[str]:
     return [str(query).strip()] if isinstance(query, str) and query.strip() else []
 
 
+_AUTHOR_QUERY_WORDS = {
+    "author": 'author "{value}"',
+    "orcid": "ORCID {value}",
+    "semantic_scholar": "Semantic Scholar author {value}",
+}
+
+
+def _query_as_sent(params: dict) -> str | None:
+    """What the run sent, as one line.
+
+    A keyword run sends its query string. A person watch sends no query
+    string: each source's client builds its own author query from the profile,
+    and the engine records what each one put into its request. Those are
+    listed by source in selection order. A watch run from before that record
+    existed has none, and reads as not recorded rather than as a guess from
+    the profile.
+    """
+    if params.get("entity_profile") is None and not params.get("entity_mode"):
+        return params.get("query")
+    sent = params.get("author_queries")
+    if not isinstance(sent, dict):
+        return None
+    if not sent:
+        # Every source declined to be asked, or the run was cancelled before a
+        # search that had been sent came back with its record.
+        return "No person query was recorded as sent on this run."
+    selected = params.get("repositories")
+    order = [s for s in selected if s in sent] if isinstance(selected, list) else []
+    order += sorted(s for s in sent if s not in order)
+    parts = []
+    for slug in order:
+        query = sent[slug] if isinstance(sent[slug], dict) else {}
+        kind, value = query.get("kind"), query.get("value")
+        if not isinstance(value, str):
+            continue
+        words = (value if kind == "query" else
+                 _AUTHOR_QUERY_WORDS[kind].format(value=value) if kind in _AUTHOR_QUERY_WORDS
+                 else None)
+        if words is not None:
+            parts.append(f"{_display_name(slug)}: {words}")
+    return "; ".join(parts) or None
+
+
 def build(conn: sqlite3.Connection, execution_id: int) -> dict:
     """Assemble the complete, dated account of one search."""
     row = conn.execute(
@@ -158,7 +201,7 @@ def build(conn: sqlite3.Connection, execution_id: int) -> dict:
             "completed_at": execution.get("end_time"),
             "status": execution["status"],
             "keywords": _keywords(params),
-            "query_as_sent": params.get("query"),
+            "query_as_sent": _query_as_sent(params),
             "date_from": params.get("date_from"),
             "date_to": params.get("date_to"),
             "max_results_per_source": params.get("max_results"),

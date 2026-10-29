@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="show every paper Today lists")
     _json_flag(p)
 
-    p = sub.add_parser("search", help="search the whole collection, as the Explorer does",
+    p = sub.add_parser("search", help="search the whole collection, as Search › Your collection does",
                        description="Search everything resmon has collected: free text across "
                                    "titles and abstracts, narrowed by the filters.")
     p.add_argument("query", nargs="*", help="words to look for")
