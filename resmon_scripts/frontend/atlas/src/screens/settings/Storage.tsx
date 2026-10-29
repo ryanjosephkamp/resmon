@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine, EngineError, engineSentence } from '../../api/client';
 import type { components } from '../../api/schema';
 import { bridge } from '../../bridge';
+import { restartRestores } from './model';
 
 type Verified = components['schemas']['BundleReport'];
 
@@ -144,7 +145,9 @@ function BackUp({ last, folder }: { last: Last; folder: string }) {
 
 /**
  * A restore checks a folder, then stages it: nothing moves until resmon next
- * starts, and the database it replaces is kept until deleted here.
+ * starts, and the database it replaces is kept until deleted here. Where this
+ * window's own engine is the one that will apply it, Restart resmon now quits
+ * and opens the app again, which is that start.
  */
 function Restore({ last }: { last: Last }) {
   const client = useQueryClient();
@@ -164,8 +167,21 @@ function Restore({ last }: { last: Last }) {
     mutationFn: () => call(engine().POST('/api/restore', {
       body: { confirm: 'CONFIRM', path: report?.path ?? '', accept_fk_violations: acceptFk, vault_parent: '' },
     })),
-    onSuccess: (staged) => { setSaid(staged.next_step); setReport(null); return refresh(); },
+    // The pending notice below says what will apply it, in the engine's words;
+    // saying it again here put the same sentence on the screen twice.
+    onSuccess: () => { setSaid(null); setReport(null); return refresh(); },
   });
+  const restart = useMutation({
+    mutationFn: async () => {
+      if (!(await bridge()?.relaunch?.())) {
+        throw new Error('This window could not restart resmon. Quit resmon and open it again to restore.');
+      }
+    },
+  });
+  const askRestart = () => {
+    if (window.confirm('Restart resmon now? This window closes and resmon opens again, and the restore runs as it '
+      + 'starts. A search running now is stopped.')) restart.mutate();
+  };
   const cancel = useMutation({
     mutationFn: () => call(engine().POST('/api/restore/cancel')),
     onSuccess: () => { setSaid('The staged restore was cancelled. Nothing had been changed.'); return refresh(); },
@@ -175,7 +191,9 @@ function Restore({ last }: { last: Last }) {
     onSuccess: (done) => { setSaid(`Deleted ${done.deleted} saved ${done.deleted === 1 ? 'copy' : 'copies'} of what a restore replaced.`); return refresh(); },
   });
   const failed = last.last_restore && !last.last_restore.ok ? last.last_restore : null;
-  const error = verify.error ?? stage.error ?? cancel.error ?? removeUndo.error;
+  const restored = last.last_restore && last.last_restore.ok ? last.last_restore : null;
+  const undoKept = restored?.undo_copy ? last.undo_copies.includes(restored.undo_copy) : false;
+  const error = verify.error ?? stage.error ?? cancel.error ?? removeUndo.error ?? restart.error;
   return (
     <div className="backup-restore" data-backup="restore">
       <h3 className="field-title">Restore</h3>
@@ -184,9 +202,22 @@ function Restore({ last }: { last: Last }) {
         and the database it replaces is kept until you delete it here.
       </p>
       {last.pending_restore && (
-        <p className="settings-said" data-backup="pending">
+        <p className="settings-said" role="status" data-backup="pending" data-runs-on={last.pending_restore_runs_on ?? undefined}>
           A restore is staged. {last.pending_restore_runs_when}{' '}
-          <button type="button" className="btn quiet sm" disabled={cancel.isPending} onClick={() => cancel.mutate()}>Cancel it</button>
+          {restartRestores(last) && bridge()?.relaunch && (
+            <button type="button" className="btn primary sm" disabled={restart.isPending || cancel.isPending} onClick={askRestart}>
+              {restart.isPending ? 'Restarting' : 'Restart resmon now'}
+            </button>
+          )}{' '}
+          <button type="button" className="btn quiet sm" disabled={cancel.isPending || restart.isPending} onClick={() => cancel.mutate()}>Cancel it</button>
+        </p>
+      )}
+      {restored && (
+        <p className="field-lede" data-backup="restored">
+          The last restore ran on {when(restored.at_utc)}, from <code>{restored.bundle}</code>.
+          {restored.undo_copy && (undoKept
+            ? <> What it replaced is kept in <code>{restored.undo_copy}</code> until you delete it here.</>
+            : ' The copy of what it replaced has been deleted.')}
         </p>
       )}
       {failed && (

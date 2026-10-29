@@ -33,6 +33,7 @@ export interface Stubbed {
   revealPath: number;
   getDownloads: number;
   revealDownload: number;
+  relaunch: number;
 }
 
 /**
@@ -48,6 +49,7 @@ export const STUBBED_CHANNELS: Record<keyof Stubbed, string> = {
   revealPath: 'resmon:reveal-path',
   getDownloads: 'resmon:downloads',
   revealDownload: 'resmon:reveal-download',
+  relaunch: 'resmon:relaunch',
 };
 
 export interface GuardCounts {
@@ -72,7 +74,7 @@ export const NOTHING_ESCAPED: Escaped = {
 export async function installIpcGuards(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ ipcMain, dialog, shell }) => {
     const counts = {
-      stubbed: { chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0 },
+      stubbed: { chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0, relaunch: 0 },
       escaped: {
         showOpenDialog: 0,
         showMessageBox: 0,
@@ -152,6 +154,13 @@ export async function installIpcGuards(app: ElectronApplication): Promise<void> 
       counts.stubbed.revealPath += 1;
       counts.lastArgs.revealPathTarget = target;
       return true;
+    });
+
+    // Quitting and opening again would end the run: counted, never done.
+    ipcMain.removeHandler('resmon:relaunch');
+    ipcMain.handle('resmon:relaunch', async () => {
+      counts.stubbed.relaunch += 1;
+      return false;
     });
   });
 }

@@ -181,6 +181,69 @@ export function watchAsks(parameters: string | null | undefined): WatchAsks {
   };
 }
 
+/** Something about what a watch asks that keeps it from finding what is new. */
+export interface WatchWarning {
+  kind: 'no_terms' | 'window_ended';
+  text: string;
+}
+
+const DAY_WORDS = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+
+/** A stored `YYYY-MM-DD` as "May 4, 2026", or null for anything else. */
+function dayWords(day: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!match) return null;
+  const at = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return Number.isNaN(at.getTime()) ? null : DAY_WORDS.format(at);
+}
+
+function localDay(at: Date): string {
+  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * What a watch's stored parameters keep it from finding, in words, from the
+ * parameters alone; nothing stored is changed. Two cases, both found in
+ * watches made in the earlier interface:
+ *
+ * - A watch on words with no words. Every run sends its sources an empty
+ *   query, which some sources refuse outright.
+ * - Fixed dates whose end has passed. The dates are the same window on every
+ *   run, so a watch saved with last May's two days asks for those two days
+ *   every night.
+ *
+ * A watch on a person has no words by design, and an open window (a start
+ * date and no end) still reaches the newest papers; neither is warned about.
+ */
+export function watchWarnings(parameters: string | null | undefined, now: Date): WatchWarning[] {
+  const p = parsed(parameters);
+  const out: WatchWarning[] = [];
+  const words = [...(Array.isArray(p.keywords) ? p.keywords.map(String) : []), typeof p.query === 'string' ? p.query : '']
+    .filter((w) => w.trim());
+  // Only where the words were stored and are empty: parameters that could not
+  // be read say nothing about what the watch asks.
+  if (!p.entity && ('keywords' in p || 'query' in p) && !words.length) {
+    out.push({
+      kind: 'no_terms',
+      text: 'It has no words to look for, so every run sends its sources an empty query. '
+        + 'Add the words it should look for under Change.',
+    });
+  }
+  const from = typeof p.date_from === 'string' ? p.date_from.trim() : '';
+  const to = typeof p.date_to === 'string' ? p.date_to.trim() : '';
+  const ended = dayWords(to);
+  if (ended && to < localDay(now)) {
+    const start = dayWords(from);
+    out.push({
+      kind: 'window_ended',
+      text: `Every run asks for papers published ${start ? `from ${start} to ${ended}` : `up to ${ended}`}, the same `
+        + `dates each time, and that window ended on ${ended}. To ask for the newest papers on every run, clear both `
+        + 'dates under Change.',
+    });
+  }
+  return out;
+}
+
 /**
  * The engine's timestamps, as instants. SQLite's own (`2026-10-28 22:04:26`)
  * are UTC with no zone written, and `Date` would read them as local time, so
@@ -191,6 +254,19 @@ export function instant(stamp: string | null | undefined): Date | null {
   const zoned = /[zZ]|[+-]\d\d:?\d\d$/.test(stamp) ? stamp : `${stamp.replace(' ', 'T')}Z`;
   const at = new Date(zoned);
   return Number.isNaN(at.getTime()) ? null : at;
+}
+
+/**
+ * How many new papers the run-history strip's tallest bar stands for, from
+ * each run's count (`null` where a run stored none). A run more than twice
+ * the next largest (a watch's first, usually) is cut off at that one's
+ * height. `null` where no run brought in a new paper: a strip of zeros has no
+ * tallest bar, and drawing it to a scale of one paper would claim one.
+ */
+export function historyScale(counts: readonly (number | null | undefined)[]): number | null {
+  const [most = 0, next = 0] = counts.map((n) => n ?? 0).sort((a, b) => b - a);
+  if (most <= 0) return null;
+  return next > 0 && most > 2 * next ? next : most;
 }
 
 /** The fires the calendar promises for one watch, soonest first. Only active watches have any. */

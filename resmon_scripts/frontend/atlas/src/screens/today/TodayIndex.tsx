@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { components } from '../../api/schema';
 import { Icon } from '../../shell/Icon';
-import { authors, duration, number, when } from './format';
+import { authors, duration, number, troubleParts, when } from './format';
 
 type TodayPaper = components['schemas']['TodayPaper'];
 type TodayWatch = components['schemas']['TodayWatch'];
+type TodayRun = components['schemas']['TodayRun'];
 
 export interface IndexPaper extends TodayPaper {
   /** Its number on the plate and in the index, in the order it was collected. */
@@ -138,7 +140,7 @@ export function TodayIndex(props: Props) {
               </h3>
               <span className="n">{number(group.total)} new</span>
             </div>
-            {group.watch && <RunLine watch={group.watch} now={now} sourceName={sourceName} />}
+            {group.watch && <RunLine watch={group.watch} now={now} />}
             {group.papers.length < group.total && (
               <p className="gsub">
                 {group.papers.length === 0
@@ -175,7 +177,7 @@ export function TodayIndex(props: Props) {
             {quiet.map((watch) => (
               <div key={watch.id} className="quietwatch">
                 <span className="it">{watch.name}</span>
-                <RunLine watch={watch} now={now} sourceName={sourceName} />
+                <RunLine watch={watch} now={now} />
               </div>
             ))}
           </section>
@@ -186,7 +188,7 @@ export function TodayIndex(props: Props) {
   );
 }
 
-function RunLine({ watch, now, sourceName }: { watch: TodayWatch; now: Date; sourceName: (slug: string) => string }) {
+function RunLine({ watch, now }: { watch: TodayWatch; now: Date }) {
   const run = watch.last_run;
   if (!run) return <p className="gsub">Has not run yet.</p>;
   const took = duration(run.started_at, run.ended_at);
@@ -197,13 +199,51 @@ function RunLine({ watch, now, sourceName }: { watch: TodayWatch; now: Date; sou
         {state} {when(run.started_at, now)}{took ? ` in ${took}` : ''}
         {run.status === 'completed' && <> · {number(run.result_count)} found · {run.sources_answered} of {run.sources_total} sources answered</>}
       </p>
-      {run.sources_not_answered.map((s) => (
-        <div key={s.source} className="note" role="note">
-          <span className="note-mark"><Icon name="fault" size={14} /></span>
-          <p><b>{sourceName(s.source)} {s.label}.</b> {s.note}</p>
-        </div>
-      ))}
+      {run.sources_not_answered.length > 0 && <SourceTrouble run={run} />}
     </>
+  );
+}
+
+/**
+ * The sources that did not answer on a watch's last run, as one line under
+ * it: Today is the morning's papers, and source health is the Source wall's.
+ * The line names every such source by what happened to it, a mark for a
+ * failure and another for an unknown, so a quiet run (no line) and a broken
+ * one never look alike; each source's own sentence is one click away, in
+ * place, and the run's page has its whole record.
+ */
+function SourceTrouble({ run }: { run: TodayRun }) {
+  const [open, setOpen] = useState(false);
+  const notes = useId();
+  const parts = troubleParts(run.sources_not_answered);
+  return (
+    <div className="trouble" role="note" data-sources-not-answered={run.sources_not_answered.length}>
+      <p className="trouble-line">
+        {parts.map((part) => (
+          <span key={`${part.category}|${part.label}`} className="trouble-part" data-category={part.category}>
+            {part.category === 'non_answer'
+              ? <span className="trouble-mark fault"><Icon name="fault" size={14} /></span>
+              : <svg className="trouble-mark unknown" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <rect x="4.5" y="4.5" width="7" height="7" fill="none" stroke="currentColor" strokeWidth="1.4" />
+              </svg>}
+            {part.text}
+          </span>
+        ))}
+        <button type="button" className="trouble-why" aria-expanded={open} aria-controls={notes} onClick={() => setOpen(!open)}>
+          {open ? 'Hide why' : 'Why'}
+        </button>
+      </p>
+      {open && (
+        <ul id={notes} className="trouble-notes">
+          {run.sources_not_answered.map((s) => (
+            <li key={s.source} data-source={s.source}><b>{s.name}.</b> {s.note}</li>
+          ))}
+          <li className="trouble-run">
+            <Link to={`/runs/${run.execution_id}`}>Open run {run.execution_id}</Link> for every source&rsquo;s record.
+          </li>
+        </ul>
+      )}
+    </div>
   );
 }
 

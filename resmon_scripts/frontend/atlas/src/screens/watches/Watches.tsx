@@ -5,10 +5,13 @@ import { answer, engine } from '../../api/client';
 import { Icon } from '../../shell/Icon';
 import { PaperSky, basisWords } from '../sky/PaperSky';
 import { count, number, when } from '../today/format';
+import {
+  BACKGROUND_PATH, BACKGROUND_WORDS, SCHEDULER_KEY, firingNotice, firingOf, firingState, nextWords, type Firing, type FiringNotice,
+} from './firing';
 import { MonthAhead, useCalendar } from './MonthAhead';
 import { WatchTabs } from './WatchTabs';
 import {
-  WATCHES_KEY, instant, promisedFires, scheduleText, watchAsks, type RoutineRow,
+  WATCHES_KEY, instant, promisedFires, scheduleText, watchAsks, watchWarnings, type RoutineRow, type WatchWarning,
 } from './model';
 
 /** The papers a watch's runs collected, for its constellation. */
@@ -22,6 +25,15 @@ export function useWatchPapers(id: number | null) {
   });
 }
 
+/** Read once a minute: the background service can start or stop while the list is open. */
+export function useSchedulerStatus() {
+  return useQuery({
+    queryKey: SCHEDULER_KEY,
+    queryFn: () => answer(engine().GET('/api/scheduler/status')),
+    refetchInterval: 60_000,
+  });
+}
+
 /**
  * Watches: every routine, what it asks and when, whether it is watching or
  * paused, and how its last run went; the one under the pointer lit as a
@@ -29,14 +41,17 @@ export function useWatchPapers(id: number | null) {
  *
  * Paused is not deleted: a paused watch keeps its runs and papers and fires
  * nothing until it is resumed. The fires drawn are the engine's own calendar,
- * which expands only active watches' schedules, so a paused watch draws none
- * rather than a promise the scheduler will not keep.
+ * which expands only active watches' schedules, so a paused watch draws none.
+ * Watching is not running, either: a window's own engine runs no scheduler,
+ * so whether anything will run a watching watch is the scheduler status's
+ * answer, and the list says "next" only where it is yes (`firing.ts`).
  */
 export function Watches() {
   const [now] = useState(() => new Date());
   const said = (useLocation().state as { said?: string } | null)?.said ?? null;
   const routines = useQuery({ queryKey: WATCHES_KEY, queryFn: () => answer(engine().GET('/api/routines')) });
   const calendar = useCalendar(now);
+  const status = useSchedulerStatus();
   const list = useMemo(
     () => [...(routines.data ?? [])].sort((a, b) => Number(b.is_active) - Number(a.is_active) || a.name.localeCompare(b.name)),
     [routines.data],
@@ -46,6 +61,7 @@ export function Watches() {
   const papers = useWatchPapers(shown);
   const litName = list.find((r) => r.id === shown)?.name ?? '';
   const active = list.filter((r) => r.is_active).length;
+  const notice = status.data ? firingNotice(status.data) : null;
 
   return (
     <div className="collection watches">
@@ -78,6 +94,7 @@ export function Watches() {
               : ''}
           </p>
           {said && <p className="run-note" role="status" data-editor="said">{said}</p>}
+          {notice && <FiringNote notice={notice} />}
         </div>
         <div className="index-scroll">
           {routines.isPending && <p className="index-cap">Reading your watches.</p>}
@@ -95,30 +112,65 @@ export function Watches() {
                 routine={routine}
                 now={now}
                 next={promisedFires(calendar.data ?? [], routine.id, now)[0]?.start ?? null}
+                firing={routine.is_active ? firingOf(status.data, routine.id) : undefined}
                 lit={routine.id === shown}
                 onLight={() => setLit(routine.id)}
               />
             ))}
           </ol>
-          <MonthAhead now={now} events={calendar.data ?? null} routines={list} lit={shown} />
+          <MonthAhead now={now} events={calendar.data ?? null} routines={list} lit={shown} status={status.data}
+            onLight={setLit} />
         </div>
       </section>
     </div>
   );
 }
 
-function WatchRow({ routine, now, next, lit, onLight }: {
-  routine: RoutineRow; now: Date; next: string | null; lit: boolean; onLight: () => void;
+/** Why some watching watches will not run, with the way to Settings › In the background where that is the lever. */
+export function FiringNote({ notice }: { notice: FiringNotice }) {
+  return (
+    <p className="firing-note" role="note" data-firing-note="">
+      {notice.background ? linked(notice.text, BACKGROUND_WORDS, BACKGROUND_PATH) : notice.text}
+    </p>
+  );
+}
+
+/** The sentence with its first `words` as a link to `to`; as it is where the words are not in it. */
+function linked(text: string, words: string, to: string) {
+  const at = text.indexOf(words);
+  if (at < 0) return <>{text} <Link to={to}>{words}</Link></>;
+  return <>{text.slice(0, at)}<Link to={to}>{words}</Link>{text.slice(at + words.length)}</>;
+}
+
+/** What a watch's stored parameters keep it from finding, with the way to change them. */
+export function WatchWarnings({ id, warnings }: { id: number; warnings: readonly WatchWarning[] }) {
+  if (!warnings.length) return null;
+  return (
+    <ul className="watch-warnings" aria-label="What keeps this watch from finding new papers">
+      {warnings.map((w) => (
+        <li key={w.kind} className="watch-warning" data-warning={w.kind}>
+          {linked(w.text, 'Change', `/watches/${id}/edit`)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function WatchRow({ routine, now, next, firing, lit, onLight }: {
+  routine: RoutineRow; now: Date; next: string | null; firing: Firing; lit: boolean; onLight: () => void;
 }) {
   const asks = watchAsks(routine.parameters);
   const words = scheduleText(routine.schedule_cron, routine.parameters);
   const last = instant(routine.last_execution);
   const missed = routine.missed_fires.count - routine.missed_fires.overlap_skipped;
+  const due = routine.is_active ? nextWords(firing, next ? when(next, now) : null) : null;
+  const warnings = watchWarnings(routine.parameters, now);
   return (
     <li
       className="watch"
       data-routine={routine.id}
       data-active={routine.is_active ? 'true' : 'false'}
+      data-firing={routine.is_active ? firingState(firing) : undefined}
       data-lit={lit ? 'true' : undefined}
       onMouseEnter={onLight}
       onFocus={onLight}
@@ -130,7 +182,7 @@ function WatchRow({ routine, now, next, lit, onLight }: {
         </span>
         <span className="sep" />
         {words ? <span>{words}</span> : <code className="cron">{routine.schedule_cron}</code>}
-        {routine.is_active && next ? (<><span className="sep" /><span>next {when(next, now)}</span></>) : null}
+        {due && (<><span className="sep" /><span className="watch-next" data-firing={firingState(firing)}>{due}</span></>)}
       </div>
       <div className="meta">
         <span>
@@ -144,6 +196,7 @@ function WatchRow({ routine, now, next, lit, onLight }: {
         </span>
         {missed > 0 && (<><span className="sep" /><span className="watch-missed">{count(missed, 'fire')} missed while resmon was closed</span></>)}
       </div>
+      <WatchWarnings id={routine.id} warnings={warnings} />
     </li>
   );
 }
