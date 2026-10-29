@@ -52,11 +52,13 @@ class OpenAireClient(BaseAPIClient):
         field into the query string: this source takes a separate parameter, and
         ``search()`` is where the parameter is built.
         """
-        from .api_base import EntityUnsupported, _profile_query_name  # noqa: PLC0415
+        from .api_base import (  # noqa: PLC0415
+            EntityUnsupported, _profile_query_name, note_author_query)
 
         name = _profile_query_name(profile)
         if not name:
             raise EntityUnsupported("That profile has no name to search with.")
+        note_author_query("author", name)
         return self.search("", date_from, date_to, max_results, author=name, **kwargs)
 
     def search(

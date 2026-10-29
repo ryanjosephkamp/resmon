@@ -13,6 +13,7 @@ from .api_base import (
     NormalizedResult,
     RateLimiter,
     _profile_query_name,
+    note_author_query,
     note_parse_failure,
     note_parse_failure_unless_transport,
     note_unanswerable,
@@ -335,6 +336,7 @@ class DblpClient(BaseAPIClient):
             note_unanswerable("no_complete_calendar_year")
             return []
 
+        note_author_query("author", name)
         deadline = time.monotonic() + _SEARCH_BUDGET_SECONDS
         results: list[NormalizedResult] = []
         seen: set[str] = set()

@@ -428,3 +428,104 @@ def test_new_sweep_does_not_rewrite_or_delete_a_rejected_historical_match(engine
     engine.execute_dive("fixture", {"entity_profile": profile})
     assert tuple(conn.execute("SELECT * FROM watch_profile_matches").fetchone()) == before
     assert conn.execute("SELECT count(*) FROM documents").fetchone()[0] == 1
+
+
+# ---------------------------------------------------------------------------
+# What a person watch asked each source, in its search record
+# ---------------------------------------------------------------------------
+
+class _Noting(_EntitySource):
+    """Notes its author query the way a real client does, then sends it."""
+
+    kind, value, attempted = "author", "Jane Doe", True
+
+    def search_entity(self, profile, date_from=None, date_to=None,
+                      max_results=100, **kwargs):
+        from implementation_scripts.api_base import note_author_query, search_outcome
+        note_author_query(self.kind, self.value)
+        if self.attempted:
+            search_outcome().note_attempt()
+        return super().search_entity(profile, date_from, date_to, max_results, **kwargs)
+
+
+def test_a_person_watch_records_what_each_source_was_sent(conn, monkeypatch, tmp_path):
+    """The search record said "Query as sent: not recorded" for every watch run,
+    because it read the keyword query a person watch does not have."""
+    from implementation_scripts import search_record
+
+    class _Hal(_Noting):
+        kind, value = "query", 'authFullName_s:"Jane Doe"'
+
+    class _OpenAlex(_Noting):
+        kind, value = "orcid", ORCID
+
+    class _NeverSent(_Noting):
+        # Noted, then stopped before any request: that query was not sent.
+        attempted = False
+
+    clients = {"hal": _Hal, "openalex": _OpenAlex, "crossref": _Noting,
+               "dblp": _NeverSent, "arxiv": _CannotBeAsked}
+    monkeypatch.setattr(se, "get_client", lambda name: clients[name]())
+    monkeypatch.setattr(se, "required_credential_for_sweep", lambda _slug: None)
+    monkeypatch.setattr(se, "REPORTS_DIR", tmp_path / "reports")
+    engine = SweepEngine(db_conn=conn, config={})
+    profile = _profile(conn)
+    # A restart copies the earlier run's parameters, record and all.
+    exec_id = engine.prepare_execution(
+        "automated_sweep", ["arxiv", "hal", "crossref", "openalex", "dblp"],
+        {"entity_mode": "publications", "entity_profile": profile,
+         "author_queries": {"hal": {"kind": "query", "value": "stale"}}})
+    engine.run_prepared(exec_id)
+
+    search = search_record.build(conn, exec_id)["search"]
+    assert search["query_as_sent"] == (
+        'HAL: authFullName_s:"Jane Doe"; CrossRef: author "Jane Doe"; '
+        f"OpenAlex: ORCID {ORCID}")
+    assert "stale" not in search["query_as_sent"]
+    assert "Query as sent" in search_record.to_markdown(search_record.build(conn, exec_id))
+
+
+def test_a_watch_run_without_the_record_reads_not_recorded(conn):
+    """An older watch run kept no record of what it sent. Its profile is on
+    file, but reconstructing a query from it would state a guess as a fact."""
+    from implementation_scripts import search_record
+    from implementation_scripts.database import insert_execution
+    import json as _json
+
+    profile = _profile(conn)
+    exec_id = insert_execution(conn, {
+        "execution_type": "automated_sweep", "start_time": "2026-10-01T00:00:00Z",
+        "parameters": _json.dumps({"entity_mode": "publications", "entity_profile": profile,
+                                   "repositories": ["hal"]})})
+    assert search_record.build(conn, exec_id)["search"]["query_as_sent"] is None
+
+
+def test_the_real_clients_note_what_they_put_into_the_request(monkeypatch):
+    """A field source notes its whole query string, a parameter source its name,
+    and OpenAlex the ORCID it asks by instead of the name when it has one."""
+    from implementation_scripts import api_hal, api_crossref, api_openalex
+    from implementation_scripts.api_base import reset_search_outcome, search_outcome
+
+    class _Empty:
+        status_code = 200
+        text = "{}"
+
+        def json(self):
+            return {}
+
+    person = {"kind": "person", "display_name": "Jane Doe",
+              "names": [{"value": "Jane Doe"}], "affiliations": [],
+              "identifiers": {"orcid": {"value": ORCID}}}
+    for module, cls, expected in [
+        (api_hal, "HalClient", {"kind": "query", "value": 'authFullName_s:"Jane Doe"'}),
+        (api_crossref, "CrossrefClient", {"kind": "author", "value": "Jane Doe"}),
+        (api_openalex, "OpenAlexClient", {"kind": "orcid", "value": ORCID}),
+    ]:
+        monkeypatch.setattr(module, "safe_request", lambda *a, **k: _Empty())
+        reset_search_outcome()
+        try:
+            getattr(module, cls)().search_entity(person, max_results=2)
+        except Exception:
+            pass  # an empty body may be refused; what was noted is the point
+        assert search_outcome().snapshot()["author_query"] == expected, cls
+    reset_search_outcome()

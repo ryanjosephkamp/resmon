@@ -243,6 +243,9 @@ class SweepEngine:
         # regardless of whether prepare_execution was used.
         query_params = dict(query_params)
         query_params.setdefault("repositories", list(repositories))
+        # What an earlier run's sources were sent, carried in by a restart that
+        # copied that run's parameters. This run records its own.
+        inherited_queries = query_params.pop("author_queries", None) is not None
         params_json = json.dumps(query_params, default=str)
         wall_start = time.monotonic()
 
@@ -253,6 +256,8 @@ class SweepEngine:
                 "parameters": params_json,
                 "start_time": start_time,
             })
+        elif inherited_queries:
+            self._record_author_queries(exec_id, None)
 
         store = progress_store
 
@@ -292,6 +297,8 @@ class SweepEngine:
         # Only a cancelled run's report needs it: a finished report lists the
         # papers themselves.
         source_counts: dict[str, int] = {}
+        # A person watch: what each source's author query sent, by slug.
+        author_queries: dict[str, dict] = {}
 
         def cancelled(
             stage: str,
@@ -405,8 +412,13 @@ class SweepEngine:
                 repo_errors=repo_errors,
                 zero_notes=zero_notes,
                 source_counts=source_counts,
+                author_queries=author_queries,
             ):
+                if query_params.get("entity_profile") is not None:
+                    self._record_author_queries(exec_id, author_queries)
                 return cancelled("querying")
+            if query_params.get("entity_profile") is not None:
+                self._record_author_queries(exec_id, author_queries)
 
             store.emit(exec_id, {
                 "type": "log_entry",
@@ -1138,6 +1150,38 @@ class SweepEngine:
                 "Failed to record dedup figures for exec_id=%s: %s", exec_id, exc,
             )
 
+    def _record_author_queries(self, exec_id: int, queries: Optional[dict]) -> None:
+        """Store what a person watch's sources were sent, beside its request.
+
+        A person watch has no query string: each source's client builds its own
+        author query from the profile, by name or by an identifier, and notes
+        what it put into the request. Those notes are kept in the execution's
+        stored parameters under ``author_queries``, by source slug, so the
+        search record can say what was asked rather than "not recorded".
+        ``None`` removes the key. Like the other bookkeeping writes here, a
+        failure is logged and never fails the run.
+        """
+        try:
+            row = self.db.execute(
+                "SELECT parameters FROM executions WHERE id = ?", (int(exec_id),),
+            ).fetchone()
+            params = json.loads(row[0]) if row and row[0] else {}
+            if not isinstance(params, dict):
+                return
+            if queries is None:
+                params.pop("author_queries", None)
+            else:
+                params["author_queries"] = dict(queries)
+            self.db.execute(
+                "UPDATE executions SET parameters = ? WHERE id = ?",
+                (json.dumps(params, default=str), int(exec_id)),
+            )
+            self.db.commit()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "Failed to record author queries for exec_id=%s: %s", exec_id, exc,
+            )
+
     def _nothing_answered(self, exec_id: int) -> Optional[str]:
         """Did every source this run asked fail to answer it?
 
@@ -1568,6 +1612,7 @@ class SweepEngine:
         repo_errors: list[dict],
         zero_notes: list[dict],
         source_counts: dict[str, int],
+        author_queries: dict[str, dict],
     ) -> bool:
         """Ask the selected sources, up to ``_SOURCE_CONCURRENCY`` at a time.
 
@@ -1724,6 +1769,12 @@ class SweepEngine:
             flight = in_flight.pop(i)
             repo_name = flight["repo"]
             holder = flight["holder"]
+            # What a person query put into the request, kept only when at least
+            # one request was attempted: a client can note its query and then
+            # stop before sending it, and that query was not sent.
+            sent = holder.get("outcome") or {}
+            if sent.get("author_query") and int(sent.get("attempts") or 0) >= 1:
+                author_queries[repo_name] = dict(sent["author_query"])
             try:
                 if "error" in holder:
                     raise holder["error"]
