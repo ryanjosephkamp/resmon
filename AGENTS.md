@@ -87,8 +87,8 @@ shape changes its output: the same test compares them.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 1000 tests across 94 suites
-npm run e2e                                      # the real Electron app — 129 cases in 46 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 1008 tests across 95 suites
+npm run e2e                                      # the real Electron app — 130 cases in 47 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 

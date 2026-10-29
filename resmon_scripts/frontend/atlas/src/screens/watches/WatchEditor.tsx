@@ -473,6 +473,11 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
   const emailsOn = emailTargets.filter((t) => t.enabled);
   const emailOff = form.email && emailTargets.length > 0 && emailsOn.length === 0;
   const others = stored.filter((t) => t.channel !== 'email' && t.enabled);
+  // A webhook with no shared secret is refused before anything is sent
+  // (`delivery`'s webhook adapter), so it is named as failing, not as a destination.
+  const secrets = useQuery({ queryKey: ['credentials'], queryFn: () => answer(engine().GET('/api/credentials')) });
+  const unsigned = (t: DeliveryTarget) => t.channel === 'webhook'
+    && secrets.data?.credentials[`webhook_secret_${t.id}`]?.status === 'absent';
   const sends = form.notify || (form.email && !emailOff) || others.length > 0;
 
   return (
@@ -547,12 +552,18 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
               Its email destinations are turned off under Where reports go, so no email is sent.
             </p>
           )}
-          {others.map((t) => (
-            <p key={t.id} data-will="destination">
-              {CHANNEL_WORDS[t.channel] ?? t.channel}: {t.channel === 'webhook' ? webhookUrl(t.target) : destinationWords(t.channel, t.target)}
-              {t.mode === 'review' ? ', after you release each report' : ''}.
-            </p>
-          ))}
+          {others.map((t) => (unsigned(t)
+            ? (
+              <p key={t.id} className="will-warn" data-will="unsigned">
+                Webhook: {webhookUrl(t.target)} has no shared secret stored, so each delivery to it will fail until one is.
+              </p>
+            )
+            : (
+              <p key={t.id} data-will="destination">
+                {CHANNEL_WORDS[t.channel] ?? t.channel}: {t.channel === 'webhook' ? webhookUrl(t.target) : destinationWords(t.channel, t.target)}
+                {t.mode === 'review' ? ', after you release each report' : ''}.
+              </p>
+            )))}
           {form.email && !emailOff && account === 'missing' && (
             <p className="will-warn" data-will="no-email-account">
               No email account is fully set up under Settings, Email, so each email will fail, and say so under Where

@@ -235,13 +235,22 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
       return t.targets.map((x) => `${x.channel}:${x.enabled}:${x.mode}`).sort();
     }, { timeout: 30_000 }).toEqual(['folder:0:automatic', 'webhook:1:review']);
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watch-destinations.png') });
-    await hook.getByRole('button', { name: 'Remove' }).click();
-    await expect(hook).toHaveCount(0, { timeout: 30_000 });
 
-    // What it will do names the destination that is still on, and not the one turned off.
+    // What it will do: the webhook with its secret, after review; not the folder
+    // turned off; and a webhook with no secret named as failing, not as a destination.
+    await api(win, 'POST', `/api/routines/${made}/delivery-targets`, { channel: 'webhook', target: 'https://lab.example.org/unsigned' });
     await win.evaluate((id) => { window.location.hash = `#/watches/${id}/edit`; }, made);
     await expect(win.locator('[data-will="finish"]')).toContainText('An email with the report, and its results attached, to the address in Settings.', { timeout: 30_000 });
-    await expect(win.locator('[data-will="destination"]')).toHaveCount(0);
+    await expect(win.locator('[data-will="destination"]')).toHaveText(['Webhook: https://example.org/resmon-hook, after you release each report.']);
+    await expect(win.locator('[data-will="unsigned"]')).toHaveText(
+      'Webhook: https://lab.example.org/unsigned has no shared secret stored, so each delivery to it will fail until one is.');
+
+    await win.evaluate((id) => { window.location.hash = `#/watches/${id}`; }, made);
+    await win.getByRole('tab', { name: 'Where reports go' }).click();
+    for (const url of ['https://example.org/resmon-hook', 'https://lab.example.org/unsigned']) {
+      await win.locator('.destinations li[data-channel="webhook"]').filter({ hasText: url }).getByRole('button', { name: 'Remove' }).click();
+      await expect(win.locator('.destinations li[data-channel="webhook"]').filter({ hasText: url })).toHaveCount(0, { timeout: 30_000 });
+    }
 
     // — begun from a search ----------------------------------------------------
     await win.evaluate(() => { window.location.hash = '#/search/saved'; });
