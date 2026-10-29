@@ -2983,3 +2983,315 @@ class EvidencePageText(LosslessModel):
     examined_pages: list[int]
     remaining_pages: str
     coverage: str
+
+
+# ---------------------------------------------------------------------------
+# Selected-evidence answers
+# ---------------------------------------------------------------------------
+
+class SelectedRequested(LosslessModel):
+    """The public half of the runtime choice a request was made with.
+
+    ``requested_model`` and ``requested_effort`` are what was asked for. What a
+    runtime reported it used is in the answer's ``reports``, kept apart, because
+    the two are different facts. Each ``*_basis`` says where a choice came
+    from: ``explicit``, a settings or runtime default, or ``not_supported``.
+    """
+
+    binding_basis: str
+    effort_basis: str
+    model_basis: str
+    provider: str
+    requested_effort: Optional[str]
+    requested_model: Optional[str]
+    runtime: str
+    version: int
+
+
+class SelectedSource(LosslessModel):
+    """One selected segment, ``S01`` to ``S24``: an exact version's page text, or a range of it.
+
+    ``text`` is the literal selected text. ``start_codepoint`` and
+    ``end_codepoint`` are global Unicode codepoint offsets on the page, end
+    exclusive, never UTF-16 indices. ``page_count`` is ``None`` where a PDF's
+    count is not known.
+    """
+
+    byte_size: int
+    end_codepoint: int
+    extraction_contract: str
+    file_id: str
+    media_type: str
+    original_name: str
+    page_count: Optional[int]
+    page_number: int
+    page_text_sha256: str
+    project_id: str
+    sha256: str
+    source_id: str
+    source_sha256: str
+    start_codepoint: int
+    text: str
+    vault_id: str
+    version_id: str
+
+
+class SelectedNoteAnchor(LosslessModel):
+    """Where a selected passage note is pinned: one page's text, by hash and codepoint range."""
+
+    end_codepoint: int
+    extraction_contract: str
+    page_number: int
+    page_text_sha256: str
+    quote: str
+    start_codepoint: int
+
+
+class SelectedNote(LosslessModel):
+    """An owner note chosen for a request. ``provenance`` is ``owner_note``: a saved local note, not document evidence."""
+
+    anchor: Optional[SelectedNoteAnchor]
+    body: str
+    created_at_utc: str
+    file_id: str
+    kind: str
+    note_id: str
+    provenance: str
+    revision: int
+    updated_at_utc: str
+    version_id: str
+
+
+class SelectedCoverageFile(LosslessModel):
+    """Which pages of one selected version were sent or checked, and how many were not examined.
+
+    ``known_page_count`` and ``unexamined_page_count`` are ``None`` where the
+    page count is not known.
+    """
+
+    anchor_checked_pages: list[int]
+    file_id: str
+    known_page_count: Optional[int]
+    selected_pages: list[int]
+    unexamined_page_count: Optional[int]
+    version_id: str
+
+
+class SelectedCoverage(LosslessModel):
+    """What a request carries, counted: files, pages, segments, source bytes and codepoints, and notes."""
+
+    file_count: int
+    files: list[SelectedCoverageFile]
+    note_bytes: int
+    note_count: int
+    page_count: int
+    segment_count: int
+    source_bytes: int
+    source_codepoints: int
+
+
+class SelectedDisclosure(LosslessModel):
+    """What sending a request reveals and reads, said before consent.
+
+    ``custom_endpoint`` is true when the request goes to a custom API base
+    URL. The two reads are always true: the selected file bytes are read to
+    check their digest, and a selected PDF page's structure is examined.
+    """
+
+    custom_endpoint: bool
+    limitations: str
+    pdf_structure_examined_for_selected_pages: bool
+    retained_digest_reads_selected_file_bytes: bool
+    source_strings_may_contain_private_material: str
+
+
+class SelectedPayload(LosslessModel):
+    """The exact payload a request sends, which ``request_sha256`` covers.
+
+    ``response_contract`` is the fixed description of the answer shape the
+    runtime is asked for, sent with every request.
+    """
+
+    coverage: SelectedCoverage
+    disclosure: SelectedDisclosure
+    instruction: str
+    mode: str
+    notes: list[SelectedNote]
+    profile: str
+    project_id: str
+    project_revision: int
+    requested: SelectedRequested
+    response_contract: dict[str, Any]
+    sources: list[SelectedSource]
+    system_sha256: str
+    system_version: str
+    vault_id: str
+    version: int
+
+
+class SelectedRequest(LosslessModel):
+    """A request, immutable once admitted: the payload, the system text, and the exact user prompt with their hashes.
+
+    This model and every one inside it declare their fields in sorted key
+    order, because a saved request, result, report or usage is canonical
+    JSON with sorted keys, and those are the bytes ``request_sha256`` covers.
+    A preview's request is the one place the order differs: it is the
+    assembly's own dictionary, not yet canonicalized.
+    """
+
+    payload: SelectedPayload
+    request_sha256: str
+    system_sha256: str
+    system_text: str
+    user_prompt: str
+    user_sha256: str
+
+
+class SelectedCitation(LosslessModel):
+    """An exact range of a selected source.
+
+    It identifies selected text and nothing more: that the quote supports the
+    item it is attached to is not checked.
+    """
+
+    end_codepoint: int
+    quote: str
+    source_id: str
+    start_codepoint: int
+
+
+class SelectedItem(LosslessModel):
+    """One item of an answer: ``source_statement``, ``interpretation``, ``note_summary`` or ``question``.
+
+    A source statement or interpretation carries citations; a note summary
+    carries ``note_ids`` instead and cites no document.
+    """
+
+    citations: list[SelectedCitation]
+    kind: str
+    note_ids: list[str]
+    text: str
+
+
+class SelectedSection(LosslessModel):
+    """A section of an answer: ``summary``, ``details``, ``limitations`` or ``questions``."""
+
+    items: list[SelectedItem]
+    kind: str
+
+
+class SelectedResult(LosslessModel):
+    """The validated answer. ``status`` is ``answer`` or ``insufficient_evidence``."""
+
+    limitations: list[str]
+    mode: str
+    request_sha256: str
+    sections: list[SelectedSection]
+    status: str
+    version: int
+
+
+class SelectedReport(LosslessModel):
+    """A model name the runtime reported, where it reported it, and when. Not the model that was asked for."""
+
+    model: str
+    observed_at_utc: str
+    source: str
+
+
+class SelectedUsageReported(LosslessModel):
+    """Token counts a runtime reported. Only the counts it reported are present."""
+
+    cache_creation_tokens: Optional[int] = None
+    cache_read_tokens: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+
+
+class SelectedUsage(LosslessModel):
+    """Usage as reported. ``provenance`` is ``runtime_report`` and ``billing`` is ``unknown``: no cost is known."""
+
+    billing: str
+    provenance: str
+    reported: SelectedUsageReported
+
+
+class SelectedAnswer(LosslessModel):
+    """``POST .../answers`` (202), ``GET .../answers/{answer_id}`` and ``POST .../cancel``: one saved answer.
+
+    ``state`` is ``admitted`` or ``running``, then one of ``succeeded``,
+    ``refused``, ``failed``, ``cancelled`` or ``interrupted``. ``result`` is
+    present only for ``succeeded`` and ``refused``; ``validation`` is then
+    ``exact_text_identity_only_support_unchecked``, and otherwise
+    ``unvalidated``. ``current_originals`` is ``not_rechecked``: the saved
+    excerpts are not a fresh check of the files. ``partial_text`` is what
+    arrived before the end, unvalidated.
+    """
+
+    id: int
+    answer_id: str
+    vault_id: str
+    project_id: str
+    project_revision: int
+    mode: str
+    state: str
+    request_sha256: str
+    partial_text: str
+    cleanup_state: str
+    created_at_utc: str
+    started_at_utc: Optional[str]
+    finished_at_utc: Optional[str]
+    error_code: Optional[str]
+    error_message: Optional[str]
+    request: SelectedRequest
+    result: Optional[SelectedResult]
+    reports: list[SelectedReport]
+    usage: Optional[SelectedUsage]
+    contract_version: int
+    validation: str
+    current_originals: str
+    limitations: str
+
+
+class SelectedPreview(LosslessModel):
+    """``POST .../answer-previews``: the exact request a Send would make, before any runtime is called.
+
+    It lives in the serving process until ``expires_at_utc`` and is lost on
+    restart. ``owner_runtime_id`` names the process that holds it.
+    """
+
+    contract_version: int
+    preview_id: str
+    vault_id: str
+    project_id: str
+    owner_runtime_id: str
+    expires_at_utc: str
+    request_sha256: str
+    request: SelectedRequest
+
+
+class SelectedAnswerRow(LosslessModel):
+    """One answer in a project's history, without its request or result."""
+
+    id: int
+    answer_id: str
+    request_sha256: str
+    mode: str
+    state: str
+    created_at_utc: str
+    finished_at_utc: Optional[str]
+    cleanup_state: str
+
+
+class SelectedAnswers(LosslessModel):
+    """``GET .../answers``: a project's answers, oldest first, at most 50 a page."""
+
+    contract_version: int
+    vault_id: str
+    project_id: str
+    answers: list[SelectedAnswerRow]
+    through_id: int
+    next_after_id: Optional[int]
+    has_more: bool
+    total: int
+    count_basis: str

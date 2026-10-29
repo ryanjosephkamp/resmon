@@ -3674,31 +3674,36 @@ class SelectedCancelBody(BaseModel):
     expected_runtime_id: str
 
 
-@app.post('/api/evidence/projects/{project_id}/answer-previews', response_model=None)
+@app.post('/api/evidence/projects/{project_id}/answer-previews', response_model=response_models.SelectedPreview,
+          response_model_exclude_unset=True)
 async def selected_answer_preview(request: Request, project_id: str) -> dict:
     body = await _evidence_body(request, SelectedPreviewBody)
     return await _evidence_run(request, lambda c, cancel: _selected_lane(c).preview(c, project_id, body.model_dump(), cancel))
 
 
-@app.post('/api/evidence/projects/{project_id}/answers', status_code=202, response_model=None)
+@app.post('/api/evidence/projects/{project_id}/answers', status_code=202, response_model=response_models.SelectedAnswer,
+          response_model_exclude_unset=True)
 async def selected_answer_send(request: Request, project_id: str) -> dict:
     body = await _evidence_body(request, SelectedSendBody)
     return await _evidence_run(request, lambda c, cancel: _selected_lane(c).send(c, project_id, body.model_dump(), cancel))
 
 
-@app.get('/api/evidence/projects/{project_id}/answers', response_model=None)
+@app.get('/api/evidence/projects/{project_id}/answers', response_model=response_models.SelectedAnswers,
+         response_model_exclude_unset=True)
 async def selected_answer_history(request: Request, project_id: str) -> dict:
     q = _evidence_query(request, ('expected_vault_id','after_id','through_id','limit'))
     return await _evidence_run(request, lambda c, _: selected_evidence.history(c, _evidence_required(q,'expected_vault_id'),project_id,**_evidence_page(q)))
 
 
-@app.get('/api/evidence/projects/{project_id}/answers/{answer_id}', response_model=None)
+@app.get('/api/evidence/projects/{project_id}/answers/{answer_id}', response_model=response_models.SelectedAnswer,
+         response_model_exclude_unset=True)
 async def selected_answer_detail(request: Request, project_id: str, answer_id: str) -> dict:
     q = _evidence_query(request, ('expected_vault_id',))
     return await _evidence_run(request, lambda c, _: selected_evidence.detail(c,_evidence_required(q,'expected_vault_id'),project_id,answer_id))
 
 
-@app.post('/api/evidence/projects/{project_id}/answers/{answer_id}/cancel', response_model=None)
+@app.post('/api/evidence/projects/{project_id}/answers/{answer_id}/cancel', response_model=response_models.SelectedAnswer,
+          response_model_exclude_unset=True)
 async def selected_answer_cancel(request: Request, project_id: str, answer_id: str) -> dict:
     body = await _evidence_body(request, SelectedCancelBody)
     return await _evidence_run(request, lambda c, _: _selected_lane(c).cancel(answer_id,body.expected_vault_id,project_id,body.expected_runtime_id))
