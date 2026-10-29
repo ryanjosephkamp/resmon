@@ -868,7 +868,7 @@ def test_a_withdrawn_source_is_not_given_reachability_advice(conn):
     assert finding["title"] == "ieee was withdrawn from resmon"
     assert "reachable" not in finding["what_to_do"]
     assert "key" not in finding["what_to_do"]
-    assert "Remove ieee from 'Old IEEE watch'" in finding["what_to_do"]
+    assert "Remove ieee from 'Old IEEE watch', which still selects it." in finding["what_to_do"]
     assert RETIRED_REPOSITORIES["ieee"] in finding["detail"]
 
 

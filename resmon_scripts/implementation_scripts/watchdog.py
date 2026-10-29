@@ -521,8 +521,10 @@ def _check_sources(
                     what_to_do=(
                         f"Remove {source} from "
                         + _join_names(still_selected)
-                        + ", which still select it. Nothing about the source "
-                        "needs checking: it will not be asked again."
+                        + (", which still selects it." if len(set(still_selected)) == 1
+                           else ", which still select it.")
+                        + " Nothing about the source needs checking: it will "
+                        "not be asked again."
                         if still_selected else
                         f"No active routine selects {source} any more, so no "
                         "future run will ask for it and nothing needs changing. "
