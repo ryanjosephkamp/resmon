@@ -14,6 +14,35 @@ _DOAJ_API_URL = "https://doaj.org/api/search/articles"
 _RATE_LIMITER = RateLimiter(requests_per_second=5.0)
 
 
+_MONTHS = {
+    name: index
+    for index, names in enumerate((
+        ("january", "jan"), ("february", "feb"), ("march", "mar"), ("april", "apr"),
+        ("may",), ("june", "jun"), ("july", "jul"), ("august", "aug"),
+        ("september", "sep", "sept"), ("october", "oct"), ("november", "nov"), ("december", "dec"),
+    ), start=1)
+    for name in names
+}
+
+
+def _month_number(month: object) -> str:
+    """``bibjson.month`` as two digits, or ``01`` when it cannot be read.
+
+    DOAJ gives the month as a number, a number in a string, or a name
+    ("January", "Jul"). The name used to be zero-padded as it came, storing
+    ``2025-January-01``: a date nothing else in resmon can read, so month
+    buckets, the discovery-lag view's ``julianday`` and the explorer's date
+    order all misread it. A month that is missing or unreadable falls back to
+    the year alone, as a missing one always has; the catalog says DOAJ dates
+    papers only to the year.
+    """
+    text = str(month).strip().lower().rstrip(".") if month is not None else ""
+    if text.isdigit() and 1 <= int(text) <= 12:
+        return f"{int(text):02d}"
+    number = _MONTHS.get(text)
+    return f"{number:02d}" if number else "01"
+
+
 class DoajClient(BaseAPIClient):
     """DOAJ repository API client."""
 
@@ -123,9 +152,8 @@ class DoajClient(BaseAPIClient):
 
         # Date
         year = bibjson.get("year")
-        month = bibjson.get("month", "01")
         if year:
-            publication_date = f"{year}-{str(month).zfill(2)}-01"
+            publication_date = f"{year}-{_month_number(bibjson.get('month'))}-01"
         else:
             publication_date = None
 
