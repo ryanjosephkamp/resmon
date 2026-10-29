@@ -2390,3 +2390,255 @@ class CredentialChanged(LosslessModel):
     """
 
     success: bool
+
+
+# ---------------------------------------------------------------------------
+# The Source wall
+# ---------------------------------------------------------------------------
+
+
+class SourceWallRun(LosslessModel):
+    """One column of the wall: a run, oldest first."""
+
+    execution_id: int
+    execution_type: str
+    status: Optional[str]
+    started_at: Optional[str]
+    ended_at: Optional[str]
+    label: str
+
+
+class SourceWallCell(LosslessModel):
+    """One source's recorded answer to one run, already classified.
+
+    ``state`` is one of ``source_wall.WALL_STATES``; ``label`` and ``note`` are
+    ``source_coverage``'s own words, unedited. ``outcome_recorded`` false is a
+    run with no row for this source, which reads as not recorded or, where the
+    run's saved selection says so, not asked. ``in_selection`` is ``None`` when
+    the run's selection cannot be read.
+    """
+
+    execution_id: int
+    state: str
+    label: str
+    note: str
+    result_count: Optional[int]
+    status: Optional[str]
+    zero_reason: Optional[str]
+    partial: bool
+    outcome_recorded: bool
+    in_selection: Optional[bool]
+
+
+class SourceWallSource(LosslessModel):
+    """One row: a source, its cells in run order, and how many of each state."""
+
+    slug: str
+    name: str
+    in_catalog: bool
+    cells: list[SourceWallCell]
+    counts: dict[str, int]
+    latest_known_state: Optional[str]
+
+
+class SourceWallLegendEntry(LosslessModel):
+    state: str
+    label: str
+    meaning: str
+
+
+class SourceWallVerdict(LosslessModel):
+    """The sentence at the top. ``level`` is ``empty``, ``ok``, ``attention`` or ``unknown``."""
+
+    level: str
+    headline: str
+    detail: list[str]
+
+
+class SourceWallWindow(LosslessModel):
+    requested: int
+    returned: int
+    max: int
+    runs_available: int
+
+
+class SourceWall(LosslessModel):
+    """``GET /api/coverage/source-wall``: every source's answer to each of the last runs.
+
+    Served classified, with every word a screen draws: the legend, the verdict
+    and the notes. A renderer that re-derived a state from ``status`` and
+    ``zero_reason`` would be the second place to get it wrong.
+    """
+
+    runs: list[SourceWallRun]
+    sources: list[SourceWallSource]
+    states: list[str]
+    state_legend: list[SourceWallLegendEntry]
+    totals: dict[str, int]
+    verdict: SourceWallVerdict
+    window: SourceWallWindow
+    notes: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Analytics
+# ---------------------------------------------------------------------------
+#
+# Every view carries ``sample_size`` and ``sufficient``, and most carry
+# ``insufficient_reason``: the sentence a screen shows instead of a chart drawn
+# over too little. A model written from a well-stocked corpus would be the one
+# to lose them.
+
+
+class CorpusSummary(LosslessModel):
+    """``GET /api/analytics/summary``. ``doi_coverage`` is ``None`` over no papers: a share of nothing."""
+
+    documents: int
+    unique_papers: int
+    distinct_authors: int
+    sources: int
+    completed_executions: int
+    first_seen: Optional[str]
+    last_seen: Optional[str]
+    doi_coverage: Optional[float]
+    sample_size: int
+    sufficient: bool
+
+
+class SourceContributionRow(LosslessModel):
+    source: str
+    total: int
+    unique_papers: int
+    duplicated: int
+    unique_share: Optional[float]
+
+
+class SourceContribution(LosslessModel):
+    """``GET /api/analytics/source-contribution``: overlap needs two sources to compare."""
+
+    sources: list[SourceContributionRow]
+    sample_size: int
+    sufficient: bool
+    insufficient_reason: Optional[str]
+
+
+class DiscoveryLagRow(LosslessModel):
+    """One source's lag, in days. ``None`` below the minimum sample, rather than a median of three."""
+
+    source: str
+    sample_size: int
+    sufficient: bool
+    median_days: Optional[float]
+    fastest_days: Optional[float]
+    slowest_days: Optional[float]
+
+
+class DiscoveryLag(LosslessModel):
+    """``GET /api/analytics/discovery-lag``."""
+
+    sources: list[DiscoveryLagRow]
+    sample_size: int
+    sufficient: bool
+    minimum_sample: int
+    insufficient_reason: Optional[str]
+
+
+class RoutineHealthRun(LosslessModel):
+    start_time: Optional[str]
+    new_results: int
+    total_results: int
+
+
+class RoutineHealthRow(LosslessModel):
+    """One watch: what its completed runs found, and its fires that did not run."""
+
+    routine_id: int
+    name: str
+    missed_fires: int
+    last_missed_fire_at: Optional[str]
+    schedule_cron: str
+    is_active: bool
+    runs: int
+    series: list[RoutineHealthRun]
+    runs_since_new: int
+    last_new_result_at: Optional[str]
+    total_new: int
+    status: str
+    sample_size: int
+    sufficient: bool
+
+
+class RoutineHealth(LosslessModel):
+    """``GET /api/analytics/routine-health``."""
+
+    routines: list[RoutineHealthRow]
+    minimum_runs: int
+    stale_after: int
+    sample_size: int
+    sufficient: bool
+    insufficient_reason: Optional[str]
+
+
+class PublicationVolumeMonth(LosslessModel):
+    """One month: its total and each group's count; groups outside the top eight are ``other``."""
+
+    month: str
+    total: int
+    groups: dict[str, int]
+
+
+class PublicationVolume(LosslessModel):
+    """``GET /api/analytics/publication-volume``, by ``source`` or ``category``."""
+
+    group_by: str
+    groups: list[str]
+    series: list[PublicationVolumeMonth]
+    sample_size: int
+    sufficient: bool
+    insufficient_reason: Optional[str]
+
+
+class AnalyticsOverview(LosslessModel):
+    """``GET /api/analytics/overview``: the five views in one round trip."""
+
+    summary: CorpusSummary
+    source_contribution: SourceContribution
+    discovery_lag: DiscoveryLag
+    routine_health: RoutineHealth
+    publication_volume: PublicationVolume
+
+
+class KeywordScope(LosslessModel):
+    """``corpus``, or ``execution`` with the run's id."""
+
+    type: str
+    execution_id: Optional[int] = None
+
+
+class KeywordContributionRow(LosslessModel):
+    """One keyword: papers it matched, and how many no other keyword did.
+
+    ``unique_share`` is ``None`` below ``minimum_sample_for_share`` matches.
+    """
+
+    keyword: str
+    matched: int
+    unique: int
+    shared: int
+    contains_operators: bool
+    unique_share: Optional[float]
+
+
+class KeywordContribution(LosslessModel):
+    """``GET /api/analytics/keyword-contribution``. Not part of the overview: it reads every paper once."""
+
+    scope: KeywordScope
+    keywords: list[KeywordContributionRow]
+    documents_considered: int
+    documents_matched: int
+    documents_unexplained: int
+    sample_size: int
+    minimum_sample_for_share: int
+    sufficient: bool
+    insufficient_reason: Optional[str]
+    fields_checked: list[str]

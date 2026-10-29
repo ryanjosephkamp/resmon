@@ -2297,7 +2297,8 @@ def _source_outcomes(conn, exec_ids: list[int]) -> dict[int, dict]:
     return summary
 
 
-@app.get("/api/coverage/source-wall")
+@app.get("/api/coverage/source-wall", response_model=response_models.SourceWall,
+         response_model_exclude_unset=True)
 def source_wall_grid(
     limit: int = Query(source_wall.DEFAULT_RUNS, ge=1, le=source_wall.MAX_RUNS),
 ):
@@ -4242,7 +4243,8 @@ def _cached_analytics(name: str, params: tuple, conn, compute):
     return result
 
 
-@app.get("/api/analytics/overview")
+@app.get("/api/analytics/overview", response_model=response_models.AnalyticsOverview,
+         response_model_exclude_unset=True)
 def analytics_overview():
     """Everything the Analytics page needs, in one round trip."""
     conn = _get_db()
@@ -4252,7 +4254,8 @@ def analytics_overview():
         _close_db(conn)
 
 
-@app.get("/api/analytics/summary")
+@app.get("/api/analytics/summary", response_model=response_models.CorpusSummary,
+         response_model_exclude_unset=True)
 def analytics_summary():
     conn = _get_db()
     try:
@@ -4262,7 +4265,8 @@ def analytics_summary():
         _close_db(conn)
 
 
-@app.get("/api/analytics/source-contribution")
+@app.get("/api/analytics/source-contribution", response_model=response_models.SourceContribution,
+         response_model_exclude_unset=True)
 def analytics_source_contribution():
     """Per source: papers delivered, and how many nothing else found."""
     conn = _get_db()
@@ -4274,7 +4278,8 @@ def analytics_source_contribution():
         _close_db(conn)
 
 
-@app.get("/api/analytics/discovery-lag")
+@app.get("/api/analytics/discovery-lag", response_model=response_models.DiscoveryLag,
+         response_model_exclude_unset=True)
 def analytics_discovery_lag():
     """Median days between publication and resmon first seeing each paper."""
     conn = _get_db()
@@ -4285,7 +4290,8 @@ def analytics_discovery_lag():
         _close_db(conn)
 
 
-@app.get("/api/analytics/routine-health")
+@app.get("/api/analytics/routine-health", response_model=response_models.RoutineHealth,
+         response_model_exclude_unset=True)
 def analytics_routine_health():
     """Per routine: new results per run, and whether it has gone quiet."""
     conn = _get_db()
@@ -4296,7 +4302,8 @@ def analytics_routine_health():
         _close_db(conn)
 
 
-@app.get("/api/analytics/publication-volume")
+@app.get("/api/analytics/publication-volume", response_model=response_models.PublicationVolume,
+         response_model_exclude_unset=True)
 def analytics_publication_volume(group_by: str = "source", months: int = 12):
     """Papers per publication month, split by source or subject category."""
     if group_by not in ("source", "category"):
@@ -4596,7 +4603,8 @@ def document_why(doc_id: int, execution_id: Optional[int] = None):
         _close_db(conn)
 
 
-@app.get("/api/analytics/keyword-contribution")
+@app.get("/api/analytics/keyword-contribution", response_model=response_models.KeywordContribution,
+         response_model_exclude_unset=True)
 def analytics_keyword_contribution(execution_id: Optional[int] = None):
     """Per keyword: papers it found that no other keyword did.
 
