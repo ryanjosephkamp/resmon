@@ -1,5 +1,8 @@
 import type { ReactElement } from 'react';
 import { Collection } from './screens/collection/Collection';
+import { Engine } from './screens/health/Engine';
+import { SourceWall } from './screens/health/SourceWall';
+import { Watchdog } from './screens/health/Watchdog';
 import { Paper } from './screens/collection/Paper';
 import { Saved } from './screens/collection/Saved';
 import { ReadingQueue } from './screens/library/ReadingQueue';
@@ -32,7 +35,7 @@ export const SECTIONS: readonly Section[] = [
   { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep runs export', element: <Collection /> },
   { path: '/library', label: 'Library', keywords: 'saved reading queue to read files', element: <ReadingQueue /> },
   { path: '/ask', label: 'Ask', keywords: 'assistant question chat', element: <Placeholder title="Ask" /> },
-  { path: '/health', label: 'Health', keywords: 'sources coverage diagnostics watchdog', element: <Placeholder title="Health" /> },
+  { path: '/health', label: 'Health', keywords: 'sources coverage diagnostics source wall watchdog findings broken engine runtime identity', element: <SourceWall /> },
 ];
 
 export const SETTINGS: Section = {
@@ -50,6 +53,8 @@ export const DETAILS: readonly { path: string; element: ReactElement }[] = [
   { path: '/search/ask', element: <Search /> },
   { path: '/search/saved', element: <Saved /> },
   { path: '/settings/:group', element: <Settings /> },
+  { path: '/health/watchdog', element: <Watchdog /> },
+  { path: '/health/engine', element: <Engine /> },
   { path: '/runs/:id', element: <Run /> },
   { path: '/papers/:id', element: <Paper /> },
   { path: '/watches/people', element: <People /> },

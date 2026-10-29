@@ -18,7 +18,8 @@ import type {
   BackendFacts, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord, DrawnAppearance, EmailSettings,
   ExplorerList, ExportedFile, ImportOutcome, InterruptedRow, JourneyDriver, NotificationPreferences, Place,
   PlateReading, ProfileCreation, ProfileMatches, QueuedPaper, RankedList, RoutineFacts, RunHandle, RunNowAnswer,
-  SourceOutcome, ThemeChoice, TodayReading, UpcomingFire, WhyPanel,
+  SourceOutcome, SourceWallCellView, SourceWallReading, SourceWallView, ThemeChoice, TodayReading, UpcomingFire,
+  WatchdogFinding, WatchdogView, WhyPanel,
 } from '../driver';
 import type { Session } from './session';
 
@@ -42,6 +43,9 @@ const ATLAS_PLACES: Partial<Record<Place, string>> = {
   // Saved configurations are Search › Saved: the searches saved from Ask the
   // sources and the copy kept of every watch.
   'Saved configurations': '/search/saved',
+  // Health: the Source wall is the section itself, and the watchdog its second tab.
+  'Source wall': '/health',
+  Watchdog: '/health/watchdog',
 };
 
 /** The Email group's fields, by the journey's word for each. */
@@ -75,7 +79,8 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'readWhatThisPlaceSays'
   | 'readDaemonPanel' | 'saveConfiguration' | 'exportConfigurations' | 'importConfigurations'
   | 'configureEmail' | 'readEmailSettings' | 'sendATestEmail' | 'setNotificationPreferences'
-  | 'readNotificationPreferences'>;
+  | 'readNotificationPreferences'
+  | 'readTheSourceWall' | 'readTheSourceWallCell' | 'readWatchdog' | 'muteTheFinding' | 'readConnectedIdentity'>;
 
 /** The reading-queue filter buttons, by the journey's word for each. */
 const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
@@ -128,6 +133,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     } else if (hash === '/search/saved') {
       await expect(win().getByRole('heading', { name: 'Saved', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.saved-page')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    } else if (hash?.startsWith('/health')) {
+      await expect(win().locator('nav[aria-label="Health"]')).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('.page.health')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
     } else if (hash === '/search/ask') {
       await expect(win().getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.source').first()).toBeVisible({ timeout: 30_000 });
@@ -333,6 +341,139 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
 
   return {
     open: (place) => goto(place),
+
+    // — health: the Source wall, the watchdog, this engine --------------------
+
+    readTheSourceWall: async (): Promise<SourceWallView> => {
+      await goto('Source wall');
+      const served = await backend.sourceWall();
+      const verdict = win().locator('[data-health="verdict"]');
+      // The headline is composed by the engine, so the wall has been read once
+      // the screen draws that one.
+      await expect(verdict.locator('.wall-headline'), 'the wall never drew the verdict the app composed')
+        .toHaveText(served.verdict.headline, { timeout: 60_000 });
+      const rows = win().locator('table.wall-grid tbody tr');
+      await expect(rows, 'the wall draws a different number of sources from the grid it was served')
+        .toHaveCount(served.sources.length, { timeout: 30_000 });
+      const legend = win().locator('[data-health="legend"] li');
+      const out: SourceWallView = {
+        verdict: {
+          level: String(await verdict.getAttribute('data-level')),
+          headline: (await verdict.locator('.wall-headline').innerText()).trim(),
+          detail: (await verdict.locator('.wall-detail-line').allInnerTexts()).map((t) => t.trim()),
+        },
+        window: (await win().locator('[data-health="window"]').innerText()).trim(),
+        legend: [],
+        rows: [],
+      };
+      // A mark is drawn, not typed: each is an SVG whose `data-mark` names it.
+      for (let i = 0; i < await legend.count(); i += 1) {
+        const entry = legend.nth(i);
+        out.legend.push({
+          label: (await entry.locator('.wall-legend-name').innerText()).trim(),
+          glyph: String(await entry.locator('svg.wall-mark').getAttribute('data-mark')),
+          count: Number((await entry.locator('.wall-legend-count').innerText()).replace(/[^0-9]/g, '')),
+        });
+      }
+      for (let i = 0; i < await rows.count(); i += 1) {
+        const row = rows.nth(i);
+        const cells = row.locator('button[data-health="cell"]');
+        const drawn: SourceWallCellView[] = [];
+        for (let j = 0; j < await cells.count(); j += 1) {
+          const cell = cells.nth(j);
+          // `<source>, <run> <when>: <label>`: the label follows the last colon.
+          const announced = String(await cell.getAttribute('aria-label'));
+          drawn.push({
+            state: String(await cell.getAttribute('data-state')),
+            glyph: String(await cell.locator('svg.wall-mark').getAttribute('data-mark')),
+            label: announced.slice(announced.lastIndexOf(': ') + 2),
+          });
+        }
+        out.rows.push({ source: (await row.locator('th[scope="row"]').innerText()).trim(), cells: drawn });
+      }
+      return out;
+    },
+
+    readTheSourceWallCell: async (source, column): Promise<SourceWallReading> => {
+      await goto('Source wall');
+      const served = await backend.sourceWall();
+      const record = served.sources.find((row) => row.name === source);
+      expect(record, `the wall was served no row for ${source}`).toBeTruthy();
+      const row = win().locator('table.wall-grid tbody tr')
+        .filter({ has: win().locator('th[scope="row"]', { hasText: source }) });
+      await expect(row, `the wall draws no single row for ${source}`).toHaveCount(1, { timeout: 60_000 });
+      await row.locator('button[data-health="cell"]').nth(column).click();
+      const pane = win().locator('[data-health="reading"]');
+      // The pane shows the engine's sentence for the cell; waiting for that
+      // sentence is what tells two cells of the same source apart.
+      await expect(pane.locator('.wall-reading-note'), 'the reading pane never showed this cell')
+        .toHaveText(record!.cells[column]!.note, { timeout: 30_000 });
+      return {
+        head: (await pane.locator('.wall-reading-head').innerText()).replace(/\s+/g, ' ').trim(),
+        label: (await pane.locator('.wall-reading-label').innerText()).trim(),
+        note: (await pane.locator('.wall-reading-note').innerText()).trim(),
+      };
+    },
+
+    readWatchdog: async (): Promise<WatchdogView> => {
+      await goto('Watchdog');
+      const served = await backend.watchdogFindings() as { findings?: unknown[] };
+      const verdict = win().locator('[data-health="watchdog-verdict"]');
+      await expect(verdict).toBeVisible({ timeout: 60_000 });
+      // The page's own read agrees with the app's record before it is read:
+      // the report is cached on a fingerprint, and a read taken across a
+      // change would be of the state before it.
+      const cards = win().locator('li.finding');
+      await expect(cards, 'the watchdog draws a different number of findings from its record')
+        .toHaveCount((served.findings ?? []).length, { timeout: 30_000 });
+      const findings: WatchdogFinding[] = [];
+      for (let i = 0; i < await cards.count(); i += 1) {
+        const card = cards.nth(i);
+        findings.push({
+          severity: (await card.locator('.finding-severity').innerText()).trim(),
+          scope: (await card.locator('.finding-scope').innerText()).trim(),
+          title: (await card.locator('.finding-title').innerText()).trim(),
+          muted: (await card.getAttribute('data-muted')) === 'true',
+        });
+      }
+      const muted = win().locator('[data-health="muted"] h2');
+      return {
+        verdict: (await verdict.locator('.wall-headline').innerText()).trim(),
+        findings,
+        notEnoughHistory: (await win().locator('ul.unjudged li').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim()),
+        mutedHeading: (await muted.count()) ? (await muted.innerText()).trim() : '',
+      };
+    },
+
+    muteTheFinding: async (titleFragment) => {
+      await goto('Watchdog');
+      const card = win().locator('li.finding').filter({ hasText: titleFragment }).first();
+      await expect(card, `no finding mentioning "${titleFragment}"`).toBeVisible({ timeout: 30_000 });
+      const answered = win().waitForResponse((r) => r.url().includes('/api/watchdog/mute'));
+      await card.getByRole('button', { name: 'Mute', exact: true }).click();
+      expect((await answered).ok(), 'Mute was refused').toBe(true);
+      // Accepted is not yet readable: the next read of the report is the one
+      // that pays for the change, so wait for the app's own record first.
+      await expect.poll(async () => {
+        const view = await backend.watchdogFindings() as { findings?: { title?: string; muted?: boolean }[] };
+        return (view.findings ?? []).some((f) => String(f.title ?? '').includes(titleFragment) && f.muted === true);
+      }, { timeout: 30_000, message: `"${titleFragment}" was never recorded as muted` }).toBe(true);
+      await expect(card, 'the record says muted and the finding on screen still does not')
+        .toHaveAttribute('data-muted', 'true', { timeout: 30_000 });
+    },
+
+    readConnectedIdentity: async () => {
+      // Atlas names the engine on Health's own tab rather than in a header.
+      await win().evaluate(() => { window.location.hash = '#/health/engine'; });
+      const status = win().locator('[data-health="status"]');
+      await expect(status).toContainText('Connected', { timeout: 30_000 });
+      const details = win().locator('[data-health="details"]');
+      await expect(details).toBeVisible({ timeout: 15_000 });
+      return {
+        status: (await status.innerText()).trim(),
+        details: (await details.innerText()).trim(),
+      };
+    },
 
     // — settings: the background service, email, notifications --------------
 

@@ -87,8 +87,8 @@ shape changes its output: the same test compares them.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 1008 tests across 95 suites
-npm run e2e                                      # the real Electron app — 130 cases in 47 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 1018 tests across 96 suites
+npm run e2e                                      # the real Electron app — 131 cases in 48 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -516,6 +516,12 @@ whose words are exact, and one it cannot state is kept as it is. Destinations ar
 on a watch's "Where reports go" tab (`Destinations.tsx`). The source catalog both screens choose
 from is `screens/sources/`. Real-app journey `e2e/atlas-watch-editor.spec.ts`; nothing it saves
 is left watching.
+Atlas Health (slice 4): `screens/health/` (the Source wall at `/health`, drawn from
+`GET /api/coverage/source-wall` with one SVG mark per state, named by `data-mark`; the Watchdog at
+`/health/watchdog`; the engine this window is talking to at `/health/engine`); the routes' bodies are
+the "the source wall" and "analytics" slices of `test_response_models.py`; real-app journey
+`e2e/atlas-health.spec.ts`. J16's gate and the authored source's up and down are renderer-free in
+`journeys/drivers/candidate.ts`.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
 
