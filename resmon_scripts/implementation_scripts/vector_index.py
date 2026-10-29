@@ -144,6 +144,20 @@ def load_extension(conn: sqlite3.Connection) -> Optional[str]:
         )
         return None
 
+    # Already loaded on *this* connection: say so rather than load it again. A
+    # second load re-registers every SQL function, and SQLite refuses that while
+    # any statement on the connection is still open, so a rebuild on a thread's
+    # connection that had loaded it earlier reported "sqlite-vec did not load
+    # on this machine" about a machine where it had (found by the watches slice
+    # of test_response_models.py, on CI only).
+    try:
+        version = conn.execute("SELECT vec_version()").fetchone()[0]
+    except sqlite3.OperationalError:
+        pass
+    else:
+        _PROBED, _LOAD_VERSION, _LOAD_REASON = True, str(version), None
+        return _LOAD_VERSION
+
     try:
         conn.enable_load_extension(True)
     except AttributeError:

@@ -1145,6 +1145,21 @@
         "title": "CoveragePaper",
         "type": "object"
       },
+      "CredentialChanged": {
+        "additionalProperties": true,
+        "description": "``PUT`` and ``DELETE /api/credentials/{key_name}``: ``{\"success\": true}``.\n\nNever the value. A ``PUT`` names its slot in the path and carries the\nvalue in the body; the answer says only that the keyring took it.",
+        "properties": {
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "title": "CredentialChanged",
+        "type": "object"
+      },
       "CredentialPresence": {
         "additionalProperties": true,
         "description": "Whether one credential is there, never what it is.\n\n``status`` is ``present``, ``absent`` or ``unreadable``, and the third is\nthe one that matters: an unsigned macOS build is denied access to keychain\nitems an earlier build stored, and reporting that as absent tells a user\ntheir keys are gone when they are merely unreachable. ``present`` is the\nolder boolean, kept beside it for compatibility.",
@@ -1228,6 +1243,133 @@
           "credentials"
         ],
         "title": "CredentialsPresence",
+        "type": "object"
+      },
+      "DaemonStatus": {
+        "additionalProperties": true,
+        "description": "``GET /api/service/daemon-status`` — the lock file, and what answered.\n\n``running`` is true only when a lock names a port and that port's health\nanswered 200; ``pid``, ``port``, ``version`` and ``started_at`` are the\nprobe's, and the ``lock_*`` fields are the file's own, which may name a\nprocess that has died. ``error`` says why a lock that is present did not\nanswer. ``is_self`` is present only on a probe that answered, and is true\nwhen the answer came from the process serving this request: a window\nattached to the service rather than beside it.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "is_self": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Self"
+          },
+          "lock_pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lock Pid"
+          },
+          "lock_port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lock Port"
+          },
+          "lock_present": {
+            "title": "Lock Present",
+            "type": "boolean"
+          },
+          "lock_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lock Version"
+          },
+          "pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pid"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "lock_present",
+          "running",
+          "pid",
+          "port",
+          "version",
+          "started_at",
+          "lock_pid",
+          "lock_port",
+          "lock_version",
+          "error"
+        ],
+        "title": "DaemonStatus",
         "type": "object"
       },
       "Delivery": {
@@ -7142,6 +7284,76 @@
         "title": "ServiceInstallBody",
         "type": "object"
       },
+      "ServiceInstalled": {
+        "additionalProperties": true,
+        "description": "``POST /api/service/install`` — the unit written, and where.",
+        "properties": {
+          "installed": {
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "unit_path": {
+            "title": "Unit Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "installed",
+          "unit_path"
+        ],
+        "title": "ServiceInstalled",
+        "type": "object"
+      },
+      "ServiceStatus": {
+        "additionalProperties": true,
+        "description": "``GET /api/service/status`` — whether the unit file is installed.\n\n``installed`` is the file's presence at ``unit_path`` and nothing more: an\ninstalled unit says nothing about whether a service is running, which is\n``/api/service/daemon-status``'s question. ``platform`` is ``sys.platform``.",
+        "properties": {
+          "installed": {
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "unit_path": {
+            "title": "Unit Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "installed",
+          "unit_path",
+          "platform"
+        ],
+        "title": "ServiceStatus",
+        "type": "object"
+      },
+      "ServiceUninstalled": {
+        "additionalProperties": true,
+        "description": "``POST /api/service/uninstall``.\n\n``removed`` is whether a file was there to remove: uninstalling a service\nthat was never installed answers ``installed: false`` and ``removed:\nfalse`` rather than an error.",
+        "properties": {
+          "installed": {
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "boolean"
+          },
+          "unit_path": {
+            "title": "Unit Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "installed",
+          "unit_path",
+          "removed"
+        ],
+        "title": "ServiceUninstalled",
+        "type": "object"
+      },
       "SettingsBody": {
         "properties": {
           "settings": {
@@ -7413,6 +7625,26 @@
           "query"
         ],
         "title": "SweepRequest",
+        "type": "object"
+      },
+      "TestEmailSent": {
+        "additionalProperties": true,
+        "description": "``POST /api/settings/email/test`` — a send the SMTP server accepted.\n\nOnly the first recipient is sent to, and ``recipient`` names it. Every\nfailure, an incomplete configuration included, is a 400 whose ``detail``\nsays which, so this body is the success case alone.",
+        "properties": {
+          "recipient": {
+            "title": "Recipient",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "recipient"
+        ],
+        "title": "TestEmailSent",
         "type": "object"
       },
       "Today": {
@@ -10510,7 +10742,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialChanged"
+                }
               }
             },
             "description": "Successful Response"
@@ -10555,7 +10789,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialChanged"
+                }
               }
             },
             "description": "Successful Response"
@@ -15069,7 +15305,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DaemonStatus"
+                }
               }
             },
             "description": "Successful Response"
@@ -15098,7 +15336,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceInstalled"
+                }
               }
             },
             "description": "Successful Response"
@@ -15125,7 +15365,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceStatus"
+                }
               }
             },
             "description": "Successful Response"
@@ -15154,7 +15396,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUninstalled"
+                }
               }
             },
             "description": "Successful Response"
@@ -15416,7 +15660,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TestEmailSent"
+                }
               }
             },
             "description": "Successful Response"

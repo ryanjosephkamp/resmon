@@ -159,6 +159,28 @@ def test_the_extension_loads_and_health_reports_its_version(conn):
     assert conn.execute("SELECT vec_version()").fetchone()[0] == version
 
 
+def test_a_connection_that_already_loaded_it_is_not_reported_as_unable_to(conn):
+    """A second load re-registers every SQL function, and SQLite refuses that
+    while any statement on the connection is still open. resmon keeps one
+    connection per thread, so a rebuild on a connection that had loaded the
+    extension earlier, with a cursor left half-read, answered ``ok: False`` and
+    "sqlite-vec did not load on this machine" about a machine where it had.
+
+    **Mutation:** delete the already-loaded check in ``load_extension``; the
+    rebuild below returns ``ok: False``.
+    """
+    ids = [_document(conn, str(i)) for i in range(3)]
+    for offset, doc_id in enumerate(ids):
+        _embed(conn, doc_id, "m1", [1.0 + offset, 0.0, 0.0, 0.0])
+    assert vector_index.load_extension(conn) is not None
+
+    half_read = conn.execute("SELECT id FROM documents")
+    half_read.fetchone()
+    rebuilt = vector_index.rebuild(conn, "m1")
+    assert rebuilt["ok"] and rebuilt["rebuilt"] == 3, rebuilt
+    assert vector_index.extension_status()["reason"] is None
+
+
 def test_status_before_any_attempt_says_so_rather_than_claiming_unavailable():
     """A health endpoint must not report "unavailable" because nobody has tried."""
     vector_index._reset_probe_for_tests()

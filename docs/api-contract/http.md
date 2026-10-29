@@ -12,7 +12,7 @@
 
 **Purpose.** The first line of the endpoint's docstring, for the 94 of 194 routes that have one. The remaining 100 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 87 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 107 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 94 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 100 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -57,10 +57,10 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/scheduler/status` | token | — | `SchedulerStatus` | Whether this database's active routines will fire, and what decides it. |
-| `GET` | `/api/service/daemon-status` | token | — | — | Return ground-truth daemon status read from `daemon.lock`. |
-| `POST` | `/api/service/install` | token | — | — | Render the platform unit template and write it to the install path. |
-| `GET` | `/api/service/status` | token | — | — | Return whether the daemon unit file is installed and its path. |
-| `POST` | `/api/service/uninstall` | token | — | — | Remove the unit file; optionally deregister with the OS first. |
+| `GET` | `/api/service/daemon-status` | token | — | `DaemonStatus` | Return ground-truth daemon status read from `daemon.lock`. |
+| `POST` | `/api/service/install` | token | — | `ServiceInstalled` | Render the platform unit template and write it to the install path. |
+| `GET` | `/api/service/status` | token | — | `ServiceStatus` | Return whether the daemon unit file is installed and its path. |
+| `POST` | `/api/service/uninstall` | token | — | `ServiceUninstalled` | Remove the unit file; optionally deregister with the OS first. |
 
 ## J05 — Analytics
 
@@ -239,8 +239,8 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/credentials` | token | — | `CredentialsPresence` | Return per-credential status for every known credential name. |
 | `POST` | `/api/credentials/validate` | token | — | — | *Validate Credential* |
-| `DELETE` | `/api/credentials/{key_name}` | token | — | — | *Delete Credential Endpoint* |
-| `PUT` | `/api/credentials/{key_name}` | token | — | — | *Store Credential Endpoint* |
+| `DELETE` | `/api/credentials/{key_name}` | token | — | `CredentialChanged` | *Delete Credential Endpoint* |
+| `PUT` | `/api/credentials/{key_name}` | token | — | `CredentialChanged` | *Store Credential Endpoint* |
 | `GET` | `/api/repositories/catalog` | token | — | `list` | Return the static repository catalog (never returns secrets). |
 | `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
 
@@ -250,7 +250,7 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/settings/email` | token | — | `EmailSettings` | *Get Email Settings* |
 | `PUT` | `/api/settings/email` | token | — | `SettingsSaved` | *Update Email Settings* |
-| `POST` | `/api/settings/email/test` | token | — | — | Send a test email using the currently-stored SMTP settings. |
+| `POST` | `/api/settings/email/test` | token | — | `TestEmailSent` | Send a test email using the currently-stored SMTP settings. |
 | `GET` | `/api/settings/notifications` | token | — | `NotificationSettings` | *Get Notification Settings* |
 | `PUT` | `/api/settings/notifications` | token | — | `SettingsSaved` | *Update Notification Settings* |
 
