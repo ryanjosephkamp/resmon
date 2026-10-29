@@ -235,8 +235,21 @@ def test_a_successful_probe_reports_the_width_the_model_actually_returned(server
         "ok": True,
         "dims": DEFAULT_DIMS,
         "model": "test-embed",
-        "reason": f"test-embed answered with a {DEFAULT_DIMS}-dimensional vector.",
+        # DEFAULT_DIMS is 8: "an 8-dimensional", where this once read "a 8".
+        "reason": f"test-embed answered with an {DEFAULT_DIMS}-dimensional vector.",
     }
+
+
+@pytest.mark.parametrize("dims,words", [
+    (8, "an 8-dimensional"), (11, "an 11-dimensional"), (18, "an 18-dimensional"),
+    (80, "an 80-dimensional"), (800, "an 800-dimensional"), (8192, "an 8192-dimensional"),
+    (11000, "an 11000-dimensional"), (18432, "an 18432-dimensional"),
+    (1, "a 1-dimensional"), (110, "a 110-dimensional"), (384, "a 384-dimensional"),
+    (768, "a 768-dimensional"), (1024, "a 1024-dimensional"), (1536, "a 1536-dimensional"),
+    (1800, "a 1800-dimensional"), (3072, "a 3072-dimensional"),
+])
+def test_a_width_takes_the_article_it_is_read_aloud_with(dims, words):
+    assert embeddings.dimensional(dims) == words
 
 
 def test_texts_are_batched_at_the_lane_size_and_come_back_in_order(server):
@@ -365,6 +378,15 @@ def test_the_disk_estimate_is_derived_from_the_measured_cost_per_paper(server):
     assert 8_900 < per_paper < 9_000, per_paper
     assert "MiB of database growth" in estimate["disk_note"]
     assert "768-dimensional" in estimate["disk_note"]
+    # 1,000 papers at about 8,951 bytes each: 8.5 MiB, which rounds to 9.
+    assert estimate["disk_note"].startswith("About 9 MiB of database growth")
+
+
+def test_a_disk_estimate_under_one_mebibyte_does_not_read_as_zero(server):
+    estimate = embeddings.estimate_cost(_lane(server, dims=768), ["a" * 400] * 10)
+    assert 0 < estimate["disk_bytes"] < 1_048_576
+    assert estimate["disk_note"].startswith("Less than 1 MiB of database growth")
+    assert "About 0 MiB" not in estimate["disk_note"]
 
 
 def test_an_unprobed_lane_says_it_cannot_estimate_disk_rather_than_guessing_a_width(server):
