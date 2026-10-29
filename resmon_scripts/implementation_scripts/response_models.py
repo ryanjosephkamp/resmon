@@ -2642,3 +2642,151 @@ class KeywordContribution(LosslessModel):
     sufficient: bool
     insufficient_reason: Optional[str]
     fields_checked: list[str]
+
+
+# ---------------------------------------------------------------------------
+# The owned Library
+# ---------------------------------------------------------------------------
+#
+# Every Library body carries ``version: 1`` and the vault it was read from, and
+# none carries an absolute path except ``open``'s, which exists to hand one to
+# the desktop's own opener. ``availability: not_checked`` says a listing reads
+# recorded metadata and did not hash the files.
+
+
+class LibraryCounts(LosslessModel):
+    """What the database records the vault holding; ``basis`` says it was not re-measured."""
+
+    items: int
+    retained_bytes: int
+    basis: str
+
+
+class LibraryLimits(LosslessModel):
+    file_bytes: int
+    batch_files: int
+    vault_bytes: int
+    items: int
+
+
+class LibraryVault(LosslessModel):
+    """The vault by its id and folder name: never its absolute root."""
+
+    vault_id: str
+    label: str
+    created_at_utc: str
+
+
+class LibraryStatus(LosslessModel):
+    """``GET /api/library`` and ``POST /api/library/vault``.
+
+    ``status`` is ``unconfigured``, ``ready``, ``busy``, ``mismatch``,
+    ``needs_attention`` or ``unavailable``; ``reason`` is present only for the
+    two that came from a refusal.
+    """
+
+    version: int
+    vault: Optional[LibraryVault]
+    status: str
+    counts: LibraryCounts
+    limits: LibraryLimits
+    reason: Optional[str] = None
+
+
+class LibraryPaperLink(LosslessModel):
+    """A paper the owner associated a file with: an association, not an identification."""
+
+    document_id: int
+    title: Optional[str]
+    identity_scope: str
+    basis: str
+
+
+class LibraryFile(LosslessModel):
+    id: int
+    file_id: str
+    version_id: str
+    vault_id: str
+    sha256: str
+    byte_size: int
+    media_type: str
+    original_name: str
+    relative_path: str
+    created_at_utc: str
+    paper_links: list[LibraryPaperLink]
+    availability: str
+
+
+class LibraryFiles(LosslessModel):
+    """``GET /api/library/files``: a descending page under a fixed ceiling, ``through_id``."""
+
+    version: int
+    vault_id: str
+    files: list[LibraryFile]
+    through_id: int
+    next_before_id: Optional[int]
+    has_more: bool
+
+
+class LibraryImported(LosslessModel):
+    """``POST /api/library/files``: 201 for a new copy, 200 for the same bytes already kept."""
+
+    version: int
+    vault_id: str
+    file: LibraryFile
+    created: bool
+    duplicate: bool
+    linked_document_ids: list[int]
+
+
+class LibraryFileDetail(LosslessModel):
+    version: int
+    vault_id: str
+    file: LibraryFile
+
+
+class LibraryLinked(LosslessModel):
+    version: int
+    vault_id: str
+    file_id: str
+    version_id: str
+    document_id: int
+    paper_links: list[LibraryPaperLink]
+
+
+class LibraryOpened(LosslessModel):
+    """``POST /api/library/files/{file_id}/open``: the verified path, for the desktop's opener only."""
+
+    version: int
+    vault_id: str
+    file_id: str
+    version_id: str
+    path: str
+
+
+class LibraryInventory(LosslessModel):
+    """``GET /api/library/export``: the inventory as a JSON document in ``text``, and its file name."""
+
+    version: int
+    vault_id: str
+    format: str
+    filename: str
+    content_type: str
+    text: str
+
+
+class LibraryText(LosslessModel):
+    """``GET /api/library/files/{file_id}/text``: a retained TXT or MD file's bytes as literal text."""
+
+    version: int
+    kind: str
+    vault_id: str
+    file_id: str
+    version_id: str
+    sha256: str
+    media_type: str
+    encoding: str
+    normalization: str
+    byte_size: int
+    line_count: int
+    text: str

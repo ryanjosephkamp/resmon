@@ -3389,21 +3389,22 @@ def _library_connection():
         conn.close()
 
 
-@app.get("/api/library")
+@app.get("/api/library", response_model=response_models.LibraryStatus, response_model_exclude_unset=True)
 def library_status(request: Request):
     _library_query(request, ())
     with _library_connection() as conn:
         return library.status(conn)
 
 
-@app.post("/api/library/vault", status_code=201)
+@app.post("/api/library/vault", status_code=201, response_model=response_models.LibraryStatus,
+          response_model_exclude_unset=True)
 def library_create_vault(request: Request, body: LibraryVaultBody):
     _library_query(request, ())
     with _library_connection() as conn:
         return library.create_vault(conn, body.parent_directory)
 
 
-@app.get("/api/library/files")
+@app.get("/api/library/files", response_model=response_models.LibraryFiles, response_model_exclude_unset=True)
 def library_list(request: Request, expected_vault_id: str, q: str = "",
                  through_id: int | None = None, before_id: int | None = None, limit: int = 50):
     _library_query(request, ("expected_vault_id", "q", "through_id", "before_id", "limit"))
@@ -3411,7 +3412,7 @@ def library_list(request: Request, expected_vault_id: str, q: str = "",
         return library.list_files(conn, expected_vault_id, q, through_id, before_id, limit)
 
 
-@app.post("/api/library/files")
+@app.post("/api/library/files", response_model=response_models.LibraryImported, response_model_exclude_unset=True)
 async def library_import(request: Request, response: Response, expected_vault_id: str,
                          filename: str, document_id: int | None = None):
     _library_query(request, ("expected_vault_id", "filename", "document_id"))
@@ -3426,35 +3427,37 @@ async def library_import(request: Request, response: Response, expected_vault_id
         return result
 
 
-@app.get("/api/library/files/{file_id}")
+@app.get("/api/library/files/{file_id}", response_model=response_models.LibraryFileDetail, response_model_exclude_unset=True)
 def library_detail(request: Request, file_id: str, expected_vault_id: str):
     _library_query(request, ("expected_vault_id",))
     with _library_connection() as conn:
         return library.detail(conn, expected_vault_id, file_id)
 
 
-@app.post("/api/library/files/{file_id}/paper-links")
+@app.post("/api/library/files/{file_id}/paper-links", response_model=response_models.LibraryLinked,
+          response_model_exclude_unset=True)
 def library_link(request: Request, file_id: str, body: LibraryLinkBody):
     _library_query(request, ())
     with _library_connection() as conn:
         return library.add_link(conn, body.expected_vault_id, file_id, body.document_id)
 
 
-@app.post("/api/library/files/{file_id}/open")
+@app.post("/api/library/files/{file_id}/open", response_model=response_models.LibraryOpened,
+          response_model_exclude_unset=True)
 def library_open(request: Request, file_id: str, body: LibraryOpenBody):
     _library_query(request, ())
     with _library_connection() as conn:
         return library.open_request(conn, body.expected_vault_id, file_id, body.expected_version_id)
 
 
-@app.get("/api/library/export")
+@app.get("/api/library/export", response_model=response_models.LibraryInventory, response_model_exclude_unset=True)
 def library_inventory(request: Request, expected_vault_id: str, format: str = "json"):
     _library_query(request, ("expected_vault_id", "format"))
     with _library_connection() as conn:
         return library_export.export_inventory(conn, expected_vault_id, format)
 
 
-@app.get("/api/library/files/{file_id}/text")
+@app.get("/api/library/files/{file_id}/text", response_model=response_models.LibraryText, response_model_exclude_unset=True)
 def library_read_text(request: Request, response: Response, file_id: str,
                       expected_vault_id: str, expected_version_id: str):
     _library_query(request, ("expected_vault_id", "expected_version_id"))
