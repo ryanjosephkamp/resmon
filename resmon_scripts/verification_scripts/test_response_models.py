@@ -1085,7 +1085,8 @@ def _drive_watches(drive: Drive, doc_ids: list[int]) -> None:
                     "VALUES (?, ?, ?, ?, 'title+abstract')",
                     (doc, model, len(vector), vector_index.pack_vector(vector)))
             if measurable:
-                assert vector_index.rebuild(conn, model)["ok"]
+                rebuilt = vector_index.rebuild(conn, model)
+                assert rebuilt["ok"], rebuilt
             conn.commit()
         finally:
             resmon_mod._close_db(conn)
