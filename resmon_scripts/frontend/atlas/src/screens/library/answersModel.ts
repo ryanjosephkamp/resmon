@@ -75,7 +75,11 @@ export const connectionKey = (c: Pick<Connection, 'runtime' | 'provider'>): stri
 
 /** The choice the dialog starts with: the settings default, or the first connection that can run. */
 export function firstChoice(choices: Choices): Choice | null {
-  if (choices.default_request) return choices.default_request;
+  // Built key by key: the engine refuses a choice with any key but these five,
+  // and its reply may carry more than it declares.
+  const d = choices.default_request;
+  if (d) return { version: 1, runtime: d.runtime as Choice['runtime'], provider: d.provider, model: d.model, effort: d.effort };
   const usable = choices.connections.find((c) => c.implemented && c.available && c.runtime);
-  return usable?.runtime ? { version: 1, runtime: usable.runtime, provider: usable.provider, model: null, effort: null } : null;
+  return usable?.runtime
+    ? { version: 1, runtime: usable.runtime as Choice['runtime'], provider: usable.provider, model: null, effort: null } : null;
 }

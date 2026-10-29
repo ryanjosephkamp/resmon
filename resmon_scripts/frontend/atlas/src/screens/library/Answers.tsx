@@ -350,7 +350,7 @@ function Composer({ project, members, notes, onClose, onStarted }: {
               <select id="ev-connection" value={current ? connectionKey(current) : ''} onChange={(e) => {
                 changed();
                 const c = choices.connections.find((x) => connectionKey(x) === e.target.value);
-                if (c?.runtime) setChoice({ version: 1, runtime: c.runtime, provider: c.provider, model: null, effort: null });
+                if (c?.runtime) setChoice({ version: 1, runtime: c.runtime as Choice['runtime'], provider: c.provider, model: null, effort: null });
               }}>
                 {choices.connections.map((c) => (
                   <option key={connectionKey(c)} value={connectionKey(c)} disabled={!c.implemented || !c.available || !c.runtime}>

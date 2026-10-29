@@ -100,6 +100,10 @@ test('the composer starts from the settings default, else the first connection t
   const fixed = { version: 1, runtime: 'claude_cli', provider: 'claude_code', model: 'opus', effort: 'low' } as const;
   expect(firstChoice(choices({ default_request: fixed as never }))).toEqual(fixed);
   expect(firstChoice(undefined)).toBeNull();
+  // The engine refuses a choice with any key but these five; a reply that carries more is not passed on.
+  const wider = { ...fixed, observed_at: 'later' };
+  expect(Object.keys(firstChoice(choices({ default_request: wider as never })) ?? {}).sort())
+    .toEqual(['effort', 'model', 'provider', 'runtime', 'version']);
 });
 
 test('a choice cannot be sent to an unavailable connection, or to an API connection with no model', () => {

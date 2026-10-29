@@ -41,14 +41,9 @@ export interface ChosenNote { note_id: string; expected_note_revision: number }
 
 /** The choice of connection, model and effort a request is made with. */
 export interface Choice { version: 1; runtime: 'claude_cli' | 'api_key'; provider: string; model: string | null; effort: string | null }
-export interface Connection {
-  runtime: 'claude_cli' | 'api_key' | null; provider: string; label: string; implemented: boolean; available: boolean;
-  reason: string; effort_supported: boolean;
-}
-export interface Choices {
-  version: 1; default_request: Choice | null; default_error: string | null; connections: Connection[];
-  claude_aliases: string[]; claude_efforts: string[]; limitations: string;
-}
+/** The connections the engine offers, as `/api/assistant/status` declares them. */
+export type Connection = components['schemas']['AssistantConnection'];
+export type Choices = components['schemas']['AssistantComposerChoices'];
 
 /** The two states an answer can still leave; every other state is final. */
 export const terminal = (state: string): boolean => state !== 'admitted' && state !== 'running';
@@ -127,12 +122,6 @@ async function read<T>(path: string, method = 'GET', body?: unknown, signal?: Ab
   return (await evidenceFetch(path, method, body, signal)).json() as Promise<T>;
 }
 
-function isChoices(value: unknown): value is Choices {
-  const x = value as Partial<Choices> | null;
-  return !!x && x.version === 1 && Array.isArray(x.connections) && Array.isArray(x.claude_aliases) && Array.isArray(x.claude_efforts)
-    && x.connections.every((c) => typeof c?.provider === 'string' && typeof c.label === 'string' && typeof c.available === 'boolean');
-}
-
 export const answers = {
   /**
    * What a new answer needs before anything is selected: this engine process's
@@ -144,11 +133,8 @@ export const answers = {
     const health = await answered(engine().GET('/api/health'));
     const runtimeId = health.identity?.runtime_id;
     if (typeof runtimeId !== 'string' || !runtimeId) wrong('the engine’s runtime identity');
-    // Not yet modeled: the Ask slice declares this reply. Its shape is checked here.
-    const status: unknown = await answered(engine().GET('/api/assistant/status'));
-    const choices = (status as { composer_choices?: unknown } | null)?.composer_choices;
-    if (!isChoices(choices)) wrong('the connections it offers');
-    return { runtimeId: runtimeId as string, choices: choices as Choices };
+    const status = await answered(engine().GET('/api/assistant/status'));
+    return { runtimeId: runtimeId as string, choices: status.composer_choices };
   },
   preview: async (p: Project, runtime: string, body: {
     selections: Selection[]; notes: ChosenNote[]; mode: Mode; instruction: string; choices: Choice;
