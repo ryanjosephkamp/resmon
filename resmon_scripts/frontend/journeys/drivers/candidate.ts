@@ -27,6 +27,10 @@ import type { Session } from './session';
 const RENDERER_FREE = new Set<string>([
   'backend', 'takePicture', 'releaseTheSource', 'refusedConnections', 'waitForRunToSettle', 'reportExists',
   'killTheBackend', 'enableRankingByMeaning', 'scanForNearDuplicates',
+  // Seeded or read over the API or on disk, as the classic driver says of
+  // each: a routine made, fired and given destinations, and what a folder or
+  // a feed received.
+  'createRoutine', 'fireRoutineNow', 'addDeliveryTarget', 'readDeliveredFiles', 'readFeedFile',
 ]);
 
 export function createCandidateDriver(session: Session, testInfo: TestInfo): JourneyDriver {
