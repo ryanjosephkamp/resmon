@@ -4912,7 +4912,8 @@ def update_email_settings(body: SettingsBody):
         _close_db(conn)
 
 
-@app.post("/api/settings/email/test")
+@app.post("/api/settings/email/test", response_model=response_models.TestEmailSent,
+          response_model_exclude_unset=True)
 def send_test_email_endpoint():
     """Send a test email using the currently-stored SMTP settings.
 
@@ -6202,7 +6203,8 @@ def list_ai_models(body: AIModelsRequest):
     return {"models": models}
 
 
-@app.put("/api/credentials/{key_name}")
+@app.put("/api/credentials/{key_name}", response_model=response_models.CredentialChanged,
+         response_model_exclude_unset=True)
 def store_credential_endpoint(key_name: str, body: CredentialStore):
     if not is_allowed_credential_name(key_name):
         raise HTTPException(
@@ -6213,7 +6215,8 @@ def store_credential_endpoint(key_name: str, body: CredentialStore):
     return {"success": True}
 
 
-@app.delete("/api/credentials/{key_name}")
+@app.delete("/api/credentials/{key_name}", response_model=response_models.CredentialChanged,
+            response_model_exclude_unset=True)
 def delete_credential_endpoint(key_name: str):
     delete_credential(key_name)
     return {"success": True}
@@ -6307,7 +6310,8 @@ class ServiceInstallBody(BaseModel):
     port: Optional[int] = None
 
 
-@app.get("/api/service/status")
+@app.get("/api/service/status", response_model=response_models.ServiceStatus,
+         response_model_exclude_unset=True)
 def service_status():
     """Return whether the daemon unit file is installed and its path."""
     return {
@@ -6419,7 +6423,8 @@ def _probe_daemon() -> tuple[dict, str]:
     return base, "answered"
 
 
-@app.get("/api/service/daemon-status")
+@app.get("/api/service/daemon-status", response_model=response_models.DaemonStatus,
+         response_model_exclude_unset=True)
 def service_daemon_status():
     """Return ground-truth daemon status read from ``daemon.lock``.
 
@@ -6446,7 +6451,8 @@ def service_daemon_status():
     return _probe_daemon()[0]
 
 
-@app.post("/api/service/install")
+@app.post("/api/service/install", response_model=response_models.ServiceInstalled,
+          response_model_exclude_unset=True)
 def service_install(body: ServiceInstallBody = ServiceInstallBody()):
     """Render the platform unit template and write it to the install path.
 
@@ -6460,7 +6466,8 @@ def service_install(body: ServiceInstallBody = ServiceInstallBody()):
     return {"installed": True, "unit_path": str(path)}
 
 
-@app.post("/api/service/uninstall")
+@app.post("/api/service/uninstall", response_model=response_models.ServiceUninstalled,
+          response_model_exclude_unset=True)
 def service_uninstall(body: ServiceInstallBody = ServiceInstallBody()):
     """Remove the unit file; optionally deregister with the OS first."""
     try:

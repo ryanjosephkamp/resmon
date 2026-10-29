@@ -54,8 +54,14 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
+import os
+import socket
 import sys
+import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 from typing import Any, Iterator, Optional
 
 import pytest
@@ -116,6 +122,7 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("PUT", "/api/settings/cloud"),
         ("GET", "/api/settings/email"),
         ("PUT", "/api/settings/email"),
+        ("POST", "/api/settings/email/test"),
         ("GET", "/api/settings/embeddings"),
         ("PUT", "/api/settings/embeddings"),
         ("GET", "/api/settings/execution"),
@@ -221,6 +228,16 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "the calendar": (
         ("GET", "/api/calendar/events"),
+    ),
+    "the background service": (
+        ("GET", "/api/service/status"),
+        ("GET", "/api/service/daemon-status"),
+        ("POST", "/api/service/install"),
+        ("POST", "/api/service/uninstall"),
+    ),
+    "a credential stored or removed": (
+        ("PUT", "/api/credentials/{key_name}"),
+        ("DELETE", "/api/credentials/{key_name}"),
     ),
 }
 
@@ -516,6 +533,8 @@ def driven() -> Drive:
         _drive_runs(drive)
         _drive_collection(drive)
         _drive_watches(drive, doc_ids)
+        _drive_background_service(drive)
+        _drive_credentials_and_the_test_send(drive)
 
         yield drive
 
@@ -540,6 +559,101 @@ def _drive_process_identity(drive: Drive) -> None:
     assert catalog, "the catalog must have rows for its model to be exercised"
     drive("GET", "/api/credentials")
     drive("POST", "/api/renderer/heartbeat")
+
+
+class _HealthAnswering:
+    """A loopback server that answers ``/api/health`` as this process would.
+
+    Real rather than a patched ``httpx.Client``, so the daemon probe opens a
+    connection and reads a body exactly as it does against a running service.
+    It answers with this process's pid, which is the one body of the probe that
+    carries ``is_self``.
+    """
+
+    def __enter__(self) -> "_HealthAnswering":
+        pid = os.getpid()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 - the stdlib's name
+                body = json.dumps({"status": "ok", "pid": pid, "version": "0.0.0-scenario",
+                                   "started_at": "2026-10-28T12:00:00+00:00"}).encode()
+                self.send_response(200 if self.path == "/api/health" else 404)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args: Any) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.port = int(self.server.server_address[1])
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+
+
+def _drive_background_service(drive: Drive) -> None:
+    """The service panel's four routes, over a unit directory and a lock file
+    this scenario owns.
+
+    ``RESMON_SERVICE_UNIT_DIR`` points the unit at a temporary directory and
+    every install and uninstall asks ``register: false``, so nothing is written
+    outside it and the machine's own service manager is never called. The
+    daemon probe is driven through its three bodies: no lock, a lock naming a
+    port nothing listens on, and a lock naming a server that answers health as
+    this process, the only body that carries ``is_self``.
+    """
+    from implementation_scripts import daemon as daemon_mod
+
+    units = Path(tempfile.mkdtemp(prefix="resmon-scenario-units-"))
+    lock = Path(tempfile.mkdtemp(prefix="resmon-scenario-lock-")) / "daemon.lock"
+    with mock.patch.dict(os.environ, {"RESMON_SERVICE_UNIT_DIR": str(units)}), \
+            mock.patch.object(daemon_mod, "lock_path", lambda: lock):
+        assert drive("GET", "/api/service/status")["installed"] is False
+        # Removing what was never installed is an answer, not an error.
+        nothing = drive("POST", "/api/service/uninstall", json={"register": False})
+        assert nothing["removed"] is False, nothing
+        made = drive("POST", "/api/service/install", json={"register": False})
+        assert Path(made["unit_path"]).parent == units, made
+        assert drive("GET", "/api/service/status")["installed"] is True
+        assert drive("POST", "/api/service/uninstall", json={"register": False})["removed"] is True
+
+        assert drive("GET", "/api/service/daemon-status")["lock_present"] is False
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            closed = int(reserved.getsockname()[1])
+        lock.write_text(json.dumps({"pid": 99999, "port": closed, "version": "0.0.0"}), encoding="utf-8")
+        stale = drive("GET", "/api/service/daemon-status")
+        assert stale["lock_present"] and not stale["running"] and stale["error"], stale
+        with _HealthAnswering() as health:
+            lock.write_text(json.dumps({"pid": os.getpid(), "port": health.port, "version": "0.0.0"}),
+                            encoding="utf-8")
+            alive = drive("GET", "/api/service/daemon-status")
+        assert alive["running"] is True and alive["is_self"] is True, alive
+
+
+def _drive_credentials_and_the_test_send(drive: Drive) -> None:
+    """The SMTP password stored, a test send the server accepted, and the
+    password removed.
+
+    The settings slice stored an SMTP destination, so the password is all the
+    test send lacks. ``send_test_email`` is replaced by one that accepts: the
+    body under test is the route's, and no socket opens. The keyring is
+    conftest's in-memory one, so nothing reaches the machine's own.
+    """
+    from implementation_scripts import email_notifier
+
+    drive("PUT", "/api/credentials/smtp_password", json={"value": "a-password-for-the-scenario"})
+    with mock.patch.object(email_notifier, "send_test_email", return_value=True):
+        sent = drive("POST", "/api/settings/email/test")
+    assert sent == {"success": True, "recipient": "someone@example.org"}, sent
+    drive("DELETE", "/api/credentials/smtp_password")
 
 
 def _drive_today(drive: Drive) -> None:
