@@ -274,6 +274,18 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("GET", "/api/evidence/projects/{project_id}/answers/{answer_id}"),
         ("POST", "/api/evidence/projects/{project_id}/answers/{answer_id}/cancel"),
     ),
+    "assistant": (
+        ("GET", "/api/assistant/status"),
+        ("POST", "/api/assistant/sessions"),
+        ("GET", "/api/assistant/sessions"),
+        ("GET", "/api/assistant/sessions/browse"),
+        ("GET", "/api/assistant/sessions/{session_id}"),
+        ("GET", "/api/assistant/sessions/{session_id}/export"),
+        ("DELETE", "/api/assistant/sessions/{session_id}"),
+        ("POST", "/api/assistant/sessions/{session_id}/cancel"),
+        ("POST", "/api/assistant/permissions"),
+        ("POST", "/api/assistant/permissions/{request_id}"),
+    ),
     "analytics": (
         ("GET", "/api/analytics/overview"),
         ("GET", "/api/analytics/summary"),
@@ -582,6 +594,7 @@ def driven() -> Drive:
         _drive_source_wall_and_analytics(drive)
         kept = _drive_library(drive, doc_ids[0])
         _drive_evidence(drive, *kept)
+        _drive_assistant(drive)
 
         yield drive
 
@@ -873,6 +886,130 @@ def _drive_selected_answers(drive: Drive, vault: str, project: str, revision: in
         assert cancelled["state"] == "succeeded"
     finally:
         resmon_mod.serving_port = original_port
+
+
+def _drive_assistant(drive: Drive) -> None:
+    """Two conversations on the agent-CLI double, one real turn, and every JSON assistant route.
+
+    The CLI is ``fixtures/fake_claude.py``, the double the assistant's own API
+    tests and the journeys use, behind a shell script that runs it with this
+    interpreter, set as a person sets it: ``ai_cli_path`` through the settings
+    route. Nothing calls a model, and the double connects to nothing. The
+    turn goes through the real messages route, unmodeled because it is an
+    event stream, and is read to its end: the double reports the model it was
+    asked for, says one sentence, writes a tool call and its result verbatim
+    (no tool runs), and reports usage and a cost, so the stored answer has a
+    value in every field a message declares.
+
+    Compared: the status; a conversation made with explicit choices and one
+    with Settings' defaults; the list; both pages of a browse one row long, so
+    the cursor is an id and then ``None``; the transcript with its request and
+    the model the double reported; both exports; a cancel of an idle
+    conversation, which kills nothing; a permission request for a conversation
+    no panel has ever subscribed to, which is denied at once rather than held
+    open for five minutes; the panel's answer to a request opened through the
+    broker; and both deletes. Before the reads, the second conversation's
+    saved choices are edited by hand into a provider its runtime cannot have,
+    as a hand-edited database would hold them, so the list and the browse
+    answer it as ``{"unreadable": true}`` and both halves of the union are
+    compared.
+    """
+    import asyncio  # noqa: PLC0415 — only this slice needs these
+    from implementation_scripts.assistant_permissions import broker  # noqa: PLC0415
+
+    double = Path(__file__).resolve().parent / "fixtures" / "fake_claude.py"
+    with tempfile.TemporaryDirectory(prefix="resmon-assistant-cli-") as folder:
+        shim = Path(folder) / "fake-claude"
+        # The interpreter is absolute: a shebang does not search PATH.
+        shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{double}" "$@"\n', encoding="utf-8")
+        shim.chmod(0o755)
+        drive("PUT", "/api/settings/ai", json={"settings": {"ai_cli_path": str(shim)}})
+
+        # The runtime writes this backend's port into the MCP config it hands
+        # the CLI. The in-process client has no socket, so the port would
+        # otherwise come from the environment or a port file, which on a
+        # machine running resmon names that resmon. These directives open no
+        # connection, and the config names a port nothing listens on.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            closed = int(reserved.getsockname()[1])
+        original_port = resmon_mod.serving_port
+        resmon_mod.serving_port = lambda: closed
+        try:
+            status = drive("GET", "/api/assistant/status")
+            assert status["runtime"]["available"] and status["runtime"]["path"] == str(shim), status["runtime"]
+
+            asked = drive("POST", "/api/assistant/sessions", expect=201, json={
+                "title": "The scenario's conversation",
+                "choices": {"version": 1, "runtime": "claude_cli", "provider": "claude_code",
+                            "model": "fixture-model", "effort": "high"}})
+            assert asked["choices"]["model_basis"] == "explicit", asked
+            prompt = "\n".join((
+                "SAY:One sentence from the double; no model was asked.",
+                "RAW:" + json.dumps({"type": "assistant", "message": {"content": [
+                    {"type": "tool_use", "id": "toolu_scenario", "name": "mcp__resmon__health", "input": {}}]}}),
+                "RAW:" + json.dumps({"type": "user", "message": {"content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_scenario", "is_error": False,
+                     "content": [{"type": "text", "text": "ok"}]}]}}),
+            ))
+            events: list[dict] = []
+            with drive.client.stream("POST", f"/api/assistant/sessions/{asked['id']}/messages",
+                                     json={"text": prompt}) as stream:
+                assert stream.status_code == 200, stream.read()
+                for line in stream.iter_lines():
+                    if line.startswith("data: "):
+                        events.append(json.loads(line[6:]))
+                        if events[-1]["type"] == "closed":
+                            break
+            kinds = {event["type"] for event in events}
+            assert "error" not in kinds and {"started", "text_delta", "tool_call", "tool_result", "done"} <= kinds, events
+
+            defaults = drive("POST", "/api/assistant/sessions", expect=201, json={})
+            assert defaults["choices"]["model_basis"] == "settings_default", defaults
+            conn = resmon_mod._get_db()
+            try:
+                conn.execute("UPDATE assistant_session_choices SET provider = 'openai' WHERE session_id = ?",
+                             (defaults["id"],))
+                conn.commit()
+            finally:
+                resmon_mod._close_db(conn)
+
+            listed = drive("GET", "/api/assistant/sessions")["sessions"]
+            assert {s["id"]: s["choices"] == {"unreadable": True} for s in listed} == {
+                asked["id"]: False, defaults["id"]: True}, listed
+            first = drive("GET", "/api/assistant/sessions/browse?limit=1")
+            assert first["has_more"] and first["next_before_id"] == defaults["id"], first
+            last = drive("GET", f"/api/assistant/sessions/browse?limit=1&before_id={first['next_before_id']}"
+                                f"&through_id={first['through_id']}")
+            assert not last["has_more"] and last["next_before_id"] is None, last
+
+            transcript = drive("GET", f"/api/assistant/sessions/{asked['id']}")
+            answer = transcript["messages"][-1]
+            assert answer["role"] == "assistant" and answer["tool_calls"] and answer["tool_results"], answer
+            assert answer["cost_usd"] is not None and transcript["totals"]["reported_turns"] == 1, transcript
+            assert transcript["turn_choices"][0]["reported"][0]["model"] == "fixture-model", transcript
+            for form in ("json", "markdown"):
+                drive("GET", f"/api/assistant/sessions/{asked['id']}/export?format={form}")
+
+            idle = drive("POST", f"/api/assistant/sessions/{asked['id']}/cancel")
+            assert idle == {"cancelled": False, "permissions_denied": 0}, idle
+            unasked = drive("POST", "/api/assistant/permissions", json={
+                "session_id": defaults["id"], "tool_name": "mcp__resmon__activate_routine",
+                "input": {"routine_id": 1}, "tool_use_id": "toolu_unasked"})
+            assert unasked["decision"] == "deny", unasked
+
+            request = broker.open(session_id=asked["id"], tool_name="mcp__resmon__activate_routine",
+                                  tool_input={"routine_id": 1}, tool_use_id="toolu_answered")
+            drive("POST", f"/api/assistant/permissions/{request.id}", json={"allow": True})
+            # What the permission server's held request would now be handed.
+            # Waiting also takes the answered request out of the broker, which
+            # is process-wide and outlives this module.
+            assert asyncio.run(broker.wait(request))[0] == "allow"
+        finally:
+            resmon_mod.serving_port = original_port
+
+        for conversation in (asked, defaults):
+            drive("DELETE", f"/api/assistant/sessions/{conversation['id']}")
 
 
 def _drive_source_wall_and_analytics(drive: Drive) -> None:

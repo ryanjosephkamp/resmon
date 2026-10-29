@@ -3295,3 +3295,442 @@ class SelectedAnswers(LosslessModel):
     has_more: bool
     total: int
     count_basis: str
+
+
+# ---------------------------------------------------------------------------
+# The assistant
+# ---------------------------------------------------------------------------
+#
+# Two facts sit side by side in these bodies and are kept apart: what a turn
+# *requested* of a runtime, and what the runtime *reported* it used. A request
+# is not proof of what ran. Tokens and cost are what a runtime reported, and
+# ``None`` means it reported nothing, which is not zero.
+
+
+class AssistantRuntimeStatus(LosslessModel):
+    """Whether the runtime Settings selects can take a turn, and why or why not, in one sentence.
+
+    ``path`` is where the Claude CLI executable was found and ``how`` how it
+    was found (``configured``, ``known-location``, ``path``); an available
+    API-key runtime has no path and says ``api_key``. Both are ``None`` when
+    the runtime is not available. A found executable is not a sign-in and a
+    stored key is not an accepted one: ``available`` says a turn can be
+    attempted, not that it will be answered.
+    """
+
+    kind: str
+    available: bool
+    reason: str
+    path: Optional[str]
+    how: Optional[str]
+
+
+class AssistantToolCalling(LosslessModel):
+    """The selected provider's tool calling, as two separate facts.
+
+    ``state`` is about the provider's own API (``yes``, ``no`` or
+    ``unknown``); ``assistant`` is whether resmon's assistant drives it
+    (``api_key_runtime``, ``cli_runtime`` or ``no``). A provider can support
+    tool calling that resmon does not use, so the two are never merged.
+    """
+
+    state: str
+    reason: str
+    assistant: str
+    assistant_reason: str
+
+
+class AssistantOtherRuntime(LosslessModel):
+    """A runtime Settings does not select, listed with its reason rather than left out.
+
+    The first entry is the other of resmon's two runtimes and the second is
+    the Codex CLI, which is never available. ``installed`` is not a finding
+    to rely on in either. On the first it is always true, whatever was found.
+    On the Codex entry it is whether an executable sits where Codex is looked
+    for, and when an agent-CLI path is configured that path is the only place
+    looked, so a configured Claude CLI makes Codex read as installed.
+    ``available`` and ``reason`` are the fields to read.
+    """
+
+    kind: str
+    installed: bool
+    available: bool
+    reason: str
+
+
+class AssistantDefaultRequest(LosslessModel):
+    """The choice a new conversation gets from Settings when it names none.
+
+    ``model`` and ``effort`` are ``None`` when Settings leaves them to the
+    runtime, whose own default resmon does not know.
+    """
+
+    version: int
+    runtime: str
+    provider: str
+    model: Optional[str]
+    effort: Optional[str]
+
+
+class AssistantConnection(LosslessModel):
+    """One connection the composer can offer.
+
+    ``runtime`` is ``None``, and ``implemented`` false, for a provider resmon
+    lists but has no assistant for (Ollama, Codex). ``family`` is the request
+    shape resmon's own loop builds and is present only on API-key
+    connections. ``available`` checks local prerequisites only, an executable
+    found or a key stored, never sign-in or whether a model is accepted.
+    """
+
+    runtime: Optional[str]
+    provider: str
+    label: str
+    implemented: bool
+    available: bool
+    reason: str
+    effort_supported: bool
+    family: Optional[str] = None
+
+
+class AssistantComposerChoices(LosslessModel):
+    """What the composer may ask for: connections, Claude model aliases and effort levels.
+
+    ``default_request`` is ``None``, and ``default_error`` says why, when the
+    stored settings do not make a valid choice. The aliases are suggestions:
+    the CLI decides at use time whether it accepts one, and ``limitations``
+    says so in the words the composer shows.
+    """
+
+    version: int
+    default_request: Optional[AssistantDefaultRequest]
+    default_error: Optional[str]
+    connections: list[AssistantConnection]
+    claude_aliases: list[str]
+    claude_efforts: list[str]
+    limitations: str
+
+
+class AssistantStatus(LosslessModel):
+    """``GET /api/assistant/status``: whether the assistant can run, and every runtime it considered.
+
+    ``runtime`` is the one Settings selects, and ``available`` and ``reason``
+    repeat its own. ``others`` lists the rest with their reasons, Codex
+    included, because a runtime left out reads as one resmon never noticed.
+    ``model`` and ``effort`` are what Settings asks for, not what a runtime
+    uses; ``None`` or empty means none is set, and an API-key runtime has no
+    effort at all. ``contract_version`` is the MCP contract's version, or
+    ``unknown`` when the server module cannot be imported.
+    """
+
+    runtime: AssistantRuntimeStatus
+    available: bool
+    reason: str
+    model: Optional[str]
+    effort: Optional[str]
+    kinds: list[str]
+    provider: str
+    provider_source: str
+    tool_calling: AssistantToolCalling
+    others: list[AssistantOtherRuntime]
+    composer_choices: AssistantComposerChoices
+    contract_version: str
+
+
+class AssistantRequested(LosslessModel):
+    """What a turn asked a runtime for, which is not what the runtime used.
+
+    ``requested_model`` and ``requested_effort`` are ``None`` when the request
+    left the choice to the runtime. Each ``*_basis`` says where a choice came
+    from: ``explicit``, ``settings_default``, ``runtime_default``, or, for
+    effort on an API key, ``not_supported``. ``binding_basis`` is ``new``, or
+    ``legacy_confirmed`` for a conversation saved before choices were, whose
+    next turn the person confirmed.
+    """
+
+    version: int
+    runtime: str
+    provider: str
+    requested_model: Optional[str]
+    requested_effort: Optional[str]
+    model_basis: str
+    effort_basis: str
+    binding_basis: str
+
+
+class AssistantChoices(AssistantRequested):
+    """A conversation's saved choices: the request every turn makes, and when it was fixed."""
+
+    created_at_utc: str
+
+
+class AssistantUnreadable(LosslessModel):
+    """A stored value resmon could not read, said so rather than dropped or guessed.
+
+    It stands in for a conversation's choices, a turn's request, or a turn's
+    reports when the stored row fails validation on the way out: a row a
+    future version wrote, or a hand-edited database. The rest of the
+    conversation still reads; only that part is withheld. It is its own model,
+    in a union with the readable one, so a typed client has to tell the two
+    apart before it reads a field, and ``unreadable`` is the only key it has.
+    """
+
+    unreadable: Literal[True]
+
+
+class AssistantSession(LosslessModel):
+    """``POST /api/assistant/sessions`` (201): one conversation.
+
+    ``cli_session_id`` is the id resmon hands the Claude CLI to resume, and
+    ``None`` on the API-key runtime, which keeps no session of its own.
+    ``model`` is the model the conversation asked for, ``None`` for the
+    runtime's default. ``title`` is the one given at creation, else the
+    first message's opening words, else ``New conversation``. ``choices`` is
+    ``None`` for a conversation saved before choices were (schema 15), which
+    cannot send again until the person confirms new ones.
+    """
+
+    id: int
+    runtime: str
+    cli_session_id: Optional[str]
+    model: Optional[str]
+    title: str
+    created_at: str
+    updated_at: str
+    choices: Optional[Union[AssistantChoices, AssistantUnreadable]]
+
+
+class AssistantSessionListed(AssistantSession):
+    """One conversation in ``GET /api/assistant/sessions``.
+
+    ``cost_usd`` is the sum of the costs its runtime reported, ``None`` when
+    no turn reported one. Turns that reported nothing add nothing to the sum,
+    so it can be a partial total; the conversation's own ``totals`` says how
+    many turns it covers.
+    """
+
+    message_count: int
+    cost_usd: Optional[float]
+
+
+class AssistantSessions(LosslessModel):
+    """``GET /api/assistant/sessions``: at most ``limit`` conversations, most recently active first."""
+
+    sessions: list[AssistantSessionListed]
+
+
+class AssistantSessionBrowsed(LosslessModel):
+    """One conversation in a browse page.
+
+    Not an ``AssistantSession``: a browse row carries no ``cli_session_id``
+    and orders its keys differently, and one model cannot keep both orders.
+    """
+
+    id: int
+    runtime: str
+    model: Optional[str]
+    created_at: str
+    updated_at: str
+    message_count: int
+    title: str
+    choices: Optional[Union[AssistantChoices, AssistantUnreadable]]
+
+
+class AssistantSessionPage(LosslessModel):
+    """``GET /api/assistant/sessions/browse``: conversations newest created first, a page at a time.
+
+    ``through_id`` fixes which conversations the paging covers, so one created
+    while paging does not shift the pages; it fixes the ids, not what the rows
+    say. ``next_before_id`` is the next page's cursor, ``None`` on the last.
+    """
+
+    sessions: list[AssistantSessionBrowsed]
+    through_id: int
+    next_before_id: Optional[int]
+    has_more: bool
+
+
+class AssistantMessage(LosslessModel):
+    """One stored message: ``user``, ``assistant``, or ``system`` for a notice shown during a turn.
+
+    ``tool_calls`` and ``tool_results`` are the JSON stored with an assistant
+    message, parsed and otherwise untouched: a list, ``None`` when the turn
+    used no tool, or ``{"unreadable": true}`` when the stored text does not
+    parse. They are ``Any`` rather than a list of models because the column
+    holds whatever a runtime returned, in the shape the version that wrote it
+    used, and a typed list would turn such a row into a 500 where it is a
+    transcript today. An ``Any`` value is written by pydantic's serializer,
+    not ``jsonable_encoder``; for parsed JSON the two agree, and the parse
+    refuses ``NaN`` and ``Infinity``, so the module docstring's non-finite
+    case is reachable only through an out-of-range literal such as ``1e999``
+    in a hand-edited row. Tool data can hold sensitive text and is returned
+    as stored.
+
+    The tokens and ``cost_usd`` are what the runtime reported for the turn,
+    ``None`` where it reported nothing. A reported cost does not establish
+    what was billed.
+    """
+
+    id: int
+    role: str
+    content: str
+    tool_calls: Any
+    tool_results: Any
+    input_tokens: Optional[int]
+    output_tokens: Optional[int]
+    cost_usd: Optional[float]
+    created_at: str
+
+
+class AssistantTotals(LosslessModel):
+    """What a conversation's assistant turns reported, summed.
+
+    ``reported_turns`` counts the ``turns`` that reported a cost, and is what
+    says whether ``cost_usd`` is a total or a partial one. Each sum is
+    ``None`` when no turn reported that figure.
+    """
+
+    turns: int
+    reported_turns: int
+    input_tokens: Optional[int]
+    output_tokens: Optional[int]
+    cost_usd: Optional[float]
+
+
+class AssistantSnapshot(LosslessModel):
+    """The SQLite read a transcript or an export was taken from.
+
+    ``basis`` is ``persisted_messages_only``: a turn still streaming is not in
+    it. ``last_message_id`` is ``None`` for a conversation with no messages.
+    """
+
+    captured_at_utc: str
+    basis: str
+    message_count: int
+    last_message_id: Optional[int]
+
+
+class AssistantModelReport(LosslessModel):
+    """A model name a runtime reported during a turn, where it reported it, and when.
+
+    ``source`` names the field it came from, such as
+    ``claude_system_init_model``. It is what the runtime said, kept beside the
+    request and never merged with it. No runtime reports effort.
+    """
+
+    sequence: int
+    model: str
+    source: str
+    observed_at_utc: str
+
+
+class AssistantTurnChoices(LosslessModel):
+    """One turn's request, and the reports its runtime made, kept apart.
+
+    ``assistant_message_id`` is ``None`` until an answer is stored, and stays
+    so for a turn that never got one. ``requested`` and ``reported`` are each
+    ``AssistantUnreadable`` when their stored JSON fails validation, and both
+    are, with ``assistant_message_id`` cleared, when the row points at
+    messages outside this conversation.
+    """
+
+    user_message_id: int
+    assistant_message_id: Optional[int]
+    version: int
+    created_at_utc: str
+    requested: Union[AssistantRequested, AssistantUnreadable]
+    reported: Union[list[AssistantModelReport], AssistantUnreadable]
+
+
+class AssistantActivity(LosslessModel):
+    """What this process saw of a conversation when the request arrived.
+
+    Observed separately from the transcript and not atomic with it, which
+    ``basis`` says. ``turn_claimed`` is whether a turn holds the
+    conversation's event bus, and ``cli_running`` whether a CLI process is
+    alive for it. Both are this process's memory and say nothing about
+    another process.
+    """
+
+    observed_at_utc: str
+    turn_claimed: bool
+    cli_running: bool
+    basis: str
+
+
+class AssistantTranscript(LosslessModel):
+    """``GET /api/assistant/sessions/{session_id}``: a conversation as one SQLite read, and what is running now.
+
+    ``session`` through ``turn_choices`` come from one read snapshot;
+    ``running`` and ``activity_observation`` are observed afterwards and are
+    not atomic with it. ``running`` is ``activity_observation.cli_running``.
+    """
+
+    session: AssistantSession
+    messages: list[AssistantMessage]
+    totals: AssistantTotals
+    snapshot: AssistantSnapshot
+    choices_version: int
+    turn_choices: list[AssistantTurnChoices]
+    running: bool
+    activity_observation: AssistantActivity
+
+
+class AssistantExport(LosslessModel):
+    """``GET /api/assistant/sessions/{session_id}/export``: a saved conversation as a file's text.
+
+    ``format`` is ``json`` or ``markdown``. ``text`` is the whole file, at most
+    8 MiB, and carries its own limitations: persisted messages only, and
+    completion unknown. ``filename`` and ``content_type`` are for saving it;
+    the backend writes no file. ``snapshot`` is the read it was taken from.
+    """
+
+    session_id: int
+    format: str
+    filename: str
+    content_type: str
+    text: str
+    snapshot: AssistantSnapshot
+
+
+class AssistantSessionDeleted(LosslessModel):
+    """``DELETE /api/assistant/sessions/{session_id}``: the conversation, its messages and its choices are gone."""
+
+    deleted: int
+
+
+class AssistantTurnCancelled(LosslessModel):
+    """``POST /api/assistant/sessions/{session_id}/cancel``. Idempotent, and it says which happened.
+
+    ``cancelled`` is true only when a Claude CLI process running for the
+    conversation was killed. An API-key turn runs no such process, so the
+    answer is false whether or not one is running. ``permissions_denied``
+    counts the approval cards still waiting for the conversation, now denied.
+    """
+
+    cancelled: bool
+    permissions_denied: int
+
+
+class AssistantPermissionDecision(LosslessModel):
+    """``POST /api/assistant/permissions``: the answer the permission server hands the CLI.
+
+    Called by ``assistant_permission_server.py``, not the renderer, and held
+    open until the person answers or five minutes pass. ``decision`` is
+    ``allow`` or ``deny``; a timeout, a panel that was not open to ask, and a
+    cancelled conversation all deny, and ``message`` says which.
+    """
+
+    decision: str
+    message: str
+    request_id: str
+
+
+class AssistantPermissionAnswered(LosslessModel):
+    """``POST /api/assistant/permissions/{request_id}``: the panel's Allow or Deny, recorded once.
+
+    A second answer to the same request is a 409, so ``decision`` is the one
+    that stands.
+    """
+
+    request_id: str
+    decision: str

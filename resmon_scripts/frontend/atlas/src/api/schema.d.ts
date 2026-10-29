@@ -3646,6 +3646,198 @@ export interface components {
              */
             theme: "system" | "light" | "dark";
         };
+        /**
+         * AssistantActivity
+         * @description What this process saw of a conversation when the request arrived.
+         *
+         *     Observed separately from the transcript and not atomic with it, which
+         *     ``basis`` says. ``turn_claimed`` is whether a turn holds the
+         *     conversation's event bus, and ``cli_running`` whether a CLI process is
+         *     alive for it. Both are this process's memory and say nothing about
+         *     another process.
+         */
+        AssistantActivity: {
+            /** Basis */
+            basis: string;
+            /** Cli Running */
+            cli_running: boolean;
+            /** Observed At Utc */
+            observed_at_utc: string;
+            /** Turn Claimed */
+            turn_claimed: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantChoices
+         * @description A conversation's saved choices: the request every turn makes, and when it was fixed.
+         */
+        AssistantChoices: {
+            /** Binding Basis */
+            binding_basis: string;
+            /** Created At Utc */
+            created_at_utc: string;
+            /** Effort Basis */
+            effort_basis: string;
+            /** Model Basis */
+            model_basis: string;
+            /** Provider */
+            provider: string;
+            /** Requested Effort */
+            requested_effort: string | null;
+            /** Requested Model */
+            requested_model: string | null;
+            /** Runtime */
+            runtime: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantComposerChoices
+         * @description What the composer may ask for: connections, Claude model aliases and effort levels.
+         *
+         *     ``default_request`` is ``None``, and ``default_error`` says why, when the
+         *     stored settings do not make a valid choice. The aliases are suggestions:
+         *     the CLI decides at use time whether it accepts one, and ``limitations``
+         *     says so in the words the composer shows.
+         */
+        AssistantComposerChoices: {
+            /** Claude Aliases */
+            claude_aliases: string[];
+            /** Claude Efforts */
+            claude_efforts: string[];
+            /** Connections */
+            connections: components["schemas"]["AssistantConnection"][];
+            /** Default Error */
+            default_error: string | null;
+            default_request: components["schemas"]["AssistantDefaultRequest"] | null;
+            /** Limitations */
+            limitations: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantConnection
+         * @description One connection the composer can offer.
+         *
+         *     ``runtime`` is ``None``, and ``implemented`` false, for a provider resmon
+         *     lists but has no assistant for (Ollama, Codex). ``family`` is the request
+         *     shape resmon's own loop builds and is present only on API-key
+         *     connections. ``available`` checks local prerequisites only, an executable
+         *     found or a key stored, never sign-in or whether a model is accepted.
+         */
+        AssistantConnection: {
+            /** Available */
+            available: boolean;
+            /** Effort Supported */
+            effort_supported: boolean;
+            /** Family */
+            family?: string | null;
+            /** Implemented */
+            implemented: boolean;
+            /** Label */
+            label: string;
+            /** Provider */
+            provider: string;
+            /** Reason */
+            reason: string;
+            /** Runtime */
+            runtime: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantDefaultRequest
+         * @description The choice a new conversation gets from Settings when it names none.
+         *
+         *     ``model`` and ``effort`` are ``None`` when Settings leaves them to the
+         *     runtime, whose own default resmon does not know.
+         */
+        AssistantDefaultRequest: {
+            /** Effort */
+            effort: string | null;
+            /** Model */
+            model: string | null;
+            /** Provider */
+            provider: string;
+            /** Runtime */
+            runtime: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantExport
+         * @description ``GET /api/assistant/sessions/{session_id}/export``: a saved conversation as a file's text.
+         *
+         *     ``format`` is ``json`` or ``markdown``. ``text`` is the whole file, at most
+         *     8 MiB, and carries its own limitations: persisted messages only, and
+         *     completion unknown. ``filename`` and ``content_type`` are for saving it;
+         *     the backend writes no file. ``snapshot`` is the read it was taken from.
+         */
+        AssistantExport: {
+            /** Content Type */
+            content_type: string;
+            /** Filename */
+            filename: string;
+            /** Format */
+            format: string;
+            /** Session Id */
+            session_id: number;
+            snapshot: components["schemas"]["AssistantSnapshot"];
+            /** Text */
+            text: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantMessage
+         * @description One stored message: ``user``, ``assistant``, or ``system`` for a notice shown during a turn.
+         *
+         *     ``tool_calls`` and ``tool_results`` are the JSON stored with an assistant
+         *     message, parsed and otherwise untouched: a list, ``None`` when the turn
+         *     used no tool, or ``{"unreadable": true}`` when the stored text does not
+         *     parse. They are ``Any`` rather than a list of models because the column
+         *     holds whatever a runtime returned, in the shape the version that wrote it
+         *     used, and a typed list would turn such a row into a 500 where it is a
+         *     transcript today. An ``Any`` value is written by pydantic's serializer,
+         *     not ``jsonable_encoder``; for parsed JSON the two agree, and the parse
+         *     refuses ``NaN`` and ``Infinity``, so the module docstring's non-finite
+         *     case is reachable only through an out-of-range literal such as ``1e999``
+         *     in a hand-edited row. Tool data can hold sensitive text and is returned
+         *     as stored.
+         *
+         *     The tokens and ``cost_usd`` are what the runtime reported for the turn,
+         *     ``None`` where it reported nothing. A reported cost does not establish
+         *     what was billed.
+         */
+        AssistantMessage: {
+            /** Content */
+            content: string;
+            /** Cost Usd */
+            cost_usd: number | null;
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Input Tokens */
+            input_tokens: number | null;
+            /** Output Tokens */
+            output_tokens: number | null;
+            /** Role */
+            role: string;
+            /** Tool Calls */
+            tool_calls: unknown;
+            /** Tool Results */
+            tool_results: unknown;
+        } & {
+            [key: string]: unknown;
+        };
         /** AssistantMessageBody */
         AssistantMessageBody: {
             /** Legacy Adoption */
@@ -3655,12 +3847,90 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * AssistantModelReport
+         * @description A model name a runtime reported during a turn, where it reported it, and when.
+         *
+         *     ``source`` names the field it came from, such as
+         *     ``claude_system_init_model``. It is what the runtime said, kept beside the
+         *     request and never merged with it. No runtime reports effort.
+         */
+        AssistantModelReport: {
+            /** Model */
+            model: string;
+            /** Observed At Utc */
+            observed_at_utc: string;
+            /** Sequence */
+            sequence: number;
+            /** Source */
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantOtherRuntime
+         * @description A runtime Settings does not select, listed with its reason rather than left out.
+         *
+         *     The first entry is the other of resmon's two runtimes and the second is
+         *     the Codex CLI, which is never available. ``installed`` is not a finding
+         *     to rely on in either. On the first it is always true, whatever was found.
+         *     On the Codex entry it is whether an executable sits where Codex is looked
+         *     for, and when an agent-CLI path is configured that path is the only place
+         *     looked, so a configured Claude CLI makes Codex read as installed.
+         *     ``available`` and ``reason`` are the fields to read.
+         */
+        AssistantOtherRuntime: {
+            /** Available */
+            available: boolean;
+            /** Installed */
+            installed: boolean;
+            /** Kind */
+            kind: string;
+            /** Reason */
+            reason: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** AssistantPermissionAnswer */
         AssistantPermissionAnswer: {
             /** Allow */
             allow: boolean;
             /** Reason */
             reason?: string | null;
+        };
+        /**
+         * AssistantPermissionAnswered
+         * @description ``POST /api/assistant/permissions/{request_id}``: the panel's Allow or Deny, recorded once.
+         *
+         *     A second answer to the same request is a 409, so ``decision`` is the one
+         *     that stands.
+         */
+        AssistantPermissionAnswered: {
+            /** Decision */
+            decision: string;
+            /** Request Id */
+            request_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantPermissionDecision
+         * @description ``POST /api/assistant/permissions``: the answer the permission server hands the CLI.
+         *
+         *     Called by ``assistant_permission_server.py``, not the renderer, and held
+         *     open until the person answers or five minutes pass. ``decision`` is
+         *     ``allow`` or ``deny``; a timeout, a panel that was not open to ask, and a
+         *     cancelled conversation all deny, and ``message`` says which.
+         */
+        AssistantPermissionDecision: {
+            /** Decision */
+            decision: string;
+            /** Message */
+            message: string;
+            /** Request Id */
+            request_id: string;
+        } & {
+            [key: string]: unknown;
         };
         /** AssistantPermissionOpen */
         AssistantPermissionOpen: {
@@ -3678,6 +3948,121 @@ export interface components {
             /** Tool Use Id */
             tool_use_id?: string | null;
         };
+        /**
+         * AssistantRequested
+         * @description What a turn asked a runtime for, which is not what the runtime used.
+         *
+         *     ``requested_model`` and ``requested_effort`` are ``None`` when the request
+         *     left the choice to the runtime. Each ``*_basis`` says where a choice came
+         *     from: ``explicit``, ``settings_default``, ``runtime_default``, or, for
+         *     effort on an API key, ``not_supported``. ``binding_basis`` is ``new``, or
+         *     ``legacy_confirmed`` for a conversation saved before choices were, whose
+         *     next turn the person confirmed.
+         */
+        AssistantRequested: {
+            /** Binding Basis */
+            binding_basis: string;
+            /** Effort Basis */
+            effort_basis: string;
+            /** Model Basis */
+            model_basis: string;
+            /** Provider */
+            provider: string;
+            /** Requested Effort */
+            requested_effort: string | null;
+            /** Requested Model */
+            requested_model: string | null;
+            /** Runtime */
+            runtime: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantRuntimeStatus
+         * @description Whether the runtime Settings selects can take a turn, and why or why not, in one sentence.
+         *
+         *     ``path`` is where the Claude CLI executable was found and ``how`` how it
+         *     was found (``configured``, ``known-location``, ``path``); an available
+         *     API-key runtime has no path and says ``api_key``. Both are ``None`` when
+         *     the runtime is not available. A found executable is not a sign-in and a
+         *     stored key is not an accepted one: ``available`` says a turn can be
+         *     attempted, not that it will be answered.
+         */
+        AssistantRuntimeStatus: {
+            /** Available */
+            available: boolean;
+            /** How */
+            how: string | null;
+            /** Kind */
+            kind: string;
+            /** Path */
+            path: string | null;
+            /** Reason */
+            reason: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantSession
+         * @description ``POST /api/assistant/sessions`` (201): one conversation.
+         *
+         *     ``cli_session_id`` is the id resmon hands the Claude CLI to resume, and
+         *     ``None`` on the API-key runtime, which keeps no session of its own.
+         *     ``model`` is the model the conversation asked for, ``None`` for the
+         *     runtime's default. ``title`` is the one given at creation, else the
+         *     first message's opening words, else ``New conversation``. ``choices`` is
+         *     ``None`` for a conversation saved before choices were (schema 15), which
+         *     cannot send again until the person confirms new ones.
+         */
+        AssistantSession: {
+            /** Choices */
+            choices: components["schemas"]["AssistantChoices"] | components["schemas"]["AssistantUnreadable"] | null;
+            /** Cli Session Id */
+            cli_session_id: string | null;
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Model */
+            model: string | null;
+            /** Runtime */
+            runtime: string;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantSessionBrowsed
+         * @description One conversation in a browse page.
+         *
+         *     Not an ``AssistantSession``: a browse row carries no ``cli_session_id``
+         *     and orders its keys differently, and one model cannot keep both orders.
+         */
+        AssistantSessionBrowsed: {
+            /** Choices */
+            choices: components["schemas"]["AssistantChoices"] | components["schemas"]["AssistantUnreadable"] | null;
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Message Count */
+            message_count: number;
+            /** Model */
+            model: string | null;
+            /** Runtime */
+            runtime: string;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** AssistantSessionCreate */
         AssistantSessionCreate: {
             /** Choices */
@@ -3686,6 +4071,79 @@ export interface components {
             } | null;
             /** Title */
             title?: string | null;
+        };
+        /**
+         * AssistantSessionDeleted
+         * @description ``DELETE /api/assistant/sessions/{session_id}``: the conversation, its messages and its choices are gone.
+         */
+        AssistantSessionDeleted: {
+            /** Deleted */
+            deleted: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantSessionListed
+         * @description One conversation in ``GET /api/assistant/sessions``.
+         *
+         *     ``cost_usd`` is the sum of the costs its runtime reported, ``None`` when
+         *     no turn reported one. Turns that reported nothing add nothing to the sum,
+         *     so it can be a partial total; the conversation's own ``totals`` says how
+         *     many turns it covers.
+         */
+        AssistantSessionListed: {
+            /** Choices */
+            choices: components["schemas"]["AssistantChoices"] | components["schemas"]["AssistantUnreadable"] | null;
+            /** Cli Session Id */
+            cli_session_id: string | null;
+            /** Cost Usd */
+            cost_usd: number | null;
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Message Count */
+            message_count: number;
+            /** Model */
+            model: string | null;
+            /** Runtime */
+            runtime: string;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantSessionPage
+         * @description ``GET /api/assistant/sessions/browse``: conversations newest created first, a page at a time.
+         *
+         *     ``through_id`` fixes which conversations the paging covers, so one created
+         *     while paging does not shift the pages; it fixes the ids, not what the rows
+         *     say. ``next_before_id`` is the next page's cursor, ``None`` on the last.
+         */
+        AssistantSessionPage: {
+            /** Has More */
+            has_more: boolean;
+            /** Next Before Id */
+            next_before_id: number | null;
+            /** Sessions */
+            sessions: components["schemas"]["AssistantSessionBrowsed"][];
+            /** Through Id */
+            through_id: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantSessions
+         * @description ``GET /api/assistant/sessions``: at most ``limit`` conversations, most recently active first.
+         */
+        AssistantSessions: {
+            /** Sessions */
+            sessions: components["schemas"]["AssistantSessionListed"][];
+        } & {
+            [key: string]: unknown;
         };
         /**
          * AssistantSettings
@@ -3700,6 +4158,192 @@ export interface components {
             assistant_provider: string;
             /** Assistant Runtime */
             assistant_runtime: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantSnapshot
+         * @description The SQLite read a transcript or an export was taken from.
+         *
+         *     ``basis`` is ``persisted_messages_only``: a turn still streaming is not in
+         *     it. ``last_message_id`` is ``None`` for a conversation with no messages.
+         */
+        AssistantSnapshot: {
+            /** Basis */
+            basis: string;
+            /** Captured At Utc */
+            captured_at_utc: string;
+            /** Last Message Id */
+            last_message_id: number | null;
+            /** Message Count */
+            message_count: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantStatus
+         * @description ``GET /api/assistant/status``: whether the assistant can run, and every runtime it considered.
+         *
+         *     ``runtime`` is the one Settings selects, and ``available`` and ``reason``
+         *     repeat its own. ``others`` lists the rest with their reasons, Codex
+         *     included, because a runtime left out reads as one resmon never noticed.
+         *     ``model`` and ``effort`` are what Settings asks for, not what a runtime
+         *     uses; ``None`` or empty means none is set, and an API-key runtime has no
+         *     effort at all. ``contract_version`` is the MCP contract's version, or
+         *     ``unknown`` when the server module cannot be imported.
+         */
+        AssistantStatus: {
+            /** Available */
+            available: boolean;
+            composer_choices: components["schemas"]["AssistantComposerChoices"];
+            /** Contract Version */
+            contract_version: string;
+            /** Effort */
+            effort: string | null;
+            /** Kinds */
+            kinds: string[];
+            /** Model */
+            model: string | null;
+            /** Others */
+            others: components["schemas"]["AssistantOtherRuntime"][];
+            /** Provider */
+            provider: string;
+            /** Provider Source */
+            provider_source: string;
+            /** Reason */
+            reason: string;
+            runtime: components["schemas"]["AssistantRuntimeStatus"];
+            tool_calling: components["schemas"]["AssistantToolCalling"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantToolCalling
+         * @description The selected provider's tool calling, as two separate facts.
+         *
+         *     ``state`` is about the provider's own API (``yes``, ``no`` or
+         *     ``unknown``); ``assistant`` is whether resmon's assistant drives it
+         *     (``api_key_runtime``, ``cli_runtime`` or ``no``). A provider can support
+         *     tool calling that resmon does not use, so the two are never merged.
+         */
+        AssistantToolCalling: {
+            /** Assistant */
+            assistant: string;
+            /** Assistant Reason */
+            assistant_reason: string;
+            /** Reason */
+            reason: string;
+            /** State */
+            state: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantTotals
+         * @description What a conversation's assistant turns reported, summed.
+         *
+         *     ``reported_turns`` counts the ``turns`` that reported a cost, and is what
+         *     says whether ``cost_usd`` is a total or a partial one. Each sum is
+         *     ``None`` when no turn reported that figure.
+         */
+        AssistantTotals: {
+            /** Cost Usd */
+            cost_usd: number | null;
+            /** Input Tokens */
+            input_tokens: number | null;
+            /** Output Tokens */
+            output_tokens: number | null;
+            /** Reported Turns */
+            reported_turns: number;
+            /** Turns */
+            turns: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantTranscript
+         * @description ``GET /api/assistant/sessions/{session_id}``: a conversation as one SQLite read, and what is running now.
+         *
+         *     ``session`` through ``turn_choices`` come from one read snapshot;
+         *     ``running`` and ``activity_observation`` are observed afterwards and are
+         *     not atomic with it. ``running`` is ``activity_observation.cli_running``.
+         */
+        AssistantTranscript: {
+            activity_observation: components["schemas"]["AssistantActivity"];
+            /** Choices Version */
+            choices_version: number;
+            /** Messages */
+            messages: components["schemas"]["AssistantMessage"][];
+            /** Running */
+            running: boolean;
+            session: components["schemas"]["AssistantSession"];
+            snapshot: components["schemas"]["AssistantSnapshot"];
+            totals: components["schemas"]["AssistantTotals"];
+            /** Turn Choices */
+            turn_choices: components["schemas"]["AssistantTurnChoices"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantTurnCancelled
+         * @description ``POST /api/assistant/sessions/{session_id}/cancel``. Idempotent, and it says which happened.
+         *
+         *     ``cancelled`` is true only when a Claude CLI process running for the
+         *     conversation was killed. An API-key turn runs no such process, so the
+         *     answer is false whether or not one is running. ``permissions_denied``
+         *     counts the approval cards still waiting for the conversation, now denied.
+         */
+        AssistantTurnCancelled: {
+            /** Cancelled */
+            cancelled: boolean;
+            /** Permissions Denied */
+            permissions_denied: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantTurnChoices
+         * @description One turn's request, and the reports its runtime made, kept apart.
+         *
+         *     ``assistant_message_id`` is ``None`` until an answer is stored, and stays
+         *     so for a turn that never got one. ``requested`` and ``reported`` are each
+         *     ``AssistantUnreadable`` when their stored JSON fails validation, and both
+         *     are, with ``assistant_message_id`` cleared, when the row points at
+         *     messages outside this conversation.
+         */
+        AssistantTurnChoices: {
+            /** Assistant Message Id */
+            assistant_message_id: number | null;
+            /** Created At Utc */
+            created_at_utc: string;
+            /** Reported */
+            reported: components["schemas"]["AssistantModelReport"][] | components["schemas"]["AssistantUnreadable"];
+            /** Requested */
+            requested: components["schemas"]["AssistantRequested"] | components["schemas"]["AssistantUnreadable"];
+            /** User Message Id */
+            user_message_id: number;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantUnreadable
+         * @description A stored value resmon could not read, said so rather than dropped or guessed.
+         *
+         *     It stands in for a conversation's choices, a turn's request, or a turn's
+         *     reports when the stored row fails validation on the way out: a row a
+         *     future version wrote, or a hand-edited database. The rest of the
+         *     conversation still reads; only that part is withheld. It is its own model,
+         *     in a union with the readable one, so a typed client has to tell the two
+         *     apart before it reads a field, and ``unreadable`` is the only key it has.
+         */
+        AssistantUnreadable: {
+            /**
+             * Unreadable
+             * @constant
+             */
+            unreadable: true;
         } & {
             [key: string]: unknown;
         };
@@ -9379,7 +10023,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssistantPermissionDecision"];
                 };
             };
             /** @description Validation Error */
@@ -9414,7 +10058,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssistantPermissionAnswered"];
                 };
             };
             /** @description Validation Error */
@@ -9445,7 +10089,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssistantSessions"];
                 };
             };
             /** @description Validation Error */
@@ -9478,7 +10122,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssistantSession"];
                 };
             };
             /** @description Validation Error */
@@ -9512,7 +10156,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssistantSessionPage"];
                 };
             };
             /** @description Validation Error */
@@ -9543,7 +10187,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssistantTranscript"];
                 };
             };
             /** @description Validation Error */
@@ -9574,7 +10218,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssistantSessionDeleted"];
                 };
             };
             /** @description Validation Error */
@@ -9605,7 +10249,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssistantTurnCancelled"];
                 };
             };
             /** @description Validation Error */
@@ -9638,7 +10282,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssistantExport"];
                 };
             };
             /** @description Validation Error */
@@ -9702,7 +10346,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssistantStatus"];
                 };
             };
         };
