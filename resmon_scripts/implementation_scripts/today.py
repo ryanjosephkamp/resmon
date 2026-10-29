@@ -38,6 +38,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from implementation_scripts import reading_queue, repo_catalog, source_coverage
+from implementation_scripts.api_registry import RETIRED_NAMES
 from implementation_scripts.database import get_setting, set_setting
 
 LOOKED_KEY = "today_looked_at"
@@ -161,10 +162,20 @@ def _last_run(conn: sqlite3.Connection, routine_id: int) -> Optional[dict]:
     slug_of = {name: slug for slug, name in names.items()}
     # Only the sources that did not answer, or whose answer is unknown: on
     # Today the healthy ones recede, and a problem sits with the watch it hurt.
-    problems = [
-        {"source": slug_of.get(s["source"], s["source"]), "label": s["label"], "note": s["note"]}
-        for s in coverage["sources"] if s["category"] != "answered"
-    ]
+    # ``name`` is what the person knows the source as, a withdrawn one too,
+    # whose slug the catalog no longer lists.
+    problems = []
+    for s in coverage["sources"]:
+        if s["category"] == "answered":
+            continue
+        slug = slug_of.get(s["source"], s["source"])
+        problems.append({
+            "source": slug,
+            "name": names.get(slug) or RETIRED_NAMES.get(slug) or slug,
+            "category": s["category"],
+            "label": s["label"],
+            "note": s["note"],
+        })
     answered = sum(s["category"] == "answered" for s in coverage["sources"])
     return {
         "execution_id": int(execution["id"]),

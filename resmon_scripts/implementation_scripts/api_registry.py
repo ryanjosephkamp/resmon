@@ -38,6 +38,16 @@ RETIRED_REPOSITORIES: dict[str, str] = {
     ),
 }
 
+#: The name each retired source was shown under. A routine saved before a
+#: source was retired still records an outcome under its slug, and a screen
+#: that names the source by "ieee" reads as a key rather than as IEEE Xplore.
+RETIRED_NAMES: dict[str, str] = {
+    "ieee": "IEEE Xplore",
+    "oapen": "OAPEN Library",
+    "repec": "RePEc/IDEAS",
+    "ssrn": "SSRN",
+}
+
 
 def register_client(name: str, client_class: type) -> None:
     """Register an API client class under a repository name.

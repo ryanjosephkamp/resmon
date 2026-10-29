@@ -26,6 +26,7 @@ def _lock(monkeypatch, payload):
 
 def test_this_process_is_the_service_so_the_service_must_restart(monkeypatch):
     _lock(monkeypatch, {"pid": os.getpid(), "port": 8742})
+    assert resmon_mod._how_a_staged_restore_runs()[0] == "service_restart"
     sentence = resmon_mod._when_a_staged_restore_runs()
     assert "background service holds your database" in sentence
     assert "not when you reopen this window" in sentence
@@ -37,6 +38,8 @@ def test_another_live_service_holds_the_lock(monkeypatch):
     # The parent of this test process is alive and is not this process.
     other = os.getppid()
     _lock(monkeypatch, {"pid": other, "port": 8742})
+    # Restarting the app would not restore: its own backend would refuse.
+    assert resmon_mod._how_a_staged_restore_runs()[0] == "service_stopped"
     sentence = resmon_mod._when_a_staged_restore_runs()
     assert f"Another resmon background service is running (pid {other})" in sentence
     assert "will not replace the database while it holds it" in sentence
@@ -44,10 +47,11 @@ def test_another_live_service_holds_the_lock(monkeypatch):
 
 def test_a_stale_lock_or_none_means_reopening_restores(monkeypatch):
     _lock(monkeypatch, None)
-    assert resmon_mod._when_a_staged_restore_runs() == (
-        "Quit resmon and open it again to restore. Nothing has changed yet.")
+    assert resmon_mod._how_a_staged_restore_runs() == (
+        "app_restart", "Quit resmon and open it again to restore. Nothing has changed yet.")
     # A pid no process has: what a crashed service leaves behind.
     _lock(monkeypatch, {"pid": 2 ** 22 + 12345, "port": 8742})
+    assert resmon_mod._how_a_staged_restore_runs()[0] == "app_restart"
     assert resmon_mod._when_a_staged_restore_runs().startswith("Quit resmon and open it again")
 
 
