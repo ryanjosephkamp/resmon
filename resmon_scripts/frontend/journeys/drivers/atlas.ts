@@ -15,10 +15,10 @@ import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { expect, type TestInfo } from '@playwright/test';
+import { expect, type Locator, type TestInfo } from '@playwright/test';
 import type {
   AnalyticsView, BackendFacts, LibraryItem, VaultOnDisk, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord,
-  DrawnAppearance, EmailSettings,
+  DrawnAppearance, EmailSettings, EvidenceBundle, EvidencePageView, ReopenedPassage, SavedEvidenceNote,
   ExplorerList, ExportedFile, ImportOutcome, InterruptedRow, JourneyDriver, NotificationPreferences, Place,
   PlateReading, ProfileCreation, ProfileMatches, QueuedPaper, RankedList, RoutineFacts, RunHandle, RunNowAnswer,
   SourceOutcome, SourceWallCellView, SourceWallReading, SourceWallView, ThemeChoice, TodayReading, UpcomingFire,
@@ -87,7 +87,10 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'readTheSourceWall' | 'readTheSourceWallCell' | 'readWatchdog' | 'muteTheFinding' | 'readConnectedIdentity'
   | 'readAnalytics' | 'measureKeywordYield' | 'followTheChartIntoTheExplorer'
   | 'chooseAParentFolderForTheLibrary' | 'createTheManagedVault' | 'importIntoTheLibrary' | 'readTheLibraryItems'
-  | 'associateTheLibraryItemWithPaper' | 'readTheVaultOnDisk'>;
+  | 'associateTheLibraryItemWithPaper' | 'readTheVaultOnDisk'
+  | 'startAnEvidenceProjectFrom' | 'addToTheEvidenceProject' | 'openTheEvidenceProject' | 'readTheEvidencePage'
+  | 'saveAnEvidencePassage' | 'saveAnEvidenceNote' | 'readTheSavedEvidenceNotes' | 'reopenTheSavedPassage'
+  | 'exportSelectedEvidence'>;
 
 /** The reading-queue filter buttons, by the journey's word for each. */
 const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
@@ -106,6 +109,11 @@ const PANEL_WORDS: Record<string, string> = {
   not_recorded: 'reason not recorded',
   error: 'error',
 };
+
+/** A string as a regular expression that matches exactly it. */
+function literally(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 function isoDate(at: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -301,6 +309,114 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       associations: (await detail.locator('[data-library="links"] li').allInnerTexts()).map((t) => t.trim()),
     };
   };
+
+  // — Evidence ---------------------------------------------------------------
+
+  /** The project this journey has open, by the name a person gave it. */
+  let openProject: string | null = null;
+  const theOpenProject = (): string => {
+    expect(openProject, 'this journey has not opened an Evidence project').toBeTruthy();
+    return openProject!;
+  };
+  const evidenceReader = () => win().getByRole('region', { name: 'Evidence reader' });
+  const evidenceNotesPanel = () => win().getByRole('region', { name: 'Saved evidence notes' });
+  /** The rows of a list whose `selector` part shows exactly this name. */
+  const named = (rows: Locator, selector: string, name: string): Locator =>
+    rows.filter({ has: win().locator(selector, { hasText: new RegExp(`^${literally(name)}$`) }) });
+
+  /** The open project's workspace, once it is the named project's. */
+  const theWorkspaceIs = async (project: string): Promise<void> => {
+    await expect(win().locator('section.ev-workspace h2.ev-title'), `the workspace is not ${project}'s`)
+      .toHaveText(project, { timeout: 30_000 });
+  };
+
+  /** Select a file of the open project, and wait for the reader to be on it. */
+  const pickTheProjectFile = async (name: string): Promise<void> => {
+    const item = named(win().getByRole('region', { name: 'Files in this project' }).locator('button.library-file'), '.lib-name', name);
+    await expect(item, `the project holds no file called ${name}`).toBeVisible({ timeout: 30_000 });
+    await item.click();
+    await expect(item).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
+    await expect(evidenceReader().getByRole('heading', { name, exact: true })).toBeVisible({ timeout: 30_000 });
+  };
+
+  /** Ask the reader for one physical page of the PDF it has open, by number. */
+  const turnTheReaderTo = async (page: number): Promise<void> => {
+    const input = evidenceReader().getByLabel('Page', { exact: true });
+    await expect(input, 'the reader offers no page control here').toBeEnabled({ timeout: 60_000 });
+    await input.fill(String(page));
+    await input.press('Enter');
+    await expect(evidenceReader()).toHaveAttribute('data-page', String(page), { timeout: 30_000 });
+  };
+
+  /**
+   * The page the reader is on, once it has finished reading it.
+   *
+   * The text pane carries the page number of the answer it shows, and a new
+   * page's pane is not drawn until that page's answer has come (the reader
+   * never keeps the previous page's text up while it reads the next one), so
+   * the wait is for the pane's own page to be the reader's. The engine's
+   * answer was checked against its hash before the pane drew it.
+   */
+  const readTheReaderPage = async (file: string): Promise<EvidencePageView> => {
+    const reader = evidenceReader();
+    await expect(reader.getByRole('heading', { name: file, exact: true })).toBeVisible({ timeout: 60_000 });
+    const page = Number(await reader.getAttribute('data-page'));
+    const pane = reader.getByLabel('Canonical page text');
+    const examined = reader.locator('[data-evidence="examined"]');
+    await expect(examined.or(reader.getByRole('alert')).first(), `the reader never read page ${page} of ${file}`)
+      .toBeVisible({ timeout: 60_000 });
+    await expect(reader.getByText('Reading this exact page.', { exact: true })).toHaveCount(0, { timeout: 60_000 });
+    if (await pane.count()) await expect(pane).toHaveAttribute('data-page', String(page), { timeout: 30_000 });
+    let image = '';
+    if (await reader.getAttribute('data-media') === 'application/pdf') {
+      // The page image reports on itself once PDF.js has drawn the page, or
+      // in an alert when it could not.
+      const region = reader.getByRole('region', { name: 'PDF page image' });
+      const said = region.getByText(/^Page \d+ of \d+ rendered/).or(region.getByRole('alert')).first();
+      await expect(said, 'the PDF image never said whether it drew the page').toBeVisible({ timeout: 60_000 });
+      image = (await said.innerText()).trim();
+    }
+    return {
+      file,
+      page,
+      text: (await pane.count()) ? await pane.inputValue() : '',
+      image,
+      examined: (await examined.count()) ? (await examined.innerText()).trim() : '',
+    };
+  };
+
+  /** Type this body into the note editor, save it, and wait for the record and the notice. */
+  const saveTheOpenNote = async (body: string, button: 'Save passage' | 'Save note'): Promise<string> => {
+    const panel = evidenceNotesPanel();
+    const before = (await backend.evidenceNotes(theOpenProject())).length;
+    await panel.getByLabel(button === 'Save passage' ? 'Your note on it (optional)' : 'Note', { exact: true }).fill(body);
+    await panel.getByRole('button', { name: button, exact: true }).click();
+    await expect.poll(async () => (await backend.evidenceNotes(theOpenProject())).length, {
+      timeout: 30_000, message: `the app never recorded the ${button === 'Save passage' ? 'passage' : 'note'} that was saved`,
+    }).toBe(before + 1);
+    const notice = panel.locator('[data-evidence="saved"]');
+    await expect(notice, 'the record was stored and the panel never said so').toBeVisible({ timeout: 30_000 });
+    return (await notice.innerText()).trim();
+  };
+
+  /** Answer the next download's destination with this path; the bytes and the flow are the app's. */
+  const theNextDownloadGoesTo = async (target: string): Promise<void> => {
+    await session.app.evaluate(({ BrowserWindow }, destination) => {
+      BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => {
+        item.setSavePath(destination as string);
+      });
+    }, target);
+  };
+
+  /** Wait until the app's own Downloads record says this file finished, not merely began. */
+  const theDownloadHasCompleted = async (target: string): Promise<void> => {
+    await expect.poll(() => win().evaluate((wanted) => (window as unknown as {
+      resmonAPI: { getDownloads(): Promise<{ path: string; state: string }[]> };
+    }).resmonAPI.getDownloads().then((items) => items.find((item) => item.path === wanted)?.state ?? ''), target), {
+      timeout: 60_000, message: `the download to ${target} never completed`,
+    }).toBe('completed');
+  };
+  let downloadsMade = 0;
 
   const openQueue = async (filter: 'to read' | 'read' | 'all'): Promise<void> => {
     await win().evaluate(() => { window.location.hash = '#/library'; });
@@ -644,6 +760,177 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
         entries: entries.sort(),
         hashes,
       };
+    },
+
+    // — the Evidence workspace -------------------------------------------------
+
+    startAnEvidenceProjectFrom: async (item, project): Promise<EvidencePageView> => {
+      await openFiles();
+      const row = named(win().getByRole('region', { name: 'Library files' }).locator('button.library-file'), '.lib-name', item);
+      await row.click();
+      const detail = win().getByRole('region', { name: 'Selected Library item' });
+      await expect(detail).toHaveAttribute('data-file', String(await row.getAttribute('data-file')), { timeout: 30_000 });
+      await detail.getByRole('link', { name: 'Open in Evidence', exact: true }).click();
+      const handoff = win().getByRole('region', { name: 'Brought from Your files' });
+      await expect(handoff, 'Open in Evidence did not carry the Library item across').toContainText(item, { timeout: 30_000 });
+      await win().getByLabel('A name for a new project', { exact: true }).fill(project);
+      await win().getByRole('button', { name: 'Start', exact: true }).click();
+      await theWorkspaceIs(project);
+      openProject = project;
+      // The handoff adds to the project that is open, and only when asked:
+      // starting a project does not put anything in it.
+      const add = handoff.getByRole('button', { name: `Add ${item} to this project`, exact: true });
+      await expect(add).toBeEnabled({ timeout: 30_000 });
+      await add.click();
+      await expect(handoff).toHaveCount(0, { timeout: 30_000 });
+      return readTheReaderPage(item);
+    },
+
+    addToTheEvidenceProject: async (items): Promise<string[]> => {
+      const open = win().locator('section.ev-workspace .ev-head').getByRole('button', { name: 'Add files', exact: true });
+      if (await open.getAttribute('aria-pressed') !== 'true') await open.click();
+      const chooser = win().getByRole('region', { name: 'Add files from your library' });
+      await expect(chooser).toBeVisible({ timeout: 30_000 });
+      for (const item of items) {
+        const choice = named(chooser.locator('label.choice'), 'span', item).getByRole('checkbox');
+        await expect(choice, `the library offers no ${item} to add`).toBeVisible({ timeout: 30_000 });
+        await choice.check();
+      }
+      await chooser.getByRole('button', { name: /^Add \d+ files?$/ }).click();
+      const members = win().getByRole('region', { name: 'Files in this project' });
+      for (const item of items) {
+        await expect(named(members.locator('button.library-file'), '.lib-name', item),
+          `${item} was added and is not in the project`).toBeVisible({ timeout: 30_000 });
+      }
+      await open.click();
+      return (await members.locator('button.library-file .lib-name').allInnerTexts()).map((t) => t.trim());
+    },
+
+    openTheEvidenceProject: async (project) => {
+      await win().evaluate(() => { window.location.hash = '#/library/evidence'; });
+      await expect(win().getByRole('heading', { name: 'Evidence', level: 1 })).toBeVisible({ timeout: 30_000 });
+      const button = named(win().getByRole('navigation', { name: 'Evidence projects' }).locator('button.ev-project'), '.lib-name', project);
+      await expect(button, `Evidence lists no project called ${project}`).toBeVisible({ timeout: 60_000 });
+      await button.click();
+      await expect(button).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
+      await theWorkspaceIs(project);
+      openProject = project;
+    },
+
+    readTheEvidencePage: async (file, page): Promise<EvidencePageView> => {
+      await pickTheProjectFile(file);
+      if (page !== undefined) await turnTheReaderTo(page);
+      return readTheReaderPage(file);
+    },
+
+    saveAnEvidencePassage: async ({ file, page, quote, body }): Promise<string> => {
+      await pickTheProjectFile(file);
+      if (page !== undefined) await turnTheReaderTo(page);
+      // The page is settled before it is searched: a search of the previous
+      // page's text would choose a passage the person never saw.
+      await readTheReaderPage(file);
+      const reader = evidenceReader();
+      await reader.getByLabel('Find on this page’s text', { exact: true }).fill(quote);
+      await reader.getByRole('button', { name: 'Find', exact: true }).click();
+      await expect(reader.locator('[data-evidence="found"]'), `the reader never reported searching for "${quote}"`)
+        .toHaveText(/^\d+ literal match(es)? on this page’s text only\.$/, { timeout: 30_000 });
+      const use = reader.getByRole('button', { name: 'Use selected passage', exact: true });
+      await expect(use, `the reader found no "${quote}" to use`).toBeEnabled({ timeout: 30_000 });
+      await use.click();
+      const panel = evidenceNotesPanel();
+      await expect(panel.getByRole('heading', { name: 'New exact passage' })).toBeVisible({ timeout: 30_000 });
+      await expect(panel.locator('[data-evidence="quote"]'),
+        'the passage the panel is about to save is not the text that was found').toHaveText(quote);
+      return saveTheOpenNote(body, 'Save passage');
+    },
+
+    saveAnEvidenceNote: async ({ file, body }): Promise<string> => {
+      await pickTheProjectFile(file);
+      const panel = evidenceNotesPanel();
+      await expect(panel.getByRole('heading', { name: 'New plain note' })).toBeVisible({ timeout: 30_000 });
+      return saveTheOpenNote(body, 'Save note');
+    },
+
+    readTheSavedEvidenceNotes: async (): Promise<SavedEvidenceNote[]> => {
+      const held = await backend.evidenceNotes(theOpenProject());
+      const records = evidenceNotesPanel().locator('ol.ev-saved > li');
+      await expect(records, 'the panel does not list every record the app holds').toHaveCount(held.length, { timeout: 30_000 });
+      const out: SavedEvidenceNote[] = [];
+      for (let i = 0; i < await records.count(); i += 1) {
+        const record = records.nth(i);
+        const quote = record.locator('blockquote');
+        const body = record.locator('.ev-body-text');
+        const head = (await record.locator('.ev-saved-head').innerText()).trim();
+        out.push({
+          file: (await record.locator('.ev-saved-file').innerText()).trim(),
+          kind: String(await record.getAttribute('data-kind')),
+          page: /· page (\d+)/.test(head) ? Number(/· page (\d+)/.exec(head)![1]) : null,
+          quote: (await quote.count()) ? ((await quote.textContent()) ?? '') : null,
+          body: (await body.count()) ? ((await body.textContent()) ?? '') : '',
+          noteId: String(await record.getAttribute('data-note')),
+          versionId: String(await record.getAttribute('data-version')),
+        });
+      }
+      return out;
+    },
+
+    reopenTheSavedPassage: async (quote): Promise<ReopenedPassage> => {
+      const record = evidenceNotesPanel().locator('ol.ev-saved > li')
+        .filter({ has: win().locator('blockquote', { hasText: new RegExp(`^${literally(quote)}$`) }) }).first();
+      await expect(record, `no saved passage keeps "${quote}"`).toBeVisible({ timeout: 30_000 });
+      const file = (await record.locator('.ev-saved-file').innerText()).trim();
+      await record.getByRole('button', { name: 'Reopen the passage', exact: true }).click();
+      const reader = evidenceReader();
+      await expect(reader.getByRole('heading', { name: file, exact: true })).toBeVisible({ timeout: 30_000 });
+      // "Unresolved until this exact page is read" is the state it starts in;
+      // the two sentences waited for here are the two it can end in.
+      const resolution = reader.locator('[data-evidence="resolution"]');
+      await expect(resolution, 'the reader never said whether the saved passage still matches')
+        .toHaveText(/^Saved passage (resolved|unresolved:)/, { timeout: 60_000 });
+      const pane = reader.getByLabel('Canonical page text');
+      return {
+        file,
+        page: Number(await reader.getAttribute('data-page')),
+        highlighted: (await pane.count())
+          ? await pane.evaluate((element) => {
+            const text = element as HTMLTextAreaElement;
+            return text.value.slice(text.selectionStart, text.selectionEnd);
+          })
+          : '',
+        resolution: (await resolution.innerText()).trim(),
+      };
+    },
+
+    exportSelectedEvidence: async (files, { includeFiles }): Promise<EvidenceBundle> => {
+      const open = win().locator('section.ev-workspace .ev-head').getByRole('button', { name: 'Export selected evidence', exact: true });
+      await expect(open).toBeEnabled({ timeout: 30_000 });
+      if (await open.getAttribute('aria-pressed') !== 'true') await open.click();
+      const dialog = win().getByRole('region', { name: 'Export selected evidence' });
+      await expect(dialog).toBeVisible({ timeout: 30_000 });
+      for (const file of files) await named(dialog.locator('label.choice'), 'span', file).getByRole('checkbox').check();
+      if (includeFiles) await dialog.getByLabel(/^Include the files themselves/).check();
+      downloadsMade += 1;
+      const dir = path.join(fs.realpathSync(session.stateDir), 'downloads');
+      fs.mkdirSync(dir, { recursive: true });
+      const target = path.join(dir, `selected-evidence-${downloadsMade}.zip`);
+      await theNextDownloadGoesTo(target);
+      await dialog.getByRole('button', { name: 'Save the archive', exact: true }).click();
+      await expect(dialog.locator('[data-evidence="exported"]'), 'the archive was never offered')
+        .toHaveText(new RegExp(`^Saved a ${includeFiles ? 'files-and-records' : 'records-only'} archive`), { timeout: 120_000 });
+      await theDownloadHasCompleted(target);
+      // Read with the backend's own interpreter, so the archive on disk is
+      // left exactly as the app wrote it.
+      const read = JSON.parse(execFileSync(session.python, ['-c', `
+import hashlib, json, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as bundle:
+    assert bundle.testzip() is None
+    names = bundle.namelist()
+    print(json.dumps({'members': names, 'manifest': json.loads(bundle.read('manifest.json')),
+                      'notes': bundle.read('notes.md').decode('utf-8'),
+                      'hashes': {name: hashlib.sha256(bundle.read(name)).hexdigest() for name in names}}))
+`, target], { encoding: 'utf8' }));
+      await open.click();
+      return { path: target, members: read.members, manifest: read.manifest, notesMarkdown: read.notes, hashes: read.hashes };
     },
 
     readConnectedIdentity: async () => {

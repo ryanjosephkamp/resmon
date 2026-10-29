@@ -6,7 +6,7 @@ import { count, number } from '../today/format';
 import { evidence, evidenceFetch, readerBusy, type Anchor, type FileRecord, type Member, type Note, type PageText, type Project } from './evidenceApi';
 import { PAGE_STATUS, examinedWords, resolves, selectionAnchor, utf16Range } from './evidenceModel';
 import { LibraryTabs } from './LibraryTabs';
-import { LIBRARY, LIBRARY_KEY, kindOf, sizeWords } from './libraryApi';
+import { LIBRARY, LIBRARY_KEY, kindOf, sizeWords, type LibraryFile } from './libraryApi';
 
 function errorWords(error: unknown): string {
   if (error instanceof EngineError && error.detail) return error.detail;
@@ -46,14 +46,24 @@ function Workspaces({ vault }: { vault: string }) {
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
   const chosen = params.get('project');
+  /** A file brought from Your files, by its id, until it is added or set aside. */
+  const handoff = params.get('file');
+  const go = (project: string) => setParams(handoff ? { project, file: handoff } : { project });
   const [name, setName] = useState('');
+  const brought = useQuery({
+    queryKey: ['library-file', vault, handoff],
+    enabled: !!handoff,
+    queryFn: () => answer(engine().GET('/api/library/files/{file_id}', {
+      ...LIBRARY, params: { path: { file_id: handoff! }, query: { expected_vault_id: vault } },
+    })),
+  });
   const projects = useQuery({ queryKey: ['evidence-projects', vault], queryFn: () => evidence.projects(vault) });
   const create = useMutation({
     mutationFn: (title: string) => evidence.create(vault, title),
     onSuccess: (made) => {
       setName('');
       void client.invalidateQueries({ queryKey: ['evidence-projects', vault] });
-      setParams({ project: made.project_id });
+      go(made.project_id);
     },
   });
   const list = projects.data?.projects ?? [];
@@ -72,7 +82,7 @@ function Workspaces({ vault }: { vault: string }) {
           {list.map((p) => (
             <li key={p.project_id}>
               <button type="button" className="ev-project" aria-pressed={p.project_id === open} data-project={p.project_id}
-                onClick={() => setParams({ project: p.project_id })}>
+                onClick={() => go(p.project_id)}>
                 <span className="lib-name">{p.name}</span>
                 <span className="meta"><span>{count(p.file_count, 'file')}</span><span className="sep" /><span>{count(p.note_count, 'record')}</span></span>
               </button>
@@ -80,12 +90,24 @@ function Workspaces({ vault }: { vault: string }) {
           ))}
         </ol>
       </nav>
-      {open && <Workspace key={open} vault={vault} projectId={open} />}
+      {open
+        ? <Workspace key={open} vault={vault} projectId={open} brought={brought.data?.file ?? null}
+            onHandedOff={() => setParams({ project: open })} />
+        : brought.data && (
+          <section className="ev-workspace">
+            <section className="ev-handoff" aria-label="Brought from Your files">
+              <p><b>{brought.data.file.original_name}</b>, from Your files. Start a project for it, then add this exact version.</p>
+            </section>
+          </section>
+        )}
+      {brought.error && <p className="field-error" role="alert">{errorWords(brought.error)}</p>}
     </div>
   );
 }
 
-function Workspace({ vault, projectId }: { vault: string; projectId: string }) {
+function Workspace({ vault, projectId, brought, onHandedOff }: {
+  vault: string; projectId: string; brought: LibraryFile | null; onHandedOff: () => void;
+}) {
   const client = useQueryClient();
   const detail = useQuery({ queryKey: ['evidence-project', projectId], queryFn: () => evidence.detail(vault, projectId) });
   const project = detail.data?.project ?? null;
@@ -110,6 +132,11 @@ function Workspace({ vault, projectId }: { vault: string; projectId: string }) {
     mutationFn: (file: FileRecord) => evidence.remove(project!, file),
     onSuccess: (done) => { changed(done.project); setPicked(null); },
   });
+  const read = (fileId: string) => { setReopen(null); setAnchor(null); setPicked(fileId); };
+  const bring = useMutation({
+    mutationFn: (file: LibraryFile) => evidence.add(project!, file),
+    onSuccess: (done, file) => { changed(done.project); read(file.file_id); onHandedOff(); },
+  });
 
   if (detail.isPending) return <section className="ev-workspace"><p className="record-cap">Reading the project.</p></section>;
   if (detail.isError || !project) return <section className="ev-workspace"><p className="field-error" role="alert">{errorWords(detail.error)}</p></section>;
@@ -133,6 +160,29 @@ function Workspace({ vault, projectId }: { vault: string; projectId: string }) {
           </button>
         </div>
       </header>
+      {brought && (
+        <section className="ev-handoff" aria-label="Brought from Your files">
+          <p>
+            <b>{brought.original_name}</b>, from Your files: version <code className="path">{brought.version_id}</code>.
+          </p>
+          <div className="lib-actions">
+            {memberList.some((m) => m.file_id === brought.file_id && m.version_id === brought.version_id)
+              ? (
+                <>
+                  <span className="record-cap">This exact version is already in the project.</span>
+                  <button type="button" className="btn sm" onClick={() => { read(brought.file_id); onHandedOff(); }}>Read it</button>
+                </>
+              )
+              : (
+                <button type="button" className="btn sm primary" disabled={!members.data || bring.isPending} onClick={() => bring.mutate(brought)}>
+                  Add {brought.original_name} to this project
+                </button>
+              )}
+            <button type="button" className="btn sm quiet" onClick={onHandedOff}>Not now</button>
+          </div>
+          {bring.error && <p className="field-error" role="alert">{errorWords(bring.error)}</p>}
+        </section>
+      )}
       {adding && <AddFiles vault={vault} project={project} members={memberList} onAdded={changed} />}
       {exporting && <Bundle project={project} members={memberList} />}
 
@@ -144,7 +194,7 @@ function Workspace({ vault, projectId }: { vault: string; projectId: string }) {
             {memberList.map((m) => (
               <li key={m.file_id}>
                 <button type="button" className="library-file" aria-pressed={m.file_id === current?.file_id} data-file={m.file_id}
-                  onClick={() => { setReopen(null); setAnchor(null); setPicked(m.file_id); }}>
+                  onClick={() => read(m.file_id)}>
                   <span className="lib-name">{m.file.original_name}</span>
                   <span className="meta"><span>{kindOf(m.file.media_type)}</span><span className="sep" /><span>{sizeWords(m.file.byte_size)}</span></span>
                 </button>
@@ -251,13 +301,21 @@ function Reader({ project, file, member, reopen, onAnchor, onRemove, removing }:
 }) {
   const isPdf = file.media_type === 'application/pdf';
   const [page, setPage] = useState(reopen?.page_number ?? 1);
+  const [draft, setDraft] = useState(String(reopen?.page_number ?? 1));
+  /** The page count the last read reported, kept while the next page is being read. */
+  const [pages, setPages] = useState<number | null>(null);
+  const turn = (n: number) => { setPage(n); setDraft(String(n)); };
   const [selected, setSelected] = useState<Anchor | null>(null);
   const [find, setFind] = useState('');
   const [found, setFound] = useState<string | null>(null);
   const pane = useRef<HTMLTextAreaElement>(null);
   const text = useQuery({
     queryKey: ['evidence-text', project.project_id, file.file_id, file.version_id, page],
-    queryFn: ({ signal }) => evidence.text(project, file, page, signal),
+    queryFn: async ({ signal }) => {
+      const read = await evidence.text(project, file, page, signal);
+      setPages(read.page_count ?? null);
+      return read;
+    },
     // Only a busy reader is retried: the page before this one may still be finishing.
     retry: (failures, error) => readerBusy(error) && failures < 6,
     retryDelay: (attempt) => Math.min(4_000, 600 * (attempt + 1)),
@@ -297,7 +355,7 @@ function Reader({ project, file, member, reopen, onAnchor, onRemove, removing }:
   };
 
   return (
-    <section className="ev-reader" aria-label="Evidence reader" data-file={file.file_id} data-page={page}>
+    <section className="ev-reader" aria-label="Evidence reader" data-file={file.file_id} data-media={file.media_type} data-page={page}>
       <div className="ev-reader-head">
         <h2 className="lib-detail-name">{file.original_name}</h2>
         {onRemove && (
@@ -310,11 +368,18 @@ function Reader({ project, file, member, reopen, onAnchor, onRemove, removing }:
       <p className="record-cap ev-identity">Version <code className="path">{file.version_id}</code> · SHA-256 <code className="path">{file.sha256}</code></p>
       {!member && <p className="record-cap" data-evidence="removed">This file is no longer in the project. Its saved records are kept.</p>}
       {isPdf && (
-        <div className="ev-pages">
-          <button type="button" className="btn sm" disabled={page <= 1 || text.isFetching} onClick={() => setPage((p) => p - 1)}>Previous page</button>
-          <span className="num" data-evidence="page">Page {page}{data?.page_count ? ` of ${data.page_count}` : ''}</span>
-          <button type="button" className="btn sm" disabled={text.isFetching || page >= (data?.page_count ?? 1)} onClick={() => setPage((p) => p + 1)}>Next page</button>
-        </div>
+        <form className="ev-pages" onSubmit={(e) => {
+          e.preventDefault();
+          const n = Number(draft);
+          if (Number.isInteger(n) && n >= 1 && (pages === null || n <= pages)) turn(n); else setDraft(String(page));
+        }}>
+          <button type="button" className="btn sm" disabled={page <= 1 || text.isFetching} onClick={() => turn(page - 1)}>Previous page</button>
+          <label htmlFor="ev-page" className="num">Page</label>
+          <input id="ev-page" className="ev-page-input num" inputMode="numeric" value={draft} disabled={text.isFetching}
+            onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, ''))} autoComplete="off" />
+          <span className="num">{pages !== null ? `of ${number(pages)}` : ''}</span>
+          <button type="button" className="btn sm" disabled={text.isFetching || page >= (pages ?? 1)} onClick={() => turn(page + 1)}>Next page</button>
+        </form>
       )}
       {text.isFetching && <p className="record-cap" role="status">Reading this exact page.</p>}
       {text.isError && <p className="field-error" role="alert">{errorWords(text.error)}</p>}
@@ -331,7 +396,7 @@ function Reader({ project, file, member, reopen, onAnchor, onRemove, removing }:
                   <button type="submit" className="btn sm" disabled={!find}>Find</button>
                   {found && <span className="record-cap" role="status" data-evidence="found">{found}</span>}
                 </form>
-                <textarea ref={pane} className="ev-text" aria-label="Canonical page text" readOnly value={data.text}
+                <textarea ref={pane} className="ev-text" aria-label="Canonical page text" readOnly value={data.text} data-page={data.page_number}
                   onSelect={choose} onKeyUp={choose} rows={14} />
                 <div className="ev-use">
                   <button type="button" className="btn sm primary" disabled={!selected || !member} onClick={() => onAnchor(selected)}>Use selected passage</button>
@@ -390,7 +455,7 @@ function NotesPanel({ project, file, member, anchor, editing, onEdit, notes, tot
       {!notes.length && <p className="record-cap">None yet.</p>}
       <ol className="ev-saved">
         {notes.map((n) => (
-          <li key={n.note_id} data-note={n.note_id} data-kind={n.kind}>
+          <li key={n.note_id} data-note={n.note_id} data-kind={n.kind} data-version={n.version_id}>
             <p className="ev-saved-head">
               <b className="ev-saved-file">{n.file.original_name}</b>
               <span className="record-cap"> · {n.kind}{n.page_number ? ` · page ${n.page_number}` : ''}{n.membership_state === 'removed' ? ' · file removed from the project' : ''}</span>

@@ -274,6 +274,7 @@ function Detail({ vaultId, fileId, onChanged }: { vaultId: string; fileId: strin
             {reading ? 'Close the text' : 'Read here'}
           </button>
         )}
+        <Link className="btn sm" to={`/library/evidence?file=${encodeURIComponent(file.file_id)}`}>Open in Evidence</Link>
       </div>
       {open.error && <p className="field-error" role="alert">{errorWords(open.error)}</p>}
       <dl className="facts lib-facts">
