@@ -84,8 +84,8 @@ export async function importFile(vaultId: string, file: File, documentId?: numbe
 }
 
 /** Hand a text the engine composed to the system as a download. */
-export function download(text: string, filename: string, type: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type }));
+export function download(content: BlobPart, filename: string, type: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;

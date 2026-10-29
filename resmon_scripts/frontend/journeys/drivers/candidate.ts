@@ -37,6 +37,11 @@ const RENDERER_FREE = new Set<string>([
   'theSourceGoesDown', 'theSourceComesBack',
   // J16: the live suite's gate, run as a subprocess. Its journey is a CI job.
   'runTheGate',
+  // J36 and J37: the authored model on loopback, the settings and key it is
+  // reached with (written over the API), quitting the app, and opening a saved
+  // file in a reader that is not resmon.
+  'useAnAuthoredModelForSelectedAnswers', 'theAuthoredModelCitesTextItWasNotSent', 'readWhatTheAuthoredModelReceived',
+  'closeTheApp', 'readTheFileOffline',
 ]);
 
 export function createCandidateDriver(session: Session, testInfo: TestInfo): JourneyDriver {

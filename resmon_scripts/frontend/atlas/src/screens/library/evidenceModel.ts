@@ -28,13 +28,50 @@ export function selectionAnchor(page: PageText, start: number, end: number): Anc
   };
 }
 
-/** Whether a saved passage is exactly this page's text, at its range: version, contract, hash and quote. */
+/** A range pinned to one exact page's text: a saved passage, or a citation in a saved answer. */
+export interface Pin {
+  kind: 'passage' | 'citation';
+  file_id: string; version_id: string; sha256: string; page_number: number;
+  extraction_contract: string; page_text_sha256: string; start_codepoint: number; end_codepoint: number; quote: string;
+}
+
+/** A saved passage as the range it is pinned to; a plain note pins nothing. */
+export function pinOf(note: Note): Pin | null {
+  if (note.kind !== 'passage' || note.page_number === null || note.extraction_contract === null || note.page_text_sha256 === null
+    || note.start_codepoint === null || note.end_codepoint === null || note.quote === null) return null;
+  return {
+    kind: 'passage', file_id: note.file_id, version_id: note.version_id, sha256: note.file.sha256, page_number: note.page_number,
+    extraction_contract: note.extraction_contract, page_text_sha256: note.page_text_sha256,
+    start_codepoint: note.start_codepoint, end_codepoint: note.end_codepoint, quote: note.quote,
+  };
+}
+
+/** Whether a pinned range is exactly this page's text: version, contract, hash and quote at its range. */
+export function matches(pin: Pin, page: PageText): boolean {
+  return pin.file_id === page.file_id && pin.version_id === page.version_id && pin.sha256 === page.sha256
+    && pin.page_number === page.page_number && pin.extraction_contract === page.extraction_contract
+    && pin.page_text_sha256 === page.page_text_sha256
+    && Array.from(page.text).slice(pin.start_codepoint, pin.end_codepoint).join('') === pin.quote;
+}
+
+/** Whether a saved passage is exactly this page's text, at its range. */
 export function resolves(note: Note, page: PageText): boolean {
-  return note.kind === 'passage'
-    && note.file_id === page.file_id && note.version_id === page.version_id && note.file.sha256 === page.sha256
-    && note.page_number === page.page_number && note.extraction_contract === page.extraction_contract
-    && note.page_text_sha256 === page.page_text_sha256
-    && Array.from(page.text).slice(note.start_codepoint ?? 0, note.end_codepoint ?? 0).join('') === note.quote;
+  const pin = pinOf(note);
+  return pin !== null && matches(pin, page);
+}
+
+/** What the reader says about a pinned range, before and after it has read the page. */
+export function resolutionWords(pin: Pin, page: PageText | undefined): string {
+  if (pin.kind === 'citation') {
+    if (!page) return 'Citation unresolved until this exact page is read.';
+    return matches(pin, page)
+      ? 'Citation matched this exact current text range. Whether the quote supports the answer is not checked.'
+      : 'Saved citation unresolved: this page, its text hash or its extraction contract differs from the one the answer was given. The frozen quote is unchanged.';
+  }
+  if (!page) return 'Saved passage is unresolved until this exact page is read.';
+  return matches(pin, page)
+    ? 'Saved passage resolved against this exact version, extraction contract, text hash and codepoint range.'
+    : 'Saved passage unresolved: this page, its text hash or its extraction contract does not match. The saved quote is unchanged.';
 }
 
 /** A codepoint range as the UTF-16 range a text field selects. */

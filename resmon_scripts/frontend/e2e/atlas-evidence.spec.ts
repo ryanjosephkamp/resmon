@@ -73,6 +73,8 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     const win = await app.firstWindow({ timeout: 180_000 });
     const problems: string[] = [];
     win.on('pageerror', (e) => problems.push(e.message));
+    // The router sets its own address when it mounts, so nothing navigates before it has.
+    await expect(win.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 120_000 });
     win.on('dialog', (d) => { void d.accept(); });
 
     // — the library, and three files in it --------------------------------------------

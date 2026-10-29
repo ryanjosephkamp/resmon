@@ -87,8 +87,8 @@ shape changes its output: the same test compares them.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 1038 tests across 100 suites
-npm run e2e                                      # the real Electron app — 134 cases in 51 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 1044 tests across 101 suites
+npm run e2e                                      # the real Electron app — 135 cases in 52 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -544,6 +544,16 @@ the "evidence projects" slice of `test_response_models.py`; real-app journey
 `pdfjs.ts`): `atlas/vite.config.ts` copies the 188 files `src/__tests__/pdfjs.test.ts` pins from
 `vendor/pdfjs/6.3.289`, byte for byte, renaming only `.mjs` to `.js` for the main process's MIME
 table, and the CSP names `worker-src 'self'`.
+Its Answers view (`Answers.tsx`, `answersApi.ts`, `answersModel.ts`) asks a question of, or a
+briefing from, exact excerpts: nothing is sent until the engine's preview is shown, the event stream
+is held while an answer runs (the engine cancels an unsubscribed one), and leaving the view cancels
+it. Every request is re-checked in the renderer (canonical JSON, the request, prompt, system and
+source hashes) and every citation must be its source's text at exactly its codepoint range; a
+citation opens the frozen quote and re-reads the current page through `Reader.tsx`, which resolves
+saved passages and citations as one `Pin`. `/api/assistant/status` is read against a declared shape
+until the Ask slice models it. The routes' bodies are the "selected-evidence answers" slice of
+`test_response_models.py`; real-app journey `e2e/atlas-answers.spec.ts`, on the authored loopback
+model of `selectedEvidenceTransport`.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
 
