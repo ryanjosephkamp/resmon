@@ -288,6 +288,77 @@ class SweepEngine:
         # sources were selected (not the order they answered in). Rendered
         # into the report's footer.
         zero_notes: list[dict] = []
+        # Records each source returned, for every source whose search finished.
+        # Only a cancelled run's report needs it: a finished report lists the
+        # papers themselves.
+        source_counts: dict[str, int] = {}
+
+        def cancelled(
+            stage: str,
+            *,
+            report_docs: Optional[list[dict]] = None,
+            dedup: Optional[dict] = None,
+            linked: Optional[list[int]] = None,
+            ai_model: Optional[str] = None,
+        ) -> dict:
+            """Finalize a cancelled run, leaving a report of what it collected.
+
+            ``stage`` is where the cancel took effect: ``querying`` (sources
+            still being asked), ``collected`` (every source finished, nothing
+            stored yet) or ``summarizing`` (papers stored and linked). A report
+            that cannot be written is logged and the run is still cancelled;
+            the report is never allowed to turn a cancel into a failure.
+            """
+            report_path: Optional[Path] = None
+            try:
+                docs = (report_docs if report_docs is not None
+                        else self._build_report_docs(all_results, entity_matches))
+                partial = {n.get("slug") for n in zero_notes if n.get("partial")}
+                watched = query_params.get("entity_profile") or None
+                text = generate_report(docs, {
+                    "query": query_params.get("query", ""),
+                    "watch_profile": (watched or {}).get("display_name"),
+                    "keywords": query_params.get("keywords"),
+                    "repositories": list(repositories),
+                    "missing_key_repos": list(missing_key_repos),
+                    "zero_notes": list(zero_notes),
+                    "duplicate_links": self._duplicate_links_for(linked) if linked else None,
+                    "date_from": query_params.get("date_from", "N/A"),
+                    "date_to": query_params.get("date_to", "N/A"),
+                    "total": len(docs),
+                    "new": dedup["new"] if dedup else None,
+                    "ai_model": ai_model,
+                    "cancellation": {
+                        "stage": stage,
+                        "stored": dedup is not None,
+                        "answered": [
+                            {"source": _source_display_name(slug), "count": source_counts[slug]}
+                            for slug in repositories
+                            if source_counts.get(slug) and slug not in partial
+                        ],
+                    },
+                })
+                report_path = (REPORTS_DIR / "markdowns"
+                               / f"report_{execution_type}_{exec_id}_{ts_slug}.md")
+                save_report(text, report_path)
+                task_log.log(f"Report of the cancelled run saved: {report_path}")
+                store.emit(exec_id, {
+                    "type": "report_saved",
+                    "report_path": str(report_path),
+                    "timestamp": now_iso(),
+                })
+            except Exception as exc:
+                logger.warning(
+                    "Could not write the cancelled run's report (exec_id=%s): %s",
+                    exec_id, exc,
+                )
+                task_log.log(f"The cancelled run's report could not be written: {exc}")
+                report_path = None
+            return self._handle_cancellation(
+                exec_id, task_log, all_results, wall_start,
+                report_path=report_path, log_path=log_path,
+            )
+
         try:
             # 2.1 — a watch routine names a profile, and a routine that names one
             # resmon no longer holds must **fail loudly**. The alternative was a
@@ -323,20 +394,19 @@ class SweepEngine:
             })
             update_current_stage(self.db, exec_id, "querying")
 
-            cancelled = self._query_sources(
+            if self._query_sources(
                 exec_id=exec_id,
                 repositories=repositories,
                 query_params=query_params,
                 task_log=task_log,
-                wall_start=wall_start,
                 all_results=all_results,
                 entity_matches=entity_matches,
                 missing_key_repos=missing_key_repos,
                 repo_errors=repo_errors,
                 zero_notes=zero_notes,
-            )
-            if cancelled is not None:
-                return cancelled
+                source_counts=source_counts,
+            ):
+                return cancelled("querying")
 
             store.emit(exec_id, {
                 "type": "log_entry",
@@ -348,7 +418,7 @@ class SweepEngine:
             # 4. Normalize + deduplicate + insert
             # Cancellation checkpoint
             if store.should_cancel(exec_id):
-                return self._handle_cancellation(exec_id, task_log, all_results, wall_start)
+                return cancelled("collected")
 
             store.emit(exec_id, {
                 "type": "stage",
@@ -467,7 +537,8 @@ class SweepEngine:
             ai_possible = bool(ai_lanes) or self.llm_client is not None
             if ai_possible and self.config.get("ai_enabled") and report_docs:
                 if store.should_cancel(exec_id):
-                    return self._handle_cancellation(exec_id, task_log, all_results, wall_start)
+                    return cancelled("summarizing", report_docs=report_docs,
+                                     dedup=dedup_stats, linked=linked_ids)
 
                 store.emit(exec_id, {
                     "type": "stage",
@@ -669,9 +740,9 @@ class SweepEngine:
                         })
 
                     if cancelled_mid_summary:
-                        return self._handle_cancellation(
-                            exec_id, task_log, all_results, wall_start,
-                        )
+                        return cancelled("summarizing", report_docs=report_docs,
+                                         dedup=dedup_stats, linked=linked_ids,
+                                         ai_model=chain.active_label or None)
 
                     # Provider/model label for the report header. With a
                     # chain the honest answer is the lane that actually
@@ -1284,7 +1355,7 @@ class SweepEngine:
         """
         from . import lifecycle as lifecycle_module
         from . import watch_profiles as watch_profiles_module
-        from .report_generator import generate_watch_report
+        from .report_generator import generate_cancelled_watch_report, generate_watch_report
 
         store = progress_store
         profile = query_params["entity_profile"]
@@ -1310,7 +1381,21 @@ class SweepEngine:
         # Cancelling after this point takes effect at the end of the pass, and
         # the log says so rather than leaving a Cancel button that looks broken.
         if store.should_cancel(exec_id):
-            return self._handle_cancellation(exec_id, task_log, [], wall_start)
+            report_path: Optional[Path] = None
+            try:
+                report_path = REPORTS_DIR / "markdowns" / f"report_{execution_type}_{exec_id}_{ts_slug}.md"
+                save_report(generate_cancelled_watch_report(profile, len(document_ids)), report_path)
+                task_log.log(f"Report of the cancelled run saved: {report_path}")
+            except Exception as exc:
+                logger.warning(
+                    "Could not write the cancelled run's report (exec_id=%s): %s",
+                    exec_id, exc,
+                )
+                report_path = None
+            return self._handle_cancellation(
+                exec_id, task_log, [], wall_start,
+                report_path=report_path, log_path=log_path,
+            )
         task_log.log(
             "Checking now. A cancel from here takes effect when this pass ends: "
             "the lifecycle check runs in one bounded batch and is not "
@@ -1477,13 +1562,13 @@ class SweepEngine:
         repositories: list[str],
         query_params: dict,
         task_log: TaskLogger,
-        wall_start: float,
         all_results: list,
         entity_matches: dict,
         missing_key_repos: list[str],
         repo_errors: list[dict],
         zero_notes: list[dict],
-    ) -> Optional[dict]:
+        source_counts: dict[str, int],
+    ) -> bool:
         """Ask the selected sources, up to ``_SOURCE_CONCURRENCY`` at a time.
 
         Sources used to be asked one after another, so a sweep took the sum of
@@ -1502,7 +1587,10 @@ class SweepEngine:
         deduplication, the report and the search record come out as a
         one-at-a-time run wrote them whichever source happened to answer first.
 
-        Returns the cancellation result when the run was cancelled, else None.
+        Returns True when the run was cancelled. The collections then hold what
+        the sources that finished contributed, and ``zero_notes`` also names
+        each search the cancel interrupted and each source it was never sent
+        to, so the caller's report can account for every selected source.
         """
         store = progress_store
         total = len(repositories)
@@ -1523,6 +1611,8 @@ class SweepEngine:
                 entity_matches.update(verified_by.get(i, {}))
                 zero_notes.extend(notes_by.get(i, []))
                 repo_errors.extend(errors_by.get(i, []))
+                if i in results_by:
+                    source_counts[repositories[i]] = len(results_by[i])
 
         def fail(i: int, repo_name: str, exc: Exception) -> None:
             task_log.log(f"  {repo_name}: ERROR - {exc}")
@@ -1758,7 +1848,7 @@ class SweepEngine:
             except Exception as exc:
                 fail(i, repo_name, exc)
 
-        def cancel() -> dict:
+        def cancel() -> bool:
             # A source whose search has already returned is recorded as
             # answered, as a one-at-a-time run recorded the source it had just
             # finished before reaching its next checkpoint.
@@ -1772,7 +1862,7 @@ class SweepEngine:
                 # Mark each in-flight repo as errored for UI clarity, then
                 # short-circuit to the cancellation handler. Their worker
                 # threads are daemons and are abandoned; each exits when its
-                # request returns.
+                # request returns, and nothing it returns is read.
                 store.emit(exec_id, {
                     "type": "repo_error",
                     "repository": repo_name,
@@ -1786,9 +1876,32 @@ class SweepEngine:
                     error_message="cancelled by user",
                 )
                 task_log.log(f"  {repo_name}: CANCELLED by user")
+                name = _source_display_name(repo_name)
+                notes_by.setdefault(i, []).append({
+                    "source": name, "slug": repo_name, "reason": "cancelled",
+                    "sentence": (
+                        f"{name} was still being asked when the run was cancelled, "
+                        "and nothing it sent was kept. This is not a zero — the "
+                        "source did not finish answering."
+                    ),
+                })
             in_flight.clear()
+            # A source the run never reached gets no execution_sources row:
+            # there is no outcome to record. The report still names it, so the
+            # reader can see every selected source accounted for.
+            for i, repo_name in waiting:
+                task_log.log(f"  {repo_name}: not asked; the run was cancelled first")
+                name = _source_display_name(repo_name)
+                notes_by.setdefault(i, []).append({
+                    "source": name, "slug": repo_name, "reason": "not_reached",
+                    "sentence": (
+                        f"{name} was not asked: the run was cancelled before "
+                        "resmon reached it."
+                    ),
+                })
+            waiting.clear()
             assemble()
-            return self._handle_cancellation(exec_id, task_log, all_results, wall_start)
+            return True
 
         while waiting or in_flight:
             while waiting and len(in_flight) < _SOURCE_CONCURRENCY:
@@ -1831,7 +1944,7 @@ class SweepEngine:
                 flight["beat"] = now + _HEARTBEAT_SECONDS
 
         assemble()
-        return None
+        return False
 
     def _search_source(self, client, repo_name: str, query_params: dict) -> dict:
         """One source's search, on whichever thread runs it. Never raises.
@@ -1964,8 +2077,16 @@ class SweepEngine:
         task_log: TaskLogger,
         partial_results: list,
         wall_start: float,
+        *,
+        report_path: Optional[Path] = None,
+        log_path: Optional[Path] = None,
     ) -> dict:
-        """Clean up and finalize after cooperative cancellation is detected."""
+        """Clean up and finalize after cooperative cancellation is detected.
+
+        The cancelled run's report, when one was written, and its task log are
+        stored where a finished run's are, so the run's Report and Log read
+        them the same way.
+        """
         store = progress_store
         end_time = now_iso()
         elapsed = time.monotonic() - wall_start
@@ -1973,6 +2094,8 @@ class SweepEngine:
         update_execution_status(
             self.db, exec_id, "cancelled",
             end_time=end_time,
+            log_path=str(log_path) if log_path else None,
+            result_path=str(report_path) if report_path else None,
         )
         task_log.finalize(status="CANCELLED", stats={"partial_results": len(partial_results)})
 
@@ -1994,8 +2117,8 @@ class SweepEngine:
             "execution_id": exec_id,
             "result_count": 0,
             "new_count": 0,
-            "report_path": None,
-            "log_path": None,
+            "report_path": str(report_path) if report_path else None,
+            "log_path": str(log_path) if log_path else None,
             "status": "cancelled",
         }
 
