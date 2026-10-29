@@ -316,6 +316,9 @@ function Reader({ project, file, member, reopen, onAnchor, onRemove, removing }:
       setPages(read.page_count ?? null);
       return read;
     },
+    // A version's page text never changes, so a page read once is not read again:
+    // every read is a child process, and only one runs at a time.
+    staleTime: Infinity,
     // Only a busy reader is retried: the page before this one may still be finishing.
     retry: (failures, error) => readerBusy(error) && failures < 6,
     retryDelay: (attempt) => Math.min(4_000, 600 * (attempt + 1)),

@@ -43,9 +43,10 @@ export function utf16Range(text: string, start: number, end: number): [number, n
   return [chars.slice(0, start).join('').length, chars.slice(0, end).join('').length];
 }
 
-/** "1 of 2 pages examined by text extraction. Other pages: not examined." */
+/** "1 of 2 pages examined by text extraction. Other pages: not examined." Every page examined says only the first sentence. */
 export function examinedWords(page: PageText): string {
-  return `${page.examined_pages.length} of ${page.page_count ?? 'an unknown number of'} ${page.page_count === 1 ? 'page' : 'pages'} examined by text extraction. Other pages: not examined.`;
+  const examined = `${page.examined_pages.length} of ${page.page_count ?? 'an unknown number of'} ${page.page_count === 1 ? 'page' : 'pages'} examined by text extraction.`;
+  return page.page_count !== null && page.examined_pages.length >= page.page_count ? examined : `${examined} Other pages: not examined.`;
 }
 
 /** A page status the engine reports, in words; only `extracted` has text a passage can be taken from. */
