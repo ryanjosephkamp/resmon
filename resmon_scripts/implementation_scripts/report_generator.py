@@ -130,8 +130,8 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
             lines.append(
                 f"> **Note:** Zero results were returned because no API key was "
                 f"configured for the chosen repository(ies): {missing_display}. "
-                f"Configure the required credentials in Settings → Credentials "
-                f"and re-run the execution."
+                f"Add the key under Settings › Sources and run the search "
+                f"again."
             )
         else:
             lines.append(

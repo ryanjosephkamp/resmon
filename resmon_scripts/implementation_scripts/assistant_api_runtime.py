@@ -247,14 +247,14 @@ class ApiKeyRuntime:
             return RuntimeStatus(
                 self.kind, False,
                 "No AI provider is chosen for the assistant. Pick one in "
-                "Settings → AI, under Assistant.")
+                "Settings › AI, under Ask.")
         if not self.answer.offered:
             return RuntimeStatus(self.kind, False, self.answer.assistant_reason)
         if not self.model:
             return RuntimeStatus(
                 self.kind, False,
                 f"No model is chosen for the assistant on {self.provider}. Pick "
-                "one in Settings → AI, under Assistant.")
+                "one in Settings › AI, under Ask.")
         if self.provider == "custom" and not self.custom_base_url:
             return RuntimeStatus(
                 self.kind, False,
@@ -264,8 +264,8 @@ class ApiKeyRuntime:
             alias = self._alias()
             return RuntimeStatus(
                 self.kind, False,
-                f"No {self.provider} API key is stored. Add one under "
-                f"Repositories & API Keys ({alias}); resmon reads it from your "
+                f"No {self.provider} API key is stored. Add one in "
+                f"Settings › AI ({alias}); resmon reads it from your "
                 "system keychain and never puts it in a conversation.")
         # Deliberately not "ready". Nothing here has spent a token, so nothing
         # here knows the key is accepted -- the same line every other surface in

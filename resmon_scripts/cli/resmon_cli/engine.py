@@ -399,6 +399,6 @@ def _not_running_message(state: Path, looked: list[Looked], named: bool) -> str:
         lines.append(f"  {label}: {item.found}")
     if named:
         lines.append("RESMON_PORT names one port, so no other place was tried.")
-    lines.append("Open resmon, or turn on Settings → Advanced → Run resmon in the background.")
+    lines.append("Open resmon, or turn on Settings › In the background › Run resmon in the background.")
     lines.append("This command does not start resmon itself.")
     return "\n".join(lines)

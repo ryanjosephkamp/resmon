@@ -1332,8 +1332,8 @@ def _reject_if_at_manual_cap() -> None:
             status_code=429,
             detail=(
                 f"resmon is already running the maximum of {admission.max()} "
-                "concurrent executions. Wait for one to finish or raise the "
-                "limit in Settings \u2192 Advanced."
+                "concurrent executions. Wait for one to finish, then try "
+                "again."
             ),
             headers={"Retry-After": "5"},
         )
@@ -7136,16 +7136,16 @@ def _restart_instructions() -> tuple[str, str]:
         return (
             "log out of your Mac and back in, or run "
             "`launchctl kickstart -k gui/$(id -u)/com.resmon.daemon` in Terminal",
-            "turn off Run resmon in the background in Settings → Advanced",
+            "turn off Run resmon in the background in Settings › In the background",
         )
     if sys.platform == "win32":
         return (
             "end the resmon-daemon task in Task Scheduler and run it again",
-            "turn off Run resmon in the background in Settings → Advanced",
+            "turn off Run resmon in the background in Settings › In the background",
         )
     return (
         "run `systemctl --user restart resmon-daemon`",
-        "turn off Run resmon in the background in Settings → Advanced",
+        "turn off Run resmon in the background in Settings › In the background",
     )
 
 

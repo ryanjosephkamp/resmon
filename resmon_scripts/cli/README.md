@@ -22,7 +22,7 @@ It needs Python 3.10 or later and nothing else: it uses only the standard librar
 |---|---|
 | `resmon today` | The papers first collected since you last marked all read, by watch, with the sources that did not answer on each watch's last run. Reading it marks nothing. |
 | `resmon today mark-read` | Mark all read: the next Today starts now. |
-| `resmon search WORDS` | The Explorer's search over everything collected. `--source`, `--author`, `--category`, `--from` and `--to` narrow it; `--sort closest` ranks by meaning with the embedding model set in Settings → AI, and says so when none is set. |
+| `resmon search WORDS` | The app's Search › Your collection, over everything collected. `--source`, `--author`, `--category`, `--from` and `--to` narrow it; `--sort closest` ranks by meaning with the embedding model set in Settings → AI, and says so when none is set. |
 | `resmon runs` | Recent runs: what each asked, what it found, and how many of its sources answered. `resmon runs ID` gives one run's whole account, source by source. |
 | `resmon wall` | The Source wall: every source's recorded answer to each of the last runs, oldest to newest, and whether any has stopped answering. `--legend` says what each mark means. |
 | `resmon export` | References as BibTeX, RIS, CSV or JSON for `--run ID`, `--today`, `--ids`, or `--search WORDS`. They go to standard output unless `-o FILE` names a file. |
@@ -65,7 +65,7 @@ It says so, lists where it looked and what it found there, and exits with status
 start resmon for the one command, because starting resmon's engine changes things: it applies a
 staged restore, brings the database's schema to its own version, marks runs whose process is gone
 as interrupted, and starts sending queued email and webhook deliveries. Open resmon, or turn on
-**Settings → Advanced → Run resmon in the background**.
+**Settings › In the background › Run resmon in the background**.
 
 Exit statuses: 0 done; 1 resmon refused or failed the request; 2 the command was not one resmon
 can be asked; 3 no resmon is running, or it stopped answering.

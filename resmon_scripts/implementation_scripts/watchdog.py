@@ -455,7 +455,7 @@ def _check_sources(
                         "results — resmon checks for the key before querying."
                     ),
                     what_to_do=(
-                        "Add the key under Repositories & API Keys, or remove "
+                        "Add the key under Settings › Sources, or remove "
                         f"{source} from the routines that select it."
                     ),
                     evidence={
@@ -732,8 +732,8 @@ def _check_routines(
                 ),
                 what_to_do=(
                     "Check that resmon's background service is running "
-                    "(Settings → Advanced). Reactivating the routine on the "
-                    "Routines page re-registers its schedule."
+                    "(Settings › In the background). Pausing and resuming the "
+                    "watch on its page re-registers its schedule."
                 ),
                 evidence={
                     "last_run_at": runs[0]["start_time"],
