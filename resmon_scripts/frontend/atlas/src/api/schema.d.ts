@@ -4678,6 +4678,334 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * EvidenceFileRecord
+         * @description The exact Library file and version a membership or a note is pinned to.
+         */
+        EvidenceFileRecord: {
+            /** Byte Size */
+            byte_size: number;
+            /** Created At Utc */
+            created_at_utc: string;
+            /** File Id */
+            file_id: string;
+            /** Media Type */
+            media_type: string;
+            /** Original Name */
+            original_name: string;
+            /** Sha256 */
+            sha256: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidenceMember
+         * @description A membership with its file's record, as a list shows it.
+         */
+        EvidenceMember: {
+            /** Added At Utc */
+            added_at_utc: string;
+            /** Availability */
+            availability: string;
+            file: components["schemas"]["EvidenceFileRecord"];
+            /** File Id */
+            file_id: string;
+            /** Id */
+            id: number;
+            /** Project Id */
+            project_id: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidenceMemberAdded
+         * @description ``POST .../{project_id}/files``: ``added`` is false when the file was already a member.
+         */
+        EvidenceMemberAdded: {
+            /** Added */
+            added: boolean;
+            /** Contract Version */
+            contract_version: number;
+            membership: components["schemas"]["EvidenceMembership"];
+            project: components["schemas"]["EvidenceProject"];
+            /** Project Id */
+            project_id: string;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidenceMemberRemoved
+         * @description ``DELETE .../{project_id}/files/{file_id}``: membership only; the file and its notes stay.
+         */
+        EvidenceMemberRemoved: {
+            /** Contract Version */
+            contract_version: number;
+            project: components["schemas"]["EvidenceProject"];
+            /** Project Id */
+            project_id: string;
+            /** Removed */
+            removed: boolean;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidenceMembers
+         * @description ``GET .../{project_id}/files``, at the project's current revision.
+         */
+        EvidenceMembers: {
+            /** Contract Version */
+            contract_version: number;
+            /** Count Basis */
+            count_basis: string;
+            /** Files */
+            files: components["schemas"]["EvidenceMember"][];
+            /** Has More */
+            has_more: boolean;
+            /** Next After Id */
+            next_after_id: number | null;
+            /** Project Id */
+            project_id: string;
+            /** Revision */
+            revision: number;
+            /** Through Id */
+            through_id: number;
+            /** Total */
+            total: number;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** EvidenceMembership */
+        EvidenceMembership: {
+            /** Added At Utc */
+            added_at_utc: string;
+            /** File Id */
+            file_id: string;
+            /** Id */
+            id: number;
+            /** Project Id */
+            project_id: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidenceNote
+         * @description A plain note, or a passage pinned to a page, an extraction contract,
+         *     the page text's hash and exact codepoint offsets. The anchor fields are
+         *     ``None`` on a plain note. ``membership_state`` says whether its file is
+         *     still in the project.
+         */
+        EvidenceNote: {
+            /** Body */
+            body: string;
+            /** Created At Utc */
+            created_at_utc: string;
+            /** End Codepoint */
+            end_codepoint: number | null;
+            /** Extraction Contract */
+            extraction_contract: string | null;
+            file: components["schemas"]["EvidenceFileRecord"];
+            /** File Id */
+            file_id: string;
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Membership State */
+            membership_state: string;
+            /** Note Id */
+            note_id: string;
+            /** Page Number */
+            page_number: number | null;
+            /** Page Text Sha256 */
+            page_text_sha256: string | null;
+            /** Project Id */
+            project_id: string;
+            /** Quote */
+            quote: string | null;
+            /** Resolution */
+            resolution: string;
+            /** Revision */
+            revision: number;
+            /** Start Codepoint */
+            start_codepoint: number | null;
+            /** Updated At Utc */
+            updated_at_utc: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidenceNoteSaved
+         * @description ``POST .../{project_id}/notes`` and ``PATCH .../notes/{note_id}``.
+         */
+        EvidenceNoteSaved: {
+            /** Contract Version */
+            contract_version: number;
+            note: components["schemas"]["EvidenceNote"];
+            project: components["schemas"]["EvidenceProject"];
+            /** Project Id */
+            project_id: string;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidenceNotes
+         * @description ``GET .../{project_id}/notes``.
+         */
+        EvidenceNotes: {
+            /** Contract Version */
+            contract_version: number;
+            /** Count Basis */
+            count_basis: string;
+            /** Has More */
+            has_more: boolean;
+            /** Next After Id */
+            next_after_id: number | null;
+            /** Notes */
+            notes: components["schemas"]["EvidenceNote"][];
+            /** Project Id */
+            project_id: string;
+            /** Revision */
+            revision: number;
+            /** Through Id */
+            through_id: number;
+            /** Total */
+            total: number;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidencePageText
+         * @description ``GET .../{project_id}/reader/{file_id}?representation=text``: one page's canonical text.
+         *
+         *     ``status`` is ``extracted``, ``no_text``, ``unsupported``, ``malformed``,
+         *     ``limit_exceeded``, ``timeout`` or ``unavailable``, and only ``extracted``
+         *     carries a ``page_text_sha256`` a passage can be pinned to. ``examined_pages``
+         *     names the page read; every other page is ``not_examined``. ``coverage`` is
+         *     the sentence a reader shows: canonical text may omit or reshape a page.
+         *     ``representation=pdf`` answers with the verified bytes instead, outside
+         *     this model.
+         */
+        EvidencePageText: {
+            /** Contract Version */
+            contract_version: number;
+            /** Coverage */
+            coverage: string;
+            /** Examined Pages */
+            examined_pages: number[];
+            /** Extraction Contract */
+            extraction_contract: string;
+            /** File Id */
+            file_id: string;
+            /** Media Type */
+            media_type: string;
+            /** Page Count */
+            page_count: number | null;
+            /** Page Number */
+            page_number: number;
+            /** Page Text Sha256 */
+            page_text_sha256: string | null;
+            /** Project Id */
+            project_id: string;
+            /** Remaining Pages */
+            remaining_pages: string;
+            /** Sha256 */
+            sha256: string;
+            /** Status */
+            status: string;
+            /** Text */
+            text: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidenceProject
+         * @description A project row as stored, with its current counts.
+         */
+        EvidenceProject: {
+            /** Created At Utc */
+            created_at_utc: string;
+            /** File Count */
+            file_count: number;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Note Count */
+            note_count: number;
+            /** Project Id */
+            project_id: string;
+            /** Revision */
+            revision: number;
+            /** Updated At Utc */
+            updated_at_utc: string;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidenceProjectDetail
+         * @description ``POST /api/evidence/projects``, ``GET`` and ``PATCH .../{project_id}``.
+         */
+        EvidenceProjectDetail: {
+            /** Contract Version */
+            contract_version: number;
+            project: components["schemas"]["EvidenceProject"];
+            /** Project Id */
+            project_id: string;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * EvidenceProjects
+         * @description ``GET /api/evidence/projects``.
+         */
+        EvidenceProjects: {
+            /** Contract Version */
+            contract_version: number;
+            /** Count Basis */
+            count_basis: string;
+            /** Has More */
+            has_more: boolean;
+            /** Next After Id */
+            next_after_id: number | null;
+            /** Projects */
+            projects: components["schemas"]["EvidenceProject"][];
+            /** Through Id */
+            through_id: number;
+            /** Total */
+            total: number;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** ExecutionExport */
         ExecutionExport: {
             /** Ids */
@@ -9931,7 +10259,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EvidenceProjects"];
                 };
             };
         };
@@ -9951,7 +10279,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EvidenceProjectDetail"];
                 };
             };
         };
@@ -9973,7 +10301,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EvidenceProjectDetail"];
                 };
             };
             /** @description Validation Error */
@@ -10004,7 +10332,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EvidenceProjectDetail"];
                 };
             };
             /** @description Validation Error */
@@ -10287,7 +10615,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EvidenceMembers"];
                 };
             };
             /** @description Validation Error */
@@ -10318,7 +10646,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EvidenceMemberAdded"];
                 };
             };
             /** @description Validation Error */
@@ -10350,7 +10678,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EvidenceMemberRemoved"];
                 };
             };
             /** @description Validation Error */
@@ -10381,7 +10709,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EvidenceNotes"];
                 };
             };
             /** @description Validation Error */
@@ -10412,7 +10740,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EvidenceNoteSaved"];
                 };
             };
             /** @description Validation Error */
@@ -10444,7 +10772,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EvidenceNoteSaved"];
                 };
             };
             /** @description Validation Error */
@@ -10476,7 +10804,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EvidencePageText"];
                 };
             };
             /** @description Validation Error */

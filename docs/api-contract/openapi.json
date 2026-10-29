@@ -2813,6 +2813,776 @@
         "title": "EmbeddingStatus",
         "type": "object"
       },
+      "EvidenceFileRecord": {
+        "additionalProperties": true,
+        "description": "The exact Library file and version a membership or a note is pinned to.",
+        "properties": {
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "original_name": {
+            "title": "Original Name",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "version_id",
+          "vault_id",
+          "sha256",
+          "byte_size",
+          "media_type",
+          "original_name",
+          "created_at_utc"
+        ],
+        "title": "EvidenceFileRecord",
+        "type": "object"
+      },
+      "EvidenceMember": {
+        "additionalProperties": true,
+        "description": "A membership with its file's record, as a list shows it.",
+        "properties": {
+          "added_at_utc": {
+            "title": "Added At Utc",
+            "type": "string"
+          },
+          "availability": {
+            "title": "Availability",
+            "type": "string"
+          },
+          "file": {
+            "$ref": "#/components/schemas/EvidenceFileRecord"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "file_id",
+          "version_id",
+          "added_at_utc",
+          "file",
+          "availability"
+        ],
+        "title": "EvidenceMember",
+        "type": "object"
+      },
+      "EvidenceMemberAdded": {
+        "additionalProperties": true,
+        "description": "``POST .../{project_id}/files``: ``added`` is false when the file was already a member.",
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "membership": {
+            "$ref": "#/components/schemas/EvidenceMembership"
+          },
+          "project": {
+            "$ref": "#/components/schemas/EvidenceProject"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "vault_id",
+          "project_id",
+          "project",
+          "membership",
+          "added"
+        ],
+        "title": "EvidenceMemberAdded",
+        "type": "object"
+      },
+      "EvidenceMemberRemoved": {
+        "additionalProperties": true,
+        "description": "``DELETE .../{project_id}/files/{file_id}``: membership only; the file and its notes stay.",
+        "properties": {
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "project": {
+            "$ref": "#/components/schemas/EvidenceProject"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "boolean"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "vault_id",
+          "project_id",
+          "project",
+          "removed"
+        ],
+        "title": "EvidenceMemberRemoved",
+        "type": "object"
+      },
+      "EvidenceMembers": {
+        "additionalProperties": true,
+        "description": "``GET .../{project_id}/files``, at the project's current revision.",
+        "properties": {
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "count_basis": {
+            "title": "Count Basis",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceMember"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_after_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After Id"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "through_id": {
+            "title": "Through Id",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "vault_id",
+          "project_id",
+          "revision",
+          "files",
+          "through_id",
+          "next_after_id",
+          "has_more",
+          "total",
+          "count_basis"
+        ],
+        "title": "EvidenceMembers",
+        "type": "object"
+      },
+      "EvidenceMembership": {
+        "additionalProperties": true,
+        "properties": {
+          "added_at_utc": {
+            "title": "Added At Utc",
+            "type": "string"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "file_id",
+          "version_id",
+          "added_at_utc"
+        ],
+        "title": "EvidenceMembership",
+        "type": "object"
+      },
+      "EvidenceNote": {
+        "additionalProperties": true,
+        "description": "A plain note, or a passage pinned to a page, an extraction contract,\nthe page text's hash and exact codepoint offsets. The anchor fields are\n``None`` on a plain note. ``membership_state`` says whether its file is\nstill in the project.",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "end_codepoint": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Codepoint"
+          },
+          "extraction_contract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Contract"
+          },
+          "file": {
+            "$ref": "#/components/schemas/EvidenceFileRecord"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "membership_state": {
+            "title": "Membership State",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "page_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Number"
+          },
+          "page_text_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Text Sha256"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          },
+          "resolution": {
+            "title": "Resolution",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "start_codepoint": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Codepoint"
+          },
+          "updated_at_utc": {
+            "title": "Updated At Utc",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "note_id",
+          "project_id",
+          "file_id",
+          "version_id",
+          "kind",
+          "body",
+          "page_number",
+          "extraction_contract",
+          "page_text_sha256",
+          "start_codepoint",
+          "end_codepoint",
+          "quote",
+          "revision",
+          "created_at_utc",
+          "updated_at_utc",
+          "file",
+          "membership_state",
+          "resolution"
+        ],
+        "title": "EvidenceNote",
+        "type": "object"
+      },
+      "EvidenceNoteSaved": {
+        "additionalProperties": true,
+        "description": "``POST .../{project_id}/notes`` and ``PATCH .../notes/{note_id}``.",
+        "properties": {
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "note": {
+            "$ref": "#/components/schemas/EvidenceNote"
+          },
+          "project": {
+            "$ref": "#/components/schemas/EvidenceProject"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "vault_id",
+          "project_id",
+          "project",
+          "note"
+        ],
+        "title": "EvidenceNoteSaved",
+        "type": "object"
+      },
+      "EvidenceNotes": {
+        "additionalProperties": true,
+        "description": "``GET .../{project_id}/notes``.",
+        "properties": {
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "count_basis": {
+            "title": "Count Basis",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_after_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After Id"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceNote"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "through_id": {
+            "title": "Through Id",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "vault_id",
+          "project_id",
+          "revision",
+          "notes",
+          "through_id",
+          "next_after_id",
+          "has_more",
+          "total",
+          "count_basis"
+        ],
+        "title": "EvidenceNotes",
+        "type": "object"
+      },
+      "EvidencePageText": {
+        "additionalProperties": true,
+        "description": "``GET .../{project_id}/reader/{file_id}?representation=text``: one page's canonical text.\n\n``status`` is ``extracted``, ``no_text``, ``unsupported``, ``malformed``,\n``limit_exceeded``, ``timeout`` or ``unavailable``, and only ``extracted``\ncarries a ``page_text_sha256`` a passage can be pinned to. ``examined_pages``\nnames the page read; every other page is ``not_examined``. ``coverage`` is\nthe sentence a reader shows: canonical text may omit or reshape a page.\n``representation=pdf`` answers with the verified bytes instead, outside\nthis model.",
+        "properties": {
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "coverage": {
+            "title": "Coverage",
+            "type": "string"
+          },
+          "examined_pages": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Examined Pages",
+            "type": "array"
+          },
+          "extraction_contract": {
+            "title": "Extraction Contract",
+            "type": "string"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "page_number": {
+            "title": "Page Number",
+            "type": "integer"
+          },
+          "page_text_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Text Sha256"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "remaining_pages": {
+            "title": "Remaining Pages",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "vault_id",
+          "project_id",
+          "file_id",
+          "version_id",
+          "sha256",
+          "media_type",
+          "status",
+          "page_number",
+          "page_count",
+          "text",
+          "extraction_contract",
+          "page_text_sha256",
+          "examined_pages",
+          "remaining_pages",
+          "coverage"
+        ],
+        "title": "EvidencePageText",
+        "type": "object"
+      },
+      "EvidenceProject": {
+        "additionalProperties": true,
+        "description": "A project row as stored, with its current counts.",
+        "properties": {
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "file_count": {
+            "title": "File Count",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note_count": {
+            "title": "Note Count",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "updated_at_utc": {
+            "title": "Updated At Utc",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "vault_id",
+          "name",
+          "revision",
+          "created_at_utc",
+          "updated_at_utc",
+          "file_count",
+          "note_count"
+        ],
+        "title": "EvidenceProject",
+        "type": "object"
+      },
+      "EvidenceProjectDetail": {
+        "additionalProperties": true,
+        "description": "``POST /api/evidence/projects``, ``GET`` and ``PATCH .../{project_id}``.",
+        "properties": {
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "project": {
+            "$ref": "#/components/schemas/EvidenceProject"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "vault_id",
+          "project_id",
+          "project"
+        ],
+        "title": "EvidenceProjectDetail",
+        "type": "object"
+      },
+      "EvidenceProjects": {
+        "additionalProperties": true,
+        "description": "``GET /api/evidence/projects``.",
+        "properties": {
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "count_basis": {
+            "title": "Count Basis",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_after_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After Id"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceProject"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "through_id": {
+            "title": "Through Id",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "vault_id",
+          "projects",
+          "through_id",
+          "next_after_id",
+          "has_more",
+          "total",
+          "count_basis"
+        ],
+        "title": "EvidenceProjects",
+        "type": "object"
+      },
       "ExecutionExport": {
         "properties": {
           "ids": {
@@ -12995,7 +13765,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceProjects"
+                }
               }
             },
             "description": "Successful Response"
@@ -13009,7 +13781,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceProjectDetail"
+                }
               }
             },
             "description": "Successful Response"
@@ -13036,7 +13810,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceProjectDetail"
+                }
               }
             },
             "description": "Successful Response"
@@ -13071,7 +13847,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceProjectDetail"
+                }
               }
             },
             "description": "Successful Response"
@@ -13438,7 +14216,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceMembers"
+                }
               }
             },
             "description": "Successful Response"
@@ -13473,7 +14253,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceMemberAdded"
+                }
               }
             },
             "description": "Successful Response"
@@ -13519,7 +14301,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceMemberRemoved"
+                }
               }
             },
             "description": "Successful Response"
@@ -13556,7 +14340,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceNotes"
+                }
               }
             },
             "description": "Successful Response"
@@ -13591,7 +14377,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceNoteSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -13637,7 +14425,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceNoteSaved"
+                }
               }
             },
             "description": "Successful Response"
@@ -13683,7 +14473,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EvidencePageText"
+                }
               }
             },
             "description": "Successful Response"

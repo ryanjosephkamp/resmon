@@ -253,6 +253,19 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("GET", "/api/library/export"),
         ("GET", "/api/library/files/{file_id}/text"),
     ),
+    "evidence projects": (
+        ("GET", "/api/evidence/projects"),
+        ("POST", "/api/evidence/projects"),
+        ("GET", "/api/evidence/projects/{project_id}"),
+        ("PATCH", "/api/evidence/projects/{project_id}"),
+        ("GET", "/api/evidence/projects/{project_id}/files"),
+        ("POST", "/api/evidence/projects/{project_id}/files"),
+        ("DELETE", "/api/evidence/projects/{project_id}/files/{file_id}"),
+        ("GET", "/api/evidence/projects/{project_id}/notes"),
+        ("POST", "/api/evidence/projects/{project_id}/notes"),
+        ("PATCH", "/api/evidence/projects/{project_id}/notes/{note_id}"),
+        ("GET", "/api/evidence/projects/{project_id}/reader/{file_id}"),
+    ),
     "analytics": (
         ("GET", "/api/analytics/overview"),
         ("GET", "/api/analytics/summary"),
@@ -559,7 +572,8 @@ def driven() -> Drive:
         _drive_background_service(drive)
         _drive_credentials_and_the_test_send(drive)
         _drive_source_wall_and_analytics(drive)
-        _drive_library(drive, doc_ids[0])
+        kept = _drive_library(drive, doc_ids[0])
+        _drive_evidence(drive, *kept)
 
         yield drive
 
@@ -681,7 +695,7 @@ def _drive_credentials_and_the_test_send(drive: Drive) -> None:
     drive("DELETE", "/api/credentials/smtp_password")
 
 
-def _drive_library(drive: Drive, document_id: int) -> None:
+def _drive_library(drive: Drive, document_id: int) -> tuple[str, str, str]:
     """The owned Library: a vault made in a scratch folder, one file kept twice, and every read.
 
     Every Library route needs this process's renderer Origin and the
@@ -729,6 +743,63 @@ def _drive_library(drive: Drive, document_id: int) -> None:
     text = drive("GET", f"/api/library/files/{file_id}/text?expected_vault_id={vault}"
                  f"&expected_version_id={version_id}", headers=library)
     assert text["text"] == "Perovskite notes\nkept as written\n" and text["line_count"] == 3
+    return vault, file_id, version_id
+
+
+def _drive_evidence(drive: Drive, vault: str, file_id: str, version_id: str) -> None:
+    """An Evidence project over the Library's kept text file: every JSON operation.
+
+    A passage is pinned to the page text the reader served, by its hash and
+    codepoint offsets, and a plain note beside it carries no anchor, so the
+    model's ``None`` anchor fields are compared. The file is removed last, so
+    the notes are read once more with ``membership_state: removed``. Text
+    only: ``representation=pdf`` answers with bytes, outside the model.
+    """
+    from conftest import TEST_RENDERER_ORIGIN  # noqa: PLC0415
+
+    library = {"Origin": TEST_RENDERER_ORIGIN, "X-Resmon-Library": "1"}
+    base = "/api/evidence/projects"
+    empty = drive("GET", f"{base}?expected_vault_id={vault}", headers=library)
+    assert empty["projects"] == [] and empty["next_after_id"] is None
+    made = drive("POST", base, expect=201, headers=library, json={"expected_vault_id": vault, "name": "Stability"})
+    project = made["project_id"]
+    drive("GET", f"{base}/{project}?expected_vault_id={vault}", headers=library)
+    renamed = drive("PATCH", f"{base}/{project}", headers=library,
+                    json={"expected_vault_id": vault, "expected_revision": 1, "name": "Stability, outdoors"})
+    revision = renamed["project"]["revision"]
+
+    member = {"expected_vault_id": vault, "file_id": file_id, "version_id": version_id}
+    added = drive("POST", f"{base}/{project}/files", headers=library, json={**member, "expected_revision": revision})
+    revision = added["project"]["revision"]
+    again = drive("POST", f"{base}/{project}/files", headers=library, json={**member, "expected_revision": revision})
+    assert (added["added"], again["added"]) == (True, False)
+    drive("GET", f"{base}/{project}/files?expected_vault_id={vault}", headers=library)
+
+    page = drive("GET", f"{base}/{project}/reader/{file_id}?expected_vault_id={vault}&version_id={version_id}"
+                 "&page=1&representation=text", headers=library)
+    assert page["status"] == "extracted" and page["page_text_sha256"]
+    quote = "kept as written"
+    start = page["text"].index(quote)
+    passage = drive("POST", f"{base}/{project}/notes", expect=201, headers=library, json={
+        **member, "expected_revision": revision, "kind": "passage", "body": "",
+        "anchor": {"page_number": 1, "extraction_contract": page["extraction_contract"],
+                   "page_text_sha256": page["page_text_sha256"], "start_codepoint": start,
+                   "end_codepoint": start + len(quote), "quote": quote}})
+    revision = passage["project"]["revision"]
+    note = drive("POST", f"{base}/{project}/notes", expect=201, headers=library, json={
+        **member, "expected_revision": revision, "kind": "note", "body": "Check the outdoor data.", "anchor": None})
+    assert note["note"]["quote"] is None and note["note"]["page_number"] is None
+    revision = note["project"]["revision"]
+    edited = drive("PATCH", f"{base}/{project}/notes/{note['note']['note_id']}", headers=library, json={
+        "expected_vault_id": vault, "expected_revision": revision, "expected_note_revision": 1,
+        "body": "Check the outdoor data, and the damp heat."})
+    revision = edited["project"]["revision"]
+    drive("GET", f"{base}/{project}/notes?expected_vault_id={vault}", headers=library)
+    removed = drive("DELETE", f"{base}/{project}/files/{file_id}", headers=library,
+                    json={"expected_vault_id": vault, "expected_revision": revision, "version_id": version_id})
+    assert removed["removed"] is True
+    after = drive("GET", f"{base}/{project}/notes?expected_vault_id={vault}", headers=library)
+    assert {n["membership_state"] for n in after["notes"]} == {"removed"}
 
 
 def _drive_source_wall_and_analytics(drive: Drive) -> None:
