@@ -87,8 +87,8 @@ shape changes its output: the same test compares them.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 1025 tests across 97 suites
-npm run e2e                                      # the real Electron app — 132 cases in 49 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 1028 tests across 98 suites
+npm run e2e                                      # the real Electron app — 133 cases in 50 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -526,6 +526,13 @@ the "the source wall" and "analytics" slices of `test_response_models.py`; real-
 too little, and a source's or a category's row opens Search › Your collection narrowed by
 `?source=` or `?category=`; real-app journey `e2e/atlas-analytics.spec.ts`. A chart's neutral is
 the `--chart-context` token, checked against the accent for color-blind separation.
+Atlas Library › Your files (slice 5): `/library/files` (`screens/library/Files.tsx`, `libraryApi.ts`):
+a vault made inside a folder the person chooses, files imported byte for byte (the one route outside
+the typed client, because its body is raw bytes), read as literal text, linked to a paper by its
+number, opened and shown by the engine's verified path. Every Library call sends
+`X-Resmon-Library: 1` (`LibraryOriginGuard`). The routes' bodies are the "the owned library" slice
+of `test_response_models.py`; real-app journey `e2e/atlas-files.spec.ts`, with the folder chooser,
+the opener and the download destination scripted.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
 

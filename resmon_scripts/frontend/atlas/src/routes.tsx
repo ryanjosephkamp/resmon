@@ -6,6 +6,7 @@ import { SourceWall } from './screens/health/SourceWall';
 import { Watchdog } from './screens/health/Watchdog';
 import { Paper } from './screens/collection/Paper';
 import { Saved } from './screens/collection/Saved';
+import { Files } from './screens/library/Files';
 import { ReadingQueue } from './screens/library/ReadingQueue';
 import { Placeholder } from './screens/Placeholder';
 import { Run } from './screens/Run';
@@ -34,7 +35,7 @@ export const SECTIONS: readonly Section[] = [
   { path: '/today', label: 'Today', keywords: 'new papers morning plate index', element: <Today /> },
   { path: '/watches', label: 'Watches', keywords: 'routines constellations profiles people authors orcid schedule calendar delivery coverage new watch create', element: <Watches /> },
   { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep runs export', element: <Collection /> },
-  { path: '/library', label: 'Library', keywords: 'saved reading queue to read files', element: <ReadingQueue /> },
+  { path: '/library', label: 'Library', keywords: 'saved reading queue to read files pdf owned library vault import', element: <ReadingQueue /> },
   { path: '/ask', label: 'Ask', keywords: 'assistant question chat', element: <Placeholder title="Ask" /> },
   { path: '/health', label: 'Health', keywords: 'sources coverage diagnostics source wall watchdog findings broken analytics statistics charts keywords yield engine runtime identity', element: <SourceWall /> },
 ];
@@ -54,6 +55,7 @@ export const DETAILS: readonly { path: string; element: ReactElement }[] = [
   { path: '/search/ask', element: <Search /> },
   { path: '/search/saved', element: <Saved /> },
   { path: '/settings/:group', element: <Settings /> },
+  { path: '/library/files', element: <Files /> },
   { path: '/health/watchdog', element: <Watchdog /> },
   { path: '/health/analytics', element: <Analytics /> },
   { path: '/health/engine', element: <Engine /> },

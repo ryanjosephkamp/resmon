@@ -49,6 +49,17 @@ export function engine(): Engine {
 }
 
 /**
+ * The engine's own sentence in a refusal: FastAPI's string `detail`, or the
+ * `message` of the Library's and Evidence's `{reason, message}` detail.
+ */
+export function engineSentence(error: unknown): string | null {
+  const said = (error as { detail?: unknown } | undefined)?.detail;
+  if (typeof said === 'string') return said;
+  const message = said && typeof said === 'object' ? (said as { message?: unknown }).message : undefined;
+  return typeof message === 'string' ? message : null;
+}
+
+/**
  * The body of a successful answer, or a thrown `EngineError` naming the route
  * and status. For TanStack Query, which shows a thrown read as a failure and
  * never as an empty result.
@@ -59,9 +70,7 @@ export async function answer<T>(
   const { data, error, response } = await call;
   if (error !== undefined || data === undefined) {
     const route = new URL(response.url).pathname;
-    const said = (error as { detail?: unknown } | undefined)?.detail;
-    throw new EngineError(response.status, `${route} answered HTTP ${response.status}`,
-      typeof said === 'string' ? said : null);
+    throw new EngineError(response.status, `${route} answered HTTP ${response.status}`, engineSentence(error));
   }
   return data;
 }

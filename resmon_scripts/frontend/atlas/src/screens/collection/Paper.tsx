@@ -120,6 +120,9 @@ export function Paper() {
           {data.publication_date && (<><span className="sep" /><span>{data.publication_date}</span></>)}
           {data.doi && (<><span className="sep" /><a href={`https://doi.org/${data.doi}`} target="_blank" rel="noreferrer">doi:{data.doi}</a></>)}
           {data.url && (<><span className="sep" /><a href={data.url} target="_blank" rel="noreferrer">open at the source</a></>)}
+          {/* The number this collection knows it by: what a file in the Library is linked with. */}
+          <span className="sep" />
+          <span className="paper-number num" title="Its number in this collection only">Paper {data.id}</span>
         </div>
         <div className="paper-actions" data-queue={status ?? 'none'}>
           {status === null && (
