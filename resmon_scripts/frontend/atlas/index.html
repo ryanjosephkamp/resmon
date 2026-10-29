@@ -6,10 +6,11 @@
     <meta name="color-scheme" content="dark light">
     <!--
       Everything the page loads is its own: scripts, styles and the bundled
-      fonts from this origin, and requests only to the engine on loopback.
+      fonts from this origin, the PDF.js worker the Evidence reader starts from
+      this origin, and requests only to the engine on loopback.
     -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src http://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'">
+          content="default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src http://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'">
     <title>resmon</title>
   </head>
   <body>
