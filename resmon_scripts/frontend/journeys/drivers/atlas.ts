@@ -15,7 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { expect, type TestInfo } from '@playwright/test';
 import type {
-  BackendFacts, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord, DrawnAppearance, EmailSettings,
+  AnalyticsView, BackendFacts, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord, DrawnAppearance, EmailSettings,
   ExplorerList, ExportedFile, ImportOutcome, InterruptedRow, JourneyDriver, NotificationPreferences, Place,
   PlateReading, ProfileCreation, ProfileMatches, QueuedPaper, RankedList, RoutineFacts, RunHandle, RunNowAnswer,
   SourceOutcome, SourceWallCellView, SourceWallReading, SourceWallView, ThemeChoice, TodayReading, UpcomingFire,
@@ -46,6 +46,7 @@ const ATLAS_PLACES: Partial<Record<Place, string>> = {
   // Health: the Source wall is the section itself, and the watchdog its second tab.
   'Source wall': '/health',
   Watchdog: '/health/watchdog',
+  Analytics: '/health/analytics',
 };
 
 /** The Email group's fields, by the journey's word for each. */
@@ -80,7 +81,8 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'readDaemonPanel' | 'saveConfiguration' | 'exportConfigurations' | 'importConfigurations'
   | 'configureEmail' | 'readEmailSettings' | 'sendATestEmail' | 'setNotificationPreferences'
   | 'readNotificationPreferences'
-  | 'readTheSourceWall' | 'readTheSourceWallCell' | 'readWatchdog' | 'muteTheFinding' | 'readConnectedIdentity'>;
+  | 'readTheSourceWall' | 'readTheSourceWallCell' | 'readWatchdog' | 'muteTheFinding' | 'readConnectedIdentity'
+  | 'readAnalytics' | 'measureKeywordYield' | 'followTheChartIntoTheExplorer'>;
 
 /** The reading-queue filter buttons, by the journey's word for each. */
 const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
@@ -460,6 +462,55 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       }, { timeout: 30_000, message: `"${titleFragment}" was never recorded as muted` }).toBe(true);
       await expect(card, 'the record says muted and the finding on screen still does not')
         .toHaveAttribute('data-muted', 'true', { timeout: 30_000 });
+    },
+
+    readAnalytics: async (): Promise<AnalyticsView> => {
+      await goto('Analytics');
+      // The corpus tile is the engine's count; the page has read it once the
+      // tile agrees with the collection's own total.
+      const corpus = await backend.corpusCounts();
+      const papers = win().locator('[data-analytics="corpus"] .tile[data-tile="Papers"] dd');
+      await expect(papers, 'the Papers tile never showed the collection\'s count')
+        .toHaveText(new Intl.NumberFormat('en-US').format(corpus.documents), { timeout: 30_000 });
+      const tiles = await win().locator('[data-analytics="corpus"] .tile').evaluateAll((items) => items.map((tile) => ({
+        label: tile.querySelector('dt')?.textContent?.trim() ?? '',
+        value: tile.querySelector('dd')?.textContent?.trim() ?? '',
+      })));
+      const sources = await win().locator('[data-analytics="sources"] .bar-row').evaluateAll((rows) => rows.map((row) => ({
+        label: row.querySelector('.bar-name')?.textContent?.trim() ?? '',
+        value: row.querySelector('.bar-figure')?.getAttribute('data-value') ?? '',
+      })));
+      return {
+        headings: (await win().locator('.analytics .chart-card h2').allInnerTexts()).map((t) => t.trim()),
+        tiles,
+        sources,
+        notEnoughYet: (await win().locator('[data-analytics="not-enough"]').allInnerTexts()).map((t) => t.trim()),
+      };
+    },
+
+    measureKeywordYield: async () => {
+      await goto('Analytics');
+      const card = win().locator('[data-analytics="keywords"]');
+      await card.locator('[data-analytics="measure"]').click();
+      // Measured is either a row per term or the engine's sentence for too little.
+      await expect(card.locator('[data-analytics="keyword-rows"] li, [data-analytics="not-enough"]').first())
+        .toBeVisible({ timeout: 60_000 });
+      await expect(card).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+      const bars = await card.locator('[data-analytics="keyword-rows"] li').evaluateAll((rows) => rows.map((row) => ({
+        label: row.getAttribute('data-keyword') ?? '',
+        value: row.querySelector('.bar-figure')?.getAttribute('data-value') ?? '',
+      })));
+      return { bars, notEnoughYet: (await card.locator('[data-analytics="not-enough"]').allInnerTexts()).join(' ').trim() };
+    },
+
+    followTheChartIntoTheExplorer: async () => {
+      await goto('Analytics');
+      // A source's row opens the collection narrowed to that source.
+      await win().locator('[data-analytics="sources"] .bar-row a.bar-name').first().click();
+      await expect(win().getByRole('heading', { name: 'Your collection', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('[data-collection="filters"]')).toBeVisible({ timeout: 30_000 });
+      const list = await readList();
+      return { hash: await win().evaluate(() => window.location.hash), list };
     },
 
     readConnectedIdentity: async () => {

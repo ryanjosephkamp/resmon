@@ -4,8 +4,9 @@ import { answer, engine } from '../../api/client';
 import { WATCHDOG_KEY } from './model';
 
 /**
- * Health's parts: what every source did, what the watchdog found, and which
- * engine this window is talking to. The watchdog's tab carries its alarms
+ * Health's parts: what every source did, what the watchdog found, what the
+ * collection holds and which of its sources and watches earn their place, and
+ * which engine this window is talking to. The watchdog's tab carries its alarms
  * (broken and unusual, muted ones excluded), the engine's own count.
  */
 export function HealthTabs() {
@@ -17,6 +18,7 @@ export function HealthTabs() {
       <NavLink to="/health/watchdog">
         Watchdog{alarms > 0 && <span className="tab-count" data-health="alarms">{alarms}</span>}
       </NavLink>
+      <NavLink to="/health/analytics">Analytics</NavLink>
       <NavLink to="/health/engine">This engine</NavLink>
     </nav>
   );
