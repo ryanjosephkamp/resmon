@@ -3755,67 +3755,77 @@ async def selected_answer_export(request: Request, project_id: str, answer_id: s
     return StreamingResponse(bundle.chunks(),media_type='text/html' if is_html else 'application/zip',headers=headers,background=BackgroundTask(bundle.close))
 
 
-@app.get('/api/evidence/projects', response_model=None)
+@app.get('/api/evidence/projects', response_model=response_models.EvidenceProjects, response_model_exclude_unset=True)
 async def evidence_projects(request: Request) -> dict:
     q = _evidence_query(request, ('expected_vault_id', 'after_id', 'through_id', 'limit'))
     return await _evidence_run(request, lambda c, _: evidence.list_projects(c, _evidence_required(q, 'expected_vault_id'), **_evidence_page(q)))
 
 
-@app.post('/api/evidence/projects', status_code=201, response_model=None)
+@app.post('/api/evidence/projects', status_code=201, response_model=response_models.EvidenceProjectDetail,
+          response_model_exclude_unset=True)
 async def evidence_create_project(request: Request) -> dict:
     b = await _evidence_body(request, EvidenceProjectBody)
     return await _evidence_run(request, lambda c, _: evidence.create_project(c, b.expected_vault_id, b.name))
 
 
-@app.get('/api/evidence/projects/{project_id}', response_model=None)
+@app.get('/api/evidence/projects/{project_id}', response_model=response_models.EvidenceProjectDetail,
+         response_model_exclude_unset=True)
 async def evidence_project_detail(request: Request, project_id: str) -> dict:
     q = _evidence_query(request, ('expected_vault_id',))
     return await _evidence_run(request, lambda c, _: evidence.detail(c, _evidence_required(q, 'expected_vault_id'), project_id))
 
 
-@app.patch('/api/evidence/projects/{project_id}', response_model=None)
+@app.patch('/api/evidence/projects/{project_id}', response_model=response_models.EvidenceProjectDetail,
+           response_model_exclude_unset=True)
 async def evidence_rename_project(request: Request, project_id: str) -> dict:
     b = await _evidence_body(request, EvidenceRenameBody)
     return await _evidence_run(request, lambda c, _: evidence.rename_project(c, b.expected_vault_id, project_id, b.expected_revision, b.name))
 
 
-@app.get('/api/evidence/projects/{project_id}/files', response_model=None)
+@app.get('/api/evidence/projects/{project_id}/files', response_model=response_models.EvidenceMembers,
+         response_model_exclude_unset=True)
 async def evidence_files(request: Request, project_id: str) -> dict:
     q = _evidence_query(request, ('expected_vault_id', 'after_id', 'through_id', 'limit'))
     return await _evidence_run(request, lambda c, _: evidence.list_files(c, _evidence_required(q, 'expected_vault_id'), project_id, **_evidence_page(q)))
 
 
-@app.post('/api/evidence/projects/{project_id}/files', response_model=None)
+@app.post('/api/evidence/projects/{project_id}/files', response_model=response_models.EvidenceMemberAdded,
+          response_model_exclude_unset=True)
 async def evidence_add_file(request: Request, project_id: str) -> dict:
     b = await _evidence_body(request, EvidenceFileBody)
     return await _evidence_run(request, lambda c, _: evidence.add_file(c, b.expected_vault_id, project_id, b.expected_revision, b.file_id, b.version_id))
 
 
-@app.delete('/api/evidence/projects/{project_id}/files/{file_id}', response_model=None)
+@app.delete('/api/evidence/projects/{project_id}/files/{file_id}',
+            response_model=response_models.EvidenceMemberRemoved, response_model_exclude_unset=True)
 async def evidence_remove_file(request: Request, project_id: str, file_id: str) -> dict:
     b = await _evidence_body(request, EvidenceRemoveBody)
     return await _evidence_run(request, lambda c, _: evidence.remove_file(c, b.expected_vault_id, project_id, b.expected_revision, file_id, b.version_id))
 
 
-@app.get('/api/evidence/projects/{project_id}/notes', response_model=None)
+@app.get('/api/evidence/projects/{project_id}/notes', response_model=response_models.EvidenceNotes,
+         response_model_exclude_unset=True)
 async def evidence_notes(request: Request, project_id: str) -> dict:
     q = _evidence_query(request, ('expected_vault_id', 'file_id', 'version_id', 'after_id', 'through_id', 'limit'))
     return await _evidence_run(request, lambda c, _: evidence.list_notes(c, _evidence_required(q, 'expected_vault_id'), project_id, q.get('file_id'), q.get('version_id'), **_evidence_page(q)))
 
 
-@app.post('/api/evidence/projects/{project_id}/notes', status_code=201, response_model=None)
+@app.post('/api/evidence/projects/{project_id}/notes', status_code=201,
+          response_model=response_models.EvidenceNoteSaved, response_model_exclude_unset=True)
 async def evidence_create_note(request: Request, project_id: str) -> dict:
     b = await _evidence_body(request, EvidenceNoteBody)
     return await _evidence_run(request, lambda c, cancel: evidence.create_note(c, b.expected_vault_id, project_id, b.expected_revision, b.file_id, b.version_id, b.kind, b.body, b.anchor.model_dump() if b.anchor else None, cancel=cancel))
 
 
-@app.patch('/api/evidence/projects/{project_id}/notes/{note_id}', response_model=None)
+@app.patch('/api/evidence/projects/{project_id}/notes/{note_id}', response_model=response_models.EvidenceNoteSaved,
+           response_model_exclude_unset=True)
 async def evidence_edit_note(request: Request, project_id: str, note_id: str) -> dict:
     b = await _evidence_body(request, EvidenceEditBody)
     return await _evidence_run(request, lambda c, _: evidence.edit_note(c, b.expected_vault_id, project_id, b.expected_revision, note_id, b.expected_note_revision, b.body))
 
 
-@app.get('/api/evidence/projects/{project_id}/reader/{file_id}', response_model=None)
+@app.get('/api/evidence/projects/{project_id}/reader/{file_id}',
+         response_model=response_models.EvidencePageText, response_model_exclude_unset=True)
 async def evidence_read(request: Request, project_id: str, file_id: str) -> dict | Response:
     q = _evidence_query(request, ('expected_vault_id', 'version_id', 'page', 'representation'))
     expected, version = _evidence_required(q, 'expected_vault_id'), _evidence_required(q, 'version_id')
