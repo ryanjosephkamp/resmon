@@ -19,6 +19,7 @@ import { expect, type Locator, type TestInfo } from '@playwright/test';
 import type {
   AnalyticsView, BackendFacts, LibraryItem, VaultOnDisk, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord,
   DrawnAppearance, EmailSettings, EvidenceBundle, EvidencePageView, ReopenedPassage, SavedEvidenceNote,
+  OpenedCitation, SelectedAnswerPreview, SelectedAnswerView,
   ExplorerList, ExportedFile, ImportOutcome, InterruptedRow, JourneyDriver, NotificationPreferences, Place,
   PlateReading, ProfileCreation, ProfileMatches, QueuedPaper, RankedList, RoutineFacts, RunHandle, RunNowAnswer,
   SourceOutcome, SourceWallCellView, SourceWallReading, SourceWallView, ThemeChoice, TodayReading, UpcomingFire,
@@ -90,7 +91,8 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'associateTheLibraryItemWithPaper' | 'readTheVaultOnDisk'
   | 'startAnEvidenceProjectFrom' | 'addToTheEvidenceProject' | 'openTheEvidenceProject' | 'readTheEvidencePage'
   | 'saveAnEvidencePassage' | 'saveAnEvidenceNote' | 'readTheSavedEvidenceNotes' | 'reopenTheSavedPassage'
-  | 'exportSelectedEvidence'>;
+  | 'exportSelectedEvidence'
+  | 'askFromSelectedEvidence' | 'openEachCitationOfTheAnswer' | 'openTheSavedAnswer' | 'exportTheOpenAnswerAsHtml'>;
 
 /** The reading-queue filter buttons, by the journey's word for each. */
 const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
@@ -417,6 +419,43 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     }).toBe('completed');
   };
   let downloadsMade = 0;
+
+  // — selected-evidence answers -------------------------------------------------
+
+  /** The open project's Answers view. */
+  const openTheAnswers = async (): Promise<void> => {
+    const tab = win().getByRole('group', { name: 'In this project' }).getByRole('button', { name: 'Answers', exact: true });
+    await expect(tab).toBeVisible({ timeout: 30_000 });
+    if (await tab.getAttribute('aria-pressed') !== 'true') await tab.click();
+    await expect(win().getByRole('navigation', { name: 'Saved answers' })).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+  };
+  const answerArticle = () => win().getByRole('article', { name: 'Saved answer' });
+
+  /** The answer on screen, once it shows the state the app recorded for it. */
+  const readTheAnswerHere = async (id: string): Promise<SelectedAnswerView> => {
+    const saved = await backend.selectedAnswer(theOpenProject(), id);
+    const article = answerArticle();
+    await expect(article, `the page is not showing answer ${id}`).toHaveAttribute('data-answer', id, { timeout: 60_000 });
+    // The record first, then the screen agreeing with it: until then it shows the answer mid-run.
+    await expect(article).toHaveAttribute('data-state', String(saved.state), { timeout: 60_000 });
+    const rows = article.locator('.ev-answer-item');
+    const items: SelectedAnswerView['items'] = [];
+    for (let i = 0; i < await rows.count(); i += 1) {
+      const row = rows.nth(i);
+      items.push({
+        text: ((await row.locator('.ev-answer-text').textContent()) ?? '').trim(),
+        citations: (await row.locator('button.ev-cite').allInnerTexts()).map((t) => t.trim()),
+      });
+    }
+    const unvalidated = article.locator('[data-answer="unvalidated"]');
+    return {
+      id,
+      state: String(await article.getAttribute('data-state')),
+      items,
+      unvalidated: (await unvalidated.count()) ? (await unvalidated.innerText()).trim() : null,
+      text: (await article.innerText()).trim(),
+    };
+  };
 
   const openQueue = async (filter: 'to read' | 'read' | 'all'): Promise<void> => {
     await win().evaluate(() => { window.location.hash = '#/library'; });
@@ -931,6 +970,117 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
 `, target], { encoding: 'utf8' }));
       await open.click();
       return { path: target, members: read.members, manifest: read.manifest, notesMarkdown: read.notes, hashes: read.hashes };
+    },
+
+    // — selected-evidence answers ----------------------------------------------
+
+    askFromSelectedEvidence: async (request) => {
+      await openTheAnswers();
+      const start = win().getByRole('navigation', { name: 'Saved answers' }).getByRole('button', { name: 'New answer', exact: true });
+      await expect(start).toBeEnabled({ timeout: 60_000 });
+      await start.click();
+      const composer = win().getByRole('region', { name: 'New answer from selected evidence' });
+      // The connections arrive from the engine; nothing can be previewed before them.
+      await expect(composer.getByLabel('Connection', { exact: true })).toBeEnabled({ timeout: 30_000 });
+      for (const choice of request.select) {
+        if (choice.page !== undefined) {
+          await composer.getByLabel(`Page of ${choice.file}`, { exact: true }).fill(String(choice.page));
+          await composer.getByRole('button', { name: `Add the page of ${choice.file}`, exact: true }).click();
+        } else {
+          await composer.getByRole('button', { name: `Add the text of ${choice.file}`, exact: true }).click();
+        }
+      }
+      // The composer's own list is its record of what was added; a selection
+      // that failed to add would otherwise surface only as a shorter preview.
+      await expect(composer.getByRole('list', { name: 'Selected excerpts' }).locator('li'), 'a selection was pressed and not added')
+        .toHaveCount(request.select.length, { timeout: 15_000 });
+      for (const body of request.includeNotes ?? []) {
+        await composer.getByLabel(`Include note: ${body}`, { exact: true }).check();
+      }
+      await composer.getByLabel('Answer as', { exact: true }).selectOption(request.format);
+      await composer.getByLabel('Question or instruction', { exact: true }).fill(request.instruction);
+      await composer.getByLabel('Connection', { exact: true }).selectOption('api_key:custom');
+      await composer.getByLabel('Model', { exact: true }).fill(request.model);
+      await composer.getByRole('button', { name: 'Show exactly what will be sent', exact: true }).click();
+      const disclosure = composer.getByRole('region', { name: 'Exact disclosure' });
+      await expect(disclosure.getByRole('heading', { name: 'Check before sending' }), 'the preview never arrived')
+        .toBeVisible({ timeout: 120_000 });
+      const preview: SelectedAnswerPreview = { sources: [], notes: [], text: '' };
+      const articles = disclosure.locator('article.ev-source');
+      for (let i = 0; i < await articles.count(); i += 1) {
+        const article = articles.nth(i);
+        const head = (await article.locator('h4').innerText()).trim();
+        const body = (await article.locator('pre').textContent()) ?? '';
+        const source = /^(S\d+) · (.+) · page (\d+)$/.exec(head);
+        if (source) preview.sources.push({ id: source[1]!, file: source[2]!, page: Number(source[3]), text: body });
+        else preview.notes.push(body);
+      }
+      preview.text = (await disclosure.innerText()).trim();
+      await disclosure.getByRole('button', { name: 'Send', exact: true }).click();
+      const article = answerArticle();
+      await expect(article, 'Send was pressed and no answer opened').toBeVisible({ timeout: 60_000 });
+      const id = String(await article.getAttribute('data-answer'));
+      await expect.poll(async () => {
+        const saved = await backend.selectedAnswer(theOpenProject(), id);
+        return !['admitted', 'running'].includes(String(saved.state)) && saved.cleanup_state === 'confirmed';
+      }, { timeout: 150_000, message: `answer ${id} never finished with its local cleanup confirmed` }).toBe(true);
+      await expect(composer, 'the composer outlived the Send it admitted').toHaveCount(0, { timeout: 30_000 });
+      return { preview, answer: await readTheAnswerHere(id) };
+    },
+
+    openEachCitationOfTheAnswer: async (): Promise<OpenedCitation[]> => {
+      const article = answerArticle();
+      await expect(article).toBeVisible({ timeout: 30_000 });
+      const buttons = article.locator('button.ev-cite');
+      const out: OpenedCitation[] = [];
+      for (let i = 0; i < await buttons.count(); i += 1) {
+        const label = (await buttons.nth(i).innerText()).trim();
+        await buttons.nth(i).click();
+        const excerpt = article.getByRole('region', { name: 'Saved citation' });
+        await expect(excerpt.getByRole('heading', { name: `Frozen quote · ${label.split(' · ')[0]}` })).toBeVisible({ timeout: 30_000 });
+        // The current reader's verdict on the exact range, or the excerpt's
+        // own alert when the current original could not be checked.
+        const verdict = excerpt.locator('[data-evidence="resolution"]')
+          .filter({ hasText: /^(Citation matched|Saved citation unresolved:)/ })
+          .or(excerpt.getByRole('alert')).first();
+        await expect(verdict, `${label} never said whether it matched the current text`).toBeVisible({ timeout: 60_000 });
+        const pane = excerpt.getByLabel('Canonical page text');
+        out.push({
+          label,
+          frozen: (await excerpt.locator('pre.ev-quote').textContent()) ?? '',
+          highlighted: (await pane.count())
+            ? await pane.evaluate((element) => {
+              const text = element as HTMLTextAreaElement;
+              return text.value.slice(text.selectionStart, text.selectionEnd);
+            })
+            : '',
+          resolution: (await verdict.innerText()).trim(),
+        });
+      }
+      return out;
+    },
+
+    openTheSavedAnswer: async (answerId): Promise<SelectedAnswerView> => {
+      await openTheAnswers();
+      const row = win().getByRole('navigation', { name: 'Saved answers' }).locator(`button.ev-answer-row[data-answer="${answerId}"]`);
+      await expect(row, `the history lists no answer ${answerId}`).toBeVisible({ timeout: 60_000 });
+      await row.click();
+      return readTheAnswerHere(answerId);
+    },
+
+    exportTheOpenAnswerAsHtml: async () => {
+      const article = answerArticle();
+      await expect(article).toBeVisible({ timeout: 30_000 });
+      downloadsMade += 1;
+      const dir = path.join(fs.realpathSync(session.stateDir), 'downloads');
+      fs.mkdirSync(dir, { recursive: true });
+      const target = path.join(dir, `selected-answer-${downloadsMade}.html`);
+      await theNextDownloadGoesTo(target);
+      await article.getByRole('button', { name: 'Save as HTML', exact: true }).click();
+      await expect(article.locator('[data-answer="saved"]'), 'the page never said it saved the HTML')
+        .toHaveText(/^Saved the answer as one HTML file/, { timeout: 60_000 });
+      await theDownloadHasCompleted(target);
+      return { path: target, text: fs.readFileSync(target, 'utf8') };
     },
 
     readConnectedIdentity: async () => {

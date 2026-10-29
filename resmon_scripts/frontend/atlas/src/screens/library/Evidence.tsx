@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { count, number } from '../today/format';
-import { evidence, evidenceFetch, readerBusy, type Anchor, type FileRecord, type Member, type Note, type PageText, type Project } from './evidenceApi';
-import { PAGE_STATUS, examinedWords, resolves, selectionAnchor, utf16Range } from './evidenceModel';
+import { Answers } from './Answers';
+import { evidence, evidenceFetch, type Anchor, type FileRecord, type Member, type Note, type Project } from './evidenceApi';
+import { pinOf } from './evidenceModel';
 import { LibraryTabs } from './LibraryTabs';
-import { PdfPage } from './PdfPage';
+import { Reader } from './Reader';
 import { LIBRARY, LIBRARY_KEY, kindOf, sizeWords, type LibraryFile } from './libraryApi';
 
 function errorWords(error: unknown): string {
@@ -109,6 +110,13 @@ function Workspaces({ vault }: { vault: string }) {
 function Workspace({ vault, projectId, brought, onHandedOff }: {
   vault: string; projectId: string; brought: LibraryFile | null; onHandedOff: () => void;
 }) {
+  const [params, setParams] = useSearchParams();
+  const view = params.get('view') === 'answers' ? 'answers' : 'files';
+  const show = (next: 'files' | 'answers') => setParams((prior) => {
+    const kept = new URLSearchParams(prior);
+    if (next === 'answers') kept.set('view', 'answers'); else kept.delete('view');
+    return kept;
+  });
   const client = useQueryClient();
   const detail = useQuery({ queryKey: ['evidence-project', projectId], queryFn: () => evidence.detail(vault, projectId) });
   const project = detail.data?.project ?? null;
@@ -116,6 +124,8 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
   const notes = useQuery({ queryKey: ['evidence-notes', projectId], enabled: !!project, queryFn: () => evidence.notes(project!) });
   const [picked, setPicked] = useState<string | null>(null);
   const [reopen, setReopen] = useState<Note | null>(null);
+  /** The reopened passage as a pinned range: one object per reopening, so the reader selects it once. */
+  const pin = useMemo(() => (reopen ? pinOf(reopen) : null), [reopen]);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   /** The saved record whose body is being edited; choosing a passage stops editing. */
   const [editing, setEditing] = useState<Note | null>(null);
@@ -187,6 +197,12 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
       {adding && <AddFiles vault={vault} project={project} members={memberList} onAdded={changed} />}
       {exporting && <Bundle project={project} members={memberList} />}
 
+      <div className="ev-views" role="group" aria-label="In this project">
+        <button type="button" className="ev-view" aria-pressed={view === 'files'} onClick={() => show('files')}>Files and passages</button>
+        <button type="button" className="ev-view" aria-pressed={view === 'answers'} onClick={() => show('answers')}>Answers</button>
+      </div>
+      {view === 'answers' && <Answers project={project} members={memberList} notes={notes.data?.notes ?? []} />}
+      {view === 'files' && (
       <div className="ev-body">
         <section className="ev-members" aria-label="Files in this project">
           <h2 className="record-sub">Files</h2>
@@ -206,7 +222,7 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
 
         {(current || reopenedFile) && (
           <Reader key={`${(current?.file ?? reopenedFile)!.file_id}:${reopen?.note_id ?? ''}`} project={project}
-            file={(current?.file ?? reopenedFile)!} member={!!current} reopen={reopen}
+            file={(current?.file ?? reopenedFile)!} member={!!current} pin={pin}
             onAnchor={(a) => { setEditing(null); setAnchor(a); }} onRemove={current ? () => remove.mutate(current.file) : undefined} removing={remove.isPending} />
         )}
 
@@ -216,6 +232,7 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
           onSaved={changed} onClear={() => setAnchor(null)}
           onReopen={(n) => { setAnchor(null); setReopen(n); setPicked(n.file_id); }} />
       </div>
+      )}
       {remove.error && <p className="field-error" role="alert">{errorWords(remove.error)}</p>}
     </section>
   );
@@ -287,138 +304,6 @@ function AddFiles({ vault, project, members, onAdded }: { vault: string; project
       </button>
       <p className="form-hint">A project holds the exact version of each file you add. Removing one later keeps the records made against it.</p>
       {add.error && <p className="field-error" role="alert">{errorWords(add.error)}</p>}
-    </section>
-  );
-}
-
-/**
- * One file's page and its canonical text. The text is what a passage is taken
- * from: select it, or find a literal match, then use the selection. A saved
- * passage reopened here is resolved against this exact page, or said not to be.
- */
-function Reader({ project, file, member, reopen, onAnchor, onRemove, removing }: {
-  project: Project; file: FileRecord; member: boolean; reopen: Note | null;
-  onAnchor: (a: Anchor | null) => void; onRemove?: () => void; removing: boolean;
-}) {
-  const isPdf = file.media_type === 'application/pdf';
-  const [page, setPage] = useState(reopen?.page_number ?? 1);
-  const [draft, setDraft] = useState(String(reopen?.page_number ?? 1));
-  /** The page count the last read reported, kept while the next page is being read. */
-  const [pages, setPages] = useState<number | null>(null);
-  const turn = (n: number) => { setPage(n); setDraft(String(n)); };
-  const [selected, setSelected] = useState<Anchor | null>(null);
-  const [find, setFind] = useState('');
-  const [found, setFound] = useState<string | null>(null);
-  const pane = useRef<HTMLTextAreaElement>(null);
-  const text = useQuery({
-    queryKey: ['evidence-text', project.project_id, file.file_id, file.version_id, page],
-    queryFn: async ({ signal }) => {
-      const read = await evidence.text(project, file, page, signal);
-      setPages(read.page_count ?? null);
-      return read;
-    },
-    // A version's page text never changes, so a page read once is not read again:
-    // every read is a child process, and only one runs at a time.
-    staleTime: Infinity,
-    // Only a busy reader is retried: the page before this one may still be finishing.
-    retry: (failures, error) => readerBusy(error) && failures < 6,
-    retryDelay: (attempt) => Math.min(4_000, 600 * (attempt + 1)),
-  });
-  const data: PageText | undefined = text.data;
-  const resolution = useMemo(() => {
-    if (!reopen || reopen.kind !== 'passage') return null;
-    if (!data) return 'Saved passage is unresolved until this exact page is read.';
-    return resolves(reopen, data)
-      ? 'Saved passage resolved against this exact version, extraction contract, text hash and codepoint range.'
-      : 'Saved passage unresolved: this page, its text hash or its extraction contract does not match. The saved quote is unchanged.';
-  }, [reopen, data]);
-  useEffect(() => {
-    if (!reopen || !data || !resolves(reopen, data)) return;
-    const [start, end] = utf16Range(data.text, reopen.start_codepoint ?? 0, reopen.end_codepoint ?? 0);
-    pane.current?.focus();
-    pane.current?.setSelectionRange(start, end);
-  }, [reopen, data]);
-
-  const choose = () => {
-    const el = pane.current;
-    setSelected(data && el ? selectionAnchor(data, el.selectionStart, el.selectionEnd) : null);
-  };
-  const findNext = (e: FormEvent) => {
-    e.preventDefault();
-    if (!data || !find) return;
-    const from = pane.current?.selectionEnd ?? 0;
-    let at = data.text.indexOf(find, from);
-    if (at < 0) at = data.text.indexOf(find);
-    if (at < 0) { setFound('No literal match on this page’s text.'); return; }
-    pane.current?.focus();
-    pane.current?.setSelectionRange(at, at + find.length);
-    setSelected(selectionAnchor(data, at, at + find.length));
-    let n = 0;
-    for (let i = data.text.indexOf(find); i >= 0; i = data.text.indexOf(find, i + Math.max(1, find.length))) n += 1;
-    setFound(`${n} literal ${n === 1 ? 'match' : 'matches'} on this page’s text only.`);
-  };
-
-  return (
-    <section className="ev-reader" aria-label="Evidence reader" data-file={file.file_id} data-media={file.media_type} data-page={page}>
-      <div className="ev-reader-head">
-        <h2 className="lib-detail-name">{file.original_name}</h2>
-        {onRemove && (
-          <button type="button" className="btn sm quiet" disabled={removing}
-            onClick={() => { if (window.confirm(`Take ${file.original_name} out of this project? Its saved records stay.`)) onRemove(); }}>
-            Remove from project
-          </button>
-        )}
-      </div>
-      <p className="record-cap ev-identity">Version <code className="path">{file.version_id}</code> · SHA-256 <code className="path">{file.sha256}</code></p>
-      {!member && <p className="record-cap" data-evidence="removed">This file is no longer in the project. Its saved records are kept.</p>}
-      {isPdf && (
-        <form className="ev-pages" onSubmit={(e) => {
-          e.preventDefault();
-          const n = Number(draft);
-          if (Number.isInteger(n) && n >= 1 && (pages === null || n <= pages)) turn(n); else setDraft(String(page));
-        }}>
-          <button type="button" className="btn sm" disabled={page <= 1 || text.isFetching} onClick={() => turn(page - 1)}>Previous page</button>
-          <label htmlFor="ev-page" className="num">Page</label>
-          <input id="ev-page" className="ev-page-input num" inputMode="numeric" value={draft} disabled={text.isFetching}
-            onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, ''))} autoComplete="off" />
-          <span className="num">{pages !== null ? `of ${number(pages)}` : ''}</span>
-          <button type="button" className="btn sm" disabled={text.isFetching || page >= (pages ?? 1)} onClick={() => turn(page + 1)}>Next page</button>
-        </form>
-      )}
-      {isPdf && (
-        <PdfPage page={page} drawn={{
-          vault_id: project.vault_id, project_id: project.project_id, file_id: file.file_id,
-          version_id: file.version_id, sha256: file.sha256, byte_size: file.byte_size,
-        }} />
-      )}
-      {text.isFetching && <p className="record-cap" role="status">Reading this exact page.</p>}
-      {text.isError && <p className="field-error" role="alert">{errorWords(text.error)}</p>}
-      {data && (
-        <>
-          <p className="record-cap" data-evidence="examined">{examinedWords(data)} {data.coverage}</p>
-          {data.status !== 'extracted'
-            ? <p className="not-enough">{PAGE_STATUS[data.status] ?? data.status}</p>
-            : (
-              <>
-                <form className="lib-link-form" onSubmit={findNext}>
-                  <label htmlFor="ev-find">Find on this page’s text</label>
-                  <input id="ev-find" value={find} maxLength={200} onChange={(e) => setFind(e.target.value)} autoComplete="off" />
-                  <button type="submit" className="btn sm" disabled={!find}>Find</button>
-                  {found && <span className="record-cap" role="status" data-evidence="found">{found}</span>}
-                </form>
-                <textarea ref={pane} className="ev-text" aria-label="Canonical page text" readOnly value={data.text} data-page={data.page_number}
-                  onSelect={choose} onKeyUp={choose} rows={14} />
-                <div className="ev-use">
-                  <button type="button" className="btn sm primary" disabled={!selected || !member} onClick={() => onAnchor(selected)}>Use selected passage</button>
-                  <span className="record-cap">
-                    {selected ? `${count(selected.end_codepoint - selected.start_codepoint, 'codepoint')} selected. The engine checks this exact quote before saving.` : 'Select text in the page’s text, or find it, to keep a passage.'}
-                  </span>
-                </div>
-              </>
-            )}
-        </>
-      )}
-      {resolution && <p className="settings-said" role="status" data-evidence="resolution">{resolution}</p>}
     </section>
   );
 }
