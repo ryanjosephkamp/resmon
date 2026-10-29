@@ -4,12 +4,14 @@
 import json
 import logging
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 from . import runtime_identity
 from .config import DEFAULT_DB_PATH
+from .utils import compute_metadata_hash, month_from_name
 
 # ---------------------------------------------------------------------------
 # Schema DDL
@@ -720,6 +722,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     # once the rebuild above has run.
     _migrate_delivery(conn)
     _migrate_metadata_hash_index(conn)
+    _repair_doaj_month_names(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
     # invisible to every other -- an in-memory database shared through
@@ -2071,6 +2074,73 @@ def _migrate_metadata_hash_index(conn: sqlite3.Connection) -> None:
         conn.execute("RELEASE metadata_hash_v22")
         raise
     conn.commit()
+
+
+# A DOAJ date stored with its month as a name: ``2025-January-01``,
+# ``2025-Sept.-01``. The day is optional, so ``2025-July`` is caught as well.
+_DOAJ_NAMED_MONTH = re.compile(r"^(\d{4})-([^-\d][^-]*)(?:-(\d{2}))?$")
+
+
+def _repair_doaj_month_names(conn: sqlite3.Connection) -> int:
+    """Rewrite DOAJ dates stored with the month as a name in the ISO form.
+
+    Until #259 the DOAJ client zero-padded ``bibjson.month`` as it came, so a
+    month given as a name was stored as ``2025-January-01``. Nothing else in
+    resmon reads that: Analytics bucketed the paper into a month called
+    ``2025-Ja``, the discovery-lag view's ``julianday`` returned NULL and
+    skipped it, and sorting by date compared it as later than December of
+    its year. #259 fixed new records; this fixes the ones already
+    stored, with the same month table the client now reads.
+
+    Narrow on purpose. Only DOAJ rows, only a month the table knows, and only
+    ``publication_date`` and the ``metadata_hash`` computed from it. A month it
+    does not know ("Spring") is left as stored: the client's fallback to the
+    year alone is a guess about a new record, not a correction to make to a
+    kept one.
+
+    The hash is recomputed, not left, because it is a function of the date and
+    a row whose hash no longer follows from its own fields is wrong in a way
+    nothing would show. It is recomputed **only where the stored hash can be
+    reproduced first** -- from the stored title, the authors split back out of
+    their joined column, and the old date. Where it cannot (an author whose
+    name still holds ", " after normalization splits into two), the hash is
+    kept: recomputing it from a guessed author list would invent a different
+    paper for cross-source dedup to match. Either way the row is matched the
+    way a DOAJ record fetched today would be, or exactly as it was.
+
+    No schema change, so no ``SCHEMA_VERSION`` bump. Idempotent: a repaired
+    row no longer matches, so every later launch reads the DOAJ rows through
+    the ``UNIQUE(source_repository, external_id)`` index and changes nothing.
+    Returns the number of dates rewritten.
+    """
+    rows = conn.execute(
+        "SELECT id, title, authors, publication_date, metadata_hash FROM documents "
+        "WHERE source_repository = 'doaj' "
+        "AND publication_date GLOB '[0-9][0-9][0-9][0-9]-[^0-9]*'"
+    ).fetchall()
+    repaired = hashes = 0
+    for row in rows:
+        match = _DOAJ_NAMED_MONTH.match(row[3])
+        month = month_from_name(match.group(2)) if match else None
+        if month is None:
+            continue
+        date = f"{match.group(1)}-{month:02d}-{match.group(3) or '01'}"
+        authors = row[2].split(", ") if row[2] else []
+        metadata_hash = row[4]
+        if compute_metadata_hash(row[1], authors, row[3]) == metadata_hash:
+            metadata_hash = compute_metadata_hash(row[1], authors, date)
+            hashes += 1
+        conn.execute(
+            "UPDATE documents SET publication_date = ?, metadata_hash = ? WHERE id = ?",
+            (date, metadata_hash, row[0]),
+        )
+        repaired += 1
+    if repaired:
+        logger.info(
+            "Rewrote %d DOAJ publication date(s) stored with the month as a name; "
+            "%d hash(es) recomputed, %d kept because they could not be reproduced",
+            repaired, hashes, repaired - hashes)
+    return repaired
 
 
 def mark_missed_fires_ran_late(conn: sqlite3.Connection, routine_id: int) -> int:
