@@ -129,6 +129,7 @@ from implementation_scripts.admission import (
 )
 from implementation_scripts.scheduler import (
     ResmonScheduler,
+    _build_trigger as _scheduler_trigger,
     set_dispatcher,
     set_overlap_recorder,
 )
@@ -589,12 +590,23 @@ def credentials_presence():
     build stored, and reporting that as "absent" tells the user their keys
     are gone when they are simply unreachable. ``keyring_responsive`` is
     False once a read has timed out, so the interface can say so once at the
-    top rather than fifteen times over.
+    top rather than fifteen times over. Each webhook destination's signing
+    secret (``webhook_secret_<id>``) is included for every webhook stored.
     """
+    # Each webhook destination's signing secret is named after its row, so
+    # those names come from this corpus. Without them a saved secret was never
+    # reported, and the destinations list said "no secret yet" after one was
+    # stored.
+    conn = _get_db()
+    try:
+        webhook_names = {delivery.webhook_secret_name(i) for i in delivery.webhook_target_ids(conn)}
+    finally:
+        _close_db(conn)
     names = sorted(
         catalog_credential_names()
         | AI_CREDENTIAL_NAMES
         | SMTP_CREDENTIAL_NAMES
+        | webhook_names
     )
     statuses = {name: probe_credential(name) for name in names}
     return {
@@ -1682,12 +1694,35 @@ def _entity_source_warning(entity: Optional[dict], parameters: dict) -> Optional
         "so on the source's row.")
 
 
+def _readable_schedule(schedule_cron: str, parameters: object) -> None:
+    """Refuse a schedule the scheduler cannot build a trigger from.
+
+    The scheduler builds a routine's trigger after the row is stored, and a
+    failure there is logged (``_sched_add_routine``) while the request still
+    succeeds; the calendar skips the routine the same way. So ``0 25 * * *``
+    used to make a routine that said it was active, showed no next fire, and
+    never ran. This asks ``_build_trigger`` itself, from the schedule and the
+    parameters as they will be stored, so a valid structured ``_schedule``
+    (which the scheduler prefers) is what is checked when it is present.
+    """
+    try:
+        _scheduler_trigger({"schedule_cron": schedule_cron, "parameters": parameters})
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(
+            400,
+            f"resmon cannot read the schedule “{schedule_cron}”, so it would never run ({exc}). "
+            "A schedule is five fields: minute, hour, day of the month, month and day of the "
+            "week, as in “0 8 * * 1-5” for weekdays at 8:00.",
+        ) from None
+
+
 @app.post("/api/routines", status_code=201, response_model=response_models.RoutineCreated,
           response_model_exclude_unset=True)
 def create_routine(body: RoutineCreate):
     conn = _get_db()
     try:
         entity = _validated_entity(conn, body.parameters)
+        _readable_schedule(body.schedule_cron, body.parameters)
         routine_dict = {
             "name": body.name,
             "schedule_cron": body.schedule_cron,
@@ -1736,6 +1771,14 @@ def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
         if body.parameters is not None:
             _validated_entity(conn, body.parameters)
             updates["parameters"] = json.dumps(body.parameters)
+        if body.schedule_cron is not None or body.parameters is not None:
+            # Either can change which schedule runs, so the pair as it will be
+            # stored is checked. An update that touches neither is not, so a
+            # routine stored before this check can still be paused or renamed.
+            _readable_schedule(
+                updates.get("schedule_cron", existing.get("schedule_cron") or ""),
+                body.parameters if body.parameters is not None else existing.get("parameters"),
+            )
         if body.intent is not None:
             # An empty string is a *clear*, not a no-op: the editor sends the
             # whole form, so a user who deletes the sentence means to remove it.

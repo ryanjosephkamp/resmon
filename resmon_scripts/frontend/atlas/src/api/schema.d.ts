@@ -842,7 +842,8 @@ export interface paths {
          *     build stored, and reporting that as "absent" tells the user their keys
          *     are gone when they are simply unreachable. ``keyring_responsive`` is
          *     False once a read has timed out, so the interface can say so once at the
-         *     top rather than fifteen times over.
+         *     top rather than fifteen times over. Each webhook destination's signing
+         *     secret (``webhook_secret_<id>``) is included for every webhook stored.
          */
         get: operations["credentials_presence_api_credentials_get"];
         put?: never;

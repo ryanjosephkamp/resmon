@@ -304,6 +304,19 @@ def list_targets(conn: sqlite3.Connection, routine_id: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def webhook_target_ids(conn: sqlite3.Connection) -> list[int]:
+    """Every webhook destination's id, whichever routine it belongs to.
+
+    A webhook's signing secret is stored under ``webhook_secret_<id>``, so the
+    names a screen has to ask the keyring about are this corpus's, not a fixed
+    list a build knows in advance.
+    """
+    rows = conn.execute(
+        "SELECT id FROM routine_delivery_targets WHERE channel = 'webhook' ORDER BY id"
+    ).fetchall()
+    return [int(row[0]) for row in rows]
+
+
 def get_target(conn: sqlite3.Connection, target_id: int) -> Optional[dict]:
     row = conn.execute(
         "SELECT * FROM routine_delivery_targets WHERE id = ?", (int(target_id),)
