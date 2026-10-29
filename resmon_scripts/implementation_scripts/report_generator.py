@@ -6,6 +6,7 @@ import shlex
 from collections import defaultdict
 from pathlib import Path
 
+from . import zero_reason
 from .utils import now_iso
 
 logger = logging.getLogger(__name__)
@@ -197,15 +198,11 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
 
     zero_notes = metadata.get("zero_notes")
     if isinstance(zero_notes, list) and zero_notes:
-        groups = (
-            ("## Sources with retained partial results", True),
-            ("## Sources that returned nothing, and why", False),
-        )
         wrote_section = False
-        for heading, partial in groups:
+        for group, heading, preface in _NOTE_GROUPS:
             notes = [
                 note for note in zero_notes
-                if isinstance(note, dict) and bool(note.get("partial")) is partial
+                if isinstance(note, dict) and _note_group(note) == group
             ]
             if not notes:
                 continue
@@ -213,6 +210,8 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
                 lines.extend(["---", ""])
                 wrote_section = True
             lines.extend([heading, ""])
+            if preface:
+                lines.extend([preface, ""])
             for note in notes:
                 source = str(note.get("source", ""))
                 sentence = str(note.get("sentence", ""))
@@ -233,6 +232,36 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+# The footer's sections, in the order they print. A source that answered with
+# nothing and a source that gave no answer are never under one heading: the
+# first is a quiet field, the second says nothing about the field, and a reader
+# skimming headings must not be able to take one for the other. The categories
+# are ``source_coverage``'s (answered, did not answer, unknown), so the report
+# and the search record sort every source the same way.
+_NOTE_GROUPS = (
+    ("partial", "## Sources with retained partial results", None),
+    ("answered", "## Sources that answered with nothing to keep", None),
+    ("non_answer", "## Sources that did not answer, and why",
+     "This run has no answer from these sources to count, so it says nothing "
+     "about what they hold."),
+    ("unknown", "## Sources whose outcome was not recorded", None),
+)
+
+
+def _note_group(note: dict) -> str:
+    """Which footer section one source's note belongs in."""
+    if note.get("partial"):
+        return "partial"
+    reason = note.get("reason")
+    # ``error`` is the engine's own reason for a query that raised.
+    if reason == "error" or reason in zero_reason.DID_NOT_ANSWER:
+        return "non_answer"
+    if reason in zero_reason.ZERO_REASONS and zero_reason.answered("ok", 0, reason):
+        return "answered"
+    # ``not_recorded``, no reason at all, or one this build does not know.
+    return "unknown"
 
 
 _BASIS_SENTENCE = {
