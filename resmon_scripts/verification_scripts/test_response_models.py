@@ -286,6 +286,36 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/assistant/permissions"),
         ("POST", "/api/assistant/permissions/{request_id}"),
     ),
+    "cloud storage": (
+        ("GET", "/api/cloud/status"),
+        ("POST", "/api/cloud/unlink"),
+        ("POST", "/api/cloud/link"),
+        ("POST", "/api/cloud/backup"),
+    ),
+    # Backup and restore are one feature over two path prefixes, so they are two
+    # slices here: the slice-coherence test below holds a slice to one prefix.
+    "backup": (
+        ("POST", "/api/backup"),
+        ("POST", "/api/backup/verify"),
+        ("GET", "/api/backup/last"),
+    ),
+    "restore": (
+        ("POST", "/api/restore"),
+        ("POST", "/api/restore/cancel"),
+        ("POST", "/api/restore/undo-copy/delete"),
+        ("POST", "/api/restore/acknowledge"),
+    ),
+    "danger zone": (
+        ("POST", "/api/admin/erase-ai-keys"),
+        ("POST", "/api/admin/erase-repo-keys"),
+        ("POST", "/api/admin/erase-configs"),
+        ("POST", "/api/admin/erase-executions"),
+        ("POST", "/api/admin/erase-execution-data"),
+        ("POST", "/api/admin/erase-app-data"),
+        ("POST", "/api/admin/erase-corpus"),
+        ("POST", "/api/admin/reset-settings"),
+        ("POST", "/api/admin/factory-reset"),
+    ),
     "analytics": (
         ("GET", "/api/analytics/overview"),
         ("GET", "/api/analytics/summary"),
@@ -595,6 +625,11 @@ def driven() -> Drive:
         kept = _drive_library(drive, doc_ids[0])
         _drive_evidence(drive, *kept)
         _drive_assistant(drive)
+        _drive_cloud_storage(drive)
+        _drive_backup_and_restore(drive)
+        # Last, because it erases what every slice above made: the corpus, the
+        # runs, the configurations, the settings and the keyring's keys.
+        _drive_danger_zone(drive)
 
         yield drive
 
@@ -1010,6 +1045,360 @@ def _drive_assistant(drive: Drive) -> None:
 
         for conversation in (asked, defaults):
             drive("DELETE", f"/api/assistant/sessions/{conversation['id']}")
+
+
+@contextlib.contextmanager
+def _scratch(prefix: str) -> Iterator[Path]:
+    """A folder directly under the temporary directory, removed when the slice is done with it."""
+    import shutil  # noqa: PLC0415 — only this helper and the backup slice need it
+
+    folder = Path(os.path.realpath(tempfile.mkdtemp(prefix=prefix)))
+    try:
+        yield folder
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def _drive_cloud_storage(drive: Drive) -> None:
+    """Google Drive's four routes, with nothing reaching Google.
+
+    ``cloud_storage.py`` signs in through a browser and uploads to Drive, and
+    neither runs here. The status and the unlink are driven for real against a
+    keyring holding no Drive token, the one state in which neither makes a
+    call, and that is checked first. For the linked status, the link and the
+    upload, the functions each handler calls are replaced in ``resmon``'s
+    namespace, where the handlers look them up, for those requests only: the
+    API probe, the sign-in flow and the upload never run, and what is compared
+    is the body each handler builds from their answers. The link also needs a
+    ``credentials.json`` to exist, so ``config.PROJECT_ROOT`` names a scratch
+    folder holding an empty one. The upload stand-in answers in
+    ``upload_directory``'s documented shape, once for an upload that sent one
+    of two files and once for one that stopped before it made a folder, which
+    the route still answers as a success.
+    """
+    from implementation_scripts import config as config_module  # noqa: PLC0415 — only this slice needs these
+    from implementation_scripts import credential_manager  # noqa: PLC0415
+
+    assert not credential_manager.get_credential("google_drive_token"), (
+        "a Drive token is stored, so the unlink would ask Google to revoke it; nothing was driven")
+    unlinked = drive("GET", "/api/cloud/status")
+    assert unlinked == {"is_linked": False, "api_ok": False, "api_reason": "no_token"}, unlinked
+    drive("POST", "/api/cloud/unlink")
+
+    with mock.patch.object(resmon_mod, "cloud_is_token_stored", lambda: True):
+        with mock.patch.object(resmon_mod, "cloud_probe_api", lambda: (False, "accessNotConfigured")):
+            refused = drive("GET", "/api/cloud/status")
+        with mock.patch.object(resmon_mod, "cloud_probe_api", lambda: (True, None)):
+            working = drive("GET", "/api/cloud/status")
+    assert (refused["api_ok"], working["api_ok"], working["api_reason"]) == (False, True, None)
+
+    with _scratch("resmon-scenario-drive-") as scratch:
+        (scratch / "credentials.json").write_text("{}", encoding="utf-8")
+        flows: list[bool] = []
+
+        def signed_in() -> bool:
+            flows.append(True)
+            return True
+
+        with mock.patch.object(config_module, "PROJECT_ROOT", scratch), \
+                mock.patch.object(resmon_mod, "authorize_google_drive", signed_in):
+            drive("POST", "/api/cloud/link")
+        assert flows == [True] and not credential_manager.get_credential("google_drive_token")
+
+        reports = scratch / "reports"
+        reports.mkdir()
+        for name in ("a.md", "b.md"):
+            (reports / name).write_text("# A report\n", encoding="utf-8")
+        answers = [
+            {"uploaded_ids": ["drive-file-a"], "total_files": 2, "folder_id": "drive-folder",
+             "folder_name": "backup-20261029-120000",
+             "web_view_link": "https://drive.example.org/folders/drive-folder"},
+            {"uploaded_ids": [], "total_files": 0, "folder_id": None, "folder_name": None,
+             "web_view_link": None},
+        ]
+        handed: list[Path] = []
+
+        def uploaded(local_dir: Any) -> dict:
+            handed.append(Path(local_dir))
+            return answers[len(handed) - 1]
+
+        with mock.patch.object(resmon_mod, "cloud_check_connection", lambda: True), \
+                mock.patch.object(resmon_mod, "REPORTS_DIR", reports), \
+                mock.patch.object(resmon_mod, "upload_directory", uploaded):
+            # ``execution_ids`` is accepted and not read: the whole folder goes.
+            partly = drive("POST", "/api/cloud/backup", json={"execution_ids": [1]})
+            stopped = drive("POST", "/api/cloud/backup", json={})
+        assert handed == [reports, reports], handed
+        assert (partly["uploaded"], partly["total_files"]) == (1, 2), partly
+        assert (stopped["success"], stopped["uploaded"], stopped["folder_name"]) == (True, 0, None), stopped
+
+
+def _database_file() -> Path:
+    """The file behind the app's database connection: for ``:memory:``, its temp-file stand-in."""
+    conn = resmon_mod._get_db()
+    try:
+        return Path(conn.execute("PRAGMA database_list").fetchone()["file"])
+    finally:
+        resmon_mod._close_db(conn)
+
+
+def _only_scratch_paths(paths: dict[str, Any]) -> None:
+    """Stop the scenario unless every path a destructive route can reach is a scratch one.
+
+    The Danger Zone deletes rows, settings and keys, and a restore moves a
+    database aside, so before either runs each path the app will use is
+    resolved and must sit inside a ``resmon-`` folder directly under this
+    machine's temporary directory, which only this run's fixtures and the
+    app's own ``:memory:`` stand-in make. None may be inside the home
+    directory, which holds ``~/Documents`` and resmon's Application Support
+    folder. The paths are printed, so a run that stops here says which one it
+    was.
+    """
+    temp = Path(os.path.realpath(tempfile.gettempdir()))
+    home = Path(os.path.realpath(Path.home()))
+    print("paths the destructive routes reach:", {label: str(path) for label, path in paths.items()})
+    for label, path in paths.items():
+        real = Path(os.path.realpath(path))
+        assert temp in real.parents and real.relative_to(temp).parts[0].startswith("resmon-"), (
+            f"{label} is {real}, not inside a resmon- folder under {temp}; nothing destructive was driven")
+        assert real != home and home not in real.parents, (
+            f"{label} is {real}, inside the home directory; nothing destructive was driven")
+
+
+def _drive_backup_and_restore(drive: Drive) -> None:
+    """A bundle written, verified, staged, cancelled, applied as a start applies it, and its record read.
+
+    Everything happens in folders this slice makes. ``RESMON_STATE_DIR`` names
+    a scratch state directory for the slice, so the pointer, the record, the
+    undo copies and the daemon lock ``next_step`` is decided from all live
+    there; ``REPORTS_DIR`` is a scratch folder holding one report; and the
+    export directory is set to a scratch folder through the storage settings
+    route. Every path is checked before the first backup.
+
+    The live database is given one orphan row before the backup, so the
+    foreign-key fields carry a finding, and loses it again at the end. A copy
+    of the bundle with one report changed and the vault id taken out of its
+    manifest is verified too, so ``problems`` has a line in it and
+    ``vault_destination`` is ``None``.
+
+    A restore is staged three times. The first, with no vault parent, is
+    cancelled, and a garbled pointer is read and cancelled after it. The
+    second is applied the way a start applies it, by
+    ``backup.apply_pending_restore``, against a scratch database file rather
+    than this app's own and with a scratch vault parent, so neither the live
+    database nor the Library slice's vault is touched. Its record is read,
+    acknowledged, and read again after being cut down to the keys resmon
+    2.3.0 wrote. The third finds its bundle moved away, so the start records
+    a refusal, which is read before and after it is acknowledged. The one
+    undo copy is deleted last.
+    """
+    import shutil  # noqa: PLC0415 — only this slice needs these
+    import sqlite3  # noqa: PLC0415
+    from implementation_scripts import backup as backup_module  # noqa: PLC0415
+
+    with _scratch("resmon-scenario-backup-") as root:
+        state, exports, reports, elsewhere, restored = (
+            root / name for name in ("state", "exports", "reports", "vault-elsewhere", "restored"))
+        for folder in (state, exports, reports, elsewhere, restored):
+            folder.mkdir()
+        (reports / "scenario-report.md").write_text("# A report the bundle carries\n", encoding="utf-8")
+        scratch_db = restored / "resmon.db"
+        confirm = {"confirm": "CONFIRM"}
+
+        def start() -> dict:
+            """What ``_lifespan``'s restore step does, against the scratch database file."""
+            assert scratch_db.parent == restored
+            outcome = backup_module.apply_pending_restore(
+                state, scratch_db, this_schema_version=resmon_mod.SCHEMA_VERSION,
+                init_db=lambda path: resmon_mod.init_db(path))
+            assert outcome is not None, "the start found nothing staged"
+            return outcome
+
+        conn = resmon_mod._get_db()
+        try:
+            vault_root = conn.execute(
+                "SELECT root_path FROM library_vault WHERE singleton=1").fetchone()["root_path"]
+        finally:
+            resmon_mod._close_db(conn)
+
+        with mock.patch.dict(os.environ, {"RESMON_STATE_DIR": str(state)}), \
+                mock.patch.object(resmon_mod, "REPORTS_DIR", reports):
+            drive("PUT", "/api/settings/storage", json={"settings": {"export_directory": str(exports)}})
+            _only_scratch_paths({
+                "database": _database_file(),
+                "state directory": resmon_mod._backup_state_dir(),
+                "reports": resmon_mod.REPORTS_DIR,
+                "export directory": exports,
+                "Library vault the backup reads": vault_root,
+                "database file the start replaces": scratch_db,
+                "vault parent the start restores into": elsewhere,
+            })
+            nothing = drive("GET", "/api/backup/last")
+            assert nothing == {"last_backup": None, "last_backup_path_recorded": None,
+                               "pending_restore": None, "pending_restore_runs_when": None,
+                               "last_restore": None, "undo_copies": []}, nothing
+
+            orphan = "00000000-0000-4000-8000-000000000000"
+            conn = resmon_mod._get_db()
+            try:
+                conn.execute("PRAGMA foreign_keys=OFF")
+                conn.execute("INSERT INTO library_file_documents (file_id, document_id, linked_at_utc) "
+                             "VALUES (?, 999999, '2026-10-29T00:00:00Z')", (orphan,))
+                conn.commit()
+                conn.execute("PRAGMA foreign_keys=ON")
+            finally:
+                resmon_mod._close_db(conn)
+            try:
+                written = drive("POST", "/api/backup", json={**confirm, "include_reports": True})
+                bundle = Path(written["path"])
+                manifest = written["manifest"]
+                assert bundle.parent == exports and manifest["vault_id"], written["path"]
+                # One row, two references: neither its file nor its paper exists.
+                assert (manifest["fk_violations_total"], manifest["fk_violations_rows"]) == (2, 1), manifest
+                assert manifest["fk_violations"][0]["rowid"], manifest["fk_violations"]
+                assert "reports/scenario-report.md" in {f["path"] for f in manifest["files"]}, manifest["files"]
+
+                report = drive("POST", "/api/backup/verify", json={"path": str(bundle)})
+                assert report["ok"] and report["needs_fk_acceptance"] and report["vault_destination"], report
+                damaged = root / "damaged"
+                shutil.copytree(bundle, damaged)
+                edited = json.loads((damaged / backup_module.MANIFEST_NAME).read_text())
+                edited["vault_id"] = None
+                (damaged / backup_module.MANIFEST_NAME).write_text(json.dumps(edited, indent=2, sort_keys=True))
+                with (damaged / "reports" / "scenario-report.md").open("a", encoding="utf-8") as handle:
+                    handle.write("Changed after the backup.\n")
+                broken = drive("POST", "/api/backup/verify", json={"path": str(damaged)})
+                assert not broken["ok"] and broken["problems"] and broken["vault_destination"] is None, broken
+
+                # Staged, read, cancelled; then a pointer nobody can read.
+                first = drive("POST", "/api/restore", json={**confirm, "path": str(bundle),
+                                                            "accept_fk_violations": True})
+                assert first["staged"]["vault_parent"] is None, first["staged"]
+                waiting = drive("GET", "/api/backup/last")
+                assert waiting["last_backup"]["path"] == str(bundle), waiting
+                assert waiting["pending_restore"] and waiting["pending_restore_runs_when"], waiting
+                drive("POST", "/api/restore/cancel")
+                (state / backup_module.PENDING_NAME).write_text("{not json", encoding="utf-8")
+                garbled = drive("GET", "/api/backup/last")
+                assert garbled["pending_restore"] == {"bundle": None, "manifest_sha256": None,
+                                                      "unreadable": True}, garbled
+                drive("POST", "/api/restore/cancel")
+                assert drive("POST", "/api/restore/acknowledge") == {"success": True, "acknowledged": False}
+                assert drive("POST", "/api/restore/undo-copy/delete", json=confirm)["deleted"] == 0
+
+                # Applied by a start, into the scratch file and the scratch parent.
+                again = {**confirm, "path": str(bundle), "accept_fk_violations": True,
+                         "vault_parent": str(elsewhere)}
+                assert drive("POST", "/api/restore", json=again)["staged"]["vault_parent"] == str(elsewhere)
+                placeholder = sqlite3.connect(scratch_db)
+                try:
+                    placeholder.execute("CREATE TABLE replaced_by_the_restore (x)")
+                    placeholder.commit()
+                finally:
+                    placeholder.close()
+                applied = start()
+                assert applied["ok"] and applied["undo_copy"] and applied["vault"]["restored"], applied
+                assert Path(applied["vault"]["root_path"]).parent == elsewhere, applied["vault"]
+                read = drive("GET", "/api/backup/last")
+                assert read["last_restore"]["ok"] is True, read
+                assert read["undo_copies"] == [applied["undo_copy"]], read
+                assert drive("POST", "/api/restore/acknowledge")["acknowledged"] is True
+                # The same record as resmon 2.3.0 wrote it: these keys came later.
+                record_file = state / backup_module.RESTORE_LOG_NAME
+                record = json.loads(record_file.read_text())
+                for key in ("undo_includes_vault", "vault_parent", "fk_violations_rows"):
+                    del record[key]
+                del record["vault"]["replaced_kept_at"]
+                record_file.write_text(json.dumps(record, indent=2))
+                older = drive("GET", "/api/backup/last")["last_restore"]
+                assert older["acknowledged"] is True and "vault_parent" not in older, older
+
+                # Refused by a start: the bundle is not where it was staged from.
+                drive("POST", "/api/restore", json=again)
+                away = bundle.rename(root / "moved-away")
+                try:
+                    refused = start()
+                finally:
+                    away.rename(bundle)
+                assert refused["ok"] is False and refused["reason"] == "bundle_missing", refused
+                assert "acknowledged" not in drive("GET", "/api/backup/last")["last_restore"]
+                drive("POST", "/api/restore/acknowledge")
+                dismissed = drive("GET", "/api/backup/last")["last_restore"]
+                assert list(dismissed)[-1] == "acknowledged", dismissed
+
+                assert drive("POST", "/api/restore/undo-copy/delete", json=confirm)["deleted"] == 1
+            finally:
+                conn = resmon_mod._get_db()
+                try:
+                    conn.execute("DELETE FROM library_file_documents WHERE file_id = ?", (orphan,))
+                    conn.commit()
+                finally:
+                    resmon_mod._close_db(conn)
+
+
+def _drive_danger_zone(drive: Drive) -> None:
+    """Every Danger Zone route, after every other slice, against this scenario's own database and keyring.
+
+    Each erases something the slices above rely on, which is why this runs
+    last and the factory reset runs last of all. Before the first, the
+    keyring is checked to be conftest's in-memory one, and the database file,
+    the state directory and the reports folder the app would use are checked
+    to be scratch paths; if any is not, the scenario stops there. One AI key
+    and one repository key are stored first, and each key route then answers
+    with its whole list of names, which is what its count counts. A setting
+    and a paper are put back before the factory reset, so its counts are not
+    all zero.
+    """
+    import keyring  # noqa: PLC0415 — only this slice needs these
+    from implementation_scripts import credential_manager  # noqa: PLC0415
+    from implementation_scripts.repo_catalog import credential_names  # noqa: PLC0415
+
+    backend = keyring.get_keyring()
+    assert type(backend).__name__ == "InMemoryKeyring" and "conftest" in type(backend).__module__, (
+        f"the keyring is {type(backend).__module__}.{type(backend).__name__}, not conftest's "
+        "in-memory one; nothing was erased")
+    with _scratch("resmon-scenario-danger-") as scratch:
+        reports = scratch / "reports"
+        reports.mkdir()
+        confirm = {"confirm": "CONFIRM"}
+
+        with mock.patch.dict(os.environ, {"RESMON_STATE_DIR": str(scratch)}), \
+                mock.patch.object(resmon_mod, "REPORTS_DIR", reports):
+            _only_scratch_paths({
+                "database": _database_file(),
+                "state directory": resmon_mod._backup_state_dir(),
+                "reports": resmon_mod.REPORTS_DIR,
+            })
+
+            stored = (sorted(credential_manager.AI_CREDENTIAL_NAMES)[0], sorted(credential_names())[0])
+            for name in stored:
+                drive("PUT", f"/api/credentials/{name}", json={"value": "a-key-for-the-scenario"})
+            ai = drive("POST", "/api/admin/erase-ai-keys")
+            assert ai["ai_keys_removed"] == len(credential_manager.AI_CREDENTIAL_NAMES), ai
+            repo = drive("POST", "/api/admin/erase-repo-keys")
+            assert repo["repo_keys_removed"] == len(credential_names()), repo
+            assert {credential_manager.probe_credential(name) for name in stored} == {credential_manager.ABSENT}
+
+            drive("POST", "/api/admin/erase-configs", json=confirm)
+            runs = drive("POST", "/api/admin/erase-executions", json=confirm)
+            assert runs["executions_removed"] > 0, runs
+            drive("POST", "/api/admin/erase-execution-data", json=confirm)
+            papers = drive("POST", "/api/admin/erase-corpus", json=confirm)
+            assert papers["documents_removed"] > 0, papers
+            drive("POST", "/api/admin/erase-app-data", json=confirm)
+            settings = drive("POST", "/api/admin/reset-settings", json=confirm)
+            assert settings["settings_cleared"] > 0, settings
+
+            drive("PUT", "/api/settings/storage", json={"settings": {"pdf_policy": "keep"}})
+            conn = resmon_mod._get_db()
+            try:
+                conn.execute("INSERT INTO documents (source_repository, external_id, title, metadata_hash) "
+                             "VALUES ('arxiv', 'F0', 'A paper the factory reset takes', 'hf0')")
+                conn.commit()
+            finally:
+                resmon_mod._close_db(conn)
+            factory = drive("POST", "/api/admin/factory-reset", json=confirm)
+            assert factory["documents_removed"] == 1 and factory["settings_cleared"] >= 1, factory
 
 
 def _drive_source_wall_and_analytics(drive: Drive) -> None:

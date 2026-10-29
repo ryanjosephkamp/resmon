@@ -6295,7 +6295,8 @@ def delete_credential_endpoint(key_name: str):
 # Cloud (Google Drive storage integration — unrelated to resmon-cloud)
 # ---------------------------------------------------------------------------
 
-@app.post("/api/cloud/link")
+@app.post("/api/cloud/link", response_model=response_models.CloudLinked,
+          response_model_exclude_unset=True)
 def cloud_link():
     # Pre-flight: the Google OAuth client secrets file is required for the
     # InstalledAppFlow. If it is absent, return a descriptive 400 so the
@@ -6326,13 +6327,15 @@ def cloud_link():
     return {"auth_url": "oauth_completed"}
 
 
-@app.post("/api/cloud/unlink")
+@app.post("/api/cloud/unlink", response_model=response_models.CloudUnlinked,
+          response_model_exclude_unset=True)
 def cloud_unlink():
     revoke_authorization()
     return {"success": True}
 
 
-@app.get("/api/cloud/status")
+@app.get("/api/cloud/status", response_model=response_models.CloudStatus,
+         response_model_exclude_unset=True)
 def cloud_status():
     # ``is_linked`` reflects link state (token stored, user completed OAuth).
     # ``api_ok`` is a live probe of the Drive API; it can be False even when
@@ -6344,7 +6347,8 @@ def cloud_status():
     return {"is_linked": True, "api_ok": ok, "api_reason": reason}
 
 
-@app.post("/api/cloud/backup")
+@app.post("/api/cloud/backup", response_model=response_models.CloudBackupUploaded,
+          response_model_exclude_unset=True)
 def cloud_backup(body: CloudBackup):
     if not cloud_check_connection():
         raise HTTPException(400, "Cloud storage not linked")
@@ -6861,19 +6865,22 @@ def _reset_settings(conn) -> int:
     return int(count)
 
 
-@app.post("/api/admin/erase-ai-keys")
+@app.post("/api/admin/erase-ai-keys", response_model=response_models.AiKeysErased,
+          response_model_exclude_unset=True)
 def admin_erase_ai_keys():
     n = _erase_ai_keys()
     return {"success": True, "ai_keys_removed": n}
 
 
-@app.post("/api/admin/erase-repo-keys")
+@app.post("/api/admin/erase-repo-keys", response_model=response_models.RepositoryKeysErased,
+          response_model_exclude_unset=True)
 def admin_erase_repo_keys():
     n = _erase_repo_keys()
     return {"success": True, "repo_keys_removed": n}
 
 
-@app.post("/api/admin/erase-configs")
+@app.post("/api/admin/erase-configs", response_model=response_models.ConfigurationsErased,
+          response_model_exclude_unset=True)
 def admin_erase_configs(body: AdminConfirmBody):
     _require_confirm(body)
     conn = _get_db()
@@ -6885,7 +6892,8 @@ def admin_erase_configs(body: AdminConfirmBody):
         _close_db(conn)
 
 
-@app.post("/api/admin/erase-executions")
+@app.post("/api/admin/erase-executions", response_model=response_models.ExecutionsErased,
+          response_model_exclude_unset=True)
 def admin_erase_executions(body: AdminConfirmBody):
     _require_confirm(body)
     conn = _get_db()
@@ -6897,7 +6905,8 @@ def admin_erase_executions(body: AdminConfirmBody):
         _close_db(conn)
 
 
-@app.post("/api/admin/erase-execution-data")
+@app.post("/api/admin/erase-execution-data", response_model=response_models.ExecutionDataErased,
+          response_model_exclude_unset=True)
 def admin_erase_execution_data(body: AdminConfirmBody):
     """Erase all configs + all executions. Settings and API keys untouched."""
     _require_confirm(body)
@@ -6911,7 +6920,8 @@ def admin_erase_execution_data(body: AdminConfirmBody):
         _close_db(conn)
 
 
-@app.post("/api/admin/erase-app-data")
+@app.post("/api/admin/erase-app-data", response_model=response_models.AppDataErased,
+          response_model_exclude_unset=True)
 def admin_erase_app_data(body: AdminConfirmBody):
     """Erase the corpus + configs + executions + every API key.
 
@@ -6939,7 +6949,8 @@ def admin_erase_app_data(body: AdminConfirmBody):
     }
 
 
-@app.post("/api/admin/erase-corpus")
+@app.post("/api/admin/erase-corpus", response_model=response_models.CorpusErased,
+          response_model_exclude_unset=True)
 def admin_erase_corpus(body: AdminConfirmBody):
     """Erase every collected paper. Executions, configs and keys are kept."""
     _require_confirm(body)
@@ -6952,7 +6963,8 @@ def admin_erase_corpus(body: AdminConfirmBody):
         _close_db(conn)
 
 
-@app.post("/api/admin/reset-settings")
+@app.post("/api/admin/reset-settings", response_model=response_models.SettingsReset,
+          response_model_exclude_unset=True)
 def admin_reset_settings(body: AdminConfirmBody):
     """Reset every setting plus erase every API key. Configs/executions kept."""
     _require_confirm(body)
@@ -6976,7 +6988,8 @@ def admin_reset_settings(body: AdminConfirmBody):
     }
 
 
-@app.post("/api/admin/factory-reset")
+@app.post("/api/admin/factory-reset", response_model=response_models.FactoryReset,
+          response_model_exclude_unset=True)
 def admin_factory_reset(body: AdminConfirmBody):
     """Erase every secret, config, execution, setting, and collected paper.
 
@@ -7060,7 +7073,8 @@ class RestoreRequest(AdminConfirmBody):
     vault_parent: str = ""
 
 
-@app.post("/api/backup")
+@app.post("/api/backup", response_model=response_models.BackupWritten,
+          response_model_exclude_unset=True)
 def backup_now(body: BackupRequest):
     """Write one bundle: the snapshotted database, the vault's bytes, optionally reports."""
     _require_confirm(body)
@@ -7097,7 +7111,8 @@ def backup_now(body: BackupRequest):
     return {"success": True, "path": manifest["path"], "manifest": manifest}
 
 
-@app.post("/api/backup/verify")
+@app.post("/api/backup/verify", response_model=response_models.BundleReport,
+          response_model_exclude_unset=True)
 def backup_verify(body: BundleBody):
     """Recompute every hash and report what a restore would and would not do."""
     conn = _get_db()
@@ -7176,7 +7191,8 @@ def _when_a_staged_restore_runs() -> str:
     return "Quit resmon and open it again to restore. Nothing has changed yet."
 
 
-@app.post("/api/restore")
+@app.post("/api/restore", response_model=response_models.RestoreStaged,
+          response_model_exclude_unset=True)
 def restore_stage(body: RestoreRequest):
     """Verify a bundle and stage it. The restore itself happens on the next start."""
     _require_confirm(body)
@@ -7222,7 +7238,8 @@ def restore_stage(body: RestoreRequest):
     }
 
 
-@app.get("/api/backup/last")
+@app.get("/api/backup/last", response_model=response_models.BackupLast,
+         response_model_exclude_unset=True)
 def backup_last():
     """The last bundle, the last restore outcome, and whether an undo copy exists."""
     conn = _get_db()
@@ -7263,21 +7280,24 @@ def backup_last():
     }
 
 
-@app.post("/api/restore/cancel")
+@app.post("/api/restore/cancel", response_model=response_models.RestoreCancelled,
+          response_model_exclude_unset=True)
 def restore_cancel():
     """Forget a staged restore. Nothing had been moved yet, so nothing is undone."""
     backup_module.clear_pending(_backup_state_dir())
     return {"success": True}
 
 
-@app.post("/api/restore/undo-copy/delete")
+@app.post("/api/restore/undo-copy/delete", response_model=response_models.RestoreUndoCopiesDeleted,
+          response_model_exclude_unset=True)
 def restore_delete_undo(body: AdminConfirmBody):
     """Delete the database copies a restore set aside. Irreversible, so confirm-gated."""
     _require_confirm(body)
     return {"success": True, "deleted": backup_module.delete_undo_copies(_backup_state_dir())}
 
 
-@app.post("/api/restore/acknowledge")
+@app.post("/api/restore/acknowledge", response_model=response_models.RestoreAcknowledged,
+          response_model_exclude_unset=True)
 def restore_acknowledge():
     """Dismiss the one-time "what a restore did not bring back" card."""
     state = _backup_state_dir()

@@ -178,6 +178,26 @@
         "title": "AiCliStatus",
         "type": "object"
       },
+      "AiKeysErased": {
+        "additionalProperties": true,
+        "description": "``POST /api/admin/erase-ai-keys``: every AI provider key slot cleared.\n\n``ai_keys_removed`` is the number of AI provider key names cleared. A name\nthat held no key counts too, and the legacy ``ai_api_key`` slot is cleared\nwithout being counted. This route takes no ``confirm``.",
+        "properties": {
+          "ai_keys_removed": {
+            "title": "Ai Keys Removed",
+            "type": "integer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "ai_keys_removed"
+        ],
+        "title": "AiKeysErased",
+        "type": "object"
+      },
       "AiSettings": {
         "additionalProperties": true,
         "description": "``GET /api/settings/ai`` — the AI lane, as sixteen stored strings.\n\n``ai_chain`` and ``ai_default_models`` are JSON *documents* stored as text,\nand they are declared ``str`` here because that is what the endpoint\nanswers: the renderer parses them. Declaring them as objects would be this\ncontract describing a shape the route does not send.",
@@ -296,6 +316,46 @@
           "publication_volume"
         ],
         "title": "AnalyticsOverview",
+        "type": "object"
+      },
+      "AppDataErased": {
+        "additionalProperties": true,
+        "description": "``POST /api/admin/erase-app-data``: papers, configurations, runs, and every AI and repository key.\n\nSettings, the SMTP password and the Library's files are kept. The key\ncounts are of names cleared, not keys found.",
+        "properties": {
+          "ai_keys_removed": {
+            "title": "Ai Keys Removed",
+            "type": "integer"
+          },
+          "configs_removed": {
+            "title": "Configs Removed",
+            "type": "integer"
+          },
+          "documents_removed": {
+            "title": "Documents Removed",
+            "type": "integer"
+          },
+          "executions_removed": {
+            "title": "Executions Removed",
+            "type": "integer"
+          },
+          "repo_keys_removed": {
+            "title": "Repo Keys Removed",
+            "type": "integer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "configs_removed",
+          "executions_removed",
+          "documents_removed",
+          "ai_keys_removed",
+          "repo_keys_removed"
+        ],
+        "title": "AppDataErased",
         "type": "object"
       },
       "Appearance": {
@@ -1783,6 +1843,267 @@
         "title": "AssistantUnreadable",
         "type": "object"
       },
+      "BackupExclusions": {
+        "additionalProperties": true,
+        "description": "What a bundle deliberately does not carry.\n\n``credentials`` names the keyring entries this machine held when the\nbackup ran, names only and never a value; a restore cannot bring them\nback. A name the keyring would not answer for is left out, so the list can\nbe short. ``process_state`` names files that exist only while a backend\nruns. ``state_dir`` is the state directory the backup ran with, or\n``None``.",
+        "properties": {
+          "credentials": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Credentials",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "process_state": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Process State",
+            "type": "array"
+          },
+          "state_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State Dir"
+          }
+        },
+        "required": [
+          "credentials",
+          "process_state",
+          "state_dir",
+          "note"
+        ],
+        "title": "BackupExclusions",
+        "type": "object"
+      },
+      "BackupFile": {
+        "additionalProperties": true,
+        "description": "One file a bundle carries: its path inside the bundle, its size in bytes, and its SHA-256.",
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "size",
+          "sha256"
+        ],
+        "title": "BackupFile",
+        "type": "object"
+      },
+      "BackupLast": {
+        "additionalProperties": true,
+        "description": "``GET /api/backup/last``: the last bundle, a staged restore, the last restore's record, and the undo copies.\n\n``last_backup`` is ``None`` when no backup is recorded, or when the\nrecorded bundle's manifest is gone or unreadable;\n``last_backup_path_recorded`` is the recorded path either way, ``None``\nwhen there is none. ``pending_restore`` is the staged pointer, its\nunreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence\non what will apply it, ``None`` when nothing is staged. ``last_restore``\nis the record of the last restore a start acted on, applied or refused,\nand ``None`` when there is none or its file is not a JSON object.\n``undo_copies`` lists the folders restores set aside, sorted by name,\nwhich is the UTC time each was made.\n\nA pointer or record edited by hand into a shape no resmon wrote matches\nneither model of its union, and this route then answers 500 rather than a\nbody.",
+        "properties": {
+          "last_backup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackupSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_backup_path_recorded": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Backup Path Recorded"
+          },
+          "last_restore": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RestoreSucceeded"
+              },
+              {
+                "$ref": "#/components/schemas/RestoreFailed"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Restore"
+          },
+          "pending_restore": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RestorePointer"
+              },
+              {
+                "$ref": "#/components/schemas/RestorePointerUnreadable"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Restore"
+          },
+          "pending_restore_runs_when": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Restore Runs When"
+          },
+          "undo_copies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Undo Copies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "last_backup",
+          "last_backup_path_recorded",
+          "pending_restore",
+          "pending_restore_runs_when",
+          "last_restore",
+          "undo_copies"
+        ],
+        "title": "BackupLast",
+        "type": "object"
+      },
+      "BackupManifest": {
+        "additionalProperties": true,
+        "description": "A bundle's manifest as ``POST /api/backup`` returns it: what was written.\n\nEverything up to ``elapsed_seconds`` is what ``manifest.json`` in the\nbundle holds; the file stores it with its keys sorted. ``path``,\n``manifest_sha256`` and ``fk_violations_message`` are added after the\nfile is written. The table counts and the foreign-key findings are read\nfrom the bundle's own snapshot of the database, not the live one. A\nmanifest records what was written and the hashes taken as it was written;\nit does not show that a restore will succeed.\n``POST /api/backup/verify`` recomputes the hashes, and a restore runs its\nown checks when it applies.\n\n``vault_id`` is ``None`` when no Library vault is configured, and the\nbundle then carries no vault. ``includes_reports`` is whether reports were\nasked for; a reports folder that is missing or empty adds no files and\nstill reads true. ``table_counts`` maps each application table to its row\ncount; a table that could not be counted is left out, and\n``table_count_denominator`` is how many were counted. ``fk_violations``\nlists at most 100 references, ``fk_violations_total`` counts all of them,\nand ``fk_violations_rows`` counts the distinct rows SQLite identified them\nby. ``fk_violations_message`` is ``\"\"`` when there are none.\n``elapsed_seconds`` is how long the backup took, to the millisecond.",
+        "properties": {
+          "app_version": {
+            "title": "App Version",
+            "type": "string"
+          },
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "elapsed_seconds": {
+            "title": "Elapsed Seconds",
+            "type": "number"
+          },
+          "excluded": {
+            "$ref": "#/components/schemas/BackupExclusions"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/BackupFile"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "fk_violations": {
+            "items": {
+              "$ref": "#/components/schemas/ForeignKeyViolation"
+            },
+            "title": "Fk Violations",
+            "type": "array"
+          },
+          "fk_violations_message": {
+            "title": "Fk Violations Message",
+            "type": "string"
+          },
+          "fk_violations_rows": {
+            "title": "Fk Violations Rows",
+            "type": "integer"
+          },
+          "fk_violations_total": {
+            "title": "Fk Violations Total",
+            "type": "integer"
+          },
+          "includes_reports": {
+            "title": "Includes Reports",
+            "type": "boolean"
+          },
+          "manifest_sha256": {
+            "title": "Manifest Sha256",
+            "type": "string"
+          },
+          "manifest_version": {
+            "title": "Manifest Version",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "table_count_denominator": {
+            "title": "Table Count Denominator",
+            "type": "integer"
+          },
+          "table_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Table Counts",
+            "type": "object"
+          },
+          "vault_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vault Id"
+          }
+        },
+        "required": [
+          "manifest_version",
+          "app_version",
+          "schema_version",
+          "created_at_utc",
+          "vault_id",
+          "includes_reports",
+          "table_counts",
+          "table_count_denominator",
+          "files",
+          "fk_violations",
+          "fk_violations_total",
+          "fk_violations_rows",
+          "excluded",
+          "elapsed_seconds",
+          "path",
+          "manifest_sha256",
+          "fk_violations_message"
+        ],
+        "title": "BackupManifest",
+        "type": "object"
+      },
       "BackupRequest": {
         "properties": {
           "confirm": {
@@ -1797,6 +2118,127 @@
           }
         },
         "title": "BackupRequest",
+        "type": "object"
+      },
+      "BackupSummary": {
+        "additionalProperties": true,
+        "description": "The last bundle this resmon recorded writing, read from that bundle's manifest during the request.\n\n``files`` is the number of files the manifest lists. Nothing is re-hashed\nhere, so a bundle damaged since it was written reads the same; only\n``POST /api/backup/verify`` checks the bytes. The other fields are the\nmanifest's own values, ``None`` where it records none.\n``fk_violations_total`` is ``0`` when the manifest records none, and\n``fk_violations_rows`` is ``None`` for a bundle written before resmon\ncounted rows.",
+        "properties": {
+          "app_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Version"
+          },
+          "created_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At Utc"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "fk_violations_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fk Violations Rows"
+          },
+          "fk_violations_total": {
+            "title": "Fk Violations Total",
+            "type": "integer"
+          },
+          "includes_reports": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Includes Reports"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version"
+          },
+          "vault_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vault Id"
+          }
+        },
+        "required": [
+          "path",
+          "created_at_utc",
+          "app_version",
+          "schema_version",
+          "vault_id",
+          "files",
+          "includes_reports",
+          "fk_violations_total",
+          "fk_violations_rows"
+        ],
+        "title": "BackupSummary",
+        "type": "object"
+      },
+      "BackupWritten": {
+        "additionalProperties": true,
+        "description": "``POST /api/backup``: one bundle written, and its manifest.\n\n``path`` is the bundle's folder, ``resmon-backup-<UTC stamp>``, inside the\nexport directory Settings names, or inside the operating system's\ntemporary folder when Settings names none. It is also recorded as the last\nbackup.",
+        "properties": {
+          "manifest": {
+            "$ref": "#/components/schemas/BackupManifest"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "path",
+          "manifest"
+        ],
+        "title": "BackupWritten",
         "type": "object"
       },
       "Body_import_configurations_api_configurations_import_post": {
@@ -1825,6 +2267,175 @@
           }
         },
         "title": "BundleBody",
+        "type": "object"
+      },
+      "BundleReport": {
+        "additionalProperties": true,
+        "description": "``POST /api/backup/verify``: every hash in a bundle recomputed, and what a restore would and would not do.\n\nIt changes nothing. ``ok`` is true when ``problems`` is empty: every file\nthe manifest names is present at its recorded size and hash, the layout is\na version this resmon reads, and the schema is not newer than this\nresmon's. That is the bundle agreeing with its own manifest; it is not a\nrestore that has succeeded, and the restore verifies again and runs its own\nchecks when a start applies it.\n\n``manifest`` is the bundle's ``manifest.json`` exactly as read, keys\nsorted as the file stores them. It is declared ``dict`` because its shape\nis whatever the file holds: this route reads a folder the person chose,\nwhich need not hold a bundle this resmon wrote, and reports what is wrong\nwith it rather than failing. For a bundle this version wrote it holds\n``BackupManifest``'s fields except the three added after the file was\nwritten, and one resmon 2.3.0 wrote has no ``fk_violations_rows``.\nPython's JSON parser accepts ``NaN`` and ``Infinity``, so one written\ninto a manifest by hand, where the handler only copies it, is answered\nhere as ``null`` where the route answered 500 before it was modeled.\n``manifest_sha256`` is the hash of the file itself.\n\n``files_checked`` counts the files that matched and ``files_in_manifest``\nthe files listed. ``schema_relation`` compares the bundle's schema with\nthis resmon's: ``same``, ``older``, ``newer`` (a problem) or ``unknown``\n(a problem). ``vault_relation`` compares the bundle's vault with the one\nconfigured here: ``same``, ``different``, ``none_configured`` or\n``none_in_backup``.\n\nThe foreign-key fields come from the manifest: ``fk_violations`` as listed\nthere, hence ``Any``; ``fk_violations_total`` as an integer;\n``fk_violations_rows`` ``None`` for a bundle written before resmon counted\nrows. Orphan rows never make ``ok`` false; ``needs_fk_acceptance`` says a\nrestore must be told to accept them. ``vault_destination`` is ``None``\nwhen the bundle carries no vault or its database records no vault path.",
+        "properties": {
+          "files_checked": {
+            "title": "Files Checked",
+            "type": "integer"
+          },
+          "files_in_manifest": {
+            "title": "Files In Manifest",
+            "type": "integer"
+          },
+          "fk_violations": {
+            "items": {},
+            "title": "Fk Violations",
+            "type": "array"
+          },
+          "fk_violations_message": {
+            "title": "Fk Violations Message",
+            "type": "string"
+          },
+          "fk_violations_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fk Violations Rows"
+          },
+          "fk_violations_total": {
+            "title": "Fk Violations Total",
+            "type": "integer"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "title": "Manifest",
+            "type": "object"
+          },
+          "manifest_sha256": {
+            "title": "Manifest Sha256",
+            "type": "string"
+          },
+          "needs_fk_acceptance": {
+            "title": "Needs Fk Acceptance",
+            "type": "boolean"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "schema_relation": {
+            "title": "Schema Relation",
+            "type": "string"
+          },
+          "vault_destination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BundleVaultDestination"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "vault_relation": {
+            "title": "Vault Relation",
+            "type": "string"
+          },
+          "will_not_restore": {
+            "$ref": "#/components/schemas/BundleWillNotRestore"
+          }
+        },
+        "required": [
+          "path",
+          "manifest",
+          "manifest_sha256",
+          "files_checked",
+          "files_in_manifest",
+          "schema_relation",
+          "vault_relation",
+          "problems",
+          "fk_violations",
+          "fk_violations_total",
+          "fk_violations_rows",
+          "fk_violations_message",
+          "needs_fk_acceptance",
+          "vault_destination",
+          "ok",
+          "will_not_restore"
+        ],
+        "title": "BundleReport",
+        "type": "object"
+      },
+      "BundleVaultDestination": {
+        "additionalProperties": true,
+        "description": "Where a restore would put the bundle's vault on this machine by default, and whether that folder is usable.\n\n``root_path`` is the vault path the bundle's own database records,\n``parent`` the folder that would hold it and ``name`` its folder name.\n``parent_exists`` and ``parent_writable`` are checked on this machine\nduring the request. A missing parent is the ordinary case for a bundle\nfrom another machine and is not a problem: a restore can be given another\nparent.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent": {
+            "title": "Parent",
+            "type": "string"
+          },
+          "parent_exists": {
+            "title": "Parent Exists",
+            "type": "boolean"
+          },
+          "parent_writable": {
+            "title": "Parent Writable",
+            "type": "boolean"
+          },
+          "root_path": {
+            "title": "Root Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "root_path",
+          "parent",
+          "name",
+          "parent_exists",
+          "parent_writable"
+        ],
+        "title": "BundleVaultDestination",
+        "type": "object"
+      },
+      "BundleWillNotRestore": {
+        "additionalProperties": true,
+        "description": "What a restore of this bundle will not bring back.\n\n``credentials`` and ``process_state`` are copied from the bundle's\nmanifest as the handler finds them, which is why they are ``Any``: for a\nbundle resmon wrote, both are lists of names. ``note`` is fixed text about\nruns that were running and deliveries that were being sent.",
+        "properties": {
+          "credentials": {
+            "items": {},
+            "title": "Credentials",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "process_state": {
+            "items": {},
+            "title": "Process State",
+            "type": "array"
+          }
+        },
+        "required": [
+          "credentials",
+          "process_state",
+          "note"
+        ],
+        "title": "BundleWillNotRestore",
         "type": "object"
       },
       "CalendarEvent": {
@@ -1986,6 +2597,70 @@
         "title": "CloudBackup",
         "type": "object"
       },
+      "CloudBackupUploaded": {
+        "additionalProperties": true,
+        "description": "``POST /api/cloud/backup``: what one upload of the reports folder to Google Drive reported.\n\nThe whole reports folder is uploaded into a ``backup-<local timestamp>``\nfolder under ``resmon`` in the person's Drive. It is the reports folder\nonly: not the database and not the Library, which ``POST /api/backup``\ncarries. The request's ``execution_ids`` are not read.\n\n``success`` is true on every 200, including an upload that sent nothing.\n``uploaded`` counts the files Drive accepted and ``total_files`` the files\nfound in the folder, so ``uploaded < total_files`` means some were not\nsent, and both are 0 when the upload stopped before walking the folder.\n``folder_name`` is ``None`` when it stopped before a Drive folder was made,\nand ``web_view_link`` when Drive did not return the folder's link.",
+        "properties": {
+          "folder_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Name"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          },
+          "total_files": {
+            "title": "Total Files",
+            "type": "integer"
+          },
+          "uploaded": {
+            "title": "Uploaded",
+            "type": "integer"
+          },
+          "web_view_link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Web View Link"
+          }
+        },
+        "required": [
+          "success",
+          "uploaded",
+          "total_files",
+          "folder_name",
+          "web_view_link"
+        ],
+        "title": "CloudBackupUploaded",
+        "type": "object"
+      },
+      "CloudLinked": {
+        "additionalProperties": true,
+        "description": "``POST /api/cloud/link``: Google's sign-in flow ended with a token, and resmon stored it.\n\n``auth_url`` is the fixed string ``oauth_completed``, not a URL. The\nsign-in runs to its end inside this request, in a browser on this\nmachine, so there is no address left to hand back. A stored token is not a\nworking Drive: ``GET /api/cloud/status`` is the route that asks the API.\nOnly this body is modeled; a missing ``credentials.json`` is a 400 and a\nflow that fails is a 500.",
+        "properties": {
+          "auth_url": {
+            "title": "Auth Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "auth_url"
+        ],
+        "title": "CloudLinked",
+        "type": "object"
+      },
       "CloudSettings": {
         "additionalProperties": true,
         "description": "``GET /api/settings/cloud`` — the Google Drive backup lane's two keys.",
@@ -2004,6 +2679,53 @@
           "cloud_auto_backup"
         ],
         "title": "CloudSettings",
+        "type": "object"
+      },
+      "CloudStatus": {
+        "additionalProperties": true,
+        "description": "``GET /api/cloud/status``: whether a Drive token is stored, and what one call to the Drive API answered.\n\n``is_linked`` reads only the local keyring. ``api_ok`` is the outcome of\none ``about.get`` call made with that token during this request, so it can\nbe false while linked, for instance when the Drive API is not enabled on\nthe OAuth project. ``api_reason`` is ``None`` when that call succeeded;\notherwise a short code: Google's own error reason (such as\n``accessNotConfigured``), ``http_error`` when the error carried none, the\nname of the Python exception that stopped the call, or ``no_token`` when\nnothing is linked and no call was made.",
+        "properties": {
+          "api_ok": {
+            "title": "Api Ok",
+            "type": "boolean"
+          },
+          "api_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Reason"
+          },
+          "is_linked": {
+            "title": "Is Linked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "is_linked",
+          "api_ok",
+          "api_reason"
+        ],
+        "title": "CloudStatus",
+        "type": "object"
+      },
+      "CloudUnlinked": {
+        "additionalProperties": true,
+        "description": "``POST /api/cloud/unlink``: no Google Drive token is stored here any more.\n\n``success`` is true on every 200. With a token stored, resmon sends Google\na revocation request when the token carries an access token, does not read\nthe answer, and deletes the token from the keyring either way, so this\nsays the local token is gone, not that Google revoked it. With no token\nstored, nothing is sent anywhere.",
+        "properties": {
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "title": "CloudUnlinked",
         "type": "object"
       },
       "CollapsePreview": {
@@ -2348,6 +3070,46 @@
           "id"
         ],
         "title": "ConfigurationUpdated",
+        "type": "object"
+      },
+      "ConfigurationsErased": {
+        "additionalProperties": true,
+        "description": "``POST /api/admin/erase-configs``: every saved configuration deleted.\n\nA routine configuration takes the routine it is linked to with it.\n``configs_removed`` counts configurations; the routines deleted with them\nare not counted.",
+        "properties": {
+          "configs_removed": {
+            "title": "Configs Removed",
+            "type": "integer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "configs_removed"
+        ],
+        "title": "ConfigurationsErased",
+        "type": "object"
+      },
+      "CorpusErased": {
+        "additionalProperties": true,
+        "description": "``POST /api/admin/erase-corpus``: every collected paper deleted, with what hangs off each.\n\nRuns, configurations, keys and the Library's files are kept.\n``documents_removed`` counts papers.",
+        "properties": {
+          "documents_removed": {
+            "title": "Documents Removed",
+            "type": "integer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "documents_removed"
+        ],
+        "title": "CorpusErased",
         "type": "object"
       },
       "CorpusSummary": {
@@ -4859,6 +5621,31 @@
         "title": "EvidenceProjects",
         "type": "object"
       },
+      "ExecutionDataErased": {
+        "additionalProperties": true,
+        "description": "``POST /api/admin/erase-execution-data``: every saved configuration and every run record deleted.\n\nThe counts are as ``ConfigurationsErased`` and ``ExecutionsErased`` count\nthem. Settings, keys and papers are kept.",
+        "properties": {
+          "configs_removed": {
+            "title": "Configs Removed",
+            "type": "integer"
+          },
+          "executions_removed": {
+            "title": "Executions Removed",
+            "type": "integer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "configs_removed",
+          "executions_removed"
+        ],
+        "title": "ExecutionDataErased",
+        "type": "object"
+      },
       "ExecutionExport": {
         "properties": {
           "ids": {
@@ -4936,6 +5723,26 @@
           "routine_fire_queue_limit"
         ],
         "title": "ExecutionSettingsSaved",
+        "type": "object"
+      },
+      "ExecutionsErased": {
+        "additionalProperties": true,
+        "description": "``POST /api/admin/erase-executions``: every run record deleted, with the run's links to its papers.\n\nThe papers stay, and so do report files on disk. ``executions_removed``\ncounts runs.",
+        "properties": {
+          "executions_removed": {
+            "title": "Executions Removed",
+            "type": "integer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "executions_removed"
+        ],
+        "title": "ExecutionsErased",
         "type": "object"
       },
       "ExplorerExportBody": {
@@ -5386,6 +6193,88 @@
           }
         },
         "title": "ExplorerSearchBody",
+        "type": "object"
+      },
+      "FactoryReset": {
+        "additionalProperties": true,
+        "description": "``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.\n\nThe counts are as the single-purpose routes count them, so the key counts\nare of names cleared. It does not clear the Google Drive token or a\ndelivery target's webhook secret, and it does not touch the Library's\nfiles, report files on disk, or a restore's undo copies.",
+        "properties": {
+          "ai_keys_removed": {
+            "title": "Ai Keys Removed",
+            "type": "integer"
+          },
+          "configs_removed": {
+            "title": "Configs Removed",
+            "type": "integer"
+          },
+          "documents_removed": {
+            "title": "Documents Removed",
+            "type": "integer"
+          },
+          "executions_removed": {
+            "title": "Executions Removed",
+            "type": "integer"
+          },
+          "repo_keys_removed": {
+            "title": "Repo Keys Removed",
+            "type": "integer"
+          },
+          "settings_cleared": {
+            "title": "Settings Cleared",
+            "type": "integer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "configs_removed",
+          "executions_removed",
+          "documents_removed",
+          "settings_cleared",
+          "ai_keys_removed",
+          "repo_keys_removed"
+        ],
+        "title": "FactoryReset",
+        "type": "object"
+      },
+      "ForeignKeyViolation": {
+        "additionalProperties": true,
+        "description": "One reference ``PRAGMA foreign_key_check`` found to a parent row that is not there.\n\n``rowid`` is ``None`` for a table without rowids, where two references\ncannot be told apart. ``fkid`` is the foreign key's index on its table, as\nSQLite numbers it.",
+        "properties": {
+          "fkid": {
+            "title": "Fkid",
+            "type": "integer"
+          },
+          "parent": {
+            "title": "Parent",
+            "type": "string"
+          },
+          "rowid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rowid"
+          },
+          "table": {
+            "title": "Table",
+            "type": "string"
+          }
+        },
+        "required": [
+          "table",
+          "rowid",
+          "parent",
+          "fkid"
+        ],
+        "title": "ForeignKeyViolation",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -7722,6 +8611,26 @@
         "title": "RepositoryEntitySearch",
         "type": "object"
       },
+      "RepositoryKeysErased": {
+        "additionalProperties": true,
+        "description": "``POST /api/admin/erase-repo-keys``: every repository key slot the catalog names cleared.\n\n``repo_keys_removed`` is the number of catalog credential names cleared,\nwhether or not each held a key. This route takes no ``confirm``.",
+        "properties": {
+          "repo_keys_removed": {
+            "title": "Repo Keys Removed",
+            "type": "integer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "repo_keys_removed"
+        ],
+        "title": "RepositoryKeysErased",
+        "type": "object"
+      },
       "RepositorySourceNotice": {
         "additionalProperties": true,
         "description": "One sentence the interface shows before a search is submitted.\n\n``effect`` is the sentence itself, written as what resmon will do rather\nthan as the name of the limitation, because a user cannot act on\n\"year granularity\" and can act on \"it will search the whole of 2025\".\n``established`` is the code or the published wording the sentence was read\nfrom; it is not rendered beside the sentence, but it travels with it so\nthat anything downstream can say where the claim came from.",
@@ -7770,6 +8679,177 @@
         "title": "RestartRequest",
         "type": "object"
       },
+      "RestoreAcknowledged": {
+        "additionalProperties": true,
+        "description": "``POST /api/restore/acknowledge``: the card about the last restore dismissed.\n\n``acknowledged`` is false when there was no record to dismiss, and true\nwhen the record was rewritten with ``acknowledged: true``.",
+        "properties": {
+          "acknowledged": {
+            "title": "Acknowledged",
+            "type": "boolean"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "acknowledged"
+        ],
+        "title": "RestoreAcknowledged",
+        "type": "object"
+      },
+      "RestoreCancelled": {
+        "additionalProperties": true,
+        "description": "``POST /api/restore/cancel``: no restore is staged now.\n\n``success`` is true whether or not one was staged, and nothing had moved.",
+        "properties": {
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "title": "RestoreCancelled",
+        "type": "object"
+      },
+      "RestoreFailed": {
+        "additionalProperties": true,
+        "description": "The record of a staged restore a backend start refused or could not finish.\n\n``reason`` is a code and ``message`` the sentence for it: among them\n``bundle_missing``, ``verification_failed``, ``manifest_changed``,\n``database_in_use``, ``pointer_unreadable``, a verification refusal such\nas ``not_a_bundle``, or ``restore_failed`` for an error that carried no\ncode. ``undone`` is present, and true, when the restore had begun moving\nfiles and its undo ran; ``vault_copy_kept`` is then the path of a vault\ncopy the undo could not put back by itself, normally ``None``, and is\nabsent from a record resmon 2.3.0 wrote. ``acknowledged`` is absent until\nthe person dismisses the card.",
+        "properties": {
+          "acknowledged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged"
+          },
+          "at_utc": {
+            "title": "At Utc",
+            "type": "string"
+          },
+          "bundle": {
+            "title": "Bundle",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "ok": {
+            "const": false,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "undone": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Undone"
+          },
+          "vault_copy_kept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vault Copy Kept"
+          }
+        },
+        "required": [
+          "ok",
+          "reason",
+          "message",
+          "bundle",
+          "at_utc"
+        ],
+        "title": "RestoreFailed",
+        "type": "object"
+      },
+      "RestorePointer": {
+        "additionalProperties": true,
+        "description": "A staged restore: the pointer the next backend start acts on.\n\nNothing has moved while this exists. ``bundle`` is the bundle's resolved\npath and ``manifest_sha256`` the manifest's hash when it was staged; a\nstart that finds a different manifest refuses the restore.\n``accept_fk_violations`` is whether the person accepted the bundle's\norphan rows. ``vault_parent`` is the folder the vault is to go into on\nthis machine, ``None`` for the path the bundle's database records; a\npointer resmon 2.3.0 staged has no such key.",
+        "properties": {
+          "accept_fk_violations": {
+            "title": "Accept Fk Violations",
+            "type": "boolean"
+          },
+          "bundle": {
+            "title": "Bundle",
+            "type": "string"
+          },
+          "manifest_sha256": {
+            "title": "Manifest Sha256",
+            "type": "string"
+          },
+          "staged_at_utc": {
+            "title": "Staged At Utc",
+            "type": "string"
+          },
+          "vault_parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vault Parent"
+          }
+        },
+        "required": [
+          "bundle",
+          "manifest_sha256",
+          "accept_fk_violations",
+          "staged_at_utc"
+        ],
+        "title": "RestorePointer",
+        "type": "object"
+      },
+      "RestorePointerUnreadable": {
+        "additionalProperties": true,
+        "description": "A staged-restore pointer whose file is not valid JSON.\n\nThe next start records it as a failed restore, ``pointer_unreadable``,\nand clears it; nothing is restored from it.",
+        "properties": {
+          "bundle": {
+            "title": "Bundle",
+            "type": "null"
+          },
+          "manifest_sha256": {
+            "title": "Manifest Sha256",
+            "type": "null"
+          },
+          "unreadable": {
+            "const": true,
+            "title": "Unreadable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bundle",
+          "manifest_sha256",
+          "unreadable"
+        ],
+        "title": "RestorePointerUnreadable",
+        "type": "object"
+      },
       "RestoreRequest": {
         "properties": {
           "accept_fk_violations": {
@@ -7794,6 +8874,233 @@
           }
         },
         "title": "RestoreRequest",
+        "type": "object"
+      },
+      "RestoreRewrites": {
+        "additionalProperties": true,
+        "description": "What a restore changed in the restored database because it described a process rather than the corpus.\n\n``executions_interrupted`` counts runs that were ``running`` in the bundle\nand are now ``interrupted`` with reason ``unknown``, since no process can\nbe asked about them; ``deliveries_requeued`` counts deliveries that were\nbeing sent and are queued again.",
+        "properties": {
+          "deliveries_requeued": {
+            "title": "Deliveries Requeued",
+            "type": "integer"
+          },
+          "executions_interrupted": {
+            "title": "Executions Interrupted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "executions_interrupted",
+          "deliveries_requeued"
+        ],
+        "title": "RestoreRewrites",
+        "type": "object"
+      },
+      "RestoreStaged": {
+        "additionalProperties": true,
+        "description": "``POST /api/restore``: a verified bundle staged; the restore itself runs when a backend next starts.\n\nNothing has been replaced when this answers. ``staged`` is the pointer\nwritten, and ``report`` the verification it was staged on, the same\nreport ``POST /api/backup/verify`` answers. ``next_step`` is one sentence\non what will apply the restore on this machine (reopening resmon, or\nrestarting the background service that holds the database), decided from\nthe daemon lock as it stood during the request.",
+        "properties": {
+          "next_step": {
+            "title": "Next Step",
+            "type": "string"
+          },
+          "report": {
+            "$ref": "#/components/schemas/BundleReport"
+          },
+          "staged": {
+            "$ref": "#/components/schemas/RestorePointer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "staged",
+          "report",
+          "next_step"
+        ],
+        "title": "RestoreStaged",
+        "type": "object"
+      },
+      "RestoreSucceeded": {
+        "additionalProperties": true,
+        "description": "The record of a staged restore a backend start applied.\n\nRead from the state directory, where it outlives the version that wrote\nit: ``undo_includes_vault``, ``vault_parent`` and ``fk_violations_rows``\nare absent from a record resmon 2.3.0 wrote. ``ok`` says the restore's own\nchecks passed: SQLite's ``integrity_check``, and its foreign-key check\nunless the orphan rows were accepted. It does not say the corpus is as the\nperson remembers it.\n\n``undo_copy`` is the folder the replaced database was moved to, and with\nit the replaced vault when ``undo_includes_vault``; ``None`` when there\nwas nothing to move. Nothing removes it but\n``POST /api/restore/undo-copy/delete``. ``credentials_to_reenter`` and\nthe ``fk_violations*`` fields are copied from the bundle's verification\nreport, so the list fields are ``Any`` as they are there, with the same\ncaveat ``BundleReport`` gives for a ``NaN`` in a file edited by hand.\n``schema_relation`` is the bundle's schema against the version that\napplied it. ``acknowledged`` turns true when the person dismisses the\ncard, and ``at_utc`` is when the record was written.",
+        "properties": {
+          "acknowledged": {
+            "title": "Acknowledged",
+            "type": "boolean"
+          },
+          "at_utc": {
+            "title": "At Utc",
+            "type": "string"
+          },
+          "bundle": {
+            "title": "Bundle",
+            "type": "string"
+          },
+          "credentials_to_reenter": {
+            "items": {},
+            "title": "Credentials To Reenter",
+            "type": "array"
+          },
+          "fk_violations": {
+            "items": {},
+            "title": "Fk Violations",
+            "type": "array"
+          },
+          "fk_violations_message": {
+            "title": "Fk Violations Message",
+            "type": "string"
+          },
+          "fk_violations_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fk Violations Rows"
+          },
+          "fk_violations_total": {
+            "title": "Fk Violations Total",
+            "type": "integer"
+          },
+          "ok": {
+            "const": true,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "rewrites": {
+            "$ref": "#/components/schemas/RestoreRewrites"
+          },
+          "schema_relation": {
+            "title": "Schema Relation",
+            "type": "string"
+          },
+          "undo_copy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Undo Copy"
+          },
+          "undo_includes_vault": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Undo Includes Vault"
+          },
+          "vault": {
+            "$ref": "#/components/schemas/RestoredVault"
+          },
+          "vault_parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vault Parent"
+          }
+        },
+        "required": [
+          "ok",
+          "bundle",
+          "undo_copy",
+          "schema_relation",
+          "vault",
+          "rewrites",
+          "credentials_to_reenter",
+          "fk_violations",
+          "fk_violations_total",
+          "fk_violations_message",
+          "acknowledged",
+          "at_utc"
+        ],
+        "title": "RestoreSucceeded",
+        "type": "object"
+      },
+      "RestoreUndoCopiesDeleted": {
+        "additionalProperties": true,
+        "description": "``POST /api/restore/undo-copy/delete``: the folders restores set aside, deleted.\n\n``deleted`` is how many folders were listed for deletion. Each is removed\nwith errors ignored, so it counts folders asked to go, not folders proven\ngone; ``GET /api/backup/last`` lists what is still there.",
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "deleted"
+        ],
+        "title": "RestoreUndoCopiesDeleted",
+        "type": "object"
+      },
+      "RestoredVault": {
+        "additionalProperties": true,
+        "description": "What an applied restore did with the Library vault.\n\n``restored`` is false, with ``reason`` ``no_vault_in_backup``, when the\nbundle carried no vault. Otherwise ``root_path`` is where the vault now is\nand ``replaced_kept_at`` where the vault that was there before was moved,\n``None`` when that folder held none. A record resmon 2.3.0 wrote has no\n``replaced_kept_at``.",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "replaced_kept_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced Kept At"
+          },
+          "restored": {
+            "title": "Restored",
+            "type": "boolean"
+          },
+          "root_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Path"
+          }
+        },
+        "required": [
+          "restored"
+        ],
+        "title": "RestoredVault",
         "type": "object"
       },
       "Routine": {
@@ -11697,6 +13004,36 @@
         "title": "SettingsBody",
         "type": "object"
       },
+      "SettingsReset": {
+        "additionalProperties": true,
+        "description": "``POST /api/admin/reset-settings``: every stored setting cleared, and every AI, repository and SMTP key.\n\n``settings_cleared`` counts the stored settings deleted; the schema\nversion marker is kept and not counted. The key counts are of names\ncleared, not keys found, and the SMTP password is cleared without being\ncounted. Configurations, runs and papers are kept.",
+        "properties": {
+          "ai_keys_removed": {
+            "title": "Ai Keys Removed",
+            "type": "integer"
+          },
+          "repo_keys_removed": {
+            "title": "Repo Keys Removed",
+            "type": "integer"
+          },
+          "settings_cleared": {
+            "title": "Settings Cleared",
+            "type": "integer"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "settings_cleared",
+          "ai_keys_removed",
+          "repo_keys_removed"
+        ],
+        "title": "SettingsReset",
+        "type": "object"
+      },
       "SettingsSaved": {
         "additionalProperties": true,
         "description": "What the six plain settings PUTs answer: ``{\"success\": true}``.\n\nOne model for six routes rather than six identical ones. The two PUTs that\nanswer more than this —  embeddings and execution — have their own, because\na shared model that declared their extra keys would put those keys into the\nschema of four routes that never send them.",
@@ -13845,7 +15182,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AiKeysErased"
+                }
               }
             },
             "description": "Successful Response"
@@ -13872,7 +15211,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AppDataErased"
+                }
               }
             },
             "description": "Successful Response"
@@ -13908,7 +15249,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationsErased"
+                }
               }
             },
             "description": "Successful Response"
@@ -13945,7 +15288,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CorpusErased"
+                }
               }
             },
             "description": "Successful Response"
@@ -13982,7 +15327,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionDataErased"
+                }
               }
             },
             "description": "Successful Response"
@@ -14018,7 +15365,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionsErased"
+                }
               }
             },
             "description": "Successful Response"
@@ -14044,7 +15393,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryKeysErased"
+                }
               }
             },
             "description": "Successful Response"
@@ -14071,7 +15422,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/FactoryReset"
+                }
               }
             },
             "description": "Successful Response"
@@ -14108,7 +15461,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsReset"
+                }
               }
             },
             "description": "Successful Response"
@@ -14950,7 +16305,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BackupWritten"
+                }
               }
             },
             "description": "Successful Response"
@@ -14977,7 +16334,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BackupLast"
+                }
               }
             },
             "description": "Successful Response"
@@ -15004,7 +16363,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BundleReport"
+                }
               }
             },
             "description": "Successful Response"
@@ -15106,7 +16467,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CloudBackupUploaded"
+                }
               }
             },
             "description": "Successful Response"
@@ -15132,7 +16495,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CloudLinked"
+                }
               }
             },
             "description": "Successful Response"
@@ -15148,7 +16513,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CloudStatus"
+                }
               }
             },
             "description": "Successful Response"
@@ -15164,7 +16531,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CloudUnlinked"
+                }
               }
             },
             "description": "Successful Response"
@@ -19294,7 +20663,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreStaged"
+                }
               }
             },
             "description": "Successful Response"
@@ -19321,7 +20692,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreAcknowledged"
+                }
               }
             },
             "description": "Successful Response"
@@ -19338,7 +20711,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreCancelled"
+                }
               }
             },
             "description": "Successful Response"
@@ -19365,7 +20740,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreUndoCopiesDeleted"
+                }
               }
             },
             "description": "Successful Response"

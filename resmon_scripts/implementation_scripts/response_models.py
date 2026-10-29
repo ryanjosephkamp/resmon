@@ -69,10 +69,12 @@ the *other* way: the model turns a loud 500 into a quiet ``null``, which is the
 only place on this list where adding a model makes a wrong answer more likely
 rather than less.
 
-None of the three is reachable in the routes modeled today — there is no
-``Decimal`` and no ``PurePath`` anywhere in the backend, and ``math.inf``
+No resmon code produces any of the three in a route modeled today — there is
+no ``Decimal`` and no ``PurePath`` anywhere in the backend, and ``math.inf``
 appears only inside ``api_base``'s rate-limiter arithmetic, never in a response
-dict. This is written down for whoever models the rest, because the
+dict. A non-finite float can still arrive from a file or a row edited by hand,
+in a field declared ``Any``; ``AssistantMessage`` and ``BundleReport`` say
+where. This is written down for whoever models the rest, because the
 claim "an extra passes through unchanged" is the natural thing to assume and it
 is wrong. ``test_what_an_undeclared_value_does_and_does_not_survive`` keeps this
 table honest.
@@ -3734,3 +3736,647 @@ class AssistantPermissionAnswered(LosslessModel):
 
     request_id: str
     decision: str
+
+
+# ---------------------------------------------------------------------------
+# Google Drive storage
+# ---------------------------------------------------------------------------
+#
+# ``/api/cloud/*`` is the Google Drive backup in ``cloud_storage.py``, a live
+# desktop feature, and has nothing to do with the deleted resmon-cloud
+# service. What these bodies can say is narrow: whether a token is stored in
+# this machine's keyring, what one call to the Drive API answered, and what an
+# upload reported about itself.
+
+
+class CloudLinked(LosslessModel):
+    """``POST /api/cloud/link``: Google's sign-in flow ended with a token, and resmon stored it.
+
+    ``auth_url`` is the fixed string ``oauth_completed``, not a URL. The
+    sign-in runs to its end inside this request, in a browser on this
+    machine, so there is no address left to hand back. A stored token is not a
+    working Drive: ``GET /api/cloud/status`` is the route that asks the API.
+    Only this body is modeled; a missing ``credentials.json`` is a 400 and a
+    flow that fails is a 500.
+    """
+
+    auth_url: str
+
+
+class CloudUnlinked(LosslessModel):
+    """``POST /api/cloud/unlink``: no Google Drive token is stored here any more.
+
+    ``success`` is true on every 200. With a token stored, resmon sends Google
+    a revocation request when the token carries an access token, does not read
+    the answer, and deletes the token from the keyring either way, so this
+    says the local token is gone, not that Google revoked it. With no token
+    stored, nothing is sent anywhere.
+    """
+
+    success: bool
+
+
+class CloudStatus(LosslessModel):
+    """``GET /api/cloud/status``: whether a Drive token is stored, and what one call to the Drive API answered.
+
+    ``is_linked`` reads only the local keyring. ``api_ok`` is the outcome of
+    one ``about.get`` call made with that token during this request, so it can
+    be false while linked, for instance when the Drive API is not enabled on
+    the OAuth project. ``api_reason`` is ``None`` when that call succeeded;
+    otherwise a short code: Google's own error reason (such as
+    ``accessNotConfigured``), ``http_error`` when the error carried none, the
+    name of the Python exception that stopped the call, or ``no_token`` when
+    nothing is linked and no call was made.
+    """
+
+    is_linked: bool
+    api_ok: bool
+    api_reason: Optional[str]
+
+
+class CloudBackupUploaded(LosslessModel):
+    """``POST /api/cloud/backup``: what one upload of the reports folder to Google Drive reported.
+
+    The whole reports folder is uploaded into a ``backup-<local timestamp>``
+    folder under ``resmon`` in the person's Drive. It is the reports folder
+    only: not the database and not the Library, which ``POST /api/backup``
+    carries. The request's ``execution_ids`` are not read.
+
+    ``success`` is true on every 200, including an upload that sent nothing.
+    ``uploaded`` counts the files Drive accepted and ``total_files`` the files
+    found in the folder, so ``uploaded < total_files`` means some were not
+    sent, and both are 0 when the upload stopped before walking the folder.
+    ``folder_name`` is ``None`` when it stopped before a Drive folder was made,
+    and ``web_view_link`` when Drive did not return the folder's link.
+    """
+
+    success: bool
+    uploaded: int
+    total_files: int
+    folder_name: Optional[str]
+    web_view_link: Optional[str]
+
+
+# ---------------------------------------------------------------------------
+# Backup
+# ---------------------------------------------------------------------------
+#
+# A bundle is a folder holding a snapshot of the database, the Library vault's
+# bytes, optionally the reports, and ``manifest.json`` with a SHA-256 for each
+# file. What the bodies below can establish: what was written and what its
+# hashes were, what a later recomputation of those hashes found, and what a
+# backend start recorded when it applied or refused a staged restore. None of
+# them shows that a restore will succeed before it has run.
+#
+# Two rules decide how loosely a field is typed. A value resmon computed in
+# this request is typed exactly. A value copied from a manifest is typed as
+# loosely as the handler copies it when the route reads a folder the person
+# chose, because that folder need not hold a bundle this resmon wrote, and the
+# route's job is to say what is wrong with it rather than fail. Files resmon
+# keeps in its own state directory (the staged pointer and the restore record)
+# outlive the version that wrote them, so a field a release added after 2.3.0
+# is optional and absent from what 2.3.0 wrote.
+
+
+class BackupFile(LosslessModel):
+    """One file a bundle carries: its path inside the bundle, its size in bytes, and its SHA-256."""
+
+    path: str
+    size: int
+    sha256: str
+
+
+class ForeignKeyViolation(LosslessModel):
+    """One reference ``PRAGMA foreign_key_check`` found to a parent row that is not there.
+
+    ``rowid`` is ``None`` for a table without rowids, where two references
+    cannot be told apart. ``fkid`` is the foreign key's index on its table, as
+    SQLite numbers it.
+    """
+
+    table: str
+    rowid: Optional[int]
+    parent: str
+    fkid: int
+
+
+class BackupExclusions(LosslessModel):
+    """What a bundle deliberately does not carry.
+
+    ``credentials`` names the keyring entries this machine held when the
+    backup ran, names only and never a value; a restore cannot bring them
+    back. A name the keyring would not answer for is left out, so the list can
+    be short. ``process_state`` names files that exist only while a backend
+    runs. ``state_dir`` is the state directory the backup ran with, or
+    ``None``.
+    """
+
+    credentials: list[str]
+    process_state: list[str]
+    state_dir: Optional[str]
+    note: str
+
+
+class BackupManifest(LosslessModel):
+    """A bundle's manifest as ``POST /api/backup`` returns it: what was written.
+
+    Everything up to ``elapsed_seconds`` is what ``manifest.json`` in the
+    bundle holds; the file stores it with its keys sorted. ``path``,
+    ``manifest_sha256`` and ``fk_violations_message`` are added after the
+    file is written. The table counts and the foreign-key findings are read
+    from the bundle's own snapshot of the database, not the live one. A
+    manifest records what was written and the hashes taken as it was written;
+    it does not show that a restore will succeed.
+    ``POST /api/backup/verify`` recomputes the hashes, and a restore runs its
+    own checks when it applies.
+
+    ``vault_id`` is ``None`` when no Library vault is configured, and the
+    bundle then carries no vault. ``includes_reports`` is whether reports were
+    asked for; a reports folder that is missing or empty adds no files and
+    still reads true. ``table_counts`` maps each application table to its row
+    count; a table that could not be counted is left out, and
+    ``table_count_denominator`` is how many were counted. ``fk_violations``
+    lists at most 100 references, ``fk_violations_total`` counts all of them,
+    and ``fk_violations_rows`` counts the distinct rows SQLite identified them
+    by. ``fk_violations_message`` is ``""`` when there are none.
+    ``elapsed_seconds`` is how long the backup took, to the millisecond.
+    """
+
+    manifest_version: int
+    app_version: str
+    schema_version: int
+    created_at_utc: str
+    vault_id: Optional[str]
+    includes_reports: bool
+    table_counts: dict[str, int]
+    table_count_denominator: int
+    files: list[BackupFile]
+    fk_violations: list[ForeignKeyViolation]
+    fk_violations_total: int
+    fk_violations_rows: int
+    excluded: BackupExclusions
+    elapsed_seconds: float
+    path: str
+    manifest_sha256: str
+    fk_violations_message: str
+
+
+class BackupWritten(LosslessModel):
+    """``POST /api/backup``: one bundle written, and its manifest.
+
+    ``path`` is the bundle's folder, ``resmon-backup-<UTC stamp>``, inside the
+    export directory Settings names, or inside the operating system's
+    temporary folder when Settings names none. It is also recorded as the last
+    backup.
+    """
+
+    success: bool
+    path: str
+    manifest: BackupManifest
+
+
+class BundleVaultDestination(LosslessModel):
+    """Where a restore would put the bundle's vault on this machine by default, and whether that folder is usable.
+
+    ``root_path`` is the vault path the bundle's own database records,
+    ``parent`` the folder that would hold it and ``name`` its folder name.
+    ``parent_exists`` and ``parent_writable`` are checked on this machine
+    during the request. A missing parent is the ordinary case for a bundle
+    from another machine and is not a problem: a restore can be given another
+    parent.
+    """
+
+    root_path: str
+    parent: str
+    name: str
+    parent_exists: bool
+    parent_writable: bool
+
+
+class BundleWillNotRestore(LosslessModel):
+    """What a restore of this bundle will not bring back.
+
+    ``credentials`` and ``process_state`` are copied from the bundle's
+    manifest as the handler finds them, which is why they are ``Any``: for a
+    bundle resmon wrote, both are lists of names. ``note`` is fixed text about
+    runs that were running and deliveries that were being sent.
+    """
+
+    credentials: list[Any]
+    process_state: list[Any]
+    note: str
+
+
+class BundleReport(LosslessModel):
+    """``POST /api/backup/verify``: every hash in a bundle recomputed, and what a restore would and would not do.
+
+    It changes nothing. ``ok`` is true when ``problems`` is empty: every file
+    the manifest names is present at its recorded size and hash, the layout is
+    a version this resmon reads, and the schema is not newer than this
+    resmon's. That is the bundle agreeing with its own manifest; it is not a
+    restore that has succeeded, and the restore verifies again and runs its own
+    checks when a start applies it.
+
+    ``manifest`` is the bundle's ``manifest.json`` exactly as read, keys
+    sorted as the file stores them. It is declared ``dict`` because its shape
+    is whatever the file holds: this route reads a folder the person chose,
+    which need not hold a bundle this resmon wrote, and reports what is wrong
+    with it rather than failing. For a bundle this version wrote it holds
+    ``BackupManifest``'s fields except the three added after the file was
+    written, and one resmon 2.3.0 wrote has no ``fk_violations_rows``.
+    Python's JSON parser accepts ``NaN`` and ``Infinity``, so one written
+    into a manifest by hand, where the handler only copies it, is answered
+    here as ``null`` where the route answered 500 before it was modeled.
+    ``manifest_sha256`` is the hash of the file itself.
+
+    ``files_checked`` counts the files that matched and ``files_in_manifest``
+    the files listed. ``schema_relation`` compares the bundle's schema with
+    this resmon's: ``same``, ``older``, ``newer`` (a problem) or ``unknown``
+    (a problem). ``vault_relation`` compares the bundle's vault with the one
+    configured here: ``same``, ``different``, ``none_configured`` or
+    ``none_in_backup``.
+
+    The foreign-key fields come from the manifest: ``fk_violations`` as listed
+    there, hence ``Any``; ``fk_violations_total`` as an integer;
+    ``fk_violations_rows`` ``None`` for a bundle written before resmon counted
+    rows. Orphan rows never make ``ok`` false; ``needs_fk_acceptance`` says a
+    restore must be told to accept them. ``vault_destination`` is ``None``
+    when the bundle carries no vault or its database records no vault path.
+    """
+
+    path: str
+    manifest: dict[str, Any]
+    manifest_sha256: str
+    files_checked: int
+    files_in_manifest: int
+    schema_relation: str
+    vault_relation: str
+    problems: list[str]
+    fk_violations: list[Any]
+    fk_violations_total: int
+    fk_violations_rows: Optional[int]
+    fk_violations_message: str
+    needs_fk_acceptance: bool
+    vault_destination: Optional[BundleVaultDestination]
+    ok: bool
+    will_not_restore: BundleWillNotRestore
+
+
+class BackupSummary(LosslessModel):
+    """The last bundle this resmon recorded writing, read from that bundle's manifest during the request.
+
+    ``files`` is the number of files the manifest lists. Nothing is re-hashed
+    here, so a bundle damaged since it was written reads the same; only
+    ``POST /api/backup/verify`` checks the bytes. The other fields are the
+    manifest's own values, ``None`` where it records none.
+    ``fk_violations_total`` is ``0`` when the manifest records none, and
+    ``fk_violations_rows`` is ``None`` for a bundle written before resmon
+    counted rows.
+    """
+
+    path: str
+    created_at_utc: Optional[str]
+    app_version: Optional[str]
+    schema_version: Optional[int]
+    vault_id: Optional[str]
+    files: int
+    includes_reports: Optional[bool]
+    fk_violations_total: int
+    fk_violations_rows: Optional[int]
+
+
+# ---------------------------------------------------------------------------
+# Restore
+# ---------------------------------------------------------------------------
+#
+# ``POST /api/restore`` replaces nothing. It verifies a bundle and writes a
+# pointer, and the restore runs when a backend next starts, before anything
+# opens the database. What happened then is a record in the state directory,
+# which is what ``GET /api/backup/last`` reads back.
+
+
+class RestorePointer(LosslessModel):
+    """A staged restore: the pointer the next backend start acts on.
+
+    Nothing has moved while this exists. ``bundle`` is the bundle's resolved
+    path and ``manifest_sha256`` the manifest's hash when it was staged; a
+    start that finds a different manifest refuses the restore.
+    ``accept_fk_violations`` is whether the person accepted the bundle's
+    orphan rows. ``vault_parent`` is the folder the vault is to go into on
+    this machine, ``None`` for the path the bundle's database records; a
+    pointer resmon 2.3.0 staged has no such key.
+    """
+
+    bundle: str
+    manifest_sha256: str
+    accept_fk_violations: bool
+    vault_parent: Optional[str] = None
+    staged_at_utc: str
+
+
+class RestorePointerUnreadable(LosslessModel):
+    """A staged-restore pointer whose file is not valid JSON.
+
+    The next start records it as a failed restore, ``pointer_unreadable``,
+    and clears it; nothing is restored from it.
+    """
+
+    bundle: None
+    manifest_sha256: None
+    unreadable: Literal[True]
+
+
+class RestoreStaged(LosslessModel):
+    """``POST /api/restore``: a verified bundle staged; the restore itself runs when a backend next starts.
+
+    Nothing has been replaced when this answers. ``staged`` is the pointer
+    written, and ``report`` the verification it was staged on, the same
+    report ``POST /api/backup/verify`` answers. ``next_step`` is one sentence
+    on what will apply the restore on this machine (reopening resmon, or
+    restarting the background service that holds the database), decided from
+    the daemon lock as it stood during the request.
+    """
+
+    success: bool
+    staged: RestorePointer
+    report: BundleReport
+    next_step: str
+
+
+class RestoredVault(LosslessModel):
+    """What an applied restore did with the Library vault.
+
+    ``restored`` is false, with ``reason`` ``no_vault_in_backup``, when the
+    bundle carried no vault. Otherwise ``root_path`` is where the vault now is
+    and ``replaced_kept_at`` where the vault that was there before was moved,
+    ``None`` when that folder held none. A record resmon 2.3.0 wrote has no
+    ``replaced_kept_at``.
+    """
+
+    restored: bool
+    reason: Optional[str] = None
+    root_path: Optional[str] = None
+    replaced_kept_at: Optional[str] = None
+
+
+class RestoreRewrites(LosslessModel):
+    """What a restore changed in the restored database because it described a process rather than the corpus.
+
+    ``executions_interrupted`` counts runs that were ``running`` in the bundle
+    and are now ``interrupted`` with reason ``unknown``, since no process can
+    be asked about them; ``deliveries_requeued`` counts deliveries that were
+    being sent and are queued again.
+    """
+
+    executions_interrupted: int
+    deliveries_requeued: int
+
+
+class RestoreSucceeded(LosslessModel):
+    """The record of a staged restore a backend start applied.
+
+    Read from the state directory, where it outlives the version that wrote
+    it: ``undo_includes_vault``, ``vault_parent`` and ``fk_violations_rows``
+    are absent from a record resmon 2.3.0 wrote. ``ok`` says the restore's own
+    checks passed: SQLite's ``integrity_check``, and its foreign-key check
+    unless the orphan rows were accepted. It does not say the corpus is as the
+    person remembers it.
+
+    ``undo_copy`` is the folder the replaced database was moved to, and with
+    it the replaced vault when ``undo_includes_vault``; ``None`` when there
+    was nothing to move. Nothing removes it but
+    ``POST /api/restore/undo-copy/delete``. ``credentials_to_reenter`` and
+    the ``fk_violations*`` fields are copied from the bundle's verification
+    report, so the list fields are ``Any`` as they are there, with the same
+    caveat ``BundleReport`` gives for a ``NaN`` in a file edited by hand.
+    ``schema_relation`` is the bundle's schema against the version that
+    applied it. ``acknowledged`` turns true when the person dismisses the
+    card, and ``at_utc`` is when the record was written.
+    """
+
+    ok: Literal[True]
+    bundle: str
+    undo_copy: Optional[str]
+    undo_includes_vault: Optional[bool] = None
+    schema_relation: str
+    vault: RestoredVault
+    vault_parent: Optional[str] = None
+    rewrites: RestoreRewrites
+    credentials_to_reenter: list[Any]
+    fk_violations: list[Any]
+    fk_violations_total: int
+    fk_violations_rows: Optional[int] = None
+    fk_violations_message: str
+    acknowledged: bool
+    at_utc: str
+
+
+class RestoreFailed(LosslessModel):
+    """The record of a staged restore a backend start refused or could not finish.
+
+    ``reason`` is a code and ``message`` the sentence for it: among them
+    ``bundle_missing``, ``verification_failed``, ``manifest_changed``,
+    ``database_in_use``, ``pointer_unreadable``, a verification refusal such
+    as ``not_a_bundle``, or ``restore_failed`` for an error that carried no
+    code. ``undone`` is present, and true, when the restore had begun moving
+    files and its undo ran; ``vault_copy_kept`` is then the path of a vault
+    copy the undo could not put back by itself, normally ``None``, and is
+    absent from a record resmon 2.3.0 wrote. ``acknowledged`` is absent until
+    the person dismisses the card.
+    """
+
+    ok: Literal[False]
+    reason: str
+    message: str
+    bundle: str
+    undone: Optional[bool] = None
+    vault_copy_kept: Optional[str] = None
+    at_utc: str
+    acknowledged: Optional[bool] = None
+
+
+class BackupLast(LosslessModel):
+    """``GET /api/backup/last``: the last bundle, a staged restore, the last restore's record, and the undo copies.
+
+    ``last_backup`` is ``None`` when no backup is recorded, or when the
+    recorded bundle's manifest is gone or unreadable;
+    ``last_backup_path_recorded`` is the recorded path either way, ``None``
+    when there is none. ``pending_restore`` is the staged pointer, its
+    unreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence
+    on what will apply it, ``None`` when nothing is staged. ``last_restore``
+    is the record of the last restore a start acted on, applied or refused,
+    and ``None`` when there is none or its file is not a JSON object.
+    ``undo_copies`` lists the folders restores set aside, sorted by name,
+    which is the UTC time each was made.
+
+    A pointer or record edited by hand into a shape no resmon wrote matches
+    neither model of its union, and this route then answers 500 rather than a
+    body.
+    """
+
+    last_backup: Optional[BackupSummary]
+    last_backup_path_recorded: Optional[str]
+    pending_restore: Optional[Union[RestorePointer, RestorePointerUnreadable]]
+    pending_restore_runs_when: Optional[str]
+    last_restore: Optional[Union[RestoreSucceeded, RestoreFailed]]
+    undo_copies: list[str]
+
+
+class RestoreCancelled(LosslessModel):
+    """``POST /api/restore/cancel``: no restore is staged now.
+
+    ``success`` is true whether or not one was staged, and nothing had moved.
+    """
+
+    success: bool
+
+
+class RestoreUndoCopiesDeleted(LosslessModel):
+    """``POST /api/restore/undo-copy/delete``: the folders restores set aside, deleted.
+
+    ``deleted`` is how many folders were listed for deletion. Each is removed
+    with errors ignored, so it counts folders asked to go, not folders proven
+    gone; ``GET /api/backup/last`` lists what is still there.
+    """
+
+    success: bool
+    deleted: int
+
+
+class RestoreAcknowledged(LosslessModel):
+    """``POST /api/restore/acknowledge``: the card about the last restore dismissed.
+
+    ``acknowledged`` is false when there was no record to dismiss, and true
+    when the record was rewritten with ``acknowledged: true``.
+    """
+
+    success: bool
+    acknowledged: bool
+
+
+# ---------------------------------------------------------------------------
+# The Danger Zone
+# ---------------------------------------------------------------------------
+#
+# One model per route, because each answers a different set of counts and a
+# shared model would put every count into the schema of routes that never
+# send it. Each count is of what the route deleted as it counts it. The two
+# key counts are not counts of keys that existed: they are the number of
+# names whose slots were cleared, the same on every call.
+
+
+class AiKeysErased(LosslessModel):
+    """``POST /api/admin/erase-ai-keys``: every AI provider key slot cleared.
+
+    ``ai_keys_removed`` is the number of AI provider key names cleared. A name
+    that held no key counts too, and the legacy ``ai_api_key`` slot is cleared
+    without being counted. This route takes no ``confirm``.
+    """
+
+    success: bool
+    ai_keys_removed: int
+
+
+class RepositoryKeysErased(LosslessModel):
+    """``POST /api/admin/erase-repo-keys``: every repository key slot the catalog names cleared.
+
+    ``repo_keys_removed`` is the number of catalog credential names cleared,
+    whether or not each held a key. This route takes no ``confirm``.
+    """
+
+    success: bool
+    repo_keys_removed: int
+
+
+class ConfigurationsErased(LosslessModel):
+    """``POST /api/admin/erase-configs``: every saved configuration deleted.
+
+    A routine configuration takes the routine it is linked to with it.
+    ``configs_removed`` counts configurations; the routines deleted with them
+    are not counted.
+    """
+
+    success: bool
+    configs_removed: int
+
+
+class ExecutionsErased(LosslessModel):
+    """``POST /api/admin/erase-executions``: every run record deleted, with the run's links to its papers.
+
+    The papers stay, and so do report files on disk. ``executions_removed``
+    counts runs.
+    """
+
+    success: bool
+    executions_removed: int
+
+
+class ExecutionDataErased(LosslessModel):
+    """``POST /api/admin/erase-execution-data``: every saved configuration and every run record deleted.
+
+    The counts are as ``ConfigurationsErased`` and ``ExecutionsErased`` count
+    them. Settings, keys and papers are kept.
+    """
+
+    success: bool
+    configs_removed: int
+    executions_removed: int
+
+
+class AppDataErased(LosslessModel):
+    """``POST /api/admin/erase-app-data``: papers, configurations, runs, and every AI and repository key.
+
+    Settings, the SMTP password and the Library's files are kept. The key
+    counts are of names cleared, not keys found.
+    """
+
+    success: bool
+    configs_removed: int
+    executions_removed: int
+    documents_removed: int
+    ai_keys_removed: int
+    repo_keys_removed: int
+
+
+class CorpusErased(LosslessModel):
+    """``POST /api/admin/erase-corpus``: every collected paper deleted, with what hangs off each.
+
+    Runs, configurations, keys and the Library's files are kept.
+    ``documents_removed`` counts papers.
+    """
+
+    success: bool
+    documents_removed: int
+
+
+class SettingsReset(LosslessModel):
+    """``POST /api/admin/reset-settings``: every stored setting cleared, and every AI, repository and SMTP key.
+
+    ``settings_cleared`` counts the stored settings deleted; the schema
+    version marker is kept and not counted. The key counts are of names
+    cleared, not keys found, and the SMTP password is cleared without being
+    counted. Configurations, runs and papers are kept.
+    """
+
+    success: bool
+    settings_cleared: int
+    ai_keys_removed: int
+    repo_keys_removed: int
+
+
+class FactoryReset(LosslessModel):
+    """``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.
+
+    The counts are as the single-purpose routes count them, so the key counts
+    are of names cleared. It does not clear the Google Drive token or a
+    delivery target's webhook secret, and it does not touch the Library's
+    files, report files on disk, or a restore's undo copies.
+    """
+
+    success: bool
+    configs_removed: int
+    executions_removed: int
+    documents_removed: int
+    settings_cleared: int
+    ai_keys_removed: int
+    repo_keys_removed: int

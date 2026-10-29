@@ -3557,6 +3557,22 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * AiKeysErased
+         * @description ``POST /api/admin/erase-ai-keys``: every AI provider key slot cleared.
+         *
+         *     ``ai_keys_removed`` is the number of AI provider key names cleared. A name
+         *     that held no key counts too, and the legacy ``ai_api_key`` slot is cleared
+         *     without being counted. This route takes no ``confirm``.
+         */
+        AiKeysErased: {
+            /** Ai Keys Removed */
+            ai_keys_removed: number;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * AiSettings
          * @description ``GET /api/settings/ai`` — the AI lane, as sixteen stored strings.
          *
@@ -3611,6 +3627,29 @@ export interface components {
             routine_health: components["schemas"]["RoutineHealth"];
             source_contribution: components["schemas"]["SourceContribution"];
             summary: components["schemas"]["CorpusSummary"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AppDataErased
+         * @description ``POST /api/admin/erase-app-data``: papers, configurations, runs, and every AI and repository key.
+         *
+         *     Settings, the SMTP password and the Library's files are kept. The key
+         *     counts are of names cleared, not keys found.
+         */
+        AppDataErased: {
+            /** Ai Keys Removed */
+            ai_keys_removed: number;
+            /** Configs Removed */
+            configs_removed: number;
+            /** Documents Removed */
+            documents_removed: number;
+            /** Executions Removed */
+            executions_removed: number;
+            /** Repo Keys Removed */
+            repo_keys_removed: number;
+            /** Success */
+            success: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -4347,6 +4386,141 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * BackupExclusions
+         * @description What a bundle deliberately does not carry.
+         *
+         *     ``credentials`` names the keyring entries this machine held when the
+         *     backup ran, names only and never a value; a restore cannot bring them
+         *     back. A name the keyring would not answer for is left out, so the list can
+         *     be short. ``process_state`` names files that exist only while a backend
+         *     runs. ``state_dir`` is the state directory the backup ran with, or
+         *     ``None``.
+         */
+        BackupExclusions: {
+            /** Credentials */
+            credentials: string[];
+            /** Note */
+            note: string;
+            /** Process State */
+            process_state: string[];
+            /** State Dir */
+            state_dir: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * BackupFile
+         * @description One file a bundle carries: its path inside the bundle, its size in bytes, and its SHA-256.
+         */
+        BackupFile: {
+            /** Path */
+            path: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * BackupLast
+         * @description ``GET /api/backup/last``: the last bundle, a staged restore, the last restore's record, and the undo copies.
+         *
+         *     ``last_backup`` is ``None`` when no backup is recorded, or when the
+         *     recorded bundle's manifest is gone or unreadable;
+         *     ``last_backup_path_recorded`` is the recorded path either way, ``None``
+         *     when there is none. ``pending_restore`` is the staged pointer, its
+         *     unreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence
+         *     on what will apply it, ``None`` when nothing is staged. ``last_restore``
+         *     is the record of the last restore a start acted on, applied or refused,
+         *     and ``None`` when there is none or its file is not a JSON object.
+         *     ``undo_copies`` lists the folders restores set aside, sorted by name,
+         *     which is the UTC time each was made.
+         *
+         *     A pointer or record edited by hand into a shape no resmon wrote matches
+         *     neither model of its union, and this route then answers 500 rather than a
+         *     body.
+         */
+        BackupLast: {
+            last_backup: components["schemas"]["BackupSummary"] | null;
+            /** Last Backup Path Recorded */
+            last_backup_path_recorded: string | null;
+            /** Last Restore */
+            last_restore: components["schemas"]["RestoreSucceeded"] | components["schemas"]["RestoreFailed"] | null;
+            /** Pending Restore */
+            pending_restore: components["schemas"]["RestorePointer"] | components["schemas"]["RestorePointerUnreadable"] | null;
+            /** Pending Restore Runs When */
+            pending_restore_runs_when: string | null;
+            /** Undo Copies */
+            undo_copies: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * BackupManifest
+         * @description A bundle's manifest as ``POST /api/backup`` returns it: what was written.
+         *
+         *     Everything up to ``elapsed_seconds`` is what ``manifest.json`` in the
+         *     bundle holds; the file stores it with its keys sorted. ``path``,
+         *     ``manifest_sha256`` and ``fk_violations_message`` are added after the
+         *     file is written. The table counts and the foreign-key findings are read
+         *     from the bundle's own snapshot of the database, not the live one. A
+         *     manifest records what was written and the hashes taken as it was written;
+         *     it does not show that a restore will succeed.
+         *     ``POST /api/backup/verify`` recomputes the hashes, and a restore runs its
+         *     own checks when it applies.
+         *
+         *     ``vault_id`` is ``None`` when no Library vault is configured, and the
+         *     bundle then carries no vault. ``includes_reports`` is whether reports were
+         *     asked for; a reports folder that is missing or empty adds no files and
+         *     still reads true. ``table_counts`` maps each application table to its row
+         *     count; a table that could not be counted is left out, and
+         *     ``table_count_denominator`` is how many were counted. ``fk_violations``
+         *     lists at most 100 references, ``fk_violations_total`` counts all of them,
+         *     and ``fk_violations_rows`` counts the distinct rows SQLite identified them
+         *     by. ``fk_violations_message`` is ``""`` when there are none.
+         *     ``elapsed_seconds`` is how long the backup took, to the millisecond.
+         */
+        BackupManifest: {
+            /** App Version */
+            app_version: string;
+            /** Created At Utc */
+            created_at_utc: string;
+            /** Elapsed Seconds */
+            elapsed_seconds: number;
+            excluded: components["schemas"]["BackupExclusions"];
+            /** Files */
+            files: components["schemas"]["BackupFile"][];
+            /** Fk Violations */
+            fk_violations: components["schemas"]["ForeignKeyViolation"][];
+            /** Fk Violations Message */
+            fk_violations_message: string;
+            /** Fk Violations Rows */
+            fk_violations_rows: number;
+            /** Fk Violations Total */
+            fk_violations_total: number;
+            /** Includes Reports */
+            includes_reports: boolean;
+            /** Manifest Sha256 */
+            manifest_sha256: string;
+            /** Manifest Version */
+            manifest_version: number;
+            /** Path */
+            path: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Table Count Denominator */
+            table_count_denominator: number;
+            /** Table Counts */
+            table_counts: {
+                [key: string]: number;
+            };
+            /** Vault Id */
+            vault_id: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** BackupRequest */
         BackupRequest: {
             /**
@@ -4360,6 +4534,58 @@ export interface components {
              */
             include_reports: boolean;
         };
+        /**
+         * BackupSummary
+         * @description The last bundle this resmon recorded writing, read from that bundle's manifest during the request.
+         *
+         *     ``files`` is the number of files the manifest lists. Nothing is re-hashed
+         *     here, so a bundle damaged since it was written reads the same; only
+         *     ``POST /api/backup/verify`` checks the bytes. The other fields are the
+         *     manifest's own values, ``None`` where it records none.
+         *     ``fk_violations_total`` is ``0`` when the manifest records none, and
+         *     ``fk_violations_rows`` is ``None`` for a bundle written before resmon
+         *     counted rows.
+         */
+        BackupSummary: {
+            /** App Version */
+            app_version: string | null;
+            /** Created At Utc */
+            created_at_utc: string | null;
+            /** Files */
+            files: number;
+            /** Fk Violations Rows */
+            fk_violations_rows: number | null;
+            /** Fk Violations Total */
+            fk_violations_total: number;
+            /** Includes Reports */
+            includes_reports: boolean | null;
+            /** Path */
+            path: string;
+            /** Schema Version */
+            schema_version: number | null;
+            /** Vault Id */
+            vault_id: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * BackupWritten
+         * @description ``POST /api/backup``: one bundle written, and its manifest.
+         *
+         *     ``path`` is the bundle's folder, ``resmon-backup-<UTC stamp>``, inside the
+         *     export directory Settings names, or inside the operating system's
+         *     temporary folder when Settings names none. It is also recorded as the last
+         *     backup.
+         */
+        BackupWritten: {
+            manifest: components["schemas"]["BackupManifest"];
+            /** Path */
+            path: string;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
         /** Body_import_configurations_api_configurations_import_post */
         Body_import_configurations_api_configurations_import_post: {
             /** Files */
@@ -4372,6 +4598,123 @@ export interface components {
              * @default
              */
             path: string;
+        };
+        /**
+         * BundleReport
+         * @description ``POST /api/backup/verify``: every hash in a bundle recomputed, and what a restore would and would not do.
+         *
+         *     It changes nothing. ``ok`` is true when ``problems`` is empty: every file
+         *     the manifest names is present at its recorded size and hash, the layout is
+         *     a version this resmon reads, and the schema is not newer than this
+         *     resmon's. That is the bundle agreeing with its own manifest; it is not a
+         *     restore that has succeeded, and the restore verifies again and runs its own
+         *     checks when a start applies it.
+         *
+         *     ``manifest`` is the bundle's ``manifest.json`` exactly as read, keys
+         *     sorted as the file stores them. It is declared ``dict`` because its shape
+         *     is whatever the file holds: this route reads a folder the person chose,
+         *     which need not hold a bundle this resmon wrote, and reports what is wrong
+         *     with it rather than failing. For a bundle this version wrote it holds
+         *     ``BackupManifest``'s fields except the three added after the file was
+         *     written, and one resmon 2.3.0 wrote has no ``fk_violations_rows``.
+         *     Python's JSON parser accepts ``NaN`` and ``Infinity``, so one written
+         *     into a manifest by hand, where the handler only copies it, is answered
+         *     here as ``null`` where the route answered 500 before it was modeled.
+         *     ``manifest_sha256`` is the hash of the file itself.
+         *
+         *     ``files_checked`` counts the files that matched and ``files_in_manifest``
+         *     the files listed. ``schema_relation`` compares the bundle's schema with
+         *     this resmon's: ``same``, ``older``, ``newer`` (a problem) or ``unknown``
+         *     (a problem). ``vault_relation`` compares the bundle's vault with the one
+         *     configured here: ``same``, ``different``, ``none_configured`` or
+         *     ``none_in_backup``.
+         *
+         *     The foreign-key fields come from the manifest: ``fk_violations`` as listed
+         *     there, hence ``Any``; ``fk_violations_total`` as an integer;
+         *     ``fk_violations_rows`` ``None`` for a bundle written before resmon counted
+         *     rows. Orphan rows never make ``ok`` false; ``needs_fk_acceptance`` says a
+         *     restore must be told to accept them. ``vault_destination`` is ``None``
+         *     when the bundle carries no vault or its database records no vault path.
+         */
+        BundleReport: {
+            /** Files Checked */
+            files_checked: number;
+            /** Files In Manifest */
+            files_in_manifest: number;
+            /** Fk Violations */
+            fk_violations: unknown[];
+            /** Fk Violations Message */
+            fk_violations_message: string;
+            /** Fk Violations Rows */
+            fk_violations_rows: number | null;
+            /** Fk Violations Total */
+            fk_violations_total: number;
+            /** Manifest */
+            manifest: {
+                [key: string]: unknown;
+            };
+            /** Manifest Sha256 */
+            manifest_sha256: string;
+            /** Needs Fk Acceptance */
+            needs_fk_acceptance: boolean;
+            /** Ok */
+            ok: boolean;
+            /** Path */
+            path: string;
+            /** Problems */
+            problems: string[];
+            /** Schema Relation */
+            schema_relation: string;
+            vault_destination: components["schemas"]["BundleVaultDestination"] | null;
+            /** Vault Relation */
+            vault_relation: string;
+            will_not_restore: components["schemas"]["BundleWillNotRestore"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * BundleVaultDestination
+         * @description Where a restore would put the bundle's vault on this machine by default, and whether that folder is usable.
+         *
+         *     ``root_path`` is the vault path the bundle's own database records,
+         *     ``parent`` the folder that would hold it and ``name`` its folder name.
+         *     ``parent_exists`` and ``parent_writable`` are checked on this machine
+         *     during the request. A missing parent is the ordinary case for a bundle
+         *     from another machine and is not a problem: a restore can be given another
+         *     parent.
+         */
+        BundleVaultDestination: {
+            /** Name */
+            name: string;
+            /** Parent */
+            parent: string;
+            /** Parent Exists */
+            parent_exists: boolean;
+            /** Parent Writable */
+            parent_writable: boolean;
+            /** Root Path */
+            root_path: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * BundleWillNotRestore
+         * @description What a restore of this bundle will not bring back.
+         *
+         *     ``credentials`` and ``process_state`` are copied from the bundle's
+         *     manifest as the handler finds them, which is why they are ``Any``: for a
+         *     bundle resmon wrote, both are lists of names. ``note`` is fixed text about
+         *     runs that were running and deliveries that were being sent.
+         */
+        BundleWillNotRestore: {
+            /** Credentials */
+            credentials: unknown[];
+            /** Note */
+            note: string;
+            /** Process State */
+            process_state: unknown[];
+        } & {
+            [key: string]: unknown;
         };
         /**
          * CalendarEvent
@@ -4425,6 +4768,53 @@ export interface components {
             execution_ids?: number[] | null;
         };
         /**
+         * CloudBackupUploaded
+         * @description ``POST /api/cloud/backup``: what one upload of the reports folder to Google Drive reported.
+         *
+         *     The whole reports folder is uploaded into a ``backup-<local timestamp>``
+         *     folder under ``resmon`` in the person's Drive. It is the reports folder
+         *     only: not the database and not the Library, which ``POST /api/backup``
+         *     carries. The request's ``execution_ids`` are not read.
+         *
+         *     ``success`` is true on every 200, including an upload that sent nothing.
+         *     ``uploaded`` counts the files Drive accepted and ``total_files`` the files
+         *     found in the folder, so ``uploaded < total_files`` means some were not
+         *     sent, and both are 0 when the upload stopped before walking the folder.
+         *     ``folder_name`` is ``None`` when it stopped before a Drive folder was made,
+         *     and ``web_view_link`` when Drive did not return the folder's link.
+         */
+        CloudBackupUploaded: {
+            /** Folder Name */
+            folder_name: string | null;
+            /** Success */
+            success: boolean;
+            /** Total Files */
+            total_files: number;
+            /** Uploaded */
+            uploaded: number;
+            /** Web View Link */
+            web_view_link: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CloudLinked
+         * @description ``POST /api/cloud/link``: Google's sign-in flow ended with a token, and resmon stored it.
+         *
+         *     ``auth_url`` is the fixed string ``oauth_completed``, not a URL. The
+         *     sign-in runs to its end inside this request, in a browser on this
+         *     machine, so there is no address left to hand back. A stored token is not a
+         *     working Drive: ``GET /api/cloud/status`` is the route that asks the API.
+         *     Only this body is modeled; a missing ``credentials.json`` is a 400 and a
+         *     flow that fails is a 500.
+         */
+        CloudLinked: {
+            /** Auth Url */
+            auth_url: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * CloudSettings
          * @description ``GET /api/settings/cloud`` — the Google Drive backup lane's two keys.
          */
@@ -4433,6 +4823,45 @@ export interface components {
             cloud_auto_backup: string;
             /** Cloud Provider */
             cloud_provider: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CloudStatus
+         * @description ``GET /api/cloud/status``: whether a Drive token is stored, and what one call to the Drive API answered.
+         *
+         *     ``is_linked`` reads only the local keyring. ``api_ok`` is the outcome of
+         *     one ``about.get`` call made with that token during this request, so it can
+         *     be false while linked, for instance when the Drive API is not enabled on
+         *     the OAuth project. ``api_reason`` is ``None`` when that call succeeded;
+         *     otherwise a short code: Google's own error reason (such as
+         *     ``accessNotConfigured``), ``http_error`` when the error carried none, the
+         *     name of the Python exception that stopped the call, or ``no_token`` when
+         *     nothing is linked and no call was made.
+         */
+        CloudStatus: {
+            /** Api Ok */
+            api_ok: boolean;
+            /** Api Reason */
+            api_reason: string | null;
+            /** Is Linked */
+            is_linked: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CloudUnlinked
+         * @description ``POST /api/cloud/unlink``: no Google Drive token is stored here any more.
+         *
+         *     ``success`` is true on every 200. With a token stored, resmon sends Google
+         *     a revocation request when the token carries an access token, does not read
+         *     the answer, and deletes the token from the keyring either way, so this
+         *     says the local token is gone, not that Google revoked it. With no token
+         *     stored, nothing is sent anywhere.
+         */
+        CloudUnlinked: {
+            /** Success */
+            success: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -4598,6 +5027,37 @@ export interface components {
             name?: string | null;
             /** Parameters */
             parameters?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ConfigurationsErased
+         * @description ``POST /api/admin/erase-configs``: every saved configuration deleted.
+         *
+         *     A routine configuration takes the routine it is linked to with it.
+         *     ``configs_removed`` counts configurations; the routines deleted with them
+         *     are not counted.
+         */
+        ConfigurationsErased: {
+            /** Configs Removed */
+            configs_removed: number;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CorpusErased
+         * @description ``POST /api/admin/erase-corpus``: every collected paper deleted, with what hangs off each.
+         *
+         *     Runs, configurations, keys and the Library's files are kept.
+         *     ``documents_removed`` counts papers.
+         */
+        CorpusErased: {
+            /** Documents Removed */
+            documents_removed: number;
+            /** Success */
+            success: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -5650,6 +6110,23 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * ExecutionDataErased
+         * @description ``POST /api/admin/erase-execution-data``: every saved configuration and every run record deleted.
+         *
+         *     The counts are as ``ConfigurationsErased`` and ``ExecutionsErased`` count
+         *     them. Settings, keys and papers are kept.
+         */
+        ExecutionDataErased: {
+            /** Configs Removed */
+            configs_removed: number;
+            /** Executions Removed */
+            executions_removed: number;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
         /** ExecutionExport */
         ExecutionExport: {
             /** Ids */
@@ -5687,6 +6164,21 @@ export interface components {
             max_concurrent_executions: number;
             /** Routine Fire Queue Limit */
             routine_fire_queue_limit: number;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ExecutionsErased
+         * @description ``POST /api/admin/erase-executions``: every run record deleted, with the run's links to its papers.
+         *
+         *     The papers stay, and so do report files on disk. ``executions_removed``
+         *     counts runs.
+         */
+        ExecutionsErased: {
+            /** Executions Removed */
+            executions_removed: number;
             /** Success */
             success: boolean;
         } & {
@@ -5859,6 +6351,53 @@ export interface components {
              * @default []
              */
             sources: string[];
+        };
+        /**
+         * FactoryReset
+         * @description ``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.
+         *
+         *     The counts are as the single-purpose routes count them, so the key counts
+         *     are of names cleared. It does not clear the Google Drive token or a
+         *     delivery target's webhook secret, and it does not touch the Library's
+         *     files, report files on disk, or a restore's undo copies.
+         */
+        FactoryReset: {
+            /** Ai Keys Removed */
+            ai_keys_removed: number;
+            /** Configs Removed */
+            configs_removed: number;
+            /** Documents Removed */
+            documents_removed: number;
+            /** Executions Removed */
+            executions_removed: number;
+            /** Repo Keys Removed */
+            repo_keys_removed: number;
+            /** Settings Cleared */
+            settings_cleared: number;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ForeignKeyViolation
+         * @description One reference ``PRAGMA foreign_key_check`` found to a parent row that is not there.
+         *
+         *     ``rowid`` is ``None`` for a table without rowids, where two references
+         *     cannot be told apart. ``fkid`` is the foreign key's index on its table, as
+         *     SQLite numbers it.
+         */
+        ForeignKeyViolation: {
+            /** Fkid */
+            fkid: number;
+            /** Parent */
+            parent: string;
+            /** Rowid */
+            rowid: number | null;
+            /** Table */
+            table: string;
+        } & {
+            [key: string]: unknown;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -6919,6 +7458,21 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * RepositoryKeysErased
+         * @description ``POST /api/admin/erase-repo-keys``: every repository key slot the catalog names cleared.
+         *
+         *     ``repo_keys_removed`` is the number of catalog credential names cleared,
+         *     whether or not each held a key. This route takes no ``confirm``.
+         */
+        RepositoryKeysErased: {
+            /** Repo Keys Removed */
+            repo_keys_removed: number;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * RepositorySourceNotice
          * @description One sentence the interface shows before a search is submitted.
          *
@@ -6953,6 +7507,116 @@ export interface components {
             /** Request Id */
             request_id?: string | null;
         };
+        /**
+         * RestoreAcknowledged
+         * @description ``POST /api/restore/acknowledge``: the card about the last restore dismissed.
+         *
+         *     ``acknowledged`` is false when there was no record to dismiss, and true
+         *     when the record was rewritten with ``acknowledged: true``.
+         */
+        RestoreAcknowledged: {
+            /** Acknowledged */
+            acknowledged: boolean;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RestoreCancelled
+         * @description ``POST /api/restore/cancel``: no restore is staged now.
+         *
+         *     ``success`` is true whether or not one was staged, and nothing had moved.
+         */
+        RestoreCancelled: {
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RestoreFailed
+         * @description The record of a staged restore a backend start refused or could not finish.
+         *
+         *     ``reason`` is a code and ``message`` the sentence for it: among them
+         *     ``bundle_missing``, ``verification_failed``, ``manifest_changed``,
+         *     ``database_in_use``, ``pointer_unreadable``, a verification refusal such
+         *     as ``not_a_bundle``, or ``restore_failed`` for an error that carried no
+         *     code. ``undone`` is present, and true, when the restore had begun moving
+         *     files and its undo ran; ``vault_copy_kept`` is then the path of a vault
+         *     copy the undo could not put back by itself, normally ``None``, and is
+         *     absent from a record resmon 2.3.0 wrote. ``acknowledged`` is absent until
+         *     the person dismisses the card.
+         */
+        RestoreFailed: {
+            /** Acknowledged */
+            acknowledged?: boolean | null;
+            /** At Utc */
+            at_utc: string;
+            /** Bundle */
+            bundle: string;
+            /** Message */
+            message: string;
+            /**
+             * Ok
+             * @constant
+             */
+            ok: false;
+            /** Reason */
+            reason: string;
+            /** Undone */
+            undone?: boolean | null;
+            /** Vault Copy Kept */
+            vault_copy_kept?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RestorePointer
+         * @description A staged restore: the pointer the next backend start acts on.
+         *
+         *     Nothing has moved while this exists. ``bundle`` is the bundle's resolved
+         *     path and ``manifest_sha256`` the manifest's hash when it was staged; a
+         *     start that finds a different manifest refuses the restore.
+         *     ``accept_fk_violations`` is whether the person accepted the bundle's
+         *     orphan rows. ``vault_parent`` is the folder the vault is to go into on
+         *     this machine, ``None`` for the path the bundle's database records; a
+         *     pointer resmon 2.3.0 staged has no such key.
+         */
+        RestorePointer: {
+            /** Accept Fk Violations */
+            accept_fk_violations: boolean;
+            /** Bundle */
+            bundle: string;
+            /** Manifest Sha256 */
+            manifest_sha256: string;
+            /** Staged At Utc */
+            staged_at_utc: string;
+            /** Vault Parent */
+            vault_parent?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RestorePointerUnreadable
+         * @description A staged-restore pointer whose file is not valid JSON.
+         *
+         *     The next start records it as a failed restore, ``pointer_unreadable``,
+         *     and clears it; nothing is restored from it.
+         */
+        RestorePointerUnreadable: {
+            /** Bundle */
+            bundle: null;
+            /** Manifest Sha256 */
+            manifest_sha256: null;
+            /**
+             * Unreadable
+             * @constant
+             */
+            unreadable: true;
+        } & {
+            [key: string]: unknown;
+        };
         /** RestoreRequest */
         RestoreRequest: {
             /**
@@ -6975,6 +7639,139 @@ export interface components {
              * @default
              */
             vault_parent: string;
+        };
+        /**
+         * RestoreRewrites
+         * @description What a restore changed in the restored database because it described a process rather than the corpus.
+         *
+         *     ``executions_interrupted`` counts runs that were ``running`` in the bundle
+         *     and are now ``interrupted`` with reason ``unknown``, since no process can
+         *     be asked about them; ``deliveries_requeued`` counts deliveries that were
+         *     being sent and are queued again.
+         */
+        RestoreRewrites: {
+            /** Deliveries Requeued */
+            deliveries_requeued: number;
+            /** Executions Interrupted */
+            executions_interrupted: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RestoreStaged
+         * @description ``POST /api/restore``: a verified bundle staged; the restore itself runs when a backend next starts.
+         *
+         *     Nothing has been replaced when this answers. ``staged`` is the pointer
+         *     written, and ``report`` the verification it was staged on, the same
+         *     report ``POST /api/backup/verify`` answers. ``next_step`` is one sentence
+         *     on what will apply the restore on this machine (reopening resmon, or
+         *     restarting the background service that holds the database), decided from
+         *     the daemon lock as it stood during the request.
+         */
+        RestoreStaged: {
+            /** Next Step */
+            next_step: string;
+            report: components["schemas"]["BundleReport"];
+            staged: components["schemas"]["RestorePointer"];
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RestoreSucceeded
+         * @description The record of a staged restore a backend start applied.
+         *
+         *     Read from the state directory, where it outlives the version that wrote
+         *     it: ``undo_includes_vault``, ``vault_parent`` and ``fk_violations_rows``
+         *     are absent from a record resmon 2.3.0 wrote. ``ok`` says the restore's own
+         *     checks passed: SQLite's ``integrity_check``, and its foreign-key check
+         *     unless the orphan rows were accepted. It does not say the corpus is as the
+         *     person remembers it.
+         *
+         *     ``undo_copy`` is the folder the replaced database was moved to, and with
+         *     it the replaced vault when ``undo_includes_vault``; ``None`` when there
+         *     was nothing to move. Nothing removes it but
+         *     ``POST /api/restore/undo-copy/delete``. ``credentials_to_reenter`` and
+         *     the ``fk_violations*`` fields are copied from the bundle's verification
+         *     report, so the list fields are ``Any`` as they are there, with the same
+         *     caveat ``BundleReport`` gives for a ``NaN`` in a file edited by hand.
+         *     ``schema_relation`` is the bundle's schema against the version that
+         *     applied it. ``acknowledged`` turns true when the person dismisses the
+         *     card, and ``at_utc`` is when the record was written.
+         */
+        RestoreSucceeded: {
+            /** Acknowledged */
+            acknowledged: boolean;
+            /** At Utc */
+            at_utc: string;
+            /** Bundle */
+            bundle: string;
+            /** Credentials To Reenter */
+            credentials_to_reenter: unknown[];
+            /** Fk Violations */
+            fk_violations: unknown[];
+            /** Fk Violations Message */
+            fk_violations_message: string;
+            /** Fk Violations Rows */
+            fk_violations_rows?: number | null;
+            /** Fk Violations Total */
+            fk_violations_total: number;
+            /**
+             * Ok
+             * @constant
+             */
+            ok: true;
+            rewrites: components["schemas"]["RestoreRewrites"];
+            /** Schema Relation */
+            schema_relation: string;
+            /** Undo Copy */
+            undo_copy: string | null;
+            /** Undo Includes Vault */
+            undo_includes_vault?: boolean | null;
+            vault: components["schemas"]["RestoredVault"];
+            /** Vault Parent */
+            vault_parent?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RestoreUndoCopiesDeleted
+         * @description ``POST /api/restore/undo-copy/delete``: the folders restores set aside, deleted.
+         *
+         *     ``deleted`` is how many folders were listed for deletion. Each is removed
+         *     with errors ignored, so it counts folders asked to go, not folders proven
+         *     gone; ``GET /api/backup/last`` lists what is still there.
+         */
+        RestoreUndoCopiesDeleted: {
+            /** Deleted */
+            deleted: number;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RestoredVault
+         * @description What an applied restore did with the Library vault.
+         *
+         *     ``restored`` is false, with ``reason`` ``no_vault_in_backup``, when the
+         *     bundle carried no vault. Otherwise ``root_path`` is where the vault now is
+         *     and ``replaced_kept_at`` where the vault that was there before was moved,
+         *     ``None`` when that folder held none. A record resmon 2.3.0 wrote has no
+         *     ``replaced_kept_at``.
+         */
+        RestoredVault: {
+            /** Reason */
+            reason?: string | null;
+            /** Replaced Kept At */
+            replaced_kept_at?: string | null;
+            /** Restored */
+            restored: boolean;
+            /** Root Path */
+            root_path?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * Routine
@@ -8473,6 +9270,27 @@ export interface components {
             };
         };
         /**
+         * SettingsReset
+         * @description ``POST /api/admin/reset-settings``: every stored setting cleared, and every AI, repository and SMTP key.
+         *
+         *     ``settings_cleared`` counts the stored settings deleted; the schema
+         *     version marker is kept and not counted. The key counts are of names
+         *     cleared, not keys found, and the SMTP password is cleared without being
+         *     counted. Configurations, runs and papers are kept.
+         */
+        SettingsReset: {
+            /** Ai Keys Removed */
+            ai_keys_removed: number;
+            /** Repo Keys Removed */
+            repo_keys_removed: number;
+            /** Settings Cleared */
+            settings_cleared: number;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * SettingsSaved
          * @description What the six plain settings PUTs answer: ``{"success": true}``.
          *
@@ -9499,7 +10317,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AiKeysErased"];
                 };
             };
         };
@@ -9523,7 +10341,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AppDataErased"];
                 };
             };
             /** @description Validation Error */
@@ -9556,7 +10374,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ConfigurationsErased"];
                 };
             };
             /** @description Validation Error */
@@ -9589,7 +10407,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CorpusErased"];
                 };
             };
             /** @description Validation Error */
@@ -9622,7 +10440,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ExecutionDataErased"];
                 };
             };
             /** @description Validation Error */
@@ -9655,7 +10473,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ExecutionsErased"];
                 };
             };
             /** @description Validation Error */
@@ -9684,7 +10502,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RepositoryKeysErased"];
                 };
             };
         };
@@ -9708,7 +10526,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["FactoryReset"];
                 };
             };
             /** @description Validation Error */
@@ -9741,7 +10559,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SettingsReset"];
                 };
             };
             /** @description Validation Error */
@@ -10403,7 +11221,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BackupWritten"];
                 };
             };
             /** @description Validation Error */
@@ -10432,7 +11250,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BackupLast"];
                 };
             };
         };
@@ -10456,7 +11274,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BundleReport"];
                 };
             };
             /** @description Validation Error */
@@ -10521,7 +11339,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CloudBackupUploaded"];
                 };
             };
             /** @description Validation Error */
@@ -10550,7 +11368,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CloudLinked"];
                 };
             };
         };
@@ -10570,7 +11388,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CloudStatus"];
                 };
             };
         };
@@ -10590,7 +11408,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CloudUnlinked"];
                 };
             };
         };
@@ -13725,7 +14543,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RestoreStaged"];
                 };
             };
             /** @description Validation Error */
@@ -13754,7 +14572,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RestoreAcknowledged"];
                 };
             };
         };
@@ -13774,7 +14592,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RestoreCancelled"];
                 };
             };
         };
@@ -13798,7 +14616,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RestoreUndoCopiesDeleted"];
                 };
             };
             /** @description Validation Error */

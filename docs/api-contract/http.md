@@ -12,7 +12,7 @@
 
 **Purpose.** The first line of the endpoint's docstring, for the 94 of 194 routes that have one. The remaining 100 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 137 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 57 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 157 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 37 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -258,10 +258,10 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/api/cloud/backup` | token | — | — | *Cloud Backup* |
-| `POST` | `/api/cloud/link` | token | — | — | *Cloud Link* |
-| `GET` | `/api/cloud/status` | token | — | — | *Cloud Status* |
-| `POST` | `/api/cloud/unlink` | token | — | — | *Cloud Unlink* |
+| `POST` | `/api/cloud/backup` | token | — | `CloudBackupUploaded` | *Cloud Backup* |
+| `POST` | `/api/cloud/link` | token | — | `CloudLinked` | *Cloud Link* |
+| `GET` | `/api/cloud/status` | token | — | `CloudStatus` | *Cloud Status* |
+| `POST` | `/api/cloud/unlink` | token | — | `CloudUnlinked` | *Cloud Unlink* |
 | `GET` | `/api/settings/cloud` | token | — | `CloudSettings` | *Get Cloud Settings* |
 | `PUT` | `/api/settings/cloud` | token | — | `SettingsSaved` | *Update Cloud Settings* |
 
@@ -273,15 +273,15 @@ No route. The tutorials and every `PageHelp` entry are renderer assets, shipped 
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/api/admin/erase-ai-keys` | token | — | — | *Admin Erase Ai Keys* |
-| `POST` | `/api/admin/erase-app-data` | token | — | — | Erase the corpus + configs + executions + every API key. |
-| `POST` | `/api/admin/erase-configs` | token | — | — | *Admin Erase Configs* |
-| `POST` | `/api/admin/erase-corpus` | token | — | — | Erase every collected paper. Executions, configs and keys are kept. |
-| `POST` | `/api/admin/erase-execution-data` | token | — | — | Erase all configs + all executions. Settings and API keys untouched. |
-| `POST` | `/api/admin/erase-executions` | token | — | — | *Admin Erase Executions* |
-| `POST` | `/api/admin/erase-repo-keys` | token | — | — | *Admin Erase Repo Keys* |
-| `POST` | `/api/admin/factory-reset` | token | — | — | Erase every secret, config, execution, setting, and collected paper. |
-| `POST` | `/api/admin/reset-settings` | token | — | — | Reset every setting plus erase every API key. Configs/executions kept. |
+| `POST` | `/api/admin/erase-ai-keys` | token | — | `AiKeysErased` | *Admin Erase Ai Keys* |
+| `POST` | `/api/admin/erase-app-data` | token | — | `AppDataErased` | Erase the corpus + configs + executions + every API key. |
+| `POST` | `/api/admin/erase-configs` | token | — | `ConfigurationsErased` | *Admin Erase Configs* |
+| `POST` | `/api/admin/erase-corpus` | token | — | `CorpusErased` | Erase every collected paper. Executions, configs and keys are kept. |
+| `POST` | `/api/admin/erase-execution-data` | token | — | `ExecutionDataErased` | Erase all configs + all executions. Settings and API keys untouched. |
+| `POST` | `/api/admin/erase-executions` | token | — | `ExecutionsErased` | *Admin Erase Executions* |
+| `POST` | `/api/admin/erase-repo-keys` | token | — | `RepositoryKeysErased` | *Admin Erase Repo Keys* |
+| `POST` | `/api/admin/factory-reset` | token | — | `FactoryReset` | Erase every secret, config, execution, setting, and collected paper. |
+| `POST` | `/api/admin/reset-settings` | token | — | `SettingsReset` | Reset every setting plus erase every API key. Configs/executions kept. |
 
 ## J27 — Citation graph
 
@@ -420,13 +420,13 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/api/backup` | token | — | — | Write one bundle: the snapshotted database, the vault's bytes, optionally reports. |
-| `GET` | `/api/backup/last` | token | — | — | The last bundle, the last restore outcome, and whether an undo copy exists. |
-| `POST` | `/api/backup/verify` | token | — | — | Recompute every hash and report what a restore would and would not do. |
-| `POST` | `/api/restore` | token | — | — | Verify a bundle and stage it. The restore itself happens on the next start. |
-| `POST` | `/api/restore/acknowledge` | token | — | — | Dismiss the one-time "what a restore did not bring back" card. |
-| `POST` | `/api/restore/cancel` | token | — | — | Forget a staged restore. Nothing had been moved yet, so nothing is undone. |
-| `POST` | `/api/restore/undo-copy/delete` | token | — | — | Delete the database copies a restore set aside. Irreversible, so confirm-gated. |
+| `POST` | `/api/backup` | token | — | `BackupWritten` | Write one bundle: the snapshotted database, the vault's bytes, optionally reports. |
+| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, and whether an undo copy exists. |
+| `POST` | `/api/backup/verify` | token | — | `BundleReport` | Recompute every hash and report what a restore would and would not do. |
+| `POST` | `/api/restore` | token | — | `RestoreStaged` | Verify a bundle and stage it. The restore itself happens on the next start. |
+| `POST` | `/api/restore/acknowledge` | token | — | `RestoreAcknowledged` | Dismiss the one-time "what a restore did not bring back" card. |
+| `POST` | `/api/restore/cancel` | token | — | `RestoreCancelled` | Forget a staged restore. Nothing had been moved yet, so nothing is undone. |
+| `POST` | `/api/restore/undo-copy/delete` | token | — | `RestoreUndoCopiesDeleted` | Delete the database copies a restore set aside. Irreversible, so confirm-gated. |
 | `GET` | `/api/settings/storage` | token | — | `StorageSettings` | *Get Storage Settings* |
 | `PUT` | `/api/settings/storage` | token | — | `SettingsSaved` | *Update Storage Settings* |
 
