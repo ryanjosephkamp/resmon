@@ -522,6 +522,13 @@ Atlas Health (slice 4): `screens/health/` (the Source wall at `/health`, drawn f
 the "the source wall" and "analytics" slices of `test_response_models.py`; real-app journey
 `e2e/atlas-health.spec.ts`. J16's gate and the authored source's up and down are renderer-free in
 `journeys/drivers/candidate.ts`.
+Atlas Library › Your files (slice 5): `/library/files` (`screens/library/Files.tsx`, `libraryApi.ts`):
+a vault made inside a folder the person chooses, files imported byte for byte (the one route outside
+the typed client, because its body is raw bytes), read as literal text, linked to a paper by its
+number, opened and shown by the engine's verified path. Every Library call sends
+`X-Resmon-Library: 1` (`LibraryOriginGuard`). The routes' bodies are the "the owned library" slice
+of `test_response_models.py`; real-app journey `e2e/atlas-files.spec.ts`, with the folder chooser,
+the opener and the download destination scripted.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
 

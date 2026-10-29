@@ -5,6 +5,7 @@ import { answer, engine } from '../../api/client';
 import { exportReferences, FORMATS, type ReferenceFormat } from '../runs/references';
 import { authors, count, number } from '../today/format';
 import { queueWords } from '../collection/Paper';
+import { LibraryTabs } from './LibraryTabs';
 
 type Filter = 'to_read' | 'read' | 'all';
 
@@ -58,6 +59,7 @@ export function ReadingQueue() {
 
   return (
     <div className="page library">
+      <LibraryTabs />
       <div className="library-head">
         <h1 className="page-title">Reading queue</h1>
         <div className="seg" role="group" aria-label="Show">

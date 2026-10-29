@@ -11,11 +11,13 @@
  * driver's guard requires of that file.
  */
 import { execFileSync } from 'child_process';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { expect, type TestInfo } from '@playwright/test';
 import type {
-  BackendFacts, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord, DrawnAppearance, EmailSettings,
+  BackendFacts, LibraryItem, VaultOnDisk, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord, DrawnAppearance, EmailSettings,
   ExplorerList, ExportedFile, ImportOutcome, InterruptedRow, JourneyDriver, NotificationPreferences, Place,
   PlateReading, ProfileCreation, ProfileMatches, QueuedPaper, RankedList, RoutineFacts, RunHandle, RunNowAnswer,
   SourceOutcome, SourceWallCellView, SourceWallReading, SourceWallView, ThemeChoice, TodayReading, UpcomingFire,
@@ -80,7 +82,9 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'readDaemonPanel' | 'saveConfiguration' | 'exportConfigurations' | 'importConfigurations'
   | 'configureEmail' | 'readEmailSettings' | 'sendATestEmail' | 'setNotificationPreferences'
   | 'readNotificationPreferences'
-  | 'readTheSourceWall' | 'readTheSourceWallCell' | 'readWatchdog' | 'muteTheFinding' | 'readConnectedIdentity'>;
+  | 'readTheSourceWall' | 'readTheSourceWallCell' | 'readWatchdog' | 'muteTheFinding' | 'readConnectedIdentity'
+  | 'chooseAParentFolderForTheLibrary' | 'createTheManagedVault' | 'importIntoTheLibrary' | 'readTheLibraryItems'
+  | 'associateTheLibraryItemWithPaper' | 'readTheVaultOnDisk'>;
 
 /** The reading-queue filter buttons, by the journey's word for each. */
 const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
@@ -107,6 +111,8 @@ function isoDate(at: Date): string {
 
 export function createAtlasDriver(session: Session, testInfo: TestInfo, backend: BackendFacts): AtlasDriver {
   const win = () => session.win;
+  /** The folder chosen for the Library, which the vault is made inside. */
+  let libraryParent: string | null = null;
 
   const notInAtlasYet = (what: string): never => {
     testInfo.skip(true, `Not in Atlas yet: ${what}.`);
@@ -261,6 +267,35 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       countSentence: (await win().locator('.count-sentence').innerText()).trim(),
       rows,
       collapseNote: (await note.count()) ? (await note.innerText()).trim() : '',
+    };
+  };
+
+  /** Library › Your files, opened and read once. */
+  const openFiles = async (): Promise<void> => {
+    await win().evaluate(() => { window.location.hash = '#/library/files'; });
+    await expect(win().getByRole('heading', { name: 'Your files', level: 1 })).toBeVisible({ timeout: 30_000 });
+    await expect(win().locator('.files-page')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+  };
+
+  /** The vault the engine made inside the chosen folder: the one `resmon-library-*` there. */
+  const vaultDirectory = (): string => {
+    if (!libraryParent) throw new Error('no parent folder was chosen for the Library in this journey');
+    const made = fs.readdirSync(libraryParent).filter((name) => name.startsWith('resmon-library-'));
+    expect(made, 'the chosen folder does not hold exactly one library folder').toHaveLength(1);
+    return path.join(libraryParent, made[0]!);
+  };
+
+  /** One file's record as the detail draws it, once the detail is that file's. */
+  const readLibraryDetail = async (fileId: string): Promise<LibraryItem> => {
+    const detail = win().getByRole('region', { name: 'Selected Library item' });
+    await expect(detail).toHaveAttribute('data-file', fileId, { timeout: 30_000 });
+    return {
+      name: (await detail.locator('.lib-detail-name').innerText()).trim(),
+      mediaType: (await detail.locator('[data-library="media"]').innerText()).trim(),
+      sha256: (await detail.locator('[data-library="sha256"]').innerText()).trim(),
+      fileId: (await detail.locator('[data-library="file-id"]').innerText()).trim(),
+      versionId: (await detail.locator('[data-library="version-id"]').innerText()).trim(),
+      associations: (await detail.locator('[data-library="links"] li').allInnerTexts()).map((t) => t.trim()),
     };
   };
 
@@ -460,6 +495,103 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       }, { timeout: 30_000, message: `"${titleFragment}" was never recorded as muted` }).toBe(true);
       await expect(card, 'the record says muted and the finding on screen still does not')
         .toHaveAttribute('data-muted', 'true', { timeout: 30_000 });
+    },
+
+    // — library: your files ----------------------------------------------------
+
+    chooseAParentFolderForTheLibrary: async (): Promise<string> => {
+      // A folder of this session's own, removed with it, as the classic driver
+      // does. The production IPC handler is untouched; only the OS dialog it
+      // calls answers, because nothing automated can operate a native one.
+      const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-library-')));
+      session.alsoRemoveOnClose(parent);
+      await session.app.evaluate(({ dialog }, chosen) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
+      }, parent);
+      await openFiles();
+      await win().getByRole('button', { name: 'Choose parent folder', exact: true }).click();
+      await expect(win().locator('[data-library="parent"]')).toHaveText(parent, { timeout: 30_000 });
+      libraryParent = parent;
+      return parent;
+    },
+
+    createTheManagedVault: async (): Promise<string> => {
+      await openFiles();
+      await win().getByRole('button', { name: 'Create the library here', exact: true }).click();
+      // The control that exists only once there is somewhere to import into.
+      await expect(win().getByLabel('Import PDF, TXT or MD')).toBeEnabled({ timeout: 60_000 });
+      return vaultDirectory();
+    },
+
+    importIntoTheLibrary: async (files): Promise<string> => {
+      await openFiles();
+      const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-import-'));
+      session.alsoRemoveOnClose(staging);
+      const paths = files.map((file) => {
+        const target = path.join(staging, file.name);
+        fs.writeFileSync(target, file.content);
+        return target;
+      });
+      const control = win().getByLabel('Import PDF, TXT or MD');
+      await expect(control).toBeEnabled({ timeout: 60_000 });
+      await control.setInputFiles(paths);
+      // The page's own account of what it did, written once every file was answered.
+      const notice = win().locator('[data-library="imported"]');
+      await expect(notice).toBeVisible({ timeout: 120_000 });
+      return (await notice.innerText()).trim();
+    },
+
+    readTheLibraryItems: async (): Promise<LibraryItem[]> => {
+      await openFiles();
+      const rows = win().getByRole('region', { name: 'Library files' }).locator('button.library-file');
+      await expect(rows.first()).toBeVisible({ timeout: 60_000 });
+      const out: LibraryItem[] = [];
+      for (let i = 0; i < await rows.count(); i += 1) {
+        const row = rows.nth(i);
+        await row.click();
+        out.push(await readLibraryDetail(String(await row.getAttribute('data-file'))));
+      }
+      return out;
+    },
+
+    associateTheLibraryItemWithPaper: async (name, paperId): Promise<string> => {
+      await openFiles();
+      const row = win().locator('button.library-file').filter({ has: win().locator('.lib-name', { hasText: name }) });
+      await row.click();
+      const detail = win().getByRole('region', { name: 'Selected Library item' });
+      await expect(detail).toHaveAttribute('data-file', String(await row.getAttribute('data-file')), { timeout: 30_000 });
+      await detail.locator('#lib-paper').fill(String(paperId));
+      await detail.getByRole('button', { name: 'Link', exact: true }).click();
+      const notice = detail.locator('[data-library="linked"]');
+      await expect(notice).toContainText(`Linked paper ${paperId}`, { timeout: 60_000 });
+      return (await notice.innerText()).trim();
+    },
+
+    readTheVaultOnDisk: async (): Promise<VaultOnDisk> => {
+      const directory = vaultDirectory();
+      const entries: string[] = [];
+      const walk = (at: string): void => {
+        for (const entry of fs.readdirSync(at, { withFileTypes: true })) {
+          const full = path.join(at, entry.name);
+          entries.push(path.relative(directory, full));
+          if (entry.isDirectory()) walk(full);
+        }
+      };
+      walk(directory);
+      const marker = path.join(directory, 'vault.json');
+      const hashes: Record<string, string> = {};
+      for (const entry of entries) {
+        const full = path.join(directory, entry);
+        if (!fs.statSync(full).isDirectory() && entry !== 'vault.json') {
+          hashes[entry] = createHash('sha256').update(fs.readFileSync(full)).digest('hex');
+        }
+      }
+      return {
+        directory: path.basename(directory),
+        marker: fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : '',
+        entries: entries.sort(),
+        hashes,
+      };
     },
 
     readConnectedIdentity: async () => {
