@@ -2790,3 +2790,196 @@ class LibraryText(LosslessModel):
     byte_size: int
     line_count: int
     text: str
+
+
+# ---------------------------------------------------------------------------
+# Evidence projects
+# ---------------------------------------------------------------------------
+#
+# Every Evidence body is an envelope: ``contract_version: 1``, the vault, and
+# the project where there is one. Lists page by ascending id under a fixed
+# ceiling and say what their ``total`` counts (``count_basis``). A file's
+# membership and a note's ``resolution`` say ``not_checked``: a list reads
+# records, and does not re-hash the bytes they name.
+
+
+class EvidenceProject(LosslessModel):
+    """A project row as stored, with its current counts."""
+
+    id: int
+    project_id: str
+    vault_id: str
+    name: str
+    revision: int
+    created_at_utc: str
+    updated_at_utc: str
+    file_count: int
+    note_count: int
+
+
+class EvidenceFileRecord(LosslessModel):
+    """The exact Library file and version a membership or a note is pinned to."""
+
+    file_id: str
+    version_id: str
+    vault_id: str
+    sha256: str
+    byte_size: int
+    media_type: str
+    original_name: str
+    created_at_utc: str
+
+
+class EvidenceMembership(LosslessModel):
+    id: int
+    project_id: str
+    file_id: str
+    version_id: str
+    added_at_utc: str
+
+
+class EvidenceMember(EvidenceMembership):
+    """A membership with its file's record, as a list shows it."""
+
+    file: EvidenceFileRecord
+    availability: str
+
+
+class EvidenceNote(LosslessModel):
+    """A plain note, or a passage pinned to a page, an extraction contract,
+    the page text's hash and exact codepoint offsets. The anchor fields are
+    ``None`` on a plain note. ``membership_state`` says whether its file is
+    still in the project."""
+
+    id: int
+    note_id: str
+    project_id: str
+    file_id: str
+    version_id: str
+    kind: str
+    body: str
+    page_number: Optional[int]
+    extraction_contract: Optional[str]
+    page_text_sha256: Optional[str]
+    start_codepoint: Optional[int]
+    end_codepoint: Optional[int]
+    quote: Optional[str]
+    revision: int
+    created_at_utc: str
+    updated_at_utc: str
+    file: EvidenceFileRecord
+    membership_state: str
+    resolution: str
+
+
+class EvidenceProjects(LosslessModel):
+    """``GET /api/evidence/projects``."""
+
+    contract_version: int
+    vault_id: str
+    projects: list[EvidenceProject]
+    through_id: int
+    next_after_id: Optional[int]
+    has_more: bool
+    total: int
+    count_basis: str
+
+
+class EvidenceProjectDetail(LosslessModel):
+    """``POST /api/evidence/projects``, ``GET`` and ``PATCH .../{project_id}``."""
+
+    contract_version: int
+    vault_id: str
+    project_id: str
+    project: EvidenceProject
+
+
+class EvidenceMembers(LosslessModel):
+    """``GET .../{project_id}/files``, at the project's current revision."""
+
+    contract_version: int
+    vault_id: str
+    project_id: str
+    revision: int
+    files: list[EvidenceMember]
+    through_id: int
+    next_after_id: Optional[int]
+    has_more: bool
+    total: int
+    count_basis: str
+
+
+class EvidenceMemberAdded(LosslessModel):
+    """``POST .../{project_id}/files``: ``added`` is false when the file was already a member."""
+
+    contract_version: int
+    vault_id: str
+    project_id: str
+    project: EvidenceProject
+    membership: EvidenceMembership
+    added: bool
+
+
+class EvidenceMemberRemoved(LosslessModel):
+    """``DELETE .../{project_id}/files/{file_id}``: membership only; the file and its notes stay."""
+
+    contract_version: int
+    vault_id: str
+    project_id: str
+    project: EvidenceProject
+    removed: bool
+
+
+class EvidenceNotes(LosslessModel):
+    """``GET .../{project_id}/notes``."""
+
+    contract_version: int
+    vault_id: str
+    project_id: str
+    revision: int
+    notes: list[EvidenceNote]
+    through_id: int
+    next_after_id: Optional[int]
+    has_more: bool
+    total: int
+    count_basis: str
+
+
+class EvidenceNoteSaved(LosslessModel):
+    """``POST .../{project_id}/notes`` and ``PATCH .../notes/{note_id}``."""
+
+    contract_version: int
+    vault_id: str
+    project_id: str
+    project: EvidenceProject
+    note: EvidenceNote
+
+
+class EvidencePageText(LosslessModel):
+    """``GET .../{project_id}/reader/{file_id}?representation=text``: one page's canonical text.
+
+    ``status`` is ``extracted``, ``no_text``, ``unsupported``, ``malformed``,
+    ``limit_exceeded``, ``timeout`` or ``unavailable``, and only ``extracted``
+    carries a ``page_text_sha256`` a passage can be pinned to. ``examined_pages``
+    names the page read; every other page is ``not_examined``. ``coverage`` is
+    the sentence a reader shows: canonical text may omit or reshape a page.
+    ``representation=pdf`` answers with the verified bytes instead, outside
+    this model.
+    """
+
+    contract_version: int
+    vault_id: str
+    project_id: str
+    file_id: str
+    version_id: str
+    sha256: str
+    media_type: str
+    status: str
+    page_number: int
+    page_count: Optional[int]
+    text: str
+    extraction_contract: str
+    page_text_sha256: Optional[str]
+    examined_pages: list[int]
+    remaining_pages: str
+    coverage: str

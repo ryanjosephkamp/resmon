@@ -12,7 +12,7 @@
 
 **Purpose.** The first line of the endpoint's docstring, for the 94 of 194 routes that have one. The remaining 100 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 111 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 83 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 122 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 72 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -351,18 +351,18 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/evidence/projects` | token | — | — | *Evidence Projects* |
-| `POST` | `/api/evidence/projects` | token | — | — | *Evidence Create Project* |
-| `GET` | `/api/evidence/projects/{project_id}` | token | — | — | *Evidence Project Detail* |
-| `PATCH` | `/api/evidence/projects/{project_id}` | token | — | — | *Evidence Rename Project* |
+| `GET` | `/api/evidence/projects` | token | — | `EvidenceProjects` | *Evidence Projects* |
+| `POST` | `/api/evidence/projects` | token | — | `EvidenceProjectDetail` | *Evidence Create Project* |
+| `GET` | `/api/evidence/projects/{project_id}` | token | — | `EvidenceProjectDetail` | *Evidence Project Detail* |
+| `PATCH` | `/api/evidence/projects/{project_id}` | token | — | `EvidenceProjectDetail` | *Evidence Rename Project* |
 | `POST` | `/api/evidence/projects/{project_id}/bundle` | token | — | — | *Evidence Bundle* |
-| `GET` | `/api/evidence/projects/{project_id}/files` | token | — | — | *Evidence Files* |
-| `POST` | `/api/evidence/projects/{project_id}/files` | token | — | — | *Evidence Add File* |
-| `DELETE` | `/api/evidence/projects/{project_id}/files/{file_id}` | token | — | — | *Evidence Remove File* |
-| `GET` | `/api/evidence/projects/{project_id}/notes` | token | — | — | *Evidence Notes* |
-| `POST` | `/api/evidence/projects/{project_id}/notes` | token | — | — | *Evidence Create Note* |
-| `PATCH` | `/api/evidence/projects/{project_id}/notes/{note_id}` | token | — | — | *Evidence Edit Note* |
-| `GET` | `/api/evidence/projects/{project_id}/reader/{file_id}` | token | — | — | *Evidence Read* |
+| `GET` | `/api/evidence/projects/{project_id}/files` | token | — | `EvidenceMembers` | *Evidence Files* |
+| `POST` | `/api/evidence/projects/{project_id}/files` | token | — | `EvidenceMemberAdded` | *Evidence Add File* |
+| `DELETE` | `/api/evidence/projects/{project_id}/files/{file_id}` | token | — | `EvidenceMemberRemoved` | *Evidence Remove File* |
+| `GET` | `/api/evidence/projects/{project_id}/notes` | token | — | `EvidenceNotes` | *Evidence Notes* |
+| `POST` | `/api/evidence/projects/{project_id}/notes` | token | — | `EvidenceNoteSaved` | *Evidence Create Note* |
+| `PATCH` | `/api/evidence/projects/{project_id}/notes/{note_id}` | token | — | `EvidenceNoteSaved` | *Evidence Edit Note* |
+| `GET` | `/api/evidence/projects/{project_id}/reader/{file_id}` | token | — | `EvidencePageText` | *Evidence Read* |
 
 ## J36 — Selected-evidence answers
 
