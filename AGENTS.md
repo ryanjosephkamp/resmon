@@ -87,8 +87,8 @@ shape changes its output: the same test compares them.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 1054 tests across 102 suites
-npm run e2e                                      # the real Electron app — 136 cases in 53 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 1056 tests across 102 suites
+npm run e2e                                      # the real Electron app — 137 cases in 54 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -562,6 +562,15 @@ claims, and a saved conversation says its completion is unknown. ⌘/ (Ctrl+/) o
 caret in the composer. Settings › AI (`settings/Ai.tsx`) holds the summary lane and Ask's defaults,
 and Search's *Summarize each paper* sends `ai_enabled`. The routes' bodies are the "assistant" slice
 of `test_response_models.py`; real-app journey `e2e/atlas-ask.spec.ts`, on `fake_claude.py`.
+Atlas Settings' last groups and Today's first-run card (`settings/Sources.tsx`, `Storage.tsx`,
+`Cloud.tsx`, `Tutorials.tsx`, `DangerZone.tsx`, `today/FirstRun.tsx`): Sources draws a stored key
+as a fixed 12-character mask and every required credit unconditionally; Backup writes to the chosen
+`export_directory` (unset, the system's temporary folder, which it says) and names Google Drive for
+desktop's folder as the way to keep a copy in Drive; Cloud Storage is the existing Google sign-in
+upload of the reports folder, carried unchanged; the Danger zone's typed erasures need CONFIRM,
+which the engine checks again. The admin, backup, restore and cloud bodies are the "danger zone",
+"backup", "restore" and "cloud storage" slices of `test_response_models.py`; real-app journey
+`e2e/atlas-edges.spec.ts`, which uses an in-memory keyring so a stored key's mask is checked.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
 

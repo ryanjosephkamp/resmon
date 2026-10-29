@@ -51,3 +51,21 @@ test('every group has its own address, and Appearance is Settings itself', () =>
   expect(groupPath('')).toBe('/settings');
   expect(groupPath('email')).toBe('/settings/email');
 });
+
+test('an erasure is reported in the engine’s own counts, and nothing it did not count', async () => {
+  const { removedWords } = await import('../DangerZone');
+  expect(removedWords({ success: true, documents_removed: 0 })).toBe('Removed 0 papers.');
+  expect(removedWords({ success: true, configs_removed: 2, executions_removed: 5 })).toBe('Removed 2 saved configurations, 5 runs.');
+  expect(removedWords({ success: true, ai_keys_removed: 3 })).toBe('Removed 3 AI keys.');
+  expect(removedWords({ success: true, reset: 'all' })).toBe('Done.');
+  expect(removedWords({ widgets_removed: 1 })).toBe('Removed 1 widgets.');
+  expect(removedWords(null)).toBe('Done.');
+});
+
+test('every Settings group has its own address, and the rail lists each once', async () => {
+  const { GROUPS, groupPath } = await import('../model');
+  const slugs = GROUPS.map((g) => g.slug);
+  expect(new Set(slugs).size).toBe(slugs.length);
+  expect(slugs).toEqual(['', 'background', 'email', 'notifications', 'ai', 'sources', 'storage', 'cloud', 'tutorials', 'danger']);
+  expect(groupPath('danger')).toBe('/settings/danger');
+});

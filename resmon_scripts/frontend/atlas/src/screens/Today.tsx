@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../api/client';
 import type { components } from '../api/schema';
 import { useAppearance } from '../theme/appearance';
+import { FirstRun } from './today/FirstRun';
 import { Plate, PlateKey, type PlateHandle, type PlateHover } from './today/Plate';
 import { TodayIndex, type IndexPaper, type Region } from './today/TodayIndex';
 import { authors, count, daysAgo, fullDate, number, when } from './today/format';
@@ -232,8 +233,9 @@ export function Today() {
             )}
           </Plate>
         ) : (
-          <div className="plate plate-waiting" role="status">
-            <p>{waitingSentence(map.data, map.isPending)}</p>
+          <div className="plate plate-waiting">
+            <p role="status">{waitingSentence(map.data, map.isPending)}</p>
+            <FirstRun />
           </div>
         )}
         <PlateKey newLabel={heading.replace(/^New/, 'new')} showWatches={shapes.length > 0} />

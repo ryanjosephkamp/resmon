@@ -49,6 +49,11 @@ const RENDERER_FREE = new Set<string>([
   'useAnAuthoredAgentCommand', 'useAnAuthoredAgentCommandThatRecordsItsArguments', 'readWhatTheAgentCommandReceived',
   'useAnAuthoredProviderOnAKey', 'readWhatTheProviderReceived', 'readAssistantSettings',
   'useAnAuthoredSummarizerThatIsNotSignedIn',
+  // J42 and J44: a raw socket that is not this renderer, and the MCP server
+  // an outside harness starts. Neither goes through a window.
+  'askOverTheRawSocket', 'askTheMcpServer',
+  // J41: a fresh state directory and a staged restore, then a real start.
+  'restoreIntoFreshState',
 ]);
 
 export function createCandidateDriver(session: Session, testInfo: TestInfo): JourneyDriver {

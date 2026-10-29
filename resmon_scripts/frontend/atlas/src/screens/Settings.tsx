@@ -9,8 +9,13 @@ import {
 import { useAppearance, type ThemeChoice } from '../theme/appearance';
 import { Ai } from './settings/Ai';
 import { Background } from './settings/Background';
+import { Cloud } from './settings/Cloud';
+import { DangerZone } from './settings/DangerZone';
 import { Email } from './settings/Email';
 import { Notifications } from './settings/Notifications';
+import { Sources } from './settings/Sources';
+import { Storage } from './settings/Storage';
+import { Tutorials } from './settings/Tutorials';
 import { GROUPS, groupPath } from './settings/model';
 
 /** The tones of one theme as inline custom properties, for a sample drawn in it. */
@@ -138,6 +143,11 @@ export function Settings() {
           {known?.slug === 'email' && <Email />}
           {known?.slug === 'notifications' && <Notifications />}
           {known?.slug === 'ai' && <Ai />}
+          {known?.slug === 'sources' && <Sources />}
+          {known?.slug === 'storage' && <Storage />}
+          {known?.slug === 'cloud' && <Cloud />}
+          {known?.slug === 'tutorials' && <Tutorials />}
+          {known?.slug === 'danger' && <DangerZone />}
         </div>
       </div>
     </section>
