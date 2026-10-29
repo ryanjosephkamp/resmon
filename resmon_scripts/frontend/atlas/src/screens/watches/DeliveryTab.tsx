@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { when } from '../today/format';
+import { Destinations } from './Destinations';
 import { CHANNEL_WORDS, deliveryWords, destinationWords, instant, type Delivery } from './model';
 
 type Decision = 'deliver' | 'skip' | 'retry';
@@ -11,8 +12,8 @@ type Decision = 'deliver' | 'skip' | 'retry';
 const MOVING = new Set(['queued', 'delivering']);
 
 /**
- * "Where did this go?": a watch's destinations, and the record of every
- * report's journey to each.
+ * "Where did this go?": a watch's destinations, changed here, and the record
+ * of every report's journey to each.
  *
  * Every column is a fact the engine stored, not a state inferred here:
  * "delivered" is never read off the absence of an error. Three decisions are
@@ -20,7 +21,7 @@ const MOVING = new Set(['queued', 'delivering']);
  * review, **Skip** decides not to send it, and **Retry** starts the attempts
  * again after the backoff gave up.
  */
-export function DeliveryTab({ routineId }: { routineId: number }) {
+export function DeliveryTab({ routineId, emailOn }: { routineId: number; emailOn: boolean }) {
   const client = useQueryClient();
   const [now] = useState(() => new Date());
   const targets = useQuery({
@@ -51,25 +52,7 @@ export function DeliveryTab({ routineId }: { routineId: number }) {
   return (
     <div className="delivery" aria-busy={record.isFetching}>
       <h3 className="record-sub">Destinations</h3>
-      {targets.isPending && <p className="record-cap">Reading the destinations.</p>}
-      {targets.data && !targets.data.targets.length && (
-        <p className="record-cap">
-          None. Each run&rsquo;s report stays in resmon; a destination sends it on, to an address, a folder your
-          cloud drive syncs, a feed, or a webhook.
-        </p>
-      )}
-      <ul className="destinations">
-        {(targets.data?.targets ?? []).map((target) => (
-          <li key={target.id} data-channel={target.channel} data-enabled={target.enabled ? 'true' : 'false'}>
-            <span className="delivery-channel">{CHANNEL_WORDS[target.channel] ?? target.channel}</span>
-            <span className="delivery-where">{destinationWords(target.channel, target.target)}</span>
-            <span className="record-cap">
-              {target.mode === 'review' ? 'each report waits for you' : 'sent when the run finishes'}
-              {target.enabled ? '' : ' · turned off'}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <Destinations routineId={routineId} emailOn={emailOn} />
 
       <h3 className="record-sub">Deliveries</h3>
       {record.isPending && <p className="record-cap">Reading the record.</p>}
