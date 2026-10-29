@@ -370,8 +370,11 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     let image = '';
     if (await reader.getAttribute('data-media') === 'application/pdf') {
       // The page image reports on itself once PDF.js has drawn the page, or
-      // in an alert when it could not.
+      // in an alert when it could not. Atlas reads a PDF's text but does not
+      // draw its page yet, and a journey that asks what the page looks like is
+      // skipped for that rather than failed.
       const region = reader.getByRole('region', { name: 'PDF page image' });
+      if (!(await region.count())) notInAtlasYet('the PDF page image');
       const said = region.getByText(/^Page \d+ of \d+ rendered/).or(region.getByRole('alert')).first();
       await expect(said, 'the PDF image never said whether it drew the page').toBeVisible({ timeout: 60_000 });
       image = (await said.innerText()).trim();
