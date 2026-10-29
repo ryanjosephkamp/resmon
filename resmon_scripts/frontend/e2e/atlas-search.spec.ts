@@ -16,6 +16,7 @@
  * J29 and J38 drive the same screens through `journeys/drivers/atlas.ts`; this
  * spec is the part of that which runs on every pull request.
  */
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as net from 'net';
@@ -150,19 +151,23 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await win.locator('[data-record="save-search-record"]').click();
     await expect.poll(() => contents(recordFile), { timeout: 30_000 }).toMatch(/^# Search record/);
 
-    // The bundle is written by the engine, which says where; with no folder
-    // chosen it is the system's temporary folder, and the page says so.
-    const bundled = win.waitForResponse((r) => r.url().endsWith('/api/executions/export'));
+    // The bundle is built by the engine and saved like the rest: a download,
+    // never a path the engine chose. Read with the backend's own interpreter.
+    const bundleFile = path.join(stateDir, 'atlas-bundle.zip');
+    await downloadTo(bundleFile);
     await win.locator('[data-run="bundle"]').click();
-    const bundlePath = String(((await (await bundled).json()) as { path: string }).path);
-    try {
-      const written = win.locator('[data-run="bundle-written"]');
-      await expect(written.locator('code')).toHaveText(bundlePath, { timeout: 30_000 });
-      await expect(written).toContainText('temporary folder');
-      expect(fs.readFileSync(bundlePath).subarray(0, 4).join(',')).toBe('80,75,3,4');
-    } finally {
-      fs.rmSync(bundlePath, { force: true });
+    await expect.poll(() => (fs.existsSync(bundleFile) ? fs.statSync(bundleFile).size : 0), { timeout: 60_000 }).toBeGreaterThan(0);
+    const members = JSON.parse(execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', `
+import json, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    assert z.testzip() is None
+    print(json.dumps(z.namelist()))
+`, bundleFile], { encoding: 'utf8' })) as string[];
+    for (const member of ['manifest.json', `execution_${runId}/metadata.json`, `execution_${runId}/search-record.md`]) {
+      expect(members, `the bundle has no ${member}`).toContain(member);
     }
+    expect(members.some((m) => m.startsWith(`execution_${runId}/`) && m.endsWith('.md') && !m.endsWith('search-record.md')),
+      'the bundle carries no report').toBe(true);
 
     // Export: the real download, with only the destination chosen here.
     const destination = path.join(stateDir, 'atlas-search.bib');

@@ -1864,7 +1864,12 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     restartRun: async (run) => {
       await openSearch();
       const row = win().locator(`.run-row[data-run="${run.id}"]`);
-      await row.getByRole('button', { name: 'Restart' }).click();
+      // Restart says what it will do before anything starts: the AI choice and
+      // where the run is sent are read, then the restart is confirmed.
+      await row.getByRole('button', { name: 'Restart…', exact: true }).click();
+      await expect(row.locator('[data-run="restart-facts"]'), 'Restart started a run without saying what it does')
+        .toContainText('Email and delivery', { timeout: 15_000 });
+      await row.getByRole('button', { name: 'Restart this run', exact: true }).click();
       let next = 0;
       await expect.poll(async () => {
         const rows = await backend.executions();

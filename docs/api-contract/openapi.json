@@ -16628,6 +16628,46 @@
         "summary": "Create Configuration"
       }
     },
+    "/api/configurations/archive": {
+      "post": {
+        "description": "The same archive ``POST /api/configurations/export`` writes, as bytes.\n\nThe export route writes to a folder the engine chooses and answers with\nthe path, which with no export folder chosen is the system's temporary\nfolder. This one answers with the archive itself, so a renderer can hand\nit to the system's save dialog and the person chooses where it goes.\n``export_configs`` builds it, so the two can never be two formats. An id\nthat is no longer saved is left out, as the export route leaves it out, and\na choice with none still saved is a 404 rather than an empty archive.",
+        "operationId": "download_configurations_api_configurations_archive_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigExport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The archive, as a download."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Configurations"
+      }
+    },
     "/api/configurations/export": {
       "post": {
         "operationId": "export_configurations_api_configurations_export_post",
@@ -18523,6 +18563,47 @@
           }
         },
         "summary": "Get Execution"
+      }
+    },
+    "/api/executions/{exec_id}/bundle": {
+      "get": {
+        "description": "One run's bundle as bytes: the archive ``POST /api/executions/export`` writes.\n\nThe report, its PDF and LaTeX where a LaTeX engine could make them, the\nlog, the metadata and the search record, built by ``_delivery_bundle``,\nthe one builder the export route and the delivery queue share. The export\nroute answers with a path on disk; this one with the archive itself, so a\nrenderer can hand it to the save dialog.",
+        "operationId": "download_execution_bundle_api_executions__exec_id__bundle_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exec_id",
+            "required": true,
+            "schema": {
+              "title": "Exec Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The archive, as a download."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Execution Bundle"
       }
     },
     "/api/executions/{exec_id}/cancel": {

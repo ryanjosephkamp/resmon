@@ -1,19 +1,16 @@
 /**
- * A run's own record, saved as files: the report and the search record as
- * Markdown, and the run's bundle.
+ * A run's own record, and saved searches, saved as files: each is something
+ * the engine answers, handed to the system as a download, which asks where to
+ * save it, as every export in Atlas does.
  *
- * The first two are text the engine answers, handed to the system as a
- * download, which asks where to save it, as every other export in Atlas does.
- * The bundle cannot travel that way. The engine builds it (the report, its PDF
- * and LaTeX where a LaTeX engine could make them, the log, the metadata and
- * the search record, the archive classic's Export wrote) and writes it to a
- * folder itself, answering with the path: the folder chosen under Settings ›
- * Backup, or the system's temporary folder when none is chosen, which is said
- * rather than left for the person to find out.
+ * The report and the search record are Markdown text. The run's bundle (the
+ * report, its PDF and LaTeX where a LaTeX engine could make them, the log, the
+ * metadata, and the search record) and the saved-search archive are ZIPs the
+ * engine builds with the same code that writes them for classic's exports.
  */
-import { answer, engine, EngineError } from '../../api/client';
+import { EngineError, engineSentence, engine } from '../../api/client';
 
-/** Hand text the engine composed to the system as a download. */
+/** Hand bytes or text the engine composed to the system as a download. */
 export function saveFile(content: BlobPart, filename: string, type: string): void {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a');
@@ -37,27 +34,35 @@ export async function saveSearchRecord(id: number): Promise<void> {
     parseAs: 'text',
   });
   if (error !== undefined || typeof data !== 'string') {
-    const detail = typeof error === 'object' && error && 'detail' in error ? String((error as { detail: unknown }).detail) : null;
-    throw new EngineError(response.status, 'The search record could not be saved.', detail);
+    throw new EngineError(response.status, 'The search record could not be saved.', engineSentence(error));
   }
   saveFile(data, `resmon-search-record-${id}.md`, 'text/markdown;charset=utf-8');
 }
 
-/** Where the engine wrote a run's bundle, and whether that is the system's temporary folder. */
-export interface WrittenBundle {
-  path: string;
-  temporary: boolean;
+/**
+ * A ZIP the engine answered, saved under this name. An answer that does not
+ * begin as a ZIP does is not handed on as one: a file that will not open is
+ * worse than a refusal that says so.
+ */
+export async function saveZip(
+  request: Promise<{ data?: ArrayBuffer; error?: unknown; response: Response }>,
+  filename: string,
+  what: string,
+): Promise<void> {
+  const { data, error, response } = await request;
+  if (error !== undefined || !(data instanceof ArrayBuffer)) {
+    throw new EngineError(response.status, `${what} could not be saved.`, engineSentence(error));
+  }
+  if (new Uint8Array(data, 0, Math.min(4, data.byteLength)).join(',') !== '80,75,3,4') {
+    throw new EngineError(0, `The engine’s answer is not a ZIP archive, so ${what.toLowerCase()} was not saved.`);
+  }
+  saveFile(data, filename, 'application/zip');
 }
 
-/**
- * Ask the engine to write the run's bundle, and say where it went. Whether
- * the folder is the person's own is read from the same setting the engine
- * chose by, rather than guessed from the path's shape.
- */
-export async function writeBundle(id: number): Promise<WrittenBundle> {
-  const written = (await answer(engine().POST('/api/executions/export', { body: { ids: [id] } }))) as { path?: unknown };
-  const path = typeof written.path === 'string' ? written.path : '';
-  if (!path) throw new EngineError(0, 'The engine wrote the bundle and did not say where.');
-  const folder = (await answer(engine().GET('/api/settings/storage'))).export_directory ?? '';
-  return { path, temporary: !folder };
+/** The run's bundle, built by the engine, saved where the person chooses. */
+export function saveBundle(id: number): Promise<void> {
+  return saveZip(engine().GET('/api/executions/{exec_id}/bundle', {
+    params: { path: { exec_id: id } },
+    parseAs: 'arrayBuffer',
+  }), `resmon-bundle-${id}.zip`, 'The bundle');
 }

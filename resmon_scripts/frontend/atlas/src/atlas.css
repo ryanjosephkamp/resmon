@@ -485,6 +485,9 @@ kbd {
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
 .run-note { margin: 6px 0 0; font: 400 13px/1.45 var(--sans); color: var(--ink-2); max-width: 62ch; }
 .run-restart { margin-top: 8px; }
+.run-restart-confirm { margin-top: 8px; }
+.run-restart-confirm .run-restart-facts { margin-top: 0; }
+.run-restart-confirm .form-actions { margin-top: 10px; }
 
 /* ------------------------------------------------------------------ run */
 
@@ -505,8 +508,7 @@ kbd {
 .run-restart-facts > div { display: grid; grid-template-columns: minmax(120px, 160px) minmax(0, 1fr); gap: 12px; padding: 6px 0; border-top: 1px solid var(--rule); }
 .run-restart-facts dt { font: 400 13px/1.45 var(--sans); color: var(--ink-3); }
 .run-restart-facts dd { margin: 0; font: 400 13px/1.45 var(--sans); color: var(--ink-2); }
-.run-restart-facts a, .run-head .settings-said a { color: var(--ink); text-underline-offset: 3px; }
-.run-head .settings-said .btn { margin-left: 4px; }
+.run-restart-facts a { color: var(--ink); text-underline-offset: 3px; }
 
 .run-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: 44px; margin-top: 30px; align-items: start; }
 .coverage-sentence { margin: 0 0 14px; font: 500 17px/1.45 var(--sans); color: var(--ink); max-width: 62ch; text-wrap: pretty; }

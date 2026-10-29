@@ -1,4 +1,4 @@
-import { importedWords } from '../Saved';
+import { archiveName, importedWords } from '../Saved';
 import { savedAsks, savedKind, savedParameters } from '../savedSearches';
 
 describe('a saved search, read back', () => {
@@ -49,6 +49,10 @@ describe('what Save this search stores', () => {
     const { config_type, parameters } = savedParameters({ ...form, mode: 'sweep' });
     expect(savedAsks({ config_type, parameters })).toMatchObject({ sources: form.sources, keywords: form.keywords, cap: 100 });
   });
+});
+
+test('an exported archive is named for the moment it was made, in local time', () => {
+  expect(archiveName(new Date(2026, 9, 29, 16, 4, 2))).toBe('resmon-saved-20261029T160402.zip');
 });
 
 describe('what an import says it did', () => {

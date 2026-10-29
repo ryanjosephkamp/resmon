@@ -2,14 +2,14 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
-import { bridge, systemName } from '../bridge';
 import { Icon } from '../shell/Icon';
 import { duration, when } from './today/format';
 import {
-  FINAL_EVENTS, interruptedSentence, liveSources, RESTARTABLE, restartFacts, runKind, runTitle, selectedSources,
+  FINAL_EVENTS, interruptedSentence, liveSources, RESTARTABLE, runKind, runTitle, selectedSources,
   type CoverageSource, type ProgressEvent, type Run as RunData,
 } from './runs/model';
-import { writeBundle } from './runs/downloads';
+import { saveBundle } from './runs/downloads';
+import { RestartFacts } from './runs/RestartFacts';
 import { exportReferences, FORMATS, type ReferenceFormat } from './runs/references';
 import { RUNS_KEY } from './runs/RunLog';
 import { RunSky } from './runs/RunSky';
@@ -115,7 +115,7 @@ export function Run() {
   const exporting = useMutation({
     mutationFn: (format: ReferenceFormat) => exportReferences({ execution_ids: [id] }, format, `resmon-references-${id}`),
   });
-  const bundle = useMutation({ mutationFn: (runId: number) => writeBundle(runId) });
+  const bundle = useMutation({ mutationFn: (runId: number) => saveBundle(runId) });
 
   const live = useMemo(
     () => (run.data ? liveSources(selectedSources(run.data), events.data ?? [], run.data.status !== 'running') : []),
@@ -142,8 +142,6 @@ export function Run() {
   // A stop is cooperative: the run ends at its next checkpoint, so the screen
   // says a stop was asked for until the run says it has ended.
   const stopping = running && stop.variables === id && (stop.isPending || stop.isSuccess);
-  const written = bundle.variables === id ? bundle.data ?? null : null;
-  const reveal = bridge()?.revealPath;
   const failure = (stop.variables === id ? stop.error : null) ?? restart.error ?? exporting.error
     ?? (bundle.variables === id ? bundle.error : null);
 
@@ -176,7 +174,7 @@ export function Run() {
             {!running && (
               <button type="button" className="btn" data-run="bundle" disabled={bundle.isPending}
                 aria-describedby="run-bundle-what" onClick={() => bundle.mutate(id)}>
-                <Icon name="download" size={14} />{bundle.isPending ? 'Writing the bundle' : 'Bundle'}
+                <Icon name="download" size={14} />{bundle.isPending && bundle.variables === id ? 'Building the bundle' : 'Bundle'}
               </button>
             )}
           </div>
@@ -210,21 +208,6 @@ export function Run() {
           <p id="run-bundle-what" className="sr-only">
             The run&rsquo;s bundle: its report, with a PDF and LaTeX where they could be made, the log, the metadata, and the
             search record, in one archive.
-          </p>
-        )}
-        {written && (
-          <p className="settings-said" role="status" data-run="bundle-written">
-            Wrote the run&rsquo;s bundle (its report, with a PDF and LaTeX where they could be made, the log, the metadata,
-            and the search record) to <code className="path">{written.path}</code>.
-            {written.temporary && (
-              <> No folder is chosen under <Link to="/settings/storage">Settings › Backup</Link>, so it is in the
-                system&rsquo;s temporary folder, which the system may empty; move it somewhere you keep.</>
-            )}
-            {reveal && (
-              <>{' '}<button type="button" className="btn sm quiet" onClick={() => void reveal(written.path)}>
-                Show in {systemName() === 'macOS' ? 'Finder' : 'its folder'}
-              </button></>
-            )}
           </p>
         )}
         {failure && <p className="field-error" role="alert">{refusal(failure)}</p>}
@@ -264,27 +247,5 @@ export function Run() {
 
       <RunTabs run={data} live={live} names={names} events={events.data ?? []} papers={papers.data ?? null} running={running} />
     </div>
-  );
-}
-
-/**
- * What Restart will and will not do, beside the button: a person deciding
- * whether to start a run again needs to know whether it summarizes with AI
- * and whether it is emailed or delivered before pressing it, not after.
- */
-function RestartFacts({ run }: { run: RunData }) {
-  const facts = restartFacts(run);
-  return (
-    <dl className="run-restart-facts" aria-label="What Restart does" data-run="restart-facts">
-      <div><dt>Restart asks</dt><dd>The same sources, terms, dates, and cap this run recorded, as a new run.</dd></div>
-      <div><dt>AI summaries</dt><dd>{facts.ai}</dd></div>
-      <div>
-        <dt>Email and delivery</dt>
-        <dd>
-          {facts.delivery}
-          {facts.watchId !== null && <>{' '}<Link to={`/watches/${facts.watchId}`}>Open the watch</Link></>}
-        </dd>
-      </div>
-    </dl>
   );
 }
