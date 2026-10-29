@@ -590,12 +590,23 @@ def credentials_presence():
     build stored, and reporting that as "absent" tells the user their keys
     are gone when they are simply unreachable. ``keyring_responsive`` is
     False once a read has timed out, so the interface can say so once at the
-    top rather than fifteen times over.
+    top rather than fifteen times over. Each webhook destination's signing
+    secret (``webhook_secret_<id>``) is included for every webhook stored.
     """
+    # Each webhook destination's signing secret is named after its row, so
+    # those names come from this corpus. Without them a saved secret was never
+    # reported, and the destinations list said "no secret yet" after one was
+    # stored.
+    conn = _get_db()
+    try:
+        webhook_names = {delivery.webhook_secret_name(i) for i in delivery.webhook_target_ids(conn)}
+    finally:
+        _close_db(conn)
     names = sorted(
         catalog_credential_names()
         | AI_CREDENTIAL_NAMES
         | SMTP_CREDENTIAL_NAMES
+        | webhook_names
     )
     statuses = {name: probe_credential(name) for name in names}
     return {
