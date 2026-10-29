@@ -12,7 +12,7 @@
 
 **Purpose.** The first line of the endpoint's docstring, for the 94 of 194 routes that have one. The remaining 100 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 122 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 72 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 127 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 67 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -368,11 +368,11 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/api/evidence/projects/{project_id}/answer-previews` | token | — | — | *Selected Answer Preview* |
-| `GET` | `/api/evidence/projects/{project_id}/answers` | token | — | — | *Selected Answer History* |
-| `POST` | `/api/evidence/projects/{project_id}/answers` | token | — | — | *Selected Answer Send* |
-| `GET` | `/api/evidence/projects/{project_id}/answers/{answer_id}` | token | — | — | *Selected Answer Detail* |
-| `POST` | `/api/evidence/projects/{project_id}/answers/{answer_id}/cancel` | token | — | — | *Selected Answer Cancel* |
+| `POST` | `/api/evidence/projects/{project_id}/answer-previews` | token | — | `SelectedPreview` | *Selected Answer Preview* |
+| `GET` | `/api/evidence/projects/{project_id}/answers` | token | — | `SelectedAnswers` | *Selected Answer History* |
+| `POST` | `/api/evidence/projects/{project_id}/answers` | token | — | `SelectedAnswer` | *Selected Answer Send* |
+| `GET` | `/api/evidence/projects/{project_id}/answers/{answer_id}` | token | — | `SelectedAnswer` | *Selected Answer Detail* |
+| `POST` | `/api/evidence/projects/{project_id}/answers/{answer_id}/cancel` | token | — | `SelectedAnswer` | *Selected Answer Cancel* |
 | `GET` | `/api/evidence/projects/{project_id}/answers/{answer_id}/events` | token | yes | — | *Selected Answer Events* |
 | `GET` | `/api/evidence/projects/{project_id}/answers/{answer_id}/export` | token | — | — | *Selected Answer Export* |
 
