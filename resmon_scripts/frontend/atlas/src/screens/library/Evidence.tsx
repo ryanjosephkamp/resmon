@@ -6,6 +6,7 @@ import { count, number } from '../today/format';
 import { evidence, evidenceFetch, readerBusy, type Anchor, type FileRecord, type Member, type Note, type PageText, type Project } from './evidenceApi';
 import { PAGE_STATUS, examinedWords, resolves, selectionAnchor, utf16Range } from './evidenceModel';
 import { LibraryTabs } from './LibraryTabs';
+import { PdfPage } from './PdfPage';
 import { LIBRARY, LIBRARY_KEY, kindOf, sizeWords, type LibraryFile } from './libraryApi';
 
 function errorWords(error: unknown): string {
@@ -383,6 +384,12 @@ function Reader({ project, file, member, reopen, onAnchor, onRemove, removing }:
           <span className="num">{pages !== null ? `of ${number(pages)}` : ''}</span>
           <button type="button" className="btn sm" disabled={text.isFetching || page >= (pages ?? 1)} onClick={() => turn(page + 1)}>Next page</button>
         </form>
+      )}
+      {isPdf && (
+        <PdfPage page={page} drawn={{
+          vault_id: project.vault_id, project_id: project.project_id, file_id: file.file_id,
+          version_id: file.version_id, sha256: file.sha256, byte_size: file.byte_size,
+        }} />
       )}
       {text.isFetching && <p className="record-cap" role="status">Reading this exact page.</p>}
       {text.isError && <p className="field-error" role="alert">{errorWords(text.error)}</p>}

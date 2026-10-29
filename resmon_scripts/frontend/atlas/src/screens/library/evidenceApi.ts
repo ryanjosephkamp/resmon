@@ -101,9 +101,34 @@ function same<T extends { vault_id: string; project_id?: string }>(answer: T, va
   return answer;
 }
 
-export async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+export async function sha256Hex(value: string | Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', typeof value === 'string' ? new TextEncoder().encode(value) : value);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** The largest PDF the reader draws, as the engine bounds a kept file. */
+const MAX_PDF_BYTES = 16 * 1024 * 1024;
+
+/** A body read to its end, refused the moment it passes `limit` bytes. */
+async function boundedBytes(response: Response, limit: number): Promise<Uint8Array<ArrayBuffer>> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new EngineError(0, 'The engine sent no file.');
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      throw new EngineError(0, 'The file is larger than the reader draws.');
+    }
+    parts.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const part of parts) { bytes.set(part, at); at += part.byteLength; }
+  return bytes;
 }
 
 const revisioned = (p: Project) => ({ expected_vault_id: p.vault_id, expected_revision: p.revision });
@@ -129,6 +154,31 @@ export const evidence = {
     await read<NoteSaved>(`/projects/${p.project_id}/notes/${note.note_id}`, 'PATCH', {
       ...revisioned(p), expected_note_revision: note.revision, body,
     }), p.vault_id, p.project_id),
+  /**
+   * The exact version's bytes, for drawing its pages: the engine's identity
+   * headers must name this vault, project, file, version and hash, and the
+   * bytes must be the recorded size and hash, or nothing is drawn.
+   */
+  pdf: async (p: Pick<Project, 'vault_id' | 'project_id'>, file: Pick<FileRecord, 'file_id' | 'version_id' | 'sha256' | 'byte_size'>,
+    signal?: AbortSignal) => {
+    if (file.byte_size > MAX_PDF_BYTES) throw new EngineError(0, 'The file is larger than the reader draws.');
+    const response = await evidenceFetch(
+      `/projects/${p.project_id}/reader/${file.file_id}${query({ expected_vault_id: p.vault_id, version_id: file.version_id, representation: 'pdf' })}`,
+      'GET', undefined, signal);
+    const identity: Record<string, string> = {
+      'X-Resmon-Vault': p.vault_id, 'X-Resmon-Project': p.project_id, 'X-Resmon-File': file.file_id,
+      'X-Resmon-Version': file.version_id, 'X-Resmon-SHA256': file.sha256,
+    };
+    if (Object.entries(identity).some(([name, value]) => response.headers.get(name) !== value)) {
+      await response.body?.cancel();
+      throw new EngineError(0, 'The engine answered with another file than the one asked for. Nothing was drawn.');
+    }
+    const bytes = await boundedBytes(response, MAX_PDF_BYTES);
+    if (bytes.byteLength !== file.byte_size || await sha256Hex(bytes) !== file.sha256) {
+      throw new EngineError(0, 'The file’s bytes do not match its recorded size and hash. Nothing was drawn.');
+    }
+    return bytes;
+  },
   /** One page's canonical text, with its hash checked here against the text itself. */
   text: async (p: Project, file: FileRecord, page: number, signal?: AbortSignal) => {
     const answer = same(await read<PageText>(

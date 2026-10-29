@@ -13,10 +13,14 @@
  * emoji and a decomposed é before its passage, so a codepoint offset and a
  * UTF-16 one differ there, and it mixes CRLF, CR and LF line endings.
  *
+ * Each PDF page is also drawn by the fixed PDF.js 6.3.289, from bytes checked
+ * against the recorded hash, and the canvas is held to having drawn something
+ * dark on its white page: the authored text. What the page looks like is not
+ * judged further.
+ *
  * **Scripted:** the native folder chooser, the confirmation before a file is
- * taken out, and the download destination. **Not covered here:** the PDF page
- * image, and a relaunch; J35 drives the relaunch through
- * `journeys/drivers/atlas.ts`. No network.
+ * taken out, and the download destination. **Not covered here:** a relaunch;
+ * J35 drives that through `journeys/drivers/atlas.ts`. No network.
  */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -148,10 +152,25 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     await expect(pane).toHaveValue(PAGE_ONE, { timeout: 60_000 });
     await expect(reader.locator('[data-evidence="examined"]'))
       .toContainText('1 of 2 pages examined by text extraction. Other pages: not examined.');
+    const image = reader.getByRole('region', { name: 'PDF page image' });
+    await expect(image.getByRole('status')).toHaveText(/^Page 1 of 2 rendered · PDF\.js 6\.3\.289 · \d+ × \d+ pixels/, { timeout: 60_000 });
+    const drawn = await image.locator('canvas[data-pdf-version="6.3.289"]').evaluate((el) => {
+      const c = el as HTMLCanvasElement;
+      const pixels = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+      let dark = 0;
+      for (let i = 0; i < pixels.length; i += 4) if (pixels[i]! < 150 && pixels[i + 1]! < 150 && pixels[i + 2]! < 150 && pixels[i + 3]! > 0) dark += 1;
+      return { width: c.width, height: c.height, dark };
+    });
+    expect(drawn.width * drawn.height).toBeLessThanOrEqual(4_000_000);
+    expect(drawn.dark, 'PDF.js said it drew the page and the canvas has no text on it').toBeGreaterThan(10);
     await reader.getByLabel('Page', { exact: true }).fill('2');
     await reader.getByLabel('Page', { exact: true }).press('Enter');
     await expect(pane).toHaveValue(PAGE_TWO, { timeout: 60_000 });
     await expect(pane).toHaveAttribute('data-page', '2');
+    await expect(image.getByRole('status')).toHaveText(/^Page 2 of 2 rendered/, { timeout: 60_000 });
+    await image.getByLabel('Zoom').selectOption('2');
+    await expect(image.getByRole('status')).toHaveText(/^Page 2 of 2 rendered/, { timeout: 60_000 });
+    await image.getByLabel('Zoom').selectOption('fit');
     await expect(reader.getByRole('button', { name: 'Next page' })).toBeDisabled();
     // A page past the end is not asked for.
     await reader.getByLabel('Page', { exact: true }).fill('9');

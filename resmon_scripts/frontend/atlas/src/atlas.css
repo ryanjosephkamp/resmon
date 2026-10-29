@@ -1280,9 +1280,26 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
   background: var(--plate); color: var(--ink); font: 500 13px/1 var(--sans); text-align: right;
 }
 .ev-page-input:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+.ev-pdf { margin: 12px 0 14px; display: grid; gap: 8px; }
+.ev-pdf .form-hint { margin: 0; }
+.ev-pdf-head { display: flex; align-items: center; gap: 8px; font: 500 13px/1 var(--sans); color: var(--ink-2); }
+.ev-pdf-head select {
+  height: 30px; padding: 0 8px; border: 1px solid var(--rule-2); border-radius: var(--r);
+  background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans);
+}
+.ev-pdf-head select:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+/* The page is paper whatever the theme: PDF.js draws it on white. */
+.ev-pdf-frame {
+  max-height: 80vh; overflow: auto; scrollbar-gutter: stable;
+  border: 1px solid var(--rule-2); border-radius: var(--r); background: #fff;
+}
+.ev-pdf-frame canvas { display: block; }
+.ev-pdf-said { font-variant-numeric: tabular-nums; }
 .ev-text {
   width: 100%; margin-top: 10px; padding: 10px 12px; resize: vertical; border-radius: var(--r); border: 1px solid var(--rule-2);
   background: var(--plate); color: var(--ink); font: 400 13.5px/1.6 var(--sans);
+  /* As tall as the page's text, from four lines to twenty-four, then it scrolls. */
+  field-sizing: content; min-height: calc(4lh + 22px); max-height: calc(24lh + 22px);
 }
 .ev-text::selection { background: var(--accent-wash-2); }
 .ev-text:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
