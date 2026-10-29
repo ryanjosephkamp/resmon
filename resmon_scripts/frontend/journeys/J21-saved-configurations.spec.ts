@@ -131,7 +131,9 @@ journey.describe('J21 Saved configurations', () => {
     }
 
     expect(back.refusal, 'Import refused the archive Export Selected wrote').toBe('');
-    expect(back.said, 'Import did not say what it imported').toMatch(/^Imported 1 configuration/);
+    // "configuration" in the classic interface; Atlas calls a manual one a
+    // saved search. Either way the page names what it imported, and how many.
+    expect(back.said, 'Import did not say what it imported').toMatch(/^Imported 1 (configuration|saved search)/);
     expect(back.arrived, 'not every configuration in the archive arrived').toBe(memberNames.length);
     expect(
       theChooserOffers(back.chooserAccepts, manual.path),

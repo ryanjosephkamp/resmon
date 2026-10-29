@@ -31,6 +31,8 @@ const RENDERER_FREE = new Set<string>([
   // each: a routine made, fired and given destinations, and what a folder or
   // a feed received.
   'createRoutine', 'fireRoutineNow', 'addDeliveryTarget', 'readDeliveredFiles', 'readFeedFile',
+  // A port bound and closed again on this machine: no screen at all.
+  'anAddressThatRefusesConnections',
 ]);
 
 export function createCandidateDriver(session: Session, testInfo: TestInfo): JourneyDriver {

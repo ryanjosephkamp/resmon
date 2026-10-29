@@ -10,13 +10,15 @@
  * Every method waits for a state before it reads the screen, as the classic
  * driver's guard requires of that file.
  */
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { expect, type TestInfo } from '@playwright/test';
 import type {
-  BackendFacts, CoverageAudit, DeliveryRecord, DrawnAppearance, ExplorerList, ExportedFile, InterruptedRow,
-  JourneyDriver, Place, PlateReading, ProfileCreation, ProfileMatches, QueuedPaper, RankedList, RoutineFacts, RunHandle,
-  RunNowAnswer, SourceOutcome, ThemeChoice, TodayReading, UpcomingFire, WhyPanel,
+  BackendFacts, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord, DrawnAppearance, EmailSettings,
+  ExplorerList, ExportedFile, ImportOutcome, InterruptedRow, JourneyDriver, NotificationPreferences, Place,
+  PlateReading, ProfileCreation, ProfileMatches, QueuedPaper, RankedList, RoutineFacts, RunHandle, RunNowAnswer,
+  SourceOutcome, ThemeChoice, TodayReading, UpcomingFire, WhyPanel,
 } from '../driver';
 import type { Session } from './session';
 
@@ -32,6 +34,23 @@ const ATLAS_PLACES: Partial<Record<Place, string>> = {
   // Atlas lists every source with its limits, and whether it can be asked
   // about a person, where a person chooses sources: Ask the sources.
   Repositories: '/search/ask',
+  // Settings is one group at a time; the background service is "In the
+  // background", where the classic interface had it under Advanced.
+  'Advanced settings': '/settings/background',
+  'Email settings': '/settings/email',
+  'Notification settings': '/settings/notifications',
+  // Saved configurations are Search › Saved: the searches saved from Ask the
+  // sources and the copy kept of every watch.
+  'Saved configurations': '/search/saved',
+};
+
+/** The Email group's fields, by the journey's word for each. */
+const EMAIL_FIELD: Record<keyof EmailSettings, string> = {
+  server: '#smtp-server',
+  port: '#smtp-port',
+  username: '#smtp-username',
+  sender: '#smtp-from',
+  recipients: '#smtp-to',
 };
 
 /** The words each theme card is labeled with in Settings. */
@@ -53,7 +72,10 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'readUpcomingFires' | 'runNowControlIsOnTheRow' | 'askForThisRoutineToRunNow' | 'readDeliveryRecord'
   | 'skipDelivery' | 'readCoverageAudit' | 'writeRoutineIntent'
   | 'createWatchProfile' | 'readProfileMatches' | 'readBasisBadgesInTheExplorer' | 'readTheHelpOnThisPage'
-  | 'readWhatThisPlaceSays'>;
+  | 'readWhatThisPlaceSays'
+  | 'readDaemonPanel' | 'saveConfiguration' | 'exportConfigurations' | 'importConfigurations'
+  | 'configureEmail' | 'readEmailSettings' | 'sendATestEmail' | 'setNotificationPreferences'
+  | 'readNotificationPreferences'>;
 
 /** The reading-queue filter buttons, by the journey's word for each. */
 const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
@@ -99,6 +121,13 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     } else if (hash === '/watches/people') {
       await expect(win().getByRole('heading', { name: 'People', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.page.people')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    } else if (hash?.startsWith('/settings/')) {
+      await expect(win().getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('.settings-body > section.settings-group'))
+        .toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    } else if (hash === '/search/saved') {
+      await expect(win().getByRole('heading', { name: 'Saved', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('.saved-page')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
     } else if (hash === '/search/ask') {
       await expect(win().getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.source').first()).toBeVisible({ timeout: 30_000 });
@@ -150,8 +179,13 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     return byName;
   };
 
-  const ask = async (kind: 'Deep Dive' | 'Deep Sweep', sources: string[], terms: string[],
-    days: number | undefined, cap: number | undefined): Promise<RunHandle> => {
+  /**
+   * Fill Ask the sources: the kind, these sources, these terms, the window and
+   * the cap. Shared by `ask` and `saveConfiguration`, which press different
+   * buttons under the same form, as the classic driver's two do.
+   */
+  const fillAsk = async (kind: 'Deep Dive' | 'Deep Sweep', sources: string[], terms: string[],
+    days: number | undefined, cap: number | undefined): Promise<void> => {
     await openSearch();
     await win().getByRole('button', { name: kind, exact: true }).click();
     await expect(win().getByRole('button', { name: kind, exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -170,6 +204,11 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       await win().locator('.date input').nth(1).fill(isoDate(to));
     }
     if (cap !== undefined) await win().getByLabel('Most papers per source').fill(String(cap));
+  };
+
+  const ask = async (kind: 'Deep Dive' | 'Deep Sweep', sources: string[], terms: string[],
+    days: number | undefined, cap: number | undefined): Promise<RunHandle> => {
+    await fillAsk(kind, sources, terms, days, cap);
     const route = kind === 'Deep Dive' ? '/api/search/dive' : '/api/search/sweep';
     const started = win().waitForResponse((r) => r.url().endsWith(route) && r.request().method() === 'POST');
     await win().getByRole('button', { name: /^Ask / }).click();
@@ -294,6 +333,199 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
 
   return {
     open: (place) => goto(place),
+
+    // — settings: the background service, email, notifications --------------
+
+    readDaemonPanel: async (): Promise<DaemonPanel> => {
+      await goto('Advanced settings');
+      const panel = win().locator('section.service');
+      // The goto waited for the three reads; the facts are drawn only once all are in.
+      await expect(panel.locator('[data-service="window"] dd')).not.toHaveText('Asking.', { timeout: 30_000 });
+      const control = panel.locator('[role="switch"][data-switch="service"]');
+      const present = (await control.count()) > 0;
+      return {
+        status: (await panel.locator('[data-service="status"] dd').innerText()).replace(/\s+/g, ' ').trim(),
+        controlPresent: present,
+        controlOn: present ? (await control.getAttribute('aria-checked')) === 'true' : false,
+        text: (await panel.innerText()).trim(),
+      };
+    },
+
+    configureEmail: async (settings, password) => {
+      await goto('Email settings');
+      for (const [field, selector] of Object.entries(EMAIL_FIELD) as [keyof EmailSettings, string][]) {
+        await win().locator(selector).fill(settings[field]);
+      }
+      // The password is not a setting: it goes to the machine's own credential
+      // store by its own button, and only the fact of it comes back.
+      await win().locator('#smtp-password').fill(password);
+      const passwordAccepted = win().waitForResponse(
+        (r) => r.url().includes('/api/credentials/smtp_password') && r.request().method() === 'PUT',
+      );
+      await win().locator('.password-row').getByRole('button', { name: /^(Store|Replace)$/ }).click();
+      expect((await passwordAccepted).ok(), 'the SMTP password was refused by the credential store').toBe(true);
+      const saved = win().waitForResponse(
+        (r) => r.url().endsWith('/api/settings/email') && r.request().method() === 'PUT',
+      );
+      await win().locator('.email-form .form-actions').getByRole('button', { name: 'Save', exact: true }).click();
+      expect((await saved).ok(), 'Settings › Email refused the save').toBe(true);
+      // Saved means nothing is left unsaved: the button greys out again.
+      await expect(win().locator('.email-form .form-actions').getByRole('button', { name: 'Save', exact: true }))
+        .toBeDisabled({ timeout: 15_000 });
+    },
+
+    readEmailSettings: async (): Promise<EmailSettings> => {
+      await goto('Email settings');
+      await expect(win().locator(EMAIL_FIELD.server)).toBeVisible({ timeout: 30_000 });
+      const read = async (field: keyof EmailSettings) => win().locator(EMAIL_FIELD[field]).inputValue();
+      return {
+        server: await read('server'),
+        port: await read('port'),
+        username: await read('username'),
+        sender: await read('sender'),
+        recipients: await read('recipients'),
+      };
+    },
+
+    sendATestEmail: async () => {
+      await goto('Email settings');
+      const answered = win().waitForResponse((r) => r.url().endsWith('/api/settings/email/test'));
+      await win().locator('[data-email="test"]').click();
+      await answered;
+      const line = win().locator('[data-email="test-result"]');
+      await expect(line).toBeVisible({ timeout: 60_000 });
+      return (await line.innerText()).replace(/\s+/g, ' ').trim();
+    },
+
+    setNotificationPreferences: async (preferences) => {
+      if (preferences.forAutomaticRoutines === 'none') {
+        // The engine notifies a watch whose own switch is on whatever the mode,
+        // so "none" and "selected" do the same thing, and Atlas offers only the
+        // choice that differs (`screens/settings/Notifications.tsx`).
+        notInAtlasYet('a "none" choice for watches, which the engine treats as "selected"');
+      }
+      await goto('Notification settings');
+      const section = win().locator('section.notifications');
+      const saved = () => win().waitForResponse(
+        (r) => r.url().endsWith('/api/settings/notifications') && r.request().method() === 'PUT',
+      );
+      const manual = section.locator('[role="switch"][data-switch="notify_manual"]');
+      if (((await manual.getAttribute('aria-checked')) === 'true') !== preferences.whenIRunSomethingMyself) {
+        const answered = saved();
+        await manual.click();
+        expect((await answered).ok(), 'Settings › Notifications refused the save').toBe(true);
+      }
+      const radio = section.locator(`input[name="notify-watches"][value="${preferences.forAutomaticRoutines}"]`);
+      if (!(await radio.isChecked())) {
+        const answered = saved();
+        await radio.check();
+        expect((await answered).ok(), 'Settings › Notifications refused the save').toBe(true);
+      }
+      await expect(section).toHaveAttribute('aria-busy', 'false', { timeout: 15_000 });
+    },
+
+    readNotificationPreferences: async (): Promise<NotificationPreferences> => {
+      await goto('Notification settings');
+      const section = win().locator('section.notifications');
+      const manual = section.locator('[role="switch"][data-switch="notify_manual"]');
+      await expect(manual).toBeVisible({ timeout: 30_000 });
+      const every = await section.locator('input[name="notify-watches"][value="all"]').isChecked();
+      return {
+        whenIRunSomethingMyself: (await manual.getAttribute('aria-checked')) === 'true',
+        forAutomaticRoutines: every ? 'all' : 'selected',
+      };
+    },
+
+    // — saved searches -------------------------------------------------------
+
+    saveConfiguration: async (name, from) => {
+      // Ask the sources' own Save this search, under the form `runSweep` fills,
+      // in Deep Sweep because that is the kind that takes several sources.
+      await fillAsk('Deep Sweep', from.sources, [from.query], undefined, undefined);
+      const known = new Set((await backend.configurations()).map((c) => Number(c.id)));
+      await win().locator('[data-saved="keep"]').click();
+      await win().locator('#keep-name').fill(name);
+      const answered = win().waitForResponse(
+        (r) => r.url().endsWith('/api/configurations') && r.request().method() === 'POST',
+      );
+      await win().locator('.keep-row').getByRole('button', { name: 'Save', exact: true }).click();
+      const response = await answered;
+      expect(response.status(), `Save this search answered HTTP ${response.status()}`).toBe(201);
+      const id = Number((await response.json()).id);
+      expect(known.has(id), 'Save this search answered with an id the app already held').toBe(false);
+      // Then the screen, which says so only after the engine stored it.
+      await expect(win().locator('[data-saved="kept"]')).toContainText(name, { timeout: 15_000 });
+      return id;
+    },
+
+    exportConfigurations: async (kind): Promise<ConfigurationExport> => {
+      await goto('Saved configurations');
+      const all = await backend.configurations();
+      const ofThisKind = all.filter((c) => (c.config_type === 'routine') === (kind === 'routine'));
+      expect(ofThisKind.length, `the app holds no ${kind} configuration to export`).toBeGreaterThan(0);
+      // Every row the engine holds is drawn before anything is chosen.
+      await expect(win().locator('li.saved')).toHaveCount(all.length, { timeout: 30_000 });
+      const clear = win().getByRole('button', { name: 'Clear the choice', exact: true });
+      if (await clear.count()) await clear.click();
+      for (const config of ofThisKind) {
+        await win().locator(`li.saved[data-config="${config.id}"] .saved-pick input`).check();
+      }
+      const button = win().locator('[data-saved="export"]');
+      await expect(button, 'the page did not choose what was ticked')
+        .toHaveText(new RegExp(`^Export ${ofThisKind.length} `), { timeout: 15_000 });
+      const answered = win().waitForResponse(
+        (r) => r.url().endsWith('/api/configurations/export') && r.request().method() === 'POST',
+      );
+      await button.click();
+      const response = await answered;
+      expect(response.ok(), 'Export was refused').toBe(true);
+      const written = String((await response.json()).path ?? '');
+      // The path a person reads is the one they would hand back.
+      await expect(win().locator('[data-saved="exported"] code'), 'the page never said where the export went')
+        .toHaveText(written, { timeout: 30_000 });
+      expect(fs.existsSync(written), `the export names ${written}, which is not there`).toBe(true);
+      session.alsoRemoveOnClose(written);
+      // Read out member by member, as the classic driver does: the archive is
+      // compressed, so a search of its bytes for a secret would pass for the
+      // wrong reason.
+      const members = execFileSync(session.python, ['-c', `
+import json, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as bundle:
+    print(json.dumps({name: bundle.read(name).decode('utf-8') for name in bundle.namelist()}))
+`, written], { encoding: 'utf8' });
+      return { path: written, members: JSON.parse(members) as Record<string, string> };
+    },
+
+    importConfigurations: async (exported): Promise<ImportOutcome> => {
+      await goto('Saved configurations');
+      const said = win().locator('[data-saved="imported"]');
+      const refused = win().locator('[data-saved="import-refused"]');
+      const before = await backend.configurations();
+      const chooser = win().waitForEvent('filechooser');
+      await win().locator('[data-saved="import"]').click();
+      const picker = await chooser;
+      // What the page told the chooser to offer; the native dialog itself is
+      // not opened, and the chooser is answered with the file the export wrote.
+      const chooserAccepts = (await picker.element().getAttribute('accept')) ?? '';
+      const answered = win().waitForResponse(
+        (r) => r.url().endsWith('/api/configurations/import') && r.request().method() === 'POST',
+      );
+      await picker.setFiles(exported.path);
+      await answered;
+      // Either what it imported or what it refused, and never neither.
+      await expect.poll(async () => (await said.count()) + (await refused.count()), {
+        timeout: 30_000,
+        message: `Import said neither what it imported from ${path.basename(exported.path)} nor what it refused`,
+      }).toBeGreaterThan(0);
+      await expect(win().locator('.saved-page')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+      const after = await backend.configurations();
+      return {
+        arrived: after.length - before.length,
+        said: (await said.count()) ? (await said.innerText()).trim() : '',
+        refusal: (await refused.count()) ? (await refused.innerText()).trim() : '',
+        chooserAccepts,
+      };
+    },
 
     // — people ---------------------------------------------------------------
 

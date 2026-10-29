@@ -30,11 +30,12 @@
  * suite, which patches `smtplib`; this row owes the arm rather than being
  * unable to hold it.
  *
- * *The notification itself.* A desktop notification for a manual run is raised
- * by the renderer, through the browser `Notification` API, with no IPC and no
- * artefact. Nothing outside the window can observe one. What this row asserts
- * instead is that the preference a person sets is the preference the app keeps,
- * which is the half that can be measured.
+ * *The notification itself.* Since #237 the engine hands each notification to
+ * the app, which posts it with Electron's `Notification`; under the suites it
+ * is written to the app's log instead (`[main] notice …`), and
+ * `e2e/service-host.spec.ts` reads that line for a finished run. This row runs
+ * no search, so there is no notice for it to read. What it asserts is that the
+ * preference a person sets is the preference the app keeps.
  */
 import { expect, journey } from './driver';
 
@@ -100,10 +101,11 @@ journey.describe('J23 Notifications and email', () => {
       + 'a loopback STARTTLS stub with a self-signed certificate would be accepted. What it needs '
       + 'is a certificate and an AUTH responder, and this slice did not write them. For now the '
       + 'success path is the backend suite, which patches `smtplib`.');
-    console.log('[J23] NOT VERIFIED: the desktop notification itself. It is raised in the '
-      + 'renderer through the browser Notification API, with no IPC and no artefact, so nothing '
-      + 'outside the window can observe one. The preference is asserted above; the dispatch '
-      + 'decision is `test_desktop_notifications.py`.');
+    console.log('[J23] NOT VERIFIED: the notification itself. This row runs no search, so no '
+      + 'notice is posted for it to read. Since #237 the app posts what the engine hands it, and '
+      + 'under the suites writes it to its log, which `e2e/service-host.spec.ts` reads for a '
+      + 'finished run. The preference is asserted above; the dispatch decision is '
+      + '`test_desktop_notifications.py`.');
 
     await resmon.takePicture('J23-notifications-and-email');
     expect(resmon.refusedConnections()).toEqual([]);

@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { Collection } from './screens/collection/Collection';
 import { Paper } from './screens/collection/Paper';
+import { Saved } from './screens/collection/Saved';
 import { ReadingQueue } from './screens/library/ReadingQueue';
 import { Placeholder } from './screens/Placeholder';
 import { Run } from './screens/Run';
@@ -36,7 +37,7 @@ export const SECTIONS: readonly Section[] = [
 export const SETTINGS: Section = {
   path: '/settings',
   label: 'Settings',
-  keywords: 'preferences appearance theme accent color',
+  keywords: 'preferences appearance theme accent color background service daemon email smtp password notifications',
   element: <Settings />,
 };
 
@@ -46,6 +47,8 @@ export const SETTINGS: Section = {
  */
 export const DETAILS: readonly { path: string; element: ReactElement }[] = [
   { path: '/search/ask', element: <Search /> },
+  { path: '/search/saved', element: <Saved /> },
+  { path: '/settings/:group', element: <Settings /> },
   { path: '/runs/:id', element: <Run /> },
   { path: '/papers/:id', element: <Paper /> },
   { path: '/watches/people', element: <People /> },
