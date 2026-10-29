@@ -7258,6 +7258,511 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * SelectedAnswer
+         * @description ``POST .../answers`` (202), ``GET .../answers/{answer_id}`` and ``POST .../cancel``: one saved answer.
+         *
+         *     ``state`` is ``admitted`` or ``running``, then one of ``succeeded``,
+         *     ``refused``, ``failed``, ``cancelled`` or ``interrupted``. ``result`` is
+         *     present only for ``succeeded`` and ``refused``; ``validation`` is then
+         *     ``exact_text_identity_only_support_unchecked``, and otherwise
+         *     ``unvalidated``. ``current_originals`` is ``not_rechecked``: the saved
+         *     excerpts are not a fresh check of the files. ``partial_text`` is what
+         *     arrived before the end, unvalidated.
+         */
+        SelectedAnswer: {
+            /** Answer Id */
+            answer_id: string;
+            /** Cleanup State */
+            cleanup_state: string;
+            /** Contract Version */
+            contract_version: number;
+            /** Created At Utc */
+            created_at_utc: string;
+            /** Current Originals */
+            current_originals: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Error Message */
+            error_message: string | null;
+            /** Finished At Utc */
+            finished_at_utc: string | null;
+            /** Id */
+            id: number;
+            /** Limitations */
+            limitations: string;
+            /** Mode */
+            mode: string;
+            /** Partial Text */
+            partial_text: string;
+            /** Project Id */
+            project_id: string;
+            /** Project Revision */
+            project_revision: number;
+            /** Reports */
+            reports: components["schemas"]["SelectedReport"][];
+            request: components["schemas"]["SelectedRequest"];
+            /** Request Sha256 */
+            request_sha256: string;
+            result: components["schemas"]["SelectedResult"] | null;
+            /** Started At Utc */
+            started_at_utc: string | null;
+            /** State */
+            state: string;
+            usage: components["schemas"]["SelectedUsage"] | null;
+            /** Validation */
+            validation: string;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedAnswerRow
+         * @description One answer in a project's history, without its request or result.
+         */
+        SelectedAnswerRow: {
+            /** Answer Id */
+            answer_id: string;
+            /** Cleanup State */
+            cleanup_state: string;
+            /** Created At Utc */
+            created_at_utc: string;
+            /** Finished At Utc */
+            finished_at_utc: string | null;
+            /** Id */
+            id: number;
+            /** Mode */
+            mode: string;
+            /** Request Sha256 */
+            request_sha256: string;
+            /** State */
+            state: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedAnswers
+         * @description ``GET .../answers``: a project's answers, oldest first, at most 50 a page.
+         */
+        SelectedAnswers: {
+            /** Answers */
+            answers: components["schemas"]["SelectedAnswerRow"][];
+            /** Contract Version */
+            contract_version: number;
+            /** Count Basis */
+            count_basis: string;
+            /** Has More */
+            has_more: boolean;
+            /** Next After Id */
+            next_after_id: number | null;
+            /** Project Id */
+            project_id: string;
+            /** Through Id */
+            through_id: number;
+            /** Total */
+            total: number;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedCitation
+         * @description An exact range of a selected source.
+         *
+         *     It identifies selected text and nothing more: that the quote supports the
+         *     item it is attached to is not checked.
+         */
+        SelectedCitation: {
+            /** End Codepoint */
+            end_codepoint: number;
+            /** Quote */
+            quote: string;
+            /** Source Id */
+            source_id: string;
+            /** Start Codepoint */
+            start_codepoint: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedCoverage
+         * @description What a request carries, counted: files, pages, segments, source bytes and codepoints, and notes.
+         */
+        SelectedCoverage: {
+            /** File Count */
+            file_count: number;
+            /** Files */
+            files: components["schemas"]["SelectedCoverageFile"][];
+            /** Note Bytes */
+            note_bytes: number;
+            /** Note Count */
+            note_count: number;
+            /** Page Count */
+            page_count: number;
+            /** Segment Count */
+            segment_count: number;
+            /** Source Bytes */
+            source_bytes: number;
+            /** Source Codepoints */
+            source_codepoints: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedCoverageFile
+         * @description Which pages of one selected version were sent or checked, and how many were not examined.
+         *
+         *     ``known_page_count`` and ``unexamined_page_count`` are ``None`` where the
+         *     page count is not known.
+         */
+        SelectedCoverageFile: {
+            /** Anchor Checked Pages */
+            anchor_checked_pages: number[];
+            /** File Id */
+            file_id: string;
+            /** Known Page Count */
+            known_page_count: number | null;
+            /** Selected Pages */
+            selected_pages: number[];
+            /** Unexamined Page Count */
+            unexamined_page_count: number | null;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedDisclosure
+         * @description What sending a request reveals and reads, said before consent.
+         *
+         *     ``custom_endpoint`` is true when the request goes to a custom API base
+         *     URL. The two reads are always true: the selected file bytes are read to
+         *     check their digest, and a selected PDF page's structure is examined.
+         */
+        SelectedDisclosure: {
+            /** Custom Endpoint */
+            custom_endpoint: boolean;
+            /** Limitations */
+            limitations: string;
+            /** Pdf Structure Examined For Selected Pages */
+            pdf_structure_examined_for_selected_pages: boolean;
+            /** Retained Digest Reads Selected File Bytes */
+            retained_digest_reads_selected_file_bytes: boolean;
+            /** Source Strings May Contain Private Material */
+            source_strings_may_contain_private_material: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedItem
+         * @description One item of an answer: ``source_statement``, ``interpretation``, ``note_summary`` or ``question``.
+         *
+         *     A source statement or interpretation carries citations; a note summary
+         *     carries ``note_ids`` instead and cites no document.
+         */
+        SelectedItem: {
+            /** Citations */
+            citations: components["schemas"]["SelectedCitation"][];
+            /** Kind */
+            kind: string;
+            /** Note Ids */
+            note_ids: string[];
+            /** Text */
+            text: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedNote
+         * @description An owner note chosen for a request. ``provenance`` is ``owner_note``: a saved local note, not document evidence.
+         */
+        SelectedNote: {
+            anchor: components["schemas"]["SelectedNoteAnchor"] | null;
+            /** Body */
+            body: string;
+            /** Created At Utc */
+            created_at_utc: string;
+            /** File Id */
+            file_id: string;
+            /** Kind */
+            kind: string;
+            /** Note Id */
+            note_id: string;
+            /** Provenance */
+            provenance: string;
+            /** Revision */
+            revision: number;
+            /** Updated At Utc */
+            updated_at_utc: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedNoteAnchor
+         * @description Where a selected passage note is pinned: one page's text, by hash and codepoint range.
+         */
+        SelectedNoteAnchor: {
+            /** End Codepoint */
+            end_codepoint: number;
+            /** Extraction Contract */
+            extraction_contract: string;
+            /** Page Number */
+            page_number: number;
+            /** Page Text Sha256 */
+            page_text_sha256: string;
+            /** Quote */
+            quote: string;
+            /** Start Codepoint */
+            start_codepoint: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedPayload
+         * @description The exact payload a request sends, which ``request_sha256`` covers.
+         *
+         *     ``response_contract`` is the fixed description of the answer shape the
+         *     runtime is asked for, sent with every request.
+         */
+        SelectedPayload: {
+            coverage: components["schemas"]["SelectedCoverage"];
+            disclosure: components["schemas"]["SelectedDisclosure"];
+            /** Instruction */
+            instruction: string;
+            /** Mode */
+            mode: string;
+            /** Notes */
+            notes: components["schemas"]["SelectedNote"][];
+            /** Profile */
+            profile: string;
+            /** Project Id */
+            project_id: string;
+            /** Project Revision */
+            project_revision: number;
+            requested: components["schemas"]["SelectedRequested"];
+            /** Response Contract */
+            response_contract: {
+                [key: string]: unknown;
+            };
+            /** Sources */
+            sources: components["schemas"]["SelectedSource"][];
+            /** System Sha256 */
+            system_sha256: string;
+            /** System Version */
+            system_version: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedPreview
+         * @description ``POST .../answer-previews``: the exact request a Send would make, before any runtime is called.
+         *
+         *     It lives in the serving process until ``expires_at_utc`` and is lost on
+         *     restart. ``owner_runtime_id`` names the process that holds it.
+         */
+        SelectedPreview: {
+            /** Contract Version */
+            contract_version: number;
+            /** Expires At Utc */
+            expires_at_utc: string;
+            /** Owner Runtime Id */
+            owner_runtime_id: string;
+            /** Preview Id */
+            preview_id: string;
+            /** Project Id */
+            project_id: string;
+            request: components["schemas"]["SelectedRequest"];
+            /** Request Sha256 */
+            request_sha256: string;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedReport
+         * @description A model name the runtime reported, where it reported it, and when. Not the model that was asked for.
+         */
+        SelectedReport: {
+            /** Model */
+            model: string;
+            /** Observed At Utc */
+            observed_at_utc: string;
+            /** Source */
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedRequest
+         * @description A request, immutable once admitted: the payload, the system text, and the exact user prompt with their hashes.
+         *
+         *     This model and every one inside it declare their fields in sorted key
+         *     order, because a saved request, result, report or usage is canonical
+         *     JSON with sorted keys, and those are the bytes ``request_sha256`` covers.
+         *     A preview's request is the one place the order differs: it is the
+         *     assembly's own dictionary, not yet canonicalized.
+         */
+        SelectedRequest: {
+            payload: components["schemas"]["SelectedPayload"];
+            /** Request Sha256 */
+            request_sha256: string;
+            /** System Sha256 */
+            system_sha256: string;
+            /** System Text */
+            system_text: string;
+            /** User Prompt */
+            user_prompt: string;
+            /** User Sha256 */
+            user_sha256: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedRequested
+         * @description The public half of the runtime choice a request was made with.
+         *
+         *     ``requested_model`` and ``requested_effort`` are what was asked for. What a
+         *     runtime reported it used is in the answer's ``reports``, kept apart, because
+         *     the two are different facts. Each ``*_basis`` says where a choice came
+         *     from: ``explicit``, a settings or runtime default, or ``not_supported``.
+         */
+        SelectedRequested: {
+            /** Binding Basis */
+            binding_basis: string;
+            /** Effort Basis */
+            effort_basis: string;
+            /** Model Basis */
+            model_basis: string;
+            /** Provider */
+            provider: string;
+            /** Requested Effort */
+            requested_effort: string | null;
+            /** Requested Model */
+            requested_model: string | null;
+            /** Runtime */
+            runtime: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedResult
+         * @description The validated answer. ``status`` is ``answer`` or ``insufficient_evidence``.
+         */
+        SelectedResult: {
+            /** Limitations */
+            limitations: string[];
+            /** Mode */
+            mode: string;
+            /** Request Sha256 */
+            request_sha256: string;
+            /** Sections */
+            sections: components["schemas"]["SelectedSection"][];
+            /** Status */
+            status: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedSection
+         * @description A section of an answer: ``summary``, ``details``, ``limitations`` or ``questions``.
+         */
+        SelectedSection: {
+            /** Items */
+            items: components["schemas"]["SelectedItem"][];
+            /** Kind */
+            kind: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedSource
+         * @description One selected segment, ``S01`` to ``S24``: an exact version's page text, or a range of it.
+         *
+         *     ``text`` is the literal selected text. ``start_codepoint`` and
+         *     ``end_codepoint`` are global Unicode codepoint offsets on the page, end
+         *     exclusive, never UTF-16 indices. ``page_count`` is ``None`` where a PDF's
+         *     count is not known.
+         */
+        SelectedSource: {
+            /** Byte Size */
+            byte_size: number;
+            /** End Codepoint */
+            end_codepoint: number;
+            /** Extraction Contract */
+            extraction_contract: string;
+            /** File Id */
+            file_id: string;
+            /** Media Type */
+            media_type: string;
+            /** Original Name */
+            original_name: string;
+            /** Page Count */
+            page_count: number | null;
+            /** Page Number */
+            page_number: number;
+            /** Page Text Sha256 */
+            page_text_sha256: string;
+            /** Project Id */
+            project_id: string;
+            /** Sha256 */
+            sha256: string;
+            /** Source Id */
+            source_id: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /** Start Codepoint */
+            start_codepoint: number;
+            /** Text */
+            text: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedUsage
+         * @description Usage as reported. ``provenance`` is ``runtime_report`` and ``billing`` is ``unknown``: no cost is known.
+         */
+        SelectedUsage: {
+            /** Billing */
+            billing: string;
+            /** Provenance */
+            provenance: string;
+            reported: components["schemas"]["SelectedUsageReported"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SelectedUsageReported
+         * @description Token counts a runtime reported. Only the counts it reported are present.
+         */
+        SelectedUsageReported: {
+            /** Cache Creation Tokens */
+            cache_creation_tokens?: number | null;
+            /** Cache Read Tokens */
+            cache_read_tokens?: number | null;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /** Output Tokens */
+            output_tokens?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** ServiceInstallBody */
         ServiceInstallBody: {
             /** Port */
@@ -10363,7 +10868,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SelectedPreview"];
                 };
             };
             /** @description Validation Error */
@@ -10394,7 +10899,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SelectedAnswers"];
                 };
             };
             /** @description Validation Error */
@@ -10425,7 +10930,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SelectedAnswer"];
                 };
             };
             /** @description Validation Error */
@@ -10457,7 +10962,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SelectedAnswer"];
                 };
             };
             /** @description Validation Error */
@@ -10489,7 +10994,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SelectedAnswer"];
                 };
             };
             /** @description Validation Error */

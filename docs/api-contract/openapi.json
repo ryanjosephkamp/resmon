@@ -9193,6 +9193,1128 @@
         "title": "SchedulerStatus",
         "type": "object"
       },
+      "SelectedAnswer": {
+        "additionalProperties": true,
+        "description": "``POST .../answers`` (202), ``GET .../answers/{answer_id}`` and ``POST .../cancel``: one saved answer.\n\n``state`` is ``admitted`` or ``running``, then one of ``succeeded``,\n``refused``, ``failed``, ``cancelled`` or ``interrupted``. ``result`` is\npresent only for ``succeeded`` and ``refused``; ``validation`` is then\n``exact_text_identity_only_support_unchecked``, and otherwise\n``unvalidated``. ``current_originals`` is ``not_rechecked``: the saved\nexcerpts are not a fresh check of the files. ``partial_text`` is what\narrived before the end, unvalidated.",
+        "properties": {
+          "answer_id": {
+            "title": "Answer Id",
+            "type": "string"
+          },
+          "cleanup_state": {
+            "title": "Cleanup State",
+            "type": "string"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "current_originals": {
+            "title": "Current Originals",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "finished_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At Utc"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "limitations": {
+            "title": "Limitations",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "partial_text": {
+            "title": "Partial Text",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_revision": {
+            "title": "Project Revision",
+            "type": "integer"
+          },
+          "reports": {
+            "items": {
+              "$ref": "#/components/schemas/SelectedReport"
+            },
+            "title": "Reports",
+            "type": "array"
+          },
+          "request": {
+            "$ref": "#/components/schemas/SelectedRequest"
+          },
+          "request_sha256": {
+            "title": "Request Sha256",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SelectedResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At Utc"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SelectedUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "validation": {
+            "title": "Validation",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "answer_id",
+          "vault_id",
+          "project_id",
+          "project_revision",
+          "mode",
+          "state",
+          "request_sha256",
+          "partial_text",
+          "cleanup_state",
+          "created_at_utc",
+          "started_at_utc",
+          "finished_at_utc",
+          "error_code",
+          "error_message",
+          "request",
+          "result",
+          "reports",
+          "usage",
+          "contract_version",
+          "validation",
+          "current_originals",
+          "limitations"
+        ],
+        "title": "SelectedAnswer",
+        "type": "object"
+      },
+      "SelectedAnswerRow": {
+        "additionalProperties": true,
+        "description": "One answer in a project's history, without its request or result.",
+        "properties": {
+          "answer_id": {
+            "title": "Answer Id",
+            "type": "string"
+          },
+          "cleanup_state": {
+            "title": "Cleanup State",
+            "type": "string"
+          },
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "finished_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At Utc"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "request_sha256": {
+            "title": "Request Sha256",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "answer_id",
+          "request_sha256",
+          "mode",
+          "state",
+          "created_at_utc",
+          "finished_at_utc",
+          "cleanup_state"
+        ],
+        "title": "SelectedAnswerRow",
+        "type": "object"
+      },
+      "SelectedAnswers": {
+        "additionalProperties": true,
+        "description": "``GET .../answers``: a project's answers, oldest first, at most 50 a page.",
+        "properties": {
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/SelectedAnswerRow"
+            },
+            "title": "Answers",
+            "type": "array"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "count_basis": {
+            "title": "Count Basis",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_after_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After Id"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "through_id": {
+            "title": "Through Id",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "vault_id",
+          "project_id",
+          "answers",
+          "through_id",
+          "next_after_id",
+          "has_more",
+          "total",
+          "count_basis"
+        ],
+        "title": "SelectedAnswers",
+        "type": "object"
+      },
+      "SelectedCitation": {
+        "additionalProperties": true,
+        "description": "An exact range of a selected source.\n\nIt identifies selected text and nothing more: that the quote supports the\nitem it is attached to is not checked.",
+        "properties": {
+          "end_codepoint": {
+            "title": "End Codepoint",
+            "type": "integer"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "start_codepoint": {
+            "title": "Start Codepoint",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "end_codepoint",
+          "quote",
+          "source_id",
+          "start_codepoint"
+        ],
+        "title": "SelectedCitation",
+        "type": "object"
+      },
+      "SelectedCoverage": {
+        "additionalProperties": true,
+        "description": "What a request carries, counted: files, pages, segments, source bytes and codepoints, and notes.",
+        "properties": {
+          "file_count": {
+            "title": "File Count",
+            "type": "integer"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/SelectedCoverageFile"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "note_bytes": {
+            "title": "Note Bytes",
+            "type": "integer"
+          },
+          "note_count": {
+            "title": "Note Count",
+            "type": "integer"
+          },
+          "page_count": {
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "segment_count": {
+            "title": "Segment Count",
+            "type": "integer"
+          },
+          "source_bytes": {
+            "title": "Source Bytes",
+            "type": "integer"
+          },
+          "source_codepoints": {
+            "title": "Source Codepoints",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file_count",
+          "files",
+          "note_bytes",
+          "note_count",
+          "page_count",
+          "segment_count",
+          "source_bytes",
+          "source_codepoints"
+        ],
+        "title": "SelectedCoverage",
+        "type": "object"
+      },
+      "SelectedCoverageFile": {
+        "additionalProperties": true,
+        "description": "Which pages of one selected version were sent or checked, and how many were not examined.\n\n``known_page_count`` and ``unexamined_page_count`` are ``None`` where the\npage count is not known.",
+        "properties": {
+          "anchor_checked_pages": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Anchor Checked Pages",
+            "type": "array"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "known_page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Page Count"
+          },
+          "selected_pages": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Selected Pages",
+            "type": "array"
+          },
+          "unexamined_page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unexamined Page Count"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "anchor_checked_pages",
+          "file_id",
+          "known_page_count",
+          "selected_pages",
+          "unexamined_page_count",
+          "version_id"
+        ],
+        "title": "SelectedCoverageFile",
+        "type": "object"
+      },
+      "SelectedDisclosure": {
+        "additionalProperties": true,
+        "description": "What sending a request reveals and reads, said before consent.\n\n``custom_endpoint`` is true when the request goes to a custom API base\nURL. The two reads are always true: the selected file bytes are read to\ncheck their digest, and a selected PDF page's structure is examined.",
+        "properties": {
+          "custom_endpoint": {
+            "title": "Custom Endpoint",
+            "type": "boolean"
+          },
+          "limitations": {
+            "title": "Limitations",
+            "type": "string"
+          },
+          "pdf_structure_examined_for_selected_pages": {
+            "title": "Pdf Structure Examined For Selected Pages",
+            "type": "boolean"
+          },
+          "retained_digest_reads_selected_file_bytes": {
+            "title": "Retained Digest Reads Selected File Bytes",
+            "type": "boolean"
+          },
+          "source_strings_may_contain_private_material": {
+            "title": "Source Strings May Contain Private Material",
+            "type": "string"
+          }
+        },
+        "required": [
+          "custom_endpoint",
+          "limitations",
+          "pdf_structure_examined_for_selected_pages",
+          "retained_digest_reads_selected_file_bytes",
+          "source_strings_may_contain_private_material"
+        ],
+        "title": "SelectedDisclosure",
+        "type": "object"
+      },
+      "SelectedItem": {
+        "additionalProperties": true,
+        "description": "One item of an answer: ``source_statement``, ``interpretation``, ``note_summary`` or ``question``.\n\nA source statement or interpretation carries citations; a note summary\ncarries ``note_ids`` instead and cites no document.",
+        "properties": {
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/SelectedCitation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Note Ids",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "citations",
+          "kind",
+          "note_ids",
+          "text"
+        ],
+        "title": "SelectedItem",
+        "type": "object"
+      },
+      "SelectedNote": {
+        "additionalProperties": true,
+        "description": "An owner note chosen for a request. ``provenance`` is ``owner_note``: a saved local note, not document evidence.",
+        "properties": {
+          "anchor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SelectedNoteAnchor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "provenance": {
+            "title": "Provenance",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "updated_at_utc": {
+            "title": "Updated At Utc",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "anchor",
+          "body",
+          "created_at_utc",
+          "file_id",
+          "kind",
+          "note_id",
+          "provenance",
+          "revision",
+          "updated_at_utc",
+          "version_id"
+        ],
+        "title": "SelectedNote",
+        "type": "object"
+      },
+      "SelectedNoteAnchor": {
+        "additionalProperties": true,
+        "description": "Where a selected passage note is pinned: one page's text, by hash and codepoint range.",
+        "properties": {
+          "end_codepoint": {
+            "title": "End Codepoint",
+            "type": "integer"
+          },
+          "extraction_contract": {
+            "title": "Extraction Contract",
+            "type": "string"
+          },
+          "page_number": {
+            "title": "Page Number",
+            "type": "integer"
+          },
+          "page_text_sha256": {
+            "title": "Page Text Sha256",
+            "type": "string"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "start_codepoint": {
+            "title": "Start Codepoint",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "end_codepoint",
+          "extraction_contract",
+          "page_number",
+          "page_text_sha256",
+          "quote",
+          "start_codepoint"
+        ],
+        "title": "SelectedNoteAnchor",
+        "type": "object"
+      },
+      "SelectedPayload": {
+        "additionalProperties": true,
+        "description": "The exact payload a request sends, which ``request_sha256`` covers.\n\n``response_contract`` is the fixed description of the answer shape the\nruntime is asked for, sent with every request.",
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/SelectedCoverage"
+          },
+          "disclosure": {
+            "$ref": "#/components/schemas/SelectedDisclosure"
+          },
+          "instruction": {
+            "title": "Instruction",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/SelectedNote"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_revision": {
+            "title": "Project Revision",
+            "type": "integer"
+          },
+          "requested": {
+            "$ref": "#/components/schemas/SelectedRequested"
+          },
+          "response_contract": {
+            "additionalProperties": true,
+            "title": "Response Contract",
+            "type": "object"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SelectedSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "system_sha256": {
+            "title": "System Sha256",
+            "type": "string"
+          },
+          "system_version": {
+            "title": "System Version",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "coverage",
+          "disclosure",
+          "instruction",
+          "mode",
+          "notes",
+          "profile",
+          "project_id",
+          "project_revision",
+          "requested",
+          "response_contract",
+          "sources",
+          "system_sha256",
+          "system_version",
+          "vault_id",
+          "version"
+        ],
+        "title": "SelectedPayload",
+        "type": "object"
+      },
+      "SelectedPreview": {
+        "additionalProperties": true,
+        "description": "``POST .../answer-previews``: the exact request a Send would make, before any runtime is called.\n\nIt lives in the serving process until ``expires_at_utc`` and is lost on\nrestart. ``owner_runtime_id`` names the process that holds it.",
+        "properties": {
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "expires_at_utc": {
+            "title": "Expires At Utc",
+            "type": "string"
+          },
+          "owner_runtime_id": {
+            "title": "Owner Runtime Id",
+            "type": "string"
+          },
+          "preview_id": {
+            "title": "Preview Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/components/schemas/SelectedRequest"
+          },
+          "request_sha256": {
+            "title": "Request Sha256",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "preview_id",
+          "vault_id",
+          "project_id",
+          "owner_runtime_id",
+          "expires_at_utc",
+          "request_sha256",
+          "request"
+        ],
+        "title": "SelectedPreview",
+        "type": "object"
+      },
+      "SelectedReport": {
+        "additionalProperties": true,
+        "description": "A model name the runtime reported, where it reported it, and when. Not the model that was asked for.",
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "observed_at_utc": {
+            "title": "Observed At Utc",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "observed_at_utc",
+          "source"
+        ],
+        "title": "SelectedReport",
+        "type": "object"
+      },
+      "SelectedRequest": {
+        "additionalProperties": true,
+        "description": "A request, immutable once admitted: the payload, the system text, and the exact user prompt with their hashes.\n\nThis model and every one inside it declare their fields in sorted key\norder, because a saved request, result, report or usage is canonical\nJSON with sorted keys, and those are the bytes ``request_sha256`` covers.\nA preview's request is the one place the order differs: it is the\nassembly's own dictionary, not yet canonicalized.",
+        "properties": {
+          "payload": {
+            "$ref": "#/components/schemas/SelectedPayload"
+          },
+          "request_sha256": {
+            "title": "Request Sha256",
+            "type": "string"
+          },
+          "system_sha256": {
+            "title": "System Sha256",
+            "type": "string"
+          },
+          "system_text": {
+            "title": "System Text",
+            "type": "string"
+          },
+          "user_prompt": {
+            "title": "User Prompt",
+            "type": "string"
+          },
+          "user_sha256": {
+            "title": "User Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload",
+          "request_sha256",
+          "system_sha256",
+          "system_text",
+          "user_prompt",
+          "user_sha256"
+        ],
+        "title": "SelectedRequest",
+        "type": "object"
+      },
+      "SelectedRequested": {
+        "additionalProperties": true,
+        "description": "The public half of the runtime choice a request was made with.\n\n``requested_model`` and ``requested_effort`` are what was asked for. What a\nruntime reported it used is in the answer's ``reports``, kept apart, because\nthe two are different facts. Each ``*_basis`` says where a choice came\nfrom: ``explicit``, a settings or runtime default, or ``not_supported``.",
+        "properties": {
+          "binding_basis": {
+            "title": "Binding Basis",
+            "type": "string"
+          },
+          "effort_basis": {
+            "title": "Effort Basis",
+            "type": "string"
+          },
+          "model_basis": {
+            "title": "Model Basis",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "requested_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Effort"
+          },
+          "requested_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model"
+          },
+          "runtime": {
+            "title": "Runtime",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "binding_basis",
+          "effort_basis",
+          "model_basis",
+          "provider",
+          "requested_effort",
+          "requested_model",
+          "runtime",
+          "version"
+        ],
+        "title": "SelectedRequested",
+        "type": "object"
+      },
+      "SelectedResult": {
+        "additionalProperties": true,
+        "description": "The validated answer. ``status`` is ``answer`` or ``insufficient_evidence``.",
+        "properties": {
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "request_sha256": {
+            "title": "Request Sha256",
+            "type": "string"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/SelectedSection"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limitations",
+          "mode",
+          "request_sha256",
+          "sections",
+          "status",
+          "version"
+        ],
+        "title": "SelectedResult",
+        "type": "object"
+      },
+      "SelectedSection": {
+        "additionalProperties": true,
+        "description": "A section of an answer: ``summary``, ``details``, ``limitations`` or ``questions``.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SelectedItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "kind"
+        ],
+        "title": "SelectedSection",
+        "type": "object"
+      },
+      "SelectedSource": {
+        "additionalProperties": true,
+        "description": "One selected segment, ``S01`` to ``S24``: an exact version's page text, or a range of it.\n\n``text`` is the literal selected text. ``start_codepoint`` and\n``end_codepoint`` are global Unicode codepoint offsets on the page, end\nexclusive, never UTF-16 indices. ``page_count`` is ``None`` where a PDF's\ncount is not known.",
+        "properties": {
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "end_codepoint": {
+            "title": "End Codepoint",
+            "type": "integer"
+          },
+          "extraction_contract": {
+            "title": "Extraction Contract",
+            "type": "string"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "original_name": {
+            "title": "Original Name",
+            "type": "string"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "page_number": {
+            "title": "Page Number",
+            "type": "integer"
+          },
+          "page_text_sha256": {
+            "title": "Page Text Sha256",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_sha256": {
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "start_codepoint": {
+            "title": "Start Codepoint",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "byte_size",
+          "end_codepoint",
+          "extraction_contract",
+          "file_id",
+          "media_type",
+          "original_name",
+          "page_count",
+          "page_number",
+          "page_text_sha256",
+          "project_id",
+          "sha256",
+          "source_id",
+          "source_sha256",
+          "start_codepoint",
+          "text",
+          "vault_id",
+          "version_id"
+        ],
+        "title": "SelectedSource",
+        "type": "object"
+      },
+      "SelectedUsage": {
+        "additionalProperties": true,
+        "description": "Usage as reported. ``provenance`` is ``runtime_report`` and ``billing`` is ``unknown``: no cost is known.",
+        "properties": {
+          "billing": {
+            "title": "Billing",
+            "type": "string"
+          },
+          "provenance": {
+            "title": "Provenance",
+            "type": "string"
+          },
+          "reported": {
+            "$ref": "#/components/schemas/SelectedUsageReported"
+          }
+        },
+        "required": [
+          "billing",
+          "provenance",
+          "reported"
+        ],
+        "title": "SelectedUsage",
+        "type": "object"
+      },
+      "SelectedUsageReported": {
+        "additionalProperties": true,
+        "description": "Token counts a runtime reported. Only the counts it reported are present.",
+        "properties": {
+          "cache_creation_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Creation Tokens"
+          },
+          "cache_read_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Read Tokens"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          }
+        },
+        "title": "SelectedUsageReported",
+        "type": "object"
+      },
       "ServiceInstallBody": {
         "properties": {
           "port": {
@@ -13886,7 +15008,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SelectedPreview"
+                }
               }
             },
             "description": "Successful Response"
@@ -13923,7 +15047,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SelectedAnswers"
+                }
               }
             },
             "description": "Successful Response"
@@ -13958,7 +15084,9 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SelectedAnswer"
+                }
               }
             },
             "description": "Successful Response"
@@ -14004,7 +15132,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SelectedAnswer"
+                }
               }
             },
             "description": "Successful Response"
@@ -14050,7 +15180,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SelectedAnswer"
+                }
               }
             },
             "description": "Successful Response"

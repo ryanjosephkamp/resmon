@@ -59,6 +59,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
@@ -265,6 +266,13 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/evidence/projects/{project_id}/notes"),
         ("PATCH", "/api/evidence/projects/{project_id}/notes/{note_id}"),
         ("GET", "/api/evidence/projects/{project_id}/reader/{file_id}"),
+    ),
+    "selected-evidence answers": (
+        ("POST", "/api/evidence/projects/{project_id}/answer-previews"),
+        ("POST", "/api/evidence/projects/{project_id}/answers"),
+        ("GET", "/api/evidence/projects/{project_id}/answers"),
+        ("GET", "/api/evidence/projects/{project_id}/answers/{answer_id}"),
+        ("POST", "/api/evidence/projects/{project_id}/answers/{answer_id}/cancel"),
     ),
     "analytics": (
         ("GET", "/api/analytics/overview"),
@@ -795,11 +803,76 @@ def _drive_evidence(drive: Drive, vault: str, file_id: str, version_id: str) -> 
         "body": "Check the outdoor data, and the damp heat."})
     revision = edited["project"]["revision"]
     drive("GET", f"{base}/{project}/notes?expected_vault_id={vault}", headers=library)
+    _drive_selected_answers(drive, vault, project, revision, file_id, version_id, page,
+                            passage["note"]["note_id"])
     removed = drive("DELETE", f"{base}/{project}/files/{file_id}", headers=library,
                     json={"expected_vault_id": vault, "expected_revision": revision, "version_id": version_id})
     assert removed["removed"] is True
     after = drive("GET", f"{base}/{project}/notes?expected_vault_id={vault}", headers=library)
     assert {n["membership_state"] for n in after["notes"]} == {"removed"}
+
+
+def _drive_selected_answers(drive: Drive, vault: str, project: str, revision: int, file_id: str,
+                            version_id: str, page: dict, passage_id: str) -> None:
+    """A selected-evidence answer over the project's kept text file, on an authored CLI.
+
+    The runtime is ``test_selected_evidence_runtime.fake_cli``: a script that
+    reports the session id it was handed and answers with one exact citation of
+    the first source. Nothing calls a model. The CLI path is set through the
+    settings route, as a person sets it.
+
+    Compared: the preview, the send while the answer is ``admitted`` (no
+    result, usage or finish time, so the model's ``None`` fields are read),
+    the history, the finished answer with its citation, reports and usage, a
+    second identical consent that answers the same saved record, and a cancel
+    of the finished answer, which answers it unchanged. The event stream is
+    subscribed to directly, outside the models; the exports are bytes.
+    """
+    from conftest import TEST_RENDERER_ORIGIN  # noqa: PLC0415
+    from test_selected_evidence_runtime import fake_cli  # noqa: PLC0415
+
+    library = {"Origin": TEST_RENDERER_ORIGIN, "X-Resmon-Library": "1"}
+    answers = f"/api/evidence/projects/{project}"
+    binary, _capture = fake_cli(Path(tempfile.mkdtemp(prefix="resmon-selected-cli-")))
+    drive("PUT", "/api/settings/ai", json={"settings": {"ai_cli_path": str(binary)}})
+    runtime = drive("GET", "/api/health")["identity"]["runtime_id"]
+    # A selected answer refuses to run on an unknown or default port; the
+    # in-process client has no listening socket to report one.
+    original_port = resmon_mod.serving_port
+    resmon_mod.serving_port = lambda: 45671
+    try:
+        preview = drive("POST", f"{answers}/answer-previews", headers=library, json={
+            "expected_vault_id": vault, "expected_revision": revision, "expected_runtime_id": runtime,
+            "selections": [{"file_id": file_id, "version_id": version_id, "sha256": page["sha256"],
+                            "page_number": 1, "range": None}],
+            "notes": [{"note_id": passage_id, "expected_note_revision": 1}], "mode": "question", "instruction": "What does the note keep?",
+            "choices": {"version": 1, "runtime": "claude_cli", "provider": "claude_code",
+                        "model": "fixture-model", "effort": None}})
+        assert preview["request"]["payload"]["notes"][0]["anchor"] is not None
+        consent = {"expected_vault_id": vault, "expected_runtime_id": runtime, "preview_id": preview["preview_id"],
+                   "request_sha256": preview["request_sha256"], "confirmed": True}
+        sent = drive("POST", f"{answers}/answers", expect=202, headers=library, json=consent)
+        answer = f"{answers}/answers/{sent['answer_id']}"
+        with drive.client.stream("GET", f"{answer}/events", headers=library,
+                                 params={"expected_vault_id": vault, "expected_runtime_id": runtime}) as stream:
+            for line in stream.iter_lines():
+                if line.startswith("data: ") and json.loads(line[6:])["type"] == "terminal":
+                    break
+        deadline = time.monotonic() + 30
+        while drive.client.get(f"{answer}?expected_vault_id={vault}", headers=library).json()["state"] in ("admitted", "running"):
+            assert time.monotonic() < deadline, "the authored CLI's answer never finished"
+            time.sleep(0.05)
+        done = drive("GET", f"{answer}?expected_vault_id={vault}", headers=library)
+        assert done["state"] == "succeeded" and done["result"]["sections"][0]["items"][0]["citations"], done["error_message"]
+        assert done["reports"] and done["usage"]["billing"] == "unknown"
+        again = drive("POST", f"{answers}/answers", expect=202, headers=library, json=consent)
+        assert again["answer_id"] == sent["answer_id"]
+        drive("GET", f"{answers}/answers?expected_vault_id={vault}", headers=library)
+        cancelled = drive("POST", f"{answer}/cancel", headers=library,
+                          json={"expected_vault_id": vault, "expected_runtime_id": runtime})
+        assert cancelled["state"] == "succeeded"
+    finally:
+        resmon_mod.serving_port = original_port
 
 
 def _drive_source_wall_and_analytics(drive: Drive) -> None:
@@ -1529,6 +1602,17 @@ def test_every_modeled_route_answers_exactly_what_its_handler_returned(driven):
         + "\n".join(problems))
 
 
+#: Routes whose reply keeps the handler's key order everywhere except one
+#: named subtree, and why. A saved selected-answer request is canonical JSON
+#: with sorted keys, which is what its hash covers, so the request models are
+#: declared in that order; a preview answers the assembly's own dictionary
+#: before it is canonicalized. One model cannot keep both orders, and the
+#: canonical one is the contract's.
+ORDERED_BY_ANOTHER_RULE: dict[tuple[str, str], str] = {
+    ("POST", "/api/evidence/projects/{project_id}/answer-previews"): "request",
+}
+
+
 def test_the_bytes_are_identical_too_and_not_only_the_fields(driven):
     """The stronger claim: the same keys, in the same order, as the same text.
 
@@ -1559,6 +1643,15 @@ def test_the_bytes_are_identical_too_and_not_only_the_fields(driven):
             # something to say, it is the real answer and the ordering is a
             # red herring.
             semantic = differences(json.loads(expected), json.loads(text))
+            subtree = ORDERED_BY_ANOTHER_RULE.get((method, path))
+            if not semantic and subtree is not None:
+                # Exempt inside that subtree only: every other key, and the
+                # subtree's own place among them, keeps the handler's order.
+                def outside(body: str) -> str:
+                    return json.dumps([(k, None if k == subtree else v) for k, v in json.loads(body).items()],
+                                      ensure_ascii=False)
+                if outside(expected) == outside(text):
+                    continue
             if semantic:
                 problems.append(
                     f"{method} {path} (call {index + 1}): the bodies differ in "
