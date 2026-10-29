@@ -833,6 +833,59 @@ def test_three_consecutive_outages_are_reported_as_a_broken_source(conn):
     # And it last answered 20 days ago, not an hour ago.
     assert "It last answered successfully" in findings[0]["detail"]
     assert findings[0]["evidence"]["last_success_at"] == _ts(20)
+    # The card's "Most recent error" is the clause the sentence quotes. It was
+    # read from the exception field, which an outage recorded as ``ok / 0``
+    # never fills, so the card said HTTP 503 in prose and showed no error.
+    assert findings[0]["evidence"]["last_error"] == "the source answered HTTP 503"
+
+
+def test_a_raised_error_is_still_the_most_recent_error_verbatim(conn):
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"arxiv": {
+            "status": "error", "error_message": "Connection reset by peer"}})
+    finding = _by_kind(watchdog.report(conn, now=NOW), "source_errors")[0]
+    assert finding["evidence"]["last_error"] == "Connection reset by peer"
+
+
+def _withdrawn() -> dict:
+    return {"status": "error", "zero_reason": "retired",
+            "error_message": "ieee is retired.",
+            "zero_detail": {"detail": "IEEE Xplore was withdrawn in v1.8.1."}}
+
+
+def test_a_withdrawn_source_is_not_given_reachability_advice(conn):
+    """A source resmon declines to ask is not down and needs no key. Telling the
+    user to check whether it is reachable sends them after a fault that does
+    not exist."""
+    from implementation_scripts.api_registry import RETIRED_REPOSITORIES
+    _routine(conn, name="Old IEEE watch", sources=("ieee",))
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"ieee": _withdrawn()})
+
+    finding = _by_kind(watchdog.report(conn, now=NOW), "source_errors")[0]
+    # The key is unchanged, so a mute the user already set still holds.
+    assert finding["key"] == "source_errors:ieee"
+    assert finding["title"] == "ieee was withdrawn from resmon"
+    assert "reachable" not in finding["what_to_do"]
+    assert "key" not in finding["what_to_do"]
+    assert "Remove ieee from 'Old IEEE watch'" in finding["what_to_do"]
+    assert RETIRED_REPOSITORIES["ieee"] in finding["detail"]
+
+
+def test_a_withdrawn_source_nothing_selects_says_nothing_needs_changing(conn):
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"ieee": _withdrawn()})
+    finding = _by_kind(watchdog.report(conn, now=NOW), "source_errors")[0]
+    assert "nothing needs changing" in finding["what_to_do"]
+    assert "reachable" not in finding["what_to_do"]
+
+
+def test_a_source_this_build_no_longer_lists_uses_its_recorded_withdrawal(conn):
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"gone_source": _withdrawn()})
+    finding = _by_kind(watchdog.report(conn, now=NOW), "source_errors")[0]
+    assert finding["title"] == "gone_source was withdrawn from resmon"
+    assert "IEEE Xplore was withdrawn in v1.8.1." in finding["detail"]
 
 
 def test_last_answered_successfully_does_not_count_a_run_with_no_answer(conn):
