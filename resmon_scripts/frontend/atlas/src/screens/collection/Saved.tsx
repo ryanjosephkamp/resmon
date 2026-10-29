@@ -109,7 +109,7 @@ export function Saved() {
                   Ask again
                 </button>
                 <button type="button" className="btn sm quiet" disabled={remove.isPending}
-                  onClick={() => { if (window.confirm(`Delete the saved search “${config.name}”? Runs it started are kept.`)) remove.mutate(config.id); }}>
+                  onClick={() => { if (window.confirm(`Delete the saved search “${config.name}”? Runs it started are kept, and stop naming it.`)) remove.mutate(config.id); }}>
                   Delete
                 </button>
               </>

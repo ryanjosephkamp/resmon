@@ -362,7 +362,7 @@ export function Search() {
               className="btn quiet"
               data-saved="keep"
               disabled={!allTerms.length || !picked.length}
-              onClick={() => { keep.reset(); setNaming(opened?.name ?? ''); }}
+              onClick={() => { keep.reset(); setNaming(''); }}
             >
               Save this search
             </button>
