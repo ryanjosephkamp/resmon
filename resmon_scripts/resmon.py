@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from contextlib import asynccontextmanager, contextmanager
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Response
 from starlette.requests import Request
-from starlette.responses import Response, StreamingResponse
+from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -2464,6 +2464,52 @@ def export_executions(body: ExecutionExport):
         _close_db(conn)
 
 
+# What a download route answers, for the OpenAPI document: the archive's bytes,
+# never JSON. Without it the schema would describe a JSON body nobody sends.
+_ZIP_DOWNLOAD = {200: {"description": "The archive, as a download.",
+                       "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}}}}
+
+
+def _zip_download(path: Path, filename: str, staging: str) -> FileResponse:
+    """Answer with a ZIP built in ``staging`` and remove ``staging`` once it is sent.
+
+    The removal is a background task, so it runs after the last byte has gone
+    rather than before the response has been read; a staging folder left behind
+    would be a copy of the user's data in the temporary folder nobody asked for.
+    """
+    from starlette.background import BackgroundTask
+    return FileResponse(
+        path, media_type="application/zip", filename=filename,
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        background=BackgroundTask(shutil.rmtree, staging, ignore_errors=True),
+    )
+
+
+@app.get("/api/executions/{exec_id}/bundle", response_model=None, response_class=FileResponse, responses=_ZIP_DOWNLOAD)
+def download_execution_bundle(exec_id: int):
+    """One run's bundle as bytes: the archive ``POST /api/executions/export`` writes.
+
+    The report, its PDF and LaTeX where a LaTeX engine could make them, the
+    log, the metadata and the search record, built by ``_delivery_bundle``,
+    the one builder the export route and the delivery queue share. The export
+    route answers with a path on disk; this one with the archive itself, so a
+    renderer can hand it to the save dialog.
+    """
+    conn = _get_db()
+    staging = tempfile.mkdtemp(prefix="resmon_bundle_")
+    try:
+        row = get_execution_by_id(conn, exec_id)
+        if not row:
+            raise HTTPException(404, "Execution not found")
+        out = _delivery_bundle(conn, row, Path(staging))
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    finally:
+        _close_db(conn)
+    return _zip_download(out, out.name, staging)
+
+
 def _build_execution_zip(rows: list[dict], out_path: Path, *,
                          companions: dict[int, dict] | None = None) -> Path:
     """Package report + logs + metadata for each execution row into *out_path*.
@@ -2982,6 +3028,35 @@ def export_configurations(body: ConfigExport):
             return {"path": tmp.name}
     finally:
         _close_db(conn)
+
+
+@app.post("/api/configurations/archive", response_model=None, response_class=FileResponse, responses=_ZIP_DOWNLOAD)
+def download_configurations(body: ConfigExport):
+    """The same archive ``POST /api/configurations/export`` writes, as bytes.
+
+    The export route writes to a folder the engine chooses and answers with
+    the path, which with no export folder chosen is the system's temporary
+    folder. This one answers with the archive itself, so a renderer can hand
+    it to the system's save dialog and the person chooses where it goes.
+    ``export_configs`` builds it, so the two can never be two formats. An id
+    that is no longer saved is left out, as the export route leaves it out, and
+    a choice with none still saved is a 404 rather than an empty archive.
+    """
+    conn = _get_db()
+    staging = tempfile.mkdtemp(prefix="resmon_configs_")
+    try:
+        found = [cid for cid in dict.fromkeys(body.ids) if conn.execute(
+            "SELECT 1 FROM saved_configurations WHERE id = ?", (cid,)).fetchone()]
+        if not found:
+            raise HTTPException(404, "None of the chosen configurations is saved.")
+        out = export_configs(conn, found, Path(staging) / "configurations.zip")
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    finally:
+        _close_db(conn)
+    stamp = datetime.now().strftime('%Y%m%dT%H%M%S')
+    return _zip_download(out, f"resmon_configs_{stamp}.zip", staging)
 
 
 @app.post("/api/configurations/import",

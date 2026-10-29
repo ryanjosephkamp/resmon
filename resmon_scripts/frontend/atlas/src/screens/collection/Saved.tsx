@@ -2,6 +2,7 @@ import { useRef, useState, type ChangeEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
+import { saveZip } from '../runs/downloads';
 import { count } from '../today/format';
 import { instant, scheduleText } from '../watches/model';
 import { SearchTabs } from './SearchTabs';
@@ -15,6 +16,14 @@ import { SAVED_KEY, savedAsks, savedKind, type SavedConfiguration } from './save
 const ACCEPTS = '.zip,.json,application/zip,application/json';
 
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** "resmon-saved-20261029T163412.zip", stamped in local time. */
+export function archiveName(at: Date): string {
+  return `resmon-saved-${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}`
+    + `T${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}.zip`;
+}
 
 function refusal(error: Error): string {
   return error instanceof EngineError && error.detail ? error.detail : error.message;
@@ -38,8 +47,22 @@ export function Saved() {
   });
   const names = new Map((catalog.data ?? []).map((e) => [e.slug, e.name]));
 
+  // The engine builds the archive (the one its export route writes) and
+  // answers with its bytes, which go to the system as a download, so the save
+  // dialog asks where it goes. The list is read again first, so what the page
+  // says it exported is what is saved now rather than what it last drew.
   const exported = useMutation({
-    mutationFn: (ids: number[]) => answer(engine().POST('/api/configurations/export', { body: { ids } })),
+    mutationFn: async (ids: number[]) => {
+      const now = await answer(engine().GET('/api/configurations'));
+      const chosenRows = now.filter((c) => ids.includes(c.id));
+      if (!chosenRows.length) throw new EngineError(0, 'None of the chosen searches is saved any longer, so nothing was exported.');
+      const filename = archiveName(new Date());
+      await saveZip(engine().POST('/api/configurations/archive', {
+        body: { ids: chosenRows.map((c) => c.id) }, parseAs: 'arrayBuffer',
+      }), filename, 'The export');
+      return { filename, searches: chosenRows.filter((c) => c.config_type !== 'routine').length,
+        watches: chosenRows.filter((c) => c.config_type === 'routine').length, missing: ids.length - chosenRows.length };
+    },
   });
   const imported = useMutation({
     mutationFn: (files: File[]) => answer(engine().POST('/api/configurations/import', {
@@ -146,7 +169,9 @@ export function Saved() {
       </div>
       {exported.data && (
         <p className="settings-said" role="status" data-saved="exported">
-          Exported to <code className="path">{exported.data.path}</code>
+          {exportedWords(exported.data.searches, exported.data.watches)} into <code className="path">{exported.data.filename}</code>;
+          the save dialog asks where it goes.
+          {exported.data.missing > 0 && ` ${count(exported.data.missing, 'chosen row was', 'chosen rows were')} no longer saved, and left out.`}
         </p>
       )}
       {imported.data && (
@@ -181,6 +206,15 @@ export function Saved() {
       </section>
     </div>
   );
+}
+
+/** "Put 1 saved search", "Put 2 saved searches and 1 watch". */
+export function exportedWords(searches: number, watches: number): string {
+  const parts = [
+    searches > 0 && count(searches, 'saved search', 'saved searches'),
+    watches > 0 && count(watches, 'watch', 'watches'),
+  ].filter(Boolean);
+  return `Put ${parts.join(' and ')}`;
 }
 
 /** "Imported 1 saved search.", "Imported 2 saved searches and 1 watch, which arrives paused." */

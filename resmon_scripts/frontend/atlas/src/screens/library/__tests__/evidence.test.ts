@@ -1,5 +1,5 @@
-import type { Note, PageText } from '../evidenceApi';
-import { examinedWords, resolves, selectionAnchor, utf16Range } from '../evidenceModel';
+import { EvidenceRefusal, type Note, type PageText } from '../evidenceApi';
+import { bundleRefusal, examinedWords, resolves, selectionAnchor, utf16Range } from '../evidenceModel';
 
 /** One page's canonical text: an emoji and a decomposed é before the passage, so UTF-16 and codepoints differ. */
 const TEXT = 'First \u{1F600} é exact passage\nrepeat needle\n';
@@ -49,4 +49,25 @@ test('how much of a document text extraction looked at, and no word about pages 
   expect(examinedWords(page())).toBe('1 of 1 page examined by text extraction.');
   expect(examinedWords(page({ page_count: null }))).toBe(
     '1 of an unknown number of pages examined by text extraction. Other pages: not examined.');
+});
+
+describe('a refused export, in words a person can act on', () => {
+  const refused = (reason: string, sentence: string) => new EvidenceRefusal(422, 'Evidence answered HTTP 422', sentence, reason);
+
+  test('a request the engine would not read is a choice that no longer matches the project', () => {
+    const words = bundleRefusal(refused('invalid_body', 'Use the exact typed Evidence fields and stated text limits.'));
+    expect(words).not.toContain('typed Evidence fields');
+    expect(words).toContain('1 to 20 of the files this project holds now');
+    expect(bundleRefusal(refused('selection_limit', 'Select 1–20 distinct current files.'))).toBe(words);
+  });
+
+  test('a changed project says it was read again', () => {
+    expect(bundleRefusal(refused('stale_revision', 'The project changed. Refresh before selecting a bundle.')))
+      .toMatch(/^The project changed after this choice was made, so nothing was saved\. It has been read again/);
+  });
+
+  test('anything else is the engine’s own sentence', () => {
+    expect(bundleRefusal(refused('bundle_limit', 'Selected retained files exceed 256 MiB.'))).toBe('Selected retained files exceed 256 MiB.');
+    expect(bundleRefusal(new Error('Network down'))).toBe('Network down');
+  });
 });
