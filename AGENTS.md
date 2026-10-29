@@ -568,8 +568,8 @@ as a fixed 12-character mask and every required credit unconditionally; Backup w
 `export_directory` (unset, the system's temporary folder, which it says) and names Google Drive for
 desktop's folder as the way to keep a copy in Drive; Cloud Storage is the existing Google sign-in
 upload of the reports folder, carried unchanged; the Danger zone's typed erasures need CONFIRM,
-which the engine checks again. The admin, backup and cloud bodies are the "danger zone", "backup and
-restore" and "cloud storage" slices of `test_response_models.py`; real-app journey
+which the engine checks again. The admin, backup, restore and cloud bodies are the "danger zone",
+"backup", "restore" and "cloud storage" slices of `test_response_models.py`; real-app journey
 `e2e/atlas-edges.spec.ts`, which uses an in-memory keyring so a stored key's mask is checked.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.

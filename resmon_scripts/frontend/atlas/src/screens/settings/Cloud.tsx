@@ -5,11 +5,15 @@ import { PlaceHelp } from '../watches/people/People';
 
 const CLOUD_KEY = ['cloud-status'] as const;
 
-/** Why a linked Drive cannot be used, in the person's terms (`api_reason`). */
+/**
+ * Why a linked Drive cannot be used, for the codes `api_reason` carries most:
+ * Google's own error reasons. Any other code (an exception's name, or
+ * `http_error`) is shown as the engine gives it.
+ */
 const REASONS: Record<string, string> = {
   no_token: 'No Google Drive sign-in is stored.',
-  drive_api_disabled: 'The Google Drive API is not enabled on the OAuth project this copy of resmon signs in with.',
-  insufficient_scope: 'The stored sign-in does not allow resmon to write files. Disconnect and connect again.',
+  accessNotConfigured: 'The Google Drive API is not enabled on the OAuth project this copy of resmon signs in with.',
+  insufficientPermissions: 'The stored sign-in does not allow resmon to write files. Disconnect and connect again.',
 };
 
 function refusal(error: Error): string {
