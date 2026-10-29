@@ -2302,3 +2302,91 @@ class CalendarEvent(LosslessModel):
     query: Optional[str]
     total_results: Optional[int]
     new_results: Optional[int]
+
+
+# ---------------------------------------------------------------------------
+# The background service, the test send, and a credential stored or removed
+# ---------------------------------------------------------------------------
+
+
+class ServiceStatus(LosslessModel):
+    """``GET /api/service/status`` — whether the unit file is installed.
+
+    ``installed`` is the file's presence at ``unit_path`` and nothing more: an
+    installed unit says nothing about whether a service is running, which is
+    ``/api/service/daemon-status``'s question. ``platform`` is ``sys.platform``.
+    """
+
+    installed: bool
+    unit_path: str
+    platform: str
+
+
+class DaemonStatus(LosslessModel):
+    """``GET /api/service/daemon-status`` — the lock file, and what answered.
+
+    ``running`` is true only when a lock names a port and that port's health
+    answered 200; ``pid``, ``port``, ``version`` and ``started_at`` are the
+    probe's, and the ``lock_*`` fields are the file's own, which may name a
+    process that has died. ``error`` says why a lock that is present did not
+    answer. ``is_self`` is present only on a probe that answered, and is true
+    when the answer came from the process serving this request: a window
+    attached to the service rather than beside it.
+    """
+
+    lock_present: bool
+    running: bool
+    pid: Optional[int]
+    port: Optional[int]
+    version: Optional[str]
+    started_at: Optional[str]
+    lock_pid: Optional[int]
+    lock_port: Optional[int]
+    lock_version: Optional[str]
+    error: Optional[str]
+    is_self: Optional[bool] = None
+
+
+class ServiceInstalled(LosslessModel):
+    """``POST /api/service/install`` — the unit written, and where."""
+
+    installed: bool
+    unit_path: str
+
+
+class ServiceUninstalled(LosslessModel):
+    """``POST /api/service/uninstall``.
+
+    ``removed`` is whether a file was there to remove: uninstalling a service
+    that was never installed answers ``installed: false`` and ``removed:
+    false`` rather than an error.
+    """
+
+    installed: bool
+    unit_path: str
+    removed: bool
+
+
+class TestEmailSent(LosslessModel):
+    """``POST /api/settings/email/test`` — a send the SMTP server accepted.
+
+    Only the first recipient is sent to, and ``recipient`` names it. Every
+    failure, an incomplete configuration included, is a 400 whose ``detail``
+    says which, so this body is the success case alone.
+    """
+
+    # Not a test class, whatever its name says to pytest's collector.
+    __test__ = False
+
+    success: bool
+    recipient: str
+
+
+class CredentialChanged(LosslessModel):
+    """``PUT`` and ``DELETE /api/credentials/{key_name}``: ``{"success": true}``.
+
+    Never the value. A ``PUT`` names its slot in the path and carries the
+    value in the body; the answer says only that the keyring took it.
+    """
+
+    success: bool

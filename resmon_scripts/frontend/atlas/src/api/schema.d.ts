@@ -3985,6 +3985,19 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * CredentialChanged
+         * @description ``PUT`` and ``DELETE /api/credentials/{key_name}``: ``{"success": true}``.
+         *
+         *     Never the value. A ``PUT`` names its slot in the path and carries the
+         *     value in the body; the answer says only that the keyring took it.
+         */
+        CredentialChanged: {
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * CredentialPresence
          * @description Whether one credential is there, never what it is.
          *
@@ -4032,6 +4045,44 @@ export interface components {
             };
             /** Keyring Responsive */
             keyring_responsive: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DaemonStatus
+         * @description ``GET /api/service/daemon-status`` — the lock file, and what answered.
+         *
+         *     ``running`` is true only when a lock names a port and that port's health
+         *     answered 200; ``pid``, ``port``, ``version`` and ``started_at`` are the
+         *     probe's, and the ``lock_*`` fields are the file's own, which may name a
+         *     process that has died. ``error`` says why a lock that is present did not
+         *     answer. ``is_self`` is present only on a probe that answered, and is true
+         *     when the answer came from the process serving this request: a window
+         *     attached to the service rather than beside it.
+         */
+        DaemonStatus: {
+            /** Error */
+            error: string | null;
+            /** Is Self */
+            is_self?: boolean | null;
+            /** Lock Pid */
+            lock_pid: number | null;
+            /** Lock Port */
+            lock_port: number | null;
+            /** Lock Present */
+            lock_present: boolean;
+            /** Lock Version */
+            lock_version: string | null;
+            /** Pid */
+            pid: number | null;
+            /** Port */
+            port: number | null;
+            /** Running */
+            running: boolean;
+            /** Started At */
+            started_at: string | null;
+            /** Version */
+            version: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -6402,6 +6453,54 @@ export interface components {
              */
             register: boolean;
         };
+        /**
+         * ServiceInstalled
+         * @description ``POST /api/service/install`` — the unit written, and where.
+         */
+        ServiceInstalled: {
+            /** Installed */
+            installed: boolean;
+            /** Unit Path */
+            unit_path: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ServiceStatus
+         * @description ``GET /api/service/status`` — whether the unit file is installed.
+         *
+         *     ``installed`` is the file's presence at ``unit_path`` and nothing more: an
+         *     installed unit says nothing about whether a service is running, which is
+         *     ``/api/service/daemon-status``'s question. ``platform`` is ``sys.platform``.
+         */
+        ServiceStatus: {
+            /** Installed */
+            installed: boolean;
+            /** Platform */
+            platform: string;
+            /** Unit Path */
+            unit_path: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ServiceUninstalled
+         * @description ``POST /api/service/uninstall``.
+         *
+         *     ``removed`` is whether a file was there to remove: uninstalling a service
+         *     that was never installed answers ``installed: false`` and ``removed:
+         *     false`` rather than an error.
+         */
+        ServiceUninstalled: {
+            /** Installed */
+            installed: boolean;
+            /** Removed */
+            removed: boolean;
+            /** Unit Path */
+            unit_path: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** SettingsBody */
         SettingsBody: {
             /** Settings */
@@ -6517,6 +6616,22 @@ export interface components {
             request_id?: string | null;
             /** Saved Configuration Id */
             saved_configuration_id?: number | null;
+        };
+        /**
+         * TestEmailSent
+         * @description ``POST /api/settings/email/test`` — a send the SMTP server accepted.
+         *
+         *     Only the first recipient is sent to, and ``recipient`` names it. Every
+         *     failure, an incomplete configuration included, is a 400 whose ``detail``
+         *     says which, so this body is the success case alone.
+         */
+        TestEmailSent: {
+            /** Recipient */
+            recipient: string;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * Today
@@ -8644,7 +8759,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CredentialChanged"];
                 };
             };
             /** @description Validation Error */
@@ -8675,7 +8790,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CredentialChanged"];
                 };
             };
             /** @description Validation Error */
@@ -12175,7 +12290,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DaemonStatus"];
                 };
             };
         };
@@ -12199,7 +12314,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ServiceInstalled"];
                 };
             };
             /** @description Validation Error */
@@ -12228,7 +12343,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ServiceStatus"];
                 };
             };
         };
@@ -12252,7 +12367,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ServiceUninstalled"];
                 };
             };
             /** @description Validation Error */
@@ -12513,7 +12628,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TestEmailSent"];
                 };
             };
         };
