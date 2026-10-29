@@ -11,6 +11,12 @@
  * swap over and the spec asserts the absence instead. Either way the run says
  * which one it measured.
  *
+ * The present arm starts where a person who sets embeddings up later starts:
+ * papers collected with no model. It checks that the collection offers no
+ * ranking then, that a provider that cannot embed is refused when it is chosen,
+ * and that the papers already held are counted as missing, priced before
+ * anything is sent, and embedded by the backfill without one going missing.
+ *
  * **The model is authored and local.** A deterministic vector per text, served
  * on loopback, called by the backend's own embedding client over a real socket.
  * That is enough to establish that the app ranks, labels and counts what a
@@ -38,6 +44,8 @@ journey.describe('J09 Semantic search', () => {
       expect(String(status.capability.reason ?? '').length).toBeGreaterThan(0);
       const ranked = await resmon.rankTheExplorerBy('perovskite');
       expect(ranked.controlsPresent, 'a build that cannot rank still offers the control').toBe(false);
+      console.log(`[J09] in the control's place: ${JSON.stringify(ranked.note)}`);
+      if (ranked.note) expect(ranked.note).toMatch(/sqlite-vec\) did not load/);
       console.log(
         '[J09] NOT VERIFIED: the present arm. This machine cannot load the vector '
         + `extension (${health.embeddings?.reason}), so nothing could be ranked here.`,
@@ -46,12 +54,41 @@ journey.describe('J09 Semantic search', () => {
       return;
     }
 
-    // The present arm. The model is configured before anything is collected, so
-    // the papers are embedded as they are stored, which is the path a person
-    // with a lane configured actually takes.
-    const model = await resmon.enableRankingByMeaning();
+    // The present arm. The papers are collected before any model is set, which
+    // is where a person who sets one up later stands: a collection with no
+    // vectors. (A model set before collecting embeds papers as they are
+    // stored; J10 and J11 take that path.)
     const run = await resmon.runDive({ source: 'arxiv', keywords: ['perovskite'], cap: 10 });
     expect((await resmon.waitForRunToSettle(run)).status).toBe('completed');
+
+    // With no model, the collection offers no ranking. Where the interface
+    // says why in the control's place, the sentence is checked for the reason.
+    const unranked = await resmon.rankTheExplorerBy('perovskite');
+    console.log(`[J09] before a model: ${JSON.stringify(unranked.note)}`);
+    expect(unranked.controlsPresent, 'a collection with no model offers the control').toBe(false);
+    if (unranked.note) expect(unranked.note).toMatch(/no embedding model is set up/);
+
+    // A provider that cannot embed is refused when it is chosen, with the
+    // reason, and nothing is saved for it.
+    const anthropic = await resmon.chooseAnEmbeddingProvider('anthropic');
+    console.log(`[J09] choosing Anthropic: ${JSON.stringify(anthropic)}`);
+    expect(anthropic.refused, 'a provider that cannot embed was accepted at configuration').toBe(true);
+    expect(anthropic.reason).toMatch(/Anthropic does not offer an embeddings API/);
+
+    const model = await resmon.enableRankingByMeaning();
+
+    // The papers already held have no vector yet, and are counted as missing
+    // before anything is sent; the cost is stated before the backfill starts;
+    // and the backfill embeds them without a paper going missing.
+    const backfill = await resmon.embedThePapersStillMissing();
+    console.log(`[J09] backfill: ${JSON.stringify(backfill)}`);
+    expect(backfill.before.total, 'the dive stored nothing to embed').toBeGreaterThan(0);
+    expect(backfill.before.embedded, 'papers were embedded before any model was set').toBe(0);
+    expect(backfill.missing, 'the missing papers were not counted').toContain(String(backfill.before.total));
+    expect(backfill.estimate, 'no estimate was given before the backfill').toMatch(/\d+ papers? to embed/);
+    expect(backfill.after.total, 'a paper went missing in the backfill').toBe(backfill.before.total);
+    expect(backfill.after.embedded, 'the backfill left papers without a vector').toBe(backfill.after.total);
+    expect(backfill.outcome).toMatch(/^Embedded /);
 
     const status = await resmon.backend.embeddingsStatus();
     console.log(`[J09] coverage: ${JSON.stringify(status.coverage)}; capability: ${JSON.stringify(status.capability)}`);
@@ -92,22 +129,23 @@ journey.describe('J09 Semantic search', () => {
         expect(firstUnranked, 'an unranked paper was listed before a ranked one').toBeGreaterThan(lastRanked);
       }
     } else {
-      // Every paper in this corpus was embedded as it was stored, so there is
-      // no tail to count and the note does not invent one.
+      // The backfill gave every paper in this corpus a vector, so there is no
+      // tail to count and the note does not invent one.
       const unrankedRows = ranked.list.rows.filter((row) => !/^\d/.test(row.distance));
       expect(unrankedRows, 'the note accounts for no unranked papers but the list shows some')
         .toEqual([]);
       console.log(
-        '[J09] NOT VERIFIED: the unranked tail, listed last and counted. Every paper in '
-        + 'this corpus was embedded as it was stored, so there was none — and the note '
-        + 'carried no count rather than printing a zero.',
+        '[J09] NOT VERIFIED: the unranked tail, listed last and counted. The backfill '
+        + 'gave every paper in this corpus a vector, so there was none — and the note '
+        + 'carried no count rather than printing a zero. The papers without a vector '
+        + 'were counted before the backfill instead.',
       );
     }
 
     console.log(
       '[J09] NOT VERIFIED: the absent arm. The vector extension loads on this '
-      + 'machine, so the "no controls, and a reason" branch was not the one '
-      + 'exercised here.',
+      + 'machine, so "no controls, and a reason" was exercised for a missing model '
+      + 'only, not for a missing extension.',
     );
 
     await resmon.takePicture('J09-semantic-search');

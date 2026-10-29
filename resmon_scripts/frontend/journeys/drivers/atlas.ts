@@ -25,6 +25,8 @@ import type {
   SourceOutcome, SourceWallCellView, SourceWallReading, SourceWallView, ThemeChoice, TodayReading, UpcomingFire,
   WatchdogFinding, WatchdogView, WhyPanel,
 } from '../driver';
+import type { EmbeddingBackfill, EmbeddingProviderChoice } from '../driver';
+import { JOURNEY_EMBEDDING_MODEL, startEmbeddingEndpoint } from '../fixtures/embedding-endpoint';
 import type { Session } from './session';
 
 /** The hash behind each place Atlas has. */
@@ -86,6 +88,7 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'runDive' | 'runSweep' | 'readRunPanelOutcomes' | 'cancelRunFromMonitor' | 'openReport' | 'readReportTabs'
   | 'readCoverageSentence' | 'readReportOutcomes' | 'exportReferences' | 'readInterruptedRow' | 'restartRun'
   | 'rankTheExplorerBy' | 'readExplorerList' | 'readExplorerTitles' | 'collapseDuplicates' | 'openFirstPaper'
+  | 'enableRankingByMeaning' | 'chooseAnEmbeddingProvider' | 'embedThePapersStillMissing'
   | 'readWhyPanel' | 'savePapersFromRun' | 'readReadingQueue' | 'markPaperRead' | 'removeFromReadingQueue'
   | 'exportReadingQueue'
   | 'listRoutineNames' | 'readRoutine' | 'activateRoutine' | 'deactivateRoutine' | 'toggleDesktopNotification'
@@ -284,6 +287,30 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       }
     }
     await settledResults();
+  };
+
+  /**
+   * Settings → AI, opened at Embeddings as a link to it opens it, and settled:
+   * the group read and the counts drawn.
+   */
+  const openEmbeddings = async (): Promise<Locator> => {
+    await win().evaluate(() => { window.location.hash = '#/settings/ai?focus=embeddings'; });
+    await expect(win().getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
+    await expect(win().locator('.settings-body > section.settings-group'))
+      .toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    const part = win().locator('section.embeddings');
+    await expect(part.locator('[data-embeddings="facts"]')).toBeVisible({ timeout: 30_000 });
+    await expect(part.getByRole('form', { name: 'Embedding settings' })).toBeVisible();
+    return part;
+  };
+
+  /** The embedding form with its switch on, so the provider and model are on screen. */
+  const embeddingForm = async (part: Locator): Promise<Locator> => {
+    const form = part.getByRole('form', { name: 'Embedding settings' });
+    const on = form.locator('[data-switch="embedding_enabled"]');
+    if ((await on.getAttribute('aria-checked')) !== 'true') await on.click();
+    await expect(on).toHaveAttribute('aria-checked', 'true');
+    return form;
   };
 
   const settledResults = async (): Promise<void> => {
@@ -1646,13 +1673,94 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const control = win().getByRole('group', { name: 'Order' });
       if (capability !== 'available') {
         await expect(control).toHaveCount(0);
-        return { note: '', controlsPresent: false, list: await readList() };
+        // Absent, and not silently: the sentence in the control's place says why.
+        const why = win().locator('[data-collection="ranking"]');
+        await expect(why, 'the collection cannot rank and does not say why').toBeVisible({ timeout: 30_000 });
+        return { note: (await why.innerText()).trim(), controlsPresent: false, list: await readList() };
       }
       await control.getByRole('button', { name: 'Closest in meaning' }).click();
       const note = win().locator('.rank-note').first();
       await expect(note).toContainText('Closest to:', { timeout: 60_000 });
       await settledResults();
       return { note: (await note.innerText()).trim(), controlsPresent: true, list: await readList() };
+    },
+
+    // — embeddings, in Settings → AI ------------------------------------------
+
+    enableRankingByMeaning: async () => {
+      // The same deterministic model on loopback the classic driver uses, set
+      // up through Settings → AI → Embeddings as a person does: Ollama, the
+      // model, the endpoint, a probe that must answer, then Save.
+      const endpoint = await startEmbeddingEndpoint();
+      session.alsoCloseOnClose(endpoint.close);
+      const part = await openEmbeddings();
+      const form = await embeddingForm(part);
+      await form.getByLabel('Provider', { exact: true }).selectOption('local');
+      await form.getByLabel('Model', { exact: true }).fill(JOURNEY_EMBEDDING_MODEL);
+      await form.getByLabel('Ollama endpoint', { exact: true }).fill(endpoint.url);
+      await form.getByRole('button', { name: 'Probe this model', exact: true }).click();
+      const probe = form.locator('[data-embeddings="probe"]');
+      await expect(probe, 'the probe drew no answer').toBeVisible({ timeout: 30_000 });
+      expect(await probe.getAttribute('data-ok'), `the embedding probe said: ${await probe.innerText()}`).toBe('true');
+      await form.getByRole('button', { name: 'Save embedding settings', exact: true }).click();
+      await expect(form.locator('[data-embeddings="saved"]')).toBeVisible({ timeout: 30_000 });
+      await expect(part).toHaveAttribute('data-embeddings-lane', 'set', { timeout: 30_000 });
+      return JOURNEY_EMBEDDING_MODEL;
+    },
+
+    chooseAnEmbeddingProvider: async (provider): Promise<EmbeddingProviderChoice> => {
+      const stored = await session.api<{ settings: Record<string, string>; providers: { provider: string; state: string }[] }>(
+        'GET', '/api/settings/embeddings',
+      );
+      const expected = stored.providers.find((p) => p.provider === provider)?.state === 'no';
+      const part = await openEmbeddings();
+      const form = await embeddingForm(part);
+      await form.getByLabel('Provider', { exact: true }).selectOption(provider);
+      const refusal = form.locator('[data-embeddings="refusal"]');
+      // The engine's own answer for the provider says which state to wait for.
+      await expect(refusal, expected ? `choosing ${provider} drew no refusal`
+        : `choosing ${provider} drew a refusal the engine does not make`).toHaveCount(expected ? 1 : 0, { timeout: 30_000 });
+      if (!expected) return { refused: false, reason: '' };
+      await expect(form.getByRole('button', { name: 'Save embedding settings', exact: true }),
+        'a refused provider can still be saved').toBeDisabled();
+      const after = await session.api<{ settings: Record<string, string> }>('GET', '/api/settings/embeddings');
+      expect(after.settings.embedding_provider, 'a refused provider was stored').toBe(stored.settings.embedding_provider);
+      return { refused: true, reason: (await refusal.innerText()).trim() };
+    },
+
+    embedThePapersStillMissing: async (): Promise<EmbeddingBackfill> => {
+      type Status = { coverage: { embedded: number; total: number }; run: { running: boolean; finished_at: string | null } };
+      const before = await session.api<Status>('GET', '/api/embeddings/status');
+      const part = await openEmbeddings();
+      // The count on screen is the engine's, before anything is sent.
+      const missingFact = part.locator('[data-embeddings="missing"]');
+      await expect(missingFact).toHaveAttribute('data-count', String(before.coverage.total - before.coverage.embedded));
+      const missing = (await missingFact.locator('dd').innerText()).trim();
+      const run = part.locator('[data-embeddings="backfill"]');
+      await run.getByRole('button', { name: 'Estimate the work', exact: true }).click();
+      const estimate = run.locator('[data-embeddings="estimate"]');
+      await expect(estimate, 'no estimate was shown').toBeVisible({ timeout: 60_000 });
+      const estimated = (await estimate.innerText()).replace(/\s+/g, ' ').trim();
+      const documents = Number(await estimate.getAttribute('data-documents'));
+      // The only way to start is the button the estimate puts there.
+      await run.getByRole('button', { name: new RegExp(`^Embed ${documents} papers?$`) }).click();
+      let after = before;
+      await expect.poll(async () => {
+        after = await session.api<Status>('GET', '/api/embeddings/status');
+        return !after.run.running && after.run.finished_at !== before.run.finished_at;
+      }, { timeout: 120_000, message: 'the backfill never finished' }).toBe(true);
+      await expect(run).toHaveAttribute('data-running', 'false', { timeout: 30_000 });
+      const outcome = run.locator('[data-embeddings="outcome"]');
+      await expect(outcome).toBeVisible({ timeout: 30_000 });
+      await expect(part.locator('[data-embeddings="embedded"] dd'))
+        .toHaveText(new RegExp(`^${after.coverage.embedded.toLocaleString('en-US')} of `), { timeout: 30_000 });
+      return {
+        before: { embedded: before.coverage.embedded, total: before.coverage.total },
+        missing,
+        estimate: estimated,
+        outcome: (await outcome.innerText()).trim(),
+        after: { embedded: after.coverage.embedded, total: after.coverage.total },
+      };
     },
 
     readExplorerList: async (): Promise<ExplorerList> => {

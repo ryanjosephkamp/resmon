@@ -6,6 +6,8 @@ import type { components } from '../../api/schema';
 import { Icon } from '../../shell/Icon';
 import { basisWords, PaperSky } from '../sky/PaperSky';
 import { authors, count, number } from '../today/format';
+import { EMBEDDING_STATUS_KEY, EMBEDDINGS_PATH, ranking as rankingWords } from '../settings/embeddingWords';
+import { capWords } from './countCap';
 import { foldedAway, standingInFor } from './fold';
 import { SearchTabs } from './SearchTabs';
 import { BASIS_MEANING, basisWords as matchBasis } from '../watches/people/model';
@@ -23,9 +25,15 @@ const SETTLE_MS = 350;
  *
  * Ranking by meaning orders the matches without filtering them, and the note
  * says against what, with which model, and how many had no vector yet (those
- * are listed last, never dropped). Two records of the same work are labeled
- * with the reason the engine linked them; folding them hides rows in this view
- * only, and the count does not change.
+ * are listed last, never dropped). Where it cannot rank, the control is not
+ * offered and a sentence stands in its place saying why (no model, papers
+ * without vectors, counted, or the extension missing) with a link to
+ * Settings → AI → Embeddings, where that is put right. A count the engine
+ * stopped at its cap says so beside the number.
+ *
+ * Two records of the same work are labeled with the reason the engine linked
+ * them; folding them hides rows in this view only, and the count does not
+ * change.
  *
  * `?source=` and `?category=` narrow it to one source or one subject category,
  * the engine's own filters, so a chart elsewhere can open exactly the papers
@@ -45,8 +53,9 @@ export function Collection() {
     return () => clearTimeout(settle);
   }, [draft]);
 
-  const status = useQuery({ queryKey: ['embedding-status'], queryFn: () => answer(engine().GET('/api/embeddings/status')) });
+  const status = useQuery({ queryKey: EMBEDDING_STATUS_KEY, queryFn: () => answer(engine().GET('/api/embeddings/status')) });
   const canRank = status.data?.capability.available === true;
+  const rank = status.data ? rankingWords(status.data) : null;
   const ranking: Sort = canRank && query && sort === 'similarity' ? 'similarity' : 'newest';
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
@@ -99,6 +108,8 @@ export function Collection() {
   const countSentence = !first ? ''
     : filtered ? `${papers} matching your filters${query ? ' and these words' : ''}`
       : `${papers} ${query ? 'match' : 'in your collection'}`;
+  // The whole collection's own count is the status's, read from every record; it answers only the unfiltered view.
+  const cap = first ? capWords(first, !query && !filtered ? status.data?.coverage.total ?? null : null) : null;
   const drop = (key: 'source' | 'category') => {
     const next = new URLSearchParams(params);
     next.delete(key);
@@ -150,6 +161,17 @@ export function Collection() {
                 </button>
               </div>
             )}
+            {rank && !canRank && (
+              <p className="rank-off" data-collection="ranking">
+                {rank.sentence}
+                {rank.action && <>{' '}<Link to={EMBEDDINGS_PATH}>{rank.action}</Link>.</>}
+              </p>
+            )}
+            {status.isError && (
+              <p className="rank-off" data-collection="ranking">
+                The engine did not say whether the collection can be ranked by meaning ({status.error.message}).
+              </p>
+            )}
             {anyLinks && (
               <label className="fold-toggle">
                 <input type="checkbox" checked={fold} onChange={(event) => setFold(event.target.checked)} />
@@ -177,7 +199,10 @@ export function Collection() {
               )}
             </div>
           )}
-          <p className="count-sentence">{countSentence}</p>
+          <p className="count-sentence">
+            {countSentence}
+            {cap && <span className="count-cap" data-collection="count-cap"> · {cap}</span>}
+          </p>
           {ranking === 'similarity' && first && first.sort === 'similarity' && (
             <p className="rank-note">
               Closest to: <strong>{query}</strong>{first.model && <> — using <strong>{first.model}</strong></>}

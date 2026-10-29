@@ -1,11 +1,17 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { answer, engine, EngineError } from '../../api/client';
-import { platform } from '../../bridge';
+import { useSearchParams } from 'react-router-dom';
+import { answer, engine } from '../../api/client';
 import { STATUS_KEY } from '../ask/AskProvider';
 import { ask } from '../ask/askApi';
 import { providerWords } from '../ask/askModel';
-import { keychainName } from './model';
+import { EMBEDDING_STATUS_KEY } from './embeddingWords';
+import { EMBEDDING_PAGE_KEY, Embeddings, readEmbeddingPage, readEmbeddingStatus } from './Embeddings';
+import { ProviderKey, refusal } from './ProviderKey';
+import {
+  CLI_PROVIDERS, KEY_NAMES, laneWords, planLimits, routeSentence, storedSummary, summaryChanged, summaryPayload,
+  type AiSettings, type ChainEntry, type SummaryForm as SummaryFields,
+} from './summaryLanes';
 
 const AI_KEY = ['ai-settings'] as const;
 const ASSISTANT_KEY = ['assistant-settings'] as const;
@@ -13,7 +19,6 @@ const CLI_KEY = ['ai-cli-status'] as const;
 
 const readAi = () => answer(engine().GET('/api/settings/ai'));
 const readAssistant = () => answer(engine().GET('/api/settings/assistant'));
-type AiSettings = Awaited<ReturnType<typeof readAi>>;
 type AssistantSettings = Awaited<ReturnType<typeof readAssistant>>;
 type Status = Awaited<ReturnType<typeof ask.status>>;
 
@@ -31,48 +36,48 @@ const PROVIDERS: readonly { value: string; label: string }[] = [
   { value: 'local', label: 'Local (Ollama)' },
   { value: 'custom', label: 'A custom endpoint' },
 ];
-const CLI_PROVIDERS = new Set(['claude_code', 'codex']);
-/** The credential each provider's key is stored under (`llm_remote._ALIAS_FOR`). */
-const KEY_NAMES: Record<string, string> = {
-  openai: 'openai_api_key', anthropic: 'anthropic_api_key', google: 'google_api_key', xai: 'xai_api_key',
-  meta: 'meta_api_key', deepseek: 'deepseek_api_key', alibaba: 'alibaba_api_key', custom: 'custom_llm_api_key',
-};
-
-/** The papers a plan's run sends at most: the stored cap where it is a positive whole number, else the engine's 50. */
-function docCap(stored: string): number {
-  const parsed = Number.parseInt(stored, 10);
-  return parsed > 0 ? parsed : 50;
-}
-
-function refusal(error: Error): string {
-  return error instanceof EngineError && error.detail ? error.detail : error.message;
-}
-
 /**
- * Settings → AI: the two things in resmon that use a model.
+ * Settings → AI: the three things in resmon that use a model.
  *
  * **Summaries** are written for the papers a run finds, when a run asks for
- * them. **Ask** is the assistant. They can use different connections, and
- * each says what resmon has checked about it: finding a command is not
- * knowing that anyone is signed into it, and a stored key is not one a
- * provider has accepted.
+ * them. **Ask** is the assistant. **Embeddings** turn papers into vectors, so
+ * the collection can be ranked by meaning. Each says what resmon has checked
+ * about its connection: finding a command is not knowing that anyone is
+ * signed into it, and a stored key is not one a provider has accepted.
+ *
+ * `?focus=embeddings` opens the group at Embeddings, where Search › Your
+ * collection sends a person whose papers have no vectors, and where a watch's
+ * audit tells them to go.
  */
 export function Ai() {
-  // The same reads the two parts make, asked here only to say when the group has arrived.
+  // The same reads the parts make, asked here only to say when the group has arrived.
   const busy = [
     useQuery({ queryKey: AI_KEY, queryFn: readAi }),
     useQuery({ queryKey: ASSISTANT_KEY, queryFn: readAssistant }),
     useQuery({ queryKey: STATUS_KEY, queryFn: ask.status }),
+    useQuery({ queryKey: EMBEDDING_PAGE_KEY, queryFn: readEmbeddingPage }),
+    useQuery({ queryKey: EMBEDDING_STATUS_KEY, queryFn: readEmbeddingStatus }),
   ].some((q) => q.isPending);
+  const [params, setParams] = useSearchParams();
+
+  // Once every part has drawn, so that the parts above Embeddings no longer move it.
+  useEffect(() => {
+    if (busy || params.get('focus') !== 'embeddings') return;
+    document.getElementById('embeddings')?.scrollIntoView({ block: 'start' });
+    document.getElementById('ai-embeddings')?.focus({ preventScroll: true });
+    setParams({}, { replace: true });
+  }, [busy, params, setParams]);
+
   return (
     <section className="settings-group ai" aria-labelledby="ai-title" aria-busy={busy}>
       <h2 id="ai-title" className="group-title">AI</h2>
       <p className="group-lede">
-        Two things in resmon use a model: a summary of each paper a run finds, when you ask for one, and Ask.
-        Neither runs unless you start it.
+        Three things in resmon use a model: a summary of each paper a run finds, when you ask for one; Ask; and
+        embeddings, which let Search rank your collection by meaning. None of them runs until you set it up.
       </p>
       <Summaries />
       <Assistant />
+      <Embeddings />
     </section>
   );
 }
@@ -93,18 +98,24 @@ function Summaries() {
 }
 
 
+/**
+ * The connection a run summarizes with, and the fallbacks after it. Where a
+ * chain is stored, its first lane is what a run uses, so the form starts from
+ * that lane, and Save writes the change into the chain with the fallbacks
+ * kept, unless one is removed here.
+ */
 function SummaryForm({ stored }: { stored: AiSettings }) {
   const client = useQueryClient();
-  const [form, setForm] = useState({
-    ai_provider: stored.ai_provider, ai_model: stored.ai_model, ai_cli_path: stored.ai_cli_path,
-    ai_effort: stored.ai_effort, ai_custom_base_url: stored.ai_custom_base_url,
-  });
-  const dirty = (Object.keys(form) as (keyof typeof form)[]).some((k) => form[k] !== stored[k]);
+  const start = storedSummary(stored);
+  const [form, setForm] = useState<SummaryFields>(start.form);
+  const [fallbacks, setFallbacks] = useState<ChainEntry[]>(start.fallbacks);
+  const dirty = summaryChanged(stored, form, fallbacks);
   const cli = CLI_PROVIDERS.has(form.ai_provider);
   const keyName = KEY_NAMES[form.ai_provider];
+  const limits = planLimits(stored);
   const efforts = useQuery({ queryKey: STATUS_KEY, queryFn: ask.status }).data?.composer_choices.claude_efforts ?? [];
   const save = useMutation({
-    mutationFn: () => answer(engine().PUT('/api/settings/ai', { body: { settings: { ...form } } })),
+    mutationFn: () => answer(engine().PUT('/api/settings/ai', { body: { settings: summaryPayload(stored, form, fallbacks) } })),
     onSuccess: () => Promise.all([
       client.invalidateQueries({ queryKey: AI_KEY }),
       client.invalidateQueries({ queryKey: CLI_KEY }),
@@ -112,7 +123,8 @@ function SummaryForm({ stored }: { stored: AiSettings }) {
     ]),
   });
   const submit = (event: FormEvent) => { event.preventDefault(); save.mutate(); };
-  const set = (key: keyof typeof form) => (value: string) => setForm({ ...form, [key]: value });
+  const set = (key: keyof SummaryFields) => (value: string) => setForm({ ...form, [key]: value });
+  const removed = start.fallbacks.length - fallbacks.length;
 
   return (
     <form className="settings-form" onSubmit={submit} aria-label="Summary settings">
@@ -160,16 +172,66 @@ function SummaryForm({ stored }: { stored: AiSettings }) {
             <span className="form-hint">An OpenAI-compatible base URL. The key below is sent only there.</span>
           </label>
         )}
+        {form.ai_provider === 'local' && (
+          <label className="form-field form-wide" htmlFor="ai-local-endpoint">
+            <span className="form-label">Ollama endpoint</span>
+            <input id="ai-local-endpoint" value={form.ai_local_endpoint} spellCheck={false} autoComplete="off"
+              placeholder="Blank: http://localhost:11434" onChange={(e) => set('ai_local_endpoint')(e.target.value)} />
+          </label>
+        )}
       </div>
       {cli && !dirty && <LaneStatus provider={form.ai_provider} />}
       {cli && dirty && <p className="form-hint">Save to see whether resmon finds this command.</p>}
       {cli && (
         <p className="form-hint">
           This spends your own plan: resmon runs the command you installed and signed into, and never sees or keeps
-          your sign-in. Papers are sent five at a time, and a run sends at most {docCap(stored.ai_subscription_doc_cap)} to it.
+          your sign-in. Papers are sent {limits.batch} at a time, and a run sends at most {limits.cap} to it.
         </p>
       )}
       {keyName && <ProviderKey name={keyName} provider={form.ai_provider} />}
+      {(fallbacks.length > 0 || removed > 0) && (
+        <div className="ai-fallbacks" data-ai="fallbacks">
+          <p className="form-label">Fallbacks</p>
+          {fallbacks.length > 0 ? (
+            <>
+              <p className="form-hint">
+                When the connection above cannot summarize a paper, resmon tries these next, in order. One that is refused
+                for the whole run, such as a rejected key, is set aside for the rest of that run.
+              </p>
+              <ol className="ai-fallback-list">
+                {fallbacks.map((entry, index) => (
+                  <li key={`${index}:${entry.lane.kind}:${entry.lane.provider}`} data-lane={entry.lane.provider}>
+                    <span>{laneWords(entry.lane)}</span>
+                    <button type="button" className="btn quiet sm" aria-label={`Remove the fallback ${laneWords(entry.lane)}`}
+                      onClick={() => setFallbacks(fallbacks.filter((_, i) => i !== index))}>
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </>
+          ) : (
+            <p className="form-hint">None: a summary the connection above cannot write is left out.</p>
+          )}
+          {!form.ai_provider && fallbacks.length > 0 && (
+            <p className="form-hint" data-ai="fallbacks-dropped">
+              With no provider chosen, summaries are off, and saving does not keep these fallbacks.
+            </p>
+          )}
+          {removed > 0 && (
+            <p className="form-hint" data-ai="fallbacks-removed">
+              {removed === 1 ? 'One fallback is' : `${removed} fallbacks are`} removed here; Save to stop using{' '}
+              {removed === 1 ? 'it' : 'them'}.
+            </p>
+          )}
+        </div>
+      )}
+      {start.unreadable && (
+        <p className="form-hint" data-ai="chain-unreadable">
+          A stored list of fallback connections could not be read, so a run uses only the connection above. Saving
+          replaces that list.
+        </p>
+      )}
       <div className="form-actions">
         <button type="submit" className="btn primary" disabled={!dirty || save.isPending}>
           {save.isPending ? 'Saving' : 'Save summary settings'}
@@ -196,52 +258,6 @@ function LaneStatus({ provider }: { provider: string }) {
   );
 }
 
-/** A provider's key: stored by its own button, never shown, and only its presence read back. */
-function ProviderKey({ name, provider }: { name: string; provider: string }) {
-  const client = useQueryClient();
-  const [value, setValue] = useState('');
-  const credentials = useQuery({ queryKey: ['credentials'], queryFn: () => answer(engine().GET('/api/credentials')) });
-  const state = credentials.data?.credentials[name]?.status ?? null;
-  const done = () => Promise.all([
-    client.invalidateQueries({ queryKey: ['credentials'] }),
-    client.invalidateQueries({ queryKey: STATUS_KEY }),
-  ]);
-  const store = useMutation({
-    mutationFn: () => answer(engine().PUT('/api/credentials/{key_name}', { params: { path: { key_name: name } }, body: { value } })),
-    onSuccess: () => { setValue(''); return done(); },
-  });
-  const remove = useMutation({
-    mutationFn: () => answer(engine().DELETE('/api/credentials/{key_name}', { params: { path: { key_name: name } } })),
-    onSuccess: done,
-  });
-  const where = keychainName(platform());
-  return (
-    <div className="password" data-ai="key" data-state={state ?? 'unknown'}>
-      <label className="form-field" htmlFor="ai-key">
-        <span className="form-label">{providerWords(provider)} key</span>
-        <span className="password-row">
-          <input id="ai-key" type="password" value={value} autoComplete="new-password"
-            placeholder={state === 'present' ? 'Stored; type a new one to replace it' : ''}
-            onChange={(e) => setValue(e.target.value)} />
-          <button type="button" className="btn" disabled={!value || store.isPending} onClick={() => store.mutate()}>
-            {state === 'present' ? 'Replace' : 'Store'}
-          </button>
-          {state === 'present' && (
-            <button type="button" className="btn quiet" disabled={remove.isPending} onClick={() => remove.mutate()}>Remove</button>
-          )}
-        </span>
-      </label>
-      <p className="form-hint">
-        {state === 'present' && `A key is stored in ${where}. resmon reads it to send a request, and never shows it. Whether the provider accepts it shows on first use.`}
-        {state === 'absent' && `No key is stored. One you store goes to ${where}, not to resmon’s database.`}
-        {state === 'unreadable' && `A key may be stored in ${where}, but this copy of resmon is not allowed to read it. Store it again to replace it.`}
-        {state === null && (credentials.isError ? 'The engine did not say whether a key is stored.' : 'Asking whether a key is stored.')}
-      </p>
-      {(store.error || remove.error) && <p className="field-error" role="alert">{refusal((store.error ?? remove.error) as Error)}</p>}
-    </div>
-  );
-}
-
 function Assistant() {
   const settings = useQuery({ queryKey: ASSISTANT_KEY, queryFn: readAssistant });
   const status = useQuery({ queryKey: STATUS_KEY, queryFn: ask.status });
@@ -255,15 +271,15 @@ function Assistant() {
       {settings.isError && <p className="field-error" role="alert">The engine did not answer ({settings.error.message}).</p>}
       {settings.data && status.data && <AssistantForm stored={settings.data} status={status.data} />}
       {status.data && (
-        <ul className="ai-routes" aria-label="Ways the assistant can run">
-          <li data-available={status.data.available}>
+        <ul className="ai-routes" aria-label="Ways the assistant can run" data-ai="routes">
+          <li data-available={status.data.available} data-kind={status.data.runtime.kind}>
             <strong>{status.data.runtime.kind === 'api_key' ? 'An API key' : 'Claude Code'}</strong>{' '}
-            {status.data.available ? 'can run. ' : 'cannot run. '}{status.data.reason}
+            {routeSentence(status.data.runtime.kind, status.data.available, status.data.reason, true)}
           </li>
           {status.data.others.map((other) => (
-            <li key={other.kind} data-available={other.available}>
+            <li key={other.kind} data-available={other.available} data-kind={other.kind}>
               <strong>{other.kind === 'api_key' ? 'An API key' : other.kind === 'codex_cli' ? 'Codex' : 'Claude Code'}</strong>{' '}
-              {other.reason}
+              {routeSentence(other.kind, other.available, other.reason, false)}
             </li>
           ))}
         </ul>
