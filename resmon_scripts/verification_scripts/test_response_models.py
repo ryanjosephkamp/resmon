@@ -242,6 +242,17 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     "the source wall": (
         ("GET", "/api/coverage/source-wall"),
     ),
+    "the owned library": (
+        ("GET", "/api/library"),
+        ("POST", "/api/library/vault"),
+        ("GET", "/api/library/files"),
+        ("POST", "/api/library/files"),
+        ("GET", "/api/library/files/{file_id}"),
+        ("POST", "/api/library/files/{file_id}/paper-links"),
+        ("POST", "/api/library/files/{file_id}/open"),
+        ("GET", "/api/library/export"),
+        ("GET", "/api/library/files/{file_id}/text"),
+    ),
     "analytics": (
         ("GET", "/api/analytics/overview"),
         ("GET", "/api/analytics/summary"),
@@ -548,6 +559,7 @@ def driven() -> Drive:
         _drive_background_service(drive)
         _drive_credentials_and_the_test_send(drive)
         _drive_source_wall_and_analytics(drive)
+        _drive_library(drive, doc_ids[0])
 
         yield drive
 
@@ -667,6 +679,56 @@ def _drive_credentials_and_the_test_send(drive: Drive) -> None:
         sent = drive("POST", "/api/settings/email/test")
     assert sent == {"success": True, "recipient": "someone@example.org"}, sent
     drive("DELETE", "/api/credentials/smtp_password")
+
+
+def _drive_library(drive: Drive, document_id: int) -> None:
+    """The owned Library: a vault made in a scratch folder, one file kept twice, and every read.
+
+    Every Library route needs this process's renderer Origin and the
+    ``X-Resmon-Library`` header (``LibraryOriginGuard``), which ``conftest``
+    registers as ``TEST_RENDERER_ORIGIN``. Status is read before the vault
+    exists, so ``vault`` is ``None`` once, and the same bytes are imported twice,
+    so ``created`` is false and the second answer is a 200.
+    """
+    import tempfile  # noqa: PLC0415 — only this slice needs it
+    from conftest import TEST_RENDERER_ORIGIN  # noqa: PLC0415
+
+    library = {"Origin": TEST_RENDERER_ORIGIN, "X-Resmon-Library": "1"}
+    before = drive("GET", "/api/library", headers=library)
+    assert before["vault"] is None and "reason" not in before, (
+        "an unconfigured library has no vault and no refusal reason")
+
+    # Resolved: the Library opens each path component without following a
+    # link, and macOS's temporary directory sits under the /var -> /private/var one.
+    parent = os.path.realpath(tempfile.mkdtemp(prefix="resmon-library-scenario-"))
+    made = drive("POST", "/api/library/vault", expect=201, headers=library,
+                 json={"parent_directory": parent})
+    vault = made["vault"]["vault_id"]
+    assert made["status"] == "ready" and not made["vault"]["label"].startswith("/")
+
+    raw = {**library, "Content-Type": "application/octet-stream"}
+    body = "Perovskite notes\r\nkept as written\n".encode()
+    kept = drive("POST", f"/api/library/files?expected_vault_id={vault}&filename=notes.txt&document_id={document_id}",
+                 expect=201, headers=raw, content=body)
+    again = drive("POST", f"/api/library/files?expected_vault_id={vault}&filename=renamed.txt",
+                  headers=raw, content=body)
+    assert (kept["created"], again["created"], again["duplicate"]) == (True, False, True)
+    file_id, version_id = kept["file"]["file_id"], kept["file"]["version_id"]
+
+    listed = drive("GET", f"/api/library/files?expected_vault_id={vault}", headers=library)
+    assert listed["next_before_id"] is None and listed["has_more"] is False
+    drive("GET", f"/api/library/files/{file_id}?expected_vault_id={vault}", headers=library)
+    linked = drive("POST", f"/api/library/files/{file_id}/paper-links", headers=library,
+                   json={"expected_vault_id": vault, "document_id": document_id})
+    assert [link["document_id"] for link in linked["paper_links"]] == [document_id]
+    opened = drive("POST", f"/api/library/files/{file_id}/open", headers=library,
+                   json={"expected_vault_id": vault, "expected_version_id": version_id})
+    assert opened["path"].startswith(parent)
+    inventory = drive("GET", f"/api/library/export?expected_vault_id={vault}", headers=library)
+    assert '"kind": "resmon-library-inventory"' in inventory["text"]
+    text = drive("GET", f"/api/library/files/{file_id}/text?expected_vault_id={vault}"
+                 f"&expected_version_id={version_id}", headers=library)
+    assert text["text"] == "Perovskite notes\nkept as written\n" and text["line_count"] == 3
 
 
 def _drive_source_wall_and_analytics(drive: Drive) -> None:

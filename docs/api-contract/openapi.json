@@ -3538,6 +3538,287 @@
         "title": "KeywordScope",
         "type": "object"
       },
+      "LibraryCounts": {
+        "additionalProperties": true,
+        "description": "What the database records the vault holding; ``basis`` says it was not re-measured.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "retained_bytes": {
+            "title": "Retained Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "retained_bytes",
+          "basis"
+        ],
+        "title": "LibraryCounts",
+        "type": "object"
+      },
+      "LibraryFile": {
+        "additionalProperties": true,
+        "properties": {
+          "availability": {
+            "title": "Availability",
+            "type": "string"
+          },
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "original_name": {
+            "title": "Original Name",
+            "type": "string"
+          },
+          "paper_links": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryPaperLink"
+            },
+            "title": "Paper Links",
+            "type": "array"
+          },
+          "relative_path": {
+            "title": "Relative Path",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "file_id",
+          "version_id",
+          "vault_id",
+          "sha256",
+          "byte_size",
+          "media_type",
+          "original_name",
+          "relative_path",
+          "created_at_utc",
+          "paper_links",
+          "availability"
+        ],
+        "title": "LibraryFile",
+        "type": "object"
+      },
+      "LibraryFileDetail": {
+        "additionalProperties": true,
+        "properties": {
+          "file": {
+            "$ref": "#/components/schemas/LibraryFile"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "file"
+        ],
+        "title": "LibraryFileDetail",
+        "type": "object"
+      },
+      "LibraryFiles": {
+        "additionalProperties": true,
+        "description": "``GET /api/library/files``: a descending page under a fixed ceiling, ``through_id``.",
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryFile"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_before_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before Id"
+          },
+          "through_id": {
+            "title": "Through Id",
+            "type": "integer"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "files",
+          "through_id",
+          "next_before_id",
+          "has_more"
+        ],
+        "title": "LibraryFiles",
+        "type": "object"
+      },
+      "LibraryImported": {
+        "additionalProperties": true,
+        "description": "``POST /api/library/files``: 201 for a new copy, 200 for the same bytes already kept.",
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "duplicate": {
+            "title": "Duplicate",
+            "type": "boolean"
+          },
+          "file": {
+            "$ref": "#/components/schemas/LibraryFile"
+          },
+          "linked_document_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Linked Document Ids",
+            "type": "array"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "file",
+          "created",
+          "duplicate",
+          "linked_document_ids"
+        ],
+        "title": "LibraryImported",
+        "type": "object"
+      },
+      "LibraryInventory": {
+        "additionalProperties": true,
+        "description": "``GET /api/library/export``: the inventory as a JSON document in ``text``, and its file name.",
+        "properties": {
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "format",
+          "filename",
+          "content_type",
+          "text"
+        ],
+        "title": "LibraryInventory",
+        "type": "object"
+      },
+      "LibraryLimits": {
+        "additionalProperties": true,
+        "properties": {
+          "batch_files": {
+            "title": "Batch Files",
+            "type": "integer"
+          },
+          "file_bytes": {
+            "title": "File Bytes",
+            "type": "integer"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "vault_bytes": {
+            "title": "Vault Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file_bytes",
+          "batch_files",
+          "vault_bytes",
+          "items"
+        ],
+        "title": "LibraryLimits",
+        "type": "object"
+      },
       "LibraryLinkBody": {
         "additionalProperties": false,
         "properties": {
@@ -3558,6 +3839,48 @@
         "title": "LibraryLinkBody",
         "type": "object"
       },
+      "LibraryLinked": {
+        "additionalProperties": true,
+        "properties": {
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "paper_links": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryPaperLink"
+            },
+            "title": "Paper Links",
+            "type": "array"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "file_id",
+          "version_id",
+          "document_id",
+          "paper_links"
+        ],
+        "title": "LibraryLinked",
+        "type": "object"
+      },
       "LibraryOpenBody": {
         "additionalProperties": false,
         "properties": {
@@ -3575,6 +3898,223 @@
           "expected_version_id"
         ],
         "title": "LibraryOpenBody",
+        "type": "object"
+      },
+      "LibraryOpened": {
+        "additionalProperties": true,
+        "description": "``POST /api/library/files/{file_id}/open``: the verified path, for the desktop's opener only.",
+        "properties": {
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "file_id",
+          "version_id",
+          "path"
+        ],
+        "title": "LibraryOpened",
+        "type": "object"
+      },
+      "LibraryPaperLink": {
+        "additionalProperties": true,
+        "description": "A paper the owner associated a file with: an association, not an identification.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "identity_scope": {
+            "title": "Identity Scope",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "document_id",
+          "title",
+          "identity_scope",
+          "basis"
+        ],
+        "title": "LibraryPaperLink",
+        "type": "object"
+      },
+      "LibraryStatus": {
+        "additionalProperties": true,
+        "description": "``GET /api/library`` and ``POST /api/library/vault``.\n\n``status`` is ``unconfigured``, ``ready``, ``busy``, ``mismatch``,\n``needs_attention`` or ``unavailable``; ``reason`` is present only for the\ntwo that came from a refusal.",
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/LibraryCounts"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/LibraryLimits"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "vault": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LibraryVault"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vault",
+          "status",
+          "counts",
+          "limits"
+        ],
+        "title": "LibraryStatus",
+        "type": "object"
+      },
+      "LibraryText": {
+        "additionalProperties": true,
+        "description": "``GET /api/library/files/{file_id}/text``: a retained TXT or MD file's bytes as literal text.",
+        "properties": {
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "encoding": {
+            "title": "Encoding",
+            "type": "string"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "line_count": {
+            "title": "Line Count",
+            "type": "integer"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "normalization": {
+            "title": "Normalization",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "kind",
+          "vault_id",
+          "file_id",
+          "version_id",
+          "sha256",
+          "media_type",
+          "encoding",
+          "normalization",
+          "byte_size",
+          "line_count",
+          "text"
+        ],
+        "title": "LibraryText",
+        "type": "object"
+      },
+      "LibraryVault": {
+        "additionalProperties": true,
+        "description": "The vault by its id and folder name: never its absolute root.",
+        "properties": {
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vault_id",
+          "label",
+          "created_at_utc"
+        ],
+        "title": "LibraryVault",
         "type": "object"
       },
       "LibraryVaultBody": {
@@ -14082,7 +14622,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryStatus"
+                }
               }
             },
             "description": "Successful Response"
@@ -14119,7 +14661,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryInventory"
+                }
               }
             },
             "description": "Successful Response"
@@ -14208,7 +14752,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryFiles"
+                }
               }
             },
             "description": "Successful Response"
@@ -14268,7 +14814,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryImported"
+                }
               }
             },
             "description": "Successful Response"
@@ -14314,7 +14862,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryFileDetail"
+                }
               }
             },
             "description": "Successful Response"
@@ -14361,7 +14911,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryOpened"
+                }
               }
             },
             "description": "Successful Response"
@@ -14408,7 +14960,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryLinked"
+                }
               }
             },
             "description": "Successful Response"
@@ -14463,7 +15017,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryText"
+                }
               }
             },
             "description": "Successful Response"
@@ -14499,7 +15055,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryStatus"
+                }
               }
             },
             "description": "Successful Response"

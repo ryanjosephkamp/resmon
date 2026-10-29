@@ -4977,6 +4977,131 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * LibraryCounts
+         * @description What the database records the vault holding; ``basis`` says it was not re-measured.
+         */
+        LibraryCounts: {
+            /** Basis */
+            basis: string;
+            /** Items */
+            items: number;
+            /** Retained Bytes */
+            retained_bytes: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryFile */
+        LibraryFile: {
+            /** Availability */
+            availability: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Created At Utc */
+            created_at_utc: string;
+            /** File Id */
+            file_id: string;
+            /** Id */
+            id: number;
+            /** Media Type */
+            media_type: string;
+            /** Original Name */
+            original_name: string;
+            /** Paper Links */
+            paper_links: components["schemas"]["LibraryPaperLink"][];
+            /** Relative Path */
+            relative_path: string;
+            /** Sha256 */
+            sha256: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryFileDetail */
+        LibraryFileDetail: {
+            file: components["schemas"]["LibraryFile"];
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryFiles
+         * @description ``GET /api/library/files``: a descending page under a fixed ceiling, ``through_id``.
+         */
+        LibraryFiles: {
+            /** Files */
+            files: components["schemas"]["LibraryFile"][];
+            /** Has More */
+            has_more: boolean;
+            /** Next Before Id */
+            next_before_id: number | null;
+            /** Through Id */
+            through_id: number;
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryImported
+         * @description ``POST /api/library/files``: 201 for a new copy, 200 for the same bytes already kept.
+         */
+        LibraryImported: {
+            /** Created */
+            created: boolean;
+            /** Duplicate */
+            duplicate: boolean;
+            file: components["schemas"]["LibraryFile"];
+            /** Linked Document Ids */
+            linked_document_ids: number[];
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryInventory
+         * @description ``GET /api/library/export``: the inventory as a JSON document in ``text``, and its file name.
+         */
+        LibraryInventory: {
+            /** Content Type */
+            content_type: string;
+            /** Filename */
+            filename: string;
+            /** Format */
+            format: string;
+            /** Text */
+            text: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryLimits */
+        LibraryLimits: {
+            /** Batch Files */
+            batch_files: number;
+            /** File Bytes */
+            file_bytes: number;
+            /** Items */
+            items: number;
+            /** Vault Bytes */
+            vault_bytes: number;
+        } & {
+            [key: string]: unknown;
+        };
         /** LibraryLinkBody */
         LibraryLinkBody: {
             /** Document Id */
@@ -4984,12 +5109,130 @@ export interface components {
             /** Expected Vault Id */
             expected_vault_id: string;
         };
+        /** LibraryLinked */
+        LibraryLinked: {
+            /** Document Id */
+            document_id: number;
+            /** File Id */
+            file_id: string;
+            /** Paper Links */
+            paper_links: components["schemas"]["LibraryPaperLink"][];
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** LibraryOpenBody */
         LibraryOpenBody: {
             /** Expected Vault Id */
             expected_vault_id: string;
             /** Expected Version Id */
             expected_version_id: string;
+        };
+        /**
+         * LibraryOpened
+         * @description ``POST /api/library/files/{file_id}/open``: the verified path, for the desktop's opener only.
+         */
+        LibraryOpened: {
+            /** File Id */
+            file_id: string;
+            /** Path */
+            path: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryPaperLink
+         * @description A paper the owner associated a file with: an association, not an identification.
+         */
+        LibraryPaperLink: {
+            /** Basis */
+            basis: string;
+            /** Document Id */
+            document_id: number;
+            /** Identity Scope */
+            identity_scope: string;
+            /** Title */
+            title: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryStatus
+         * @description ``GET /api/library`` and ``POST /api/library/vault``.
+         *
+         *     ``status`` is ``unconfigured``, ``ready``, ``busy``, ``mismatch``,
+         *     ``needs_attention`` or ``unavailable``; ``reason`` is present only for the
+         *     two that came from a refusal.
+         */
+        LibraryStatus: {
+            counts: components["schemas"]["LibraryCounts"];
+            limits: components["schemas"]["LibraryLimits"];
+            /** Reason */
+            reason?: string | null;
+            /** Status */
+            status: string;
+            vault: components["schemas"]["LibraryVault"] | null;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryText
+         * @description ``GET /api/library/files/{file_id}/text``: a retained TXT or MD file's bytes as literal text.
+         */
+        LibraryText: {
+            /** Byte Size */
+            byte_size: number;
+            /** Encoding */
+            encoding: string;
+            /** File Id */
+            file_id: string;
+            /** Kind */
+            kind: string;
+            /** Line Count */
+            line_count: number;
+            /** Media Type */
+            media_type: string;
+            /** Normalization */
+            normalization: string;
+            /** Sha256 */
+            sha256: string;
+            /** Text */
+            text: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryVault
+         * @description The vault by its id and folder name: never its absolute root.
+         */
+        LibraryVault: {
+            /** Created At Utc */
+            created_at_utc: string;
+            /** Label */
+            label: string;
+            /** Vault Id */
+            vault_id: string;
+        } & {
+            [key: string]: unknown;
         };
         /** LibraryVaultBody */
         LibraryVaultBody: {
@@ -10902,7 +11145,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LibraryStatus"];
                 };
             };
         };
@@ -10925,7 +11168,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LibraryInventory"];
                 };
             };
             /** @description Validation Error */
@@ -10960,7 +11203,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LibraryFiles"];
                 };
             };
             /** @description Validation Error */
@@ -10993,7 +11236,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LibraryImported"];
                 };
             };
             /** @description Validation Error */
@@ -11026,7 +11269,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LibraryFileDetail"];
                 };
             };
             /** @description Validation Error */
@@ -11061,7 +11304,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LibraryOpened"];
                 };
             };
             /** @description Validation Error */
@@ -11096,7 +11339,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LibraryLinked"];
                 };
             };
             /** @description Validation Error */
@@ -11130,7 +11373,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LibraryText"];
                 };
             };
             /** @description Validation Error */
@@ -11163,7 +11406,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LibraryStatus"];
                 };
             };
             /** @description Validation Error */
