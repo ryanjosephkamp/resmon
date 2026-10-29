@@ -75,7 +75,7 @@ test('a theme and an accent chosen in Settings come back on the next launch', as
     {
       const { app, win, problems } = await launch(stateDir);
       try {
-        await win.getByRole('link', { name: 'Settings' }).click();
+        await win.getByRole('link', { name: 'Settings', exact: true }).click();
         await expect(win.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
         await win.locator('.theme-card', { hasText: 'The night chart' }).click();
         await expect.poll(() => pageTheme(win)).toBe('dark');
@@ -116,12 +116,12 @@ test('a theme and an accent chosen in Settings come back on the next launch', as
         await expect.poll(() => pageTheme(win)).toBe('light');
         await expect.poll(() => storedAppearance(win)).toEqual({ theme: 'light', accent: '#3d8aff' });
 
-        await win.getByRole('link', { name: 'Settings' }).click();
+        await win.getByRole('link', { name: 'Settings', exact: true }).click();
         await expect(win.locator('.theme-card[data-selected]')).toHaveText(/The printed atlas/);
         await expect(win.getByText('Drawn deeper here, so it stays readable.')).toHaveCount(1);
         await shoot(win, 'atlas-settings-light.png');
         await win.getByRole('link', { name: 'Today' }).click();
-        await expect(win.locator('.plate-waiting[role="status"]')).toHaveText(/Your collection is empty/);
+        await expect(win.locator('.plate-waiting > [role="status"]')).toHaveText(/Your collection is empty/);
         await shoot(win, 'atlas-today-light.png');
 
         expect(problems, 'the page reported errors').toEqual([]);
