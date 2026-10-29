@@ -17,7 +17,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { expect, type Locator, type TestInfo } from '@playwright/test';
 import type {
-  AnalyticsView, AssistantPanelFacts, AssistantTurn, BackendFacts, ComposerChoice, LibraryItem, SavedTranscript, TurnChoiceFacts, VaultOnDisk, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord,
+  AnalyticsView, AssistantPanelFacts, BackupResult, FirstRunCard, KeyField, ObservedRequest, RestoreCard, AssistantTurn, BackendFacts, ComposerChoice, LibraryItem, SavedTranscript, TurnChoiceFacts, VaultOnDisk, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord,
   DrawnAppearance, EmailSettings, EvidenceBundle, EvidencePageView, ReopenedPassage, SavedEvidenceNote,
   OpenedCitation, SelectedAnswerPreview, SelectedAnswerView,
   ExplorerList, ExportedFile, ImportOutcome, InterruptedRow, JourneyDriver, NotificationPreferences, Place,
@@ -55,6 +55,13 @@ const ATLAS_PLACES: Partial<Record<Place, string>> = {
   // conversations are the rail beside the one open.
   Chats: '/ask',
   'AI settings': '/settings/ai',
+  // The explorer is Search › Your collection, and a run's results are opened
+  // from the run log beside Ask the sources.
+  Explorer: '/search',
+  Results: '/search/ask',
+  'Storage settings': '/settings/storage',
+  'Cloud Storage settings': '/settings/cloud',
+  Tutorials: '/settings/tutorials',
 };
 
 /** The Email group's fields, by the journey's word for each. */
@@ -100,7 +107,10 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'askTheAssistant' | 'answerTheApprovalCard' | 'readSavedConversations' | 'openTheAssistantWithTheKeyboard'
   | 'readTheAssistantPanel' | 'readTheChatsPage' | 'openTheSavedChat' | 'exportTheOpenChat'
   | 'fixTheChoicesForThisConversation' | 'readTheComposerChoices' | 'readTheTurnsChoices'
-  | 'setTheAppWideAssistantDefaults' | 'readAiLaneStatus' | 'readRunLog' | 'readTheReport'>;
+  | 'setTheAppWideAssistantDefaults' | 'readAiLaneStatus' | 'readRunLog' | 'readTheReport'
+  | 'observeOwnRequests' | 'readSidebarPlaces' | 'readTheFirstRunCard' | 'skipTheFirstRunCard' | 'eraseWith'
+  | 'saveKeyFor' | 'readKeyFields' | 'readSourceDetails' | 'readRequiredAttributions'
+  | 'readTabsHere' | 'framesHere' | 'readExternalLinks' | 'backUpNow' | 'readRestoreCard'>;
 
 /** The reading-queue filter buttons, by the journey's word for each. */
 const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
@@ -163,6 +173,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     } else if (hash?.startsWith('/health')) {
       await expect(win().locator('nav[aria-label="Health"]')).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.page.health')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    } else if (hash === '/search') {
+      await expect(win().getByRole('heading', { name: 'Your collection', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('section.results')).toHaveAttribute('aria-busy', 'false', { timeout: 60_000 });
     } else if (hash === '/ask') {
       await expect(win().getByRole('heading', { name: 'Ask', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().getByRole('region', { name: 'Saved chats' })).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
@@ -431,6 +444,13 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     }).toBe('completed');
   };
   let downloadsMade = 0;
+
+  /** Settings › Sources, arrived at and read: the catalog and what the keychain holds. */
+  const openSources = async (): Promise<void> => {
+    await win().evaluate(() => { window.location.hash = '#/settings/sources'; });
+    await expect(win().locator('section.sources')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    await expect(win().locator('.source-entry').first()).toBeVisible({ timeout: 30_000 });
+  };
 
   // — Ask ---------------------------------------------------------------------
 
@@ -2087,6 +2107,207 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const report = win().locator('.record-text.is-report');
       await expect(report, 'the run page shows no report for a run that finished').toBeVisible({ timeout: 30_000 });
       return report.innerText();
+    },
+
+    // — the edges ------------------------------------------------------------
+
+    readTheFirstRunCard: async (): Promise<FirstRunCard> => {
+      await goto('Today');
+      const card = win().locator('[data-today="first-run"]');
+      // The engine publishes whether the card belongs on Today; wait for the
+      // screen to agree, either way, rather than reading an absence on arrival.
+      const shows = Boolean((await backend.onboarding() as { show?: boolean }).show);
+      await expect.poll(() => card.count(), {
+        timeout: 30_000,
+        message: shows ? 'the engine says the first-run card belongs on Today and it never appeared'
+          : 'the engine says the first-run card is done with and it is still on Today',
+      }).toBe(shows ? 1 : 0);
+      if (!shows) return { present: false, steps: [], text: '' };
+      const items = card.locator('li[data-step]');
+      const steps: FirstRunCard['steps'] = [];
+      for (let i = 0; i < await items.count(); i += 1) {
+        const item = items.nth(i);
+        steps.push({
+          id: String(await item.getAttribute('data-step')),
+          mark: String(await item.locator('.first-run-mark').getAttribute('aria-label') ?? ''),
+          text: (await item.innerText()).replace(/\s+/g, ' ').trim(),
+        });
+      }
+      return { present: true, steps, text: (await card.innerText()).trim() };
+    },
+
+    eraseWith: async (action, word) => {
+      await win().evaluate(() => { window.location.hash = '#/settings/danger'; });
+      await expect(win().getByRole('heading', { name: 'Danger zone', level: 2 })).toBeVisible({ timeout: 30_000 });
+      const row = win().locator('.danger-row').filter({ has: win().locator('.danger-name', { hasText: new RegExp(`^${literally(action)}$`) }) });
+      await row.getByRole('button', { name: action, exact: true }).click();
+      const form = row.getByRole('group', { name: `Confirm: ${action}` });
+      await expect(form).toBeVisible({ timeout: 30_000 });
+      const box = form.getByPlaceholder('Type CONFIRM');
+      if (await box.count()) await box.fill(word);
+      const confirm = form.getByRole('button', { name: 'Confirm', exact: true });
+      if (await confirm.isDisabled()) {
+        // The screen refuses before the engine is asked: a real answer, and the
+        // spec asserts the HTTP refusal separately.
+        await form.getByRole('button', { name: 'Cancel', exact: true }).click();
+        return { status: 0, body: 'the Confirm button stayed disabled' };
+      }
+      const answered = win().waitForResponse((r) => r.url().includes('/api/admin/'));
+      await confirm.click();
+      const response = await answered;
+      return { status: response.status(), body: (await response.text()).slice(0, 400) };
+    },
+
+    saveKeyFor: async (source, value) => {
+      await openSources();
+      const field = win().getByLabel(`API key for ${source}`, { exact: true });
+      await expect(field, `${source} has no key field`).toBeVisible({ timeout: 30_000 });
+      const saved = win().waitForResponse((r) => r.url().includes('/api/credentials/') && r.request().method() === 'PUT');
+      await field.fill(value);
+      await field.press('Enter');
+      expect((await saved).ok(), 'the key the field submitted was refused').toBe(true);
+      // Stored, and the screen has read the keychain again: the field is empty.
+      await expect(field).toHaveValue('', { timeout: 30_000 });
+    },
+
+    readKeyFields: async (): Promise<KeyField[]> => {
+      await goto('Today');
+      await openSources();
+      const fields = win().locator('.source-key input[aria-label^="API key for "]');
+      await expect(fields.first()).toBeVisible({ timeout: 30_000 });
+      const out: KeyField[] = [];
+      for (let i = 0; i < await fields.count(); i += 1) {
+        const field = fields.nth(i);
+        out.push({
+          source: String(await field.getAttribute('aria-label')).replace('API key for ', ''),
+          shown: String(await field.getAttribute('placeholder') ?? ''),
+          value: await field.inputValue(),
+        });
+      }
+      return out;
+    },
+
+    readSourceDetails: async (source): Promise<Record<string, string>> => {
+      await openSources();
+      const name = win().locator('.source-entry-name', { hasText: new RegExp(`^${literally(source)}$`) });
+      await expect(name, `no row for ${source}`).toHaveCount(1, { timeout: 30_000 });
+      if ((await name.getAttribute('aria-expanded')) !== 'true') await name.click();
+      const grid = win().locator('.source-entry', { has: name }).locator('dl.source-details');
+      await expect(grid).toBeVisible({ timeout: 15_000 });
+      const terms = await grid.locator('dt').allInnerTexts();
+      const values = await grid.locator('dd').allInnerTexts();
+      const out: Record<string, string> = {};
+      terms.forEach((term, index) => { out[term.trim()] = (values[index] ?? '').trim(); });
+      return out;
+    },
+
+    readRequiredAttributions: async () => {
+      await openSources();
+      const block = win().locator('[data-sources="credits"]');
+      const owed = (await backend.sourceCatalog())
+        .filter((entry) => entry.attribution_requirement === 'required' && entry.attribution).length;
+      await expect.poll(async () => (await block.count()) > 0, {
+        timeout: 30_000,
+        message: owed ? `Sources never drew the credits for the ${owed} source(s) that require them`
+          : 'Sources drew required credits for a catalog that requires none',
+      }).toBe(owed > 0);
+      if (!await block.count()) return [];
+      return (await block.locator('li').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
+    },
+
+    readTabsHere: async () => {
+      // A place's own second-level navigation: Settings' rail, or a section's tabs.
+      const tabs = win().locator('main.stage nav a, main.stage [role="tablist"] [role="tab"]');
+      if (!await tabs.count()) return [];
+      return (await tabs.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
+    },
+
+    framesHere: async () => win().locator('main.stage').locator('iframe, webview, object, embed').count(),
+
+    readExternalLinks: async () => {
+      const links = win().locator('main.stage a[href^="http"]');
+      const out: { text: string; href: string }[] = [];
+      for (let i = 0; i < await links.count(); i += 1) {
+        out.push({ text: (await links.nth(i).innerText()).trim(), href: String(await links.nth(i).getAttribute('href')) });
+      }
+      return out;
+    },
+
+    backUpNow: async (options): Promise<BackupResult> => {
+      await goto('Storage settings');
+      const box = win().getByRole('checkbox', { name: 'Include the reports folder' });
+      await expect(box).toBeVisible({ timeout: 30_000 });
+      if (options.reports) await box.check(); else await box.uncheck();
+      const answered = win().waitForResponse((r) => r.url().endsWith('/api/backup') && r.request().method() === 'POST');
+      await win().getByRole('button', { name: 'Back up now', exact: true }).click();
+      const response = await answered;
+      expect(response.ok(), 'Back up now was refused').toBe(true);
+      const body = await response.json();
+      session.alsoRemoveOnClose(String(body.path));
+      await expect(win().locator('[data-backup="written"]')).toBeVisible({ timeout: 30_000 });
+      return { directory: String(body.path), manifest: body.manifest as Record<string, unknown> };
+    },
+
+    readRestoreCard: async (): Promise<RestoreCard> => {
+      await goto('Storage settings');
+      const card = win().locator('[data-backup="reentry"]');
+      await expect(card).toBeVisible({ timeout: 30_000 });
+      const entries = (await card.locator('li code').allInnerTexts()).map((t) => t.trim());
+      return { text: (await card.innerText()).trim(), keyringEntries: entries };
+    },
+
+    skipTheFirstRunCard: async () => {
+      await goto('Today');
+      const card = win().locator('[data-today="first-run"]');
+      const dismissed = win().waitForResponse((r) => r.url().includes('/api/onboarding/dismiss') && r.request().method() === 'POST');
+      await card.getByRole('button', { name: 'Skip', exact: true }).click();
+      expect((await dismissed).ok(), 'Skip was refused').toBe(true);
+      await expect(card).toHaveCount(0, { timeout: 30_000 });
+    },
+
+    observeOwnRequests: async (place): Promise<ObservedRequest[]> => {
+      const seen: ObservedRequest[] = [];
+      const watch = (request: { url(): string; headers(): Record<string, string> }): void => {
+        if (/^http:\/\/127\.0\.0\.1:\d+\/api\//.test(request.url())) {
+          seen.push({ url: request.url(), authorization: request.headers().authorization ?? null });
+        }
+      };
+      win().on('request', watch);
+      try {
+        // Arrived at from somewhere else, so the place asks the engine afresh.
+        await goto('Appearance settings');
+        await goto(place);
+        await expect.poll(() => seen.length, { timeout: 30_000 }).toBeGreaterThan(0);
+        // journeys:duration-ok an observation window, as the classic driver's
+        // is: a place keeps asking for as long as it is open, so this is how
+        // much of the stream the row claims to have looked at.
+        await win().waitForTimeout(1_000);
+      } finally {
+        win().off('request', watch);
+      }
+      return seen;
+    },
+
+    readSidebarPlaces: async () => {
+      // Atlas has no sidebar. The places a person can go are the top bar's
+      // sections and Settings, and the second-level navigation each of those
+      // opens onto: every one is read off the screen, never from the route table.
+      const places: string[] = [];
+      const read = async (selector: string) => {
+        for (const text of await win().locator(selector).allInnerTexts()) {
+          const name = text.replace(/\s+/g, ' ').trim();
+          if (name && !places.includes(name)) places.push(name);
+        }
+      };
+      await goto('Today');
+      await read('nav[aria-label="Sections"] a');
+      places.push((await win().locator('header.bar a[href="#/settings"]').getAttribute('aria-label')) ?? 'Settings');
+      for (const hash of ['/search', '/library', '/health', '/watches', '/settings']) {
+        await win().evaluate((h) => { window.location.hash = `#${h}`; }, hash);
+        await expect(win().locator('main.stage h1').first()).toBeVisible({ timeout: 30_000 });
+        await read('main.stage nav a, main.stage [role="tablist"] a, main.stage [role="tablist"] button');
+      }
+      return places;
     },
 
     markAllRead: async () => {

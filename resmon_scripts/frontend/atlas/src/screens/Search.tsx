@@ -6,6 +6,7 @@ import { SearchTabs } from './collection/SearchTabs';
 import { SAVED_KEY, savedAsks, savedParameters, type SavedConfiguration } from './collection/savedSearches';
 import { providerWords } from './ask/askModel';
 import { RunLog } from './runs/RunLog';
+import { PlaceHelp } from './watches/people/People';
 import { coarseFor, coarseSentence, paceOf, rateLong } from './sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from './sources/SourceCatalog';
 
@@ -151,6 +152,19 @@ export function Search() {
             : 'Several sources at once, each asked the same question.'}
           {' '}Each source&rsquo;s own limits are listed before you ask.
         </p>
+
+        <PlaceHelp summary="About sources, their limits and their keys">
+          <p>
+            Each source is listed with its own limits before you ask: how it combines your terms, how many requests it
+            allows, and how finely it can date a paper. A source that dates papers only to the year cannot answer a
+            shorter window, and says so in the run’s search record.
+          </p>
+          <p>
+            A source that requires an API key and has none here is recorded as not asked. Keys are stored in
+            {' '}<Link to="/settings/sources">Settings › Sources</Link>, in this computer’s keychain, and sent only to
+            their source.
+          </p>
+        </PlaceHelp>
 
         <TermsField id="ask-terms" label="Search terms" state={terms} />
 

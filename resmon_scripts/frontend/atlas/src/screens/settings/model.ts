@@ -18,6 +18,11 @@ export const GROUPS = [
   { slug: 'email', label: 'Email' },
   { slug: 'notifications', label: 'Notifications' },
   { slug: 'ai', label: 'AI' },
+  { slug: 'sources', label: 'Sources' },
+  { slug: 'storage', label: 'Backup' },
+  { slug: 'cloud', label: 'Cloud Storage' },
+  { slug: 'tutorials', label: 'Tutorials' },
+  { slug: 'danger', label: 'Danger zone' },
 ] as const;
 
 export type GroupSlug = (typeof GROUPS)[number]['slug'];

@@ -1,0 +1,194 @@
+/**
+ * Atlas: Settings' last groups and Today's first-run card, in the real app.
+ *
+ * A fresh install shows the first-run card where the map will be, and Skip
+ * keeps it gone across a relaunch. Sources stores a key as a fixed mask and
+ * removes it again; a required credit is drawn without opening anything.
+ * Backup writes a bundle to a chosen folder, checks it, stages a restore and
+ * cancels it, and the staged restore never moves a byte. Cloud Storage says
+ * it is not connected and, asked to connect without the OAuth client this
+ * build lacks, shows the engine's own sentence and reaches nothing. The
+ * Danger zone refuses the wrong word on screen and in the engine, and the
+ * right word erases only what it names. Tutorials are links, never frames.
+ *
+ * **Scripted:** the folder chooser. Each state is held to the engine's record.
+ * No network beyond loopback.
+ */
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { test, expect, _electron as electron, type Page } from '@playwright/test';
+import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+
+async function engine<T>(win: Page, route: string, method = 'GET', body?: unknown): Promise<{ status: number; body: T }> {
+  return win.evaluate(async ([r, m, b]) => {
+    const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
+    const response = await e2eFetch(`http://127.0.0.1:${port}${r}`, {
+      method: m as string,
+      headers: b === undefined ? {} : { 'Content-Type': 'application/json' },
+      ...(b === undefined ? {} : { body: JSON.stringify(b) }),
+    });
+    return { status: response.status, body: await response.json().catch(() => null) };
+  }, [route, method, body] as const) as Promise<{ status: number; body: T }>;
+}
+
+test('Settings and Today: first run, sources and keys, backup and restore, cloud, the danger zone, tutorials', async () => {
+  test.setTimeout(300_000);
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-edges-')));
+  const stateDir = path.join(root, 'state');
+  const backups = path.join(root, 'backups');
+  for (const dir of [stateDir, backups]) fs.mkdirSync(dir);
+  // An in-memory keyring, as the journeys use: never the person's keychain,
+  // and unlike the null backend it keeps what is stored, so the mask a stored
+  // key reads back as can be checked here. A dict in the backend process.
+  const hooks = path.join(root, 'hooks');
+  fs.mkdirSync(hooks);
+  fs.writeFileSync(path.join(hooks, 'edges_keyring.py'), [
+    'import keyring.backend', '', '_VALUES = {}', '', '',
+    'class Keyring(keyring.backend.KeyringBackend):',
+    '    priority = 1',
+    '    def get_password(self, service, username):',
+    '        return _VALUES.get((service, username))',
+    '    def set_password(self, service, username, password):',
+    '        _VALUES[(service, username)] = password',
+    '    def delete_password(self, service, username):',
+    '        try:',
+    '            del _VALUES[(service, username)]',
+    '        except KeyError:',
+    '            from keyring.errors import PasswordDeleteError',
+    '            raise PasswordDeleteError(username) from None', '',
+  ].join('\n'));
+  const base = launchEnv(stateDir, true);
+  const env: Record<string, string> = {
+    ...base, RESMON_UI: 'atlas', PYTHON_KEYRING_BACKEND: 'edges_keyring.Keyring',
+    PYTHONPATH: [hooks, base.PYTHONPATH].filter(Boolean).join(path.delimiter),
+  };
+  const launch = () => electron.launch({
+    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
+  });
+  registerStateDir(stateDir);
+  let app = await launch();
+  try {
+    let win = await app.firstWindow({ timeout: 180_000 });
+    const problems: string[] = [];
+    win.on('pageerror', (e) => problems.push(e.message));
+    await expect(win.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 120_000 });
+
+    // — the first-run card, where the map will be, and Skip that holds ------------------
+    const card = win.locator('[data-today="first-run"]');
+    await expect(card).toBeVisible({ timeout: 60_000 });
+    await expect(card.locator('li[data-step]')).toHaveCount(3);
+    await expect(card).toContainText('not the same as working');
+    await expect(card).not.toContainText(/\bready\b/i);
+    for (const mark of await card.locator('.first-run-mark').all()) {
+      expect(['done', 'not done', 'could not check']).toContain(await mark.getAttribute('aria-label'));
+    }
+    const dismissed = win.waitForResponse((r) => r.url().includes('/api/onboarding/dismiss'));
+    await card.getByRole('button', { name: 'Skip', exact: true }).click();
+    expect((await dismissed).ok()).toBe(true);
+    await expect(card).toHaveCount(0);
+    await app.close();
+    app = await launch();
+    win = await app.firstWindow({ timeout: 180_000 });
+    win.on('pageerror', (e) => problems.push(e.message));
+    await expect(win.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 120_000 });
+    await expect(win.locator('.plate-waiting, .plate').first()).toBeVisible({ timeout: 60_000 });
+    await expect(win.locator('[data-today="first-run"]')).toHaveCount(0);
+    expect((await engine<{ dismissed: boolean }>(win, '/api/onboarding')).body.dismissed).toBe(true);
+
+    // — Sources: a key stored is a fixed mask, and Remove takes it back -----------------
+    await win.evaluate(() => { window.location.hash = '#/settings/sources'; });
+    await expect(win.locator('section.sources')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    const key = win.getByLabel('API key for Springer Nature', { exact: true });
+    await key.fill('atlas-edges-not-a-real-key');
+    const stored = win.waitForResponse((r) => r.url().includes('/api/credentials/') && r.request().method() === 'PUT');
+    await key.press('Enter');
+    expect((await stored).ok()).toBe(true);
+    await expect(key).toHaveValue('');
+    const keyring = await engine<{ keyring_responsive?: boolean; credentials: Record<string, { present?: boolean }> }>(win, '/api/credentials');
+    const springer = Object.entries(keyring.body.credentials).find(([name]) => /springer/i.test(name))!;
+    expect(springer[1].present, 'the in-memory keyring did not keep the key').toBe(true);
+    if (springer[1].present) {
+      await expect(key).toHaveAttribute('placeholder', '*'.repeat(12));
+      await win.getByRole('button', { name: 'Remove the key for Springer Nature' }).click();
+      await expect(key).not.toHaveAttribute('placeholder', '*'.repeat(12), { timeout: 30_000 });
+    } else {
+      console.log('[atlas-edges] NOT VERIFIED: the mask. The null keyring stored nothing, so no key was there to mask.');
+    }
+    expect(await win.locator('main.stage').innerText()).not.toContain('atlas-edges-not-a-real-key');
+    const catalog = (await engine<{ attribution_requirement: string; attribution: string | null }[]>(win, '/api/repositories/catalog')).body;
+    const owed = catalog.filter((e) => e.attribution_requirement === 'required' && e.attribution);
+    await expect(win.locator('[data-sources="credits"] li')).toHaveCount(owed.length);
+
+    // — Backup: a chosen folder, a bundle, a check, a staged restore, cancelled ----------
+    await app.evaluate(({ dialog }, chosen) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
+    }, backups);
+    await win.evaluate(() => { window.location.hash = '#/settings/storage'; });
+    await expect(win.locator('section.storage')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    await expect(win.locator('main.stage')).toContainText('Credentials are never written into a backup');
+    await win.getByRole('button', { name: 'Choose a folder' }).click();
+    await expect(win.locator('[data-backup="destination"]')).toContainText(backups, { timeout: 30_000 });
+    const written = win.waitForResponse((r) => r.url().endsWith('/api/backup') && r.request().method() === 'POST');
+    await win.getByRole('button', { name: 'Back up now', exact: true }).click();
+    const bundle = String((await (await written).json()).path);
+    expect(bundle.startsWith(backups), 'the backup was not written into the chosen folder').toBe(true);
+    expect(fs.existsSync(path.join(bundle, 'manifest.json'))).toBe(true);
+    await expect(win.locator('[data-backup="last"]')).toContainText(bundle, { timeout: 30_000 });
+    await app.evaluate(({ dialog }, chosen) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
+    }, bundle);
+    await win.getByRole('button', { name: 'Restore from a backup…' }).click();
+    const report = win.getByRole('group', { name: 'The backup, checked' });
+    await expect(report).toContainText('It checks out', { timeout: 30_000 });
+    await report.getByRole('button', { name: 'Stage this restore' }).click();
+    await expect(win.locator('[data-backup="pending"]')).toBeVisible({ timeout: 30_000 });
+    expect((await engine<{ pending_restore: unknown }>(win, '/api/backup/last')).body.pending_restore).toBeTruthy();
+    await win.locator('[data-backup="pending"]').getByRole('button', { name: 'Cancel it' }).click();
+    await expect(win.locator('[data-backup="pending"]')).toHaveCount(0, { timeout: 30_000 });
+    expect((await engine<{ pending_restore: unknown }>(win, '/api/backup/last')).body.pending_restore).toBeFalsy();
+
+    // — Cloud Storage: not connected, and connecting without a client reaches nothing ---
+    await win.evaluate(() => { window.location.hash = '#/settings/cloud'; });
+    await expect(win.locator('[data-cloud="state"]')).toContainText('Not connected', { timeout: 30_000 });
+    expect(/backs? up your database|Library vault/i.test(await win.locator('main.stage').innerText())).toBe(false);
+    const refused = win.waitForResponse((r) => r.url().endsWith('/api/cloud/link'));
+    await win.getByRole('button', { name: 'Connect Google Drive' }).click();
+    expect((await refused).status()).toBe(400);
+    await expect(win.locator('section.cloud [role="alert"]')).toContainText('credentials', { timeout: 30_000 });
+
+    // — the Danger zone: the wrong word refused twice, the right word exact -----------
+    await engine(win, '/api/configurations', 'POST', { name: 'Kept through the erase', config_type: 'manual_dive',
+      parameters: { repository: 'arxiv', keywords: ['kept'], max_results: 10, ai_enabled: false } });
+    const configsBefore = (await engine<unknown[]>(win, '/api/configurations')).body.length;
+    await win.evaluate(() => { window.location.hash = '#/settings/danger'; });
+    const row = win.locator('.danger-row[data-danger="corpus"]');
+    await row.getByRole('button', { name: 'Erase the paper corpus' }).click();
+    const form = row.getByRole('group', { name: 'Confirm: Erase the paper corpus' });
+    await form.getByPlaceholder('Type CONFIRM').fill('DELETE');
+    await expect(form.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+    expect((await engine(win, '/api/admin/erase-corpus', 'POST', { confirm: 'DELETE' })).status).toBe(400);
+    await form.getByPlaceholder('Type CONFIRM').fill('CONFIRM');
+    const erased = win.waitForResponse((r) => r.url().includes('/api/admin/erase-corpus'));
+    await form.getByRole('button', { name: 'Confirm' }).click();
+    expect((await erased).status()).toBe(200);
+    await expect(row.getByRole('status')).toContainText(/^Removed 0 papers\.$/, { timeout: 30_000 });
+    expect((await engine<unknown[]>(win, '/api/configurations')).body.length, 'erasing papers took a saved search').toBe(configsBefore);
+
+    // — Tutorials: links that leave, never frames ---------------------------------------
+    await win.evaluate(() => { window.location.hash = '#/settings/tutorials'; });
+    await expect(win.getByRole('heading', { name: 'Tutorials', level: 2 })).toBeVisible();
+    expect(await win.locator('main.stage').locator('iframe, webview, object, embed').count()).toBe(0);
+    const links = win.getByRole('link', { name: 'Watch on YouTube' });
+    expect(await links.count()).toBeGreaterThan(0);
+    for (const link of await links.all()) expect(await link.getAttribute('href')).toMatch(/^https:\/\/www\.youtube\.com\/watch\?v=/);
+
+    await win.evaluate(() => { window.location.hash = '#/settings/storage'; });
+    await expect(win.locator('section.storage')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-edges.png') });
+    expect(problems, 'the renderer threw').toEqual([]);
+  } finally {
+    await app.close().catch(() => {});
+  }
+});
