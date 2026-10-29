@@ -1,9 +1,10 @@
 import { useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
 import { Icon } from '../shell/Icon';
 import { SearchTabs } from './collection/SearchTabs';
+import { SAVED_KEY, savedAsks, savedParameters, type SavedConfiguration } from './collection/savedSearches';
 import { RunLog } from './runs/RunLog';
 import type { CatalogEntry } from './runs/model';
 
@@ -69,6 +70,11 @@ function windowLength(from: string, to: string): number | null {
  */
 export function Search() {
   const navigate = useNavigate();
+  const client = useQueryClient();
+  // A saved search opened from Saved fills the form, and the run it starts
+  // records which saved search it came from.
+  const opened = (useLocation().state as { saved?: SavedConfiguration } | null)?.saved ?? null;
+  const from = opened ? savedAsks(opened) : null;
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
@@ -82,14 +88,16 @@ export function Search() {
     queryFn: () => answer(engine().GET('/api/credentials')),
   });
 
-  const [mode, setMode] = useState<Mode>('dive');
-  const [terms, setTerms] = useState<string[]>([]);
+  const [mode, setMode] = useState<Mode>(opened?.config_type === 'manual_dive' ? 'dive' : opened ? 'sweep' : 'dive');
+  const [terms, setTerms] = useState<string[]>(from?.keywords ?? []);
   const [draft, setDraft] = useState('');
-  const [chosen, setChosen] = useState<string[]>([]);
+  const [chosen, setChosen] = useState<string[]>(from?.sources ?? []);
   /** The preset the dates came from; `undefined` once they are edited by hand. */
-  const [windowDays, setWindowDays] = useState<number | null | undefined>(30);
-  const [dates, setDates] = useState(() => windowDates(30));
-  const [cap, setCap] = useState(100);
+  const [windowDays, setWindowDays] = useState<number | null | undefined>(from ? undefined : 30);
+  const [dates, setDates] = useState(() => (from ? { from: from.dateFrom, to: from.dateTo } : windowDates(30)));
+  const [cap, setCap] = useState(from?.cap ?? 100);
+  /** The name being typed for Save this search; `null` while the field is closed. */
+  const [naming, setNaming] = useState<string | null>(null);
 
   const sources = useMemo(() => {
     const allowed = new Set(runnable.data ?? []);
@@ -127,7 +135,12 @@ export function Search() {
   };
 
   const allTerms = draft.trim() && !terms.includes(draft.trim()) ? [...terms, draft.trim()] : terms;
-  const picked = sources.filter((entry) => chosen.includes(entry.slug));
+  // In the order they were chosen, which is the order the run asks and records them.
+  const picked = chosen.flatMap((slug) => sources.filter((entry) => entry.slug === slug));
+  // A saved search can name a source this copy of resmon cannot ask (one
+  // retired since, or from a newer build). It is said and left out, rather
+  // than counted as chosen and asked of nothing.
+  const unknown = sources.length ? chosen.filter((slug) => !sources.some((entry) => entry.slug === slug)) : [];
 
   const start = useMutation({
     mutationFn: async () => {
@@ -140,15 +153,29 @@ export function Search() {
         // A summary per paper is a model's work and goes with Ask (slice 6).
         ai_enabled: false,
         request_id: crypto.randomUUID(),
+        saved_configuration_id: opened?.id ?? null,
       };
       return mode === 'dive'
-        ? answer(engine().POST('/api/search/dive', { body: { ...base, repository: chosen[0] ?? '' } }))
-        : answer(engine().POST('/api/search/sweep', { body: { ...base, repositories: chosen } }));
+        ? answer(engine().POST('/api/search/dive', { body: { ...base, repository: picked[0]?.slug ?? '' } }))
+        : answer(engine().POST('/api/search/sweep', { body: { ...base, repositories: picked.map((e) => e.slug) } }));
     },
     onSuccess: (started) => navigate(`/runs/${started.execution_id}`),
   });
 
-  const ready = allTerms.length > 0 && chosen.length > 0 && !start.isPending;
+  const ready = allTerms.length > 0 && picked.length > 0 && !start.isPending;
+
+  const keep = useMutation({
+    mutationFn: (name: string) => {
+      const { config_type, parameters } = savedParameters({
+        mode, sources: picked.map((e) => e.slug), keywords: allTerms, dateFrom: dates.from, dateTo: dates.to, cap,
+      });
+      return answer(engine().POST('/api/configurations', { body: { name, config_type, parameters } }));
+    },
+    onSuccess: () => {
+      setNaming(null);
+      void client.invalidateQueries({ queryKey: SAVED_KEY });
+    },
+  });
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (draft.trim()) addTerm();
@@ -217,7 +244,7 @@ export function Search() {
         <fieldset className="catalog">
           <legend>
             {mode === 'dive' ? 'Source' : 'Sources'}
-            <span>{mode === 'dive' ? 'choose one' : `${chosen.length} of ${sources.length} chosen`}</span>
+            <span>{mode === 'dive' ? 'choose one' : `${picked.length} of ${sources.length} chosen`}</span>
           </legend>
           <div className="catalog-head" aria-hidden="true">
             <span />
@@ -303,7 +330,7 @@ export function Search() {
           </button>
           <div className="ask-facts" aria-live="polite">
             {!allTerms.length && <p>Add at least one term.</p>}
-            {allTerms.length > 0 && !chosen.length && <p>Choose {mode === 'dive' ? 'a source' : 'one or more sources'}.</p>}
+            {allTerms.length > 0 && !picked.length && <p>Choose {mode === 'dive' ? 'a source' : 'one or more sources'}.</p>}
             {pace && (
               <p>
                 {pace.entry.name} allows {rateLong(pace.rate)}, the slowest of these; it sets how long the sweep takes.
@@ -317,8 +344,63 @@ export function Search() {
             {picked.filter(keyMissing).map((entry) => (
               <p key={entry.slug}>{entry.name} has no API key here, so it will be recorded as not queried.</p>
             ))}
+            {unknown.length > 0 && (
+              <p data-saved="unknown-sources">
+                {unknown.join(', ')} {unknown.length === 1 ? 'is' : 'are'} in this saved search but {unknown.length === 1 ? 'is not a source' : 'are not sources'}
+                {' '}this copy of resmon can ask, so {unknown.length === 1 ? 'it is' : 'they are'} left out.
+              </p>
+            )}
             {refusal && <p className="ask-refusal" role="alert">{refusal}</p>}
           </div>
+        </div>
+
+        <div className="ask-keep">
+          {opened && <p className="keep-from">Opened from the saved search “{opened.name}”; a run started here records it.</p>}
+          {naming === null ? (
+            <button
+              type="button"
+              className="btn quiet"
+              data-saved="keep"
+              disabled={!allTerms.length || !picked.length}
+              onClick={() => { keep.reset(); setNaming(''); }}
+            >
+              Save this search
+            </button>
+          ) : (
+            <span className="keep-row">
+              <label className="sr-only" htmlFor="keep-name">A name for this saved search</label>
+              <input
+                id="keep-name"
+                value={naming}
+                placeholder="A name for this search"
+                autoFocus
+                onChange={(event) => setNaming(event.target.value)}
+                onKeyDown={(event) => {
+                  // Enter here saves; it must not reach the form and start a run.
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    if (naming.trim()) keep.mutate(naming.trim());
+                  } else if (event.key === 'Escape') {
+                    setNaming(null);
+                  }
+                }}
+              />
+              <button type="button" className="btn" disabled={!naming.trim() || keep.isPending} onClick={() => keep.mutate(naming.trim())}>
+                {keep.isPending ? 'Saving' : 'Save'}
+              </button>
+              <button type="button" className="btn quiet" onClick={() => setNaming(null)}>Cancel</button>
+            </span>
+          )}
+          {keep.isSuccess && naming === null && (
+            <p className="settings-said" role="status" data-saved="kept">
+              Saved as “{keep.variables}”, under <Link to="/search/saved">Saved</Link>.
+            </p>
+          )}
+          {keep.error && (
+            <p className="field-error" role="alert">
+              {keep.error instanceof EngineError && keep.error.detail ? keep.error.detail : keep.error.message}
+            </p>
+          )}
         </div>
       </form>
       <RunLog />

@@ -87,8 +87,8 @@ shape changes its output: the same test compares them.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 954 tests across 91 suites
-npm run e2e                                      # the real Electron app — 128 cases in 45 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 972 tests across 93 suites
+npm run e2e                                      # the real Electron app — 129 cases in 46 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -502,6 +502,13 @@ Atlas People (slice 3b): `screens/watches/people/` (watch profiles at `/watches/
 person at `/watches/people/:id`, each match's basis on the collection's rows); the live
 warning in `people/model.ts` is held to `watch_profiles.basis_warning_for` by
 `test_watch_profiles.py`, as the classic editor's is; real-app journey `e2e/atlas-people.spec.ts`.
+Atlas Settings and Saved (slice 3c): Settings is one group at a time at `/settings/:group`
+(`screens/settings/`: the background service, email and its stored password, notifications),
+and Search › Saved at `/search/saved` keeps saved searches and every watch's copy, with
+export and import (`screens/collection/Saved.tsx`); the routes' bodies are the "the background
+service" and "a credential stored or removed" slices of `test_response_models.py`; real-app
+journey `e2e/atlas-settings.spec.ts`, which sets its own `RESMON_SERVICE_UNIT_DIR` and an
+in-memory keyring, and never presses the service switch.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
 

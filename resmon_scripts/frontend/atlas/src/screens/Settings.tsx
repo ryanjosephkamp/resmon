@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { NavLink, useParams, useSearchParams } from 'react-router-dom';
 import { systemName } from '../bridge';
 import { AccentPicker, type AccentPickerHandle } from '../settings/AccentPicker';
 import {
@@ -7,6 +7,10 @@ import {
   type AccentTones, type ThemeName,
 } from '../theme/accent';
 import { useAppearance, type ThemeChoice } from '../theme/appearance';
+import { Background } from './settings/Background';
+import { Email } from './settings/Email';
+import { Notifications } from './settings/Notifications';
+import { GROUPS, groupPath } from './settings/model';
 
 /** The tones of one theme as inline custom properties, for a sample drawn in it. */
 function toneStyle(tones: AccentTones): CSSProperties {
@@ -106,7 +110,39 @@ function AccentProof({ theme, accent }: { theme: ThemeName; accent: string | nul
   );
 }
 
+/**
+ * Settings: one group at a time, chosen from the rail. Each group is its own
+ * address (`/settings/email`), so a notification, a link from a watch or the
+ * command palette can open the one it means.
+ */
 export function Settings() {
+  const { group = '' } = useParams();
+  const known = GROUPS.find((g) => g.slug === group);
+  return (
+    <section className="page page-settings" aria-labelledby="page-title">
+      <h1 id="page-title" className="page-title">Settings</h1>
+      <div className="settings-layout">
+        <nav className="settings-rail" aria-label="Settings groups">
+          {GROUPS.map((g) => <NavLink key={g.slug} to={groupPath(g.slug)} end>{g.label}</NavLink>)}
+        </nav>
+        <div className="settings-body">
+          {!known && (
+            <section className="settings-group">
+              <h2 className="group-title">No such group</h2>
+              <p className="group-lede">Settings has no group called “{group}”. The rail lists the ones there are.</p>
+            </section>
+          )}
+          {known?.slug === '' && <Appearance />}
+          {known?.slug === 'background' && <Background />}
+          {known?.slug === 'email' && <Email />}
+          {known?.slug === 'notifications' && <Notifications />}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Appearance() {
   const { stored, shown, theme, save, preview, saveError, loadError } = useAppearance();
   const picker = useRef<AccentPickerHandle>(null);
   const [params, setParams] = useSearchParams();
@@ -131,60 +167,56 @@ export function Settings() {
   ];
 
   return (
-    <section className="page page-settings" aria-labelledby="page-title">
-      <h1 id="page-title" className="page-title">Settings</h1>
+    <section className="settings-group" aria-labelledby="appearance-title">
+      <h2 id="appearance-title" className="group-title">Appearance</h2>
+      <p className="group-lede">
+        Kept in resmon’s own database, so it is the same on every launch and comes back with a backup.
+      </p>
 
-      <section className="settings-group" aria-labelledby="appearance-title">
-        <h2 id="appearance-title" className="group-title">Appearance</h2>
-        <p className="group-lede">
-          Kept in resmon’s own database, so it is the same on every launch and comes back with a backup.
-        </p>
-
-        <fieldset className="themes">
-          <legend className="field-title">Theme</legend>
-          <div className="theme-cards">
-            {themes.map((t) => (
-              <ThemeCard
-                key={t.choice}
-                {...t}
-                accent={shown.accent}
-                selected={stored.theme === t.choice}
-                onChoose={() => chooseTheme(t.choice)}
-              />
-            ))}
-          </div>
-        </fieldset>
-
-        <div className="accent" id="accent">
-          <h3 className="field-title">Accent color</h3>
-          <p className="field-lede">
-            The rings around new papers, the current tab, links, and the main button on each screen.
-            Any color works. Where one would be hard to read, resmon draws it lighter or deeper and
-            shows you here.
-          </p>
-          <div className="accent-layout">
-            <AccentPicker
-              ref={picker}
-              value={shown.accent ?? DEFAULT_ACCENT}
-              isDefault={stored.accent === null}
-              onPreview={(hex) => preview({ accent: hex })}
-              onCommit={(hex) => save({ accent: hex })}
+      <fieldset className="themes">
+        <legend className="field-title">Theme</legend>
+        <div className="theme-cards">
+          {themes.map((t) => (
+            <ThemeCard
+              key={t.choice}
+              {...t}
+              accent={shown.accent}
+              selected={stored.theme === t.choice}
+              onChoose={() => chooseTheme(t.choice)}
             />
-            <div className="proofs">
-              <AccentProof theme="dark" accent={shown.accent} />
-              <AccentProof theme="light" accent={shown.accent} />
-            </div>
+          ))}
+        </div>
+      </fieldset>
+
+      <div className="accent" id="accent">
+        <h3 className="field-title">Accent color</h3>
+        <p className="field-lede">
+          The rings around new papers, the current tab, links, and the main button on each screen.
+          Any color works. Where one would be hard to read, resmon draws it lighter or deeper and
+          shows you here.
+        </p>
+        <div className="accent-layout">
+          <AccentPicker
+            ref={picker}
+            value={shown.accent ?? DEFAULT_ACCENT}
+            isDefault={stored.accent === null}
+            onPreview={(hex) => preview({ accent: hex })}
+            onCommit={(hex) => save({ accent: hex })}
+          />
+          <div className="proofs">
+            <AccentProof theme="dark" accent={shown.accent} />
+            <AccentProof theme="light" accent={shown.accent} />
           </div>
         </div>
+      </div>
 
-        {(saveError || loadError) && (
-          <p className="field-error" role="alert">
-            {saveError
-              ? `The engine did not store that (${saveError.message}). The screen shows what it holds.`
-              : `The engine did not answer (${loadError?.message}). Changes cannot be saved until it does.`}
-          </p>
-        )}
-      </section>
+      {(saveError || loadError) && (
+        <p className="field-error" role="alert">
+          {saveError
+            ? `The engine did not store that (${saveError.message}). The screen shows what it holds.`
+            : `The engine did not answer (${loadError?.message}). Changes cannot be saved until it does.`}
+        </p>
+      )}
     </section>
   );
 }
