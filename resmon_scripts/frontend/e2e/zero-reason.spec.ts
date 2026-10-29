@@ -100,8 +100,13 @@ test('a zero says why, on the results row and in the search record', async ({
   await expect(win.locator('.search-record .simple-table').first()).toContainText(
     'could not answer this window');
   // Scroll the notes into view first: a screenshot of a viewport that cuts off
-  // the sentence is not evidence that the sentence is on screen.
-  await win.locator('.record-notes').scrollIntoViewIfNeeded();
+  // the sentence is not evidence that the sentence is on screen. Retried,
+  // because the record can re-render between the read above and this scroll,
+  // and a scroll of the element it replaced fails as "not attached to the DOM"
+  // (macOS window job, October 29).
+  await expect(async () => {
+    await win.locator('.record-notes').scrollIntoViewIfNeeded({ timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
   await win.screenshot({
     path: path.join(ensureScreenshotDir(), '32-search-record-zero-reason.png'),
     fullPage: false,
