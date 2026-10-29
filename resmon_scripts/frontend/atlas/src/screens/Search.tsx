@@ -1,12 +1,12 @@
-import { useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState, type FormEvent } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
-import { Icon } from '../shell/Icon';
 import { SearchTabs } from './collection/SearchTabs';
 import { SAVED_KEY, savedAsks, savedParameters, type SavedConfiguration } from './collection/savedSearches';
 import { RunLog } from './runs/RunLog';
-import type { CatalogEntry } from './runs/model';
+import { coarseFor, coarseSentence, paceOf, rateLong } from './sources/catalog';
+import { SourceCatalog, TermsField, useSources, useTerms } from './sources/SourceCatalog';
 
 type Mode = 'dive' | 'sweep';
 
@@ -28,36 +28,6 @@ function windowDates(days: number | null): { from: string; to: string } {
   return { from: isoDay(new Date(to.getTime() - days * 86_400_000)), to: isoDay(to) };
 }
 
-/** Requests per second, from the catalog's stated limit ("0.33 req/s (1 per 3 s)"). */
-function ratePerSecond(rate: string): number | null {
-  const match = rate.match(/^\s*([\d.]+)\s*req\/s/);
-  return match ? Number(match[1]) : null;
-}
-
-/** The stated limit, short, for the catalog: "10 a second", "1 every 3 s", "1 a minute". */
-function rateShort(perSecond: number | null, stated: string): string {
-  if (perSecond === null || perSecond <= 0) return stated;
-  if (perSecond >= 1) return `${Number(perSecond.toFixed(1))} a second`;
-  const every = 1 / perSecond;
-  return every >= 59 ? `1 every ${Math.round(every / 60)} min` : `1 every ${Math.round(every)} s`;
-}
-
-/** The same limit as a phrase: "one request every 3 seconds". */
-function rateLong(perSecond: number): string {
-  if (perSecond >= 1) return `${Number(perSecond.toFixed(1))} requests a second`;
-  const every = 1 / perSecond;
-  return every >= 59
-    ? `one request every ${Math.round(every / 60) === 1 ? 'minute' : `${Math.round(every / 60)} minutes`}`
-    : `one request every ${Math.round(every)} seconds`;
-}
-
-/** Whole days between two ISO dates; `null` when the window is open at either end. */
-function windowLength(from: string, to: string): number | null {
-  if (!from || !to) return null;
-  const days = (Date.parse(to) - Date.parse(from)) / 86_400_000;
-  return Number.isFinite(days) ? days : null;
-}
-
 /**
  * Search: ask the sources. One source in depth (a Deep Dive) or several at
  * once (a Deep Sweep), from a catalog that states each source's limits before
@@ -75,22 +45,10 @@ export function Search() {
   // records which saved search it came from.
   const opened = (useLocation().state as { saved?: SavedConfiguration } | null)?.saved ?? null;
   const from = opened ? savedAsks(opened) : null;
-  const catalog = useQuery({
-    queryKey: ['catalog'], staleTime: Infinity,
-    queryFn: () => answer(engine().GET('/api/repositories/catalog')),
-  });
-  const runnable = useQuery({
-    queryKey: ['runnable-sources'], staleTime: Infinity,
-    queryFn: () => answer(engine().GET('/api/search/repositories')),
-  });
-  const credentials = useQuery({
-    queryKey: ['credentials'],
-    queryFn: () => answer(engine().GET('/api/credentials')),
-  });
+  const { sources, keyMissing, pending, failed } = useSources();
 
   const [mode, setMode] = useState<Mode>(opened?.config_type === 'manual_dive' ? 'dive' : opened ? 'sweep' : 'dive');
-  const [terms, setTerms] = useState<string[]>(from?.keywords ?? []);
-  const [draft, setDraft] = useState('');
+  const terms = useTerms(from?.keywords ?? []);
   const [chosen, setChosen] = useState<string[]>(from?.sources ?? []);
   /** The preset the dates came from; `undefined` once they are edited by hand. */
   const [windowDays, setWindowDays] = useState<number | null | undefined>(from ? undefined : 30);
@@ -98,15 +56,6 @@ export function Search() {
   const [cap, setCap] = useState(from?.cap ?? 100);
   /** The name being typed for Save this search; `null` while the field is closed. */
   const [naming, setNaming] = useState<string | null>(null);
-
-  const sources = useMemo(() => {
-    const allowed = new Set(runnable.data ?? []);
-    return (catalog.data ?? []).filter((entry) => allowed.has(entry.slug));
-  }, [catalog.data, runnable.data]);
-
-  const keyMissing = (entry: CatalogEntry) => entry.api_key_requirement === 'required'
-    && !!entry.credential_name
-    && credentials.data?.credentials[entry.credential_name]?.present !== true;
 
   const choose = (slug: string) => {
     setChosen((current) => {
@@ -120,21 +69,7 @@ export function Search() {
     if (next === 'dive') setChosen((current) => current.slice(0, 1));
   };
 
-  const addTerm = () => {
-    const term = draft.trim();
-    if (term && !terms.includes(term)) setTerms([...terms, term]);
-    setDraft('');
-  };
-  const onTermKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      addTerm();
-    } else if (event.key === 'Backspace' && !draft && terms.length) {
-      setTerms(terms.slice(0, -1));
-    }
-  };
-
-  const allTerms = draft.trim() && !terms.includes(draft.trim()) ? [...terms, draft.trim()] : terms;
+  const allTerms = terms.all;
   // In the order they were chosen, which is the order the run asks and records them.
   const picked = chosen.flatMap((slug) => sources.filter((entry) => entry.slug === slug));
   // A saved search can name a source this copy of resmon cannot ask (one
@@ -178,23 +113,13 @@ export function Search() {
   });
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (draft.trim()) addTerm();
+    if (terms.draft.trim()) terms.add();
     if (ready) start.mutate();
   };
 
   // The two facts derived from the catalog for this selection.
-  const pace = useMemo(() => {
-    const rated = picked.map((entry) => ({ entry, rate: ratePerSecond(entry.rate_limit) }))
-      .filter((r): r is { entry: CatalogEntry; rate: number } => r.rate !== null && r.rate > 0)
-      .sort((a, b) => a.rate - b.rate);
-    return picked.length > 1 && rated[0] ? rated[0] : null;
-  }, [picked]);
-  const coarse = useMemo(() => {
-    const days = windowLength(dates.from, dates.to);
-    if (days === null || days >= 365) return [];
-    return picked.filter((entry) => entry.date_granularity === 'year'
-      || (entry.date_granularity === 'month' && days < 31));
-  }, [picked, dates]);
+  const pace = useMemo(() => paceOf(picked), [picked]);
+  const coarse = useMemo(() => coarseFor(picked, dates.from, dates.to), [picked, dates]);
 
   const refusal = start.error instanceof EngineError && start.error.status === 429
     ? 'resmon is already running as many searches as it allows at once. Try again in a few seconds.'
@@ -218,71 +143,20 @@ export function Search() {
           {' '}Each source&rsquo;s own limits are listed before you ask.
         </p>
 
-        <label className="terms" htmlFor="ask-terms">
-          <Icon name="search" />
-          {terms.map((term) => (
-            <span key={term} className="term">
-              {term}
-              <button type="button" aria-label={`Remove ${term}`} onClick={() => setTerms(terms.filter((t) => t !== term))}>
-                <Icon name="close" />
-              </button>
-            </span>
-          ))}
-          <input
-            id="ask-terms"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={onTermKey}
-            onBlur={addTerm}
-            placeholder={terms.length ? 'Another term' : 'Terms to look for; Enter adds each one'}
-            aria-label="Search terms"
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
+        <TermsField id="ask-terms" label="Search terms" state={terms} />
 
-        <fieldset className="catalog">
-          <legend>
-            {mode === 'dive' ? 'Source' : 'Sources'}
-            <span>{mode === 'dive' ? 'choose one' : `${picked.length} of ${sources.length} chosen`}</span>
-          </legend>
-          <div className="catalog-head" aria-hidden="true">
-            <span />
-            <span>Source</span>
-            <span>Terms combine</span>
-            <span>Requests allowed</span>
-            <span>Dates papers</span>
-          </div>
-          <div className="catalog-rows">
-            {sources.map((entry) => {
-              const rate = ratePerSecond(entry.rate_limit);
-              const missing = keyMissing(entry);
-              const on = chosen.includes(entry.slug);
-              return (
-                <label key={entry.slug} className={on ? 'source on' : 'source'} data-source={entry.slug}>
-                  <input
-                    type={mode === 'dive' ? 'radio' : 'checkbox'}
-                    name="ask-source"
-                    checked={on}
-                    onChange={() => choose(entry.slug)}
-                  />
-                  <span className="source-name">
-                    {entry.name}
-                    {missing && <span className="source-key">needs an API key</span>}
-                    <span className="source-key" data-author-query={entry.entity_search.author_query}>
-                      {authorWords(entry.entity_search.author_query)}
-                    </span>
-                  </span>
-                  <span className="source-fact">{entry.keyword_combination}</span>
-                  <span className="source-fact num" title={entry.rate_limit}>{rateShort(rate, entry.rate_limit)}</span>
-                  <span className="source-fact">to the {entry.date_granularity}</span>
-                </label>
-              );
-            })}
-            {(catalog.isPending || runnable.isPending) && <p className="index-cap">Reading the catalog.</p>}
-            {(catalog.isError || runnable.isError) && <p className="index-cap">The catalog could not be read.</p>}
-          </div>
-        </fieldset>
+        <SourceCatalog
+          name="ask-source"
+          legend={mode === 'dive' ? 'Source' : 'Sources'}
+          count={mode === 'dive' ? 'choose one' : `${picked.length} of ${sources.length} chosen`}
+          sources={sources}
+          chosen={chosen}
+          multiple={mode === 'sweep'}
+          keyMissing={keyMissing}
+          pending={pending}
+          failed={failed}
+          onChoose={choose}
+        />
 
         <div className="ask-window">
           <fieldset className="window">
@@ -336,11 +210,7 @@ export function Search() {
                 {pace.entry.name} allows {rateLong(pace.rate)}, the slowest of these; it sets how long the sweep takes.
               </p>
             )}
-            {coarse.length > 0 && (
-              <p>
-                {coarse.map((entry) => entry.name).join(', ')} {coarse.length === 1 ? 'dates' : 'date'} papers only to the {coarse.length === 1 ? coarse[0]?.date_granularity : 'month or year'}; a window this short may come back as one {coarse.length === 1 ? 'it' : 'they'} could not answer.
-              </p>
-            )}
+            {coarse.length > 0 && <p>{coarseSentence(coarse)}</p>}
             {picked.filter(keyMissing).map((entry) => (
               <p key={entry.slug}>{entry.name} has no API key here, so it will be recorded as not queried.</p>
             ))}
@@ -357,15 +227,29 @@ export function Search() {
         <div className="ask-keep">
           {opened && <p className="keep-from">Opened from the saved search “{opened.name}”; a run started here records it.</p>}
           {naming === null ? (
-            <button
-              type="button"
-              className="btn quiet"
-              data-saved="keep"
-              disabled={!allTerms.length || !picked.length}
-              onClick={() => { keep.reset(); setNaming(''); }}
-            >
-              Save this search
-            </button>
+            <span className="keep-row">
+              <button
+                type="button"
+                className="btn quiet"
+                data-saved="keep"
+                disabled={!allTerms.length || !picked.length}
+                onClick={() => { keep.reset(); setNaming(''); }}
+              >
+                Save this search
+              </button>
+              {/* Not the dates: a window fixed today would be asked again on every run. */}
+              <button
+                type="button"
+                className="btn quiet"
+                data-editor="watch-this"
+                disabled={!allTerms.length || !picked.length}
+                onClick={() => navigate('/watches/new', {
+                  state: { seed: { sources: picked.map((e) => e.slug), keywords: allTerms, cap } },
+                })}
+              >
+                Watch this search
+              </button>
+            </span>
           ) : (
             <span className="keep-row">
               <label className="sr-only" htmlFor="keep-name">A name for this saved search</label>
@@ -406,15 +290,4 @@ export function Search() {
       <RunLog />
     </div>
   );
-}
-
-/**
- * Whether a source can be asked about a person, as the catalog states it. A
- * watch on a person through a source that cannot be asked finds nothing, and
- * the run says so on that source's own row; this says it before asking.
- */
-function authorWords(query: string): string {
-  if (query === 'none') return 'cannot be asked about an author';
-  if (query === 'unknown') return 'not known whether it can be asked about an author';
-  return 'can be asked about an author';
 }

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
+import { Icon } from '../../shell/Icon';
 import { PaperSky, basisWords } from '../sky/PaperSky';
 import { count, number, when } from '../today/format';
 import { MonthAhead, useCalendar } from './MonthAhead';
@@ -33,6 +34,7 @@ export function useWatchPapers(id: number | null) {
  */
 export function Watches() {
   const [now] = useState(() => new Date());
+  const said = (useLocation().state as { said?: string } | null)?.said ?? null;
   const routines = useQuery({ queryKey: WATCHES_KEY, queryFn: () => answer(engine().GET('/api/routines')) });
   const calendar = useCalendar(now);
   const list = useMemo(
@@ -66,19 +68,24 @@ export function Watches() {
       <section className="index watch-index" aria-label="Watches" aria-busy={routines.isFetching}>
         <div className="results-head">
           <WatchTabs />
-          <h1 className="page-title">Watches</h1>
+          <div className="watches-head">
+            <h1 className="page-title">Watches</h1>
+            <Link to="/watches/new" className="btn primary" data-editor="new"><Icon name="plus" size={14} />New watch</Link>
+          </div>
           <p className="count-sentence">
             {routines.data
               ? `${count(list.length, 'watch', 'watches')}${list.length ? `, ${number(active)} watching and ${number(list.length - active)} paused` : ''}`
               : ''}
           </p>
+          {said && <p className="run-note" role="status" data-editor="said">{said}</p>}
         </div>
         <div className="index-scroll">
           {routines.isPending && <p className="index-cap">Reading your watches.</p>}
           {routines.isError && <p className="index-cap">Your watches could not be read ({routines.error.message}).</p>}
           {routines.data && !list.length && (
             <p className="index-empty">
-              Nothing is watched yet. A watch is a search resmon runs on a schedule and keeps the papers of.
+              Nothing is watched yet. A watch is a search resmon runs on a schedule and keeps the papers of.{' '}
+              <Link to="/watches/new">Make one</Link>, or start from a search under <Link to="/search/saved">Saved</Link>.
             </p>
           )}
           <ol className="watch-list">

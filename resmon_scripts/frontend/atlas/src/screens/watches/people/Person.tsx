@@ -75,6 +75,8 @@ function PersonPage({ id }: { id: number }) {
           <h1 className="run-name it">{data.display_name}</h1>
           {!editing && (
             <div className="run-actions">
+              <Link to="/watches/new" state={{ seed: { name: `New papers by ${data.display_name}`, profileId: data.id } }}
+                className="btn" data-people="watch-for">Watch for their papers</Link>
               <button type="button" className="btn" onClick={() => setEditing(true)}>Change</button>
               <button type="button" className="btn quiet" disabled={remove.isPending}
                 onClick={() => { if (window.confirm(`Stop watching for ${data.display_name}? Their matches are removed; the papers stay.`)) remove.mutate(); }}>

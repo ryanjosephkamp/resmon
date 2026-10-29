@@ -108,6 +108,11 @@ export function Saved() {
                 <button type="button" className="btn sm" onClick={() => navigate('/search/ask', { state: { saved: config } })}>
                   Ask again
                 </button>
+                {/* Not its dates: a window fixed when it was saved would be asked again on every run. */}
+                <button type="button" className="btn sm" data-saved="make-watch"
+                  onClick={() => navigate('/watches/new', { state: { seed: { name: config.name, sources: asks.sources, keywords: asks.keywords, cap: asks.cap } } })}>
+                  Make it a watch
+                </button>
                 <button type="button" className="btn sm quiet" disabled={remove.isPending}
                   onClick={() => { if (window.confirm(`Delete the saved search “${config.name}”? Runs it started are kept, and stop naming it.`)) remove.mutate(config.id); }}>
                   Delete

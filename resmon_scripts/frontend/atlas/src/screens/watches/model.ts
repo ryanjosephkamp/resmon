@@ -32,6 +32,18 @@ function plural(n: number, unit: string): string {
   return n === 1 ? unit : `${n} ${unit}s`;
 }
 
+/**
+ * A `*\/N` step in words only where every gap is N: cron restarts the count
+ * each hour (or day), so `*\/7` minutes runs at :56 and then at :00, and
+ * `*\/5` hours at 20:00 and then at midnight.
+ */
+function evenStep(field: string, span: number): number | null {
+  const step = /^\*\/(\d+)$/.exec(field);
+  if (!step) return null;
+  const n = Number(step[1]);
+  return n >= 1 && span % n === 0 ? n : null;
+}
+
 function intIn(field: string, lo: number, hi: number): number | null {
   if (!/^\d+$/.test(field)) return null;
   const n = Number(field);
@@ -89,17 +101,20 @@ function describeCron(cron: string): string | null {
   if (mon !== '*') return null;
   if (hour === '*' && dom === '*' && dow === '*') {
     if (min === '*') return 'Every minute';
-    const step = /^\*\/(\d+)$/.exec(min);
-    if (step) return `Every ${plural(Number(step[1]), 'minute')}`;
+    if (/^\*\//.test(min)) {
+      const n = evenStep(min, 60);
+      return n === null ? null : `Every ${plural(n, 'minute')}`;
+    }
     const m = intIn(min, 0, 59);
     if (m !== null) return m === 0 ? 'Every hour' : `Every hour, at :${String(m).padStart(2, '0')}`;
     return null;
   }
   const m = intIn(min, 0, 59);
   if (m === null) return null;
-  const hourStep = /^\*\/(\d+)$/.exec(hour);
-  if (hourStep && dom === '*' && dow === '*') {
-    const span = `Every ${plural(Number(hourStep[1]), 'hour')}`;
+  if (/^\*\//.test(hour)) {
+    const n = evenStep(hour, 24);
+    if (n === null || dom !== '*' || dow !== '*') return null;
+    const span = `Every ${plural(n, 'hour')}`;
     return m === 0 ? span : `${span}, at :${String(m).padStart(2, '0')}`;
   }
   const h = intIn(hour, 0, 23);
@@ -123,9 +138,10 @@ function describeCron(cron: string): string | null {
  * that is nearly right is worse than the expression. Follows
  * `scheduler._build_trigger`, so a structured `_schedule` in the parameters
  * wins over the cron string, as it does when the routine fires. `*\/N` in the
- * day of the month restarts every month and is left untranslated. The same
- * rules as the classic interface's `lib/scheduleText.ts`, which goes when it
- * does.
+ * day of the month restarts every month and is left untranslated, and so is a
+ * minute or hour step that does not divide the hour or the day evenly. The
+ * classic interface's `lib/scheduleText.ts` still says "Every 5 hours" for
+ * the last of those; it goes at the switch-over.
  */
 export function scheduleText(cron: string | null | undefined, parameters?: unknown): string | null {
   const s = structured(parameters);
@@ -203,6 +219,19 @@ export function destinationWords(channel: string, target: string): string {
   if (target) return target;
   if (channel === 'email') return 'the address in Settings';
   return 'no destination recorded';
+}
+
+/** A webhook destination's address: stored as the URL, or as `{"url":…,"inline":true}`. */
+export function webhookUrl(raw: string): string {
+  const text = raw.trim();
+  if (!text.startsWith('{')) return text || 'no address recorded';
+  try {
+    const parsed: unknown = JSON.parse(text);
+    const url = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>).url : null;
+    return typeof url === 'string' && url ? url : 'no address recorded';
+  } catch {
+    return 'no address recorded';
+  }
 }
 
 export const CHANNEL_WORDS: Record<string, string> = {

@@ -382,6 +382,8 @@ kbd {
 
 .search { display: grid; grid-template-columns: minmax(0, 1fr) clamp(420px, 34vw, 520px); height: 100%; min-height: 0; }
 .ask { min-width: 0; overflow: auto; padding: 36px 56px 0; display: flex; flex-direction: column; }
+/* The action bar is pinned to the foot of the column: a field focused under it is scrolled clear of it. */
+.ask { scroll-padding-bottom: 104px; }
 .ask > * { max-width: 920px; }
 .ask-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 
@@ -770,7 +772,7 @@ code.cron { font: 400 12px/1 var(--mono); color: var(--ink-2); background: var(-
 .coverage-limits p:last-child { margin: 0; font: 400 13px/1.55 var(--sans); color: var(--ink-2); }
 
 .destinations, .delivery-list { list-style: none; margin: 0; padding: 0; max-width: 1060px; }
-.destinations li { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 14px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--rule); }
+.destinations li { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 10px 0; border-top: 1px solid var(--rule); }
 .destinations li[data-enabled="false"] { opacity: .6; }
 .destinations .record-cap { margin: 0; }
 .delivery-row { display: grid; grid-template-columns: 64px 80px minmax(0, 1fr) 130px minmax(0, 1fr) 150px; gap: 12px; align-items: center; padding: 9px 0; border-top: 1px solid var(--rule); font: 400 13px/1.4 var(--sans); }
@@ -927,3 +929,86 @@ code.path {
 }
 .keep-row input:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
 .ask-keep .settings-said { margin: 0; }
+
+/* The watch editor: the form on the left, what it will do on the right. */
+.watches-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.watches-head .btn { flex: none; }
+.watch-editor .ask { padding-top: 26px; }
+.editor-title { margin-top: 14px; }
+.editor-name { margin-top: 24px; max-width: 520px; }
+.editor .choices { margin-top: 26px; }
+.editor .terms { margin-top: 18px; }
+.editor .catalog { margin-top: 26px; }
+.editor-aside { margin-top: 18px; max-width: 64ch; font-size: 13px; color: var(--ink-2); }
+.person-pick { margin-top: 6px; max-width: 520px; }
+.form-field select, .date select {
+  height: 34px; padding: 0 30px 0 10px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  background: var(--plate); color: var(--ink); font: 400 14px/1 var(--sans); color-scheme: inherit;
+}
+.date select { height: 32px; font-size: 13px; }
+.form-field select:focus-visible, .date select:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+.schedule .seg { justify-self: start; flex-wrap: wrap; }
+.schedule-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; min-height: 32px; }
+.schedule-row .form-hint { font-size: 13px; color: var(--ink-2); }
+.date input.minute { width: 64px; }
+.window-hint { flex-basis: 100%; max-width: 64ch; }
+.editor-intent { margin-top: 26px; max-width: 760px; }
+.form-field textarea {
+  width: 100%; min-height: 58px; resize: vertical; padding: 9px 10px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  background: var(--plate); color: var(--ink); font: 400 14px/1.5 var(--sans);
+}
+.form-field textarea:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+.form-field textarea::placeholder { color: var(--ink-3); }
+.form-optional { margin-left: 6px; font-weight: 400; color: var(--ink-3); }
+.editor-switches { justify-items: start; gap: 10px; }
+.editor-switches .switch { font-size: 14px; }
+.editor-switches .switch:disabled { cursor: default; opacity: .45; }
+.editor-switches .form-hint { margin: 0 0 4px; }
+.editor-switches .form-hint a, .editor-aside a, .index-empty a { color: var(--ink-2); text-underline-offset: 3px; }
+.ask-go .go-cancel { height: 42px; padding: 0 14px; flex: none; }
+.editor-delete { margin: 10px 0 0; padding: 18px 0 40px; }
+
+.will-do .index-scroll { padding-top: 4px; }
+.will { padding: 18px 0 16px; border-bottom: 1px solid var(--rule); }
+.will:last-child { border-bottom: 0; }
+.will h3 { margin: 0 0 8px; font: 600 12.5px/1.2 var(--sans); color: var(--ink-3); }
+.will p { margin: 0 0 8px; font: 400 14.5px/1.55 var(--sans); color: var(--ink); max-width: 52ch; }
+.will p:last-child { margin-bottom: 0; }
+.will .will-quiet { font-size: 13px; color: var(--ink-2); }
+.will .will-warn {
+  font-size: 13.5px; padding: 8px 10px; border-radius: var(--r);
+  background: var(--accent-wash); box-shadow: inset 0 0 0 1px var(--accent-wash-2);
+}
+.will code.cron { font-size: 12.5px; }
+@media (max-width: 1100px) {
+  .watch-editor { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .watch-editor .ask { overflow: visible; }
+  .watch-editor .will-do { border-left: 0; border-top: 1px solid var(--rule); }
+}
+
+/* Destinations, changed in place. */
+.destination-body { display: grid; gap: 3px; min-width: 0; }
+.destination-body .delivery-where { color: var(--ink); }
+.destination-body .record-cap:empty { display: none; }
+.destination-secret { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 4px; }
+.destination-secret .record-cap { flex-basis: 100%; }
+.destination-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.destination-acts .switch { min-width: 52px; }
+.destination-acts select, .destination-add select, .destination-add input, .destination-secret input {
+  height: 30px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans); color-scheme: inherit;
+}
+.destination-acts select:focus-visible, .destination-add select:focus-visible, .destination-add input:focus-visible,
+.destination-secret input:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+.destination-secret input { width: 220px; }
+.destinations li[data-enabled="false"] { opacity: 1; }
+.destinations li[data-enabled="false"] .destination-body { opacity: .6; }
+.destination-add { display: grid; gap: 8px; margin: 18px 0 26px; max-width: 1060px; }
+.destination-add-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.destination-add-row input { flex: 1 1 280px; min-width: 0; }
+.destination-add .form-hint { max-width: 76ch; }
+.destination-inline { font-size: 13px; color: var(--ink-2); }
+@media (max-width: 860px) {
+  .destinations li { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .destination-acts { justify-content: flex-start; }
+}

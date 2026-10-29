@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { Icon } from '../../shell/Icon';
 import { PaperSky, basisWords } from '../sky/PaperSky';
@@ -45,6 +45,7 @@ function WatchPage({ raw }: { raw: string }) {
   const [now] = useState(() => new Date());
   const [tab, setTab] = useState<Tab>('What it finds');
   const [said, setSaid] = useState<{ run: number | null; text: string } | null>(null);
+  const saved = (useLocation().state as { said?: string } | null)?.said ?? null;
 
   const routine = useQuery({
     queryKey: ['routine', id],
@@ -138,6 +139,7 @@ function WatchPage({ raw }: { raw: string }) {
             <button type="button" className="btn" onClick={() => schedule.mutate(!data.is_active)} disabled={schedule.isPending}>
               {data.is_active ? 'Pause' : 'Resume'}
             </button>
+            <Link to={`/watches/${data.id}/edit`} className="btn" data-editor="change">Change</Link>
           </div>
         </div>
         <div className="meta run-meta">
@@ -158,6 +160,7 @@ function WatchPage({ raw }: { raw: string }) {
             </Link></>
           )}
         </div>
+        {saved && !said && <p className="run-note" role="status" data-editor="said">{saved}</p>}
         {said && (
           said.run !== null
             ? <p className="run-note run-now-said" data-run-started={said.run}>
@@ -207,7 +210,7 @@ function WatchPage({ raw }: { raw: string }) {
         </div>
         <div className="run-panel" role="tabpanel" id="watch-tab-panel" aria-labelledby={`watch-tab-${tab}`}>
           {tab === 'What it finds' && <CoverageTab routine={data} />}
-          {tab === 'Where reports go' && <DeliveryTab routineId={id} />}
+          {tab === 'Where reports go' && <DeliveryTab routineId={id} emailOn={data.email_enabled} />}
           {tab === 'Schedule' && <ScheduleTab routine={data} fires={fires} now={now} />}
         </div>
       </section>
