@@ -87,8 +87,8 @@ shape changes its output: the same test compares them.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 1018 tests across 96 suites
-npm run e2e                                      # the real Electron app — 131 cases in 48 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 1028 tests across 98 suites
+npm run e2e                                      # the real Electron app — 133 cases in 50 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -521,7 +521,11 @@ Atlas Health (slice 4): `screens/health/` (the Source wall at `/health`, drawn f
 `/health/watchdog`; the engine this window is talking to at `/health/engine`); the routes' bodies are
 the "the source wall" and "analytics" slices of `test_response_models.py`; real-app journey
 `e2e/atlas-health.spec.ts`. J16's gate and the authored source's up and down are renderer-free in
-`journeys/drivers/candidate.ts`.
+`journeys/drivers/candidate.ts`. Analytics is Health's third tab (`/health/analytics`,
+`Analytics.tsx`, `analyticsModel.ts`): the engine's numbers only, its own sentence where a view has
+too little, and a source's or a category's row opens Search › Your collection narrowed by
+`?source=` or `?category=`; real-app journey `e2e/atlas-analytics.spec.ts`. A chart's neutral is
+the `--chart-context` token, checked against the accent for color-blind separation.
 Atlas Library › Your files (slice 5): `/library/files` (`screens/library/Files.tsx`, `libraryApi.ts`):
 a vault made inside a folder the person chooses, files imported byte for byte (the one route outside
 the typed client, because its body is raw bytes), read as literal text, linked to a paper by its

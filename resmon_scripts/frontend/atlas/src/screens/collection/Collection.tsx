@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import type { components } from '../../api/schema';
 import { Icon } from '../../shell/Icon';
@@ -26,8 +26,16 @@ const SETTLE_MS = 350;
  * are listed last, never dropped). Two records of the same work are labeled
  * with the reason the engine linked them; folding them hides rows in this view
  * only, and the count does not change.
+ *
+ * `?source=` and `?category=` narrow it to one source or one subject category,
+ * the engine's own filters, so a chart elsewhere can open exactly the papers
+ * it drew. Each filter is named on the screen and can be taken off.
  */
 export function Collection() {
+  const [params, setParams] = useSearchParams();
+  const source = params.get('source');
+  const category = params.get('category');
+  const filtered = !!(source || category);
   const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>('newest');
@@ -47,10 +55,13 @@ export function Collection() {
   const names = useMemo(() => new Map((catalog.data ?? []).map((e) => [e.slug, e.name])), [catalog.data]);
 
   const pages = useInfiniteQuery({
-    queryKey: ['explorer', query, ranking],
+    queryKey: ['explorer', query, ranking, source, category],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => answer(engine().POST('/api/explorer/search', {
-      body: { query, sort: ranking, limit: 50, cursor: pageParam, sources: [], authors: [], categories: [] },
+      body: {
+        query, sort: ranking, limit: 50, cursor: pageParam, authors: [],
+        sources: source ? [source] : [], categories: category ? [category] : [],
+      },
     })),
     getNextPageParam: (last) => (last.has_more && last.next_cursor ? String(last.next_cursor) : undefined),
   });
@@ -84,19 +95,25 @@ export function Collection() {
 
   const total = first?.total ?? 0;
   const busy = pages.isFetching || links.isFetching || people.isFetching || (fold && folded.isFetching);
-  const countSentence = first
-    ? `${number(total)}${first.total_is_capped ? '+' : ''} ${total === 1 ? 'paper' : 'papers'} ${query ? 'match' : 'in your collection'}`
-    : '';
+  const papers = first ? `${number(total)}${first.total_is_capped ? '+' : ''} ${total === 1 ? 'paper' : 'papers'}` : '';
+  const countSentence = !first ? ''
+    : filtered ? `${papers} matching your filters${query ? ' and these words' : ''}`
+      : `${papers} ${query ? 'match' : 'in your collection'}`;
+  const drop = (key: 'source' | 'category') => {
+    const next = new URLSearchParams(params);
+    next.delete(key);
+    setParams(next);
+  };
 
   return (
     <div className="collection">
       <PaperSky
-        marked={query ? ids : []}
+        marked={query || filtered ? ids : []}
         shape="tall"
         label="Where the matches sit in the collection"
         caption={({ placed, ready, basis }) => {
           if (!ready) return 'The collection map is not ready yet; matches are marked once it is.';
-          if (!query) return `Every paper in your collection, ${basisWords(basis)}. Matches are marked as you search.`;
+          if (!query && !filtered) return `Every paper in your collection, ${basisWords(basis)}. Matches are marked as you search.`;
           if (!ids.length) return 'Nothing matches, so nothing is marked.';
           const listed = ids.length < total
             ? `the first ${number(ids.length)} of ${number(total)} matches`
@@ -140,6 +157,26 @@ export function Collection() {
               </label>
             )}
           </div>
+          {filtered && (
+            <div className="filter-chips" data-collection="filters" aria-label="Filters">
+              {source && (
+                <span className="term" data-filter="source">
+                  From {names.get(source) ?? source}
+                  <button type="button" aria-label={`Show papers from every source, not only ${names.get(source) ?? source}`} onClick={() => drop('source')}>
+                    <Icon name="close" />
+                  </button>
+                </span>
+              )}
+              {category && (
+                <span className="term" data-filter="category">
+                  In {category}
+                  <button type="button" aria-label={`Show papers in every category, not only ${category}`} onClick={() => drop('category')}>
+                    <Icon name="close" />
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
           <p className="count-sentence">{countSentence}</p>
           {ranking === 'similarity' && first && first.sort === 'similarity' && (
             <p className="rank-note">
@@ -159,7 +196,12 @@ export function Collection() {
         <div className="index-scroll">
           {pages.isPending && <p className="index-cap">Searching.</p>}
           {pages.isError && <p className="index-cap">The collection could not be searched ({pages.error.message}).</p>}
-          {first && !rows.length && <p className="index-empty">{query ? `Nothing in your collection matches "${query}".` : 'Your collection is empty.'}</p>}
+          {first && !rows.length && (
+            <p className="index-empty">
+              {query ? `Nothing in your collection matches "${query}"${filtered ? ' within these filters' : ''}.`
+                : filtered ? 'Nothing in your collection matches these filters.' : 'Your collection is empty.'}
+            </p>
+          )}
           <ol className="result-list">
             {visible.map((paper) => {
               const also = links.data?.links[String(paper.id)] ?? [];
