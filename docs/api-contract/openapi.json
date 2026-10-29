@@ -362,6 +362,397 @@
         "title": "AppearanceBody",
         "type": "object"
       },
+      "AssistantActivity": {
+        "additionalProperties": true,
+        "description": "What this process saw of a conversation when the request arrived.\n\nObserved separately from the transcript and not atomic with it, which\n``basis`` says. ``turn_claimed`` is whether a turn holds the\nconversation's event bus, and ``cli_running`` whether a CLI process is\nalive for it. Both are this process's memory and say nothing about\nanother process.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "cli_running": {
+            "title": "Cli Running",
+            "type": "boolean"
+          },
+          "observed_at_utc": {
+            "title": "Observed At Utc",
+            "type": "string"
+          },
+          "turn_claimed": {
+            "title": "Turn Claimed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "observed_at_utc",
+          "turn_claimed",
+          "cli_running",
+          "basis"
+        ],
+        "title": "AssistantActivity",
+        "type": "object"
+      },
+      "AssistantChoices": {
+        "additionalProperties": true,
+        "description": "A conversation's saved choices: the request every turn makes, and when it was fixed.",
+        "properties": {
+          "binding_basis": {
+            "title": "Binding Basis",
+            "type": "string"
+          },
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "effort_basis": {
+            "title": "Effort Basis",
+            "type": "string"
+          },
+          "model_basis": {
+            "title": "Model Basis",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "requested_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Effort"
+          },
+          "requested_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model"
+          },
+          "runtime": {
+            "title": "Runtime",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "runtime",
+          "provider",
+          "requested_model",
+          "requested_effort",
+          "model_basis",
+          "effort_basis",
+          "binding_basis",
+          "created_at_utc"
+        ],
+        "title": "AssistantChoices",
+        "type": "object"
+      },
+      "AssistantComposerChoices": {
+        "additionalProperties": true,
+        "description": "What the composer may ask for: connections, Claude model aliases and effort levels.\n\n``default_request`` is ``None``, and ``default_error`` says why, when the\nstored settings do not make a valid choice. The aliases are suggestions:\nthe CLI decides at use time whether it accepts one, and ``limitations``\nsays so in the words the composer shows.",
+        "properties": {
+          "claude_aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Claude Aliases",
+            "type": "array"
+          },
+          "claude_efforts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Claude Efforts",
+            "type": "array"
+          },
+          "connections": {
+            "items": {
+              "$ref": "#/components/schemas/AssistantConnection"
+            },
+            "title": "Connections",
+            "type": "array"
+          },
+          "default_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Error"
+          },
+          "default_request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantDefaultRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limitations": {
+            "title": "Limitations",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "default_request",
+          "default_error",
+          "connections",
+          "claude_aliases",
+          "claude_efforts",
+          "limitations"
+        ],
+        "title": "AssistantComposerChoices",
+        "type": "object"
+      },
+      "AssistantConnection": {
+        "additionalProperties": true,
+        "description": "One connection the composer can offer.\n\n``runtime`` is ``None``, and ``implemented`` false, for a provider resmon\nlists but has no assistant for (Ollama, Codex). ``family`` is the request\nshape resmon's own loop builds and is present only on API-key\nconnections. ``available`` checks local prerequisites only, an executable\nfound or a key stored, never sign-in or whether a model is accepted.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "effort_supported": {
+            "title": "Effort Supported",
+            "type": "boolean"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Family"
+          },
+          "implemented": {
+            "title": "Implemented",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime"
+          }
+        },
+        "required": [
+          "runtime",
+          "provider",
+          "label",
+          "implemented",
+          "available",
+          "reason",
+          "effort_supported"
+        ],
+        "title": "AssistantConnection",
+        "type": "object"
+      },
+      "AssistantDefaultRequest": {
+        "additionalProperties": true,
+        "description": "The choice a new conversation gets from Settings when it names none.\n\n``model`` and ``effort`` are ``None`` when Settings leaves them to the\nruntime, whose own default resmon does not know.",
+        "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "runtime": {
+            "title": "Runtime",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "runtime",
+          "provider",
+          "model",
+          "effort"
+        ],
+        "title": "AssistantDefaultRequest",
+        "type": "object"
+      },
+      "AssistantExport": {
+        "additionalProperties": true,
+        "description": "``GET /api/assistant/sessions/{session_id}/export``: a saved conversation as a file's text.\n\n``format`` is ``json`` or ``markdown``. ``text`` is the whole file, at most\n8 MiB, and carries its own limitations: persisted messages only, and\ncompletion unknown. ``filename`` and ``content_type`` are for saving it;\nthe backend writes no file. ``snapshot`` is the read it was taken from.",
+        "properties": {
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "integer"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/AssistantSnapshot"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "format",
+          "filename",
+          "content_type",
+          "text",
+          "snapshot"
+        ],
+        "title": "AssistantExport",
+        "type": "object"
+      },
+      "AssistantMessage": {
+        "additionalProperties": true,
+        "description": "One stored message: ``user``, ``assistant``, or ``system`` for a notice shown during a turn.\n\n``tool_calls`` and ``tool_results`` are the JSON stored with an assistant\nmessage, parsed and otherwise untouched: a list, ``None`` when the turn\nused no tool, or ``{\"unreadable\": true}`` when the stored text does not\nparse. They are ``Any`` rather than a list of models because the column\nholds whatever a runtime returned, in the shape the version that wrote it\nused, and a typed list would turn such a row into a 500 where it is a\ntranscript today. An ``Any`` value is written by pydantic's serializer,\nnot ``jsonable_encoder``; for parsed JSON the two agree, and the parse\nrefuses ``NaN`` and ``Infinity``, so the module docstring's non-finite\ncase is reachable only through an out-of-range literal such as ``1e999``\nin a hand-edited row. Tool data can hold sensitive text and is returned\nas stored.\n\nThe tokens and ``cost_usd`` are what the runtime reported for the turn,\n``None`` where it reported nothing. A reported cost does not establish\nwhat was billed.",
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "tool_calls": {
+            "title": "Tool Calls"
+          },
+          "tool_results": {
+            "title": "Tool Results"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "content",
+          "tool_calls",
+          "tool_results",
+          "input_tokens",
+          "output_tokens",
+          "cost_usd",
+          "created_at"
+        ],
+        "title": "AssistantMessage",
+        "type": "object"
+      },
       "AssistantMessageBody": {
         "additionalProperties": false,
         "properties": {
@@ -388,6 +779,66 @@
         "title": "AssistantMessageBody",
         "type": "object"
       },
+      "AssistantModelReport": {
+        "additionalProperties": true,
+        "description": "A model name a runtime reported during a turn, where it reported it, and when.\n\n``source`` names the field it came from, such as\n``claude_system_init_model``. It is what the runtime said, kept beside the\nrequest and never merged with it. No runtime reports effort.",
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "observed_at_utc": {
+            "title": "Observed At Utc",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "model",
+          "source",
+          "observed_at_utc"
+        ],
+        "title": "AssistantModelReport",
+        "type": "object"
+      },
+      "AssistantOtherRuntime": {
+        "additionalProperties": true,
+        "description": "A runtime Settings does not select, listed with its reason rather than left out.\n\nThe first entry is the other of resmon's two runtimes and the second is\nthe Codex CLI, which is never available. ``installed`` is not a finding\nto rely on in either. On the first it is always true, whatever was found.\nOn the Codex entry it is whether an executable sits where Codex is looked\nfor, and when an agent-CLI path is configured that path is the only place\nlooked, so a configured Claude CLI makes Codex read as installed.\n``available`` and ``reason`` are the fields to read.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "installed": {
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "installed",
+          "available",
+          "reason"
+        ],
+        "title": "AssistantOtherRuntime",
+        "type": "object"
+      },
       "AssistantPermissionAnswer": {
         "properties": {
           "allow": {
@@ -410,6 +861,51 @@
           "allow"
         ],
         "title": "AssistantPermissionAnswer",
+        "type": "object"
+      },
+      "AssistantPermissionAnswered": {
+        "additionalProperties": true,
+        "description": "``POST /api/assistant/permissions/{request_id}``: the panel's Allow or Deny, recorded once.\n\nA second answer to the same request is a 409, so ``decision`` is the one\nthat stands.",
+        "properties": {
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "decision"
+        ],
+        "title": "AssistantPermissionAnswered",
+        "type": "object"
+      },
+      "AssistantPermissionDecision": {
+        "additionalProperties": true,
+        "description": "``POST /api/assistant/permissions``: the answer the permission server hands the CLI.\n\nCalled by ``assistant_permission_server.py``, not the renderer, and held\nopen until the person answers or five minutes pass. ``decision`` is\n``allow`` or ``deny``; a timeout, a panel that was not open to ask, and a\ncancelled conversation all deny, and ``message`` says which.",
+        "properties": {
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision",
+          "message",
+          "request_id"
+        ],
+        "title": "AssistantPermissionDecision",
         "type": "object"
       },
       "AssistantPermissionOpen": {
@@ -447,6 +943,260 @@
         "title": "AssistantPermissionOpen",
         "type": "object"
       },
+      "AssistantRequested": {
+        "additionalProperties": true,
+        "description": "What a turn asked a runtime for, which is not what the runtime used.\n\n``requested_model`` and ``requested_effort`` are ``None`` when the request\nleft the choice to the runtime. Each ``*_basis`` says where a choice came\nfrom: ``explicit``, ``settings_default``, ``runtime_default``, or, for\neffort on an API key, ``not_supported``. ``binding_basis`` is ``new``, or\n``legacy_confirmed`` for a conversation saved before choices were, whose\nnext turn the person confirmed.",
+        "properties": {
+          "binding_basis": {
+            "title": "Binding Basis",
+            "type": "string"
+          },
+          "effort_basis": {
+            "title": "Effort Basis",
+            "type": "string"
+          },
+          "model_basis": {
+            "title": "Model Basis",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "requested_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Effort"
+          },
+          "requested_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model"
+          },
+          "runtime": {
+            "title": "Runtime",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "runtime",
+          "provider",
+          "requested_model",
+          "requested_effort",
+          "model_basis",
+          "effort_basis",
+          "binding_basis"
+        ],
+        "title": "AssistantRequested",
+        "type": "object"
+      },
+      "AssistantRuntimeStatus": {
+        "additionalProperties": true,
+        "description": "Whether the runtime Settings selects can take a turn, and why or why not, in one sentence.\n\n``path`` is where the Claude CLI executable was found and ``how`` how it\nwas found (``configured``, ``known-location``, ``path``); an available\nAPI-key runtime has no path and says ``api_key``. Both are ``None`` when\nthe runtime is not available. A found executable is not a sign-in and a\nstored key is not an accepted one: ``available`` says a turn can be\nattempted, not that it will be answered.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "how": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "How"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "available",
+          "reason",
+          "path",
+          "how"
+        ],
+        "title": "AssistantRuntimeStatus",
+        "type": "object"
+      },
+      "AssistantSession": {
+        "additionalProperties": true,
+        "description": "``POST /api/assistant/sessions`` (201): one conversation.\n\n``cli_session_id`` is the id resmon hands the Claude CLI to resume, and\n``None`` on the API-key runtime, which keeps no session of its own.\n``model`` is the model the conversation asked for, ``None`` for the\nruntime's default. ``title`` is the one given at creation, else the\nfirst message's opening words, else ``New conversation``. ``choices`` is\n``None`` for a conversation saved before choices were (schema 15), which\ncannot send again until the person confirms new ones.",
+        "properties": {
+          "choices": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantChoices"
+              },
+              {
+                "$ref": "#/components/schemas/AssistantUnreadable"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choices"
+          },
+          "cli_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cli Session Id"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "runtime": {
+            "title": "Runtime",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "runtime",
+          "cli_session_id",
+          "model",
+          "title",
+          "created_at",
+          "updated_at",
+          "choices"
+        ],
+        "title": "AssistantSession",
+        "type": "object"
+      },
+      "AssistantSessionBrowsed": {
+        "additionalProperties": true,
+        "description": "One conversation in a browse page.\n\nNot an ``AssistantSession``: a browse row carries no ``cli_session_id``\nand orders its keys differently, and one model cannot keep both orders.",
+        "properties": {
+          "choices": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantChoices"
+              },
+              {
+                "$ref": "#/components/schemas/AssistantUnreadable"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choices"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "runtime": {
+            "title": "Runtime",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "runtime",
+          "model",
+          "created_at",
+          "updated_at",
+          "message_count",
+          "title",
+          "choices"
+        ],
+        "title": "AssistantSessionBrowsed",
+        "type": "object"
+      },
       "AssistantSessionCreate": {
         "additionalProperties": false,
         "properties": {
@@ -477,6 +1227,170 @@
         "title": "AssistantSessionCreate",
         "type": "object"
       },
+      "AssistantSessionDeleted": {
+        "additionalProperties": true,
+        "description": "``DELETE /api/assistant/sessions/{session_id}``: the conversation, its messages and its choices are gone.",
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "AssistantSessionDeleted",
+        "type": "object"
+      },
+      "AssistantSessionListed": {
+        "additionalProperties": true,
+        "description": "One conversation in ``GET /api/assistant/sessions``.\n\n``cost_usd`` is the sum of the costs its runtime reported, ``None`` when\nno turn reported one. Turns that reported nothing add nothing to the sum,\nso it can be a partial total; the conversation's own ``totals`` says how\nmany turns it covers.",
+        "properties": {
+          "choices": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantChoices"
+              },
+              {
+                "$ref": "#/components/schemas/AssistantUnreadable"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choices"
+          },
+          "cli_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cli Session Id"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "runtime": {
+            "title": "Runtime",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "runtime",
+          "cli_session_id",
+          "model",
+          "title",
+          "created_at",
+          "updated_at",
+          "choices",
+          "message_count",
+          "cost_usd"
+        ],
+        "title": "AssistantSessionListed",
+        "type": "object"
+      },
+      "AssistantSessionPage": {
+        "additionalProperties": true,
+        "description": "``GET /api/assistant/sessions/browse``: conversations newest created first, a page at a time.\n\n``through_id`` fixes which conversations the paging covers, so one created\nwhile paging does not shift the pages; it fixes the ids, not what the rows\nsay. ``next_before_id`` is the next page's cursor, ``None`` on the last.",
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_before_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before Id"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/AssistantSessionBrowsed"
+            },
+            "title": "Sessions",
+            "type": "array"
+          },
+          "through_id": {
+            "title": "Through Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sessions",
+          "through_id",
+          "next_before_id",
+          "has_more"
+        ],
+        "title": "AssistantSessionPage",
+        "type": "object"
+      },
+      "AssistantSessions": {
+        "additionalProperties": true,
+        "description": "``GET /api/assistant/sessions``: at most ``limit`` conversations, most recently active first.",
+        "properties": {
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/AssistantSessionListed"
+            },
+            "title": "Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sessions"
+        ],
+        "title": "AssistantSessions",
+        "type": "object"
+      },
       "AssistantSettings": {
         "additionalProperties": true,
         "description": "``GET /api/settings/assistant``.",
@@ -505,6 +1419,368 @@
           "assistant_effort"
         ],
         "title": "AssistantSettings",
+        "type": "object"
+      },
+      "AssistantSnapshot": {
+        "additionalProperties": true,
+        "description": "The SQLite read a transcript or an export was taken from.\n\n``basis`` is ``persisted_messages_only``: a turn still streaming is not in\nit. ``last_message_id`` is ``None`` for a conversation with no messages.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "captured_at_utc": {
+            "title": "Captured At Utc",
+            "type": "string"
+          },
+          "last_message_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Message Id"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "captured_at_utc",
+          "basis",
+          "message_count",
+          "last_message_id"
+        ],
+        "title": "AssistantSnapshot",
+        "type": "object"
+      },
+      "AssistantStatus": {
+        "additionalProperties": true,
+        "description": "``GET /api/assistant/status``: whether the assistant can run, and every runtime it considered.\n\n``runtime`` is the one Settings selects, and ``available`` and ``reason``\nrepeat its own. ``others`` lists the rest with their reasons, Codex\nincluded, because a runtime left out reads as one resmon never noticed.\n``model`` and ``effort`` are what Settings asks for, not what a runtime\nuses; ``None`` or empty means none is set, and an API-key runtime has no\neffort at all. ``contract_version`` is the MCP contract's version, or\n``unknown`` when the server module cannot be imported.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "composer_choices": {
+            "$ref": "#/components/schemas/AssistantComposerChoices"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "others": {
+            "items": {
+              "$ref": "#/components/schemas/AssistantOtherRuntime"
+            },
+            "title": "Others",
+            "type": "array"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_source": {
+            "title": "Provider Source",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/AssistantRuntimeStatus"
+          },
+          "tool_calling": {
+            "$ref": "#/components/schemas/AssistantToolCalling"
+          }
+        },
+        "required": [
+          "runtime",
+          "available",
+          "reason",
+          "model",
+          "effort",
+          "kinds",
+          "provider",
+          "provider_source",
+          "tool_calling",
+          "others",
+          "composer_choices",
+          "contract_version"
+        ],
+        "title": "AssistantStatus",
+        "type": "object"
+      },
+      "AssistantToolCalling": {
+        "additionalProperties": true,
+        "description": "The selected provider's tool calling, as two separate facts.\n\n``state`` is about the provider's own API (``yes``, ``no`` or\n``unknown``); ``assistant`` is whether resmon's assistant drives it\n(``api_key_runtime``, ``cli_runtime`` or ``no``). A provider can support\ntool calling that resmon does not use, so the two are never merged.",
+        "properties": {
+          "assistant": {
+            "title": "Assistant",
+            "type": "string"
+          },
+          "assistant_reason": {
+            "title": "Assistant Reason",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "reason",
+          "assistant",
+          "assistant_reason"
+        ],
+        "title": "AssistantToolCalling",
+        "type": "object"
+      },
+      "AssistantTotals": {
+        "additionalProperties": true,
+        "description": "What a conversation's assistant turns reported, summed.\n\n``reported_turns`` counts the ``turns`` that reported a cost, and is what\nsays whether ``cost_usd`` is a total or a partial one. Each sum is\n``None`` when no turn reported that figure.",
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "reported_turns": {
+            "title": "Reported Turns",
+            "type": "integer"
+          },
+          "turns": {
+            "title": "Turns",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turns",
+          "reported_turns",
+          "input_tokens",
+          "output_tokens",
+          "cost_usd"
+        ],
+        "title": "AssistantTotals",
+        "type": "object"
+      },
+      "AssistantTranscript": {
+        "additionalProperties": true,
+        "description": "``GET /api/assistant/sessions/{session_id}``: a conversation as one SQLite read, and what is running now.\n\n``session`` through ``turn_choices`` come from one read snapshot;\n``running`` and ``activity_observation`` are observed afterwards and are\nnot atomic with it. ``running`` is ``activity_observation.cli_running``.",
+        "properties": {
+          "activity_observation": {
+            "$ref": "#/components/schemas/AssistantActivity"
+          },
+          "choices_version": {
+            "title": "Choices Version",
+            "type": "integer"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/AssistantMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          },
+          "session": {
+            "$ref": "#/components/schemas/AssistantSession"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/AssistantSnapshot"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/AssistantTotals"
+          },
+          "turn_choices": {
+            "items": {
+              "$ref": "#/components/schemas/AssistantTurnChoices"
+            },
+            "title": "Turn Choices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "session",
+          "messages",
+          "totals",
+          "snapshot",
+          "choices_version",
+          "turn_choices",
+          "running",
+          "activity_observation"
+        ],
+        "title": "AssistantTranscript",
+        "type": "object"
+      },
+      "AssistantTurnCancelled": {
+        "additionalProperties": true,
+        "description": "``POST /api/assistant/sessions/{session_id}/cancel``. Idempotent, and it says which happened.\n\n``cancelled`` is true only when a Claude CLI process running for the\nconversation was killed. An API-key turn runs no such process, so the\nanswer is false whether or not one is running. ``permissions_denied``\ncounts the approval cards still waiting for the conversation, now denied.",
+        "properties": {
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "boolean"
+          },
+          "permissions_denied": {
+            "title": "Permissions Denied",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cancelled",
+          "permissions_denied"
+        ],
+        "title": "AssistantTurnCancelled",
+        "type": "object"
+      },
+      "AssistantTurnChoices": {
+        "additionalProperties": true,
+        "description": "One turn's request, and the reports its runtime made, kept apart.\n\n``assistant_message_id`` is ``None`` until an answer is stored, and stays\nso for a turn that never got one. ``requested`` and ``reported`` are each\n``AssistantUnreadable`` when their stored JSON fails validation, and both\nare, with ``assistant_message_id`` cleared, when the row points at\nmessages outside this conversation.",
+        "properties": {
+          "assistant_message_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assistant Message Id"
+          },
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "reported": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AssistantModelReport"
+                },
+                "type": "array"
+              },
+              {
+                "$ref": "#/components/schemas/AssistantUnreadable"
+              }
+            ],
+            "title": "Reported"
+          },
+          "requested": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantRequested"
+              },
+              {
+                "$ref": "#/components/schemas/AssistantUnreadable"
+              }
+            ],
+            "title": "Requested"
+          },
+          "user_message_id": {
+            "title": "User Message Id",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_message_id",
+          "assistant_message_id",
+          "version",
+          "created_at_utc",
+          "requested",
+          "reported"
+        ],
+        "title": "AssistantTurnChoices",
+        "type": "object"
+      },
+      "AssistantUnreadable": {
+        "additionalProperties": true,
+        "description": "A stored value resmon could not read, said so rather than dropped or guessed.\n\nIt stands in for a conversation's choices, a turn's request, or a turn's\nreports when the stored row fails validation on the way out: a row a\nfuture version wrote, or a hand-edited database. The rest of the\nconversation still reads; only that part is withheld. It is its own model,\nin a union with the readable one, so a typed client has to tell the two\napart before it reads a field, and ``unreadable`` is the only key it has.",
+        "properties": {
+          "unreadable": {
+            "const": true,
+            "title": "Unreadable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "unreadable"
+        ],
+        "title": "AssistantUnreadable",
         "type": "object"
       },
       "BackupRequest": {
@@ -13152,7 +14428,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantPermissionDecision"
+                }
               }
             },
             "description": "Successful Response"
@@ -13200,7 +14478,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantPermissionAnswered"
+                }
               }
             },
             "description": "Successful Response"
@@ -13238,7 +14518,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSessions"
+                }
               }
             },
             "description": "Successful Response"
@@ -13272,7 +14554,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSession"
+                }
               }
             },
             "description": "Successful Response"
@@ -13359,7 +14643,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSessionPage"
+                }
               }
             },
             "description": "Successful Response"
@@ -13396,7 +14682,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSessionDeleted"
+                }
               }
             },
             "description": "Successful Response"
@@ -13431,7 +14719,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantTranscript"
+                }
               }
             },
             "description": "Successful Response"
@@ -13469,7 +14759,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantTurnCancelled"
+                }
               }
             },
             "description": "Successful Response"
@@ -13516,7 +14808,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantExport"
+                }
               }
             },
             "description": "Successful Response"
@@ -13590,7 +14884,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantStatus"
+                }
               }
             },
             "description": "Successful Response"

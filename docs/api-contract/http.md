@@ -12,7 +12,7 @@
 
 **Purpose.** The first line of the endpoint's docstring, for the 94 of 194 routes that have one. The remaining 100 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 127 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 67 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 137 of 194 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 57 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -154,14 +154,14 @@ No route of its own. The capability is in the normaliser, the catalog's `entity_
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/api/assistant/permissions` | token | — | — | Ask the person, and hold this request open until they answer. |
-| `POST` | `/api/assistant/permissions/{request_id}` | token | — | — | The panel's Allow / Deny. |
-| `GET` | `/api/assistant/sessions` | token | — | — | *List Assistant Sessions* |
-| `POST` | `/api/assistant/sessions` | token | — | — | *Create Assistant Session* |
-| `GET` | `/api/assistant/sessions/{session_id}` | token | — | — | *Get Assistant Session* |
-| `POST` | `/api/assistant/sessions/{session_id}/cancel` | token | — | — | Stop the running turn. Idempotent, and it says which happened. |
+| `POST` | `/api/assistant/permissions` | token | — | `AssistantPermissionDecision` | Ask the person, and hold this request open until they answer. |
+| `POST` | `/api/assistant/permissions/{request_id}` | token | — | `AssistantPermissionAnswered` | The panel's Allow / Deny. |
+| `GET` | `/api/assistant/sessions` | token | — | `AssistantSessions` | *List Assistant Sessions* |
+| `POST` | `/api/assistant/sessions` | token | — | `AssistantSession` | *Create Assistant Session* |
+| `GET` | `/api/assistant/sessions/{session_id}` | token | — | `AssistantTranscript` | *Get Assistant Session* |
+| `POST` | `/api/assistant/sessions/{session_id}/cancel` | token | — | `AssistantTurnCancelled` | Stop the running turn. Idempotent, and it says which happened. |
 | `POST` | `/api/assistant/sessions/{session_id}/messages` | token | yes | — | *Send Assistant Message* |
-| `GET` | `/api/assistant/status` | token | — | — | Whether the assistant can run, and if not, the reason in one sentence. |
+| `GET` | `/api/assistant/status` | token | — | `AssistantStatus` | Whether the assistant can run, and if not, the reason in one sentence. |
 | `GET` | `/api/settings/ai/cli-status` | token | — | `AiCliStatus` | Report whether each subscription-lane CLI can be found, and where. |
 | `GET` | `/api/settings/assistant` | token | — | `AssistantSettings` | *Get Assistant Settings* |
 | `PUT` | `/api/settings/assistant` | token | — | `SettingsSaved` | *Update Assistant Settings* |
@@ -171,7 +171,7 @@ No route of its own. The capability is in the normaliser, the catalog's `entity_
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/api/ai/models` | token | — | — | Return the list of model IDs the BYOK credential can access. |
-| `GET` | `/api/assistant/status` | token | — | — | Whether the assistant can run, and if not, the reason in one sentence. |
+| `GET` | `/api/assistant/status` | token | — | `AssistantStatus` | Whether the assistant can run, and if not, the reason in one sentence. |
 
 ## J15 — First-run card
 
@@ -321,11 +321,11 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/assistant/sessions` | token | — | — | *List Assistant Sessions* |
-| `GET` | `/api/assistant/sessions/browse` | token | — | — | *Browse Assistant Sessions* |
-| `DELETE` | `/api/assistant/sessions/{session_id}` | token | — | — | *Delete Assistant Session* |
-| `GET` | `/api/assistant/sessions/{session_id}` | token | — | — | *Get Assistant Session* |
-| `GET` | `/api/assistant/sessions/{session_id}/export` | token | — | — | *Export Assistant Session* |
+| `GET` | `/api/assistant/sessions` | token | — | `AssistantSessions` | *List Assistant Sessions* |
+| `GET` | `/api/assistant/sessions/browse` | token | — | `AssistantSessionPage` | *Browse Assistant Sessions* |
+| `DELETE` | `/api/assistant/sessions/{session_id}` | token | — | `AssistantSessionDeleted` | *Delete Assistant Session* |
+| `GET` | `/api/assistant/sessions/{session_id}` | token | — | `AssistantTranscript` | *Get Assistant Session* |
+| `GET` | `/api/assistant/sessions/{session_id}/export` | token | — | `AssistantExport` | *Export Assistant Session* |
 
 ## J33 — Composer choices
 
