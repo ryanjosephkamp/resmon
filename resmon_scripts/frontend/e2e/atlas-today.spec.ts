@@ -1,9 +1,11 @@
 /**
  * Atlas's Today, in the real app, over a small collection written for it: the
  * plate draws, the index lists exactly the papers new since the last look
- * with numbers matching the plate's, a watch names the source that did not
- * answer on its last run, and Mark all read starts the next window, as the
- * engine then reports too.
+ * with numbers matching the plate's, a watch names the sources that did not
+ * answer on its last run in one line (a withdrawn one by its name, not its
+ * key) with each one's reason a click away, the numbers are lit again on
+ * coming back to Today, both themes are pictured, and Mark all read starts
+ * the next window, as the engine then reports too.
  *
  * The collection is written through the engine's own database functions
  * before launch, so the counts asserted here are the ones it was given.
@@ -21,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, sys.argv[1])
 from implementation_scripts.database import (init_db, get_connection, insert_document, insert_routine,
     insert_execution, link_execution_document, record_execution_source, update_execution_status, set_setting)
+from implementation_scripts.api_registry import RETIRED_REPOSITORIES
 
 TOPICS = {
     "protein": "protein folding residue amino chain conformation binding structure",
@@ -57,11 +60,14 @@ def run(routine_id, docs, started, sources, kind="automated_sweep"):
     for d in docs:
         link_execution_document(conn, e, d)
     for source, (status, count, reason) in sources.items():
-        record_execution_source(conn, e, source, status, result_count=count, zero_reason=reason)
+        # A withdrawn source is recorded as the sweep records it, with its reason.
+        detail = json.dumps({"detail": RETIRED_REPOSITORIES[source]}) if reason == "retired" else None
+        record_execution_source(conn, e, source, status, result_count=count, zero_reason=reason, zero_detail=detail)
     update_execution_status(conn, e, "completed", end_time=fmt(started + timedelta(seconds=41)),
         result_count=len(docs), new_result_count=len(docs))
 run(routine, ids["protein"]["old"], now - timedelta(days=30), {"arxiv": ("ok", 11, None), "dblp": ("ok", 3, None)})
-run(routine, ids["protein"]["new"], now - timedelta(hours=2), {"arxiv": ("ok", 3, None), "dblp": ("ok", 0, "upstream_failure")})
+run(routine, ids["protein"]["new"], now - timedelta(hours=2), {"arxiv": ("ok", 3, None), "dblp": ("ok", 0, "upstream_failure"),
+    "ieee": ("error", 0, "retired")})
 run(None, ids["traffic"]["new"], now - timedelta(hours=3), {"arxiv": ("ok", 3, None)}, kind="deep_sweep")
 # The last look is yesterday at noon on this machine's clock, which the heading
 # words as "yesterday". It was 20 hours ago, which is yesterday only before
@@ -107,10 +113,23 @@ test('Today lists what is new since the last look, and Mark all read starts the 
     const numbers = (await badges.allTextContents()).map(Number).sort((a, b) => a - b);
     expect(numbers).toEqual(Array.from({ length: counts.new }, (_, i) => i + 1));
 
-    // The watch, its count, and the source that did not answer, by name.
+    // The watch, its count, and the sources that did not answer, in one line
+    // by name: a withdrawn source by the name it had, never by its key. Each
+    // one's reason is a click away, in place, with the way to the whole run.
     const watch = win.getByRole('region', { name: 'Protein structure' });
     await expect(watch.locator('.ghead .n')).toHaveText(`${counts.watch_new} new`);
-    await expect(watch.getByRole('note')).toContainText('DBLP');
+    const trouble = watch.getByRole('note');
+    await expect(trouble.locator('.trouble-line')).toContainText('DBLP did not answer');
+    await expect(trouble.locator('.trouble-line')).toContainText('IEEE Xplore was withdrawn');
+    await expect(trouble.locator('.trouble-part[data-category="non_answer"]')).toHaveCount(2);
+    expect(await trouble.innerText()).not.toMatch(/\bieee\b/);
+    await expect(trouble.locator('.trouble-notes')).toHaveCount(0);
+    await trouble.getByRole('button', { name: 'Why' }).click();
+    await expect(trouble.locator('.trouble-notes li[data-source="ieee"]')).toContainText('IEEE Xplore was withdrawn in v1.8.1');
+    await expect(trouble.locator('.trouble-notes li[data-source="dblp"]')).toContainText('DBLP');
+    await expect(trouble.getByRole('link', { name: /^Open run \d+$/ })).toBeVisible();
+    await trouble.getByRole('button', { name: 'Hide why' }).click();
+    await expect(trouble.locator('.trouble-notes')).toHaveCount(0);
     await expect(win.getByRole('region', { name: 'From your own searches' })).toBeVisible();
 
     // Choosing a paper selects it in the index.
@@ -122,6 +141,26 @@ test('Today lists what is new since the last look, and Mark all read starts the 
     await expect(win.locator('.entry .badge.dim')).toHaveCount(0);
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-today.png') });
+
+    // Coming back to Today draws the cached answer and reads it again at once;
+    // the opening runs to the end all the same, and no number is left dim.
+    const sections = win.getByRole('navigation', { name: 'Sections' });
+    await sections.getByRole('link', { name: 'Watches' }).click();
+    await expect(win.getByRole('heading', { name: 'Watches', level: 1 })).toBeVisible();
+    await sections.getByRole('link', { name: 'Today' }).click();
+    await expect(win.locator('.entry .badge')).toHaveCount(counts.new);
+    await expect(win.locator('.entry .badge.dim')).toHaveCount(0, { timeout: 10_000 });
+
+    // The other theme, pictured for review: the night chart.
+    const theme = await win.evaluate(() => document.documentElement.dataset.theme);
+    const other = theme === 'dark' ? 'The printed atlas' : 'The night chart';
+    await win.getByRole('link', { name: 'Settings', exact: true }).click();
+    await win.locator('.theme-card', { hasText: other }).click();
+    await expect.poll(() => win.evaluate(() => document.documentElement.dataset.theme)).not.toBe(theme);
+    await sections.getByRole('link', { name: 'Today' }).click();
+    await expect(win.locator('.plate-canvas')).toBeVisible({ timeout: 60_000 });
+    await expect(win.locator('.entry .badge.dim')).toHaveCount(0, { timeout: 10_000 });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, `atlas-today-${theme === 'dark' ? 'light' : 'dark'}.png`) });
 
     // Mark all read: the next window starts now, here and in the engine.
     await win.getByRole('button', { name: 'Mark all read' }).click();

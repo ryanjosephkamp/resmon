@@ -10,6 +10,7 @@ export type DaemonStatus = components['schemas']['DaemonStatus'];
 export type Health = components['schemas']['Health'];
 export type EmailSettings = components['schemas']['EmailSettings'];
 export type NotificationSettings = components['schemas']['NotificationSettings'];
+export type BackupLast = components['schemas']['BackupLast'];
 
 /** Settings' groups, in the order of the rail. The first is `/settings` itself. */
 export const GROUPS = [
@@ -81,6 +82,23 @@ export function daemonSentence(daemon: DaemonStatus, state: DaemonState, since: 
         + 'so resmon cannot say a daemon is running.';
     }
     default:
-      return 'There is no daemon running, so your watches run only while a resmon window is open.';
+      // A window's own engine runs no scheduler, so without the service
+      // nothing runs a watch on schedule, window open or not.
+      return 'There is no daemon running, so nothing runs your watches on schedule: a resmon window does not run them itself.';
   }
+}
+
+/**
+ * Whether the staged restore runs when this app next starts, so Restart
+ * resmon now would carry it out. Not where the background service holds the
+ * database (restarting the app is not a start of the service), and not for a
+ * pointer the next start cannot read. Decided by the engine's code for the
+ * case rather than by its sentence.
+ */
+export function restartRestores(last: {
+  pending_restore: object | null; pending_restore_runs_on: BackupLast['pending_restore_runs_on'];
+}): boolean {
+  const pending = last.pending_restore as { unreadable?: unknown } | null;
+  if (!pending || pending.unreadable === true) return false;
+  return last.pending_restore_runs_on === 'app_restart';
 }

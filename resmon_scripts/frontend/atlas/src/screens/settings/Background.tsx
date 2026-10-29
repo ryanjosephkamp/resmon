@@ -12,6 +12,11 @@ const EVERY = 5_000;
  * running, and which engine this window is talking to. Three separate facts,
  * because an installed unit is not a running service and a running service is
  * not necessarily the one this window uses.
+ *
+ * Only the service runs watches on schedule. A window that starts its own
+ * engine starts it with the scheduler off (`electron/main.ts`), so without
+ * the service nothing runs a watch on schedule, whether or not a window is
+ * open; Run now on a watch still runs it once.
  */
 export function Background() {
   const client = useQueryClient();
@@ -47,9 +52,10 @@ export function Background() {
   const flip = () => {
     if (!service.data || toggle.isPending) return;
     const asked = installed
-      ? 'Remove the background service? Your watches will then run only while a resmon window is open.'
+      ? 'Remove the background service? Nothing will then run your watches on schedule: a resmon window does not run '
+        + 'them itself. Run now on a watch still runs it once.'
       : `Install the background service? resmon will write ${unit.kind} at ${service.data.unit_path} and register it `
-        + `with ${unit.manager}, so it starts when you log in and your watches run while no window is open.`;
+        + `with ${unit.manager}, so it starts when you log in and runs your watches on schedule, with or without a window open.`;
     if (window.confirm(asked)) toggle.mutate(!installed);
   };
 
@@ -63,9 +69,9 @@ export function Background() {
     >
       <h2 id="service-title" className="group-title">In the background</h2>
       <p className="group-lede">
-        With the background service installed, your watches run on schedule while no resmon window is open. It starts
-        when you log in and uses the same database and reports folder as this app. A window opened while it runs uses
-        it when their versions match.
+        Your watches run on schedule only in the background service: a resmon window does not run them itself. The
+        service starts when you log in, runs with or without a window open, and uses the same database and reports
+        folder as this app. A window opened while it runs uses it when their versions match.
       </p>
 
       {service.isError && (
@@ -126,7 +132,7 @@ export function Background() {
         <p className="settings-said" role="status">
           {toggle.data.installed
             ? 'Installed. “Running now” changes when the service starts.'
-            : 'Removed. Your watches now run only while a resmon window is open.'}
+            : 'Removed. Nothing runs your watches on schedule now; Run now on a watch still runs it once.'}
         </p>
       )}
       {toggle.error && (

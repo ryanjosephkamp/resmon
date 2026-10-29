@@ -7149,8 +7149,8 @@ def _restart_instructions() -> tuple[str, str]:
     )
 
 
-def _when_a_staged_restore_runs() -> str:
-    """What will apply a staged restore, and what to do to make it happen now.
+def _how_a_staged_restore_runs() -> tuple[str, str]:
+    """``(runs_on, sentence)``: what will apply a staged restore, and what to do to make it happen now.
 
     A restore runs in ``_lifespan``, when a backend starts, so which backend
     that is decides what the user has to do. The page used to say "Restart to
@@ -7162,6 +7162,14 @@ def _when_a_staged_restore_runs() -> str:
     service holds the lock, a window's own backend refuses the restore at start
     (``database_in_use``), which the user learned only afterwards. Found in a
     walk of the app on October 26, 2026.
+
+    ``runs_on`` is the same answer as a code, so an interface can offer the one
+    control that does what the sentence says without reading the sentence:
+    ``app_restart`` (this window's own backend applies it when resmon next
+    starts, so restarting the app restores), ``service_restart`` (the
+    background service this window uses holds the database; reopening the
+    window is not a start), and ``service_stopped`` (another live service holds
+    the database, and nothing restores until it is stopped).
     """
     from implementation_scripts import daemon as _daemon
 
@@ -7169,7 +7177,7 @@ def _when_a_staged_restore_runs() -> str:
     lock = _daemon.read_lock() or {}
     pid = lock.get("pid") if isinstance(lock.get("pid"), int) else None
     if pid == os.getpid():
-        return (
+        return "service_restart", (
             "The background service holds your database, so this restore runs when "
             "the service next starts, not when you reopen this window. To restore "
             f"now, restart the service: {restart}. Then open resmon again. Nothing "
@@ -7182,13 +7190,18 @@ def _when_a_staged_restore_runs() -> str:
         except (OSError, ProcessLookupError):
             alive = False
         if alive:
-            return (
+            return "service_stopped", (
                 f"Another resmon background service is running (pid {pid}), and a "
                 "restore will not replace the database while it holds it. To "
                 f"restore, {stop}, then quit resmon and open it again. Nothing has "
                 "changed yet."
             )
-    return "Quit resmon and open it again to restore. Nothing has changed yet."
+    return "app_restart", "Quit resmon and open it again to restore. Nothing has changed yet."
+
+
+def _when_a_staged_restore_runs() -> str:
+    """The sentence half of ``_how_a_staged_restore_runs``."""
+    return _how_a_staged_restore_runs()[1]
 
 
 @app.post("/api/restore", response_model=response_models.RestoreStaged,
@@ -7268,13 +7281,16 @@ def backup_last():
         except backup_module.BackupError:
             summary = None
     pending = backup_module.pending_restore(state)
+    runs_on, runs_when = _how_a_staged_restore_runs() if pending else (None, None)
     return {
         "last_backup": summary,
         "last_backup_path_recorded": last_path or None,
         "pending_restore": pending,
         # The sentence the pending notice shows, so it says what will apply the
-        # restore here rather than "the next time resmon starts".
-        "pending_restore_runs_when": _when_a_staged_restore_runs() if pending else None,
+        # restore here rather than "the next time resmon starts"; and the same
+        # answer as a code, for the control that restarts the app.
+        "pending_restore_runs_when": runs_when,
+        "pending_restore_runs_on": runs_on,
         "last_restore": backup_module.last_restore(state),
         "undo_copies": backup_module.undo_copies(state),
     }

@@ -277,6 +277,12 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
     // nothing and writes nothing. A spec that needs a key to persist sets its
     // own backend after this, as composer-choices.spec.ts does.
     PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring',
+    // Where the background service's unit would be written, and read. Without
+    // it the engine reads the real ~/Library/LaunchAgents (or its Linux and
+    // Windows counterparts), so whether the person running the suite has
+    // resmon's service installed changed what Today and Watches said about
+    // firing. A spec that needs its own directory still sets one after this.
+    RESMON_SERVICE_UNIT_DIR: path.join(stateDir, 'service-units'),
   };
   if (e2e) {
     env.RESMON_E2E = '1';

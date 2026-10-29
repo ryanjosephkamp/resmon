@@ -1236,6 +1236,7 @@ def _drive_backup_and_restore(drive: Drive) -> None:
             nothing = drive("GET", "/api/backup/last")
             assert nothing == {"last_backup": None, "last_backup_path_recorded": None,
                                "pending_restore": None, "pending_restore_runs_when": None,
+                               "pending_restore_runs_on": None,
                                "last_restore": None, "undo_copies": []}, nothing
 
             orphan = "00000000-0000-4000-8000-000000000000"
@@ -1277,6 +1278,7 @@ def _drive_backup_and_restore(drive: Drive) -> None:
                 waiting = drive("GET", "/api/backup/last")
                 assert waiting["last_backup"]["path"] == str(bundle), waiting
                 assert waiting["pending_restore"] and waiting["pending_restore_runs_when"], waiting
+                assert waiting["pending_restore_runs_on"] in ("app_restart", "service_restart", "service_stopped"), waiting
                 drive("POST", "/api/restore/cancel")
                 (state / backup_module.PENDING_NAME).write_text("{not json", encoding="utf-8")
                 garbled = drive("GET", "/api/backup/last")

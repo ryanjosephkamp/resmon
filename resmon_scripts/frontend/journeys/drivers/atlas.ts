@@ -1930,7 +1930,9 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
           count: Number(((await group.locator('.ghead .n').innerText()).match(/[\d,]+/)?.[0] ?? '0').replace(/,/g, '')),
         });
       }
-      const notes = (await win().locator('.index-scroll [role="note"]').allInnerTexts()).map((t) => t.trim());
+      // One line per run, one part per outcome ("DBLP did not answer"); each
+      // source's own sentence is behind the line's Why, and is not read here.
+      const notes = (await win().locator('.index-scroll [role="note"] .trouble-part').allInnerTexts()).map((t) => t.trim());
       const numbers = (await win().locator('.entry .badge').allInnerTexts()).map(Number);
       const emptyLine = win().locator('.index-empty');
       const empty = (await emptyLine.count()) ? (await emptyLine.innerText()).trim() : null;

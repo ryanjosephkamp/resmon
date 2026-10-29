@@ -4432,7 +4432,13 @@ export interface components {
          *     ``last_backup_path_recorded`` is the recorded path either way, ``None``
          *     when there is none. ``pending_restore`` is the staged pointer, its
          *     unreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence
-         *     on what will apply it, ``None`` when nothing is staged. ``last_restore``
+         *     on what will apply it, ``None`` when nothing is staged, and
+         *     ``pending_restore_runs_on`` the same answer as a code: ``app_restart``
+         *     (this window's own backend applies it when resmon next starts),
+         *     ``service_restart`` (the background service this window uses holds the
+         *     database, so it applies when that service restarts) or ``service_stopped``
+         *     (another live service holds the database, and nothing restores until it is
+         *     stopped); ``None`` when nothing is staged. ``last_restore``
          *     is the record of the last restore a start acted on, applied or refused,
          *     and ``None`` when there is none or its file is not a JSON object.
          *     ``undo_copies`` lists the folders restores set aside, sorted by name,
@@ -4450,6 +4456,8 @@ export interface components {
             last_restore: components["schemas"]["RestoreSucceeded"] | components["schemas"]["RestoreFailed"] | null;
             /** Pending Restore */
             pending_restore: components["schemas"]["RestorePointer"] | components["schemas"]["RestorePointerUnreadable"] | null;
+            /** Pending Restore Runs On */
+            pending_restore_runs_on: ("app_restart" | "service_restart" | "service_stopped") | null;
             /** Pending Restore Runs When */
             pending_restore_runs_when: string | null;
             /** Undo Copies */
@@ -9690,10 +9698,22 @@ export interface components {
         /**
          * TodaySourceNote
          * @description A source that did not answer on a watch's last run, or whose answer is unknown.
+         *
+         *     ``source`` is the slug; ``name`` is the source as a person knows it, a
+         *     withdrawn one included. ``category`` is ``non_answer`` (it did not answer)
+         *     or ``unknown`` (resmon cannot say whether it answered), and ``label`` the
+         *     short words for the particular outcome.
          */
         TodaySourceNote: {
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "non_answer" | "unknown";
             /** Label */
             label: string;
+            /** Name */
+            name: string;
             /** Note */
             note: string;
             /** Source */

@@ -5,11 +5,14 @@
  * keeps it gone across a relaunch. Sources stores a key as a fixed mask and
  * removes it again; a required credit is drawn without opening anything.
  * Backup writes a bundle to a chosen folder, checks it, stages a restore and
- * cancels it, and the staged restore never moves a byte. Cloud Storage says
+ * cancels it, and the staged restore never moves a byte; a second case stages
+ * one, restarts resmon from the Backup screen, and reads what the next start
+ * did. Cloud Storage says
  * it is not connected and, asked to connect without the OAuth client this
  * build lacks, shows the engine's own sentence and reaches nothing. The
  * Danger zone refuses the wrong word on screen and in the engine, and the
- * right word erases only what it names. Tutorials are links, never frames.
+ * right word erases only what it names. Tutorials are links, never frames,
+ * and say what has changed since they were recorded.
  *
  * **Scripted:** the folder chooser. Each state is held to the engine's record.
  * No network beyond loopback.
@@ -183,6 +186,10 @@ test('Settings and Today: first run, sources and keys, backup and restore, cloud
     const links = win.getByRole('link', { name: 'Watch on YouTube' });
     expect(await links.count()).toBeGreaterThan(0);
     for (const link of await links.all()) expect(await link.getAttribute('href')).toMatch(/^https:\/\/www\.youtube\.com\/watch\?v=/);
+    // Recorded in the earlier interface, and saying so rather than that nothing changed.
+    const tutorials = win.locator('section.tutorials');
+    await expect(tutorials).not.toContainText('The steps are the same');
+    await expect(tutorials.locator('[data-tutorial="AcTF9d39BNA"] [data-tutorial-now]')).toContainText('no day or week view');
 
     await win.evaluate(() => { window.location.hash = '#/settings/storage'; });
     await expect(win.locator('section.storage')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
@@ -190,5 +197,99 @@ test('Settings and Today: first run, sources and keys, backup and restore, cloud
     expect(problems, 'the renderer threw').toEqual([]);
   } finally {
     await app.close().catch(() => {});
+  }
+});
+
+test('a staged restore restarts resmon from Backup, and the next start shows what it did', async () => {
+  test.setTimeout(300_000);
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-restart-')));
+  const stateDir = path.join(root, 'state');
+  const backups = path.join(root, 'backups');
+  for (const dir of [stateDir, backups]) fs.mkdirSync(dir);
+  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const launch = () => electron.launch({
+    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
+  });
+  registerStateDir(stateDir);
+  let app = await launch();
+  try {
+    let win = await app.firstWindow({ timeout: 180_000 });
+    await expect(win.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 120_000 });
+
+    // A bundle to restore, written by the engine into a folder of this run's.
+    expect((await engine(win, '/api/settings/storage', 'PUT', { settings: { export_directory: backups } })).status).toBe(200);
+    const written = await engine<{ path: string }>(win, '/api/backup', 'POST', { confirm: 'CONFIRM', include_reports: false });
+    expect(written.status, JSON.stringify(written.body)).toBe(200);
+    const bundle = written.body.path;
+
+    // Staged from Backup, through the folder chooser.
+    await app.evaluate(({ dialog }, chosen) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
+    }, bundle);
+    await win.evaluate(() => { window.location.hash = '#/settings/storage'; });
+    await expect(win.locator('section.storage')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    await win.getByRole('button', { name: 'Restore from a backup…' }).click();
+    const report = win.getByRole('group', { name: 'The backup, checked' });
+    await expect(report).toContainText('It checks out', { timeout: 30_000 });
+    await report.getByRole('button', { name: 'Stage this restore' }).click();
+
+    // This window started its own engine, so restarting the app is the start
+    // that restores, and the control is offered; the engine's sentence is said
+    // once, not again beside it.
+    const pending = win.locator('[data-backup="pending"]');
+    await expect(pending).toHaveAttribute('data-runs-on', 'app_restart', { timeout: 30_000 });
+    await expect(win.locator('section.storage').getByText(/Quit resmon and open it again to restore/)).toHaveCount(1);
+    const restart = pending.getByRole('button', { name: 'Restart resmon now' });
+    await expect(restart).toBeVisible();
+
+    // The real handler runs: it stops this window's engine and waits for it to
+    // exit, then relaunches and quits. Those two are counted here rather than
+    // done, because the relaunched app is a new process this harness does not
+    // hold; the start it would make is made below by launching again.
+    await app.evaluate(({ app: electronApp }) => {
+      const calls = { relaunch: 0, quit: 0 };
+      const held = { relaunch: electronApp.relaunch, quit: electronApp.quit };
+      (globalThis as unknown as { __restart: unknown }).__restart = { calls, held };
+      electronApp.relaunch = (() => { calls.relaunch += 1; }) as typeof electronApp.relaunch;
+      electronApp.quit = (() => { calls.quit += 1; }) as typeof electronApp.quit;
+    });
+    const port = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort());
+    win.once('dialog', (dialog) => { void dialog.accept(); });
+    await restart.click();
+    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { __restart: { calls: unknown } }).__restart.calls),
+      { timeout: 60_000 }).toEqual({ relaunch: 1, quit: 1 });
+    const answered = await e2eFetch(`http://127.0.0.1:${port}/api/health`).then(() => true, () => false);
+    expect(answered, 'the engine was still answering when the app relaunched').toBe(false);
+    await app.evaluate(({ app: electronApp }) => {
+      const { held } = (globalThis as unknown as { __restart: { held: { relaunch: typeof electronApp.relaunch; quit: typeof electronApp.quit } } }).__restart;
+      electronApp.relaunch = held.relaunch;
+      electronApp.quit = held.quit;
+    });
+    await app.close();
+
+    // The start the relaunch makes: the restore runs, and Backup says what it did.
+    app = await launch();
+    win = await app.firstWindow({ timeout: 180_000 });
+    await expect(win.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 120_000 });
+    await win.evaluate(() => { window.location.hash = '#/settings/storage'; });
+    await expect(win.locator('section.storage')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    await expect(win.locator('[data-backup="reentry"]')).toContainText('A backup was restored on this start.');
+    await expect(win.locator('[data-backup="pending"]')).toHaveCount(0);
+    const last = (await engine<{ pending_restore: unknown; last_restore: { ok: boolean; undo_copy: string | null }; undo_copies: string[] }>(
+      win, '/api/backup/last')).body;
+    expect(last.pending_restore).toBeNull();
+    expect(last.last_restore.ok).toBe(true);
+    expect(last.last_restore.undo_copy, 'the restore kept no copy of what it replaced').toBeTruthy();
+    expect(last.undo_copies).toContain(last.last_restore.undo_copy);
+    const restored = win.locator('[data-backup="restored"]');
+    await expect(restored).toContainText(bundle);
+    await expect(restored).toContainText(`What it replaced is kept in ${last.last_restore.undo_copy}`);
+    await expect(win.getByRole('button', { name: 'Delete what the last restore replaced' })).toBeVisible();
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-restore-restarted.png') });
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

@@ -69,3 +69,50 @@ export function daysAgo(iso: string | null | undefined, now: Date): number | nul
   const days = Math.floor((now.getTime() - new Date(iso).getTime()) / 86_400_000);
   return Number.isFinite(days) ? Math.max(0, days) : null;
 }
+
+/** "arXiv", "arXiv and DOAJ", "arXiv, DOAJ, and PLOS". */
+export function listWords(names: readonly string[]): string {
+  if (names.length <= 2) return names.join(' and ');
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+}
+
+/** A source that did not answer on a run, or whose answer is unknown, as Today is given it. */
+export interface SourceTrouble {
+  name: string;
+  category: 'non_answer' | 'unknown';
+  label: string;
+}
+
+/** One part of a run's line of trouble: the sources with one outcome, named once. */
+export interface TroublePart {
+  category: 'non_answer' | 'unknown';
+  label: string;
+  text: string;
+  count: number;
+}
+
+/**
+ * A run's sources that did not answer, as one line: grouped by what happened
+ * to them, in the engine's words for it ("did not answer", "could not answer
+ * this window", "withdrawn"), each group named once. Those that did not
+ * answer come before those whose answer is unknown, and each part keeps its
+ * category, so a failure and an unknown are never drawn alike.
+ */
+export function troubleParts(sources: readonly SourceTrouble[]): TroublePart[] {
+  const groups = new Map<string, { category: SourceTrouble['category']; label: string; names: string[] }>();
+  for (const source of sources) {
+    const key = `${source.category}|${source.label}`;
+    const group = groups.get(key) ?? { category: source.category, label: source.label, names: [] };
+    group.names.push(source.name);
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .sort((a, b) => Number(a.category === 'unknown') - Number(b.category === 'unknown'))
+    .map(({ category, label, names }) => {
+      const who = listWords(names);
+      const text = label === 'withdrawn' ? `${who} ${names.length === 1 ? 'was' : 'were'} withdrawn`
+        : label === 'did not answer' || label === 'could not answer this window' ? `${who} ${label}`
+          : `${who}: ${label}`;
+      return { category, label, text, count: names.length };
+    });
+}

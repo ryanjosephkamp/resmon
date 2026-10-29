@@ -1913,7 +1913,7 @@
       },
       "BackupLast": {
         "additionalProperties": true,
-        "description": "``GET /api/backup/last``: the last bundle, a staged restore, the last restore's record, and the undo copies.\n\n``last_backup`` is ``None`` when no backup is recorded, or when the\nrecorded bundle's manifest is gone or unreadable;\n``last_backup_path_recorded`` is the recorded path either way, ``None``\nwhen there is none. ``pending_restore`` is the staged pointer, its\nunreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence\non what will apply it, ``None`` when nothing is staged. ``last_restore``\nis the record of the last restore a start acted on, applied or refused,\nand ``None`` when there is none or its file is not a JSON object.\n``undo_copies`` lists the folders restores set aside, sorted by name,\nwhich is the UTC time each was made.\n\nA pointer or record edited by hand into a shape no resmon wrote matches\nneither model of its union, and this route then answers 500 rather than a\nbody.",
+        "description": "``GET /api/backup/last``: the last bundle, a staged restore, the last restore's record, and the undo copies.\n\n``last_backup`` is ``None`` when no backup is recorded, or when the\nrecorded bundle's manifest is gone or unreadable;\n``last_backup_path_recorded`` is the recorded path either way, ``None``\nwhen there is none. ``pending_restore`` is the staged pointer, its\nunreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence\non what will apply it, ``None`` when nothing is staged, and\n``pending_restore_runs_on`` the same answer as a code: ``app_restart``\n(this window's own backend applies it when resmon next starts),\n``service_restart`` (the background service this window uses holds the\ndatabase, so it applies when that service restarts) or ``service_stopped``\n(another live service holds the database, and nothing restores until it is\nstopped); ``None`` when nothing is staged. ``last_restore``\nis the record of the last restore a start acted on, applied or refused,\nand ``None`` when there is none or its file is not a JSON object.\n``undo_copies`` lists the folders restores set aside, sorted by name,\nwhich is the UTC time each was made.\n\nA pointer or record edited by hand into a shape no resmon wrote matches\nneither model of its union, and this route then answers 500 rather than a\nbody.",
         "properties": {
           "last_backup": {
             "anyOf": [
@@ -1964,6 +1964,22 @@
             ],
             "title": "Pending Restore"
           },
+          "pending_restore_runs_on": {
+            "anyOf": [
+              {
+                "enum": [
+                  "app_restart",
+                  "service_restart",
+                  "service_stopped"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Restore Runs On"
+          },
           "pending_restore_runs_when": {
             "anyOf": [
               {
@@ -1988,6 +2004,7 @@
           "last_backup_path_recorded",
           "pending_restore",
           "pending_restore_runs_when",
+          "pending_restore_runs_on",
           "last_restore",
           "undo_copies"
         ],
@@ -14011,10 +14028,22 @@
       },
       "TodaySourceNote": {
         "additionalProperties": true,
-        "description": "A source that did not answer on a watch's last run, or whose answer is unknown.",
+        "description": "A source that did not answer on a watch's last run, or whose answer is unknown.\n\n``source`` is the slug; ``name`` is the source as a person knows it, a\nwithdrawn one included. ``category`` is ``non_answer`` (it did not answer)\nor ``unknown`` (resmon cannot say whether it answered), and ``label`` the\nshort words for the particular outcome.",
         "properties": {
+          "category": {
+            "enum": [
+              "non_answer",
+              "unknown"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
           "label": {
             "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
             "type": "string"
           },
           "note": {
@@ -14028,6 +14057,8 @@
         },
         "required": [
           "source",
+          "name",
+          "category",
           "label",
           "note"
         ],

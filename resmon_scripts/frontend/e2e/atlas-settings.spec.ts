@@ -104,6 +104,10 @@ test('Settings and Saved: what runs in the background, email and its password, n
     await expect(service.locator('[data-service="status"]')).toContainText('Not installed');
     await expect(service.locator('[data-service="unit-path"]')).toContainText(units);
     await expect(service.locator('[data-service="running"]')).toContainText('There is no daemon running');
+    // This window's engine runs no scheduler, so the sentence must not promise
+    // that watches run while it is open.
+    await expect(service.locator('[data-service="running"]')).toContainText('nothing runs your watches on schedule');
+    await expect(service).not.toContainText('only while a resmon window is open');
     const port = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort());
     await expect(service.locator('[data-service="window"]')).toContainText(`127.0.0.1:${port}`);
     await expect(service.locator('[data-service="window"]')).toContainText('an engine it started itself');

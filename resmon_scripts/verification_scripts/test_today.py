@@ -169,7 +169,22 @@ def test_a_watch_names_only_the_sources_that_did_not_answer_on_its_last_run(clie
     assert problems[0]["label"] == "did not answer" and problems[0]["note"]
     # The sentence names the source as people know it; the key stays the slug.
     assert "DBLP" in problems[0]["note"] and "dblp" not in problems[0]["note"]
+    assert (problems[0]["name"], problems[0]["category"]) == ("DBLP", "non_answer")
     assert (entry["last_run"]["sources_answered"], entry["last_run"]["sources_total"]) == (1, 2)
+
+
+def test_a_withdrawn_source_is_named_as_people_knew_it(client):
+    # A watch saved before IEEE Xplore was withdrawn still asks for "ieee", and
+    # the catalog no longer lists it; the name must not fall back to the slug.
+    conn = resmon_mod._get_db()
+    watch = _routine(conn, "Old watch")
+    _run(conn, watch, [], NOW - timedelta(hours=3),
+         sources={"arxiv": ("ok", 0, "answered_empty"), "ieee": ("error", 0, "retired")})
+
+    [entry] = today.build(conn, {}, now=NOW)["watches"]
+    [withdrawn] = entry["last_run"]["sources_not_answered"]
+    assert withdrawn["source"] == "ieee"
+    assert (withdrawn["name"], withdrawn["label"], withdrawn["category"]) == ("IEEE Xplore", "withdrawn", "non_answer")
 
 
 def test_an_inactive_watch_appears_only_when_it_found_something(client):

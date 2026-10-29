@@ -1589,7 +1589,7 @@ export interface TodayReading {
   total: number;
   /** Each group in the list, as its heading names it, with the count it gives. */
   groups: { name: string; count: number }[];
-  /** Every source note a watch shows. */
+  /** Each outcome a watch's last run is said to have had from its sources: "DBLP did not answer". */
   notes: string[];
   /** The number on every entry, in list order. */
   numbers: number[];

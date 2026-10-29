@@ -1,7 +1,7 @@
 /**
  * What the preload script hands the renderer: the backend's port, this
- * window's API token, the platform, and the desktop's file choosers and opener
- * (`electron/preload.ts`). Read through
+ * window's API token, the platform, the desktop's file choosers and opener,
+ * and a relaunch (`electron/preload.ts`). Read through
  * one typed accessor so nothing in the Atlas renderer reaches for `window`
  * directly.
  */
@@ -14,6 +14,8 @@ export interface ResmonBridge {
   chooseFile?: (defaultPath?: string) => Promise<string | null>;
   openPath?: (targetPath: string) => Promise<string>;
   revealPath?: (targetPath: string) => Promise<boolean>;
+  /** Quit and open the app again; false where the main process refuses. Absent outside the app. */
+  relaunch?: () => Promise<boolean>;
 }
 
 export function bridge(): ResmonBridge | null {

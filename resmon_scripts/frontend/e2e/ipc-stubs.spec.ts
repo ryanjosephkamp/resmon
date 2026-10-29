@@ -67,6 +67,7 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
         revealPath(p: string): Promise<boolean>;
         getDownloads(): Promise<unknown[]>;
         revealDownload(id: string): Promise<boolean>;
+        relaunch(): Promise<boolean>;
       };
     }).resmonAPI;
     return {
@@ -76,6 +77,7 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
       revealed: await api.revealPath('/tmp/e2e-nonexistent.md'),
       downloads: await api.getDownloads(),
       downloadRevealed: await api.revealDownload('synthetic-download-id'),
+      relaunched: await api.relaunch(),
     };
   });
 
@@ -86,6 +88,7 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
   expect(results.revealed).toBe(true);
   expect(results.downloads).toEqual([]);
   expect(results.downloadRevealed).toBe(true);
+  expect(results.relaunched).toBe(false);
 
   const guards = await readGuards(app);
   console.log('Q5 GUARD COUNTS', JSON.stringify(guards));
@@ -93,7 +96,7 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
   // Each explicit bridge invocation increments its counter exactly once.
   expect(Object.fromEntries(Object.entries(guards.stubbed).map(([key, value]) =>
     [key, value - before.stubbed[key as keyof typeof before.stubbed]]))).toEqual({
-    chooseDirectory: 1, chooseFile: 1, openPath: 1, revealPath: 1, getDownloads: 1, revealDownload: 1,
+    chooseDirectory: 1, chooseFile: 1, openPath: 1, revealPath: 1, getDownloads: 1, revealDownload: 1, relaunch: 1,
   });
   // … and nothing underneath them was.
   expect(guards.escaped).toEqual(NOTHING_ESCAPED);
@@ -110,7 +113,7 @@ test('P4: a full pass over every route opens no dialog and makes no shell call',
   const guards = await readGuards(app);
   console.log('P4 GUARD COUNTS AFTER FULL PASS', JSON.stringify(guards));
   expect(guards.stubbed).toEqual({
-    chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0,
+    chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0, relaunch: 0,
   });
   expect(guards.escaped).toEqual(NOTHING_ESCAPED);
 });
