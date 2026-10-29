@@ -42,6 +42,13 @@ const RENDERER_FREE = new Set<string>([
   // file in a reader that is not resmon.
   'useAnAuthoredModelForSelectedAnswers', 'theAuthoredModelCitesTextItWasNotSent', 'readWhatTheAuthoredModelReceived',
   'closeTheApp', 'readTheFileOffline',
+  // J13, J14, J17, J31–J33: the authored agent command, provider and
+  // summarizer, written as settings over the API (and the window reopened to
+  // read them); what the command or provider received; the assistant
+  // settings as the engine serves them.
+  'useAnAuthoredAgentCommand', 'useAnAuthoredAgentCommandThatRecordsItsArguments', 'readWhatTheAgentCommandReceived',
+  'useAnAuthoredProviderOnAKey', 'readWhatTheProviderReceived', 'readAssistantSettings',
+  'useAnAuthoredSummarizerThatIsNotSignedIn',
 ]);
 
 export function createCandidateDriver(session: Session, testInfo: TestInfo): JourneyDriver {

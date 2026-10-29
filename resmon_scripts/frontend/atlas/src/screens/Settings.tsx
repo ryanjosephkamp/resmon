@@ -7,6 +7,7 @@ import {
   type AccentTones, type ThemeName,
 } from '../theme/accent';
 import { useAppearance, type ThemeChoice } from '../theme/appearance';
+import { Ai } from './settings/Ai';
 import { Background } from './settings/Background';
 import { Email } from './settings/Email';
 import { Notifications } from './settings/Notifications';
@@ -136,6 +137,7 @@ export function Settings() {
           {known?.slug === 'background' && <Background />}
           {known?.slug === 'email' && <Email />}
           {known?.slug === 'notifications' && <Notifications />}
+          {known?.slug === 'ai' && <Ai />}
         </div>
       </div>
     </section>

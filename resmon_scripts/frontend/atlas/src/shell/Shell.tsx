@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { SECTIONS, SETTINGS } from '../routes';
 import { isMac } from '../bridge';
+import { useAsk } from '../screens/ask/AskProvider';
 import { CommandPalette } from './CommandPalette';
 import { Icon } from './Icon';
 
@@ -10,17 +11,27 @@ export function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const mac = isMac();
   const closePalette = useCallback(() => setPaletteOpen(false), []);
+  const navigate = useNavigate();
+  const { answering, requestFocus } = useAsk();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((mac ? event.metaKey : event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+      const command = (mac ? event.metaKey : event.ctrlKey) && !event.altKey;
+      if (command && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setPaletteOpen((open) => !open);
+      }
+      // ⌘/ (Ctrl+/) from anywhere: Ask, with the caret in its composer.
+      if (command && event.key === '/') {
+        event.preventDefault();
+        setPaletteOpen(false);
+        navigate('/ask');
+        requestFocus();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [mac]);
+  }, [mac, navigate, requestFocus]);
 
   return (
     <div className={mac ? 'frame is-mac' : 'frame'}>
@@ -32,7 +43,12 @@ export function Shell() {
         <nav className="tabs" aria-label="Sections">
           <ul>
             {SECTIONS.map((section) => (
-              <li key={section.path}><NavLink to={section.path}>{section.label}</NavLink></li>
+              <li key={section.path}>
+                <NavLink to={section.path} aria-keyshortcuts={section.path === '/ask' ? (mac ? 'Meta+Slash' : 'Control+Slash') : undefined}>
+                  {section.label}
+                  {section.path === '/ask' && answering && <span className="tab-live" role="img" aria-label=", answering" />}
+                </NavLink>
+              </li>
             ))}
           </ul>
         </nav>

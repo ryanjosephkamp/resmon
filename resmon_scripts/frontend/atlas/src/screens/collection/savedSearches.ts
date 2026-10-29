@@ -32,6 +32,8 @@ export interface SavedAsks {
   cap: number | null;
   cron: string | null;
   watchId: number | null;
+  /** Whether the run summarizes each paper with the lane in Settings → AI. */
+  summarize: boolean;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -71,6 +73,7 @@ export function savedAsks(config: Pick<SavedConfiguration, 'config_type' | 'para
     cap: typeof p.max_results === 'number' ? p.max_results : null,
     cron: typeof outer.schedule_cron === 'string' ? outer.schedule_cron : null,
     watchId: typeof outer.linked_routine_id === 'number' ? outer.linked_routine_id : null,
+    summarize: p.ai_enabled === true,
   };
 }
 
@@ -86,13 +89,14 @@ export function savedParameters(form: {
   dateFrom: string;
   dateTo: string;
   cap: number;
+  summarize?: boolean;
 }): { config_type: 'manual_dive' | 'manual_sweep'; parameters: Record<string, unknown> } {
   const common = {
     date_from: form.dateFrom,
     date_to: form.dateTo,
     keywords: form.keywords,
     max_results: form.cap,
-    ai_enabled: false,
+    ai_enabled: form.summarize ?? false,
   };
   return form.mode === 'dive'
     ? { config_type: 'manual_dive', parameters: { repository: form.sources[0] ?? '', ...common } }
