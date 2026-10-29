@@ -521,6 +521,145 @@
         "title": "BundleBody",
         "type": "object"
       },
+      "CalendarEvent": {
+        "additionalProperties": true,
+        "description": "One event of ``GET /api/calendar/events``: a run that happened, or a fire\na routine's schedule promises.\n\nA run's ``id`` is its execution id; a promised fire's is a string naming\nthe routine and the time (``routine-3-2026-10-29T09:00:00-04:00``) and its\n``status`` is ``scheduled``. Promised fires are expanded only for active\nroutines, from now to a year ahead, in the machine's own timezone.\n``saved_configuration_id`` and ``saved_configuration_name`` are present on\nruns only.",
+        "properties": {
+          "allDay": {
+            "title": "Allday",
+            "type": "boolean"
+          },
+          "color": {
+            "title": "Color",
+            "type": "string"
+          },
+          "end": {
+            "title": "End",
+            "type": "string"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Id"
+          },
+          "new_results": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Results"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          },
+          "routine_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Id"
+          },
+          "saved_configuration_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Configuration Id"
+          },
+          "saved_configuration_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Configuration Name"
+          },
+          "start": {
+            "title": "Start",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total_results": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Results"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "start",
+          "end",
+          "allDay",
+          "color",
+          "execution_id",
+          "routine_id",
+          "type",
+          "status",
+          "query",
+          "total_results",
+          "new_results"
+        ],
+        "title": "CalendarEvent",
+        "type": "object"
+      },
       "CloudBackup": {
         "properties": {
           "execution_ids": {
@@ -905,6 +1044,107 @@
         "title": "ConfigurationUpdated",
         "type": "object"
       },
+      "CoverageDistribution": {
+        "additionalProperties": true,
+        "description": "How far this routine's own results sit from its intent.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "max": {
+            "title": "Max",
+            "type": "number"
+          },
+          "median": {
+            "title": "Median",
+            "type": "number"
+          },
+          "min": {
+            "title": "Min",
+            "type": "number"
+          },
+          "p75_cutoff": {
+            "title": "P75 Cutoff",
+            "type": "number"
+          }
+        },
+        "required": [
+          "count",
+          "min",
+          "median",
+          "p75_cutoff",
+          "max"
+        ],
+        "title": "CoverageDistribution",
+        "type": "object"
+      },
+      "CoveragePaper": {
+        "additionalProperties": true,
+        "description": "One paper in a coverage list, and its distance from the intent: what was\nmeasured, not a verdict on whether it belongs.",
+        "properties": {
+          "distance": {
+            "title": "Distance",
+            "type": "number"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "source_repository": {
+            "title": "Source Repository",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "distance",
+          "title",
+          "source_repository",
+          "publication_date",
+          "doi",
+          "url"
+        ],
+        "title": "CoveragePaper",
+        "type": "object"
+      },
       "CredentialPresence": {
         "additionalProperties": true,
         "description": "Whether one credential is there, never what it is.\n\n``status`` is ``present``, ``absent`` or ``unreadable``, and the third is\nthe one that matters: an unsigned macOS build is denied access to keychain\nitems an earlier build stored, and reporting that as absent tells a user\ntheir keys are gone when they are merely unreachable. ``present`` is the\nolder boolean, kept beside it for compatibility.",
@@ -990,6 +1230,334 @@
         "title": "CredentialsPresence",
         "type": "object"
       },
+      "Delivery": {
+        "additionalProperties": true,
+        "description": "One report's journey to one destination, as recorded.\n\n``state`` is the drain's own word: ``queued``, ``awaiting_review``,\n``delivering``, ``delivered``, ``failed`` or ``skipped``. ``target_snapshot``\nis where it was sent at the time, which survives the destination being\nremoved. Each field is stored, none inferred: \"delivered\" is never read\noff the absence of an error.",
+        "properties": {
+          "artifact_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Sha256"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "delivered_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivered At Utc"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "next_attempt_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Attempt At Utc"
+          },
+          "owner_pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Pid"
+          },
+          "owner_runtime_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Runtime Id"
+          },
+          "queued_at_utc": {
+            "title": "Queued At Utc",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "target_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Id"
+          },
+          "target_snapshot": {
+            "title": "Target Snapshot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "execution_id",
+          "target_id",
+          "channel",
+          "target_snapshot",
+          "state",
+          "attempts",
+          "next_attempt_at_utc",
+          "last_error",
+          "artifact_sha256",
+          "owner_pid",
+          "owner_runtime_id",
+          "queued_at_utc",
+          "delivered_at_utc"
+        ],
+        "title": "Delivery",
+        "type": "object"
+      },
+      "DeliveryActed": {
+        "additionalProperties": true,
+        "description": "``POST /api/deliveries/{delivery_id}/deliver``, ``/skip`` and ``/retry``:\nthe state the person's decision left it in. ``attempts`` is present only on\na retry, which starts the count again.",
+        "properties": {
+          "attempts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempts"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "title": "DeliveryActed",
+        "type": "object"
+      },
+      "DeliverySummary": {
+        "additionalProperties": true,
+        "description": "Enabled destinations by channel, how many deliveries wait for a person,\nand the latest one, or ``None`` where there has been none.",
+        "properties": {
+          "awaiting_review": {
+            "title": "Awaiting Review",
+            "type": "integer"
+          },
+          "enabled_target_count": {
+            "title": "Enabled Target Count",
+            "type": "integer"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeliverySummaryLast"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targets": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Targets",
+            "type": "object"
+          }
+        },
+        "required": [
+          "targets",
+          "enabled_target_count",
+          "awaiting_review",
+          "last"
+        ],
+        "title": "DeliverySummary",
+        "type": "object"
+      },
+      "DeliverySummaryLast": {
+        "additionalProperties": true,
+        "description": "The most recent delivery of a routine, in brief.",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "delivered_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivered At Utc"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "execution_id",
+          "channel",
+          "state",
+          "attempts",
+          "last_error",
+          "delivered_at_utc"
+        ],
+        "title": "DeliverySummaryLast",
+        "type": "object"
+      },
+      "DeliveryTarget": {
+        "additionalProperties": true,
+        "description": "A destination a routine's reports go to. ``enabled`` is stored ``0`` or\n``1``; ``mode`` is ``automatic`` or ``review`` (each delivery waits for a\nperson).",
+        "properties": {
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "routine_id": {
+            "title": "Routine Id",
+            "type": "integer"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "updated_at_utc": {
+            "title": "Updated At Utc",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "routine_id",
+          "channel",
+          "target",
+          "enabled",
+          "mode",
+          "created_at_utc",
+          "updated_at_utc"
+        ],
+        "title": "DeliveryTarget",
+        "type": "object"
+      },
+      "DeliveryTargetAdded": {
+        "additionalProperties": true,
+        "description": "``POST /api/routines/{routine_id}/delivery-targets``.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "routine_id": {
+            "title": "Routine Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "routine_id"
+        ],
+        "title": "DeliveryTargetAdded",
+        "type": "object"
+      },
       "DeliveryTargetCreate": {
         "description": "One destination for a routine's report.\n\n``target`` is the address for ``email`` and the directory for ``folder``.\nAn empty email target means \"the recipient configured under Settings ->\nEmail\", which is where the address came from before schema 21 and still\ndoes for every routine the migration seeded.",
         "properties": {
@@ -1056,6 +1624,37 @@
           }
         },
         "title": "DeliveryTargetUpdate",
+        "type": "object"
+      },
+      "DeliveryTargets": {
+        "additionalProperties": true,
+        "description": "``GET /api/routines/{routine_id}/delivery-targets``, and the channels\nresmon can act on today, so a screen offers exactly those.",
+        "properties": {
+          "routine_id": {
+            "title": "Routine Id",
+            "type": "integer"
+          },
+          "shipped_channels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Shipped Channels",
+            "type": "array"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryTarget"
+            },
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "routine_id",
+          "targets",
+          "shipped_channels"
+        ],
+        "title": "DeliveryTargets",
         "type": "object"
       },
       "DiveRequest": {
@@ -2640,6 +3239,111 @@
         "title": "MapUnplaced",
         "type": "object"
       },
+      "MissedFire": {
+        "additionalProperties": true,
+        "description": "One fire that came due and did not run, and what became of it since.",
+        "properties": {
+          "disposition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposition"
+          },
+          "due_at_utc": {
+            "title": "Due At Utc",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "observed_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At Utc"
+          },
+          "routine_id": {
+            "title": "Routine Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "routine_id",
+          "due_at_utc",
+          "observed_at_utc",
+          "disposition"
+        ],
+        "title": "MissedFire",
+        "type": "object"
+      },
+      "MissedFires": {
+        "additionalProperties": true,
+        "description": "Fires that did not run, counted in pairs with the time beside each count.\n\n``count`` is every recorded miss. ``overlap_skipped`` is the subset refused\nbecause the routine's previous run was still going; the rest came due while\nresmon was not running, and ``last_closed_miss_due_at_utc`` is the latest of\nthose. A routine that has missed none answers with zeros, not an absent key.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "last_closed_miss_due_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Closed Miss Due At Utc"
+          },
+          "last_due_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Due At Utc"
+          },
+          "last_overlap_skipped_due_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Overlap Skipped Due At Utc"
+          },
+          "overlap_skipped": {
+            "title": "Overlap Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count",
+          "last_due_at_utc",
+          "overlap_skipped",
+          "last_overlap_skipped_due_at_utc",
+          "last_closed_miss_due_at_utc"
+        ],
+        "title": "MissedFires",
+        "type": "object"
+      },
       "NotificationSettings": {
         "additionalProperties": true,
         "description": "``GET /api/settings/notifications`` — the one group that is not strings.\n\nThe handler reads the same stored text as every other group and then\n*answers* a bool and a three-valued mode, defaulting ``notify_manual`` to\ntrue on a first load. So this model is ``bool`` and ``str`` where its\nsiblings are ``str`` and ``str``, and a model copied from one of them would\nhave turned ``true`` into ``\"true\"`` without dropping anything.",
@@ -3921,6 +4625,303 @@
         "title": "RestoreRequest",
         "type": "object"
       },
+      "Routine": {
+        "additionalProperties": true,
+        "description": "``GET /api/routines/{routine_id}``: one routine, its switches as\nbooleans, and every fire it missed, oldest first.",
+        "properties": {
+          "ai_enabled": {
+            "title": "Ai Enabled",
+            "type": "boolean"
+          },
+          "ai_settings": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Settings"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "email_ai_summary_enabled": {
+            "title": "Email Ai Summary Enabled",
+            "type": "boolean"
+          },
+          "email_enabled": {
+            "title": "Email Enabled",
+            "type": "boolean"
+          },
+          "execution_location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Location"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "last_executed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Executed At"
+          },
+          "missed_fire_details": {
+            "items": {
+              "$ref": "#/components/schemas/MissedFire"
+            },
+            "title": "Missed Fire Details",
+            "type": "array"
+          },
+          "missed_fires": {
+            "$ref": "#/components/schemas/MissedFires"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "notify_on_complete": {
+            "title": "Notify On Complete",
+            "type": "boolean"
+          },
+          "parameters": {
+            "title": "Parameters",
+            "type": "string"
+          },
+          "schedule_cron": {
+            "title": "Schedule Cron",
+            "type": "string"
+          },
+          "storage_settings": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Settings"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "schedule_cron",
+          "parameters",
+          "is_active",
+          "email_enabled",
+          "email_ai_summary_enabled",
+          "ai_enabled",
+          "notify_on_complete",
+          "ai_settings",
+          "storage_settings",
+          "intent",
+          "execution_location",
+          "created_at",
+          "updated_at",
+          "last_executed_at",
+          "missed_fires",
+          "missed_fire_details"
+        ],
+        "title": "Routine",
+        "type": "object"
+      },
+      "RoutineActivation": {
+        "additionalProperties": true,
+        "description": "``POST /api/routines/{routine_id}/activate`` and ``/deactivate``. Only\nthe schedule changes: the routine and its runs stay.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "is_active"
+        ],
+        "title": "RoutineActivation",
+        "type": "object"
+      },
+      "RoutineCoverage": {
+        "additionalProperties": true,
+        "description": "``GET /api/routines/{routine_id}/coverage``: is this routine finding what\nwas meant, and what is it missing?\n\n``intent_source`` is ``stated`` for a written intent and ``keywords`` where\nnone was written and the routine's keywords stand in, which measures the\nquery against what the query produced. ``cannot_see`` is the sentence that\nbounds both lists: resmon compares only against papers it already holds.\n``reason`` says why there is nothing to measure, or is ``None``.\n``summary`` is present whenever the audit itself ran, including to say why\nit measured nothing; ``missed_reference_distance`` (the median of this\nroutine's own distances, which a missed paper must be inside) only when it\nmeasured.",
+        "properties": {
+          "cannot_see": {
+            "title": "Cannot See",
+            "type": "string"
+          },
+          "distribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoverageDistribution"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "intent": {
+            "title": "Intent",
+            "type": "string"
+          },
+          "intent_source": {
+            "title": "Intent Source",
+            "type": "string"
+          },
+          "missed_in_corpus": {
+            "items": {
+              "$ref": "#/components/schemas/CoveragePaper"
+            },
+            "title": "Missed In Corpus",
+            "type": "array"
+          },
+          "missed_in_corpus_total": {
+            "title": "Missed In Corpus Total",
+            "type": "integer"
+          },
+          "missed_in_corpus_total_is_lower_bound": {
+            "title": "Missed In Corpus Total Is Lower Bound",
+            "type": "boolean"
+          },
+          "missed_reference_distance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missed Reference Distance"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "off_target": {
+            "items": {
+              "$ref": "#/components/schemas/CoveragePaper"
+            },
+            "title": "Off Target",
+            "type": "array"
+          },
+          "off_target_total": {
+            "title": "Off Target Total",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "results": {
+            "title": "Results",
+            "type": "integer"
+          },
+          "results_embedded": {
+            "title": "Results Embedded",
+            "type": "integer"
+          },
+          "routine_id": {
+            "title": "Routine Id",
+            "type": "integer"
+          },
+          "routine_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Name"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "routine_id",
+          "routine_name",
+          "intent",
+          "intent_source",
+          "model",
+          "cannot_see",
+          "results",
+          "results_embedded",
+          "off_target",
+          "off_target_total",
+          "missed_in_corpus",
+          "missed_in_corpus_total",
+          "missed_in_corpus_total_is_lower_bound",
+          "distribution",
+          "reason"
+        ],
+        "title": "RoutineCoverage",
+        "type": "object"
+      },
       "RoutineCreate": {
         "properties": {
           "ai_enabled": {
@@ -4005,6 +5006,109 @@
         "title": "RoutineCreate",
         "type": "object"
       },
+      "RoutineCreated": {
+        "additionalProperties": true,
+        "description": "``POST /api/routines``. ``entity`` is present only for a routine that\nwatches a person, and ``entity_warning`` only when none of its sources can\nbe asked about one: the routine is still created, and the sentence says it\nwill find nothing until a source that can is added.",
+        "properties": {
+          "entity": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity"
+          },
+          "entity_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Warning"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "RoutineCreated",
+        "type": "object"
+      },
+      "RoutineDeliveries": {
+        "additionalProperties": true,
+        "description": "``GET /api/routines/{routine_id}/deliveries``: the record, newest\nfirst.",
+        "properties": {
+          "deliveries": {
+            "items": {
+              "$ref": "#/components/schemas/Delivery"
+            },
+            "title": "Deliveries",
+            "type": "array"
+          },
+          "routine_id": {
+            "title": "Routine Id",
+            "type": "integer"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/DeliverySummary"
+          }
+        },
+        "required": [
+          "routine_id",
+          "deliveries",
+          "summary"
+        ],
+        "title": "RoutineDeliveries",
+        "type": "object"
+      },
+      "RoutineDocuments": {
+        "additionalProperties": true,
+        "description": "``GET /api/routines/{routine_id}/documents``: the papers this routine's\nruns collected, newest run first, each once.\n\n``total`` counts every one; ``document_ids`` stops at ``limit``. Only ids:\nwhat a screen marks on the collection map, not a page of records.",
+        "properties": {
+          "document_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "routine_id": {
+            "title": "Routine Id",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "routine_id",
+          "document_ids",
+          "total",
+          "limit"
+        ],
+        "title": "RoutineDocuments",
+        "type": "object"
+      },
       "RoutineFiring": {
         "additionalProperties": true,
         "description": "One active routine, and whether anything will fire it.\n\n``will_fire`` is three-valued on purpose. ``True`` only where this\nbackend's own scheduler holds the job; ``False`` where nothing can fire it\nas things stand; ``None`` where the answer depends on which database a\nrunning service serves, which no resmon so far reports. A two-valued field\nwould have had to guess the third case one way or the other.",
@@ -4041,6 +5145,194 @@
           "reason"
         ],
         "title": "RoutineFiring",
+        "type": "object"
+      },
+      "RoutineRow": {
+        "additionalProperties": true,
+        "description": "One row of ``GET /api/routines``: the ``routines`` row as stored, and\nwhat its latest run did.\n\nThe five switches are SQLite's ``0`` and ``1`` here, as this list has always\nsent them; the single-routine read below coerces them to booleans. Typed as\nsent rather than as meant, so neither body changes. ``parameters``,\n``ai_settings`` and ``storage_settings`` are the stored JSON text, not\nparsed objects. ``last_execution`` repeats ``last_executed_at`` under the\nname the classic table reads.",
+        "properties": {
+          "ai_enabled": {
+            "title": "Ai Enabled",
+            "type": "integer"
+          },
+          "ai_settings": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Settings"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "email_ai_summary_enabled": {
+            "title": "Email Ai Summary Enabled",
+            "type": "integer"
+          },
+          "email_enabled": {
+            "title": "Email Enabled",
+            "type": "integer"
+          },
+          "execution_location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Location"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "integer"
+          },
+          "last_executed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Executed At"
+          },
+          "last_execution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Execution"
+          },
+          "last_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Status"
+          },
+          "missed_fires": {
+            "$ref": "#/components/schemas/MissedFires"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "notify_on_complete": {
+            "title": "Notify On Complete",
+            "type": "integer"
+          },
+          "parameters": {
+            "title": "Parameters",
+            "type": "string"
+          },
+          "schedule_cron": {
+            "title": "Schedule Cron",
+            "type": "string"
+          },
+          "storage_settings": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Settings"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "schedule_cron",
+          "parameters",
+          "is_active",
+          "email_enabled",
+          "email_ai_summary_enabled",
+          "ai_enabled",
+          "notify_on_complete",
+          "ai_settings",
+          "storage_settings",
+          "intent",
+          "execution_location",
+          "created_at",
+          "updated_at",
+          "last_executed_at",
+          "last_execution",
+          "last_status",
+          "missed_fires"
+        ],
+        "title": "RoutineRow",
+        "type": "object"
+      },
+      "RoutineRunStarted": {
+        "additionalProperties": true,
+        "description": "``POST /api/routines/{routine_id}/run``: a run started now, outside the\nschedule.\n\n``was_inactive`` says the routine was not scheduled and ran once because it\nwas asked to, and ``detail`` says so in a sentence. A routine already\nrunning is refused with a 409 whose detail names that run, which is an\nerror body and not this one.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "missed_fires_marked_ran_late": {
+            "title": "Missed Fires Marked Ran Late",
+            "type": "integer"
+          },
+          "routine_id": {
+            "title": "Routine Id",
+            "type": "integer"
+          },
+          "was_inactive": {
+            "title": "Was Inactive",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "execution_id",
+          "routine_id",
+          "was_inactive",
+          "missed_fires_marked_ran_late",
+          "detail"
+        ],
+        "title": "RoutineRunStarted",
         "type": "object"
       },
       "RoutineUpdate": {
@@ -4171,6 +5463,142 @@
           }
         },
         "title": "RoutineUpdate",
+        "type": "object"
+      },
+      "RoutineUpdated": {
+        "additionalProperties": true,
+        "description": "``PUT /api/routines/{routine_id}``: the id and each column the request\nchanged, as stored. Absent where unchanged; ``intent`` is ``None`` where\nthe request cleared it. Switches are stored ``0`` or ``1`` and the JSON\ncolumns as text, which is what this answer repeats.",
+        "properties": {
+          "ai_enabled": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Enabled"
+          },
+          "ai_settings": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Settings"
+          },
+          "email_ai_summary_enabled": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Ai Summary Enabled"
+          },
+          "email_enabled": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Enabled"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "notify_on_complete": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notify On Complete"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameters"
+          },
+          "schedule_cron": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Cron"
+          },
+          "storage_settings": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Settings"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "RoutineUpdated",
         "type": "object"
       },
       "RoutineWatchingProfile": {
@@ -8611,7 +10039,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CalendarEvent"
+                  },
+                  "title": "Response Calendar Events Api Calendar Events Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -9217,7 +10651,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryActed"
+                }
               }
             },
             "description": "Successful Response"
@@ -9255,7 +10691,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryActed"
+                }
               }
             },
             "description": "Successful Response"
@@ -9292,7 +10730,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryActed"
+                }
               }
             },
             "description": "Successful Response"
@@ -10460,6 +11900,22 @@
                 }
               ],
               "title": "Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "routine_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Routine Id"
             }
           }
         ],
@@ -12854,7 +14310,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RoutineRow"
+                  },
+                  "title": "Response List Routines Api Routines Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -12878,7 +14340,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineCreated"
+                }
               }
             },
             "description": "Successful Response"
@@ -12951,7 +14415,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Routine"
+                }
               }
             },
             "description": "Successful Response"
@@ -12996,7 +14462,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineUpdated"
+                }
               }
             },
             "description": "Successful Response"
@@ -13033,7 +14501,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineActivation"
+                }
               }
             },
             "description": "Successful Response"
@@ -13071,7 +14541,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineCoverage"
+                }
               }
             },
             "description": "Successful Response"
@@ -13108,7 +14580,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineActivation"
+                }
               }
             },
             "description": "Successful Response"
@@ -13155,7 +14629,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineDeliveries"
+                }
               }
             },
             "description": "Successful Response"
@@ -13192,7 +14668,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryTargets"
+                }
               }
             },
             "description": "Successful Response"
@@ -13237,7 +14715,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryTargetAdded"
+                }
               }
             },
             "description": "Successful Response"
@@ -13356,6 +14836,58 @@
         "summary": "Update Routine Delivery Target"
       }
     },
+    "/api/routines/{routine_id}/documents": {
+      "get": {
+        "description": "The papers this routine's runs collected: a watch's constellation.\n\nIds only, newest run first and each paper once, because what a screen does\nwith them is mark them on the collection map; a page of records is the\nExplorer's job. ``total`` counts all of them, so a screen whose ``limit``\ncut the list short can say so rather than imply the marks are complete.",
+        "operationId": "routine_documents_api_routines__routine_id__documents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "routine_id",
+            "required": true,
+            "schema": {
+              "title": "Routine Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 2000,
+              "maximum": 10000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineDocuments"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Routine Documents"
+      }
+    },
     "/api/routines/{routine_id}/run": {
       "post": {
         "description": "Run a routine immediately, outside its schedule.\n\nWriting the MCP contract found that resmon had no way to do this at all:\nroutines could be activated or deactivated, and running one now meant\nrebuilding its configuration by hand as a sweep. That is a gap in the\napplication rather than only in the tool surface -- \"run my arXiv routine\nnow\" is something a person should be able to do from the interface too.\n\nDeliberately a thin wrapper over ``_dispatch_routine_fire``, the same\nfunction the scheduler calls, so a manual run and a scheduled fire take one\ncode path and cannot drift apart. Everything that makes a scheduled fire\ncorrect -- admission control, the routine_id stamp, progress registration,\nthe last_executed_at update -- applies here for free because it is\nliterally the same code.\n\nAn **inactive** routine does run, and the response says so. ``is_active``\ngoverns whether the scheduler fires a routine on its own; it is not a\nstatement that the routine may never run. Refusing here would mean a user\nhas to activate a routine, run it, and deactivate it again to get one\nresult.",
@@ -13375,7 +14907,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineRunStarted"
+                }
               }
             },
             "description": "Successful Response"
