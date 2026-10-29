@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { Ask } from './screens/ask/Ask';
 import { Collection } from './screens/collection/Collection';
 import { Analytics } from './screens/health/Analytics';
 import { Engine } from './screens/health/Engine';
@@ -9,7 +10,6 @@ import { Saved } from './screens/collection/Saved';
 import { Evidence } from './screens/library/Evidence';
 import { Files } from './screens/library/Files';
 import { ReadingQueue } from './screens/library/ReadingQueue';
-import { Placeholder } from './screens/Placeholder';
 import { Run } from './screens/Run';
 import { Search } from './screens/Search';
 import { Settings } from './screens/Settings';
@@ -37,14 +37,14 @@ export const SECTIONS: readonly Section[] = [
   { path: '/watches', label: 'Watches', keywords: 'routines constellations profiles people authors orcid schedule calendar delivery coverage new watch create', element: <Watches /> },
   { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep runs export', element: <Collection /> },
   { path: '/library', label: 'Library', keywords: 'saved reading queue to read files pdf owned library vault import evidence passages notes projects', element: <ReadingQueue /> },
-  { path: '/ask', label: 'Ask', keywords: 'assistant question chat', element: <Placeholder title="Ask" /> },
+  { path: '/ask', label: 'Ask', keywords: 'assistant question chat chats conversations saved transcript export model', element: <Ask /> },
   { path: '/health', label: 'Health', keywords: 'sources coverage diagnostics source wall watchdog findings broken analytics statistics charts keywords yield engine runtime identity', element: <SourceWall /> },
 ];
 
 export const SETTINGS: Section = {
   path: '/settings',
   label: 'Settings',
-  keywords: 'preferences appearance theme accent color background service daemon email smtp password notifications',
+  keywords: 'preferences appearance theme accent color background service daemon email smtp password notifications ai model key summaries summarize assistant claude provider',
   element: <Settings />,
 };
 

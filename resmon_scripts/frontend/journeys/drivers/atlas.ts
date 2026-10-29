@@ -17,7 +17,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { expect, type Locator, type TestInfo } from '@playwright/test';
 import type {
-  AnalyticsView, BackendFacts, LibraryItem, VaultOnDisk, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord,
+  AnalyticsView, AssistantPanelFacts, AssistantTurn, BackendFacts, ComposerChoice, LibraryItem, SavedTranscript, TurnChoiceFacts, VaultOnDisk, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord,
   DrawnAppearance, EmailSettings, EvidenceBundle, EvidencePageView, ReopenedPassage, SavedEvidenceNote,
   OpenedCitation, SelectedAnswerPreview, SelectedAnswerView,
   ExplorerList, ExportedFile, ImportOutcome, InterruptedRow, JourneyDriver, NotificationPreferences, Place,
@@ -51,6 +51,10 @@ const ATLAS_PLACES: Partial<Record<Place, string>> = {
   'Source wall': '/health',
   Watchdog: '/health/watchdog',
   Analytics: '/health/analytics',
+  // Ask is the assistant and its saved conversations in one place: the
+  // conversations are the rail beside the one open.
+  Chats: '/ask',
+  'AI settings': '/settings/ai',
 };
 
 /** The Email group's fields, by the journey's word for each. */
@@ -92,7 +96,11 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'startAnEvidenceProjectFrom' | 'addToTheEvidenceProject' | 'openTheEvidenceProject' | 'readTheEvidencePage'
   | 'saveAnEvidencePassage' | 'saveAnEvidenceNote' | 'readTheSavedEvidenceNotes' | 'reopenTheSavedPassage'
   | 'exportSelectedEvidence'
-  | 'askFromSelectedEvidence' | 'openEachCitationOfTheAnswer' | 'openTheSavedAnswer' | 'exportTheOpenAnswerAsHtml'>;
+  | 'askFromSelectedEvidence' | 'openEachCitationOfTheAnswer' | 'openTheSavedAnswer' | 'exportTheOpenAnswerAsHtml'
+  | 'askTheAssistant' | 'answerTheApprovalCard' | 'readSavedConversations' | 'openTheAssistantWithTheKeyboard'
+  | 'readTheAssistantPanel' | 'readTheChatsPage' | 'openTheSavedChat' | 'exportTheOpenChat'
+  | 'fixTheChoicesForThisConversation' | 'readTheComposerChoices' | 'readTheTurnsChoices'
+  | 'setTheAppWideAssistantDefaults' | 'readAiLaneStatus' | 'readRunLog' | 'readTheReport'>;
 
 /** The reading-queue filter buttons, by the journey's word for each. */
 const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
@@ -155,6 +163,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     } else if (hash?.startsWith('/health')) {
       await expect(win().locator('nav[aria-label="Health"]')).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.page.health')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    } else if (hash === '/ask') {
+      await expect(win().getByRole('heading', { name: 'Ask', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().getByRole('region', { name: 'Saved chats' })).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
     } else if (hash === '/search/ask') {
       await expect(win().getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.source').first()).toBeVisible({ timeout: 30_000 });
@@ -234,8 +245,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
   };
 
   const ask = async (kind: 'Deep Dive' | 'Deep Sweep', sources: string[], terms: string[],
-    days: number | undefined, cap: number | undefined): Promise<RunHandle> => {
+    days: number | undefined, cap: number | undefined, summarize = false): Promise<RunHandle> => {
     await fillAsk(kind, sources, terms, days, cap);
+    if (summarize) await win().getByRole('checkbox', { name: 'Summarize each paper' }).check();
     const route = kind === 'Deep Dive' ? '/api/search/dive' : '/api/search/sweep';
     const started = win().waitForResponse((r) => r.url().endsWith(route) && r.request().method() === 'POST');
     await win().getByRole('button', { name: /^Ask / }).click();
@@ -419,6 +431,90 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     }).toBe('completed');
   };
   let downloadsMade = 0;
+
+  // — Ask ---------------------------------------------------------------------
+
+  const conversation = () => win().locator('section.conv-pane');
+
+  /** Ask, arrived at: the heading drawn and the saved conversations read. */
+  const openAsk = async (): Promise<void> => {
+    if (!await win().evaluate(() => window.location.hash.startsWith('#/ask'))) await goto('Chats');
+    await expect(conversation()).toBeVisible({ timeout: 30_000 });
+  };
+
+  /**
+   * The turn has finished, or is being held behind a card.
+   *
+   * The engine's record decides, as the classic driver's does: a conversation
+   * whose turn is still claimed is still answering. Then the screen is given
+   * the time to draw the engine's saved copy, which is when Atlas drops its
+   * Working… line; Atlas keeps that line exactly until then, so here it is a
+   * wait the screen owes, not a guess.
+   */
+  const theTurnHasSettled = async (): Promise<void> => {
+    await expect.poll(async () => {
+      if (await conversation().locator('.conv-card').count()) return true;
+      const { sessions } = await session.api<{ sessions: { id: number }[] }>('GET', '/api/assistant/sessions');
+      if (!sessions.length) return false;
+      for (const saved of sessions) {
+        const one = await session.api<{ running?: boolean; activity_observation?: { turn_claimed?: boolean } }>(
+          'GET', `/api/assistant/sessions/${saved.id}`);
+        if (one.running || one.activity_observation?.turn_claimed) return false;
+      }
+      return true;
+    }, { timeout: 120_000, message: 'the assistant never finished its turn' }).toBe(true);
+    if (!await conversation().locator('.conv-card').count()) {
+      await expect(conversation().locator('.conv-working'), 'Ask still says Working… over a finished turn')
+        .toHaveCount(0, { timeout: 30_000 });
+    }
+  };
+
+  const readTheTurn = async (): Promise<AssistantTurn> => {
+    const pane = conversation();
+    const trimmed = (texts: string[]) => texts.map((t) => t.trim());
+    const card = pane.locator('.conv-card').first();
+    const held = (await card.count()) > 0;
+    const error = pane.locator('.conv-error');
+    return {
+      said: trimmed(await pane.locator('.conv-msg[data-role="assistant"] .conv-text').allInnerTexts()),
+      toolCalls: trimmed(await pane.locator('.conv-call-name').allInnerTexts()),
+      approvalCall: held ? (await card.locator('.conv-card-call').innerText()).trim() : '',
+      approvalTitle: held ? (await card.locator('.conv-card-title').innerText()).trim() : '',
+      error: (await error.count()) ? (await error.first().innerText()).trim() : '',
+    };
+  };
+
+  /** The saved conversations' titles, once the rail shows as many as the engine keeps. */
+  const readTheRail = async (): Promise<string[]> => {
+    await openAsk();
+    const { sessions } = await session.api<{ sessions: unknown[] }>('GET', '/api/assistant/sessions');
+    const rows = win().getByRole('region', { name: 'Saved chats' }).locator('.conv-row strong');
+    await expect.poll(() => rows.count(), {
+      timeout: 30_000, message: `Ask never listed the ${sessions.length} conversation(s) the engine keeps`,
+    }).toBe(sessions.length);
+    return (await rows.allInnerTexts()).map((t) => t.trim());
+  };
+
+  /** What the composer holds, or what the conversation says it is fixed to. */
+  const readTheComposer = async (): Promise<ComposerChoice> => {
+    await openAsk();
+    const controls = conversation().locator('fieldset.conv-choices');
+    const fixed = conversation().locator('.conv-fixed');
+    await expect.poll(async () => (await controls.count()) + (await fixed.count()), { timeout: 30_000 }).toBeGreaterThan(0);
+    if (!await controls.count()) {
+      return { stillChangeable: false, connection: '', model: '', effort: '', fixedAs: (await fixed.innerText()).trim() };
+    }
+    const connection = controls.getByLabel('Connection', { exact: true });
+    const effort = controls.getByLabel('Effort', { exact: true });
+    return {
+      stillChangeable: await connection.isEnabled(),
+      connection: (await connection.locator('option:checked').innerText()).trim(),
+      model: await controls.getByLabel('Model', { exact: true }).inputValue(),
+      effort: (await effort.count()) ? await effort.inputValue()
+        : (await controls.locator('.conv-no-effort').innerText()).trim(),
+      fixedAs: '',
+    };
+  };
 
   // — selected-evidence answers -------------------------------------------------
 
@@ -1651,10 +1747,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       return { path: destination, text: fs.readFileSync(destination, 'utf8') };
     },
 
-    runDive: async (request) => {
-      if (request.summarize) notInAtlasYet('a summary of each paper on a Deep Dive');
-      return ask('Deep Dive', [request.source], request.keywords, request.days, request.cap);
-    },
+    runDive: (request) => ask('Deep Dive', [request.source], request.keywords, request.days, request.cap, request.summarize),
 
     runSweep: (request) => ask('Deep Sweep', request.sources, [request.query], undefined, request.cap),
 
@@ -1822,6 +1915,178 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const emptyLine = win().locator('.index-empty');
       const empty = (await emptyLine.count()) ? (await emptyLine.innerText()).trim() : null;
       return { heading: full.replace(/\s*[\d,]+$/, ''), total, groups, notes, numbers, empty };
+    },
+
+    // — Ask -----------------------------------------------------------------
+
+    askTheAssistant: async (text): Promise<AssistantTurn> => {
+      await openAsk();
+      const composer = conversation().getByLabel('Message the assistant');
+      await expect(composer, 'Ask cannot be sent to in this app').toBeEnabled({ timeout: 30_000 });
+      await composer.fill(text);
+      // Armed before the click: on a second ask the conversation is already
+      // idle, so "nothing is running" holds until the engine claims the turn.
+      const claimed = win().waitForResponse((r) => /\/api\/assistant\/sessions\/\d+\/messages$/.test(r.url())
+        && r.request().method() === 'POST', { timeout: 120_000 });
+      await conversation().getByRole('button', { name: 'Send', exact: true }).click();
+      const response = await claimed;
+      expect(response.ok(), `the assistant refused the message: HTTP ${response.status()}`).toBe(true);
+      await theTurnHasSettled();
+      return readTheTurn();
+    },
+
+    answerTheApprovalCard: async (allow): Promise<AssistantTurn> => {
+      const card = conversation().locator('.conv-card').first();
+      await expect(card, 'the assistant is holding no approval card').toBeVisible({ timeout: 30_000 });
+      const answered = win().waitForResponse((r) => r.url().includes('/api/assistant/permissions/'));
+      await card.getByRole('button', { name: allow ? 'Allow' : 'Deny', exact: true }).click();
+      expect((await answered).ok(), 'the answer to the approval card was refused').toBe(true);
+      await theTurnHasSettled();
+      return readTheTurn();
+    },
+
+    readSavedConversations: () => readTheRail(),
+
+    openTheAssistantWithTheKeyboard: async () => {
+      await goto('Today');
+      await win().keyboard.press(process.platform === 'darwin' ? 'Meta+Slash' : 'Control+Slash');
+      try {
+        await expect(conversation()).toBeVisible({ timeout: 15_000 });
+        await expect(conversation().getByLabel('Message the assistant')).toBeFocused({ timeout: 15_000 });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    readTheAssistantPanel: async (): Promise<AssistantPanelFacts> => {
+      const pane = conversation();
+      const open = (await pane.count()) > 0 && await pane.isVisible();
+      if (!open) {
+        return {
+          open: false, composerIsNamed: '', composerIsUsable: false, insideTheWindow: false,
+          geometry: { panel: { x: 0, y: 0, width: 0, height: 0 }, window: { width: 0, height: 0 } }, errorRoles: [],
+        };
+      }
+      const composer = pane.getByLabel('Message the assistant');
+      const box = (await pane.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
+      const viewport = await win().evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+      const errorRoles = await pane.locator('.conv-error').evaluateAll(
+        (nodes) => nodes.map((node) => (node as HTMLElement).getAttribute('role') || ''));
+      return {
+        open: true,
+        composerIsNamed: String(await composer.getAttribute('aria-label') ?? ''),
+        composerIsUsable: (await composer.count()) > 0 && await composer.isEnabled(),
+        insideTheWindow: box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width + 1
+          && box.y + box.height <= viewport.height + 1,
+        geometry: { panel: box, window: viewport },
+        errorRoles: errorRoles.filter((role) => role !== ''),
+      };
+    },
+
+    readTheChatsPage: () => readTheRail(),
+
+    openTheSavedChat: async (titleFragment): Promise<SavedTranscript> => {
+      await openAsk();
+      const row = win().getByRole('region', { name: 'Saved chats' }).locator('.conv-row').filter({ hasText: titleFragment }).first();
+      await expect(row, `no saved chat whose title contains "${titleFragment}"`).toBeVisible({ timeout: 30_000 });
+      await row.click();
+      const title = conversation().locator('.conv-title');
+      await expect(title).toContainText(titleFragment, { timeout: 30_000 });
+      await expect(conversation().locator('.conv-saved')).toBeVisible({ timeout: 30_000 });
+      return {
+        title: (await title.innerText()).trim(),
+        said: (await conversation().locator('.conv-text').allInnerTexts()).map((t) => t.trim()),
+        text: (await conversation().innerText()).replace(/\s+/g, ' ').trim(),
+      };
+    },
+
+    exportTheOpenChat: async (format) => {
+      await expect(conversation().locator('.conv-saved'), 'no saved conversation is open').toBeVisible({ timeout: 30_000 });
+      downloadsMade += 1;
+      const dir = path.join(fs.realpathSync(session.stateDir), 'downloads');
+      fs.mkdirSync(dir, { recursive: true });
+      const target = path.join(dir, `journey-chat-${downloadsMade}.${format === 'json' ? 'json' : 'md'}`);
+      await theNextDownloadGoesTo(target);
+      await conversation().getByRole('button', { name: format === 'json' ? 'Export JSON' : 'Export Markdown', exact: true }).click();
+      await expect(conversation().getByText(/^Saved as resmon-chat-\d+\.(json|md)\./)).toBeVisible({ timeout: 30_000 });
+      await theDownloadHasCompleted(target);
+      return { path: target, text: fs.readFileSync(target, 'utf8') };
+    },
+
+    fixTheChoicesForThisConversation: async (choice): Promise<ComposerChoice> => {
+      await openAsk();
+      const controls = conversation().locator('fieldset.conv-choices');
+      if (!await controls.count()) {
+        await win().getByRole('region', { name: 'Saved chats' }).getByRole('button', { name: 'New conversation' }).click();
+      }
+      const model = controls.getByLabel('Model', { exact: true });
+      await expect(model, 'the composer offers no model to choose').toBeEnabled({ timeout: 30_000 });
+      await model.fill(choice.model);
+      if (choice.effort !== undefined) await controls.getByLabel('Effort', { exact: true }).selectOption(choice.effort);
+      return readTheComposer();
+    },
+
+    readTheComposerChoices: () => readTheComposer(),
+
+    readTheTurnsChoices: async (): Promise<TurnChoiceFacts[]> => {
+      const blocks = conversation().locator('details.conv-turn');
+      const out: TurnChoiceFacts[] = [];
+      for (let i = 0; i < await blocks.count(); i += 1) {
+        const block = blocks.nth(i);
+        if (!await block.evaluate((element) => (element as HTMLDetailsElement).open)) await block.locator('summary').click();
+        out.push({
+          requested: (await block.locator('.conv-requested').innerText()).trim(),
+          reported: (await block.locator('.conv-reported li').allInnerTexts()).map((t) => t.trim()),
+          text: (await block.innerText()).trim(),
+        });
+      }
+      return out;
+    },
+
+    setTheAppWideAssistantDefaults: async (defaults) => {
+      await goto('AI settings');
+      const form = win().getByRole('form', { name: 'Assistant settings' });
+      const model = form.locator('#assistant-model');
+      await expect(model, 'Settings → AI offers no assistant model').toBeVisible({ timeout: 30_000 });
+      await model.selectOption(defaults.model);
+      if (defaults.effort !== undefined) await form.locator('#assistant-effort').selectOption(defaults.effort);
+      await form.getByRole('button', { name: 'Save assistant settings', exact: true }).click();
+      await expect(form.getByRole('status')).toHaveText(/^Saved\./, { timeout: 30_000 });
+    },
+
+    readAiLaneStatus: async () => {
+      await goto('AI settings');
+      const status = win().locator('[data-ai="lane-status"]');
+      // As the classic driver does: the line exists where the engine reports
+      // a status for the provider the settings name, and is waited for on that.
+      const [settings, cli] = await Promise.all([
+        session.api<{ ai_provider?: string }>('GET', '/api/settings/ai'),
+        session.api<{ providers?: { provider: string }[] }>('GET', '/api/settings/ai/cli-status'),
+      ]);
+      const expected = (cli.providers ?? []).some((entry) => entry.provider === settings.ai_provider);
+      await expect.poll(async () => (await status.count()) > 0, {
+        timeout: 30_000,
+        message: expected ? `Settings → AI never drew a status for the ${settings.ai_provider} lane`
+          : 'Settings → AI drew a command status for a provider the engine reports none for',
+      }).toBe(expected);
+      return (await status.count()) ? (await status.first().innerText()).replace(/\s+/g, ' ').trim() : '';
+    },
+
+    readRunLog: async (run) => {
+      await openSettled(run);
+      await win().getByRole('tab', { name: 'Log', exact: true }).click();
+      const log = win().locator('.record-text.is-log');
+      await expect(log, 'the run page shows no log for a run that finished').toBeVisible({ timeout: 30_000 });
+      return log.innerText();
+    },
+
+    readTheReport: async (run) => {
+      await openSettled(run);
+      await win().getByRole('tab', { name: 'Report', exact: true }).click();
+      const report = win().locator('.record-text.is-report');
+      await expect(report, 'the run page shows no report for a run that finished').toBeVisible({ timeout: 30_000 });
+      return report.innerText();
     },
 
     markAllRead: async () => {

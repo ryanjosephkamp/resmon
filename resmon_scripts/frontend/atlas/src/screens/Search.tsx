@@ -1,9 +1,10 @@
 import { useMemo, useState, type FormEvent } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
 import { SearchTabs } from './collection/SearchTabs';
 import { SAVED_KEY, savedAsks, savedParameters, type SavedConfiguration } from './collection/savedSearches';
+import { providerWords } from './ask/askModel';
 import { RunLog } from './runs/RunLog';
 import { coarseFor, coarseSentence, paceOf, rateLong } from './sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from './sources/SourceCatalog';
@@ -20,6 +21,13 @@ const WINDOWS: readonly { days: number | null; label: string }[] = [
 
 function isoDay(at: Date): string {
   return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+}
+
+/** Which lane would write a run's summaries, and what happens where it cannot. */
+function laneSentence(provider: string, model: string): string {
+  if (!provider) return 'No provider is chosen for summaries, so none can be written. The papers are kept either way.';
+  return `Written with ${providerWords(provider)}${model ? ` (${model})` : ''}. A paper it cannot summarize is kept`
+    + ' without one, and the run’s log says why.';
 }
 
 function windowDates(days: number | null): { from: string; to: string } {
@@ -54,6 +62,8 @@ export function Search() {
   const [windowDays, setWindowDays] = useState<number | null | undefined>(from ? undefined : 30);
   const [dates, setDates] = useState(() => (from ? { from: from.dateFrom, to: from.dateTo } : windowDates(30)));
   const [cap, setCap] = useState(from?.cap ?? 100);
+  const [summarize, setSummarize] = useState(from?.summarize ?? false);
+  const lane = useQuery({ queryKey: ['ai-settings'], queryFn: () => answer(engine().GET('/api/settings/ai')), enabled: summarize });
   /** The name being typed for Save this search; `null` while the field is closed. */
   const [naming, setNaming] = useState<string | null>(null);
 
@@ -85,8 +95,7 @@ export function Search() {
         date_from: dates.from || null,
         date_to: dates.to || null,
         max_results: cap,
-        // A summary per paper is a model's work and goes with Ask (slice 6).
-        ai_enabled: false,
+        ai_enabled: summarize,
         request_id: crypto.randomUUID(),
         saved_configuration_id: opened?.id ?? null,
       };
@@ -102,7 +111,7 @@ export function Search() {
   const keep = useMutation({
     mutationFn: (name: string) => {
       const { config_type, parameters } = savedParameters({
-        mode, sources: picked.map((e) => e.slug), keywords: allTerms, dateFrom: dates.from, dateTo: dates.to, cap,
+        mode, sources: picked.map((e) => e.slug), keywords: allTerms, dateFrom: dates.from, dateTo: dates.to, cap, summarize,
       });
       return answer(engine().POST('/api/configurations', { body: { name, config_type, parameters } }));
     },
@@ -194,6 +203,21 @@ export function Search() {
             />
             <span>papers per source</span>
           </label>
+        </div>
+
+        <div className="ask-summarize">
+          <label>
+            <input type="checkbox" checked={summarize} onChange={(e) => setSummarize(e.target.checked)} />
+            <span>Summarize each paper</span>
+          </label>
+          {summarize && (
+            <p className="ask-lane" data-ask="summary-lane">
+              {lane.data ? laneSentence(lane.data.ai_provider, lane.data.ai_model)
+                : lane.isError ? `The engine did not say which lane would write them (${lane.error.message}).`
+                  : 'Reading which lane would write them.'}
+              {' '}<Link to="/settings/ai">Settings → AI</Link>
+            </p>
+          )}
         </div>
 
         <div className="ask-go">

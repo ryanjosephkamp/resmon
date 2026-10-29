@@ -87,8 +87,8 @@ shape changes its output: the same test compares them.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 1044 tests across 101 suites
-npm run e2e                                      # the real Electron app — 135 cases in 52 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 1054 tests across 102 suites
+npm run e2e                                      # the real Electron app — 136 cases in 53 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -550,10 +550,18 @@ is held while an answer runs (the engine cancels an unsubscribed one), and leavi
 it. Every request is re-checked in the renderer (canonical JSON, the request, prompt, system and
 source hashes) and every citation must be its source's text at exactly its codepoint range; a
 citation opens the frozen quote and re-reads the current page through `Reader.tsx`, which resolves
-saved passages and citations as one `Pin`. `/api/assistant/status` is read against a declared shape
-until the Ask slice models it. The routes' bodies are the "selected-evidence answers" slice of
+saved passages and citations as one `Pin`. The routes' bodies are the "selected-evidence answers" slice of
 `test_response_models.py`; real-app journey `e2e/atlas-answers.spec.ts`, on the authored loopback
 model of `selectedEvidenceTransport`.
+Atlas Ask: `/ask` (`screens/ask/`): the assistant and its saved conversations in one screen, the
+rail being the conversations. The assistant's state is held above the routes (`AskProvider`),
+because a turn is one streamed response and a card is the engine holding the runtime: leaving Ask
+must not close either. A new conversation is fixed to its connection, model and effort when its
+first message is sent; each turn shows what it requested and what the runtime reported as two
+claims, and a saved conversation says its completion is unknown. ⌘/ (Ctrl+/) opens Ask with the
+caret in the composer. Settings › AI (`settings/Ai.tsx`) holds the summary lane and Ask's defaults,
+and Search's *Summarize each paper* sends `ai_enabled`. The routes' bodies are the "assistant" slice
+of `test_response_models.py`; real-app journey `e2e/atlas-ask.spec.ts`, on `fake_claude.py`.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
 
