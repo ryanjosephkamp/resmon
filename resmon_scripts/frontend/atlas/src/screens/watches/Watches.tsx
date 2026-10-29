@@ -5,6 +5,7 @@ import { answer, engine } from '../../api/client';
 import { PaperSky, basisWords } from '../sky/PaperSky';
 import { count, number, when } from '../today/format';
 import { MonthAhead, useCalendar } from './MonthAhead';
+import { WatchTabs } from './WatchTabs';
 import {
   WATCHES_KEY, instant, promisedFires, scheduleText, watchAsks, type RoutineRow,
 } from './model';
@@ -64,6 +65,7 @@ export function Watches() {
       />
       <section className="index watch-index" aria-label="Watches" aria-busy={routines.isFetching}>
         <div className="results-head">
+          <WatchTabs />
           <h1 className="page-title">Watches</h1>
           <p className="count-sentence">
             {routines.data

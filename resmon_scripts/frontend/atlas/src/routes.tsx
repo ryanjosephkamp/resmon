@@ -9,6 +9,8 @@ import { Settings } from './screens/Settings';
 import { Today } from './screens/Today';
 import { Watch } from './screens/watches/Watch';
 import { Watches } from './screens/watches/Watches';
+import { People } from './screens/watches/people/People';
+import { Person } from './screens/watches/people/Person';
 
 export interface Section {
   path: string;
@@ -24,7 +26,7 @@ export interface Section {
  */
 export const SECTIONS: readonly Section[] = [
   { path: '/today', label: 'Today', keywords: 'new papers morning plate index', element: <Today /> },
-  { path: '/watches', label: 'Watches', keywords: 'routines constellations profiles schedule calendar delivery coverage', element: <Watches /> },
+  { path: '/watches', label: 'Watches', keywords: 'routines constellations profiles people authors orcid schedule calendar delivery coverage', element: <Watches /> },
   { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep runs export', element: <Collection /> },
   { path: '/library', label: 'Library', keywords: 'saved reading queue to read files', element: <ReadingQueue /> },
   { path: '/ask', label: 'Ask', keywords: 'assistant question chat', element: <Placeholder title="Ask" /> },
@@ -46,6 +48,8 @@ export const DETAILS: readonly { path: string; element: ReactElement }[] = [
   { path: '/search/ask', element: <Search /> },
   { path: '/runs/:id', element: <Run /> },
   { path: '/papers/:id', element: <Paper /> },
+  { path: '/watches/people', element: <People /> },
+  { path: '/watches/people/:id', element: <Person /> },
   { path: '/watches/:id', element: <Watch /> },
 ];
 

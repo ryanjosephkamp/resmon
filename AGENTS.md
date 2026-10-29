@@ -87,8 +87,8 @@ shape changes its output: the same test compares them.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 950 tests across 90 suites
-npm run e2e                                      # the real Electron app — 127 cases in 44 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 954 tests across 91 suites
+npm run e2e                                      # the real Electron app — 128 cases in 45 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 
@@ -498,6 +498,10 @@ Atlas Watches (slice 3a): `screens/watches/` (every watch and the month ahead at
 `/watches`, a watch at `/watches/:id` with its constellation, nights, coverage audit and
 delivery record); the routes' bodies are the "watches", "where a watch's reports go" and
 "the calendar" slices of `test_response_models.py`; real-app journey `e2e/atlas-watches.spec.ts`.
+Atlas People (slice 3b): `screens/watches/people/` (watch profiles at `/watches/people`, a
+person at `/watches/people/:id`, each match's basis on the collection's rows); the live
+warning in `people/model.ts` is held to `watch_profiles.basis_warning_for` by
+`test_watch_profiles.py`, as the classic editor's is; real-app journey `e2e/atlas-people.spec.ts`.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
 
