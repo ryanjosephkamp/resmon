@@ -18,6 +18,26 @@ def compute_metadata_hash(title: str, authors: list[str], publication_date: str 
     return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
 
+# A month as people write it, to its number. DOAJ gives ``bibjson.month`` as a
+# name about as often as a number; the client reads it with this table, and the
+# rows stored before it did are repaired with the same one
+# (``database._repair_doaj_month_names``), so the two cannot disagree.
+_MONTH_NUMBERS: dict[str, int] = {
+    name: index
+    for index, names in enumerate((
+        ("january", "jan"), ("february", "feb"), ("march", "mar"), ("april", "apr"),
+        ("may",), ("june", "jun"), ("july", "jul"), ("august", "aug"),
+        ("september", "sep", "sept"), ("october", "oct"), ("november", "nov"), ("december", "dec"),
+    ), start=1)
+    for name in names
+}
+
+
+def month_from_name(text: str) -> int | None:
+    """A month's name or abbreviation ("January", "jul", "Sept.") as 1-12, else None."""
+    return _MONTH_NUMBERS.get(text.strip().lower().rstrip("."))
+
+
 def sanitize_filename(name: str) -> str:
     """Remove or replace characters that are unsafe for filenames."""
     return re.sub(r'[<>:"/\\|?*]', "_", name).strip()
