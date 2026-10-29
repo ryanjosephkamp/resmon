@@ -33,6 +33,10 @@ const RENDERER_FREE = new Set<string>([
   'createRoutine', 'fireRoutineNow', 'addDeliveryTarget', 'readDeliveredFiles', 'readFeedFile',
   // A port bound and closed again on this machine: no screen at all.
   'anAddressThatRefusesConnections',
+  // The authored source taken down and brought back: the suite's own fixture.
+  'theSourceGoesDown', 'theSourceComesBack',
+  // J16: the live suite's gate, run as a subprocess. Its journey is a CI job.
+  'runTheGate',
 ]);
 
 export function createCandidateDriver(session: Session, testInfo: TestInfo): JourneyDriver {
