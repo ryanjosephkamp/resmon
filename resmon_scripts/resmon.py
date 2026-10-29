@@ -7488,7 +7488,8 @@ def update_assistant_settings(body: SettingsBody):
         _close_db(conn)
 
 
-@app.get("/api/assistant/status")
+@app.get("/api/assistant/status", response_model=response_models.AssistantStatus,
+         response_model_exclude_unset=True)
 def assistant_status():
     """Whether the assistant can run, and if not, the reason in one sentence.
 
@@ -7517,7 +7518,8 @@ def _mcp_contract_version() -> str:
         return "unknown"
 
 
-@app.post("/api/assistant/sessions", status_code=201)
+@app.post("/api/assistant/sessions", status_code=201, response_model=response_models.AssistantSession,
+          response_model_exclude_unset=True)
 def create_assistant_session(body: AssistantSessionCreate):
     conn = _get_db()
     try:
@@ -7538,7 +7540,8 @@ def create_assistant_session(body: AssistantSessionCreate):
         _close_db(conn)
 
 
-@app.get("/api/assistant/sessions")
+@app.get("/api/assistant/sessions", response_model=response_models.AssistantSessions,
+         response_model_exclude_unset=True)
 def list_assistant_sessions(limit: int = 50):
     conn = _get_db()
     try:
@@ -7547,7 +7550,8 @@ def list_assistant_sessions(limit: int = 50):
         _close_db(conn)
 
 
-@app.get("/api/assistant/sessions/browse")
+@app.get("/api/assistant/sessions/browse", response_model=response_models.AssistantSessionPage,
+         response_model_exclude_unset=True)
 def browse_assistant_sessions(limit: int = Query(50, ge=1, le=100),
                               before_id: Optional[int] = Query(None, ge=1, le=9223372036854775807),
                               through_id: Optional[int] = Query(None, ge=0, le=9223372036854775807),
@@ -7569,7 +7573,8 @@ def _assistant_activity_observation(session_id: int) -> dict:
             "basis": "in_memory_observation_not_atomic_with_sqlite"}
 
 
-@app.get("/api/assistant/sessions/{session_id}")
+@app.get("/api/assistant/sessions/{session_id}", response_model=response_models.AssistantTranscript,
+         response_model_exclude_unset=True)
 def get_assistant_session(session_id: int):
     conn = _get_db()
     try:
@@ -7583,7 +7588,8 @@ def get_assistant_session(session_id: int):
         _close_db(conn)
 
 
-@app.get("/api/assistant/sessions/{session_id}/export")
+@app.get("/api/assistant/sessions/{session_id}/export", response_model=response_models.AssistantExport,
+         response_model_exclude_unset=True)
 def export_assistant_session(session_id: int, format: str = Query(..., pattern="^(json|markdown)$")):
     conn = _get_db()
     try:
@@ -7598,7 +7604,8 @@ def export_assistant_session(session_id: int, format: str = Query(..., pattern="
         _close_db(conn)
 
 
-@app.delete("/api/assistant/sessions/{session_id}")
+@app.delete("/api/assistant/sessions/{session_id}", response_model=response_models.AssistantSessionDeleted,
+            response_model_exclude_unset=True)
 def delete_assistant_session(session_id: int):
     conn = _get_db()
     try:
@@ -7609,7 +7616,8 @@ def delete_assistant_session(session_id: int):
         _close_db(conn)
 
 
-@app.post("/api/assistant/sessions/{session_id}/cancel")
+@app.post("/api/assistant/sessions/{session_id}/cancel", response_model=response_models.AssistantTurnCancelled,
+          response_model_exclude_unset=True)
 def cancel_assistant_turn(session_id: int):
     """Stop the running turn. Idempotent, and it says which happened."""
     killed = assistant_runtime.cancel_turn(session_id)
@@ -7617,7 +7625,8 @@ def cancel_assistant_turn(session_id: int):
     return {"cancelled": killed, "permissions_denied": denied}
 
 
-@app.post("/api/assistant/permissions")
+@app.post("/api/assistant/permissions", response_model=response_models.AssistantPermissionDecision,
+          response_model_exclude_unset=True)
 async def open_assistant_permission(body: AssistantPermissionOpen):
     """Ask the person, and hold this request open until they answer.
 
@@ -7643,7 +7652,8 @@ async def open_assistant_permission(body: AssistantPermissionOpen):
     return {"decision": decision, "message": message, "request_id": request.id}
 
 
-@app.post("/api/assistant/permissions/{request_id}")
+@app.post("/api/assistant/permissions/{request_id}", response_model=response_models.AssistantPermissionAnswered,
+          response_model_exclude_unset=True)
 async def answer_assistant_permission(request_id: str, body: AssistantPermissionAnswer):
     """The panel's Allow / Deny.
 
