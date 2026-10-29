@@ -7,6 +7,7 @@ import zlib
 MIB = 1024 * 1024
 ALPHA = "Alpha evidence — exact version."
 BETA = "Beta evidence stays separate."
+UTF16_TEXT = "Café → naïve"
 CANARY_ORIGIN = "https://pdf-action-canary.invalid"
 
 
@@ -126,6 +127,55 @@ def text_pages(texts: list[str]) -> bytes:
 def two_pages() -> bytes:
     """E06: expected exact canonical strings ALPHA and BETA, one per page."""
     return text_pages([ALPHA, BETA])
+
+
+def to_unicode_utf16(text: str = UTF16_TEXT) -> bytes:
+    """One-byte codes whose /ToUnicode CMap values are UTF-16BE hex strings.
+
+    pypdf decodes each value with its UTF-16BE codec while extracting the page,
+    the first use of that codec in the parser child.
+    """
+    codes: dict[str, int] = {}
+    for character in text:
+        codes.setdefault(character, 0x21 + len(codes))
+    entries = b"".join(
+        f"<{code:02X}> <{character.encode('utf-16-be').hex().upper()}>\n".encode("ascii")
+        for character, code in codes.items())
+    cmap = (
+        b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+        b"/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+        b"/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n"
+        b"1 begincodespacerange\n<00> <FF>\nendcodespacerange\n"
+        + str(len(codes)).encode("ascii") + b" beginbfchar\n" + entries + b"endbfchar\n"
+        b"endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+    )
+    pdf = _Pdf()
+    catalog, pages = pdf.reserve(), pdf.reserve()
+    to_unicode = pdf.add(_stream(cmap))
+    font = pdf.add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode " + _ref(to_unicode) + b" >>")
+    shown = bytes(codes[character] for character in text)
+    content = pdf.add(_stream(b"BT /F1 12 Tf 72 720 Td " + _literal(shown) + b" Tj ET\n"))
+    leaf = pdf.add(_page_dictionary(pages, content, b"/Font << /F1 " + _ref(font) + b" >>"))
+    _pages(pdf, pages, [leaf])
+    pdf.set(catalog, b"<< /Type /Catalog /Pages " + _ref(pages) + b" >>")
+    return pdf.render(catalog)
+
+
+def named_encoding(encoding: str, text: str, codec: str) -> bytes:
+    """A font whose /Encoding name pypdf resolves to a Python codec by name.
+
+    Only the decoding path matters: pypdf decodes the shown bytes with the
+    codec it chose for that name, and nothing else about the font is real.
+    """
+    pdf = _Pdf()
+    catalog, pages = pdf.reserve(), pdf.reserve()
+    font = pdf.add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /"
+                   + encoding.encode("ascii") + b" >>")
+    content = pdf.add(_stream(b"BT /F1 12 Tf 72 720 Td " + _literal(text.encode(codec)) + b" Tj ET\n"))
+    leaf = pdf.add(_page_dictionary(pages, content, b"/Font << /F1 " + _ref(font) + b" >>"))
+    _pages(pdf, pages, [leaf])
+    pdf.set(catalog, b"<< /Type /Catalog /Pages " + _ref(pages) + b" >>")
+    return pdf.render(catalog)
 
 
 def blank_page() -> bytes:
@@ -391,6 +441,7 @@ def encrypted_pdf(*, empty_user_password: bool = False) -> bytes:
         writer.close()
 
 # Actual parent/child tests. Synthetic hang/crash arms do not stand for parser bugs.
+import codecs
 import json
 import os
 from pathlib import Path
@@ -569,4 +620,73 @@ def test_action_fixture_contains_canaries_but_text_extraction_runs_no_actions() 
         assert token in raw
     result=supervisor.extract(raw,1)
     assert result['status']=='extracted' and result['text']=='Synthetic action canaries. Canvas and canonical text only.'
+    assert_reaped()
+
+
+def test_utf16_to_unicode_values_are_extracted_by_the_capability_limited_child() -> None:
+    # The child's capability hook refuses every file open, and a codec module is
+    # imported on first use, so a page whose ToUnicode map needs UTF-16BE was
+    # reported malformed until the worker preloaded pypdf's codecs.
+    result = supervisor.extract(to_unicode_utf16(), 1)
+    assert result == {'status': 'extracted', 'page_number': 1, 'page_count': 1, 'text': UTF16_TEXT}
+    assert_reaped()
+
+
+@pytest.mark.parametrize('encoding,codec', [
+    ('GB-EUC-H', 'gbk'), ('GBpc-EUC-H', 'gb2312'), ('GBK2K-H', 'gb18030'),
+    ('ETen-B5-H', 'cp950'), ('90ms-RKSJ-H', 'cp932'),
+])
+def test_predefined_cjk_encodings_are_extracted_by_the_child(encoding: str, codec: str) -> None:
+    text = '研究 monitor' if codec != 'cp932' else '研究 モニター'
+    result = supervisor.extract(named_encoding(encoding, text, codec), 1)
+    assert result == {'status': 'extracted', 'page_number': 1, 'page_count': 1, 'text': text}
+    assert_reaped()
+
+
+def test_every_codec_pypdf_names_is_preloaded() -> None:
+    from pypdf._cmap import _predefined_cmap
+    from pypdf.generic import NameObject
+    from implementation_scripts import evidence_pdf_worker as worker
+    preloaded = {codecs.lookup(name).name for name in worker.CODECS}
+    named = {'utf-16', 'utf-16-be', 'utf-16-le', 'charmap', 'latin-1', 'ascii',
+             *_predefined_cmap.values(), *NameObject.CHARSETS}
+    assert {codecs.lookup(name).name for name in named} <= preloaded
+
+
+def test_a_codec_the_document_names_itself_is_refused_as_unsupported_not_malformed() -> None:
+    # pypdf decodes with whatever codec an unknown /Encoding name resolves to,
+    # and swallows a failure by falling back to another decoding. The child does
+    # not preload such a codec, and its refusal is a limit of this reader.
+    result = supervisor.extract(named_encoding('cp037', 'EBCDIC words', 'cp037'), 1)
+    assert result == {'status': 'unsupported', 'page_number': 1, 'page_count': 1, 'text': ''}
+    assert_reaped()
+
+
+def test_a_refusal_the_parser_swallowed_still_discards_its_text(monkeypatch) -> None:
+    from implementation_scripts import evidence_pdf_worker as worker
+
+    def swallowing_parse(raw: bytes, page: int) -> dict:
+        try:
+            worker._deny_capabilities('open', ('/somewhere/module.pyc', 'r', 0))
+        except PermissionError:
+            pass
+        return {'status': 'extracted', 'page_number': page, 'page_count': 2, 'text': 'fallback text'}
+
+    monkeypatch.setattr(worker, '_parse', swallowing_parse)
+    assert worker.parse(two_pages(), 1) == {
+        'status': 'unsupported', 'page_number': 1, 'page_count': 2, 'text': ''}
+    monkeypatch.undo()
+    assert worker.parse(two_pages(), 1)['status'] == 'extracted'
+
+
+def test_a_shipped_pdf_reads_the_same_in_the_child_as_in_unconfined_pypdf() -> None:
+    # A real document that needs UTF-16BE: every page was malformed in the child.
+    from pypdf import PdfReader
+    raw = (Path(__file__).resolve().parents[2] / 'resmon_reports' / 'info_docs' / 'calendar_info.pdf').read_bytes()
+    reader = PdfReader(io.BytesIO(raw), strict=True)
+    for number, page in enumerate(reader.pages, 1):
+        expected = page.extract_text().replace('\r\n', '\n').replace('\r', '\n')
+        assert expected
+        assert supervisor.extract(raw, number) == {
+            'status': 'extracted', 'page_number': number, 'page_count': len(reader.pages), 'text': expected}
     assert_reaped()
