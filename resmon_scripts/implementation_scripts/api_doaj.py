@@ -5,6 +5,7 @@ import logging
 
 from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
                        bare_orcid, read_json_body, safe_request)
+from .utils import month_from_name
 
 logger = logging.getLogger(__name__)
 
@@ -12,17 +13,6 @@ _DOAJ_API_URL = "https://doaj.org/api/search/articles"
 
 # Conservative: 5 req/s
 _RATE_LIMITER = RateLimiter(requests_per_second=5.0)
-
-
-_MONTHS = {
-    name: index
-    for index, names in enumerate((
-        ("january", "jan"), ("february", "feb"), ("march", "mar"), ("april", "apr"),
-        ("may",), ("june", "jun"), ("july", "jul"), ("august", "aug"),
-        ("september", "sep", "sept"), ("october", "oct"), ("november", "nov"), ("december", "dec"),
-    ), start=1)
-    for name in names
-}
 
 
 def _month_number(month: object) -> str:
@@ -39,7 +29,7 @@ def _month_number(month: object) -> str:
     text = str(month).strip().lower().rstrip(".") if month is not None else ""
     if text.isdigit() and 1 <= int(text) <= 12:
         return f"{int(text):02d}"
-    number = _MONTHS.get(text)
+    number = month_from_name(text)
     return f"{number:02d}" if number else "01"
 
 
