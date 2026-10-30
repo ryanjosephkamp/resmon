@@ -69,7 +69,7 @@ test('every Settings group has its own address, and the rail lists each once', a
   const { GROUPS, groupPath } = await import('../model');
   const slugs = GROUPS.map((g) => g.slug);
   expect(new Set(slugs).size).toBe(slugs.length);
-  expect(slugs).toEqual(['', 'background', 'email', 'notifications', 'ai', 'sources', 'storage', 'cloud', 'tutorials', 'danger']);
+  expect(slugs).toEqual(['', 'background', 'email', 'notifications', 'ai', 'sources', 'storage', 'cloud', 'tutorials', 'about', 'danger']);
   expect(groupPath('danger')).toBe('/settings/danger');
 });
 

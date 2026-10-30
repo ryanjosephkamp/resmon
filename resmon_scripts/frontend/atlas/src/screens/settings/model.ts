@@ -23,6 +23,7 @@ export const GROUPS = [
   { slug: 'storage', label: 'Backup' },
   { slug: 'cloud', label: 'Cloud Storage' },
   { slug: 'tutorials', label: 'Tutorials' },
+  { slug: 'about', label: 'About resmon' },
   { slug: 'danger', label: 'Danger zone' },
 ] as const;
 
