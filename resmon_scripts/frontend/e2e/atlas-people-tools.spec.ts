@@ -120,7 +120,8 @@ test('People: the starter set, a person exported, and a file of people imported'
     await win.locator('#people-import').setInputFiles(bundle);
     const reason = "This file has no 'schema' field, so resmon cannot tell what it is.";
     await expect(win.locator('[data-people="imported"]')).toHaveText(
-      `Imported 1 person from people.json: Ada Fixture. 1 entry could not be read: entry 2, ${reason}`, { timeout: 30_000 });
+      'Imported 1 person from people.json: Ada Fixture. It is added as a new person; resmon never merges an import with the '
+        + `people you have. 1 entry could not be read: entry 2, ${reason}`, { timeout: 30_000 });
     const after = await people();
     expect(after).toHaveLength(before.length + 1);
     const copy = after.find((p) => !before.some((b) => b.id === p.id))!;

@@ -247,7 +247,12 @@ export function exportedWords(searches: number, watches: number): string {
   return `Put ${parts.join(' and ')}`;
 }
 
-/** "Imported 1 saved search.", "Imported 2 saved searches and 1 watch, which arrives paused." */
+/**
+ * "Imported 1 saved search. It is added as a new one; ...", "Imported 2 saved
+ * searches and 1 watch, which arrives paused. Each is added as a new one; ...".
+ * The engine saves every entry in the file as a new row and never merges
+ * (`config_manager.import_configs`), so one of the same name is kept beside it.
+ */
 export function importedWords(imported: number, watches: number): string {
   const searches = imported - watches;
   const parts = [
@@ -256,5 +261,6 @@ export function importedWords(imported: number, watches: number): string {
   ].filter(Boolean);
   if (!parts.length) return 'Nothing was imported.';
   const paused = watches === 1 ? ', which arrives paused' : watches > 1 ? ', which arrive paused' : '';
-  return `Imported ${parts.join(' and ')}${paused}.`;
+  const each = imported === 1 ? 'It is added as a new one' : 'Each is added as a new one';
+  return `Imported ${parts.join(' and ')}${paused}. ${each}; resmon never merges an import with what you have.`;
 }
