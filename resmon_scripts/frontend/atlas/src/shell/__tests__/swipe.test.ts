@@ -68,6 +68,25 @@ describe('one swipe moves one page', () => {
   });
 });
 
+describe('slow and irregular delivery', () => {
+  test('uneven gaps, and a burst a busy page merged into one sample, still go once', () => {
+    // The clock is the event's own, so a page slow to deliver stretches nothing; what varies is the spacing and the size.
+    const timed = [[0, -10], [5, -15], [180, -60], [190, -5], [370, -40], [380, -30], [560, -25], [575, -60], [760, -30], [940, -12]];
+    let gesture: Gesture | null = null;
+    const gone: Direction[] = [];
+    for (const [t, dx] of timed) {
+      const step = feed(gesture, { dx: dx as number, dy: 0, t: t as number }, open);
+      gesture = step.gesture;
+      if (step.go) gone.push(step.go);
+    }
+    expect(gone).toEqual(['back']);
+  });
+
+  test('one sample past the threshold on its own goes at once', () => {
+    expect(went(run([{ dx: -12, dy: 0 }, { dx: -200, dy: 0 }]))).toEqual(['back']);
+  });
+});
+
 describe('a swipe that is not the page\'s goes nowhere', () => {
   test('mostly up or down is scrolling', () => {
     expect(went(run(sideways(-12, 30, 20)))).toEqual([]);

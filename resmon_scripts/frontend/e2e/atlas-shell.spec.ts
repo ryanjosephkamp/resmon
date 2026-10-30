@@ -397,6 +397,18 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
     };
     const settle = () => win.waitForTimeout(450);
     const arrow = win.locator('.swipe-arrow');
+    // The arrow lives only while a swipe does, so what it showed is recorded in
+    // the page as it changes, not looked for afterwards, when on a slow machine
+    // it may already have gone.
+    await win.evaluate(() => {
+      const seen: { toward: string | null; swipe: number; transform: string }[] = [];
+      (window as unknown as { arrowSeen: typeof seen }).arrowSeen = seen;
+      new MutationObserver(() => {
+        const node = document.querySelector<HTMLElement>('.swipe-arrow');
+        if (node) seen.push({ toward: node.dataset.toward ?? null, swipe: Number(node.style.getPropertyValue('--swipe')), transform: getComputedStyle(node).transform });
+      }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'data-toward'] });
+    });
+    const shown = () => win.evaluate(() => (window as unknown as { arrowSeen: { toward: string | null; swipe: number; transform: string }[] }).arrowSeen.splice(0));
 
     await win.evaluate(() => { window.location.replace('#/settings'); });
     await expect(win.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
@@ -406,9 +418,9 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
 
     // No page back: nothing is drawn, nothing happens.
     await swipe(-20);
-    expect(await arrow.count()).toBe(0);
-    expect(await hash(win)).toBe('#/settings');
     await settle();
+    expect(await shown()).toEqual([]);
+    expect(await hash(win)).toBe('#/settings');
 
     for (const group of ['about', 'tutorials']) {
       await win.getByRole('navigation', { name: 'Settings groups' }).getByRole('link', { name: group === 'about' ? 'About resmon' : 'Tutorials' }).click();
@@ -425,10 +437,10 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
 
     // — back: the arrow at the left edge grows, then it goes, once, however long the tail ------
     await swipe(-20, 4);
-    await expect(arrow).toHaveAttribute('data-toward', 'back');
-    const early = Number(await arrow.evaluate((node) => getComputedStyle(node).getPropertyValue('--swipe')));
-    expect(early).toBeGreaterThan(0);
-    expect(early).toBeLessThan(1);
+    const growing = await shown();
+    expect(growing.length).toBeGreaterThan(0);
+    expect(growing.every((state) => state.toward === 'back' && state.swipe > 0 && state.swipe < 1)).toBe(true);
+    expect(growing.map((state) => state.swipe)).toEqual([...growing.map((state) => state.swipe)].sort((a, b) => a - b));
     await swipe(-20, 6);
     await expect.poll(() => hash(win)).toBe('#/settings/about');
     // A three-finger `swipe` arriving just after is the same gesture, not a second.
@@ -481,11 +493,14 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
 
     // — with reduced motion, the arrow does not slide -------------------------------------
     await win.emulateMedia({ reducedMotion: 'reduce' });
-    await win.mouse.move(box.x + box.width + 200, 200);
+    const heading = (await win.getByRole('heading', { name: 'Ask the sources', level: 1 }).boundingBox())!;
+    await win.mouse.move(heading.x + heading.width / 2, heading.y + heading.height / 2);
+    await shown();
     await swipe(-20, 3);
-    await expect(arrow).toHaveAttribute('data-toward', 'back');
-    expect(await arrow.evaluate((node) => getComputedStyle(node).transform)).toBe('none');
     await settle();
+    const still = await shown();
+    expect(still.length).toBeGreaterThan(0);
+    expect(still.every((state) => state.toward === 'back' && state.transform === 'none')).toBe(true);
     await win.emulateMedia({ reducedMotion: null });
     console.log('SWIPE — back and forward once per swipe; tail, vertical, scrollable strip, text field and three-finger repeat left alone');
     expect(problems).toEqual([]);
