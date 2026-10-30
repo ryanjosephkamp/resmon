@@ -48,8 +48,9 @@ kbd {
 .is-mac .bar { padding-left: 86px; }
 .bar a, .bar button { -webkit-app-region: no-drag; }
 
-.lockup { font: 400 15px/1 var(--sans); color: var(--ink-3); letter-spacing: -.005em; white-space: nowrap; margin-right: 10px; }
+.lockup { font: 400 15px/1 var(--sans); color: var(--ink-3); letter-spacing: -.005em; white-space: nowrap; margin-right: 10px; transition: color var(--dur) var(--ease-out); }
 .lockup b { font-weight: 650; color: var(--ink); }
+.lockup:hover { color: var(--ink-2); }
 
 .tabs ul { display: flex; align-items: stretch; height: var(--bar-h); gap: 2px; margin: 0; padding: 0; list-style: none; }
 .tabs a {
@@ -76,6 +77,32 @@ kbd {
 }
 .cmdk span { flex: 1; }
 .cmdk:hover { border-color: var(--ink-3); }
+
+/* New search: a Deep Dive or a Deep Sweep from any screen, its menu hung from the button's right edge. */
+.newsearch {
+  display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px 0 10px; anchor-name: --new-search;
+  border: 1px solid var(--rule-2); border-radius: 8px; background: var(--panel);
+  color: var(--ink-2); font: 500 13px/1 var(--sans); cursor: pointer; white-space: nowrap;
+  transition: border-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+}
+.newsearch .icon { color: var(--ink-3); }
+.newsearch:hover { border-color: var(--ink-3); color: var(--ink); }
+.newsearch:has(+ .newsearch-menu:popover-open) { color: var(--ink); border-color: var(--ink-3); background: var(--raise); }
+.newsearch-menu {
+  position: fixed; inset: auto; position-anchor: --new-search; top: anchor(bottom); right: anchor(right); margin: 6px 0 0;
+  width: 290px; padding: 6px; border: 1px solid var(--rule-2); border-radius: var(--r-lg);
+  background: var(--raise); color: var(--ink); box-shadow: var(--shadow); -webkit-app-region: no-drag;
+}
+.newsearch-item {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; row-gap: 4px;
+  width: 100%; padding: 9px 10px; border: 0; border-radius: var(--r); background: transparent; text-align: left; cursor: pointer;
+}
+.newsearch-item:hover, .newsearch-item:focus-visible { background: var(--panel-2); }
+.newsearch-item:focus-visible { outline-offset: -2px; }
+.newsearch-name { font: 560 13.5px/1.2 var(--sans); color: var(--ink); }
+.newsearch-says { grid-column: 1 / -1; font: 400 12.5px/1.35 var(--sans); color: var(--ink-3); }
+/* The bar at its narrowest still holds every section, New search, and the command search. */
+@media (max-width: 1360px) { .cmdk { width: 220px; } }
 
 .iconbtn {
   display: inline-grid; place-items: center; width: 32px; height: 32px;
@@ -240,6 +267,31 @@ kbd {
 .palette-current { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font: 400 12px/1 var(--sans); color: var(--ink-3); }
 .palette-current .icon { color: var(--accent-ink); }
 .palette-empty { padding: 20px; font: 400 13.5px/1.4 var(--sans); color: var(--ink-3); }
+.palette-keys { margin-left: auto; flex: none; }
+.palette-current + .palette-keys { margin-left: 10px; }
+
+/* Keyboard shortcuts: the sheet the palette, `?`, About, and the Help menu open. */
+.keys-sheet {
+  width: min(660px, calc(100vw - 32px)); max-height: calc(100vh - 96px);
+  margin: 10vh auto auto; padding: 0;
+  border: 1px solid var(--rule-2); border-radius: 12px;
+  background: var(--raise); color: var(--ink); box-shadow: var(--shadow); overflow: auto;
+}
+.keys-sheet[open] { animation: palette-in 160ms var(--ease-out); }
+.keys-sheet::backdrop { background: var(--scrim); animation: fade-in 160ms var(--ease-out); }
+.keys-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 12px 4px 22px; }
+.keys-title { font: 600 16px/1.3 var(--sans); color: var(--ink); }
+.keys-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; padding: 0 22px 6px; }
+.keys-group-title { margin: 12px 0 2px; font: 560 11.5px/1 var(--sans); color: var(--ink-3); }
+.keys-list { margin: 0; }
+.keys-list > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 5px 0; border-top: 1px solid var(--rule); }
+.keys-list > div:first-child { border-top: 0; }
+.keys-list dt { font: 400 13.5px/1.3 var(--sans); color: var(--ink); }
+.keys-list dd { margin: 0; display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.keys-list .keys-words { flex: 0 1 auto; max-width: 180px; font: 400 12.5px/1.35 var(--sans); color: var(--ink-2); text-align: right; }
+.keys-or { font: 400 12px/1 var(--sans); color: var(--ink-3); }
+.keys-note { margin: 8px 0 0; padding: 12px 22px 18px; border-top: 1px solid var(--rule); font: 400 12.5px/1.5 var(--sans); color: var(--ink-3); }
+@media (prefers-reduced-motion: reduce) { .keys-sheet[open], .keys-sheet::backdrop { animation: none; } }
 
 @keyframes palette-in { from { opacity: 0; transform: translateY(-6px) scale(.985); } }
 @keyframes fade-in { from { opacity: 0; } }
@@ -403,6 +455,10 @@ kbd {
 .ask { scroll-padding-bottom: 104px; }
 .ask > * { max-width: 920px; }
 .ask-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.ask-kept {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: fit-content; margin-top: 12px; padding: 6px 6px 6px 12px;
+  border-radius: 8px; background: var(--panel-2); font: 400 13px/1.45 var(--sans); color: var(--ink); max-width: 72ch;
+}
 
 .terms {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 26px;
@@ -630,6 +686,10 @@ kbd {
 .collection { display: grid; grid-template-columns: minmax(0, 1fr) clamp(460px, 40vw, 620px); height: 100%; min-height: 0; background: var(--plate); }
 .results-head { flex: none; padding: 24px 22px 14px 28px; border-bottom: 1px solid var(--rule); }
 .results-head .page-title { font-size: 24px; }
+.collection-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; }
+.collection-new { display: flex; gap: 6px; flex: none; }
+.collection-new .btn { height: 30px; padding: 0 10px 0 8px; font-size: 12.5px; }
+.collection-new .icon { color: var(--ink-3); }
 .terms.compact { margin-top: 14px; min-height: 46px; padding: 6px 12px; }
 .terms.compact input { font-size: 16px; }
 .results-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; margin-top: 12px; }

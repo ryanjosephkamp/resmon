@@ -1,7 +1,8 @@
 /**
  * What the preload script hands the renderer: the backend's port, this
  * window's API token, the platform, the desktop's file choosers and opener,
- * and a relaunch (`electron/preload.ts`). Read through
+ * a relaunch, and the app menu's commands (`electron/preload.ts`). Read
+ * through
  * one typed accessor so nothing in the Atlas renderer reaches for `window`
  * directly.
  */
@@ -16,6 +17,8 @@ export interface ResmonBridge {
   revealPath?: (targetPath: string) => Promise<boolean>;
   /** Quit and open the app again; false where the main process refuses. Absent outside the app. */
   relaunch?: () => Promise<boolean>;
+  /** The app menu's commands (New Deep Dive and the rest, `shell/shortcuts.ts`); returns the way to stop listening. */
+  onCommand?: (callback: (command: string) => void) => () => void;
 }
 
 export function bridge(): ResmonBridge | null {

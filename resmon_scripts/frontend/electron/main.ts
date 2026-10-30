@@ -1023,6 +1023,18 @@ function navigateHistory(direction: 'back' | 'forward'): void {
 }
 
 /**
+ * Hand an app menu command to the Atlas renderer, which does it as its own
+ * shortcut does (`atlas/src/shell/shortcuts.ts`), bringing the window forward
+ * first: the menu is also there while a link window is in front.
+ */
+function sendCommand(command: string): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+  mainWindow.webContents.send('resmon:command', command);
+}
+
+/**
  * Install the application menu.
  *
  * resmon shipped with Electron's default menu, which has no history items at
@@ -1031,12 +1043,50 @@ function navigateHistory(direction: 'back' | 'forward'): void {
  * (Cmd+[ / Cmd+]) alongside the Cmd+Left / Cmd+Right pair, and keeps the rest
  * of the standard menu so Copy, Paste, Minimise and the window list behave as
  * they always have.
+ *
+ * With the Atlas renderer, File also starts a new conversation, Deep Dive, or
+ * Deep Sweep, the app menu (Settings off macOS, in File) opens Settings, and
+ * Help lists the keyboard shortcuts. The renderer answers those keys itself
+ * and takes them, so a menu item's accelerator runs it only when the
+ * renderer left the key alone; a click is sent to the renderer, which does
+ * what the key does. ⌘W stays Close Window.
  */
 function installApplicationMenu(): void {
   const isMac = process.platform === 'darwin';
+  const send = (command: string) => () => sendCommand(command);
+  const settings: Electron.MenuItemConstructorOptions = {
+    id: 'app-settings', label: isMac ? 'Settings…' : 'Settings', accelerator: 'CmdOrCtrl+,', click: send('settings'),
+  };
+  const atlasFile: Electron.MenuItemConstructorOptions = {
+    label: 'File',
+    id: 'file-menu',
+    submenu: [
+      { id: 'file-new-conversation', label: 'New Conversation', accelerator: 'CmdOrCtrl+N', click: send('new-conversation') },
+      { id: 'file-new-dive', label: 'New Deep Dive', accelerator: 'CmdOrCtrl+D', click: send('new-dive') },
+      { id: 'file-new-sweep', label: 'New Deep Sweep', accelerator: 'Shift+CmdOrCtrl+D', click: send('new-sweep') },
+      { type: 'separator' },
+      ...(isMac ? [{ role: 'close' as const }] : [settings, { type: 'separator' as const }, { role: 'quit' as const }]),
+    ],
+  };
+  const atlasApp: Electron.MenuItemConstructorOptions = {
+    role: 'appMenu',
+    submenu: [
+      { role: 'about' },
+      { type: 'separator' },
+      settings,
+      { type: 'separator' },
+      { role: 'services' },
+      { type: 'separator' },
+      { role: 'hide' },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      { type: 'separator' },
+      { role: 'quit' },
+    ],
+  };
   const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac ? [{ role: 'appMenu' as const }] : []),
-    { role: 'fileMenu' },
+    ...(isMac ? [ATLAS ? atlasApp : { role: 'appMenu' as const }] : []),
+    ATLAS ? atlasFile : { role: 'fileMenu' },
     { role: 'editMenu' },
     {
       label: 'History',
@@ -1080,6 +1130,10 @@ function installApplicationMenu(): void {
     },
     { role: 'viewMenu' },
     { role: 'windowMenu' },
+    ...(ATLAS ? [{
+      role: 'help' as const,
+      submenu: [{ id: 'help-shortcuts', label: 'Keyboard Shortcuts', click: send('shortcuts') }],
+    }] : []),
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

@@ -55,4 +55,10 @@ contextBridge.exposeInMainWorld('resmonAPI', {
   // Quit and open again; resolves false where the main process refuses (the
   // service, or a frame that is not the renderer's own).
   relaunch: (): Promise<boolean> => ipcRenderer.invoke('resmon:relaunch'),
+  // The app menu's commands for the Atlas renderer: New Deep Dive and the rest.
+  onCommand: (callback: (command: string) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, command: string) => callback(command);
+    ipcRenderer.on('resmon:command', listener);
+    return () => { ipcRenderer.removeListener('resmon:command', listener); };
+  },
 });

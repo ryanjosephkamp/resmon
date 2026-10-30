@@ -1,9 +1,10 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
 import { SearchTabs } from './collection/SearchTabs';
-import { SAVED_KEY, savedAsks, savedParameters, type SavedConfiguration } from './collection/savedSearches';
+import { SAVED_KEY, savedAsks, savedParameters } from './collection/savedSearches';
+import { ASK_PATH, KINDS, type AskState, type SearchKind } from './searchStart';
 import { RunLog } from './runs/RunLog';
 import { PlaceHelp } from './watches/people/People';
 import { coarseFor, coarseSentence, paceOf, rateLong } from './sources/catalog';
@@ -12,7 +13,11 @@ import { SummaryChoiceField, choiceProblem } from './settings/SummaryChoiceField
 import { NO_CHOICE, overrideOf, type SummaryChoice } from './settings/summaryChoice';
 import { AI_KEY } from './settings/summaryLanes';
 
-type Mode = 'dive' | 'sweep';
+type Mode = SearchKind;
+
+/** The window a fresh form asks for, in days, and its most papers per source. */
+const FRESH_DAYS = 30;
+const FRESH_CAP = 100;
 
 /** The windows offered beside the two date fields, in days; `null` is any time. */
 const WINDOWS: readonly { days: number | null; label: string }[] = [
@@ -41,28 +46,39 @@ function windowDates(days: number | null): { from: string; to: string } {
  * two sentences under the button are derived from them for this selection:
  * which source sets the pace, and which cannot date papers as finely as the
  * window asks. Nothing here estimates how many papers a search will find.
+ *
+ * A new Deep Dive or Deep Sweep (⌘D, ⇧⌘D, or a New search button) opens a
+ * fresh form of that kind with the caret in the terms. Asked for while this
+ * form holds a search not yet started, it keeps that search rather than
+ * emptying it unseen, takes the kind asked for where that drops nothing,
+ * says so, and offers to start over.
  */
 export function Search() {
   const navigate = useNavigate();
   const client = useQueryClient();
+  const location = useLocation();
+  const arrival = useNavigationType();
   // A saved search opened from Saved fills the form, and the run it starts
   // records which saved search it came from.
-  const opened = (useLocation().state as { saved?: SavedConfiguration } | null)?.saved ?? null;
+  const routed = location.state as AskState | null;
+  const opened = routed?.saved ?? null;
   const from = opened ? savedAsks(opened) : null;
   const { sources, keyMissing, pending, failed } = useSources();
 
-  const [mode, setMode] = useState<Mode>(opened?.config_type === 'manual_dive' ? 'dive' : opened ? 'sweep' : 'dive');
+  const [mode, setMode] = useState<Mode>(routed?.start ?? (opened?.config_type === 'manual_dive' ? 'dive' : opened ? 'sweep' : 'dive'));
   const terms = useTerms(from?.keywords ?? []);
   const [chosen, setChosen] = useState<string[]>(from?.sources ?? []);
   /** The preset the dates came from; `undefined` once they are edited by hand. */
-  const [windowDays, setWindowDays] = useState<number | null | undefined>(from ? undefined : 30);
-  const [dates, setDates] = useState(() => (from ? { from: from.dateFrom, to: from.dateTo } : windowDates(30)));
-  const [cap, setCap] = useState(from?.cap ?? 100);
+  const [windowDays, setWindowDays] = useState<number | null | undefined>(from ? undefined : FRESH_DAYS);
+  const [dates, setDates] = useState(() => (from ? { from: from.dateFrom, to: from.dateTo } : windowDates(FRESH_DAYS)));
+  const [cap, setCap] = useState(from?.cap ?? FRESH_CAP);
   // Summaries for this run alone: on or off, and anything set here rather than in Settings › AI.
   const [summaries, setSummaries] = useState<SummaryChoice>({ ...NO_CHOICE, on: from?.summarize ?? false });
   const lane = useQuery({ queryKey: AI_KEY, queryFn: () => answer(engine().GET('/api/settings/ai')), enabled: summaries.on });
   /** The name being typed for Save this search; `null` while the field is closed. */
   const [naming, setNaming] = useState<string | null>(null);
+  /** What was said when a new search was asked for and this one was kept instead. */
+  const [kept, setKept] = useState<{ asked: Mode; words: string } | null>(null);
 
   const choose = (slug: string) => {
     setChosen((current) => {
@@ -75,6 +91,37 @@ export function Search() {
     setMode(next);
     if (next === 'dive') setChosen((current) => current.slice(0, 1));
   };
+
+  const focusTerms = () => document.getElementById('ask-terms')?.focus();
+  const untouched = !opened && !terms.terms.length && !terms.draft.trim() && !chosen.length && windowDays === FRESH_DAYS
+    && cap === FRESH_CAP && !summaries.on && naming === null;
+
+  // A new search asked for while this form is open: answered when the address
+  // changes under it, as a render adjusts to a new prop. Back and forward return
+  // to a page; they do not ask for a new search again.
+  const [seen, setSeen] = useState(location.key);
+  const [focusAsked, setFocusAsked] = useState(() => (routed?.start && arrival !== 'POP' ? 1 : 0));
+  if (location.key !== seen) {
+    setSeen(location.key);
+    const asked = routed?.start;
+    if (asked && arrival !== 'POP') {
+      const name = KINDS.find((k) => k.kind === asked)?.name ?? '';
+      if (untouched) {
+        setMode(asked);
+        setKept(null);
+      } else if (asked === 'dive' && chosen.length > 1) {
+        setKept({
+          asked,
+          words: `Kept the Deep Sweep you had not started: a Deep Dive asks one source, and ${chosen.length} are chosen.`,
+        });
+      } else {
+        switchMode(asked);
+        setKept({ asked, words: `Kept the search you had not started, as a ${name}.` });
+      }
+      setFocusAsked((n) => n + 1);
+    }
+  }
+  useEffect(() => { if (focusAsked) focusTerms(); }, [focusAsked]);
 
   const allTerms = terms.all;
   // In the order they were chosen, which is the order the run asks and records them.
@@ -125,6 +172,25 @@ export function Search() {
       void client.invalidateQueries({ queryKey: SAVED_KEY });
     },
   });
+
+  const startOver = (kind: Mode) => {
+    setMode(kind);
+    terms.setTerms([]);
+    terms.setDraft('');
+    setChosen([]);
+    setWindowDays(FRESH_DAYS);
+    setDates(windowDates(FRESH_DAYS));
+    setCap(FRESH_CAP);
+    setSummaries({ ...NO_CHOICE });
+    setNaming(null);
+    start.reset();
+    keep.reset();
+    setKept(null);
+    // A form opened from a saved search no longer is one.
+    if (opened) void navigate(ASK_PATH, { replace: true, state: { start: kind } satisfies AskState });
+    focusTerms();
+  };
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (terms.draft.trim()) terms.add();
@@ -151,11 +217,15 @@ export function Search() {
           </div>
         </div>
         <p className="page-lede">
-          {mode === 'dive'
-            ? 'One source, asked in depth.'
-            : 'Several sources at once, each asked the same question.'}
+          {KINDS.find((k) => k.kind === mode)?.says}
           {' '}Each source&rsquo;s own limits are listed before you ask.
         </p>
+        {kept && (
+          <p className="ask-kept" role="status" data-ask="kept">
+            {kept.words}{' '}
+            <button type="button" className="btn quiet sm" onClick={() => startOver(kept.asked)}>Start over</button>
+          </p>
+        )}
 
         <PlaceHelp summary="About sources, their limits and their keys">
           <p>

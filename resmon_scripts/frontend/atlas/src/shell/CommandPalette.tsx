@@ -1,8 +1,9 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SECTIONS, SETTINGS } from '../routes';
+import { PLACES, SECTIONS, SETTINGS } from '../routes';
 import { useAppearance, type ThemeChoice } from '../theme/appearance';
 import { Icon, type IconName } from './Icon';
+import { keysText, shortcut, type ShortcutId } from './shortcuts';
 
 interface Command {
   id: string;
@@ -12,6 +13,8 @@ interface Command {
   icon: IconName;
   /** Shown at the row's end: the current choice, or where it goes. */
   current?: boolean;
+  /** Shown at the row's end: the shortcut that does the same from anywhere. */
+  keys?: ShortcutId;
   run: () => void;
 }
 
@@ -41,13 +44,33 @@ const THEMES: { choice: ThemeChoice; label: string; icon: IconName }[] = [
   { choice: 'dark', label: 'Dark', icon: 'moon' },
 ];
 
+/** The commands the shell itself runs, in the order the palette lists them, with what each is also called. */
+const SHELL_COMMANDS: readonly { id: ShortcutId; group: string; label: string; keywords: string; icon: IconName }[] = [
+  { id: 'new-dive', group: 'Start', label: 'New Deep Dive', keywords: 'search ask the sources one source depth manual', icon: 'plus' },
+  { id: 'new-sweep', group: 'Start', label: 'New Deep Sweep', keywords: 'search ask the sources several many sources manual', icon: 'plus' },
+  { id: 'new-conversation', group: 'Start', label: 'New conversation', keywords: 'ask assistant chat question', icon: 'plus' },
+  { id: 'ask', group: 'Start', label: 'Message the assistant', keywords: 'ask chat question composer write', icon: 'arrow' },
+  { id: 'back', group: 'History', label: 'Back', keywords: 'go back previous page history', icon: 'back' },
+  { id: 'forward', group: 'History', label: 'Forward', keywords: 'go forward next page history', icon: 'arrow' },
+  { id: 'shortcuts', group: 'Help', label: 'Keyboard shortcuts', keywords: 'keys keyboard shortcuts hotkeys help', icon: 'search' },
+];
+
 /**
- * ⌘K: every screen and every appearance choice, by name. A modal <dialog>, so
- * the page behind it is inert and Escape closes it; the field is a combobox
- * over a listbox, so a screen reader hears the highlighted row as it moves.
+ * ⌘K: every screen, every appearance choice, and every command the shell
+ * runs, by name, each with its shortcut where it has one. A modal <dialog>,
+ * so the page behind it is inert and Escape closes it; the field is a
+ * combobox over a listbox, so a screen reader hears the highlighted row as it
+ * moves. The shell holds the dialog, so a shortcut pressed in it can close it
+ * before doing what it says.
  */
-export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
+export function CommandPalette({ open, onClose, onRun, dialog, mac }: {
+  open: boolean;
+  onClose: () => void;
+  /** Runs one of the shell's own commands, as its shortcut would. */
+  onRun: (id: ShortcutId) => void;
+  dialog: RefObject<HTMLDialogElement | null>;
+  mac: boolean;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { stored, save } = useAppearance();
@@ -56,14 +79,25 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const listId = useId();
 
   const commands = useMemo<Command[]>(() => [
-    ...[...SECTIONS, SETTINGS].map((section) => ({
+    ...SHELL_COMMANDS.filter((c) => c.group === 'Start').map((c) => ({ ...c, keys: c.id, run: () => onRun(c.id) })),
+    ...[...SECTIONS, SETTINGS].map((section, index) => ({
       id: `go:${section.path}`,
       group: 'Go to',
       label: section.label,
       keywords: section.keywords,
       icon: 'arrow' as const,
+      keys: (section === SETTINGS ? 'settings' : `section-${index + 1}`) as ShortcutId,
       run: () => navigate(section.path),
     })),
+    ...PLACES.map((place) => ({
+      id: `go:${place.path}`,
+      group: 'Go to',
+      label: place.label,
+      keywords: place.keywords,
+      icon: 'arrow' as const,
+      run: () => navigate(place.path),
+    })),
+    ...SHELL_COMMANDS.filter((c) => c.group === 'History').map((c) => ({ ...c, keys: c.id, run: () => onRun(c.id) })),
     ...THEMES.map(({ choice, label, icon }) => ({
       id: `theme:${choice}`,
       group: 'Theme',
@@ -90,7 +124,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       current: stored.accent === null,
       run: () => save({ accent: null }),
     },
-  ], [navigate, save, stored]);
+    ...SHELL_COMMANDS.filter((c) => c.group === 'Help').map((c) => ({ ...c, keys: c.id, run: () => onRun(c.id) })),
+  ], [navigate, save, stored, onRun]);
 
   const shown = useMemo(() => rank(commands, query), [commands, query]);
   const activeIndex = Math.min(active, Math.max(shown.length - 1, 0));
@@ -107,14 +142,16 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     } else if (!open && node.open) {
       node.close();
     }
-  }, [open]);
+  }, [open, dialog]);
 
   useEffect(() => {
     document.getElementById(`${listId}-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex, listId]);
 
+  // Closed before the command runs, so the focus it hands back goes where it was, and the command can then move it.
   const choose = (command: Command | undefined) => {
     if (!command) return;
+    dialog.current?.close();
     onClose();
     command.run();
   };
@@ -132,8 +169,11 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     <dialog
       ref={dialog}
       className="palette"
+      data-shell-dialog=""
       aria-label="Search commands"
-      onClose={onClose}
+      // A close event is queued, and a key can be handled before it: one that
+      // arrives after the palette has been opened again is not this opening's.
+      onClose={() => { if (!dialog.current?.open) onClose(); }}
       onCancel={onClose}
       onMouseDown={(event) => { if (event.target === dialog.current) onClose(); }}
     >
@@ -147,7 +187,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           aria-autocomplete="list"
           aria-activedescendant={activeCommand ? `${listId}-${activeIndex}` : undefined}
           aria-label="Search commands"
-          placeholder="Go to a screen, or change the theme"
+          placeholder="Go to a screen, start a search, or change the theme"
           value={query}
           onChange={(event) => { setQuery(event.target.value); setActive(0); }}
           onKeyDown={onKeyDown}
@@ -173,6 +213,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               <Icon name={command.icon} />
               <span className="palette-label">{command.label}</span>
               {command.current && <span className="palette-current"><Icon name="check" size={14} />Current</span>}
+              {command.keys && <kbd className="palette-keys">{keysText(shortcut(command.keys).chord, mac)}</kbd>}
             </li>,
           ];
         })}

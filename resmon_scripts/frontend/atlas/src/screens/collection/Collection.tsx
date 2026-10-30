@@ -3,7 +3,10 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tans
 import { Link, useSearchParams } from 'react-router-dom';
 import { answer, engine, type EngineError } from '../../api/client';
 import type { components } from '../../api/schema';
+import { isMac } from '../../bridge';
 import { Icon } from '../../shell/Icon';
+import { ariaKeys, keysText, shortcut } from '../../shell/shortcuts';
+import { ASK_PATH, KINDS, type AskState } from '../searchStart';
 import { basisWords, PaperSky } from '../sky/PaperSky';
 import { authors, count, number } from '../today/format';
 import { EMBEDDING_STATUS_KEY, EMBEDDINGS_PATH, ranking as rankingWords } from '../settings/embeddingWords';
@@ -162,7 +165,10 @@ export function Collection() {
         data-capability={status.isSuccess ? (canRank ? 'available' : 'unavailable') : 'unknown'}>
         <div className="results-head">
           <SearchTabs />
-          <h1 className="page-title">Your collection</h1>
+          <div className="collection-head">
+            <h1 className="page-title">Your collection</h1>
+            <AskForMore />
+          </div>
           <label className="terms compact" htmlFor="collection-query">
             <Icon name="search" />
             <input
@@ -326,6 +332,28 @@ export function Collection() {
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+/**
+ * A new Deep Dive or Deep Sweep from the top of Search, where a person looks
+ * for one first: each opens Ask the sources with that kind chosen and the
+ * caret in its terms, as its shortcut does from anywhere.
+ */
+function AskForMore() {
+  const mac = isMac();
+  return (
+    <div className="collection-new" role="group" aria-label="Ask the sources for more papers">
+      {KINDS.map((kind) => {
+        const { chord } = shortcut(kind.shortcut);
+        return (
+          <Link key={kind.kind} to={ASK_PATH} state={{ start: kind.kind } satisfies AskState} className="btn"
+            data-new-search={kind.kind} aria-keyshortcuts={ariaKeys(chord, mac)} title={`${kind.says} ${keysText(chord, mac)}`}>
+            <Icon name="plus" size={14} />{kind.name}
+          </Link>
+        );
+      })}
     </div>
   );
 }
