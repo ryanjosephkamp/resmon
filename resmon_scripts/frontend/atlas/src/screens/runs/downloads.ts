@@ -69,10 +69,13 @@ export function saveBundle(id: number): Promise<void> {
   }), `resmon-bundle-${id}.zip`, 'The bundle');
 }
 
-/** Several runs' bundles in one archive, one folder per run, built by the engine as it builds one run's. */
+/**
+ * Several runs' bundles in one archive, one folder per run, built by the engine as it builds one run's.
+ * The runs go in by number, as the file name lists them, whatever order they were ticked or drawn in.
+ */
 export function saveRunsBundle(ids: readonly number[]): Promise<void> {
   return saveZip(engine().POST('/api/executions/archive', {
-    body: { ids: [...ids] },
+    body: { ids: [...new Set(ids)].sort((a, b) => a - b) },
     parseAs: 'arrayBuffer',
   }), `${runsFileStem('resmon-bundle', ids)}.zip`, 'The bundle');
 }

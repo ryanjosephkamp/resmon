@@ -348,9 +348,9 @@ export function restartFacts(run: Pick<RunRow, 'parameters' | 'execution_type' |
   };
 }
 
-/** "run 4", "runs 4 and 9", "runs 4, 9, and 12". */
+/** "run 4", "runs 4 and 9", "runs 4, 9, and 12": by number, whatever order the runs were chosen or drawn in. */
 export function runNumbers(ids: readonly number[]): string {
-  const words = ids.map(String);
+  const words = [...ids].sort((a, b) => a - b).map(String);
   if (words.length === 1) return `run ${words[0]}`;
   const list = words.length === 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')}, and ${words[words.length - 1]}`;
   return `runs ${list}`;
