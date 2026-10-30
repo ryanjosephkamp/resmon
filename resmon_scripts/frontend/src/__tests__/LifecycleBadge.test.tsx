@@ -54,7 +54,7 @@ const PUBLISHED: LifecycleEvent = {
   notice_doi: '10.1126/science.abb2507',
   notice_url: 'https://doi.org/10.1126/science.abb2507',
   notice_date: '2020-02-11',
-  detail: 'Cite the published version where you can — it is the one that was peer reviewed.',
+  detail: 'bioRxiv records that this preprint has since appeared as a journal article.',
   provider: 'biorxiv',
   provider_source: null,
 };
@@ -116,7 +116,7 @@ describe('LifecycleBadge', () => {
 
     expect(screen.getByRole('link', { name: 'Published in a journal' }))
       .toHaveAttribute('href', 'https://doi.org/10.1126/science.abb2507');
-    expect(screen.getByText(/peer reviewed/)).toBeInTheDocument();
+    expect(screen.getByText(/bioRxiv records that this preprint has since appeared/)).toBeInTheDocument();
   });
 
   test('a paper with nothing recorded renders nothing at all', () => {

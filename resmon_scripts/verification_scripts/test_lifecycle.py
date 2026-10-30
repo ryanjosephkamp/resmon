@@ -284,7 +284,36 @@ def test_a_preprint_that_reached_a_journal_is_reported_with_the_published_doi():
     assert findings[0].kind == "preprint_published"
     assert findings[0].notice_doi == "10.1126/science.abb2507"
     assert findings[0].notice_url == "https://doi.org/10.1126/science.abb2507"
-    assert "peer reviewed" in findings[0].detail
+    assert findings[0].detail == (
+        "bioRxiv records that this preprint has since appeared as a journal article.")
+    # bioRxiv's record, and no advice or claim about review it does not make.
+    assert "peer reviewed" not in findings[0].detail
+    assert "Cite" not in findings[0].detail
+
+
+def test_a_published_finding_stored_with_the_old_sentence_reads_like_a_new_one(conn):
+    """A finding is recorded once and kept, so the sentence is corrected where it is stored."""
+    doc_id = _doc(conn, source="biorxiv", ext="10.1101/2020.01.01.000001", doi="10.1101/2020.01.01.000001")
+    other_id = _doc(conn, ext="2", doi="10.1/y")
+    old = ("This preprint has since appeared as a journal article. Cite the published "
+           "version where you can — it is the one that was peer reviewed.")
+    record_lifecycle_finding(
+        conn, doc_id, kind="preprint_published", severity="informational",
+        notice_key="10.1126/science.abb2507", notice_url="https://doi.org/10.1126/science.abb2507",
+        label="Published in a journal", detail=old, provider="biorxiv",
+    )
+    # A finding from another provider that happens to share the words is not bioRxiv's to reword.
+    record_lifecycle_finding(
+        conn, other_id, kind="other_update", severity="informational",
+        notice_key="10.1/n", notice_url="https://doi.org/10.1/n", detail=old, provider="crossref",
+    )
+
+    init_db(conn=conn)
+    init_db(conn=conn)
+
+    (event,) = get_lifecycle_for_document(conn, doc_id)
+    assert event["detail"] == lifecycle.findings_from_biorxiv(BIORXIV_PUBLISHED)[0].detail
+    assert get_lifecycle_for_document(conn, other_id)[0]["detail"] == old
 
 
 def test_the_literal_string_NA_is_not_mistaken_for_a_doi():
