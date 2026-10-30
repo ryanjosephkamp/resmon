@@ -240,7 +240,7 @@ test('Settings → AI: a fallback chain kept, Ask in checked words, and embeddin
     await lane.getByLabel('Model', { exact: true }).fill(MODEL);
     await lane.getByLabel('Ollama endpoint', { exact: true }).fill(embedder.url);
     await lane.getByRole('button', { name: 'Probe this model' }).click();
-    await expect(lane.locator('[data-embeddings="probe"]')).toHaveText(`${MODEL} answered with a ${DIMS}-dimensional vector.`, { timeout: 30_000 });
+    await expect(lane.locator('[data-embeddings="probe"]')).toHaveText(`${MODEL} answered with an ${DIMS}-dimensional vector.`, { timeout: 30_000 });
     await expect(lane.locator('[data-embeddings="probe"]')).toHaveAttribute('data-ok', 'true');
     await lane.getByRole('button', { name: 'Save embedding settings' }).click();
     await expect(lane.locator('[data-embeddings="saved"]')).toHaveText('Saved.', { timeout: 30_000 });
