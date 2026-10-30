@@ -937,14 +937,18 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       await goto('Watchdog');
       const card = win().locator('li.finding').filter({ hasText: titleFragment }).first();
       await expect(card, `no finding mentioning "${titleFragment}"`).toBeVisible({ timeout: 30_000 });
+      // By the finding's key: the card names a source as the catalog does
+      // ("arXiv"), the engine's own title by its slug ("arxiv").
+      const key = await card.getAttribute('data-key');
+      expect(key, `the finding mentioning "${titleFragment}" carries no key`).toBeTruthy();
       const answered = win().waitForResponse((r) => r.url().includes('/api/watchdog/mute'));
       await card.getByRole('button', { name: 'Mute', exact: true }).click();
       expect((await answered).ok(), 'Mute was refused').toBe(true);
       // Accepted is not yet readable: the next read of the report is the one
       // that pays for the change, so wait for the app's own record first.
       await expect.poll(async () => {
-        const view = await backend.watchdogFindings() as { findings?: { title?: string; muted?: boolean }[] };
-        return (view.findings ?? []).some((f) => String(f.title ?? '').includes(titleFragment) && f.muted === true);
+        const view = await backend.watchdogFindings() as { findings?: { key?: string; muted?: boolean }[] };
+        return (view.findings ?? []).some((f) => f.key === key && f.muted === true);
       }, { timeout: 30_000, message: `"${titleFragment}" was never recorded as muted` }).toBe(true);
       await expect(card, 'the record says muted and the finding on screen still does not')
         .toHaveAttribute('data-muted', 'true', { timeout: 30_000 });

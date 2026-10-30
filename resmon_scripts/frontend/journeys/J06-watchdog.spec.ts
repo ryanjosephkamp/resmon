@@ -55,7 +55,9 @@ journey.describe('J06 Watchdog', () => {
     expect(failure, 'three failures in a row produced no finding about the source').toBeTruthy();
     expect(failure!.severity.toLowerCase(), 'a source that failed three times is not reported as broken')
       .toBe('broken');
-    expect(failure!.title).toContain('arxiv');
+    // The title too: Atlas names the source as the catalog does ("arXiv has
+    // failed…"), and classic by its slug.
+    expect(failure!.title.toLowerCase()).toContain('arxiv');
     expect(broken.verdict.toLowerCase(), 'the verdict did not change when something broke').toContain('broken');
 
     // Mute it. It stays on screen — muting is not hiding — in its own section.
