@@ -1359,8 +1359,9 @@ def _drive_danger_zone(drive: Drive) -> None:
     the state directory and the reports folder the app would use are checked
     to be scratch paths; if any is not, the scenario stops there. One AI key
     and one repository key are stored first, and each key route then counts
-    the one key it found, and none when asked again. A setting and a paper are
-    put back before the factory reset, so its counts are not all zero.
+    the keys it found, which includes any an earlier test in this process left
+    in the shared keyring, and none when asked again. A setting and a paper
+    are put back before the factory reset, so its counts are not all zero.
     """
     import keyring  # noqa: PLC0415 — only this slice needs these
     from implementation_scripts import credential_manager  # noqa: PLC0415
@@ -1386,10 +1387,17 @@ def _drive_danger_zone(drive: Drive) -> None:
             stored = (sorted(credential_manager.AI_CREDENTIAL_NAMES)[0], sorted(credential_names())[0])
             for name in stored:
                 drive("PUT", f"/api/credentials/{name}", json={"value": "a-key-for-the-scenario"})
+
+            def held(names) -> int:
+                return sum(credential_manager.probe_credential(n) == credential_manager.PRESENT for n in names)
+
+            ai_held = held(sorted(credential_manager.AI_CREDENTIAL_NAMES) + ["ai_api_key"])
+            repo_held = held(sorted(credential_names()))
+            assert ai_held >= 1 and repo_held >= 1
             ai = drive("POST", "/api/admin/erase-ai-keys")
-            assert ai["ai_keys_removed"] == 1, ai
+            assert ai["ai_keys_removed"] == ai_held, ai
             repo = drive("POST", "/api/admin/erase-repo-keys")
-            assert repo["repo_keys_removed"] == 1, repo
+            assert repo["repo_keys_removed"] == repo_held, repo
             assert {credential_manager.probe_credential(name) for name in stored} == {credential_manager.ABSENT}
             assert drive("POST", "/api/admin/erase-ai-keys")["ai_keys_removed"] == 0
 
