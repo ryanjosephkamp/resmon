@@ -542,7 +542,8 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
             {existing
               ? (existing.is_active ? 'It is watching. Saving does not change that.' : 'It is paused. Saving does not resume it; its page does.')
               : (form.start ? 'It starts watching when it is saved.' : 'It is saved paused, and runs only when you ask it to.')}
-            {' '}A run due while resmon is closed is recorded as missed.
+            {' '}Watches run on schedule only in the background service: a resmon window does not run them itself, and a run
+            due while the service is not running is recorded as missed.
           </p>
         </section>
 

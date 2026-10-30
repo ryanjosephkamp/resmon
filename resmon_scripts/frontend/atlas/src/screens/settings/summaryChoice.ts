@@ -157,6 +157,15 @@ export function choiceSentence(choice: SummaryChoice, stored: AiSettings, whose:
   return `With ${lanes.map((l) => laneWords(l.lane)).join(', then ')}, as Settings › AI holds them when a run starts.`;
 }
 
+/**
+ * With summaries off, where they would come from if turned on: the engine
+ * merges a run's own connection over Settings › AI's when the run starts
+ * (`_apply_ai_settings_to_engine`), and the choice of one is hidden while off.
+ */
+export function offSentence(whose: string): string {
+  return `When on, summaries are written with the connections Settings › AI holds when a run starts, unless you choose one for ${whose}.`;
+}
+
 /** The same, led by whether it is on, for a page where no switch beside it says so. */
 export function stateSentence(choice: SummaryChoice, stored: AiSettings, whose: string): string {
   const said = choiceSentence(choice, stored, whose);
