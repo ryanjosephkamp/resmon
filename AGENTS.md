@@ -176,6 +176,12 @@ that column alone goes red, suspect a shared `sqlite3.Connection`.
   directories share one database. **Isolating a run means setting `RESMON_DB_PATH` and
   `RESMON_REPORTS_DIR` explicitly**, alongside `RESMON_STATE_DIR`; set `RESMON_PORT_FILE`
   too unless you want the port file beside the database.
+- **A test instance finds only the AI command it names.** `ai_cli.discover_cli` searches the
+  installers' locations and `PATH` after a configured path, which on a developer's Mac is their own
+  signed-in `claude` or `codex`; a test that sent a turn with no command set once ran it. The e2e and
+  journey harnesses set `RESMON_AI_CLI_DISCOVERY=configured-only`, so discovery stops at the configured
+  path. Only `e2e/ai-settings.spec.ts`, which is about discovery, clears it, and it pins `HOME` and
+  `PATH` instead.
 - `_db_path = ":memory:"` is backed by a temp file, not a true in-memory database, so
   every thread's connection sees the same data.
 - A test that asserts on the scheduler needs it live — CI deliberately leaves

@@ -89,6 +89,32 @@ def test_path_is_the_last_resort(tmp_path, monkeypatch):
     assert result.how == "path"
 
 
+def test_a_test_instance_finds_only_the_command_it_names(tmp_path, monkeypatch):
+    """With configured-only, neither the installers' locations nor PATH is searched.
+
+    The e2e and journey harnesses set it so a test that forgets to name a
+    command cannot reach the person's own signed-in CLI.
+    """
+    installed = _make_executable(tmp_path / "installed-claude")
+    on_path_dir = tmp_path / "bin"
+    on_path_dir.mkdir()
+    _make_executable(on_path_dir / "claude")
+    monkeypatch.setenv("PATH", str(on_path_dir))
+    monkeypatch.setattr(
+        "implementation_scripts.ai_cli._KNOWN_LOCATIONS",
+        {"darwin": {"claude_code": (installed,)}},
+    )
+    monkeypatch.setenv("RESMON_AI_CLI_DISCOVERY", "configured-only")
+
+    found = discover_cli("claude_code", platform="darwin")
+    assert not found.found
+    assert found.how == "not-found"
+    assert "not searched" in found.tried[-1]
+
+    named = _make_executable(tmp_path / "named-claude")
+    assert discover_cli("claude_code", named, platform="darwin").path == named
+
+
 # ---------------------------------------------------------------------------
 # Not finding things
 # ---------------------------------------------------------------------------
