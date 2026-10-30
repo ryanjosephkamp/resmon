@@ -60,8 +60,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from statistics import median
 
-from . import analytics
-from .api_registry import RETIRED_REPOSITORIES
+from . import analytics, repo_catalog
+from .api_registry import RETIRED_NAMES, RETIRED_REPOSITORIES
 
 # --- Source thresholds -----------------------------------------------------
 
@@ -400,6 +400,14 @@ def _failure_detail(run: dict) -> str:
     return "the source did not answer"
 
 
+def _source_name(slug: str) -> str:
+    """The name a person knows a source by, a withdrawn one included."""
+    for entry in repo_catalog.REPOSITORY_CATALOG:
+        if entry.slug == slug:
+            return entry.name
+    return RETIRED_NAMES.get(slug) or slug
+
+
 def _retired_reason(run: dict) -> str:
     """The withdrawal reason a run recorded, for a source this build no longer lists."""
     try:
@@ -433,7 +441,9 @@ def _check_sources(
             still_selected = active_sources.get(source)
             recent = age_days is not None and age_days <= MISSING_KEY_RECENCY_DAYS
             if still_selected or recent:
-                credential = latest.get("credential_name") or "an API key"
+                # Named by the source, never by its keychain slot: the slot is
+                # resmon's bookkeeping, and the person adds the key by source.
+                name = _source_name(source)
                 if still_selected:
                     where = (
                         "It is still selected by "
@@ -450,18 +460,22 @@ def _check_sources(
                     severity="broken",
                     kind="source_missing_key",
                     scope={"type": "source", "id": source},
-                    title=f"{source} has no API key configured",
+                    title=f"{name} has no API key configured",
                     detail=(
-                        f"{source} requires the credential '{credential}', which is "
-                        f"not set. {where} This is not an inference from the "
-                        "results — resmon checks for the key before querying."
+                        f"{name} needs an API key, and none is stored. {where} "
+                        "This is not an inference from the results — resmon "
+                        "checks for the key before querying."
                     ),
                     what_to_do=(
                         "Add the key under Settings › Sources, or remove "
-                        f"{source} from the routines that select it."
+                        f"{name} from the routines that select it."
                     ),
                     evidence={
-                        "credential_name": latest.get("credential_name"),
+                        # The row a person reads, in words. The slot itself
+                        # stays in the evidence for a client that needs it, under
+                        # a key no screen labels.
+                        "credential_name": f"An API key for {name} (none is stored)",
+                        "credential_slot": latest.get("credential_name"),
                         "last_run_at": latest["start_time"],
                         "selected_by_active_routines": still_selected or [],
                     },
