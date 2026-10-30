@@ -20,8 +20,17 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { test, expect, _electron as electron } from '@playwright/test';
+import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+
+/** Whether this engine loaded sqlite-vec. The macos-15 runner's python3 cannot (embeddings.spec.ts says more). */
+async function vecLoaded(win: Page): Promise<boolean> {
+  return win.evaluate(async () => {
+    const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
+    const res = await e2eFetch(`http://127.0.0.1:${port}/api/health`);
+    return Boolean(((await res.json()) as { embeddings?: { extension: string | null } }).embeddings?.extension);
+  });
+}
 
 const SEED = String.raw`
 import json, os, sys
@@ -82,10 +91,11 @@ test('the collection, a paper, and the reading queue', async () => {
     await expect(win.locator('.count-sentence')).toHaveText('3 papers in your collection');
     // No embedding model: no ranking control, and the sentence in its place says why.
     await expect(win.getByRole('group', { name: 'Order' })).toHaveCount(0);
-    await expect(win.locator('[data-collection="ranking"]')).toHaveText(
-      'Ranking by meaning is off: no embedding model is set up, so none of your 3 papers has a vector. '
-      + 'Set one up in Settings → AI → Embeddings.',
-    );
+    const vec = await vecLoaded(win);
+    await expect(win.locator('[data-collection="ranking"]')).toHaveText(vec
+      ? 'Ranking by meaning is off: no embedding model is set up, so none of your 3 papers has a vector. '
+        + 'Set one up in Settings → AI → Embeddings.'
+      : /^Ranking by meaning is off: the similarity index \(sqlite-vec\) did not load in this copy of resmon \(.+\)\. Settings → AI → Embeddings says more\.$/);
     await expect(win.locator('.result')).toHaveCount(3);
     await expect(win.locator(`.result[data-document="${pairA}"] .result-links li`)).toHaveText(['also appears in crossref — same DOI']);
     await expect(win.locator(`.result[data-document="${pairB}"] .result-links li`)).toHaveText(['also appears in arxiv — same DOI']);
@@ -141,7 +151,9 @@ test('the collection, a paper, and the reading queue', async () => {
 
     // The way to ranking by meaning leads somewhere: Settings → AI, opened at Embeddings.
     await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Search' }).click();
-    await win.locator('[data-collection="ranking"]').getByRole('link', { name: 'Set one up in Settings → AI → Embeddings' }).click();
+    await win.locator('[data-collection="ranking"]').getByRole('link', {
+      name: vec ? 'Set one up in Settings → AI → Embeddings' : 'Settings → AI → Embeddings says more',
+    }).click();
     await expect(win.getByRole('heading', { name: 'Embeddings', level: 3 })).toBeFocused({ timeout: 30_000 });
     await expect(win.locator('section.embeddings')).toBeInViewport();
     await expect(win.locator('section.embeddings [data-embeddings="missing"] dd'))
@@ -199,7 +211,9 @@ test('a count the search stopped at its cap says so beside the number', async ()
     await win.getByLabel('Search your collection').fill('perovskite');
     await win.getByLabel('Search your collection').press('Enter');
     await expect(win.locator('.count-sentence')).toHaveText('10,000+ papers match · Search stops counting at 10,000.', { timeout: 60_000 });
-    await expect(win.locator('[data-collection="ranking"]')).toContainText('none of your 10,005 papers has a vector');
+    await expect(win.locator('[data-collection="ranking"]')).toContainText(await vecLoaded(win)
+      ? 'none of your 10,005 papers has a vector'
+      : 'the similarity index (sqlite-vec) did not load in this copy of resmon');
     expect(problems).toEqual([]);
   } finally {
     await app.close();

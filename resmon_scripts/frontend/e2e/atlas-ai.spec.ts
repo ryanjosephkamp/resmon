@@ -205,6 +205,18 @@ test('Settings → AI: a fallback chain kept, Ask in checked words, and embeddin
     const part = win.locator('section.embeddings');
     await expect(part.locator('[data-embeddings="embedded"] dd')).toHaveText('None: no embedding model is set up.');
     await expect(part.locator('[data-embeddings="missing"] dd')).toHaveText('4 papers: no embedding model is set up to make vectors.');
+    // The macos-15 runner's python3 cannot load SQLite extensions (embeddings.spec.ts says more).
+    // There the screen must say so in both places, and nothing past this point can rank.
+    const health = await api<{ embeddings?: { extension: string | null; reason?: string } }>(win, 'GET', '/api/health');
+    if (!health.body.embeddings?.extension) {
+      await expect(part.locator('[data-embeddings="index"] dd')).toHaveText(/^Not loaded: .+ vectors are still made and kept, and are used once the extension loads\.$/);
+      await expect(part.locator('[data-embeddings="ranking"] dd'))
+        .toContainText('Ranking by meaning is off: the similarity index (sqlite-vec) did not load in this copy of resmon');
+      console.log('ATLAS AI EMBEDDINGS NOT VERIFIED (extension) — this machine cannot load sqlite-vec '
+        + `(${health.body.embeddings?.reason}), so setup, backfill, and ranking were not exercised here.`);
+      expect(problems, 'the renderer threw').toEqual([]);
+      return;
+    }
     await expect(part.locator('[data-embeddings="index"] dd')).toHaveText(/^sqlite-vec v\d/);
     await expect(part.locator('[data-embeddings="ranking"] dd'))
       .toHaveText('Ranking by meaning is off: no embedding model is set up, so none of your 4 papers has a vector.');
