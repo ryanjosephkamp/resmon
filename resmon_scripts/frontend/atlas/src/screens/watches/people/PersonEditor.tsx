@@ -6,6 +6,10 @@ import { PEOPLE_KEY, lines, livePreviewWarning, type Profile } from './model';
 /**
  * A person to watch for: made new, or changed.
  *
+ * A source's author search takes one string, so the name as published is the
+ * one resmon asks for (`api_base._profile_query_name`), and the other
+ * spellings are what a returned paper is checked against; the labels say so.
+ *
  * The warning beside the form is the sentence the saved profile will carry,
  * evaluated as it is typed, and the field it names (an ORCID, or an
  * affiliation) is the one that changes it. An ORCID keeps where it came from
@@ -53,7 +57,7 @@ export function PersonEditor({ target, onDone }: { target: Profile | null; onDon
   return (
     <form className="person-editor" onSubmit={submit} aria-label={target ? `Change ${target.display_name}` : 'A new person'}>
       <div className="person-fields">
-        <label htmlFor="person-name">Name, as published</label>
+        <label htmlFor="person-name">Name, as published <span>the name resmon asks the sources for</span></label>
         <input id="person-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" autoComplete="off" />
         <label htmlFor="person-orcid">ORCID <span>the only thing that makes a match evidence of identity</span></label>
         <input id="person-orcid" value={orcid} onChange={(e) => setOrcid(e.target.value)} placeholder="0000-0002-1825-0097"
@@ -63,7 +67,9 @@ export function PersonEditor({ target, onDone }: { target: Profile | null; onDon
           placeholder="their ORCID record, a paper, their department page" />
         <label htmlFor="person-affiliations">Affiliations <span>one a line</span></label>
         <textarea id="person-affiliations" rows={2} value={affiliations} onChange={(e) => setAffiliations(e.target.value)} />
-        <label htmlFor="person-spellings">Other spellings of the name <span>one a line</span></label>
+        <label htmlFor="person-spellings">
+          Other spellings of the name <span>one a line; not asked for, but used to check the papers that come back</span>
+        </label>
         <textarea id="person-spellings" rows={2} value={spellings} onChange={(e) => setSpellings(e.target.value)} />
         <label htmlFor="person-hints">Fields they work in <span>one a line</span></label>
         <textarea id="person-hints" rows={2} value={hints} onChange={(e) => setHints(e.target.value)} />
