@@ -393,6 +393,8 @@ def _failure_detail(run: dict) -> str:
         return "the request timed out"
     if kind == "connect":
         return "resmon could not open a connection"
+    if kind == "refused":
+        return "the source refused the request"
     if kind:
         return str(kind).replace("_", " ")
     return "the source did not answer"

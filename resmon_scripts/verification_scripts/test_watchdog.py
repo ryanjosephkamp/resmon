@@ -839,6 +839,17 @@ def test_three_consecutive_outages_are_reported_as_a_broken_source(conn):
     assert findings[0]["evidence"]["last_error"] == "the source answered HTTP 503"
 
 
+def test_a_request_the_source_refused_is_named_as_a_refusal(conn):
+    """HAL answers a query it cannot run with HTTP 200 and an error, recorded as ``refused``."""
+    refused = {"status": "ok", "result_count": 0, "zero_reason": "upstream_failure",
+               "zero_detail": {"detail": "refused", "status": None, "attempts": 1}}
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"hal": refused})
+    finding = _by_kind(watchdog.report(conn, now=NOW), "source_errors")[0]
+    assert finding["evidence"]["last_error"] == "the source refused the request"
+    assert "The most recent one: the source refused the request." in finding["detail"]
+
+
 def test_a_raised_error_is_still_the_most_recent_error_verbatim(conn):
     for days in (3, 2, 1):
         _run(conn, days_ago=days, sources={"arxiv": {
