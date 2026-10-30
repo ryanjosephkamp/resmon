@@ -57,7 +57,11 @@ export function AskProvider({ children }: { children: ReactNode }) {
   const status = useQuery({ queryKey: STATUS_KEY, queryFn: ask.status });
   const [selected, setSelected] = useState<number | null>(null);
   const [draft, setDraftState] = useState<ChoiceRequest | null>(null);
-  const seeded = useRef(false);
+  // Whether the person has chosen the next conversation's connection here. Until
+  // they do, the draft follows the defaults, which Settings › AI can change while
+  // this window is open: set only once, a saved default reached a new
+  // conversation only after the window was reopened.
+  const chosen = useRef(false);
   const [live, setLive] = useState<Live | null>(null);
   const [answering, setAnswering] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -69,13 +73,14 @@ export function AskProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const choices = status.data?.composer_choices;
-    if (seeded.current || !choices) return;
-    seeded.current = true;
-    setDraftState(firstChoice(choices));
+    if (chosen.current || !choices) return;
+    const next = firstChoice(choices);
+    // Built key by key in a fixed order, so equal choices serialize equally.
+    setDraftState((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
   }, [status.data]);
 
   const setDraft = useCallback((choice: ChoiceRequest) => {
-    seeded.current = true;
+    chosen.current = true;
     setDraftState(choice);
   }, []);
 
